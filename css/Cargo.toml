@@ -1,4 +1,5 @@
 [package]
+readme = "../README.md"
 name = "azul-css"
 version = "0.0.8"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -24,3 +25,7 @@ default = ["parser"]
 
 # CSS parser support (azul-simplecss)
 parser = ["dep:azul-simplecss"]
+
+# Opt-in: integration tests that perform live system/theme IO
+# (tests/test_system_style.rs). Off by default so CI doesn't probe the host.
+io = []

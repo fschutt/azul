@@ -25,7 +25,7 @@ const ZERO_LENGTH_EPSILON: f32 = 1e-10;
 const ARC_SPLIT_FUDGE: f32 = 0.001;
 
 /// Errors that can occur during SVG path parsing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SvgPathParseError {
     /// The path string is empty.
     EmptyPath,
@@ -43,10 +43,10 @@ impl core::fmt::Display for SvgPathParseError {
         match self {
             Self::EmptyPath => write!(f, "empty path"),
             Self::UnexpectedChar { pos, ch } => {
-                write!(f, "unexpected char '{}' at byte {}", ch, pos)
+                write!(f, "unexpected char '{ch}' at byte {pos}")
             }
-            Self::ExpectedNumber { pos } => write!(f, "expected number at byte {}", pos),
-            Self::InvalidArcFlag { pos } => write!(f, "invalid arc flag at byte {}", pos),
+            Self::ExpectedNumber { pos } => write!(f, "expected number at byte {pos}"),
+            Self::InvalidArcFlag { pos } => write!(f, "invalid arc flag at byte {pos}"),
         }
     }
 }
@@ -62,7 +62,7 @@ struct PathParser<'a> {
 }
 
 impl<'a> PathParser<'a> {
-    fn new(input: &'a [u8]) -> Self {
+    const fn new(input: &'a [u8]) -> Self {
         Self {
             input,
             pos: 0,
@@ -73,7 +73,7 @@ impl<'a> PathParser<'a> {
         }
     }
 
-    fn at_end(&self) -> bool {
+    const fn at_end(&self) -> bool {
         self.pos >= self.input.len()
     }
 
@@ -104,7 +104,7 @@ impl<'a> PathParser<'a> {
     /// Returns true if the current position looks like the start of a number.
     fn has_number(&self) -> bool {
         match self.input.get(self.pos) {
-            Some(b'+') | Some(b'-') | Some(b'.') => true,
+            Some(b'+' | b'-' | b'.') => true,
             Some(b) if b.is_ascii_digit() => true,
             _ => false,
         }
@@ -134,7 +134,7 @@ impl<'a> PathParser<'a> {
         }
 
         // Decimal part
-        if let Some(&b'.') = self.input.get(self.pos) {
+        if self.input.get(self.pos) == Some(&b'.') {
             self.pos += 1;
             while let Some(&b) = self.input.get(self.pos) {
                 if b.is_ascii_digit() {
@@ -236,6 +236,7 @@ impl<'a> PathParser<'a> {
         Ok(())
     }
 
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     fn handle_cubic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
         let (c1x, c1y) = self.parse_coordinate_pair()?;
         let (c2x, c2y) = self.parse_coordinate_pair()?;
@@ -251,6 +252,8 @@ impl<'a> PathParser<'a> {
         Ok(())
     }
 
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     fn handle_smooth_cubic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
         let ctrl_1 = match self.last_control {
             Some(lc) if matches!(self.last_command.to_ascii_uppercase(), b'C' | b'S') => {
@@ -286,6 +289,7 @@ impl<'a> PathParser<'a> {
         Ok(())
     }
 
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn handle_smooth_quadratic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
         let ctrl = match self.last_control {
             Some(lc) if matches!(self.last_command.to_ascii_uppercase(), b'Q' | b'T') => {
@@ -325,7 +329,16 @@ impl<'a> PathParser<'a> {
 ///
 /// Each M/m command starts a new subpath (ring). All 14 SVG path commands are
 /// supported including arcs (converted to cubic beziers).
-#[must_use]
+///
+/// # Panics
+///
+/// Panics if the path tokenizer signals a command but then yields no token
+/// (an internal parser invariant that should not occur for any input).
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+/// # Errors
+///
+/// Returns an error if `d` is not a valid SVG path-data string.
 pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     let d = d.trim();
     if d.is_empty() {
@@ -490,6 +503,15 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
 /// Convert an SVG arc to 1–4 cubic bezier curves.
 ///
 /// Implements the SVG spec arc endpoint-to-center parameterization (Appendix F.6).
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+// n_segs is a tiny arc-quadrant count (<= ~6) and its loop index; the float<->usize
+// casts are exact for these bounded values.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+#[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
 fn arc_to_cubics(
     start: SvgPoint,
     end: SvgPoint,
@@ -547,8 +569,8 @@ fn arc_to_cubics(
     let cyp = sign * sq * -(ry * x1p / rx);
 
     // Step 3: Compute (cx, cy) from (cx', cy')
-    let mx = (start.x + end.x) / 2.0;
-    let my = (start.y + end.y) / 2.0;
+    let mx = f32::midpoint(start.x, end.x);
+    let my = f32::midpoint(start.y, end.y);
     let cx = cos_phi * cxp - sin_phi * cyp + mx;
     let cy = sin_phi * cxp + cos_phi * cyp + my;
 
@@ -592,6 +614,7 @@ fn arc_to_cubics(
 }
 
 /// Compute the angle between two vectors.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn angle_between(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
     let dot = ux * vx + uy * vy;
     let len = ((ux * ux + uy * uy) * (vx * vx + vy * vy)).sqrt();
@@ -608,6 +631,8 @@ fn angle_between(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
 }
 
 /// Convert a single arc segment (<=90 degrees) to a cubic bezier.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
 fn arc_segment_to_cubic(
     cx: f32,
     cy: f32,
@@ -723,6 +748,10 @@ pub fn svg_circle_to_paths(cx: f32, cy: f32, r: f32) -> SvgPath {
 /// If `rx` and `ry` are both 0, produces 4 line segments.
 /// Otherwise, produces lines for straight edges and cubic curves for corners.
 #[must_use]
+// builds the rounded-rect path segment-by-segment with a matching capacity hint;
+// a `vec![..]` literal of the 8 multi-line elements would be less readable here.
+#[allow(clippy::vec_init_then_push)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 pub fn svg_rect_to_path(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> SvgPath {
     let rx = rx.min(w / 2.0);
     let ry = ry.min(h / 2.0);

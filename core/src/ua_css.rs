@@ -416,14 +416,14 @@ static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoi
 ///
 /// Creates space for list markers in the inline-start direction (left in LTR, right in RTL)
 /// padding-inline-start: 40px for list items per CSS Lists Module Level 3
-/// Applied to <li> items to create gutter space for ::marker pseudo-elements
+/// Applied to <li> items to create gutter space for `::marker` pseudo-elements
 ///
 /// NOTE: This should be on the list items, not the container, because:
 ///
-/// 1. ::marker pseudo-elements are children of <li>, not <ul>/<ol>
+/// 1. `::marker` pseudo-elements are children of <li>, not <ul>/<ol>
 /// 2. The marker needs to be positioned relative to the list item's content box
 /// 3. Padding on <li> creates space between the marker and the text content
-/// TODO: Change to PaddingInlineStart once logical property resolution is implemented
+///    TODO: Change to `PaddingInlineStart` once logical property resolution is implemented
 static PADDING_INLINE_START_40PX: CssProperty =
     CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
         inner: PixelValue::const_px(40),
@@ -534,7 +534,13 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
 /// # Returns
 ///
 /// `Some(CssProperty)` if a default value is defined for this combination, otherwise `None`.
-pub fn get_ua_property(
+// Exhaustive (node-type, property-type) → default-value lookup table: many
+// element types share a default (e.g. all block elements → DISPLAY_BLOCK). One
+// arm per (NT, PT) case is intentional for readability; merging into giant
+// or-patterns would collapse the UA stylesheet table.
+#[allow(clippy::match_same_arms)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[must_use] pub fn get_ua_property(
     node_type: &NodeType,
     property_type: CssPropertyType,
 ) -> Option<&'static CssProperty> {
@@ -1067,6 +1073,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
 ///
 /// All fields are guaranteed to resolve because `UA_SCROLLBAR_CSS`
 /// contains unconditional fallback entries for every property type.
+#[derive(Debug, Copy, Clone)]
 pub struct ResolvedUaScrollbar {
     pub color: StyleScrollbarColor,
     pub width: LayoutScrollbarWidth,
@@ -1080,7 +1087,7 @@ pub struct ResolvedUaScrollbar {
 /// Iterates `UA_SCROLLBAR_CSS` and picks the first matching entry per
 /// property type.  Unconditional fallback entries in the table guarantee
 /// that every field resolves.
-pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScrollbar {
+#[must_use] pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScrollbar {
     let mut color: Option<StyleScrollbarColor> = None;
     let mut width: Option<LayoutScrollbarWidth> = None;
     let mut visibility: Option<ScrollbarVisibilityMode> = None;

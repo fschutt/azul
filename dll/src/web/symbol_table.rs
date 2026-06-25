@@ -906,6 +906,52 @@ impl SymbolTable {
         None
     }
 
+    /// A1 keystone fix, x86 edition: synthesize a `Recursable` entry for an
+    /// in-image synth address that has NO symbol. The Windows PDB leaves a
+    /// coverage gap (~200 unsymboled functions in azul.dll's text-shaping /
+    /// allsorts region — LTO-internalized / compiler-outlined code with no
+    /// S_PUB32/S_GPROC32 record). An unsymboled `call` target is REAL code
+    /// that must be lifted; the old `None` path stubbed it as an env-import,
+    /// and the stub returns garbage that crashes text layout — the exact
+    /// aarch64 A1 bug ("a `String`'s len holds a heap pointer → phantom huge
+    /// &str → OOB"), x86 edition, surfaced once switches actually lift their
+    /// arms and the real shaper runs.
+    ///
+    /// `native = native_base + (synth - synth_base)` for the containing image;
+    /// `size` = gap to the next known symbol (capped at 64 KiB — generous, and
+    /// remill stops at the function's `ret` regardless). Returns `None` only
+    /// when `synth` is outside every tracked image (genuinely external — leave
+    /// it a stub). Callers should only pass `call`-target synths (which are code
+    /// by construction); a stray data address would just fail the remill lift
+    /// and fall back to a Leaf stub, no worse than skipping.
+    pub fn synthesize_text_entry(&self, synth_addr: usize) -> Option<SymbolEntry> {
+        let r = self.image_rebases.iter().find(|r| {
+            let synth_end = r.synth_base.wrapping_add(r.native_end - r.native_base);
+            synth_addr >= r.synth_base && synth_addr < synth_end
+        })?;
+        let native = r.native_base.wrapping_add(synth_addr - r.synth_base);
+        let next_addr = self.by_addr.range((native + 1)..).next().map(|(a, _)| *a);
+        let size = match next_addr {
+            Some(n) => n.saturating_sub(native).min(0x10000),
+            None => r.native_end.saturating_sub(native).min(0x10000),
+        };
+        if size == 0 {
+            return None;
+        }
+        // SAFETY: `native` is inside the loaded image's live mapping (mapped for
+        // the process lifetime); `size` is bounded by the next symbol / image end.
+        let bytes = unsafe { std::slice::from_raw_parts(native as *const u8, size) };
+        Some(SymbolEntry {
+            canonical_name: format!("sub_{:x}", synth_addr),
+            canonical_addr: native,
+            synthetic_addr: synth_addr,
+            size,
+            bytes: Some(bytes),
+            kind: SymKind::Function,
+            classification: FnClass::Recursable,
+        })
+    }
+
     /// Find Recursable function entries whose canonical name contains ALL of
     /// `must_contain`'s substrings. Used to seed the transitive lift with
     /// fn-POINTER-called targets (their pointers live in mirrored DATA — e.g.

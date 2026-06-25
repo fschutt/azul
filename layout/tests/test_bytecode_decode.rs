@@ -142,7 +142,7 @@ fn opcode_name(op: u8) -> String {
         0x8D => "SCANTYPE", 0x8E => "INSTCTRL",
         _ if (0xC0..=0xDF).contains(&op) => return format!("MDRP[{:05b}]", op - 0xC0),
         _ if (0xE0..=0xFF).contains(&op) => return format!("MIRP[{:05b}]", op - 0xE0),
-        _ => return format!("???0x{:02X}", op),
+        _ => return format!("???0x{op:02X}"),
     }.to_string()
 }
 
@@ -234,7 +234,7 @@ fn test_bytecode_decode_u() {
                 }
             }
             None => {
-                eprintln!("  MISSING ip={}: fonttools={}", ft_ip, ft_prefix);
+                eprintln!("  MISSING ip={ft_ip}: fonttools={ft_prefix}");
                 mismatches += 1;
             }
         }
@@ -243,7 +243,7 @@ fn test_bytecode_decode_u() {
     if mismatches == 0 {
         eprintln!("  All {} reference instructions match ✓", FONTTOOLS_U_INSTRS.len());
     }
-    assert_eq!(mismatches, 0, "'u' bytecode decode has {} mismatches", mismatches);
+    assert_eq!(mismatches, 0, "'u' bytecode decode has {mismatches} mismatches");
 }
 
 #[test]
@@ -282,7 +282,7 @@ fn test_bytecode_decode_l() {
                 }
             }
             None => {
-                eprintln!("  MISSING ip={}: fonttools={}", ft_ip, ft_prefix);
+                eprintln!("  MISSING ip={ft_ip}: fonttools={ft_prefix}");
                 mismatches += 1;
             }
         }
@@ -291,7 +291,7 @@ fn test_bytecode_decode_l() {
     if mismatches == 0 {
         eprintln!("  All {} reference instructions match ✓", FONTTOOLS_L_INSTRS.len());
     }
-    assert_eq!(mismatches, 0, "'L' bytecode decode has {} mismatches", mismatches);
+    assert_eq!(mismatches, 0, "'L' bytecode decode has {mismatches} mismatches");
 }
 
 /// Verify push data values match fonttools

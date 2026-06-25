@@ -16,6 +16,7 @@ use azul_core::{
     task::OptionTimerId,
     window::VirtualKeyCode,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -536,7 +537,7 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
 /// Use [`TextInput::create()`] to build an instance, configure it with the
 /// `with_*` / `set_*` builder methods, and call [`TextInput::dom()`] to
 /// obtain a renderable DOM tree.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInput {
     pub text_input_state: TextInputStateWrapper,
@@ -546,7 +547,7 @@ pub struct TextInput {
 }
 
 /// Editable state of a text input (text buffer, cursor position, selection).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInputState {
     pub text: U32Vec, // Vec<char>
@@ -557,7 +558,7 @@ pub struct TextInputState {
 }
 
 /// [`TextInputState`] together with optional user callbacks and cursor animation state.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInputStateWrapper {
     pub inner: TextInputState,
@@ -571,7 +572,7 @@ pub struct TextInputStateWrapper {
 
 /// Return value from a text-input callback indicating whether the framework
 /// should update and whether the input was valid.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct OnTextInputReturn {
     pub update: Update,
@@ -579,7 +580,7 @@ pub struct OnTextInputReturn {
 }
 
 /// Whether the text input accepted or rejected the most recent edit.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum TextInputValid {
     Yes,
@@ -653,8 +654,8 @@ azul_core::impl_managed_callback! {
     from_handle_fn: AzTextInputOnFocusLostCallback_createFromHostHandle,
     extra_args:     [ state: TextInputState ],
 }
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum TextInputSelection {
     All,
@@ -668,7 +669,7 @@ azul_css::impl_option!(
     [Debug, Clone, Hash, PartialEq, Eq]
 );
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInputSelectionRange {
     pub dir_from: usize,
@@ -677,7 +678,7 @@ pub struct TextInputSelectionRange {
 
 impl Default for TextInput {
     fn default() -> Self {
-        TextInput {
+        Self {
             text_input_state: TextInputStateWrapper::default(),
             placeholder_style: CssPropertyWithConditionsVec::from_const_slice(
                 TEXT_INPUT_PLACEHOLDER_PROPS,
@@ -692,7 +693,7 @@ impl Default for TextInput {
 
 impl Default for TextInputState {
     fn default() -> Self {
-        TextInputState {
+        Self {
             text: Vec::new().into(),
             placeholder: None.into(),
             max_len: 50,
@@ -703,7 +704,7 @@ impl Default for TextInputState {
 }
 
 impl TextInputState {
-    pub fn get_text(&self) -> String {
+    #[must_use] pub fn get_text(&self) -> String {
         self.text
             .iter()
             .filter_map(|c| core::char::from_u32(*c))
@@ -713,7 +714,7 @@ impl TextInputState {
 
 impl Default for TextInputStateWrapper {
     fn default() -> Self {
-        TextInputStateWrapper {
+        Self {
             inner: TextInputState::default(),
             on_text_input: None.into(),
             on_virtual_key_down: None.into(),
@@ -726,15 +727,17 @@ impl Default for TextInputStateWrapper {
 }
 
 impl TextInput {
-    pub fn create() -> Self {
+    #[must_use] pub fn create() -> Self {
         Self::default()
     }
 
-    pub fn with_text(mut self, text: AzString) -> Self {
+    #[must_use] pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
         self
     }
 
+    // owned AzString passed by value per the azul FFI / api.json setter convention.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn set_text(&mut self, text: AzString) {
         self.text_input_state.inner.text = text
             .as_str()
@@ -748,7 +751,7 @@ impl TextInput {
         self.text_input_state.inner.placeholder = Some(placeholder).into();
     }
 
-    pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
+    #[must_use] pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
         self.set_placeholder(placeholder);
         self
     }
@@ -765,6 +768,7 @@ impl TextInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
         refany: RefAny,
@@ -786,6 +790,7 @@ impl TextInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
         refany: RefAny,
@@ -807,6 +812,7 @@ impl TextInput {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(
         mut self,
         refany: RefAny,
@@ -820,7 +826,7 @@ impl TextInput {
         self.placeholder_style = style;
     }
 
-    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_placeholder_style(style);
         self
     }
@@ -829,7 +835,7 @@ impl TextInput {
         self.container_style = style;
     }
 
-    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
@@ -838,18 +844,19 @@ impl TextInput {
         self.label_style = style;
     }
 
-    pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_label_style(style);
         self
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::default();
         core::mem::swap(&mut s, self);
         s
     }
 
-    pub fn dom(mut self) -> Dom {
+    #[must_use] pub fn dom(mut self) -> Dom {
         use azul_core::{
             callbacks::CoreCallbackData,
             dom::{EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class, TabIndex},
@@ -916,7 +923,7 @@ impl TextInput {
                     },
                     CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                        refany: state_ref.clone(),
+                        refany: state_ref,
                         callback: CoreCallback {
                             cb: default_on_mouse_hover as usize,
                             ctx: azul_core::refany::OptionRefAny::None,
@@ -954,16 +961,14 @@ impl TextInput {
 }
 
 extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
-    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let text_input = &mut *text_input;
 
-    let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+        return Update::DoNothing;
     };
 
     // hide the placeholder text
@@ -980,16 +985,14 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
 }
 
 extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
-    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     let text_input = &mut *text_input;
 
-    let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+        return Update::DoNothing;
     };
 
     // show the placeholder text
@@ -1115,9 +1118,8 @@ fn default_on_virtual_key_down_inner(
 }
 
 extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
-    let _text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(_text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     Update::DoNothing

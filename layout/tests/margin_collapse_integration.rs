@@ -1,14 +1,14 @@
-/// Integration tests for CSS margin collapsing through the full layout pipeline
-/// (CSS 2.2 §8.3.1 Collapsing Margins)
-///
-/// These tests exercise `advance_pen_with_margin_collapse`, `has_margin_collapse_blocker`,
-/// `is_empty_block`, and the margin collapse logic in `layout_bfc` through
-/// the full layout pipeline.
-///
-/// CSS Spec references:
-/// - CSS 2.2 §8.3.1: Collapsing margins
-/// - CSS 2.2 §9.4.1: Block formatting contexts (BFC establishes new margins)
-/// - CSS 2.2 §9.5: Float margins never collapse
+//! Integration tests for CSS margin collapsing through the full layout pipeline
+//! (CSS 2.2 §8.3.1 Collapsing Margins)
+//!
+//! These tests exercise `advance_pen_with_margin_collapse`, `has_margin_collapse_blocker`,
+//! `is_empty_block`, and the margin collapse logic in `layout_bfc` through
+//! the full layout pipeline.
+//!
+//! CSS Spec references:
+//! - CSS 2.2 §8.3.1: Collapsing margins
+//! - CSS 2.2 §9.4.1: Block formatting contexts (BFC establishes new margins)
+//! - CSS 2.2 §9.5: Float margins never collapse
 
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};

@@ -19,7 +19,17 @@ use crate::{
     },
 };
 
-/// u8-based color, range 0 to 255 (similar to webrenders ColorU)
+/// Round-saturating `f32` → `u8` for colour channels. Rust's `as u8` already
+/// saturates a float (NaN→0, negatives→0, >255→255, otherwise truncates toward
+/// zero), so this is behaviour-preserving; it just names the intent and isolates
+/// the one unavoidable float→int cast (there is no infallible `f32`→`u8` in std).
+#[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+const fn channel_to_u8(v: f32) -> u8 {
+    v as u8
+}
+
+/// u8-based color, range 0 to 255 (similar to webrenders `ColorU`)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
 pub struct ColorU {
@@ -37,57 +47,60 @@ impl_option!(
 
 impl Default for ColorU {
     fn default() -> Self {
-        ColorU::BLACK
+        Self::BLACK
     }
 }
 
 impl fmt::Display for ColorU {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "rgba({}, {}, {}, {})",
             self.r,
             self.g,
             self.b,
-            self.a as f32 / 255.0
+            f32::from(self.a) / 255.0
         )
     }
 }
 
+// Colour math keeps explicit `a*b + c` rather than `mul_add`: the latter is a
+// software `fmaf` (slower) without target `+fma` and changes results bit-for-bit.
+#[allow(clippy::suboptimal_flops)]
 impl ColorU {
     pub const ALPHA_TRANSPARENT: u8 = 0;
     pub const ALPHA_OPAQUE: u8 = 255;
-    pub const RED: ColorU = ColorU {
+    pub const RED: Self = Self {
         r: 255,
         g: 0,
         b: 0,
         a: Self::ALPHA_OPAQUE,
     };
-    pub const GREEN: ColorU = ColorU {
+    pub const GREEN: Self = Self {
         r: 0,
         g: 255,
         b: 0,
         a: Self::ALPHA_OPAQUE,
     };
-    pub const BLUE: ColorU = ColorU {
+    pub const BLUE: Self = Self {
         r: 0,
         g: 0,
         b: 255,
         a: Self::ALPHA_OPAQUE,
     };
-    pub const WHITE: ColorU = ColorU {
+    pub const WHITE: Self = Self {
         r: 255,
         g: 255,
         b: 255,
         a: Self::ALPHA_OPAQUE,
     };
-    pub const BLACK: ColorU = ColorU {
+    pub const BLACK: Self = Self {
         r: 0,
         g: 0,
         b: 0,
         a: Self::ALPHA_OPAQUE,
     };
-    pub const TRANSPARENT: ColorU = ColorU {
+    pub const TRANSPARENT: Self = Self {
         r: 0,
         g: 0,
         b: 0,
@@ -95,124 +108,124 @@ impl ColorU {
     };
 
     // Additional common colors
-    pub const YELLOW: ColorU = ColorU { r: 255, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const CYAN: ColorU = ColorU { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const MAGENTA: ColorU = ColorU { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const ORANGE: ColorU = ColorU { r: 255, g: 165, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const PINK: ColorU = ColorU { r: 255, g: 192, b: 203, a: Self::ALPHA_OPAQUE };
-    pub const PURPLE: ColorU = ColorU { r: 128, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const BROWN: ColorU = ColorU { r: 139, g: 69, b: 19, a: Self::ALPHA_OPAQUE };
-    pub const GRAY: ColorU = ColorU { r: 128, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_GRAY: ColorU = ColorU { r: 211, g: 211, b: 211, a: Self::ALPHA_OPAQUE };
-    pub const DARK_GRAY: ColorU = ColorU { r: 64, g: 64, b: 64, a: Self::ALPHA_OPAQUE };
-    pub const NAVY: ColorU = ColorU { r: 0, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const TEAL: ColorU = ColorU { r: 0, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const OLIVE: ColorU = ColorU { r: 128, g: 128, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const MAROON: ColorU = ColorU { r: 128, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const LIME: ColorU = ColorU { r: 0, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const AQUA: ColorU = ColorU { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const SILVER: ColorU = ColorU { r: 192, g: 192, b: 192, a: Self::ALPHA_OPAQUE };
-    pub const FUCHSIA: ColorU = ColorU { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const INDIGO: ColorU = ColorU { r: 75, g: 0, b: 130, a: Self::ALPHA_OPAQUE };
-    pub const GOLD: ColorU = ColorU { r: 255, g: 215, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const CORAL: ColorU = ColorU { r: 255, g: 127, b: 80, a: Self::ALPHA_OPAQUE };
-    pub const SALMON: ColorU = ColorU { r: 250, g: 128, b: 114, a: Self::ALPHA_OPAQUE };
-    pub const TURQUOISE: ColorU = ColorU { r: 64, g: 224, b: 208, a: Self::ALPHA_OPAQUE };
-    pub const VIOLET: ColorU = ColorU { r: 238, g: 130, b: 238, a: Self::ALPHA_OPAQUE };
-    pub const CRIMSON: ColorU = ColorU { r: 220, g: 20, b: 60, a: Self::ALPHA_OPAQUE };
-    pub const CHOCOLATE: ColorU = ColorU { r: 210, g: 105, b: 30, a: Self::ALPHA_OPAQUE };
-    pub const SKY_BLUE: ColorU = ColorU { r: 135, g: 206, b: 235, a: Self::ALPHA_OPAQUE };
-    pub const FOREST_GREEN: ColorU = ColorU { r: 34, g: 139, b: 34, a: Self::ALPHA_OPAQUE };
-    pub const SEA_GREEN: ColorU = ColorU { r: 46, g: 139, b: 87, a: Self::ALPHA_OPAQUE };
-    pub const SLATE_GRAY: ColorU = ColorU { r: 112, g: 128, b: 144, a: Self::ALPHA_OPAQUE };
-    pub const MIDNIGHT_BLUE: ColorU = ColorU { r: 25, g: 25, b: 112, a: Self::ALPHA_OPAQUE };
-    pub const DARK_RED: ColorU = ColorU { r: 139, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const DARK_GREEN: ColorU = ColorU { r: 0, g: 100, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const DARK_BLUE: ColorU = ColorU { r: 0, g: 0, b: 139, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_BLUE: ColorU = ColorU { r: 173, g: 216, b: 230, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_GREEN: ColorU = ColorU { r: 144, g: 238, b: 144, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_YELLOW: ColorU = ColorU { r: 255, g: 255, b: 224, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_PINK: ColorU = ColorU { r: 255, g: 182, b: 193, a: Self::ALPHA_OPAQUE };
+    pub const YELLOW: Self = Self { r: 255, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const CYAN: Self = Self { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const MAGENTA: Self = Self { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const ORANGE: Self = Self { r: 255, g: 165, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const PINK: Self = Self { r: 255, g: 192, b: 203, a: Self::ALPHA_OPAQUE };
+    pub const PURPLE: Self = Self { r: 128, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const BROWN: Self = Self { r: 139, g: 69, b: 19, a: Self::ALPHA_OPAQUE };
+    pub const GRAY: Self = Self { r: 128, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_GRAY: Self = Self { r: 211, g: 211, b: 211, a: Self::ALPHA_OPAQUE };
+    pub const DARK_GRAY: Self = Self { r: 64, g: 64, b: 64, a: Self::ALPHA_OPAQUE };
+    pub const NAVY: Self = Self { r: 0, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const TEAL: Self = Self { r: 0, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const OLIVE: Self = Self { r: 128, g: 128, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const MAROON: Self = Self { r: 128, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const LIME: Self = Self { r: 0, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const AQUA: Self = Self { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const SILVER: Self = Self { r: 192, g: 192, b: 192, a: Self::ALPHA_OPAQUE };
+    pub const FUCHSIA: Self = Self { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const INDIGO: Self = Self { r: 75, g: 0, b: 130, a: Self::ALPHA_OPAQUE };
+    pub const GOLD: Self = Self { r: 255, g: 215, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const CORAL: Self = Self { r: 255, g: 127, b: 80, a: Self::ALPHA_OPAQUE };
+    pub const SALMON: Self = Self { r: 250, g: 128, b: 114, a: Self::ALPHA_OPAQUE };
+    pub const TURQUOISE: Self = Self { r: 64, g: 224, b: 208, a: Self::ALPHA_OPAQUE };
+    pub const VIOLET: Self = Self { r: 238, g: 130, b: 238, a: Self::ALPHA_OPAQUE };
+    pub const CRIMSON: Self = Self { r: 220, g: 20, b: 60, a: Self::ALPHA_OPAQUE };
+    pub const CHOCOLATE: Self = Self { r: 210, g: 105, b: 30, a: Self::ALPHA_OPAQUE };
+    pub const SKY_BLUE: Self = Self { r: 135, g: 206, b: 235, a: Self::ALPHA_OPAQUE };
+    pub const FOREST_GREEN: Self = Self { r: 34, g: 139, b: 34, a: Self::ALPHA_OPAQUE };
+    pub const SEA_GREEN: Self = Self { r: 46, g: 139, b: 87, a: Self::ALPHA_OPAQUE };
+    pub const SLATE_GRAY: Self = Self { r: 112, g: 128, b: 144, a: Self::ALPHA_OPAQUE };
+    pub const MIDNIGHT_BLUE: Self = Self { r: 25, g: 25, b: 112, a: Self::ALPHA_OPAQUE };
+    pub const DARK_RED: Self = Self { r: 139, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const DARK_GREEN: Self = Self { r: 0, g: 100, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const DARK_BLUE: Self = Self { r: 0, g: 0, b: 139, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_BLUE: Self = Self { r: 173, g: 216, b: 230, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_GREEN: Self = Self { r: 144, g: 238, b: 144, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_YELLOW: Self = Self { r: 255, g: 255, b: 224, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_PINK: Self = Self { r: 255, g: 182, b: 193, a: Self::ALPHA_OPAQUE };
 
     // Constructor functions for C API (become AzColorU_red(), AzColorU_cyan(), etc.)
-    pub fn red() -> Self { Self::RED }
-    pub fn green() -> Self { Self::GREEN }
-    pub fn blue() -> Self { Self::BLUE }
-    pub fn white() -> Self { Self::WHITE }
-    pub fn black() -> Self { Self::BLACK }
-    pub fn transparent() -> Self { Self::TRANSPARENT }
-    pub fn yellow() -> Self { Self::YELLOW }
-    pub fn cyan() -> Self { Self::CYAN }
-    pub fn magenta() -> Self { Self::MAGENTA }
-    pub fn orange() -> Self { Self::ORANGE }
-    pub fn pink() -> Self { Self::PINK }
-    pub fn purple() -> Self { Self::PURPLE }
-    pub fn brown() -> Self { Self::BROWN }
-    pub fn gray() -> Self { Self::GRAY }
-    pub fn light_gray() -> Self { Self::LIGHT_GRAY }
-    pub fn dark_gray() -> Self { Self::DARK_GRAY }
-    pub fn navy() -> Self { Self::NAVY }
-    pub fn teal() -> Self { Self::TEAL }
-    pub fn olive() -> Self { Self::OLIVE }
-    pub fn maroon() -> Self { Self::MAROON }
-    pub fn lime() -> Self { Self::LIME }
-    pub fn aqua() -> Self { Self::AQUA }
-    pub fn silver() -> Self { Self::SILVER }
-    pub fn fuchsia() -> Self { Self::FUCHSIA }
-    pub fn indigo() -> Self { Self::INDIGO }
-    pub fn gold() -> Self { Self::GOLD }
-    pub fn coral() -> Self { Self::CORAL }
-    pub fn salmon() -> Self { Self::SALMON }
-    pub fn turquoise() -> Self { Self::TURQUOISE }
-    pub fn violet() -> Self { Self::VIOLET }
-    pub fn crimson() -> Self { Self::CRIMSON }
-    pub fn chocolate() -> Self { Self::CHOCOLATE }
-    pub fn sky_blue() -> Self { Self::SKY_BLUE }
-    pub fn forest_green() -> Self { Self::FOREST_GREEN }
-    pub fn sea_green() -> Self { Self::SEA_GREEN }
-    pub fn slate_gray() -> Self { Self::SLATE_GRAY }
-    pub fn midnight_blue() -> Self { Self::MIDNIGHT_BLUE }
-    pub fn dark_red() -> Self { Self::DARK_RED }
-    pub fn dark_green() -> Self { Self::DARK_GREEN }
-    pub fn dark_blue() -> Self { Self::DARK_BLUE }
-    pub fn light_blue() -> Self { Self::LIGHT_BLUE }
-    pub fn light_green() -> Self { Self::LIGHT_GREEN }
-    pub fn light_yellow() -> Self { Self::LIGHT_YELLOW }
-    pub fn light_pink() -> Self { Self::LIGHT_PINK }
+    #[must_use] pub const fn red() -> Self { Self::RED }
+    #[must_use] pub const fn green() -> Self { Self::GREEN }
+    #[must_use] pub const fn blue() -> Self { Self::BLUE }
+    #[must_use] pub const fn white() -> Self { Self::WHITE }
+    #[must_use] pub const fn black() -> Self { Self::BLACK }
+    #[must_use] pub const fn transparent() -> Self { Self::TRANSPARENT }
+    #[must_use] pub const fn yellow() -> Self { Self::YELLOW }
+    #[must_use] pub const fn cyan() -> Self { Self::CYAN }
+    #[must_use] pub const fn magenta() -> Self { Self::MAGENTA }
+    #[must_use] pub const fn orange() -> Self { Self::ORANGE }
+    #[must_use] pub const fn pink() -> Self { Self::PINK }
+    #[must_use] pub const fn purple() -> Self { Self::PURPLE }
+    #[must_use] pub const fn brown() -> Self { Self::BROWN }
+    #[must_use] pub const fn gray() -> Self { Self::GRAY }
+    #[must_use] pub const fn light_gray() -> Self { Self::LIGHT_GRAY }
+    #[must_use] pub const fn dark_gray() -> Self { Self::DARK_GRAY }
+    #[must_use] pub const fn navy() -> Self { Self::NAVY }
+    #[must_use] pub const fn teal() -> Self { Self::TEAL }
+    #[must_use] pub const fn olive() -> Self { Self::OLIVE }
+    #[must_use] pub const fn maroon() -> Self { Self::MAROON }
+    #[must_use] pub const fn lime() -> Self { Self::LIME }
+    #[must_use] pub const fn aqua() -> Self { Self::AQUA }
+    #[must_use] pub const fn silver() -> Self { Self::SILVER }
+    #[must_use] pub const fn fuchsia() -> Self { Self::FUCHSIA }
+    #[must_use] pub const fn indigo() -> Self { Self::INDIGO }
+    #[must_use] pub const fn gold() -> Self { Self::GOLD }
+    #[must_use] pub const fn coral() -> Self { Self::CORAL }
+    #[must_use] pub const fn salmon() -> Self { Self::SALMON }
+    #[must_use] pub const fn turquoise() -> Self { Self::TURQUOISE }
+    #[must_use] pub const fn violet() -> Self { Self::VIOLET }
+    #[must_use] pub const fn crimson() -> Self { Self::CRIMSON }
+    #[must_use] pub const fn chocolate() -> Self { Self::CHOCOLATE }
+    #[must_use] pub const fn sky_blue() -> Self { Self::SKY_BLUE }
+    #[must_use] pub const fn forest_green() -> Self { Self::FOREST_GREEN }
+    #[must_use] pub const fn sea_green() -> Self { Self::SEA_GREEN }
+    #[must_use] pub const fn slate_gray() -> Self { Self::SLATE_GRAY }
+    #[must_use] pub const fn midnight_blue() -> Self { Self::MIDNIGHT_BLUE }
+    #[must_use] pub const fn dark_red() -> Self { Self::DARK_RED }
+    #[must_use] pub const fn dark_green() -> Self { Self::DARK_GREEN }
+    #[must_use] pub const fn dark_blue() -> Self { Self::DARK_BLUE }
+    #[must_use] pub const fn light_blue() -> Self { Self::LIGHT_BLUE }
+    #[must_use] pub const fn light_green() -> Self { Self::LIGHT_GREEN }
+    #[must_use] pub const fn light_yellow() -> Self { Self::LIGHT_YELLOW }
+    #[must_use] pub const fn light_pink() -> Self { Self::LIGHT_PINK }
 
     /// Creates a new color with RGBA values.
-    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+    #[must_use] pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
     /// Creates a new color with RGB values (alpha = 255).
-    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+    #[must_use] pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
     /// Alias for `rgba` - kept for internal compatibility, not exposed in FFI.
-    #[inline(always)]
-    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+    #[inline]
+    #[must_use] pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self::rgba(r, g, b, a)
     }
     /// Alias for `rgb` - kept for internal compatibility, not exposed in FFI.
-    #[inline(always)]
-    pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
+    #[inline]
+    #[must_use] pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
         Self::rgb(r, g, b)
     }
 
     /// Linearly interpolate all four RGBA channels between `self` and `other`.
     /// `t = 0.0` returns `self`, `t = 1.0` returns `other`.
-    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
-            r: libm::roundf(self.r as f32 + (other.r as f32 - self.r as f32) * t) as u8,
-            g: libm::roundf(self.g as f32 + (other.g as f32 - self.g as f32) * t) as u8,
-            b: libm::roundf(self.b as f32 + (other.b as f32 - self.b as f32) * t) as u8,
-            a: libm::roundf(self.a as f32 + (other.a as f32 - self.a as f32) * t) as u8,
+            r: channel_to_u8(libm::roundf(f32::from(self.r) + (f32::from(other.r) - f32::from(self.r)) * t)),
+            g: channel_to_u8(libm::roundf(f32::from(self.g) + (f32::from(other.g) - f32::from(self.g)) * t)),
+            b: channel_to_u8(libm::roundf(f32::from(self.b) + (f32::from(other.b) - f32::from(self.b)) * t)),
+            a: channel_to_u8(libm::roundf(f32::from(self.a) + (f32::from(other.a) - f32::from(self.a)) * t)),
         }
     }
     
     /// Lighten a color by a percentage (0.0 to 1.0).
     /// Returns a new color blended towards white, preserving the original alpha.
-    pub fn lighten(&self, amount: f32) -> Self {
+    #[must_use] pub fn lighten(&self, amount: f32) -> Self {
         let mut c = self.interpolate(&Self::WHITE, amount.clamp(0.0, 1.0));
         c.a = self.a;
         c
@@ -220,20 +233,20 @@ impl ColorU {
 
     /// Darken a color by a percentage (0.0 to 1.0).
     /// Returns a new color blended towards black, preserving the original alpha.
-    pub fn darken(&self, amount: f32) -> Self {
+    #[must_use] pub fn darken(&self, amount: f32) -> Self {
         let mut c = self.interpolate(&Self::BLACK, amount.clamp(0.0, 1.0));
         c.a = self.a;
         c
     }
     
     /// Mix two colors together with a given ratio (0.0 = self, 1.0 = other).
-    pub fn mix(&self, other: &Self, ratio: f32) -> Self {
+    #[must_use] pub fn mix(&self, other: &Self, ratio: f32) -> Self {
         self.interpolate(other, ratio.clamp(0.0, 1.0))
     }
     
     /// Create a hover variant (slightly lighter for dark colors, darker for light colors).
     /// This is useful for button hover states.
-    pub fn hover_variant(&self) -> Self {
+    #[must_use] pub fn hover_variant(&self) -> Self {
         let luminance = self.relative_luminance();
         if luminance > 0.5 {
             self.darken(0.08)
@@ -244,7 +257,7 @@ impl ColorU {
 
     /// Create an active/pressed variant (darker than hover).
     /// This is useful for button active states.
-    pub fn active_variant(&self) -> Self {
+    #[must_use] pub fn active_variant(&self) -> Self {
         let luminance = self.relative_luminance();
         if luminance > 0.5 {
             self.darken(0.15)
@@ -258,15 +271,15 @@ impl ColorU {
     /// **Note:** This applies BT.709 coefficients directly to gamma-encoded sRGB
     /// values without linearizing first, so it is only an approximation.
     /// For accurate results (e.g. WCAG contrast checks), use [`relative_luminance()`].
-    pub fn luminance(&self) -> f32 {
-        let r = (self.r as f32) / 255.0;
-        let g = (self.g as f32) / 255.0;
-        let b = (self.b as f32) / 255.0;
+    #[must_use] pub fn luminance(&self) -> f32 {
+        let r = f32::from(self.r) / 255.0;
+        let g = f32::from(self.g) / 255.0;
+        let b = f32::from(self.b) / 255.0;
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
     /// Returns white or black text color for best contrast on this background.
-    pub fn contrast_text(&self) -> Self {
+    #[must_use] pub fn contrast_text(&self) -> Self {
         self.best_contrast_text()
     }
     
@@ -288,10 +301,10 @@ impl ColorU {
     /// Calculate relative luminance per WCAG 2.1 specification.
     /// Returns a value between 0.0 (darkest) and 1.0 (lightest).
     /// Uses the sRGB to linear conversion for accurate results.
-    pub fn relative_luminance(&self) -> f32 {
-        let r = Self::srgb_to_linear((self.r as f32) / 255.0);
-        let g = Self::srgb_to_linear((self.g as f32) / 255.0);
-        let b = Self::srgb_to_linear((self.b as f32) / 255.0);
+    #[must_use] pub fn relative_luminance(&self) -> f32 {
+        let r = Self::srgb_to_linear(f32::from(self.r) / 255.0);
+        let g = Self::srgb_to_linear(f32::from(self.g) / 255.0);
+        let b = Self::srgb_to_linear(f32::from(self.b) / 255.0);
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
     
@@ -303,7 +316,7 @@ impl ColorU {
     /// - AA large text: >= 3.0:1
     /// - AAA normal text: >= 7.0:1
     /// - AAA large text: >= 4.5:1
-    pub fn contrast_ratio(&self, other: &Self) -> f32 {
+    #[must_use] pub fn contrast_ratio(&self, other: &Self) -> f32 {
         let l1 = self.relative_luminance();
         let l2 = other.relative_luminance();
         let lighter = if l1 > l2 { l1 } else { l2 };
@@ -312,34 +325,34 @@ impl ColorU {
     }
     
     /// Check if the contrast ratio meets WCAG AA requirements for normal text (>= 4.5:1).
-    pub fn meets_wcag_aa(&self, other: &Self) -> bool {
+    #[must_use] pub fn meets_wcag_aa(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 4.5
     }
     
     /// Check if the contrast ratio meets WCAG AA requirements for large text (>= 3.0:1).
     /// Large text is defined as 18pt+ or 14pt+ bold.
-    pub fn meets_wcag_aa_large(&self, other: &Self) -> bool {
+    #[must_use] pub fn meets_wcag_aa_large(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 3.0
     }
     
     /// Check if the contrast ratio meets WCAG AAA requirements for normal text (>= 7.0:1).
-    pub fn meets_wcag_aaa(&self, other: &Self) -> bool {
+    #[must_use] pub fn meets_wcag_aaa(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 7.0
     }
     
     /// Check if the contrast ratio meets WCAG AAA requirements for large text (>= 4.5:1).
-    pub fn meets_wcag_aaa_large(&self, other: &Self) -> bool {
+    #[must_use] pub fn meets_wcag_aaa_large(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 4.5
     }
     
     /// Returns true if this color is considered "light" (relative luminance > 0.5).
     /// Useful for determining if dark or light text should be used.
-    pub fn is_light(&self) -> bool {
+    #[must_use] pub fn is_light(&self) -> bool {
         self.relative_luminance() > 0.5
     }
 
     /// Returns true if this color is considered "dark" (relative luminance <= 0.5).
-    pub fn is_dark(&self) -> bool {
+    #[must_use] pub fn is_dark(&self) -> bool {
         self.relative_luminance() <= 0.5
     }
     
@@ -348,7 +361,7 @@ impl ColorU {
     /// 
     /// If neither black nor white meets AA requirements (unlikely), 
     /// returns the one with higher contrast.
-    pub fn best_contrast_text(&self) -> Self {
+    #[must_use] pub fn best_contrast_text(&self) -> Self {
         let white_contrast = self.contrast_ratio(&Self::WHITE);
         let black_contrast = self.contrast_ratio(&Self::BLACK);
         
@@ -364,7 +377,7 @@ impl ColorU {
     /// 
     /// Returns the original color if it already meets the requirement,
     /// otherwise returns an adjusted color that meets the minimum contrast.
-    pub fn ensure_contrast(&self, background: &Self, min_ratio: f32) -> Self {
+    #[must_use] pub fn ensure_contrast(&self, background: &Self, min_ratio: f32) -> Self {
         let current_ratio = self.contrast_ratio(background);
         if current_ratio >= min_ratio {
             return *self;
@@ -380,7 +393,7 @@ impl ColorU {
         let mut result = *self;
         
         for _ in 0..16 {
-            let mid = (low + high) / 2.0;
+            let mid = f32::midpoint(low, high);
             let candidate = if should_lighten {
                 self.lighten(mid)
             } else {
@@ -408,15 +421,7 @@ impl ColorU {
     ///
     /// The sign indicates polarity (negative = light text on dark bg).
     /// For most purposes, use the absolute value.
-    pub fn apca_contrast(&self, background: &Self) -> f32 {
-        // Convert to Y (luminance) using sRGB TRC
-        let text_y = self.relative_luminance();
-        let bg_y = background.relative_luminance();
-        
-        // Soft clamp
-        let text_y = if text_y < 0.0 { 0.0 } else { text_y };
-        let bg_y = if bg_y < 0.0 { 0.0 } else { bg_y };
-        
+    #[must_use] pub fn apca_contrast(&self, background: &Self) -> f32 {
         // APCA 0.0.98G constants
         const NORMBLKTXT: f32 = 0.56;
         const NORMWHT: f32 = 0.57;
@@ -425,6 +430,15 @@ impl ColorU {
         const BLKTHRS: f32 = 0.022;
         const SCALEBLKT: f32 = 1.414;
         const SCALEWHT: f32 = 1.14;
+
+        // Convert to Y (luminance) using sRGB TRC
+        let text_y = self.relative_luminance();
+        let bg_y = background.relative_luminance();
+        
+        // Soft clamp
+        let text_y = if text_y < 0.0 { 0.0 } else { text_y };
+        let bg_y = if bg_y < 0.0 { 0.0 } else { bg_y };
+        
         
         // Clamp black levels
         let txt_clamp = if text_y < BLKTHRS { 
@@ -451,27 +465,27 @@ impl ColorU {
     }
     
     /// Check if the APCA contrast meets the recommended minimum for body text (|Lc| >= 60).
-    pub fn meets_apca_body(&self, background: &Self) -> bool {
+    #[must_use] pub fn meets_apca_body(&self, background: &Self) -> bool {
         libm::fabsf(self.apca_contrast(background)) >= 60.0
     }
     
     /// Check if the APCA contrast meets the minimum for large text (|Lc| >= 45).
-    pub fn meets_apca_large(&self, background: &Self) -> bool {
+    #[must_use] pub fn meets_apca_large(&self, background: &Self) -> bool {
         libm::fabsf(self.apca_contrast(background)) >= 45.0
     }
     
     /// Set the alpha channel while keeping RGB values.
-    pub fn with_alpha(&self, a: u8) -> Self {
+    #[must_use] pub const fn with_alpha(&self, a: u8) -> Self {
         Self { r: self.r, g: self.g, b: self.b, a }
     }
     
     /// Set the alpha as a float (0.0 to 1.0).
-    pub fn with_alpha_f32(&self, a: f32) -> Self {
-        self.with_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
+    #[must_use] pub fn with_alpha_f32(&self, a: f32) -> Self {
+        self.with_alpha(channel_to_u8(a.clamp(0.0, 1.0) * 255.0))
     }
     
     /// Invert the color (keeping alpha).
-    pub fn invert(&self) -> Self {
+    #[must_use] pub const fn invert(&self) -> Self {
         Self {
             r: 255 - self.r,
             g: 255 - self.g,
@@ -481,18 +495,18 @@ impl ColorU {
     }
     
     /// Convert to grayscale using luminance weights.
-    pub fn to_grayscale(&self) -> Self {
-        let gray = (0.299 * self.r as f32 + 0.587 * self.g as f32 + 0.114 * self.b as f32) as u8;
+    #[must_use] pub fn to_grayscale(&self) -> Self {
+        let gray = channel_to_u8(0.299 * f32::from(self.r) + 0.587 * f32::from(self.g) + 0.114 * f32::from(self.b));
         Self { r: gray, g: gray, b: gray, a: self.a }
     }
 
     /// Returns `true` if the alpha channel is not fully opaque (i.e. `a != 255`).
-    pub const fn has_alpha(&self) -> bool {
+    #[must_use] pub const fn has_alpha(&self) -> bool {
         self.a != Self::ALPHA_OPAQUE
     }
 
     /// Format the color as an 8-digit lowercase hex string (e.g. `#ff0000ff`).
-    pub fn to_hash(&self) -> String {
+    #[must_use] pub fn to_hash(&self) -> String {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
     }
 
@@ -501,7 +515,7 @@ impl ColorU {
     // ============================================================
 
     /// Strawberry color palette (shade: 100, 300, 500, 700, 900)
-    pub fn strawberry(shade: usize) -> Self {
+    #[must_use] pub const fn strawberry(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xff, 0x8c, 0x82),   // 100: #ff8c82
             201..=400 => Self::rgb(0xed, 0x53, 0x53), // 300: #ed5353
@@ -512,7 +526,7 @@ impl ColorU {
     }
 
     /// Orange color palette (shade: 100, 300, 500, 700, 900)
-    pub fn palette_orange(shade: usize) -> Self {
+    #[must_use] pub const fn palette_orange(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xff, 0xc2, 0x7d),   // 100: #ffc27d
             201..=400 => Self::rgb(0xff, 0xa1, 0x54), // 300: #ffa154
@@ -523,7 +537,7 @@ impl ColorU {
     }
 
     /// Banana color palette (shade: 100, 300, 500, 700, 900)
-    pub fn banana(shade: usize) -> Self {
+    #[must_use] pub const fn banana(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xff, 0xf3, 0x94),   // 100: #fff394
             201..=400 => Self::rgb(0xff, 0xe1, 0x6b), // 300: #ffe16b
@@ -534,7 +548,7 @@ impl ColorU {
     }
 
     /// Lime color palette (shade: 100, 300, 500, 700, 900)
-    pub fn palette_lime(shade: usize) -> Self {
+    #[must_use] pub const fn palette_lime(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xd1, 0xff, 0x82),   // 100: #d1ff82
             201..=400 => Self::rgb(0x9b, 0xdb, 0x4d), // 300: #9bdb4d
@@ -545,7 +559,7 @@ impl ColorU {
     }
 
     /// Mint color palette (shade: 100, 300, 500, 700, 900)
-    pub fn mint(shade: usize) -> Self {
+    #[must_use] pub const fn mint(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x89, 0xff, 0xdd),   // 100: #89ffdd
             201..=400 => Self::rgb(0x43, 0xd6, 0xb5), // 300: #43d6b5
@@ -556,7 +570,7 @@ impl ColorU {
     }
 
     /// Blueberry color palette (shade: 100, 300, 500, 700, 900)
-    pub fn blueberry(shade: usize) -> Self {
+    #[must_use] pub const fn blueberry(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x8c, 0xd5, 0xff),   // 100: #8cd5ff
             201..=400 => Self::rgb(0x64, 0xba, 0xff), // 300: #64baff
@@ -567,7 +581,7 @@ impl ColorU {
     }
 
     /// Grape color palette (shade: 100, 300, 500, 700, 900)
-    pub fn grape(shade: usize) -> Self {
+    #[must_use] pub const fn grape(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xe4, 0xc6, 0xfa),   // 100: #e4c6fa
             201..=400 => Self::rgb(0xcd, 0x9e, 0xf7), // 300: #cd9ef7
@@ -578,7 +592,7 @@ impl ColorU {
     }
 
     /// Bubblegum color palette (shade: 100, 300, 500, 700, 900)
-    pub fn bubblegum(shade: usize) -> Self {
+    #[must_use] pub const fn bubblegum(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xfe, 0x9a, 0xb8),   // 100: #fe9ab8
             201..=400 => Self::rgb(0xf4, 0x67, 0x9d), // 300: #f4679d
@@ -589,7 +603,7 @@ impl ColorU {
     }
 
     /// Cocoa color palette (shade: 100, 300, 500, 700, 900)
-    pub fn cocoa(shade: usize) -> Self {
+    #[must_use] pub const fn cocoa(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xa3, 0x90, 0x7c),   // 100: #a3907c
             201..=400 => Self::rgb(0x8a, 0x71, 0x5e), // 300: #8a715e
@@ -600,7 +614,7 @@ impl ColorU {
     }
 
     /// Silver color palette (shade: 100, 300, 500, 700, 900)
-    pub fn palette_silver(shade: usize) -> Self {
+    #[must_use] pub const fn palette_silver(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xfa, 0xfa, 0xfa),   // 100: #fafafa
             201..=400 => Self::rgb(0xd4, 0xd4, 0xd4), // 300: #d4d4d4
@@ -611,7 +625,7 @@ impl ColorU {
     }
 
     /// Slate color palette (shade: 100, 300, 500, 700, 900)
-    pub fn slate(shade: usize) -> Self {
+    #[must_use] pub const fn slate(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x95, 0xa3, 0xab),   // 100: #95a3ab
             201..=400 => Self::rgb(0x66, 0x78, 0x85), // 300: #667885
@@ -622,7 +636,7 @@ impl ColorU {
     }
 
     /// Dark color palette (shade: 100, 300, 500, 700, 900)
-    pub fn dark(shade: usize) -> Self {
+    #[must_use] pub const fn dark(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x66, 0x66, 0x66),   // 100: #666
             201..=400 => Self::rgb(0x4d, 0x4d, 0x4d), // 300: #4d4d4d
@@ -637,57 +651,57 @@ impl ColorU {
     // ============================================================
 
     /// Apple Red (light mode)
-    pub fn apple_red() -> Self { Self::rgb(255, 59, 48) }
+    #[must_use] pub const fn apple_red() -> Self { Self::rgb(255, 59, 48) }
     /// Apple Red (dark mode)
-    pub fn apple_red_dark() -> Self { Self::rgb(255, 69, 58) }
+    #[must_use] pub const fn apple_red_dark() -> Self { Self::rgb(255, 69, 58) }
     /// Apple Orange (light mode)
-    pub fn apple_orange() -> Self { Self::rgb(255, 149, 0) }
+    #[must_use] pub const fn apple_orange() -> Self { Self::rgb(255, 149, 0) }
     /// Apple Orange (dark mode)
-    pub fn apple_orange_dark() -> Self { Self::rgb(255, 159, 10) }
+    #[must_use] pub const fn apple_orange_dark() -> Self { Self::rgb(255, 159, 10) }
     /// Apple Yellow (light mode)
-    pub fn apple_yellow() -> Self { Self::rgb(255, 204, 0) }
+    #[must_use] pub const fn apple_yellow() -> Self { Self::rgb(255, 204, 0) }
     /// Apple Yellow (dark mode)
-    pub fn apple_yellow_dark() -> Self { Self::rgb(255, 214, 10) }
+    #[must_use] pub const fn apple_yellow_dark() -> Self { Self::rgb(255, 214, 10) }
     /// Apple Green (light mode)
-    pub fn apple_green() -> Self { Self::rgb(40, 205, 65) }
+    #[must_use] pub const fn apple_green() -> Self { Self::rgb(40, 205, 65) }
     /// Apple Green (dark mode)
-    pub fn apple_green_dark() -> Self { Self::rgb(40, 215, 75) }
+    #[must_use] pub const fn apple_green_dark() -> Self { Self::rgb(40, 215, 75) }
     /// Apple Mint (light mode)
-    pub fn apple_mint() -> Self { Self::rgb(0, 199, 190) }
+    #[must_use] pub const fn apple_mint() -> Self { Self::rgb(0, 199, 190) }
     /// Apple Mint (dark mode)
-    pub fn apple_mint_dark() -> Self { Self::rgb(102, 212, 207) }
+    #[must_use] pub const fn apple_mint_dark() -> Self { Self::rgb(102, 212, 207) }
     /// Apple Teal (light mode)
-    pub fn apple_teal() -> Self { Self::rgb(89, 173, 196) }
+    #[must_use] pub const fn apple_teal() -> Self { Self::rgb(89, 173, 196) }
     /// Apple Teal (dark mode)
-    pub fn apple_teal_dark() -> Self { Self::rgb(106, 196, 220) }
+    #[must_use] pub const fn apple_teal_dark() -> Self { Self::rgb(106, 196, 220) }
     /// Apple Cyan (light mode)
-    pub fn apple_cyan() -> Self { Self::rgb(85, 190, 240) }
+    #[must_use] pub const fn apple_cyan() -> Self { Self::rgb(85, 190, 240) }
     /// Apple Cyan (dark mode)
-    pub fn apple_cyan_dark() -> Self { Self::rgb(90, 200, 245) }
+    #[must_use] pub const fn apple_cyan_dark() -> Self { Self::rgb(90, 200, 245) }
     /// Apple Blue (light mode)
-    pub fn apple_blue() -> Self { Self::rgb(0, 122, 255) }
+    #[must_use] pub const fn apple_blue() -> Self { Self::rgb(0, 122, 255) }
     /// Apple Blue (dark mode)
-    pub fn apple_blue_dark() -> Self { Self::rgb(10, 132, 255) }
+    #[must_use] pub const fn apple_blue_dark() -> Self { Self::rgb(10, 132, 255) }
     /// Apple Indigo (light mode)
-    pub fn apple_indigo() -> Self { Self::rgb(88, 86, 214) }
+    #[must_use] pub const fn apple_indigo() -> Self { Self::rgb(88, 86, 214) }
     /// Apple Indigo (dark mode)
-    pub fn apple_indigo_dark() -> Self { Self::rgb(94, 92, 230) }
+    #[must_use] pub const fn apple_indigo_dark() -> Self { Self::rgb(94, 92, 230) }
     /// Apple Purple (light mode)
-    pub fn apple_purple() -> Self { Self::rgb(175, 82, 222) }
+    #[must_use] pub const fn apple_purple() -> Self { Self::rgb(175, 82, 222) }
     /// Apple Purple (dark mode)
-    pub fn apple_purple_dark() -> Self { Self::rgb(191, 90, 242) }
+    #[must_use] pub const fn apple_purple_dark() -> Self { Self::rgb(191, 90, 242) }
     /// Apple Pink (light mode)
-    pub fn apple_pink() -> Self { Self::rgb(255, 45, 85) }
+    #[must_use] pub const fn apple_pink() -> Self { Self::rgb(255, 45, 85) }
     /// Apple Pink (dark mode)
-    pub fn apple_pink_dark() -> Self { Self::rgb(255, 55, 95) }
+    #[must_use] pub const fn apple_pink_dark() -> Self { Self::rgb(255, 55, 95) }
     /// Apple Brown (light mode)
-    pub fn apple_brown() -> Self { Self::rgb(162, 132, 94) }
+    #[must_use] pub const fn apple_brown() -> Self { Self::rgb(162, 132, 94) }
     /// Apple Brown (dark mode)
-    pub fn apple_brown_dark() -> Self { Self::rgb(172, 142, 104) }
+    #[must_use] pub const fn apple_brown_dark() -> Self { Self::rgb(172, 142, 104) }
     /// Apple Gray (light mode)
-    pub fn apple_gray() -> Self { Self::rgb(142, 142, 147) }
+    #[must_use] pub const fn apple_gray() -> Self { Self::rgb(142, 142, 147) }
     /// Apple Gray (dark mode)
-    pub fn apple_gray_dark() -> Self { Self::rgb(152, 152, 157) }
+    #[must_use] pub const fn apple_gray_dark() -> Self { Self::rgb(152, 152, 157) }
 
     // ============================================================
     // Bootstrap-style semantic button colors
@@ -695,51 +709,51 @@ impl ColorU {
     // ============================================================
 
     /// Primary button color (blue) - used for main actions
-    pub fn bootstrap_primary() -> Self { Self::rgb(13, 110, 253) }
-    pub fn bootstrap_primary_hover() -> Self { Self::rgb(11, 94, 215) }
-    pub fn bootstrap_primary_active() -> Self { Self::rgb(10, 88, 202) }
+    #[must_use] pub const fn bootstrap_primary() -> Self { Self::rgb(13, 110, 253) }
+    #[must_use] pub const fn bootstrap_primary_hover() -> Self { Self::rgb(11, 94, 215) }
+    #[must_use] pub const fn bootstrap_primary_active() -> Self { Self::rgb(10, 88, 202) }
     
     /// Secondary button color (gray) - used for secondary actions
-    pub fn bootstrap_secondary() -> Self { Self::rgb(108, 117, 125) }
-    pub fn bootstrap_secondary_hover() -> Self { Self::rgb(92, 99, 106) }
-    pub fn bootstrap_secondary_active() -> Self { Self::rgb(86, 94, 100) }
+    #[must_use] pub const fn bootstrap_secondary() -> Self { Self::rgb(108, 117, 125) }
+    #[must_use] pub const fn bootstrap_secondary_hover() -> Self { Self::rgb(92, 99, 106) }
+    #[must_use] pub const fn bootstrap_secondary_active() -> Self { Self::rgb(86, 94, 100) }
     
     /// Success button color (green) - used for confirmations
-    pub fn bootstrap_success() -> Self { Self::rgb(25, 135, 84) }
-    pub fn bootstrap_success_hover() -> Self { Self::rgb(21, 115, 71) }
-    pub fn bootstrap_success_active() -> Self { Self::rgb(20, 108, 67) }
+    #[must_use] pub const fn bootstrap_success() -> Self { Self::rgb(25, 135, 84) }
+    #[must_use] pub const fn bootstrap_success_hover() -> Self { Self::rgb(21, 115, 71) }
+    #[must_use] pub const fn bootstrap_success_active() -> Self { Self::rgb(20, 108, 67) }
     
     /// Danger button color (red) - used for destructive actions
-    pub fn bootstrap_danger() -> Self { Self::rgb(220, 53, 69) }
-    pub fn bootstrap_danger_hover() -> Self { Self::rgb(187, 45, 59) }
-    pub fn bootstrap_danger_active() -> Self { Self::rgb(176, 42, 55) }
+    #[must_use] pub const fn bootstrap_danger() -> Self { Self::rgb(220, 53, 69) }
+    #[must_use] pub const fn bootstrap_danger_hover() -> Self { Self::rgb(187, 45, 59) }
+    #[must_use] pub const fn bootstrap_danger_active() -> Self { Self::rgb(176, 42, 55) }
     
     /// Warning button color (yellow) - used for warnings, uses BLACK text
-    pub fn bootstrap_warning() -> Self { Self::rgb(255, 193, 7) }
-    pub fn bootstrap_warning_hover() -> Self { Self::rgb(255, 202, 44) }
-    pub fn bootstrap_warning_active() -> Self { Self::rgb(255, 205, 57) }
+    #[must_use] pub const fn bootstrap_warning() -> Self { Self::rgb(255, 193, 7) }
+    #[must_use] pub const fn bootstrap_warning_hover() -> Self { Self::rgb(255, 202, 44) }
+    #[must_use] pub const fn bootstrap_warning_active() -> Self { Self::rgb(255, 205, 57) }
     
     /// Info button color (teal/cyan) - used for informational actions
-    pub fn bootstrap_info() -> Self { Self::rgb(13, 202, 240) }
-    pub fn bootstrap_info_hover() -> Self { Self::rgb(49, 210, 242) }
-    pub fn bootstrap_info_active() -> Self { Self::rgb(61, 213, 243) }
+    #[must_use] pub const fn bootstrap_info() -> Self { Self::rgb(13, 202, 240) }
+    #[must_use] pub const fn bootstrap_info_hover() -> Self { Self::rgb(49, 210, 242) }
+    #[must_use] pub const fn bootstrap_info_active() -> Self { Self::rgb(61, 213, 243) }
     
     /// Light button color - used for light-themed buttons
-    pub fn bootstrap_light() -> Self { Self::rgb(248, 249, 250) }
-    pub fn bootstrap_light_hover() -> Self { Self::rgb(233, 236, 239) }
-    pub fn bootstrap_light_active() -> Self { Self::rgb(218, 222, 226) }
+    #[must_use] pub const fn bootstrap_light() -> Self { Self::rgb(248, 249, 250) }
+    #[must_use] pub const fn bootstrap_light_hover() -> Self { Self::rgb(233, 236, 239) }
+    #[must_use] pub const fn bootstrap_light_active() -> Self { Self::rgb(218, 222, 226) }
     
     /// Dark button color - used for dark-themed buttons
-    pub fn bootstrap_dark() -> Self { Self::rgb(33, 37, 41) }
-    pub fn bootstrap_dark_hover() -> Self { Self::rgb(66, 70, 73) }
-    pub fn bootstrap_dark_active() -> Self { Self::rgb(78, 81, 84) }
+    #[must_use] pub const fn bootstrap_dark() -> Self { Self::rgb(33, 37, 41) }
+    #[must_use] pub const fn bootstrap_dark_hover() -> Self { Self::rgb(66, 70, 73) }
+    #[must_use] pub const fn bootstrap_dark_active() -> Self { Self::rgb(78, 81, 84) }
     
     /// Link button text color
-    pub fn bootstrap_link() -> Self { Self::rgb(13, 110, 253) }
-    pub fn bootstrap_link_hover() -> Self { Self::rgb(10, 88, 202) }
+    #[must_use] pub const fn bootstrap_link() -> Self { Self::rgb(13, 110, 253) }
+    #[must_use] pub const fn bootstrap_link_hover() -> Self { Self::rgb(10, 88, 202) }
 }
 
-/// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)
+/// f32-based color, range 0.0 to 1.0 (similar to webrenders `ColorF`)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ColorF {
     pub r: f32,
@@ -750,12 +764,12 @@ pub struct ColorF {
 
 impl Default for ColorF {
     fn default() -> Self {
-        ColorF::BLACK
+        Self::BLACK
     }
 }
 
 impl fmt::Display for ColorF {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "rgba({}, {}, {}, {})",
@@ -770,19 +784,19 @@ impl fmt::Display for ColorF {
 impl ColorF {
     pub const ALPHA_TRANSPARENT: f32 = 0.0;
     pub const ALPHA_OPAQUE: f32 = 1.0;
-    pub const WHITE: ColorF = ColorF {
+    pub const WHITE: Self = Self {
         r: 1.0,
         g: 1.0,
         b: 1.0,
         a: Self::ALPHA_OPAQUE,
     };
-    pub const BLACK: ColorF = ColorF {
+    pub const BLACK: Self = Self {
         r: 0.0,
         g: 0.0,
         b: 0.0,
         a: Self::ALPHA_OPAQUE,
     };
-    pub const TRANSPARENT: ColorF = ColorF {
+    pub const TRANSPARENT: Self = Self {
         r: 0.0,
         g: 0.0,
         b: 0.0,
@@ -791,23 +805,23 @@ impl ColorF {
 }
 
 impl From<ColorU> for ColorF {
-    fn from(input: ColorU) -> ColorF {
-        ColorF {
-            r: (input.r as f32) / 255.0,
-            g: (input.g as f32) / 255.0,
-            b: (input.b as f32) / 255.0,
-            a: (input.a as f32) / 255.0,
+    fn from(input: ColorU) -> Self {
+        Self {
+            r: f32::from(input.r) / 255.0,
+            g: f32::from(input.g) / 255.0,
+            b: f32::from(input.b) / 255.0,
+            a: f32::from(input.a) / 255.0,
         }
     }
 }
 
 impl From<ColorF> for ColorU {
-    fn from(input: ColorF) -> ColorU {
-        ColorU {
-            r: (input.r.min(1.0) * 255.0) as u8,
-            g: (input.g.min(1.0) * 255.0) as u8,
-            b: (input.b.min(1.0) * 255.0) as u8,
-            a: (input.a.min(1.0) * 255.0) as u8,
+    fn from(input: ColorF) -> Self {
+        Self {
+            r: channel_to_u8(input.r.min(1.0) * 255.0),
+            g: channel_to_u8(input.g.min(1.0) * 255.0),
+            b: channel_to_u8(input.b.min(1.0) * 255.0),
+            a: channel_to_u8(input.a.min(1.0) * 255.0),
         }
     }
 }
@@ -827,47 +841,47 @@ pub enum ColorOrSystem {
 
 impl Default for ColorOrSystem {
     fn default() -> Self {
-        ColorOrSystem::Color(ColorU::BLACK)
+        Self::Color(ColorU::BLACK)
     }
 }
 
 impl From<ColorU> for ColorOrSystem {
     fn from(color: ColorU) -> Self {
-        ColorOrSystem::Color(color)
+        Self::Color(color)
     }
 }
 
 impl ColorOrSystem {
-    /// Create a new ColorOrSystem from a concrete color.
-    pub const fn color(c: ColorU) -> Self {
-        ColorOrSystem::Color(c)
+    /// Create a new `ColorOrSystem` from a concrete color.
+    #[must_use] pub const fn color(c: ColorU) -> Self {
+        Self::Color(c)
     }
     
-    /// Create a new ColorOrSystem from a system color reference.
-    pub const fn system(s: SystemColorRef) -> Self {
-        ColorOrSystem::System(s)
+    /// Create a new `ColorOrSystem` from a system color reference.
+    #[must_use] pub const fn system(s: SystemColorRef) -> Self {
+        Self::System(s)
     }
     
-    /// Resolve the color against a SystemColors struct.
+    /// Resolve the color against a `SystemColors` struct.
     /// Returns the system color if available, or falls back to the provided default.
-    pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+    #[must_use] pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         match self {
-            ColorOrSystem::Color(c) => *c,
-            ColorOrSystem::System(ref_type) => ref_type.resolve(system_colors, fallback),
+            Self::Color(c) => *c,
+            Self::System(ref_type) => ref_type.resolve(system_colors, fallback),
         }
     }
     
     /// Returns the concrete color if available, or a default fallback for system colors.
-    /// Use this when SystemColors is not available (e.g., during rendering setup).
-    pub fn to_color_u_with_fallback(&self, fallback: ColorU) -> ColorU {
+    /// Use this when `SystemColors` is not available (e.g., during rendering setup).
+    #[must_use] pub const fn to_color_u_with_fallback(&self, fallback: ColorU) -> ColorU {
         match self {
-            ColorOrSystem::Color(c) => *c,
-            ColorOrSystem::System(_) => fallback,
+            Self::Color(c) => *c,
+            Self::System(_) => fallback,
         }
     }
     
     /// Returns the concrete color if available, or a gray fallback for system colors.
-    pub fn to_color_u_default(&self) -> ColorU {
+    #[must_use] pub const fn to_color_u_default(&self) -> ColorU {
         self.to_color_u_with_fallback(ColorU { r: 128, g: 128, b: 128, a: 255 })
     }
 }
@@ -899,39 +913,39 @@ pub enum SystemColorRef {
 
 impl SystemColorRef {
     /// Resolve this system color reference against actual system colors.
-    pub fn resolve(&self, colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+    #[must_use] pub fn resolve(&self, colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         match self {
-            SystemColorRef::Text => colors.text.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::Background => colors.background.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::Accent => colors.accent.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::AccentText => colors.accent_text.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::ButtonFace => colors.button_face.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::ButtonText => colors.button_text.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::WindowBackground => colors.window_background.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::SelectionBackground => colors.selection_background.as_option().copied().unwrap_or(fallback),
-            SystemColorRef::SelectionText => colors.selection_text.as_option().copied().unwrap_or(fallback),
+            Self::Text => colors.text.as_option().copied().unwrap_or(fallback),
+            Self::Background => colors.background.as_option().copied().unwrap_or(fallback),
+            Self::Accent => colors.accent.as_option().copied().unwrap_or(fallback),
+            Self::AccentText => colors.accent_text.as_option().copied().unwrap_or(fallback),
+            Self::ButtonFace => colors.button_face.as_option().copied().unwrap_or(fallback),
+            Self::ButtonText => colors.button_text.as_option().copied().unwrap_or(fallback),
+            Self::WindowBackground => colors.window_background.as_option().copied().unwrap_or(fallback),
+            Self::SelectionBackground => colors.selection_background.as_option().copied().unwrap_or(fallback),
+            Self::SelectionText => colors.selection_text.as_option().copied().unwrap_or(fallback),
         }
     }
     
     /// Get the CSS syntax for this system color reference.
-    pub fn as_css_str(&self) -> &'static str {
+    #[must_use] pub const fn as_css_str(&self) -> &'static str {
         match self {
-            SystemColorRef::Text => "system:text",
-            SystemColorRef::Background => "system:background",
-            SystemColorRef::Accent => "system:accent",
-            SystemColorRef::AccentText => "system:accent-text",
-            SystemColorRef::ButtonFace => "system:button-face",
-            SystemColorRef::ButtonText => "system:button-text",
-            SystemColorRef::WindowBackground => "system:window-background",
-            SystemColorRef::SelectionBackground => "system:selection-background",
-            SystemColorRef::SelectionText => "system:selection-text",
+            Self::Text => "system:text",
+            Self::Background => "system:background",
+            Self::Accent => "system:accent",
+            Self::AccentText => "system:accent-text",
+            Self::ButtonFace => "system:button-face",
+            Self::ButtonText => "system:button-text",
+            Self::WindowBackground => "system:window-background",
+            Self::SelectionBackground => "system:selection-background",
+            Self::SelectionText => "system:selection-text",
         }
     }
 }
 
 // --- PARSER ---
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum CssColorComponent {
     Red,
@@ -977,22 +991,22 @@ impl_display! {CssColorParseError<'a>, {
     InvalidPercentage(p) => format!("Invalid percentage when parsing CSS color: \"{}\"", p),
 }}
 
-impl<'a> From<ParseIntError> for CssColorParseError<'a> {
+impl From<ParseIntError> for CssColorParseError<'_> {
     fn from(e: ParseIntError) -> Self {
         CssColorParseError::IntValueParseErr(e)
     }
 }
-impl<'a> From<ParseFloatError> for CssColorParseError<'a> {
+impl From<ParseFloatError> for CssColorParseError<'_> {
     fn from(e: ParseFloatError) -> Self {
         CssColorParseError::FloatValueParseErr(e)
     }
 }
-impl<'a> From<core::num::ParseIntError> for CssColorParseError<'a> {
+impl From<core::num::ParseIntError> for CssColorParseError<'_> {
     fn from(e: core::num::ParseIntError) -> Self {
         CssColorParseError::IntValueParseErr(ParseIntError::from(e))
     }
 }
-impl<'a> From<core::num::ParseFloatError> for CssColorParseError<'a> {
+impl From<core::num::ParseFloatError> for CssColorParseError<'_> {
     fn from(e: core::num::ParseFloatError) -> Self {
         CssColorParseError::FloatValueParseErr(ParseFloatError::from(e))
     }
@@ -1020,23 +1034,23 @@ pub enum CssColorParseErrorOwned {
     InvalidPercentage(PercentageParseError),
 }
 
-impl<'a> CssColorParseError<'a> {
-    pub fn to_contained(&self) -> CssColorParseErrorOwned {
+impl CssColorParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssColorParseErrorOwned {
         match self {
             CssColorParseError::InvalidColor(s) => {
-                CssColorParseErrorOwned::InvalidColor(s.to_string().into())
+                CssColorParseErrorOwned::InvalidColor((*s).to_string().into())
             }
             CssColorParseError::InvalidFunctionName(s) => {
-                CssColorParseErrorOwned::InvalidFunctionName(s.to_string().into())
+                CssColorParseErrorOwned::InvalidFunctionName((*s).to_string().into())
             }
             CssColorParseError::InvalidColorComponent(n) => {
                 CssColorParseErrorOwned::InvalidColorComponent(*n)
             }
             CssColorParseError::IntValueParseErr(e) => {
-                CssColorParseErrorOwned::IntValueParseErr((*e))
+                CssColorParseErrorOwned::IntValueParseErr(*e)
             }
             CssColorParseError::FloatValueParseErr(e) => {
-                CssColorParseErrorOwned::FloatValueParseErr((*e))
+                CssColorParseErrorOwned::FloatValueParseErr(*e)
             }
             CssColorParseError::FloatValueOutOfRange(n) => {
                 CssColorParseErrorOwned::FloatValueOutOfRange(*n)
@@ -1045,17 +1059,17 @@ impl<'a> CssColorParseError<'a> {
                 CssColorParseErrorOwned::MissingColorComponent(*c)
             }
             CssColorParseError::ExtraArguments(s) => {
-                CssColorParseErrorOwned::ExtraArguments(s.to_string().into())
+                CssColorParseErrorOwned::ExtraArguments((*s).to_string().into())
             }
             CssColorParseError::UnclosedColor(s) => {
-                CssColorParseErrorOwned::UnclosedColor(s.to_string().into())
+                CssColorParseErrorOwned::UnclosedColor((*s).to_string().into())
             }
             CssColorParseError::EmptyInput => CssColorParseErrorOwned::EmptyInput,
             CssColorParseError::DirectionParseError(e) => {
                 CssColorParseErrorOwned::DirectionParseError(e.to_contained())
             }
             CssColorParseError::UnsupportedDirection(s) => {
-                CssColorParseErrorOwned::UnsupportedDirection(s.to_string().into())
+                CssColorParseErrorOwned::UnsupportedDirection((*s).to_string().into())
             }
             CssColorParseError::InvalidPercentage(e) => {
                 CssColorParseErrorOwned::InvalidPercentage(e.clone())
@@ -1065,37 +1079,37 @@ impl<'a> CssColorParseError<'a> {
 }
 
 impl CssColorParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssColorParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssColorParseError<'_> {
         match self {
-            CssColorParseErrorOwned::InvalidColor(s) => CssColorParseError::InvalidColor(s),
-            CssColorParseErrorOwned::InvalidFunctionName(s) => {
+            Self::InvalidColor(s) => CssColorParseError::InvalidColor(s),
+            Self::InvalidFunctionName(s) => {
                 CssColorParseError::InvalidFunctionName(s)
             }
-            CssColorParseErrorOwned::InvalidColorComponent(n) => {
+            Self::InvalidColorComponent(n) => {
                 CssColorParseError::InvalidColorComponent(*n)
             }
-            CssColorParseErrorOwned::IntValueParseErr(e) => {
+            Self::IntValueParseErr(e) => {
                 CssColorParseError::IntValueParseErr(*e)
             }
-            CssColorParseErrorOwned::FloatValueParseErr(e) => {
+            Self::FloatValueParseErr(e) => {
                 CssColorParseError::FloatValueParseErr(*e)
             }
-            CssColorParseErrorOwned::FloatValueOutOfRange(n) => {
+            Self::FloatValueOutOfRange(n) => {
                 CssColorParseError::FloatValueOutOfRange(*n)
             }
-            CssColorParseErrorOwned::MissingColorComponent(c) => {
+            Self::MissingColorComponent(c) => {
                 CssColorParseError::MissingColorComponent(*c)
             }
-            CssColorParseErrorOwned::ExtraArguments(s) => CssColorParseError::ExtraArguments(s),
-            CssColorParseErrorOwned::UnclosedColor(s) => CssColorParseError::UnclosedColor(s),
-            CssColorParseErrorOwned::EmptyInput => CssColorParseError::EmptyInput,
-            CssColorParseErrorOwned::DirectionParseError(e) => {
+            Self::ExtraArguments(s) => CssColorParseError::ExtraArguments(s),
+            Self::UnclosedColor(s) => CssColorParseError::UnclosedColor(s),
+            Self::EmptyInput => CssColorParseError::EmptyInput,
+            Self::DirectionParseError(e) => {
                 CssColorParseError::DirectionParseError(e.to_shared())
             }
-            CssColorParseErrorOwned::UnsupportedDirection(s) => {
+            Self::UnsupportedDirection(s) => {
                 CssColorParseError::UnsupportedDirection(s)
             }
-            CssColorParseErrorOwned::InvalidPercentage(e) => {
+            Self::InvalidPercentage(e) => {
                 CssColorParseError::InvalidPercentage(e.clone())
             }
         }
@@ -1103,34 +1117,35 @@ impl CssColorParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_css_color<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `css-color` value.
+pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
+    use crate::props::basic::parse::{parse_parentheses, ParenthesisParseError};
+
     let input = input.trim();
-    if input.starts_with('#') {
-        parse_color_no_hash(&input[1..])
-    } else {
-        use crate::props::basic::parse::{parse_parentheses, ParenthesisParseError};
-        match parse_parentheses(input, &["rgba", "rgb", "hsla", "hsl"]) {
-            Ok((stopword, inner_value)) => match stopword {
-                "rgba" => parse_color_rgb(inner_value, true),
-                "rgb" => parse_color_rgb(inner_value, false),
-                "hsla" => parse_color_hsl(inner_value, true),
-                "hsl" => parse_color_hsl(inner_value, false),
-                _ => unreachable!(),
-            },
-            Err(e) => match e {
-                ParenthesisParseError::UnclosedBraces => {
-                    Err(CssColorParseError::UnclosedColor(input))
-                }
-                ParenthesisParseError::EmptyInput => Err(CssColorParseError::EmptyInput),
-                ParenthesisParseError::StopWordNotFound(stopword) => {
-                    Err(CssColorParseError::InvalidFunctionName(stopword))
-                }
-                ParenthesisParseError::NoClosingBraceFound => {
-                    Err(CssColorParseError::UnclosedColor(input))
-                }
-                ParenthesisParseError::NoOpeningBraceFound => parse_color_builtin(input),
-            },
-        }
+    if let Some(rest) = input.strip_prefix('#') {
+        return parse_color_no_hash(rest);
+    }
+
+    match parse_parentheses(input, &["rgba", "rgb", "hsla", "hsl"]) {
+        Ok((stopword, inner_value)) => match stopword {
+            "rgba" => parse_color_rgb(inner_value, true),
+            "rgb" => parse_color_rgb(inner_value, false),
+            "hsla" => parse_color_hsl(inner_value, true),
+            "hsl" => parse_color_hsl(inner_value, false),
+            _ => unreachable!(),
+        },
+        Err(e) => match e {
+            ParenthesisParseError::UnclosedBraces | ParenthesisParseError::NoClosingBraceFound => {
+                Err(CssColorParseError::UnclosedColor(input))
+            }
+            ParenthesisParseError::EmptyInput => Err(CssColorParseError::EmptyInput),
+            ParenthesisParseError::StopWordNotFound(stopword) => {
+                Err(CssColorParseError::InvalidFunctionName(stopword))
+            }
+            ParenthesisParseError::NoOpeningBraceFound => parse_color_builtin(input),
+        },
     }
 }
 
@@ -1147,7 +1162,10 @@ pub fn parse_css_color<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
 /// - `system:window-background` - Window background color
 /// - `system:accent-text` - Text color on accent background
 #[cfg(feature = "parser")]
-pub fn parse_color_or_system<'a>(input: &'a str) -> Result<ColorOrSystem, CssColorParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `color-or-system` value.
+pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParseError<'_>> {
     let input = input.trim();
     
     // Check for system color syntax: "system:name"
@@ -1172,9 +1190,9 @@ pub fn parse_color_or_system<'a>(input: &'a str) -> Result<ColorOrSystem, CssCol
 }
 
 #[cfg(feature = "parser")]
-fn parse_color_no_hash<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<'a>> {
+fn parse_color_no_hash(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     #[inline]
-    fn from_hex<'a>(c: u8) -> Result<u8, CssColorParseError<'a>> {
+    const fn from_hex<'a>(c: u8) -> Result<u8, CssColorParseError<'a>> {
         match c {
             b'0'..=b'9' => Ok(c - b'0'),
             b'a'..=b'f' => Ok(c - b'a' + 10),
@@ -1230,11 +1248,11 @@ fn parse_color_no_hash<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
 }
 
 #[cfg(feature = "parser")]
-fn parse_color_rgb<'a>(
-    input: &'a str,
+fn parse_color_rgb(
+    input: &str,
     parse_alpha: bool,
-) -> Result<ColorU, CssColorParseError<'a>> {
-    let mut components = input.split(',').map(|c| c.trim());
+) -> Result<ColorU, CssColorParseError<'_>> {
+    let mut components = input.split(',').map(str::trim);
     let rgb_color = parse_color_rgb_components(&mut components)?;
     let a = if parse_alpha {
         parse_alpha_component(&mut components)?
@@ -1273,11 +1291,11 @@ fn parse_color_rgb_components<'a>(
 }
 
 #[cfg(feature = "parser")]
-fn parse_color_hsl<'a>(
-    input: &'a str,
+fn parse_color_hsl(
+    input: &str,
     parse_alpha: bool,
-) -> Result<ColorU, CssColorParseError<'a>> {
-    let mut components = input.split(',').map(|c| c.trim());
+) -> Result<ColorU, CssColorParseError<'_>> {
+    let mut components = input.split(',').map(str::trim);
     let rgb_color = parse_color_hsl_components(&mut components)?;
     let a = if parse_alpha {
         parse_alpha_component(&mut components)?
@@ -1291,6 +1309,7 @@ fn parse_color_hsl<'a>(
 }
 
 #[cfg(feature = "parser")]
+#[allow(clippy::many_single_char_names)] // domain-standard h/s/l/r/g/b colour component names
 fn parse_color_hsl_components<'a>(
     components: &mut dyn Iterator<Item = &'a str>,
 ) -> Result<ColorU, CssColorParseError<'a>> {
@@ -1334,6 +1353,8 @@ fn parse_color_hsl_components<'a>(
     }
 
     #[inline]
+    #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
+    #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
     fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
         let s = s / 100.0;
         let l = l / 100.0;
@@ -1355,9 +1376,9 @@ fn parse_color_hsl_components<'a>(
         };
         let m = l - c / 2.0;
         (
-            ((r1 + m) * 255.0) as u8,
-            ((g1 + m) * 255.0) as u8,
-            ((b1 + m) * 255.0) as u8,
+            channel_to_u8((r1 + m) * 255.0),
+            channel_to_u8((g1 + m) * 255.0),
+            channel_to_u8((b1 + m) * 255.0),
         )
     }
 
@@ -1389,15 +1410,16 @@ fn parse_alpha_component<'a>(
     if !(0.0..=1.0).contains(&a) {
         return Err(CssColorParseError::FloatValueOutOfRange(a));
     }
-    Ok((a * 255.0).round() as u8)
+    Ok(channel_to_u8((a * 255.0).round()))
 }
 
 #[cfg(feature = "parser")]
-fn parse_color_builtin<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<'a>> {
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+fn parse_color_builtin(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
     let (r, g, b, a) = match input.to_lowercase().as_str() {
         "aliceblue" => (240, 248, 255, 255),
         "antiquewhite" => (250, 235, 215, 255),
-        "aqua" => (0, 255, 255, 255),
+        "aqua" | "cyan" => (0, 255, 255, 255),
         "aquamarine" => (127, 255, 212, 255),
         "azure" => (240, 255, 255, 255),
         "beige" => (245, 245, 220, 255),
@@ -1415,7 +1437,6 @@ fn parse_color_builtin<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
         "cornflowerblue" => (100, 149, 237, 255),
         "cornsilk" => (255, 248, 220, 255),
         "crimson" => (220, 20, 60, 255),
-        "cyan" => (0, 255, 255, 255),
         "darkblue" => (0, 0, 139, 255),
         "darkcyan" => (0, 139, 139, 255),
         "darkgoldenrod" => (184, 134, 11, 255),
@@ -1440,7 +1461,7 @@ fn parse_color_builtin<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
         "firebrick" => (178, 34, 34, 255),
         "floralwhite" => (255, 250, 240, 255),
         "forestgreen" => (34, 139, 34, 255),
-        "fuchsia" => (255, 0, 255, 255),
+        "fuchsia" | "magenta" => (255, 0, 255, 255),
         "gainsboro" => (220, 220, 220, 255),
         "ghostwhite" => (248, 248, 255, 255),
         "gold" => (255, 215, 0, 255),
@@ -1474,7 +1495,6 @@ fn parse_color_builtin<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
         "lime" => (0, 255, 0, 255),
         "limegreen" => (50, 205, 50, 255),
         "linen" => (250, 240, 230, 255),
-        "magenta" => (255, 0, 255, 255),
         "maroon" => (128, 0, 0, 255),
         "mediumaquamarine" => (102, 205, 170, 255),
         "mediumblue" => (0, 0, 205, 255),

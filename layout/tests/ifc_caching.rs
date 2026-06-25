@@ -51,14 +51,12 @@ fn test_relayout_scope_paint_only_properties() {
         assert_eq!(
             prop.relayout_scope(false),
             RelayoutScope::None,
-            "{:?} should be None when not IFC member",
-            prop
+            "{prop:?} should be None when not IFC member"
         );
         assert_eq!(
             prop.relayout_scope(true),
             RelayoutScope::None,
-            "{:?} should be None even when IFC member",
-            prop
+            "{prop:?} should be None even when IFC member"
         );
     }
 }
@@ -81,8 +79,7 @@ fn test_relayout_scope_font_properties_ifc_member() {
         assert_eq!(
             prop.relayout_scope(true),
             RelayoutScope::IfcOnly,
-            "{:?} should be IfcOnly when IFC member",
-            prop
+            "{prop:?} should be IfcOnly when IFC member"
         );
     }
 }
@@ -104,8 +101,7 @@ fn test_relayout_scope_font_properties_non_ifc_member() {
         assert_eq!(
             prop.relayout_scope(false),
             RelayoutScope::None,
-            "{:?} should be None when NOT IFC member",
-            prop
+            "{prop:?} should be None when NOT IFC member"
         );
     }
 }
@@ -135,14 +131,12 @@ fn test_relayout_scope_sizing_properties() {
         assert_eq!(
             prop.relayout_scope(false),
             RelayoutScope::SizingOnly,
-            "{:?} should be SizingOnly",
-            prop
+            "{prop:?} should be SizingOnly"
         );
         assert_eq!(
             prop.relayout_scope(true),
             RelayoutScope::SizingOnly,
-            "{:?} should be SizingOnly even when IFC member",
-            prop
+            "{prop:?} should be SizingOnly even when IFC member"
         );
     }
 }
@@ -171,8 +165,7 @@ fn test_relayout_scope_full_relayout_properties() {
         assert_eq!(
             prop.relayout_scope(false),
             RelayoutScope::Full,
-            "{:?} should be Full",
-            prop
+            "{prop:?} should be Full"
         );
     }
 }
@@ -229,13 +222,11 @@ fn test_can_trigger_relayout_consistent_with_relayout_scope() {
 
         assert_eq!(
             old_result, *expected_can_trigger,
-            "{:?}: can_trigger_relayout() returned {}, expected {}",
-            prop_type, old_result, expected_can_trigger
+            "{prop_type:?}: can_trigger_relayout() returned {old_result}, expected {expected_can_trigger}"
         );
         assert_eq!(
             old_result, new_result,
-            "{:?}: can_trigger_relayout()={} but relayout_scope(true)={:?} ({})",
-            prop_type, old_result, new_scope, new_result
+            "{prop_type:?}: can_trigger_relayout()={old_result} but relayout_scope(true)={new_scope:?} ({new_result})"
         );
     }
 }
@@ -498,8 +489,7 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
         // The max_line should be a reasonable value (not absurdly large)
         assert!(
             max_line < 1000,
-            "max_line_index {} seems unreasonably large",
-            max_line
+            "max_line_index {max_line} seems unreasonably large"
         );
     }
 }
@@ -587,8 +577,7 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
     assert!(
         items_with_source > 0,
         "At least some items should have source_node_id (text clusters), \
-         but got 0 out of {} total items",
-        total_items
+         but got 0 out of {total_items} total items"
     );
 }
 

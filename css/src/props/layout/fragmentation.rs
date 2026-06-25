@@ -144,18 +144,18 @@ impl PrintAsCssValue for BoxDecorationBreak {
 impl crate::codegen::format::FormatAsRustCode for PageBreak {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            PageBreak::Auto => String::from("PageBreak::Auto"),
-            PageBreak::Avoid => String::from("PageBreak::Avoid"),
-            PageBreak::Always => String::from("PageBreak::Always"),
-            PageBreak::All => String::from("PageBreak::All"),
-            PageBreak::Page => String::from("PageBreak::Page"),
-            PageBreak::AvoidPage => String::from("PageBreak::AvoidPage"),
-            PageBreak::Left => String::from("PageBreak::Left"),
-            PageBreak::Right => String::from("PageBreak::Right"),
-            PageBreak::Recto => String::from("PageBreak::Recto"),
-            PageBreak::Verso => String::from("PageBreak::Verso"),
-            PageBreak::Column => String::from("PageBreak::Column"),
-            PageBreak::AvoidColumn => String::from("PageBreak::AvoidColumn"),
+            Self::Auto => String::from("PageBreak::Auto"),
+            Self::Avoid => String::from("PageBreak::Avoid"),
+            Self::Always => String::from("PageBreak::Always"),
+            Self::All => String::from("PageBreak::All"),
+            Self::Page => String::from("PageBreak::Page"),
+            Self::AvoidPage => String::from("PageBreak::AvoidPage"),
+            Self::Left => String::from("PageBreak::Left"),
+            Self::Right => String::from("PageBreak::Right"),
+            Self::Recto => String::from("PageBreak::Recto"),
+            Self::Verso => String::from("PageBreak::Verso"),
+            Self::Column => String::from("PageBreak::Column"),
+            Self::AvoidColumn => String::from("PageBreak::AvoidColumn"),
         }
     }
 }
@@ -163,10 +163,10 @@ impl crate::codegen::format::FormatAsRustCode for PageBreak {
 impl crate::codegen::format::FormatAsRustCode for BreakInside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            BreakInside::Auto => String::from("BreakInside::Auto"),
-            BreakInside::Avoid => String::from("BreakInside::Avoid"),
-            BreakInside::AvoidPage => String::from("BreakInside::AvoidPage"),
-            BreakInside::AvoidColumn => String::from("BreakInside::AvoidColumn"),
+            Self::Auto => String::from("BreakInside::Auto"),
+            Self::Avoid => String::from("BreakInside::Avoid"),
+            Self::AvoidPage => String::from("BreakInside::AvoidPage"),
+            Self::AvoidColumn => String::from("BreakInside::AvoidColumn"),
         }
     }
 }
@@ -186,8 +186,8 @@ impl crate::codegen::format::FormatAsRustCode for Orphans {
 impl crate::codegen::format::FormatAsRustCode for BoxDecorationBreak {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            BoxDecorationBreak::Slice => String::from("BoxDecorationBreak::Slice"),
-            BoxDecorationBreak::Clone => String::from("BoxDecorationBreak::Clone"),
+            Self::Slice => String::from("BoxDecorationBreak::Slice"),
+            Self::Clone => String::from("BoxDecorationBreak::Clone"),
         }
     }
 }
@@ -196,6 +196,7 @@ impl crate::codegen::format::FormatAsRustCode for BoxDecorationBreak {
 
 #[cfg(feature = "parser")]
 pub mod parser {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
     use core::num::ParseIntError;
     use crate::corety::AzString;
@@ -204,7 +205,7 @@ pub mod parser {
     // -- PageBreak parser (`break-before`, `break-after`)
 
     /// Error returned when parsing a `break-before` or `break-after` value.
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum PageBreakParseError<'a> {
         InvalidValue(&'a str),
     }
@@ -215,29 +216,32 @@ pub mod parser {
     }}
 
     /// Owned version of [`PageBreakParseError`] for FFI and storage.
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum PageBreakParseErrorOwned {
         InvalidValue(AzString),
     }
 
-    impl<'a> PageBreakParseError<'a> {
-        pub fn to_contained(&self) -> PageBreakParseErrorOwned {
+    impl PageBreakParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> PageBreakParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => PageBreakParseErrorOwned::InvalidValue(s.to_string().into()),
+                Self::InvalidValue(s) => PageBreakParseErrorOwned::InvalidValue((*s).to_string().into()),
             }
         }
     }
 
     impl PageBreakParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> PageBreakParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> PageBreakParseError<'_> {
             match self {
                 Self::InvalidValue(s) => PageBreakParseError::InvalidValue(s.as_str()),
             }
         }
     }
 
-    pub fn parse_page_break<'a>(input: &'a str) -> Result<PageBreak, PageBreakParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `page-break` value.
+    pub fn parse_page_break(input: &str) -> Result<PageBreak, PageBreakParseError<'_>> {
         match input.trim() {
             "auto" => Ok(PageBreak::Auto),
             "avoid" => Ok(PageBreak::Avoid),
@@ -258,7 +262,7 @@ pub mod parser {
     // -- BreakInside parser
 
     /// Error returned when parsing a `break-inside` value.
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum BreakInsideParseError<'a> {
         InvalidValue(&'a str),
     }
@@ -269,31 +273,34 @@ pub mod parser {
     }}
 
     /// Owned version of [`BreakInsideParseError`] for FFI and storage.
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum BreakInsideParseErrorOwned {
         InvalidValue(AzString),
     }
 
-    impl<'a> BreakInsideParseError<'a> {
-        pub fn to_contained(&self) -> BreakInsideParseErrorOwned {
+    impl BreakInsideParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> BreakInsideParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => BreakInsideParseErrorOwned::InvalidValue(s.to_string().into()),
+                Self::InvalidValue(s) => BreakInsideParseErrorOwned::InvalidValue((*s).to_string().into()),
             }
         }
     }
 
     impl BreakInsideParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> BreakInsideParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> BreakInsideParseError<'_> {
             match self {
                 Self::InvalidValue(s) => BreakInsideParseError::InvalidValue(s.as_str()),
             }
         }
     }
 
-    pub fn parse_break_inside<'a>(
-        input: &'a str,
-    ) -> Result<BreakInside, BreakInsideParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `break-inside` value.
+    pub fn parse_break_inside(
+        input: &str,
+    ) -> Result<BreakInside, BreakInsideParseError<'_>> {
         match input.trim() {
             "auto" => Ok(BreakInside::Auto),
             "avoid" => Ok(BreakInside::Avoid),
@@ -307,7 +314,7 @@ pub mod parser {
 
     macro_rules! define_widow_orphan_parser {
         ($fn_name:ident, $struct_name:ident, $error_name:ident, $error_owned_name:ident, $prop_name:expr) => {
-            #[derive(Clone, PartialEq)]
+            #[derive(Clone, PartialEq, Eq)]
             pub enum $error_name<'a> {
                 ParseInt(ParseIntError, &'a str),
                 ParseIntOwned(&'a str, &'a str),
@@ -321,15 +328,15 @@ pub mod parser {
                 NegativeValue(s) => format!("Invalid value for {}: \"{}\". Value cannot be negative.", $prop_name, s),
             }}
 
-            #[derive(Debug, Clone, PartialEq)]
+            #[derive(Debug, Clone, PartialEq, Eq)]
             #[repr(C, u8)]
             pub enum $error_owned_name {
                 ParseInt(ParseIntErrorWithInput),
                 NegativeValue(AzString),
             }
 
-            impl<'a> $error_name<'a> {
-                pub fn to_contained(&self) -> $error_owned_name {
+            impl $error_name<'_> {
+                #[must_use] pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         Self::ParseInt(e, s) => $error_owned_name::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: s.to_string().into() }),
                         Self::ParseIntOwned(e, s) => $error_owned_name::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: s.to_string().into() }),
@@ -339,7 +346,7 @@ pub mod parser {
             }
 
             impl $error_owned_name {
-                pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+                #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
                      match self {
                         Self::ParseInt(e) => $error_name::ParseIntOwned(e.error.as_str(), e.input.as_str()),
                         Self::NegativeValue(s) => $error_name::NegativeValue(s),
@@ -347,13 +354,16 @@ pub mod parser {
                 }
             }
 
-            pub fn $fn_name<'a>(input: &'a str) -> Result<$struct_name, $error_name<'a>> {
+            /// # Errors
+            ///
+            /// Returns an error if `input` is not a valid CSS value for this property.
+            pub fn $fn_name(input: &str) -> Result<$struct_name, $error_name<'_>> {
                 let trimmed = input.trim();
                 let val: i32 = trimmed.parse().map_err(|e| $error_name::ParseInt(e, trimmed))?;
                 if val < 0 {
                     return Err($error_name::NegativeValue(trimmed));
                 }
-                Ok($struct_name { inner: val as u32 })
+                Ok($struct_name { inner: u32::try_from(val).unwrap_or(0) })
             }
         };
     }
@@ -376,7 +386,7 @@ pub mod parser {
     // -- BoxDecorationBreak parser
 
     /// Error returned when parsing a `box-decoration-break` value.
-    #[derive(Clone, PartialEq)]
+    #[derive(Clone, PartialEq, Eq)]
     pub enum BoxDecorationBreakParseError<'a> {
         InvalidValue(&'a str),
     }
@@ -387,33 +397,36 @@ pub mod parser {
     }}
 
     /// Owned version of [`BoxDecorationBreakParseError`] for FFI and storage.
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum BoxDecorationBreakParseErrorOwned {
         InvalidValue(AzString),
     }
 
-    impl<'a> BoxDecorationBreakParseError<'a> {
-        pub fn to_contained(&self) -> BoxDecorationBreakParseErrorOwned {
+    impl BoxDecorationBreakParseError<'_> {
+        #[must_use] pub fn to_contained(&self) -> BoxDecorationBreakParseErrorOwned {
             match self {
                 Self::InvalidValue(s) => {
-                    BoxDecorationBreakParseErrorOwned::InvalidValue(s.to_string().into())
+                    BoxDecorationBreakParseErrorOwned::InvalidValue((*s).to_string().into())
                 }
             }
         }
     }
 
     impl BoxDecorationBreakParseErrorOwned {
-        pub fn to_shared<'a>(&'a self) -> BoxDecorationBreakParseError<'a> {
+        #[must_use] pub fn to_shared(&self) -> BoxDecorationBreakParseError<'_> {
             match self {
                 Self::InvalidValue(s) => BoxDecorationBreakParseError::InvalidValue(s.as_str()),
             }
         }
     }
 
-    pub fn parse_box_decoration_break<'a>(
-        input: &'a str,
-    ) -> Result<BoxDecorationBreak, BoxDecorationBreakParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `box-decoration-break` value.
+    pub fn parse_box_decoration_break(
+        input: &str,
+    ) -> Result<BoxDecorationBreak, BoxDecorationBreakParseError<'_>> {
         match input.trim() {
             "slice" => Ok(BoxDecorationBreak::Slice),
             "clone" => Ok(BoxDecorationBreak::Clone),

@@ -13,7 +13,7 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-/// Datagram header length: msg_id (u32) + chunk_idx (u16) + chunk_count (u16).
+/// Datagram header length: `msg_id` (u32) + `chunk_idx` (u16) + `chunk_count` (u16).
 pub const CHUNK_HEADER_LEN: usize = 8;
 /// Conservative per-datagram payload (leaves room under a ~1400-byte path MTU).
 pub const DEFAULT_CHUNK_PAYLOAD: usize = 1200;
@@ -21,17 +21,19 @@ pub const DEFAULT_CHUNK_PAYLOAD: usize = 1200;
 /// chunk can never leak memory.
 const MAX_PARTIAL_MESSAGES: usize = 256;
 
-/// Split `data` into chunk datagrams for `msg_id`. Each datagram is
+/// Split `data` into chunk datagrams for `msg_id`.
+///
+/// Each datagram is
 /// `CHUNK_HEADER_LEN + <= max_payload` bytes. An empty payload still produces
 /// one (header-only) chunk, so a zero-length message round-trips.
-pub fn chunk_message(msg_id: u32, data: &[u8], max_payload: usize) -> Vec<Vec<u8>> {
+#[must_use] pub fn chunk_message(msg_id: u32, data: &[u8], max_payload: usize) -> Vec<Vec<u8>> {
     let max_payload = max_payload.max(1);
     let count = if data.is_empty() {
         1
     } else {
         data.len().div_ceil(max_payload)
     };
-    let count_u16 = count.min(u16::MAX as usize) as u16;
+    let count_u16 = u16::try_from(count).unwrap_or(u16::MAX);
     let mut out = Vec::with_capacity(count_u16 as usize);
     for idx in 0..count_u16 {
         let start = idx as usize * max_payload;
@@ -48,6 +50,7 @@ pub fn chunk_message(msg_id: u32, data: &[u8], max_payload: usize) -> Vec<Vec<u8
     out
 }
 
+#[derive(Debug)]
 struct PartialMessage {
     count: u16,
     chunks: BTreeMap<u16, Vec<u8>>,
@@ -55,18 +58,23 @@ struct PartialMessage {
 
 /// Reassembles chunk datagrams into complete messages, tolerating out-of-order
 /// delivery and dropping incomplete messages once too many pile up.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct UdpReassembler {
     partial: BTreeMap<u32, PartialMessage>,
 }
 
 impl UdpReassembler {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Ingest one datagram. Returns the fully-reassembled message if this
     /// datagram completed one, else `None`. Malformed datagrams are ignored.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal partial-message map is missing an entry that was
+    /// just inserted (an invariant violation that cannot occur in practice).
     pub fn ingest(&mut self, datagram: &[u8]) -> Option<Vec<u8>> {
         if datagram.len() < CHUNK_HEADER_LEN {
             return None;
@@ -113,7 +121,7 @@ mod tests {
 
     #[test]
     fn chunk_reassemble_roundtrip() {
-        let data: Vec<u8> = (0..3000u32).map(|i| (i % 256) as u8).collect();
+        let data: Vec<u8> = (0..3000u32).map(|i| u8::try_from(i % 256).unwrap_or(0)).collect();
         let chunks = chunk_message(7, &data, DEFAULT_CHUNK_PAYLOAD);
         assert_eq!(chunks.len(), 3, "3000 bytes / 1200 = 3 chunks");
 

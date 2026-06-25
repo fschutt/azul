@@ -56,11 +56,12 @@ use azul_core::{
 ///
 /// Pass to `register_image_icon` or wrap in `RefAny::new(...)` and register
 /// directly via `IconProviderHandle::register_icon`.
+#[derive(Debug)]
 pub struct ImageIconData {
     pub image: ImageRef,
-    /// Width duplicated from ImageRef at registration time
+    /// Width duplicated from `ImageRef` at registration time
     pub width: f32,
-    /// Height duplicated from ImageRef at registration time
+    /// Height duplicated from `ImageRef` at registration time
     pub height: f32,
 }
 
@@ -68,6 +69,7 @@ pub struct ImageIconData {
 ///
 /// Pass to `register_font_icon` or wrap in `RefAny::new(...)` and register
 /// directly via `IconProviderHandle::register_icon`.
+#[derive(Debug)]
 pub struct FontIconData {
     pub font: FontRef,
     /// The character/codepoint for this specific icon (e.g., "\u{e88a}" for home)
@@ -81,14 +83,14 @@ pub struct FontIconData {
 /// Default icon resolver that handles both image and font icons.
 ///
 /// Resolution logic:
-/// 1. If icon_data is None -> return empty div (icon not found)
-/// 2. If icon_data contains ImageIconData -> render as image
-/// 3. If icon_data contains FontIconData -> render as text with font
+/// 1. If `icon_data` is None -> return empty div (icon not found)
+/// 2. If `icon_data` contains `ImageIconData` -> render as image
+/// 3. If `icon_data` contains `FontIconData` -> render as text with font
 /// 4. Unknown data type -> return empty div
 ///
 /// Styles from the original icon DOM are copied to the result,
-/// filtered based on SystemStyle preferences.
-pub extern "C" fn default_icon_resolver(
+/// filtered based on `SystemStyle` preferences.
+#[must_use] pub extern "C" fn default_icon_resolver(
     icon_data: OptionRefAny,
     original_icon_dom: &StyledDom,
     system_style: &SystemStyle,
@@ -116,7 +118,7 @@ pub extern "C" fn default_icon_resolver(
 
 // Icon DOM Creation (from original)
 
-/// Create a StyledDom for an image-based icon, copying styles from original.
+/// Create a `StyledDom` for an image-based icon, copying styles from original.
 ///
 /// Applies SystemStyle-aware modifications:
 /// - Grayscale filter if `prefer_grayscale` is true
@@ -154,7 +156,7 @@ fn create_image_icon_from_original(
         
         // Copy accessibility info
         if let Some(a11y) = original_node.get_accessibility_info() {
-            dom = dom.with_accessibility_info(*a11y.clone());
+            dom = dom.with_accessibility_info(a11y.clone());
         }
     } else {
         // No original node, use default dimensions
@@ -172,7 +174,7 @@ fn create_image_icon_from_original(
     StyledDom::create(&mut dom, Css::empty())
 }
 
-/// Create a StyledDom for a font-based icon, copying styles from original.
+/// Create a `StyledDom` for a font-based icon, copying styles from original.
 ///
 /// Applies SystemStyle-aware modifications:
 /// - Text color override if `inherit_text_color` is true
@@ -202,7 +204,7 @@ fn create_font_icon_from_original(
         
         // Copy accessibility info
         if let Some(a11y) = original_node.get_accessibility_info() {
-            dom = dom.with_accessibility_info(*a11y.clone());
+            dom = dom.with_accessibility_info(a11y.clone());
         }
     } else {
         // No original node, just set the font
@@ -328,7 +330,7 @@ pub fn register_image_icon(provider: &mut IconProviderHandle, pack_name: &str, i
 }
 
 /// Register icons from a ZIP file (file names become icon names)
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub fn register_icons_from_zip(provider: &mut IconProviderHandle, pack_name: &str, zip_bytes: &[u8]) {
     for (icon_name, image, width, height) in load_images_from_zip(zip_bytes) {
         let data = ImageIconData { image, width, height };
@@ -336,7 +338,7 @@ pub fn register_icons_from_zip(provider: &mut IconProviderHandle, pack_name: &st
     }
 }
 
-#[cfg(not(feature = "zip_support"))]
+#[cfg(not(feature = "zip"))]
 pub fn register_icons_from_zip(_provider: &mut IconProviderHandle, _pack_name: &str, _zip_bytes: &[u8]) {
     // ZIP support not enabled
 }
@@ -354,8 +356,9 @@ pub fn register_font_icon(provider: &mut IconProviderHandle, pack_name: &str, ic
 // ZIP Support
 // ============================================================================
 
-/// Load all images from a ZIP file, returning (icon_name, ImageRef, width, height)
-#[cfg(all(feature = "zip_support", feature = "image_decoding"))]
+/// Load all images from a ZIP file, returning (`icon_name`, `ImageRef`, width, height)
+#[cfg(all(feature = "zip", feature = "image_decoding"))]
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     use crate::zip::{ZipFile, ZipReadConfig};
     use crate::image::decode::{decode_raw_image_from_any_bytes, ResultRawImageDecodeImageError};
@@ -363,17 +366,15 @@ fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     
     let mut result = Vec::new();
     let config = ZipReadConfig::default();
-    let entries = match ZipFile::list(zip_bytes, &config) {
-        Ok(e) => e,
-        Err(_) => return result,
+    let Ok(entries) = ZipFile::list(zip_bytes, &config) else {
+        return result;
     };
     
-    for entry in entries.iter() {
+    for entry in &entries {
         if entry.path.ends_with('/') { continue; } // Skip directories
         
-        let file_bytes = match ZipFile::get_single_file(zip_bytes, entry, &config) {
-            Ok(Some(b)) => b,
-            _ => continue,
+        let Ok(Some(file_bytes)) = ZipFile::get_single_file(zip_bytes, entry, &config) else {
+            continue;
         };
         
         // Decode as image
@@ -397,7 +398,7 @@ fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     result
 }
 
-#[cfg(not(all(feature = "zip_support", feature = "image_decoding")))]
+#[cfg(not(all(feature = "zip", feature = "image_decoding")))]
 fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
     Vec::new()
 }
@@ -410,15 +411,15 @@ fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> 
 /// 
 /// This registers all 2234 Material Icons from the `material-icons` crate.
 /// Each icon is registered under the "material-icons" pack with its HTML name
-/// (e.g., "home", "settings", "arrow_back", etc.).
+/// (e.g., "home", "settings", "`arrow_back`", etc.).
 /// 
 /// Requires the "icons" feature with material-icons crate.
 #[cfg(feature = "icons")]
-pub fn register_material_icons(provider: &mut IconProviderHandle, font: FontRef) {
+pub fn register_material_icons(provider: &mut IconProviderHandle, font: &FontRef) {
     use material_icons::{ALL_ICONS, icon_to_char, icon_to_html_name};
     
     // Register all Material Icons with their Unicode codepoints
-    for icon in ALL_ICONS.iter() {
+    for icon in &ALL_ICONS {
         let icon_char = icon_to_char(*icon);
         let name = icon_to_html_name(icon);
         
@@ -458,15 +459,12 @@ pub fn register_embedded_material_icons(
     use crate::parsed_font_to_font_ref;
 
     let mut warnings = Vec::new();
-    let parsed_font = match ParsedFont::from_bytes(font_bytes, 0, &mut warnings) {
-        Some(f) => f,
-        None => {
-            return false;
-        }
+    let Some(parsed_font) = ParsedFont::from_bytes(font_bytes, 0, &mut warnings) else {
+        return false;
     };
 
     let font_ref = parsed_font_to_font_ref(parsed_font);
-    register_material_icons(provider, font_ref);
+    register_material_icons(provider, &font_ref);
 
     true
 }
@@ -484,7 +482,7 @@ pub fn register_embedded_material_icons(
 // Convenience Functions
 // ============================================================================
 
-/// Create an IconProviderHandle with the default resolver.
+/// Create an `IconProviderHandle` with the default resolver.
 pub fn create_default_icon_provider() -> IconProviderHandle {
     IconProviderHandle::with_resolver(default_icon_resolver)
 }

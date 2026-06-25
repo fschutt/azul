@@ -21,14 +21,14 @@ pub enum TextEdit {
     DeleteForward,
 }
 
-fn selection_start_run(selection: &Selection) -> u32 {
+const fn selection_start_run(selection: &Selection) -> u32 {
     match selection {
         Selection::Cursor(c) => c.cluster_id.source_run,
         Selection::Range(r) => r.start.cluster_id.source_run,
     }
 }
 
-fn selection_start_byte(selection: &Selection) -> u32 {
+const fn selection_start_byte(selection: &Selection) -> u32 {
     match selection {
         Selection::Cursor(c) => c.cluster_id.start_byte_in_run,
         Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
@@ -56,6 +56,7 @@ fn sort_selections_back_to_front(selections: &[Selection]) -> Vec<Selection> {
 
 /// Shifts every already-processed cursor sitting at or after `edit_byte` in
 /// `edit_run` by `byte_offset_change`, clamping to zero.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn adjust_cursors(
     selections: &mut [Selection],
     edit_run: u32,
@@ -84,7 +85,8 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
 
 /// The primary entry point for text modification. Takes the current content and selections,
 /// applies an edit, and returns the new content and the resulting cursor positions.
-pub fn edit_text(
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
+#[must_use] pub fn edit_text(
     content: &[InlineContent],
     selections: &[Selection],
     edit: &TextEdit,
@@ -134,7 +136,7 @@ pub fn edit_text(
 /// - `DeleteBackward`/`DeleteForward`: deletes the range ONLY (the range
 ///   deletion replaces the character-level delete — pressing Backspace with
 ///   a selection should remove the selection, not the selection + 1 char)
-pub fn apply_edit_to_selection(
+#[must_use] pub fn apply_edit_to_selection(
     content: &[InlineContent],
     selection: &Selection,
     edit: &TextEdit,
@@ -149,7 +151,7 @@ pub fn apply_edit_to_selection(
                 // Insert: replace the deleted range with new text
                 TextEdit::Insert(text_to_insert) => {
                     let mut c = content_after_delete;
-                    insert_text(&mut c, &cursor_pos, text_to_insert)
+                    insert_text(&c, &cursor_pos, text_to_insert)
                 }
                 // Delete: range deletion is sufficient — don't delete again
                 TextEdit::DeleteBackward | TextEdit::DeleteForward => {
@@ -160,10 +162,10 @@ pub fn apply_edit_to_selection(
         Selection::Cursor(cursor) => {
             match edit {
                 TextEdit::Insert(text_to_insert) => {
-                    insert_text(&mut new_content, cursor, text_to_insert)
+                    insert_text(&new_content, cursor, text_to_insert)
                 }
-                TextEdit::DeleteBackward => delete_backward(&mut new_content, cursor),
-                TextEdit::DeleteForward => delete_forward(&mut new_content, cursor),
+                TextEdit::DeleteBackward => delete_backward(&new_content, cursor),
+                TextEdit::DeleteForward => delete_forward(&new_content, cursor),
             }
         }
     }
@@ -187,8 +189,7 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
                 text[csb..]
                     .grapheme_indices(true)
                     .next()
-                    .map(|(_, g)| csb + g.len())
-                    .unwrap_or(text.len())
+                    .map_or(text.len(), |(_, g)| csb + g.len())
             }
         }
     }
@@ -205,7 +206,8 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 /// Non-text items (images, etc.) at the boundaries are left intact (their text
 /// offset resolves to 0), while intermediate non-text items are dropped along
 /// with the rest of the spanned content.
-pub fn delete_range(
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use] pub fn delete_range(
     content: &[InlineContent],
     range: &SelectionRange,
 ) -> (Vec<InlineContent>, TextCursor) {
@@ -322,16 +324,18 @@ pub fn delete_range(
 /// Inserts text at a cursor position.
 /// 
 /// The cursor's affinity determines the exact insertion point:
-/// - `Leading`: Insert at the start of the referenced cluster (start_byte_in_run)
+/// - `Leading`: Insert at the start of the referenced cluster (`start_byte_in_run`)
 /// - `Trailing`: Insert at the end of the referenced cluster (after the grapheme)
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
 pub fn insert_text(
-    content: &mut Vec<InlineContent>,
+    content: &[InlineContent],
     cursor: &TextCursor,
     text_to_insert: &str,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
     
-    let mut new_content = content.clone();
+    let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
@@ -353,8 +357,7 @@ pub fn insert_text(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
-                        .unwrap_or(run.text.len())
+                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
                 }
             },
         };
@@ -382,12 +385,14 @@ pub fn insert_text(
 /// The cursor's affinity determines the actual cursor position:
 /// - `Leading`: Cursor is at start of cluster, delete the previous grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the current grapheme
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
 pub fn delete_backward(
-    content: &mut Vec<InlineContent>,
+    content: &[InlineContent],
     cursor: &TextCursor,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
-    let mut new_content = content.clone();
+    let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
@@ -403,8 +408,7 @@ pub fn delete_backward(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
-                        .unwrap_or(run.text.len())
+                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
                 }
             },
         };
@@ -459,12 +463,14 @@ pub fn delete_backward(
 /// The cursor's affinity determines the actual cursor position:
 /// - `Leading`: Cursor is at start of cluster, delete the current grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the next grapheme
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
 pub fn delete_forward(
-    content: &mut Vec<InlineContent>,
+    content: &[InlineContent],
     cursor: &TextCursor,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
-    let mut new_content = content.clone();
+    let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
@@ -480,8 +486,7 @@ pub fn delete_forward(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
-                        .unwrap_or(run.text.len())
+                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
                 }
             },
         };
@@ -532,7 +537,8 @@ pub fn delete_forward(
 /// # Panics
 ///
 /// Panics if `texts.len() != selections.len()`.
-pub fn edit_text_multi(
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
+#[must_use] pub fn edit_text_multi(
     content: &[InlineContent],
     selections: &[Selection],
     texts: &[&str],
@@ -569,7 +575,7 @@ pub fn edit_text_multi(
     });
 
     for (selection, text) in &pairs {
-        let edit = TextEdit::Insert(text.to_string());
+        let edit = TextEdit::Insert((*text).to_string());
 
         let edit_run = selection_start_run(selection);
         let edit_byte = selection_start_byte(selection);
@@ -591,9 +597,11 @@ pub fn edit_text_multi(
 }
 
 /// Returns the range and text that a delete operation would remove, without
-/// actually modifying the content. Useful for callbacks that need to inspect
+/// actually modifying the content.
+///
+/// Useful for callbacks that need to inspect
 /// pending deletes. Returns `None` if nothing would be deleted.
-pub fn inspect_delete(
+#[must_use] pub fn inspect_delete(
     content: &[InlineContent],
     selection: &Selection,
     forward: bool,
@@ -616,6 +624,7 @@ pub fn inspect_delete(
 }
 
 /// Inspect what would be deleted by delete-forward (Delete key)
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn inspect_delete_forward(
     content: &[InlineContent],
     cursor: &TextCursor,
@@ -680,6 +689,7 @@ fn inspect_delete_forward(
 }
 
 /// Inspect what would be deleted by delete-backward (Backspace key)
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn inspect_delete_backward(
     content: &[InlineContent],
     cursor: &TextCursor,

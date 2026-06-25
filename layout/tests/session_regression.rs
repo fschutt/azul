@@ -207,8 +207,7 @@ fn test_star_selector_skips_text_nodes() {
     // Text node should inherit from p (red), not from * (gray)
     assert_eq!(
         p_color, text_color,
-        "text color 0x{:08x} should equal p color 0x{:08x} (inherit, not * override)",
-        text_color, p_color
+        "text color 0x{text_color:08x} should equal p color 0x{p_color:08x} (inherit, not * override)"
     );
 }
 
@@ -348,8 +347,7 @@ fn test_descendant_selector_matches_deeply_nested() {
     let r = (p_color >> 24) & 0xFF;
     assert!(
         r > 200,
-        "p should be red from '.outer p' (descendant). color=0x{:08x}",
-        p_color
+        "p should be red from '.outer p' (descendant). color=0x{p_color:08x}"
     );
 }
 
@@ -459,7 +457,7 @@ fn test_global_star_font_weight_applied() {
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let div_fw = (cc.tier1_enums[1] >> azul_css::compact_cache::FONT_WEIGHT_SHIFT)
         & azul_css::compact_cache::FONT_WEIGHT_MASK;
-    assert!(div_fw != 0, "div should be bold from *, got encoded {}", div_fw);
+    assert!(div_fw != 0, "div should be bold from *, got encoded {div_fw}");
 }
 
 // =========================================================================

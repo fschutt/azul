@@ -71,15 +71,15 @@ fn gpu_synchronize_populates_caches_and_emits_added_events() {
         .get_cache(dom_id)
         .expect("gpu cache for ROOT_ID");
     assert!(
-        cache.css_transform_keys.get(&target).is_some(),
+        cache.css_transform_keys.contains_key(&target),
         "css_transform_keys should contain the target node after relayout"
     );
     assert!(
-        cache.css_current_transform_values.get(&target).is_some(),
+        cache.css_current_transform_values.contains_key(&target),
         "css_current_transform_values should contain the target node after relayout"
     );
     assert!(
-        cache.opacity_keys.get(&target).is_some(),
+        cache.opacity_keys.contains_key(&target),
         "opacity_keys should contain the target node after relayout"
     );
     let stored_opacity = *cache

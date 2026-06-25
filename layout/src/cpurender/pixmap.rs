@@ -17,10 +17,10 @@ use agg_rust::span_gradient::{GradientFunction, SpanGradient};
 use agg_rust::span_interpolator_linear::SpanInterpolatorLinear;
 use agg_rust::trans_affine::TransAffine;
 
-pub(crate) const IDENTITY_EPSILON_F64: f64 = 0.0001;
+pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 
 /// Compute the intersection of two logical rects.
-pub(crate) fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<LogicalRect> {
+#[must_use] pub fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<LogicalRect> {
     let x1 = a.origin.x.max(b.origin.x);
     let y1 = a.origin.y.max(b.origin.y);
     let x2 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
@@ -38,8 +38,9 @@ pub(crate) fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<Logi
     }
 }
 
-/// Blit `src` onto `dst` at pixel position (px_x, px_y) with opacity.
-pub(crate) fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
+/// Blit `src` onto `dst` at pixel position (`px_x`, `px_y`) with opacity.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
@@ -62,10 +63,10 @@ pub(crate) fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_
                 continue;
             }
 
-            let sr = src.data[si] as u32;
-            let sg = src.data[si + 1] as u32;
-            let sb = src.data[si + 2] as u32;
-            let sa = (src.data[si + 3] as u32 * op) / 255;
+            let sr = u32::from(src.data[si]);
+            let sg = u32::from(src.data[si + 1]);
+            let sb = u32::from(src.data[si + 2]);
+            let sa = (u32::from(src.data[si + 3]) * op) / 255;
 
             if sa == 0 {
                 continue;
@@ -77,17 +78,19 @@ pub(crate) fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_
                 dst.data[di + 3] = 255;
             } else {
                 let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + dst.data[di] as u32 * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + dst.data[di + 1] as u32 * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + dst.data[di + 2] as u32 * inv_sa) / 255) as u8;
-                dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
+                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
+                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
+                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
 }
 
 /// Shift pixel data in a pixmap by (dx, dy) pixels, clearing exposed regions.
-pub(crate) fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
+    use core::cmp::Ordering;
     let w = pixmap.width as i32;
     let h = pixmap.height as i32;
     if dx.abs() >= w || dy.abs() >= h {
@@ -100,55 +103,64 @@ pub(crate) fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     let data = &mut pixmap.data;
 
     // Shift rows vertically
-    if dy > 0 {
-        // Shift down: copy from top to bottom
-        for row in (0..h - dy).rev() {
-            let src_start = (row * w * 4) as usize;
-            let dst_start = ((row + dy) * w * 4) as usize;
-            data.copy_within(src_start..src_start + stride, dst_start);
+    match dy.cmp(&0) {
+        Ordering::Greater => {
+            // Shift down: copy from top to bottom
+            for row in (0..h - dy).rev() {
+                let src_start = (row * w * 4) as usize;
+                let dst_start = ((row + dy) * w * 4) as usize;
+                data.copy_within(src_start..src_start + stride, dst_start);
+            }
+            // Clear top rows
+            for row in 0..dy {
+                let start = (row * w * 4) as usize;
+                data[start..start + stride].fill(0);
+            }
         }
-        // Clear top rows
-        for row in 0..dy {
-            let start = (row * w * 4) as usize;
-            data[start..start + stride].fill(0);
+        Ordering::Less => {
+            let ady = -dy;
+            // Shift up: copy from bottom to top
+            for row in ady..h {
+                let src_start = (row * w * 4) as usize;
+                let dst_start = ((row - ady) * w * 4) as usize;
+                data.copy_within(src_start..src_start + stride, dst_start);
+            }
+            // Clear bottom rows
+            for row in (h - ady)..h {
+                let start = (row * w * 4) as usize;
+                data[start..start + stride].fill(0);
+            }
         }
-    } else if dy < 0 {
-        let ady = -dy;
-        // Shift up: copy from bottom to top
-        for row in ady..h {
-            let src_start = (row * w * 4) as usize;
-            let dst_start = ((row - ady) * w * 4) as usize;
-            data.copy_within(src_start..src_start + stride, dst_start);
-        }
-        // Clear bottom rows
-        for row in (h - ady)..h {
-            let start = (row * w * 4) as usize;
-            data[start..start + stride].fill(0);
-        }
+        Ordering::Equal => {}
     }
 
     // Shift columns horizontally
-    if dx > 0 {
-        for row in 0..h {
-            let row_start = (row * w * 4) as usize;
-            let shift = (dx * 4) as usize;
-            // Shift right within the row
-            data.copy_within(row_start..row_start + stride - shift, row_start + shift);
-            // Clear left columns
-            data[row_start..row_start + shift].fill(0);
+    match dx.cmp(&0) {
+        Ordering::Greater => {
+            for row in 0..h {
+                let row_start = (row * w * 4) as usize;
+                let shift = (dx * 4) as usize;
+                // Shift right within the row
+                data.copy_within(row_start..row_start + stride - shift, row_start + shift);
+                // Clear left columns
+                data[row_start..row_start + shift].fill(0);
+            }
         }
-    } else if dx < 0 {
-        let adx = (-dx * 4) as usize;
-        for row in 0..h {
-            let row_start = (row * w * 4) as usize;
-            data.copy_within(row_start + adx..row_start + stride, row_start);
-            // Clear right columns
-            data[row_start + stride - adx..row_start + stride].fill(0);
+        Ordering::Less => {
+            let adx = (-dx * 4) as usize;
+            for row in 0..h {
+                let row_start = (row * w * 4) as usize;
+                data.copy_within(row_start + adx..row_start + stride, row_start);
+                // Clear right columns
+                data[row_start + stride - adx..row_start + stride].fill(0);
+            }
         }
+        Ordering::Equal => {}
     }
 }
 
-/// A simple RGBA pixel buffer. Replaces tiny_skia::Pixmap.
+/// A simple RGBA pixel buffer. Replaces `tiny_skia::Pixmap`.
+#[derive(Debug)]
 pub struct AzulPixmap {
     pub(crate) data: Vec<u8>,
     pub(crate) width: u32,
@@ -157,7 +169,7 @@ pub struct AzulPixmap {
 
 impl AzulPixmap {
     /// Create a new pixmap filled with opaque white.
-    pub fn new(width: u32, height: u32) -> Option<Self> {
+    #[must_use] pub fn new(width: u32, height: u32) -> Option<Self> {
         if width == 0 || height == 0 {
             return None;
         }
@@ -181,6 +193,8 @@ impl AzulPixmap {
     }
 
     /// Fill a rectangular region with a single color (pixel coordinates).
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     pub fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8) {
         let pw = self.width as i32;
         let ph = self.height as i32;
@@ -205,7 +219,7 @@ impl AzulPixmap {
     }
 
     /// Raw RGBA pixel data.
-    pub fn data(&self) -> &[u8] {
+    #[must_use] pub fn data(&self) -> &[u8] {
         &self.data
     }
 
@@ -215,17 +229,17 @@ impl AzulPixmap {
     }
 
     /// Width in pixels.
-    pub fn width(&self) -> u32 {
+    #[must_use] pub const fn width(&self) -> u32 {
         self.width
     }
 
     /// Height in pixels.
-    pub fn height(&self) -> u32 {
+    #[must_use] pub const fn height(&self) -> u32 {
         self.height
     }
 
     /// Create a clone of this pixmap (for filter application).
-    pub fn clone_pixmap(&self) -> Self {
+    #[must_use] pub fn clone_pixmap(&self) -> Self {
         Self {
             data: self.data.clone(),
             width: self.width,
@@ -329,6 +343,9 @@ impl AzulPixmap {
     }
 
     /// Encode to PNG using the `png` crate.
+    /// # Errors
+    ///
+    /// Returns an error string if PNG encoding fails.
     pub fn encode_png(&self) -> Result<Vec<u8>, String> {
         let mut buf = Vec::new();
         {
@@ -337,27 +354,30 @@ impl AzulPixmap {
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder
                 .write_header()
-                .map_err(|e| format!("PNG header error: {}", e))?;
+                .map_err(|e| format!("PNG header error: {e}"))?;
             writer
                 .write_image_data(&self.data)
-                .map_err(|e| format!("PNG write error: {}", e))?;
+                .map_err(|e| format!("PNG write error: {e}"))?;
         }
         Ok(buf)
     }
 
-    /// Decode a PNG byte slice into an AzulPixmap.
+    /// Decode a PNG byte slice into an `AzulPixmap`.
+    /// # Errors
+    ///
+    /// Returns an error string if `png_bytes` is not a valid PNG.
     pub fn decode_png(png_bytes: &[u8]) -> Result<Self, String> {
         let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
         let mut reader = decoder
             .read_info()
-            .map_err(|e| format!("PNG decode error: {}", e))?;
+            .map_err(|e| format!("PNG decode error: {e}"))?;
         let buf_size = reader
             .output_buffer_size()
             .ok_or_else(|| "PNG: unknown output buffer size".to_string())?;
         let mut buf = vec![0u8; buf_size];
         let info = reader
             .next_frame(&mut buf)
-            .map_err(|e| format!("PNG frame error: {}", e))?;
+            .map_err(|e| format!("PNG frame error: {e}"))?;
         let width = info.width;
         let height = info.height;
 
@@ -384,7 +404,7 @@ impl AzulPixmap {
                 }
                 rgba
             }
-            other => return Err(format!("Unsupported PNG color type: {:?}", other)),
+            other => return Err(format!("Unsupported PNG color type: {other:?}")),
         };
 
         Ok(Self {
@@ -400,7 +420,7 @@ impl AzulPixmap {
 // ============================================================================
 
 /// Result of comparing two pixmaps pixel-by-pixel.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct PixelDiffResult {
     /// Number of pixels that differ beyond the threshold.
     pub diff_count: u64,
@@ -422,12 +442,13 @@ pub struct PixelDiffResult {
 
 impl PixelDiffResult {
     /// True if the images are identical within tolerance.
-    pub fn is_match(&self) -> bool {
+    #[must_use] pub const fn is_match(&self) -> bool {
         self.dimensions_match && self.diff_count == 0
     }
 
     /// Fraction of pixels that differ (0.0 = identical, 1.0 = all different).
-    pub fn diff_ratio(&self) -> f64 {
+    #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+    #[must_use] pub fn diff_ratio(&self) -> f64 {
         if self.total_pixels == 0 {
             0.0
         } else {
@@ -440,7 +461,8 @@ impl PixelDiffResult {
 ///
 /// `threshold` is the maximum allowed per-channel difference (0 = exact match,
 /// 2-3 = anti-aliasing tolerance, 10+ = loose match).
-pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> PixelDiffResult {
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+#[must_use] pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> PixelDiffResult {
     let dimensions_match = reference.width == test.width && reference.height == test.height;
     if !dimensions_match {
         return PixelDiffResult {
@@ -455,7 +477,7 @@ pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> P
         };
     }
 
-    let total_pixels = (reference.width as u64) * (reference.height as u64);
+    let total_pixels = u64::from(reference.width) * u64::from(reference.height);
     let mut diff_count = 0u64;
     let mut max_delta = 0u8;
 
@@ -466,7 +488,7 @@ pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> P
     {
         let mut pixel_differs = false;
         for c in 0..4 {
-            let delta = (ref_chunk[c] as i16 - test_chunk[c] as i16).unsigned_abs() as u8;
+            let delta = (i16::from(ref_chunk[c]) - i16::from(test_chunk[c])).unsigned_abs() as u8;
             if delta > threshold {
                 pixel_differs = true;
             }
@@ -495,13 +517,16 @@ pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> P
 ///
 /// Returns `Ok(result)` with the diff stats, or `Err` if the reference
 /// file cannot be read/decoded.
+/// # Errors
+///
+/// Returns an error string if the images cannot be loaded or compared.
 pub fn compare_against_reference(
     rendered: &AzulPixmap,
     reference_png_path: &str,
     threshold: u8,
 ) -> Result<PixelDiffResult, String> {
     let ref_bytes = std::fs::read(reference_png_path)
-        .map_err(|e| format!("Cannot read reference image {}: {}", reference_png_path, e))?;
+        .map_err(|e| format!("Cannot read reference image {reference_png_path}: {e}"))?;
     let reference = AzulPixmap::decode_png(&ref_bytes)?;
     Ok(pixel_diff(&reference, rendered, threshold))
 }
@@ -511,18 +536,20 @@ pub fn compare_against_reference(
 // ============================================================================
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct AzRect {
+pub struct AzRect {
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) width: f32,
     pub(crate) height: f32,
 }
 
-/// Intersect a freshly-pushed clip with the currently-active one. `None`
+/// Intersect a freshly-pushed clip with the currently-active one.
+///
+/// `None`
 /// means "no clip". An EMPTY intersection clips everything (zero-area rect) —
 /// it must NOT degrade to `None`/unclipped, or nested clips could escape
 /// their parents.
-pub(crate) fn intersect_clips(current: Option<AzRect>, new: Option<AzRect>) -> Option<AzRect> {
+#[must_use] pub fn intersect_clips(current: Option<AzRect>, new: Option<AzRect>) -> Option<AzRect> {
     match (current, new) {
         (Some(cur), Some(new)) => {
             let x0 = cur.x.max(new.x);
@@ -561,13 +588,13 @@ impl AzRect {
     }
 
     /// Intersect this rect with a clip rect. Returns None if fully clipped.
-    pub(crate) fn clip(&self, clip: &AzRect) -> Option<AzRect> {
+    pub(crate) fn clip(&self, clip: &Self) -> Option<Self> {
         let x1 = self.x.max(clip.x);
         let y1 = self.y.max(clip.y);
         let x2 = (self.x + self.width).min(clip.x + clip.width);
         let y2 = (self.y + self.height).min(clip.y + clip.height);
         if x2 > x1 && y2 > y1 {
-            Some(AzRect {
+            Some(Self {
                 x: x1,
                 y: y1,
                 width: x2 - x1,
@@ -583,7 +610,7 @@ impl AzRect {
 // AGG helper: fill a PathStorage with a solid color into an AzulPixmap
 // ============================================================================
 
-pub(crate) fn agg_fill_path(
+pub fn agg_fill_path(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
     color: &Rgba8,
@@ -598,7 +625,8 @@ pub(crate) fn agg_fill_path(
 /// scanline output to the clip region.  This handles scroll-frame clips,
 /// border-radius is TODO (would need a mask), transforms are handled by
 /// transforming the clip box through the inverse transform before setting it.
-pub(crate) fn agg_fill_path_clipped(
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
+pub fn agg_fill_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
     color: &Rgba8,
@@ -626,6 +654,7 @@ pub(crate) fn agg_fill_path_clipped(
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn agg_fill_transformed_path(
     pixmap: &mut AzulPixmap,
     path: &mut PathStorage,
@@ -636,6 +665,7 @@ fn agg_fill_transformed_path(
     agg_fill_transformed_path_clipped(pixmap, path, color, rule, transform, None);
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn agg_fill_transformed_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut PathStorage,
@@ -668,7 +698,8 @@ fn agg_fill_gradient<G: GradientFunction>(
     agg_fill_gradient_clipped(pixmap, path, lut, gradient_fn, transform, d1, d2, None);
 }
 
-pub(crate) fn agg_fill_gradient_clipped<G: GradientFunction>(
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
+pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
     lut: &GradientLut,
@@ -708,7 +739,8 @@ pub(crate) fn agg_fill_gradient_clipped<G: GradientFunction>(
 // ============================================================================
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
-pub(crate) fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
     let dw = dst.width as i32;
     let dh = dst.height as i32;
 
@@ -730,7 +762,7 @@ pub(crate) fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u
                 continue;
             }
 
-            let sa = src[si + 3] as u32;
+            let sa = u32::from(src[si + 3]);
             if sa == 0 {
                 continue;
             }
@@ -743,12 +775,12 @@ pub(crate) fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u
                 // Premultiplied-alpha compositing: src RGB already premultiplied by AGG
                 let inv_sa = 255 - sa;
                 dst.data[di] =
-                    ((src[si] as u32 + dst.data[di] as u32 * inv_sa / 255).min(255)) as u8;
+                    ((u32::from(src[si]) + u32::from(dst.data[di]) * inv_sa / 255).min(255)) as u8;
                 dst.data[di + 1] =
-                    ((src[si + 1] as u32 + dst.data[di + 1] as u32 * inv_sa / 255).min(255)) as u8;
+                    ((u32::from(src[si + 1]) + u32::from(dst.data[di + 1]) * inv_sa / 255).min(255)) as u8;
                 dst.data[di + 2] =
-                    ((src[si + 2] as u32 + dst.data[di + 2] as u32 * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * inv_sa / 255).min(255)) as u8;
+                    ((u32::from(src[si + 2]) + u32::from(dst.data[di + 2]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -759,7 +791,8 @@ pub(crate) fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u
 // ============================================================================
 
 /// Take a snapshot of a rectangular region of the pixmap.
-pub(crate) fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[must_use] pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
     let pw = pixmap.width as i32;
     let ph = pixmap.height as i32;
     let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
@@ -816,7 +849,7 @@ pub(crate) fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: 
     }
 }
 
-pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
+#[must_use] pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     let x = a.origin.x.min(b.origin.x);
     let y = a.origin.y.min(b.origin.y);
     let right = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
@@ -830,7 +863,7 @@ pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     }
 }
 
-pub(crate) fn logical_rect_to_az_rect(bounds: &LogicalRect, dpi_factor: f32) -> Option<AzRect> {
+#[must_use] pub fn logical_rect_to_az_rect(bounds: &LogicalRect, dpi_factor: f32) -> Option<AzRect> {
     let x = bounds.origin.x * dpi_factor;
     let y = bounds.origin.y * dpi_factor;
     let width = bounds.size.width * dpi_factor;

@@ -204,7 +204,7 @@ fn test_taffy_align_items_stretch_with_intrinsic_size() {
                 height: AvailableSpace::Definite(100.0),
             },
             |known_dimensions, _available_space, _node_id, context, _style| {
-                println!("Measure called: known_dimensions={:?}", known_dimensions);
+                println!("Measure called: known_dimensions={known_dimensions:?}");
 
                 if let Some(ctx) = context {
                     Size {

@@ -6,6 +6,7 @@ use azul_core::{
     dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClass::Id, IdOrClassVec},
     refany::RefAny,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -122,7 +123,7 @@ impl Titlebar {
     /// Use [`Titlebar::from_system_style`] when you have a
     /// `SystemStyle` available for pixel-perfect metrics.
     #[inline]
-    pub fn new(title: AzString) -> Self {
+    #[must_use] pub fn new(title: AzString) -> Self {
         // Equal padding on both sides keeps text-align:center at the window midpoint.
         // The button-side half prevents overlap; the opposite half balances it.
         let half = DEFAULT_BUTTON_AREA_WIDTH / 2.0;
@@ -139,13 +140,13 @@ impl Titlebar {
 
     /// FFI-compatible alias for [`Titlebar::new`].
     #[inline]
-    pub fn create(title: AzString) -> Self {
+    #[must_use] pub fn create(title: AzString) -> Self {
         Self::new(title)
     }
 
     /// Create a titlebar with a custom height.
     #[inline]
-    pub fn with_height(title: AzString, height: f32) -> Self {
+    #[must_use] pub fn with_height(title: AzString, height: f32) -> Self {
         let mut tb = Self::new(title);
         tb.height = height;
         tb
@@ -153,7 +154,7 @@ impl Titlebar {
 
     /// Set the titlebar height.
     #[inline]
-    pub fn set_height(&mut self, height: f32) {
+    pub const fn set_height(&mut self, height: f32) {
         self.height = height;
     }
 
@@ -165,35 +166,31 @@ impl Titlebar {
 
     /// Swap this titlebar with a default instance, returning the old value.
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Titlebar::new(AzString::from_const_str(""));
+        let mut s = Self::new(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
     }
 
     /// Create from a live [`SystemStyle`] (for title-only mode, padding
     /// reserves space for OS-drawn buttons).
-    pub fn from_system_style(title: AzString, system_style: &SystemStyle) -> Self {
+    #[must_use] pub fn from_system_style(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
         let height = tm.height.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
-            .unwrap_or(DEFAULT_TITLEBAR_HEIGHT);
+            .map_or(DEFAULT_TITLEBAR_HEIGHT, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
         let font_size = tm.title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
         let button_area = tm.button_area_width.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
-            .unwrap_or(DEFAULT_BUTTON_AREA_WIDTH);
+            .map_or(DEFAULT_BUTTON_AREA_WIDTH, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
         let safe_left = tm.safe_area.left.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
-            .unwrap_or(0.0);
+            .map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
         let safe_right = tm.safe_area.right.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
-            .unwrap_or(0.0);
+            .map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
         // Apply padding_horizontal from TitlebarMetrics
         let pad_h = tm.padding_horizontal.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
-            .unwrap_or(0.0);
+            .map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
 
         // Equal padding on both sides so text-align:center stays at the window midpoint.
         // button_area/2 on each side: the button-side half clears the traffic-lights/caption
@@ -207,8 +204,8 @@ impl Titlebar {
         // Resolve title color from system style, with dark/light fallback
         let title_color = system_style.colors.text.into_option().unwrap_or(
             match system_style.theme {
-                azul_css::system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                azul_css::system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
             }
         );
 
@@ -217,24 +214,24 @@ impl Titlebar {
 
     /// Create from [`SystemStyle`] for **full CSD** mode (no padding — the
     /// buttons are rendered as DOM children).
-    pub fn from_system_style_csd(title: AzString, system_style: &SystemStyle) -> Self {
+    #[must_use] pub fn from_system_style_csd(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
         let height = tm.height.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
-            .unwrap_or(DEFAULT_TITLEBAR_HEIGHT);
+            .map_or(DEFAULT_TITLEBAR_HEIGHT, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
         let font_size = tm.title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
         let title_color = system_style.colors.text.into_option().unwrap_or(
             match system_style.theme {
-                azul_css::system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                azul_css::system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
             }
         );
         Self { title, height, font_size, padding_left: 0.0, padding_right: 0.0, title_color }
     }
 
     /// Build inline CSS for the container div.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let mut props = Vec::with_capacity(8);
         if show_buttons {
@@ -283,6 +280,7 @@ impl Titlebar {
     }
 
     /// Build inline CSS for the title text node.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let font_family = StyleFontFamilyVec::from_vec(vec![
             StyleFontFamily::SystemType(SystemFontType::TitleBold),
@@ -331,7 +329,7 @@ impl Titlebar {
     /// The OS draws the native window-control buttons; this just renders
     /// a centred title with drag support.
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         self.dom_inner(false, &TitlebarButtons::default(), TitlebarButtonSide::Right)
     }
 
@@ -339,7 +337,7 @@ impl Titlebar {
     ///
     /// Each button is a div with a `MouseDown` callback that calls
     /// `modify_window_state()` — no special hooks needed.
-    pub fn dom_with_buttons(
+    #[must_use] pub fn dom_with_buttons(
         self,
         buttons: &TitlebarButtons,
         button_side: TitlebarButtonSide,
@@ -348,6 +346,7 @@ impl Titlebar {
     }
 
     /// Inner builder for both modes.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     fn dom_inner(
         self,
         show_buttons: bool,
@@ -377,7 +376,7 @@ impl Titlebar {
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::DragStart),
                     callback: CoreCallback {
-                        cb: self::callbacks::titlebar_drag_start as usize,
+                        cb: callbacks::titlebar_drag_start as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(DragMarker),
@@ -385,7 +384,7 @@ impl Titlebar {
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Drag),
                     callback: CoreCallback {
-                        cb: self::callbacks::titlebar_drag as usize,
+                        cb: callbacks::titlebar_drag as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(DragMarker),
@@ -393,7 +392,7 @@ impl Titlebar {
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::DoubleClick),
                     callback: CoreCallback {
-                        cb: self::callbacks::titlebar_double_click as usize,
+                        cb: callbacks::titlebar_double_click as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(DragMarker),
@@ -435,6 +434,7 @@ impl Titlebar {
 }
 
 /// Build the `.csd-buttons` container with close/min/max button DOM nodes.
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn build_button_container(buttons: &TitlebarButtons) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
@@ -455,7 +455,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
             .with_callbacks(vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
-                    cb: self::callbacks::csd_minimize as usize,
+                    cb: callbacks::csd_minimize as usize,
                     ctx: azul_core::refany::OptionRefAny::None,
                 },
                 refany: RefAny::new(()),
@@ -474,7 +474,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
             .with_callbacks(vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
-                    cb: self::callbacks::csd_maximize as usize,
+                    cb: callbacks::csd_maximize as usize,
                     ctx: azul_core::refany::OptionRefAny::None,
                 },
                 refany: RefAny::new(()),
@@ -493,7 +493,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
             .with_callbacks(vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
-                    cb: self::callbacks::csd_close as usize,
+                    cb: callbacks::csd_close as usize,
                     ctx: azul_core::refany::OptionRefAny::None,
                 },
                 refany: RefAny::new(()),
@@ -507,12 +507,12 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
 }
 
 impl From<Titlebar> for Dom {
-    fn from(t: Titlebar) -> Dom { t.dom() }
+    fn from(t: Titlebar) -> Self { t.dom() }
 }
 
 impl Default for Titlebar {
     fn default() -> Self {
-        Titlebar::new(AzString::from_const_str(""))
+        Self::new(AzString::from_const_str(""))
     }
 }
 
@@ -527,9 +527,9 @@ pub(crate) mod callbacks {
     use azul_core::refany::RefAny;
     use crate::callbacks::CallbackInfo;
 
-    /// DragStart — on Wayland, initiate compositor-managed move immediately.
-    /// On other platforms, just acknowledge (movement happens in titlebar_drag).
-    pub extern "C" fn titlebar_drag_start(
+    /// `DragStart` — on Wayland, initiate compositor-managed move immediately.
+    /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
+    pub(super) extern "C" fn titlebar_drag_start(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         // On Wayland, window position is Uninitialized (compositor hides it).
@@ -551,7 +551,8 @@ pub(crate) mod callbacks {
     ///
     /// On Wayland: this is a no-op because the compositor manages the move
     /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
-    pub extern "C" fn titlebar_drag(
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    pub(super) extern "C" fn titlebar_drag(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowPosition;
@@ -573,8 +574,8 @@ pub(crate) mod callbacks {
         Update::DoNothing
     }
 
-    /// DoubleClick — toggle Maximized ↔ Normal.
-    pub extern "C" fn titlebar_double_click(
+    /// `DoubleClick` — toggle Maximized ↔ Normal.
+    pub(super) extern "C" fn titlebar_double_click(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;
@@ -586,7 +587,7 @@ pub(crate) mod callbacks {
     }
 
     /// Close button — `close_requested = true`.
-    pub extern "C" fn csd_close(
+    pub(super) extern "C" fn csd_close(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         let mut s = info.get_current_window_state().clone();
@@ -596,7 +597,7 @@ pub(crate) mod callbacks {
     }
 
     /// Minimize button — `frame = Minimized`.
-    pub extern "C" fn csd_minimize(
+    pub(super) extern "C" fn csd_minimize(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;
@@ -607,7 +608,7 @@ pub(crate) mod callbacks {
     }
 
     /// Maximize button — toggle Maximized ↔ Normal.
-    pub extern "C" fn csd_maximize(
+    pub(super) extern "C" fn csd_maximize(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;

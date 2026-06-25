@@ -249,7 +249,7 @@ fn test_dom_inline_elements() {
 #[test]
 fn test_dom_many_children() {
     let children: Vec<Dom> = (0..100)
-        .map(|i| Dom::create_text(format!("Child {}", i)))
+        .map(|i| Dom::create_text(format!("Child {i}")))
         .collect();
     let dom = Dom::create_div().with_children(children.into());
     assert_eq!(dom.children.len(), 100);

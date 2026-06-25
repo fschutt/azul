@@ -89,9 +89,9 @@ fn layout_dom(dom: Dom, css_str: &str, width: f32, height: f32) -> LayoutWindow 
         .unwrap();
     if let Some(msgs) = &debug_messages {
         for m in msgs.iter() {
-            let s = format!("{:?}", m);
+            let s = format!("{m:?}");
             if !s.contains("BoxProps") {
-                println!("[layout-debug] {}", s);
+                println!("[layout-debug] {s}");
             }
         }
     }
@@ -221,8 +221,7 @@ fn maps_header_items_present_in_display_list() {
     // And at least one text/textlayout item must exist (status line + buttons).
     assert!(
         kinds.get("text").copied().unwrap_or(0) + kinds.get("textlayout").copied().unwrap_or(0) > 0,
-        "no text items in the root display list at all: kinds={:?}",
-        kinds
+        "no text items in the root display list at all: kinds={kinds:?}"
     );
 }
 
@@ -287,7 +286,7 @@ fn maps_render_paints_header_pixels() {
     // pollute the samples (y=40 hits text edges).
     let samples: Vec<(usize, (u8, u8, u8))> =
         [40usize, 150, 300, 450, 600].iter().map(|&x| (x, px(x, 12))).collect();
-    println!("header-band pixels at y=12: {:?}", samples);
+    println!("header-band pixels at y=12: {samples:?}");
 
     // The header background is #2b2b2b (43,43,43); buttons are #4a90e2.
     let dark = |c: (u8, u8, u8)| {
@@ -298,10 +297,9 @@ fn maps_render_paints_header_pixels() {
     };
     assert!(
         dark(px(40, 12)) && dark(px(150, 12)),
-        "header band is NOT painted dark at y=40: {:?} — the rasterizer drops \
+        "header band is NOT painted dark at y=40: {samples:?} — the rasterizer drops \
          or overpaints the header (live bug: child PushClip replaced the \
-         VirtualView composite clip)",
-        samples
+         VirtualView composite clip)"
     );
     // Every sampled header-band pixel must be header chrome (dark bg, white
     // text, or blue button) — never the child's placeholder-tile grey, which
@@ -310,9 +308,8 @@ fn maps_render_paints_header_pixels() {
         let whiteish = c.0 > 230 && c.1 > 230 && c.2 > 230;
         assert!(
             dark(*c) || blue(*c) || whiteish,
-            "header band pixel at x={x} is {:?} — child content overdrew the \
-             header (clip escape)",
-            c
+            "header band pixel at x={x} is {c:?} — child content overdrew the \
+             header (clip escape)"
         );
     }
 }
@@ -473,8 +470,8 @@ fn maps_header_must_not_collapse_to_zero_height() {
     }
     let header_rect = lw.get_node_layout_rect(node_id(1)).expect("header rect");
     let map_rect = lw.get_node_layout_rect(node_id(22)).expect("mapbox rect");
-    println!("header = {:?}", header_rect);
-    println!("mapbox = {:?}", map_rect);
+    println!("header = {header_rect:?}");
+    println!("mapbox = {map_rect:?}");
 
     // Text ~14px + buttons (~13px + 12px padding) + 20px header padding ⇒ ≥ 30px.
     assert!(
@@ -536,7 +533,7 @@ fn maps_header_with_css_styling_must_not_collapse() {
     let header_rect = lw
         .get_node_layout_rect(node_id(1))
         .expect("header rect (with_css variant)");
-    println!("with_css header = {:?}", header_rect);
+    println!("with_css header = {header_rect:?}");
     assert!(
         header_rect.size.height > 25.0,
         "maps header (with_css styling) collapsed: height = {}",
@@ -555,7 +552,7 @@ fn maps_header_survives_incremental_relayout() {
     let header_rect = lw
         .get_node_layout_rect(node_id(1))
         .expect("header rect after incremental relayout");
-    println!("header after 3 passes = {:?}", header_rect);
+    println!("header after 3 passes = {header_rect:?}");
     assert!(
         header_rect.size.height > 25.0,
         "maps header collapsed on INCREMENTAL relayout: height = {}",
@@ -615,9 +612,9 @@ fn paint_canvas_with_menubar_wrapper_must_stretch_full_width() {
     let header_rect = lw.get_node_layout_rect(node_id(header_idx)).expect("header rect");
     let canvas_rect = lw.get_node_layout_rect(node_id(canvas_idx)).expect("canvas rect");
     println!("menubar_nodes = {menubar_nodes}");
-    println!("body   = {:?}", body_rect);
-    println!("header = {:?}", header_rect);
-    println!("canvas = {:?}", canvas_rect);
+    println!("body   = {body_rect:?}");
+    println!("header = {header_rect:?}");
+    println!("canvas = {canvas_rect:?}");
 
     assert!(
         canvas_rect.size.width > 600.0,

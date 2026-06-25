@@ -31,7 +31,7 @@ pub enum StyleListStyleType {
 
 impl PrintAsCssValue for StyleListStyleType {
     fn print_as_css_value(&self) -> String {
-        use StyleListStyleType::*;
+        use StyleListStyleType::{None, Disc, Circle, Square, Decimal, DecimalLeadingZero, LowerRoman, UpperRoman, LowerGreek, UpperGreek, LowerAlpha, UpperAlpha};
         String::from(match self {
             None => "none",
             Disc => "disc",
@@ -51,7 +51,7 @@ impl PrintAsCssValue for StyleListStyleType {
 
 impl FormatAsRustCode for StyleListStyleType {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use StyleListStyleType::*;
+        use StyleListStyleType::{None, Disc, Circle, Square, Decimal, DecimalLeadingZero, LowerRoman, UpperRoman, LowerGreek, UpperGreek, LowerAlpha, UpperAlpha};
         format!(
             "StyleListStyleType::{}",
             match self {
@@ -73,7 +73,7 @@ impl FormatAsRustCode for StyleListStyleType {
 }
 
 impl fmt::Display for StyleListStyleType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -93,7 +93,7 @@ pub enum StyleListStylePosition {
 
 impl PrintAsCssValue for StyleListStylePosition {
     fn print_as_css_value(&self) -> String {
-        use StyleListStylePosition::*;
+        use StyleListStylePosition::{Inside, Outside};
         String::from(match self {
             Inside => "inside",
             Outside => "outside",
@@ -103,7 +103,7 @@ impl PrintAsCssValue for StyleListStylePosition {
 
 impl FormatAsRustCode for StyleListStylePosition {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use StyleListStylePosition::*;
+        use StyleListStylePosition::{Inside, Outside};
         format!(
             "StyleListStylePosition::{}",
             match self {
@@ -115,7 +115,7 @@ impl FormatAsRustCode for StyleListStylePosition {
 }
 
 impl fmt::Display for StyleListStylePosition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.print_as_css_value())
     }
 }
@@ -123,7 +123,7 @@ impl fmt::Display for StyleListStylePosition {
 // --- Parsing Logic ---
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleListStyleTypeParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -137,24 +137,24 @@ impl_display! { StyleListStyleTypeParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleListStyleTypeParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleListStyleTypeParseError<'a> {
-    pub fn to_contained(&self) -> StyleListStyleTypeParseErrorOwned {
+impl StyleListStyleTypeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleListStyleTypeParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleListStyleTypeParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => StyleListStyleTypeParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleListStyleTypeParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleListStyleTypeParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleListStyleTypeParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleListStyleTypeParseError::InvalidValue(s.as_str()),
         }
@@ -163,9 +163,12 @@ impl StyleListStyleTypeParseErrorOwned {
 
 /// Parses a CSS `list-style-type` value from a string.
 #[cfg(feature = "parser")]
-pub fn parse_style_list_style_type<'a>(
-    input: &'a str,
-) -> Result<StyleListStyleType, StyleListStyleTypeParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `list-style-type` value.
+pub fn parse_style_list_style_type(
+    input: &str,
+) -> Result<StyleListStyleType, StyleListStyleTypeParseError<'_>> {
     let input = input.trim();
     match input {
         "none" => Ok(StyleListStyleType::None),
@@ -185,7 +188,7 @@ pub fn parse_style_list_style_type<'a>(
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleListStylePositionParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -199,18 +202,18 @@ impl_display! { StyleListStylePositionParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleListStylePositionParseErrorOwned {
     InvalidValue(AzString),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleListStylePositionParseError<'a> {
-    pub fn to_contained(&self) -> StyleListStylePositionParseErrorOwned {
+impl StyleListStylePositionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleListStylePositionParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleListStylePositionParseErrorOwned::InvalidValue(s.to_string().into())
+                StyleListStylePositionParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -218,7 +221,7 @@ impl<'a> StyleListStylePositionParseError<'a> {
 
 #[cfg(feature = "parser")]
 impl StyleListStylePositionParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleListStylePositionParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleListStylePositionParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleListStylePositionParseError::InvalidValue(s.as_str()),
         }
@@ -227,9 +230,12 @@ impl StyleListStylePositionParseErrorOwned {
 
 /// Parses a CSS `list-style-position` value from a string.
 #[cfg(feature = "parser")]
-pub fn parse_style_list_style_position<'a>(
-    input: &'a str,
-) -> Result<StyleListStylePosition, StyleListStylePositionParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `list-style-position` value.
+pub fn parse_style_list_style_position(
+    input: &str,
+) -> Result<StyleListStylePosition, StyleListStylePositionParseError<'_>> {
     let input = input.trim();
     match input {
         "inside" => Ok(StyleListStylePosition::Inside),

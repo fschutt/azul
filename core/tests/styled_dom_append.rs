@@ -177,23 +177,23 @@ fn test_xml_like_append_sequence() {
 
     for i in 0..5 {
         let child = style_dom(Dom::create_div()
-            .with_child(Dom::create_text(format!("text {}", i))));
+            .with_child(Dom::create_text(format!("text {i}"))));
         body.append_child(child);
     }
 
     let len = body.node_hierarchy.as_ref().len();
     for (i, node) in body.node_hierarchy.as_ref().iter().enumerate() {
         if let Some(id) = node.parent_id() {
-            assert!(id.index() < len, "Node {} parent invalid", i);
+            assert!(id.index() < len, "Node {i} parent invalid");
         }
         if let Some(id) = node.last_child_id() {
-            assert!(id.index() < len, "Node {} last_child invalid", i);
+            assert!(id.index() < len, "Node {i} last_child invalid");
         }
         if let Some(id) = node.previous_sibling_id() {
-            assert!(id.index() < len, "Node {} previous_sibling invalid", i);
+            assert!(id.index() < len, "Node {i} previous_sibling invalid");
         }
         if let Some(id) = node.next_sibling_id() {
-            assert!(id.index() < len, "Node {} next_sibling invalid", i);
+            assert!(id.index() < len, "Node {i} next_sibling invalid");
         }
     }
 }

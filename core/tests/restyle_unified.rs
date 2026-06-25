@@ -143,14 +143,14 @@ fn test_restyle_focus_lost_updates_styled_node_state() {
     let node_id = NodeId::new(1);
     
     // First, focus the node
-    styled_dom.restyle_on_state_change(
+    drop(styled_dom.restyle_on_state_change(
         Some(FocusChange {
             lost_focus: None,
             gained_focus: Some(node_id),
         }),
         None,
         None,
-    );
+    ));
     
     // Verify focused
     assert!(styled_dom.styled_nodes.as_container()[node_id].styled_node_state.focused);
@@ -178,14 +178,14 @@ fn test_restyle_focus_transfer_between_nodes() {
     let node2 = NodeId::new(2);
     
     // Focus node1
-    styled_dom.restyle_on_state_change(
+    drop(styled_dom.restyle_on_state_change(
         Some(FocusChange {
             lost_focus: None,
             gained_focus: Some(node1),
         }),
         None,
         None,
-    );
+    ));
     
     assert!(styled_dom.styled_nodes.as_container()[node1].styled_node_state.focused);
     assert!(!styled_dom.styled_nodes.as_container()[node2].styled_node_state.focused);
@@ -243,14 +243,14 @@ fn test_restyle_hover_leave_updates_styled_node_state() {
     let node_id = NodeId::new(1);
     
     // First hover the node
-    styled_dom.restyle_on_state_change(
+    drop(styled_dom.restyle_on_state_change(
         None,
         Some(HoverChange {
             left_nodes: vec![],
             entered_nodes: vec![node_id],
         }),
         None,
-    );
+    ));
     
     assert!(styled_dom.styled_nodes.as_container()[node_id].styled_node_state.hover);
     
@@ -323,14 +323,14 @@ fn test_restyle_active_mouse_up_updates_styled_node_state() {
     let node_id = NodeId::new(1);
     
     // First activate the node
-    styled_dom.restyle_on_state_change(
+    drop(styled_dom.restyle_on_state_change(
         None,
         None,
         Some(ActiveChange {
             deactivated: vec![],
             activated: vec![node_id],
         }),
-    );
+    ));
     
     assert!(styled_dom.styled_nodes.as_container()[node_id].styled_node_state.active);
     
@@ -534,7 +534,7 @@ fn test_restyle_preserves_other_state_flags() {
     let node_id = NodeId::new(1);
     
     // First set hover and active
-    styled_dom.restyle_on_state_change(
+    drop(styled_dom.restyle_on_state_change(
         None,
         Some(HoverChange {
             left_nodes: vec![],
@@ -544,17 +544,17 @@ fn test_restyle_preserves_other_state_flags() {
             deactivated: vec![],
             activated: vec![node_id],
         }),
-    );
+    ));
     
     // Now add focus - should preserve hover and active
-    styled_dom.restyle_on_state_change(
+    drop(styled_dom.restyle_on_state_change(
         Some(FocusChange {
             lost_focus: None,
             gained_focus: Some(node_id),
         }),
         None,
         None,
-    );
+    ));
     
     let state = styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
     assert!(state.focused, "Should be focused");

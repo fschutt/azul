@@ -46,7 +46,7 @@ use std::collections::BTreeMap;
 
 /// Determine the default action for a keyboard event based on the
 /// current key, focused element, and whether `prevent_default()` was called.
-pub fn determine_keyboard_default_action(
+#[must_use] pub fn determine_keyboard_default_action(
     keyboard_state: &KeyboardState,
     focused_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -58,9 +58,8 @@ pub fn determine_keyboard_default_action(
     }
 
     // Get the current key (if any)
-    let current_key = match keyboard_state.current_virtual_keycode.into_option() {
-        Some(key) => key,
-        None => return DefaultActionResult::default(),
+    let Some(current_key) = keyboard_state.current_virtual_keycode.into_option() else {
+        return DefaultActionResult::default();
     };
 
     // Check modifier state
@@ -84,8 +83,7 @@ pub fn determine_keyboard_default_action(
 
         // Activation (Enter key)
         VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => {
-            if let Some(ref focus) = focused_node {
-                if is_element_activatable(focus, layout_results) {
+            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_element_activatable(focus, layout_results) {
                     DefaultAction::ActivateFocusedElement {
                         target: *focus,
                     }
@@ -93,18 +91,12 @@ pub fn determine_keyboard_default_action(
                     // Enter on non-activatable element - might submit form
                     // For now, no action (form handling could be added later)
                     DefaultAction::None
-                }
-            } else {
-                DefaultAction::None
-            }
+                })
         }
 
         // Activation (Space key)
         VirtualKeyCode::Space => {
-            if let Some(ref focus) = focused_node {
-                // Space only activates if the focused element is activatable
-                // and we're not in a text input
-                if is_element_activatable(focus, layout_results)
+            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_element_activatable(focus, layout_results)
                     && !is_text_input(focus, layout_results)
                 {
                     DefaultAction::ActivateFocusedElement {
@@ -113,10 +105,7 @@ pub fn determine_keyboard_default_action(
                 } else {
                     // Space in text input should insert space (handled by text input system)
                     DefaultAction::None
-                }
-            } else {
-                DefaultAction::None
-            }
+                })
         }
 
         // Escape - clear focus
@@ -137,18 +126,14 @@ pub fn determine_keyboard_default_action(
                 VirtualKeyCode::Left => ScrollDirection::Left,
                 _ => ScrollDirection::Right,
             };
-            if let Some(ref focus) = focused_node {
-                if !is_text_input(focus, layout_results) {
+            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_text_input(focus, layout_results) {
+                    DefaultAction::None
+                } else {
                     DefaultAction::ScrollFocusedContainer {
                         direction,
                         amount: ScrollAmount::Line,
                     }
-                } else {
-                    DefaultAction::None
-                }
-            } else {
-                DefaultAction::None
-            }
+                })
         }
 
         // Page Up/Down
@@ -206,12 +191,12 @@ fn is_element_activatable(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, 
     };
     layout.styled_dom.node_data.as_container()
         .get(internal_id)
-        .map(|node| node.is_activatable())
-        .unwrap_or(false)
+        .is_some_and(azul_core::dom::NodeData::is_activatable)
 }
 
 /// Check if an element is a text input (where Space should insert text, not activate).
 fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayoutResult>) -> bool {
+    use azul_core::events::{EventFilter, FocusEventFilter};
     let Some(layout) = layout_results.get(&node_id.dom) else {
         return false;
     };
@@ -225,17 +210,16 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
 
     // Check if this node has a TextInput callback (FocusEventFilter::TextInput)
     // which indicates it's a text input field
-    use azul_core::events::{EventFilter, FocusEventFilter};
     node.get_callbacks()
         .iter()
         .any(|cb| matches!(cb.event, EventFilter::Focus(FocusEventFilter::TextInput)))
 }
 
-/// Convert a DefaultAction to a FocusTarget for the focus manager.
+/// Convert a `DefaultAction` to a `FocusTarget` for the focus manager.
 ///
-/// This bridges the gap between the abstract DefaultAction and the
-/// concrete FocusTarget that the FocusManager understands.
-pub fn default_action_to_focus_target(action: &DefaultAction) -> Option<FocusTarget> {
+/// This bridges the gap between the abstract `DefaultAction` and the
+/// concrete `FocusTarget` that the `FocusManager` understands.
+#[must_use] pub const fn default_action_to_focus_target(action: &DefaultAction) -> Option<FocusTarget> {
     match action {
         DefaultAction::FocusNext => Some(FocusTarget::Next),
         DefaultAction::FocusPrevious => Some(FocusTarget::Previous),
@@ -252,6 +236,7 @@ mod tests {
     use azul_core::styled_dom::NodeHierarchyItemId;
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_tab_focus_next() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
@@ -268,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_shift_tab_focus_previous() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
@@ -285,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_escape_clears_focus() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
@@ -305,6 +292,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
     fn test_prevented_returns_no_action() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();

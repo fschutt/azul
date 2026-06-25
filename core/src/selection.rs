@@ -184,10 +184,10 @@ impl_option!(
 // MULTI-CURSOR SUPPORT (Sublime Text style)
 // ============================================================================
 
-/// Stable identifier for a cursor/selection within a MultiCursorState.
+/// Stable identifier for a cursor/selection within a `MultiCursorState`.
 ///
 /// Uses a monotonic u64 counter (not UUID) so it is `Copy` and C-API friendly.
-/// Each SelectionId is unique within the lifetime of the process.
+/// Each `SelectionId` is unique within the lifetime of the process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct SelectionId {
@@ -195,10 +195,10 @@ pub struct SelectionId {
 }
 
 impl SelectionId {
-    /// Generate a new unique SelectionId.
+    /// Generate a new unique `SelectionId`.
     pub fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
-        SelectionId { inner: COUNTER.fetch_add(1, Ordering::Relaxed) }
+        Self { inner: COUNTER.fetch_add(1, Ordering::Relaxed) }
     }
 }
 
@@ -243,7 +243,7 @@ impl_vec_partialeq!(IdentifiedSelection, IdentifiedSelectionVec);
 
 /// Multi-cursor state for a contenteditable element (Sublime Text style).
 ///
-/// Replaces the split CursorManager + SelectionManager pattern for text editing.
+/// Replaces the split `CursorManager` + `SelectionManager` pattern for text editing.
 /// Supports multiple simultaneous cursors/selections, each with a stable ID.
 ///
 /// ## Invariants
@@ -251,7 +251,7 @@ impl_vec_partialeq!(IdentifiedSelection, IdentifiedSelectionVec);
 /// - `selections` is sorted by position and non-overlapping.
 /// - The **primary** selection is the last one added (highest index).
 /// - After any mutation, `merge_overlapping()` is called to maintain invariants.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiCursorState {
     /// Sorted by position, non-overlapping. Primary = last added (highest index).
     pub selections: Vec<IdentifiedSelection>,
@@ -262,8 +262,8 @@ pub struct MultiCursorState {
 }
 
 impl MultiCursorState {
-    /// Create a new MultiCursorState with a single cursor.
-    pub fn new_with_cursor(cursor: TextCursor, node_id: DomNodeId, contenteditable_key: u64) -> Self {
+    /// Create a new `MultiCursorState` with a single cursor.
+    #[must_use] pub fn new_with_cursor(cursor: TextCursor, node_id: DomNodeId, contenteditable_key: u64) -> Self {
         let id = SelectionId::new();
         Self {
             selections: vec![IdentifiedSelection {
@@ -276,7 +276,7 @@ impl MultiCursorState {
     }
 
     /// Add a cursor, merging if it overlaps with existing selections.
-    /// Returns the SelectionId of the new (or merged) cursor.
+    /// Returns the `SelectionId` of the new (or merged) cursor.
     #[must_use]
     pub fn add_cursor(&mut self, cursor: TextCursor) -> SelectionId {
         let id = SelectionId::new();
@@ -289,7 +289,7 @@ impl MultiCursorState {
     }
 
     /// Add a selection range, merging if it overlaps.
-    /// Returns the SelectionId of the new (or merged) selection.
+    /// Returns the `SelectionId` of the new (or merged) selection.
     #[must_use]
     pub fn add_selection(&mut self, range: SelectionRange) -> SelectionId {
         let id = SelectionId::new();
@@ -310,7 +310,7 @@ impl MultiCursorState {
     }
 
     /// Get the primary selection (last added = highest index).
-    pub fn get_primary(&self) -> Option<&IdentifiedSelection> {
+    #[must_use] pub fn get_primary(&self) -> Option<&IdentifiedSelection> {
         self.selections.last()
     }
 
@@ -320,7 +320,7 @@ impl MultiCursorState {
     }
 
     /// Get the primary cursor position (for scroll-into-view, IME, etc.)
-    pub fn get_primary_cursor(&self) -> Option<TextCursor> {
+    #[must_use] pub fn get_primary_cursor(&self) -> Option<TextCursor> {
         self.get_primary().map(|s| match &s.selection {
             Selection::Cursor(c) => *c,
             Selection::Range(r) => r.end,
@@ -328,7 +328,7 @@ impl MultiCursorState {
     }
 
     /// Convert to a Vec<Selection> for passing to `edit_text()`.
-    pub fn to_selections(&self) -> Vec<Selection> {
+    #[must_use] pub fn to_selections(&self) -> Vec<Selection> {
         self.selections.iter().map(|s| s.selection).collect()
     }
 
@@ -350,11 +350,7 @@ impl MultiCursorState {
 
     /// Set all selections to a single cursor (e.g., on plain click without Ctrl).
     pub fn set_single_cursor(&mut self, cursor: TextCursor) {
-        let id = if let Some(primary) = self.selections.last() {
-            primary.id
-        } else {
-            SelectionId::new()
-        };
+        let id = self.selections.last().map_or_else(SelectionId::new, |primary| primary.id);
         self.selections.clear();
         self.selections.push(IdentifiedSelection {
             id,
@@ -364,11 +360,7 @@ impl MultiCursorState {
 
     /// Set all selections to a single range.
     pub fn set_single_range(&mut self, range: SelectionRange) {
-        let id = if let Some(primary) = self.selections.last() {
-            primary.id
-        } else {
-            SelectionId::new()
-        };
+        let id = self.selections.last().map_or_else(SelectionId::new, |primary| primary.id);
         self.selections.clear();
         self.selections.push(IdentifiedSelection {
             id,
@@ -377,12 +369,12 @@ impl MultiCursorState {
     }
 
     /// Number of active cursors/selections.
-    pub fn len(&self) -> usize {
+    #[must_use] pub const fn len(&self) -> usize {
         self.selections.len()
     }
 
     /// Whether there are no selections (should not normally happen).
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub const fn is_empty(&self) -> bool {
         self.selections.is_empty()
     }
 
@@ -431,7 +423,7 @@ impl MultiCursorState {
 
     /// Move all cursors using a movement function. Merges collisions afterward.
     ///
-    /// `move_fn` takes a TextCursor and returns the new TextCursor after movement.
+    /// `move_fn` takes a `TextCursor` and returns the new `TextCursor` after movement.
     /// If `extend_selection` is true, the anchor stays and only the focus moves,
     /// creating or extending a range.
     pub fn move_all_cursors(
@@ -439,7 +431,7 @@ impl MultiCursorState {
         extend_selection: bool,
         move_fn: impl Fn(&TextCursor) -> TextCursor,
     ) {
-        for sel in self.selections.iter_mut() {
+        for sel in &mut self.selections {
             match &sel.selection {
                 Selection::Cursor(c) => {
                     let new_cursor = move_fn(c);
@@ -476,13 +468,13 @@ impl MultiCursorState {
         self.merge_overlapping();
     }
 
-    /// Remap the NodeId in `node_id` after DOM reconciliation.
+    /// Remap the `NodeId` in `node_id` after DOM reconciliation.
     ///
     /// If the node was removed (not in the map), the multi-cursor state is cleared.
     pub fn remap_node_ids(
         &mut self,
         dom_id: DomId,
-        node_id_map: &alloc::collections::BTreeMap<crate::dom::NodeId, crate::dom::NodeId>,
+        node_id_map: &BTreeMap<NodeId, NodeId>,
     ) {
         if self.node_id.dom != dom_id {
             return;
@@ -530,7 +522,7 @@ fn selection_end_pos(sel: &Selection) -> TextCursor {
 /// - The visual bounds of the anchor character (for logical rectangle calculations)
 ///
 /// The anchor remains constant during a drag; only the focus moves.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionAnchor {
     /// The IFC root node ID where selection started.
     /// This is the node that has `inline_layout_result` (e.g., `<p>`, `<div>`).
@@ -550,7 +542,7 @@ pub struct SelectionAnchor {
 /// The focus point of a text selection - where the selection currently ends.
 ///
 /// This is the movable point during a drag operation. It updates on every mouse move.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionFocus {
     /// The IFC root node ID where selection currently ends.
     /// May differ from anchor's IFC root during cross-node selection.
@@ -571,7 +563,7 @@ pub struct SelectionFocus {
 /// ## Storage Model
 ///
 /// Uses `BTreeMap<NodeId, SelectionRange>` for O(log N) lookup during rendering.
-/// The key is the **IFC root NodeId**, and the value is the `SelectionRange` for that IFC.
+/// The key is the **IFC root `NodeId`**, and the value is the `SelectionRange` for that IFC.
 ///
 /// ## Example
 ///
@@ -580,7 +572,7 @@ pub struct SelectionFocus {
 /// <p id="2">Complete line</p>    <- InBetween, fully selected
 /// <p id="3">Partial] end</p>     <- Focus in IFC 3, partial selection
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextSelection {
     /// The DOM this selection belongs to.
     pub dom_id: DomId,
@@ -591,7 +583,7 @@ pub struct TextSelection {
     /// The focus point - where the selection currently ends (moves during drag).
     pub focus: SelectionFocus,
     
-    /// Map from IFC root NodeId to the SelectionRange for that IFC.
+    /// Map from IFC root `NodeId` to the `SelectionRange` for that IFC.
     /// This allows O(log N) lookup during rendering.
     ///
     /// The `SelectionRange` contains the actual `TextCursor` positions for that IFC,
@@ -605,7 +597,7 @@ pub struct TextSelection {
 
 impl TextSelection {
     /// Create a new collapsed selection (cursor) at the given position.
-    pub fn new_collapsed(
+    #[must_use] pub fn new_collapsed(
         dom_id: DomId,
         ifc_root_node_id: NodeId,
         cursor: TextCursor,
@@ -632,7 +624,7 @@ impl TextSelection {
             end: cursor,
         });
         
-        TextSelection {
+        Self {
             dom_id,
             anchor,
             focus,
@@ -642,14 +634,14 @@ impl TextSelection {
     }
     
     /// Check if this is a collapsed selection (cursor with no range).
-    pub fn is_collapsed(&self) -> bool {
+    #[must_use] pub fn is_collapsed(&self) -> bool {
         self.anchor.ifc_root_node_id == self.focus.ifc_root_node_id
             && self.anchor.cursor == self.focus.cursor
     }
     
     /// Get the selection range for a specific IFC root node.
     /// Returns `None` if this node is not part of the selection.
-    pub fn get_range_for_node(&self, ifc_root_node_id: &NodeId) -> Option<&SelectionRange> {
+    #[must_use] pub fn get_range_for_node(&self, ifc_root_node_id: &NodeId) -> Option<&SelectionRange> {
         self.affected_nodes.get(ifc_root_node_id)
     }
 
@@ -660,5 +652,5 @@ impl_option!(
     OptionTextSelection,
     copy = false,
     clone = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );

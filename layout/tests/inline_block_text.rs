@@ -116,20 +116,18 @@ fn test_inline_block_text_generates_text_items() {
         .filter(|item| matches!(item, DisplayListItem::Text { .. }))
         .count();
 
-    println!("TextLayout items: {}", text_layout_count);
-    println!("Text (glyph) items: {}", text_glyph_count);
+    println!("TextLayout items: {text_layout_count}");
+    println!("Text (glyph) items: {text_glyph_count}");
 
     // We should have text items for "Hello" and "World"
     assert!(
         text_layout_count >= 2,
-        "Should have at least 2 TextLayout items for 'Hello' and 'World', got {}",
-        text_layout_count
+        "Should have at least 2 TextLayout items for 'Hello' and 'World', got {text_layout_count}"
     );
 
     assert!(
         text_glyph_count >= 2,
-        "Should have at least 2 Text items for 'Hello' and 'World', got {}",
-        text_glyph_count
+        "Should have at least 2 Text items for 'Hello' and 'World', got {text_glyph_count}"
     );
 }
 
@@ -187,8 +185,8 @@ fn test_inline_block_css_width_is_applied() {
     // Now check the CSS width
     let css_width = azul_layout::solver3::getters::get_css_width(&styled_dom, box_id, node_state);
 
-    println!("box_id = {:?}", box_id);
-    println!("css_width = {:?}", css_width);
+    println!("box_id = {box_id:?}");
+    println!("css_width = {css_width:?}");
 
     // The width should be Exact(150px), not Auto!
     match css_width {
@@ -197,23 +195,22 @@ fn test_inline_block_css_width_is_applied() {
                 let px_value = px.number.get();
                 assert!(
                     (px_value - 150.0).abs() < 0.01,
-                    "Width should be 150px, got {}px",
-                    px_value
+                    "Width should be 150px, got {px_value}px"
                 );
             }
-            other => panic!("Width should be Px(150), got {:?}", other),
+            other => panic!("Width should be Px(150), got {other:?}"),
         },
         MultiValue::Auto => {
             panic!("Width should be Exact(150px), but got Auto! CSS width is not being parsed correctly.");
         }
         other => {
-            panic!("Width should be Exact(150px), but got {:?}!", other);
+            panic!("Width should be Exact(150px), but got {other:?}!");
         }
     }
 
     // Also check height
     let css_height = azul_layout::solver3::getters::get_css_height(&styled_dom, box_id, node_state);
-    println!("css_height = {:?}", css_height);
+    println!("css_height = {css_height:?}");
 
     match css_height {
         MultiValue::Exact(h) => match h {
@@ -221,17 +218,16 @@ fn test_inline_block_css_width_is_applied() {
                 let px_value = px.number.get();
                 assert!(
                     (px_value - 80.0).abs() < 0.01,
-                    "Height should be 80px, got {}px",
-                    px_value
+                    "Height should be 80px, got {px_value}px"
                 );
             }
-            other => panic!("Height should be Px(80), got {:?}", other),
+            other => panic!("Height should be Px(80), got {other:?}"),
         },
         MultiValue::Auto => {
             panic!("Height should be Exact(80px), but got Auto! CSS height is not being parsed correctly.");
         }
         other => {
-            panic!("Height should be Exact(80px), but got {:?}!", other);
+            panic!("Height should be Exact(80px), but got {other:?}!");
         }
     }
 }
@@ -529,8 +525,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
             let fc = format!("{:?}", node.formatting_context);
             
             println!(
-                "  [{}] dom={:2}, fc={:20}, rel_pos={:15}, ABS_pos={}",
-                idx, dom_idx, fc, rel_pos, abs_pos
+                "  [{idx}] dom={dom_idx:2}, fc={fc:20}, rel_pos={rel_pos:15}, ABS_pos={abs_pos}"
             );
         }
     }
@@ -541,7 +536,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
         .flat_map(|dl| dl.items.iter())
         .filter_map(|item| {
             if let DisplayListItem::Text { glyphs, clip_rect, font_size_px, .. } = item {
-                Some((glyphs.len(), clip_rect.clone(), *font_size_px))
+                Some((glyphs.len(), *clip_rect, *font_size_px))
             } else {
                 None
             }
@@ -564,7 +559,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
         .flat_map(|dl| dl.items.iter())
         .filter_map(|item| {
             if let DisplayListItem::Rect { bounds, color, .. } = item {
-                Some((bounds.clone(), *color))
+                Some((*bounds, *color))
             } else {
                 None
             }
@@ -651,7 +646,7 @@ fn test_body_as_root_inline_block_positioning() {
     //   .with_child(button) // inline-block button
     //
     // NO HTML wrapper - body is the root node (DOM index 0)
-    use azul_core::dom::{IdOrClass, NodeData};
+    use azul_core::dom::IdOrClass;
     use azul_core::styled_dom::StyledDom;
 
     // Create the DOM structure programmatically (like the Live-App does)
@@ -755,8 +750,7 @@ fn test_body_as_root_inline_block_positioning() {
             let fc = format!("{:?}", node.formatting_context);
             
             println!(
-                "  [{}] dom={:2}, fc={:20}, rel_pos={:15}, ABS_pos={}",
-                idx, dom_idx, fc, rel_pos, abs_pos
+                "  [{idx}] dom={dom_idx:2}, fc={fc:20}, rel_pos={rel_pos:15}, ABS_pos={abs_pos}"
             );
         }
     }
@@ -767,7 +761,7 @@ fn test_body_as_root_inline_block_positioning() {
         .flat_map(|dl| dl.items.iter())
         .filter_map(|item| {
             if let DisplayListItem::Rect { bounds, color, .. } = item {
-                Some((bounds.clone(), *color))
+                Some((*bounds, *color))
             } else {
                 None
             }

@@ -28,11 +28,11 @@ pub enum LayoutTextJustify {
 impl PrintAsCssValue for LayoutTextJustify {
     fn print_as_css_value(&self) -> String {
         match self {
-            LayoutTextJustify::Auto => "auto",
-            LayoutTextJustify::None => "none",
-            LayoutTextJustify::InterWord => "inter-word",
-            LayoutTextJustify::InterCharacter => "inter-character",
-            LayoutTextJustify::Distribute => "distribute",
+            Self::Auto => "auto",
+            Self::None => "none",
+            Self::InterWord => "inter-word",
+            Self::InterCharacter => "inter-character",
+            Self::Distribute => "distribute",
         }
         .to_string()
     }
@@ -44,29 +44,29 @@ impl FormatAsRustCode for LayoutTextJustify {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextJustifyParseError<'a> {
     InvalidValue(&'a str),
 }
 
-impl<'a> fmt::Display for TextJustifyParseError<'a> {
+impl fmt::Display for TextJustifyParseError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TextJustifyParseError::InvalidValue(s) => {
-                write!(f, "Invalid text-justify value: '{}'.", s)
+                write!(f, "Invalid text-justify value: '{s}'.")
             }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum TextJustifyParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> TextJustifyParseError<'a> {
-    pub fn to_owned(&self) -> TextJustifyParseErrorOwned {
+impl TextJustifyParseError<'_> {
+    #[must_use] pub fn to_owned(&self) -> TextJustifyParseErrorOwned {
         match self {
             TextJustifyParseError::InvalidValue(s) => {
                 TextJustifyParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -76,9 +76,9 @@ impl<'a> TextJustifyParseError<'a> {
 }
 
 impl TextJustifyParseErrorOwned {
-    pub fn to_borrowed(&self) -> TextJustifyParseError<'_> {
+    #[must_use] pub fn to_borrowed(&self) -> TextJustifyParseError<'_> {
         match self {
-            TextJustifyParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 TextJustifyParseError::InvalidValue(s.as_str())
             }
         }
@@ -86,17 +86,19 @@ impl TextJustifyParseErrorOwned {
 }
 
 /// Parses a `text-justify` CSS value string into a [`LayoutTextJustify`].
-pub fn parse_layout_text_justify<'a>(
-    input: &'a str,
-) -> Result<LayoutTextJustify, TextJustifyParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-justify` value.
+pub fn parse_layout_text_justify(
+    input: &str,
+) -> Result<LayoutTextJustify, TextJustifyParseError<'_>> {
     match input.trim() {
         "auto" => Ok(LayoutTextJustify::Auto),
         "none" => Ok(LayoutTextJustify::None),
         "inter-word" => Ok(LayoutTextJustify::InterWord),
-        "inter-character" => Ok(LayoutTextJustify::InterCharacter),
-        // +spec:text-alignment-spacing:4a88c2 - distribute computes to inter-character (legacy value alias)
-        // +spec:text-alignment-spacing:58c33f - distribute computes to inter-character per spec clarification
-        "distribute" => Ok(LayoutTextJustify::InterCharacter),
+        // "distribute" is a legacy alias that computes to inter-character:
+        // +spec:text-alignment-spacing:4a88c2  +spec:text-alignment-spacing:58c33f
+        "inter-character" | "distribute" => Ok(LayoutTextJustify::InterCharacter),
         other => Err(TextJustifyParseError::InvalidValue(other)),
     }
 }

@@ -99,7 +99,8 @@ use crate::{
 static DOCUMENT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static ID_NAMESPACE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// Helper function to create a unique DocumentId
+/// Helper function to create a unique `DocumentId`
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn new_document_id() -> DocumentId {
     let namespace_id = new_id_namespace();
     let id = DOCUMENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
@@ -111,9 +112,12 @@ fn new_document_id() -> DocumentId {
 /// This enum is returned by `LayoutWindow::handle_focus_change_for_cursor_blink()`
 /// to tell the platform layer what timer action to take.
 #[derive(Debug, Clone)]
+// short-lived platform-action enum: the Start variant intentionally carries the Timer payload
+// and the value is constructed then immediately matched by the platform layer.
+#[allow(clippy::large_enum_variant)]
 pub enum CursorBlinkTimerAction {
     /// Start the cursor blink timer with the given timer configuration
-    Start(crate::timer::Timer),
+    Start(Timer),
     /// Stop the cursor blink timer
     Stop,
     /// No change needed (timer already in correct state)
@@ -124,16 +128,20 @@ pub enum CursorBlinkTimerAction {
 /// `LayoutWindow::handle_hover_change_for_tooltip()`. Platform layer translates
 /// these to `start_timer` / `stop_timer` calls on `TOOLTIP_DELAY_TIMER_ID`.
 #[derive(Debug, Clone)]
+// short-lived platform-action enum: the Start variant intentionally carries the Timer payload
+// and the value is constructed then immediately matched by the platform layer.
+#[allow(clippy::large_enum_variant)]
 pub enum TooltipTimerAction {
     /// Start the tooltip-delay timer with the given configuration
-    Start(crate::timer::Timer),
+    Start(Timer),
     /// Stop the tooltip-delay timer and hide the tooltip if shown
     Stop,
     /// No change needed (timer already in correct state)
     NoChange,
 }
 
-/// Helper function to create a unique IdNamespace
+/// Helper function to create a unique `IdNamespace`
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn new_id_namespace() -> IdNamespace {
     let id = ID_NAMESPACE_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
     IdNamespace(id)
@@ -143,7 +151,7 @@ fn new_id_namespace() -> IdNamespace {
 // Cursor Blink Timer Callback
 // ============================================================================
 
-/// Destructor for cursor blink timer RefAny (no-op since we use null pointer)
+/// Destructor for cursor blink timer `RefAny` (no-op since we use null pointer)
 extern "C" fn cursor_blink_timer_destructor(_: RefAny) {
     // No cleanup needed - we use a null pointer RefAny
 }
@@ -157,7 +165,7 @@ extern "C" fn cursor_blink_timer_destructor(_: RefAny) {
 /// The callback returns:
 /// - `TerminateTimer::Continue` + `Update::RefreshDom` if cursor toggled
 /// - `TerminateTimer::Terminate` if focus is no longer on a contenteditable element
-pub extern "C" fn cursor_blink_timer_callback(
+#[must_use] pub extern "C" fn cursor_blink_timer_callback(
     _data: RefAny,
     mut info: crate::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
@@ -208,11 +216,11 @@ pub extern "C" fn cursor_blink_timer_callback(
 /// Fires once after `InputMetrics::hover_time_ms` has elapsed while a node with
 /// a tooltip-bearing attribute was continuously hovered. The callback looks up
 /// the `title` / `aria-label` / `alt` attribute on the currently-hovered node,
-/// emits a `ShowTooltip` CallbackChange, and terminates — a single-shot timer.
+/// emits a `ShowTooltip` `CallbackChange`, and terminates — a single-shot timer.
 /// Movement to a different node (or any hover loss) removes and re-adds the
 /// timer from the platform layer, so the callback itself never needs to
 /// reschedule.
-pub extern "C" fn tooltip_delay_timer_callback(
+#[must_use] pub extern "C" fn tooltip_delay_timer_callback(
     _data: RefAny,
     mut info: crate::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
@@ -223,9 +231,9 @@ pub extern "C" fn tooltip_delay_timer_callback(
     let hover_node_id = layout_window
         .hover_manager
         .current_hover_node()
-        .map(|node_id| azul_core::dom::DomNodeId {
-            dom: azul_core::dom::DomId { inner: 0 },
-            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        .map(|node_id| DomNodeId {
+            dom: DomId { inner: 0 },
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         });
 
     if let Some(dom_node_id) = hover_node_id {
@@ -255,21 +263,21 @@ pub struct DomLayoutResult {
     /// The layout tree with computed sizes and positions
     pub layout_tree: LayoutTree,
     /// Absolute positions of all nodes
-    pub calculated_positions: crate::solver3::PositionVec,
+    pub calculated_positions: solver3::PositionVec,
     /// The viewport used for this layout
     pub viewport: LogicalRect,
     /// The generated display list for this DOM.
     pub display_list: DisplayList,
-    /// Stable scroll IDs computed from node_data_hash
+    /// Stable scroll IDs computed from `node_data_hash`
     /// Maps layout node index -> external scroll ID
     pub scroll_ids: HashMap<usize, u64>,
-    /// Mapping from scroll IDs to DOM NodeIds for hit testing
-    /// This allows us to map WebRender scroll IDs back to DOM nodes
+    /// Mapping from scroll IDs to DOM `NodeIds` for hit testing
+    /// This allows us to map `WebRender` scroll IDs back to DOM nodes
     pub scroll_id_to_node_id: HashMap<u64, NodeId>,
 }
 
 /// State for tracking scrollbar drag interaction
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ScrollbarDragState {
     pub hit_id: ScrollbarHitId,
     pub initial_mouse_pos: LogicalPosition,
@@ -286,7 +294,7 @@ pub use crate::managers::text_input::PendingTextEdit;
 #[derive(Debug, Clone)]
 #[derive(Default)]
 pub struct TextConstraintsCache {
-    /// Map from (dom_id, node_id) to their layout constraints
+    /// Map from (`dom_id`, `node_id`) to their layout constraints
     pub constraints: BTreeMap<(DomId, NodeId), UnifiedConstraints>,
 }
 
@@ -304,9 +312,10 @@ pub struct DirtyTextNode {
 }
 
 /// Result of applying a text changeset
+#[derive(Debug)]
 pub struct TextChangesetResult {
     /// Nodes that need dirty marking
-    pub dirty_nodes: Vec<azul_core::dom::DomNodeId>,
+    pub dirty_nodes: Vec<DomNodeId>,
     /// Whether the text size changed enough to require full re-layout
     /// (e.g., for scroll container recomputation)
     pub needs_relayout: bool,
@@ -314,12 +323,13 @@ pub struct TextChangesetResult {
 
 /// A window-level layout manager that encapsulates all layout state and caching.
 ///
-/// This struct owns the layout and text caches, and provides methods dir_to:
+/// This struct owns the layout and text caches, and provides methods `dir_to`:
 /// - Perform initial layout
 /// - Incrementally update layout on DOM changes
 /// - Generate display lists for rendering
 /// - Handle window resizes efficiently
-/// - Manage multiple DOMs (for VirtualViews)
+/// - Manage multiple DOMs (for `VirtualViews`)
+#[derive(Debug)]
 pub struct LayoutWindow {
     /// M12.7 web/headless: skip the GPU transform/opacity sync in
     /// `layout_dom_recursive`. That sync only feeds the display list (which
@@ -345,13 +355,13 @@ pub struct LayoutWindow {
     /// image's hash. Populated by [`LayoutWindow::invoke_cpu_image_callbacks`]
     /// before each CPU `render_frame`; consumed by cpurender (which otherwise
     /// draws a grey placeholder for `DecodedImage::Callback`). Empty on the GPU
-    /// path (WebRender invokes callbacks itself via `process_image_callback_updates`).
+    /// path (`WebRender` invokes callbacks itself via `process_image_callback_updates`).
     pub cpu_image_callback_results: BTreeMap<ImageRefHash, ImageRef>,
     /// Cached layout results for all DOMs (root + virtualized views)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
     pub scroll_manager: ScrollManager,
-    /// Gesture and drag manager for multi-frame interactions (moved from FullWindowState)
+    /// Gesture and drag manager for multi-frame interactions (moved from `FullWindowState`)
     pub gesture_drag_manager: crate::managers::gesture::GestureAndDragManager,
     /// Focus manager for keyboard focus and tab navigation
     pub focus_manager: crate::managers::focus_cursor::FocusManager,
@@ -365,7 +375,7 @@ pub struct LayoutWindow {
     pub drag_drop_manager: crate::managers::drag_drop::DragDropManager,
     /// Hover manager for tracking hit test history over multiple frames
     pub hover_manager: crate::managers::hover::HoverManager,
-    /// VirtualView manager for all nodes across all DOMs
+    /// `VirtualView` manager for all nodes across all DOMs
     pub virtual_view_manager: VirtualViewManager,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
@@ -392,21 +402,21 @@ pub struct LayoutWindow {
     pub biometric_manager: crate::managers::biometric::BiometricManager,
     /// Cross-platform keyring state — outcome of the last secret-store op.
     /// The platform backend (`dll::desktop::extra::keyring`) reads/writes
-    /// the OS keyring (Keychain / KeyStore / libsecret / CredentialLocker)
+    /// the OS keyring (Keychain / `KeyStore` / libsecret / `CredentialLocker`)
     /// and parks results in the async channel the layout pass folds in here.
     pub keyring_manager: crate::managers::keyring::KeyringManager,
     /// Cross-platform motion-sensor state — latest accel / gyro / mag
     /// reading. The platform backend (`dll::desktop::extra::sensors`)
-    /// subscribes to CoreMotion / Android `SensorManager` and parks
+    /// subscribes to `CoreMotion` / Android `SensorManager` and parks
     /// readings in the async channel the layout pass folds in here.
     pub sensor_manager: crate::managers::sensors::SensorManager,
     /// Cross-platform gamepad / controller state. The dll's platform backend
-    /// (gilrs / GCController / InputDevice) parks per-pad states in the async
+    /// (gilrs / `GCController` / `InputDevice`) parks per-pad states in the async
     /// channel the layout pass folds in here.
     pub gamepad_manager: crate::managers::gamepad::GamepadManager,
     /// Safe-area insets (notch / system-UI margins) for this window, in logical
     /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
-    /// UIView.safeAreaInsets, Android WindowInsets); zero where none.
+    /// UIView.safeAreaInsets, Android `WindowInsets`); zero where none.
     pub safe_area_insets: azul_css::system::SafeAreaInsets,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
@@ -419,9 +429,9 @@ pub struct LayoutWindow {
     /// Windows state of the window of (current frame - 1): initialized to None on startup
     pub previous_window_state: Option<FullWindowState>,
     /// Window state of this current window (current frame): initialized to the state of
-    /// WindowCreateOptions
+    /// `WindowCreateOptions`
     pub current_window_state: FullWindowState,
-    /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole
+    /// A "document" in `WebRender` usually corresponds to one tab (i.e. in Azuls case, the whole
     /// window).
     pub document_id: DocumentId,
     /// ID namespace under which every font / image for this window is registered
@@ -429,7 +439,7 @@ pub struct LayoutWindow {
     /// The "epoch" is a frame counter, to remove outdated images, fonts and OpenGL textures when
     /// they're not in use anymore.
     pub epoch: Epoch,
-    /// Currently GL textures inside the active CachedDisplayList
+    /// Currently GL textures inside the active `CachedDisplayList`
     pub gl_texture_cache: GlTextureCache,
     /// State for tracking scrollbar drag interaction
     currently_dragging_thumb: Option<ScrollbarDragState>,
@@ -441,25 +451,25 @@ pub struct LayoutWindow {
     /// This allows us to re-layout text with the same constraints after edits
     pub text_constraints_cache: TextConstraintsCache,
     /// Tracks which nodes have been edited since last full layout.
-    /// Key: (DomId, NodeId of IFC root)
+    /// Key: (`DomId`, `NodeId` of IFC root)
     /// Value: The edited inline content that should be used for relayout
     pub dirty_text_nodes: BTreeMap<(DomId, NodeId), DirtyTextNode>,
-    /// Pending VirtualView updates from callbacks (processed in next frame)
-    /// Map of DomId -> Set of NodeIds that need re-rendering
+    /// Pending `VirtualView` updates from callbacks (processed in next frame)
+    /// Map of `DomId` -> Set of `NodeIds` that need re-rendering
     pub pending_virtual_view_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     /// Lifecycle events produced by DOM reconciliation, waiting to be dispatched.
     ///
     /// `regenerate_layout` appends `diff::reconcile_dom`'s `DiffResult.events` here
-    /// (Mount / Update / Resize SyntheticEvents — note: NOT Unmount; see
+    /// (Mount / Update / Resize `SyntheticEvents` — note: NOT Unmount; see
     /// `pending_unmount_invocations`). The shell's event loop drains and
     /// dispatches them via `dispatch_events_propagated`, which routes
     /// `EventFilter::Component(_)` filters through `matches_component_filter`.
     /// Drain-and-clear is the caller's responsibility; nothing inside
     /// `LayoutWindow` ages or discards these on its own.
     pub pending_lifecycle_events: Vec<azul_core::events::SyntheticEvent>,
-    /// Resolved BeforeUnmount invocations queued for dispatch.
+    /// Resolved `BeforeUnmount` invocations queued for dispatch.
     ///
-    /// Unmount events target OLD NodeIds that disappear once the new layout
+    /// Unmount events target OLD `NodeIds` that disappear once the new layout
     /// is committed to `layout_results`, so the shell cannot resolve them
     /// via DOM lookup at dispatch time. `regenerate_layout` resolves the
     /// callback against the OLD node data while it still has access, then
@@ -471,27 +481,27 @@ pub struct LayoutWindow {
     )>,
     /// System style (colors, fonts, metrics) for resolving system color keywords
     /// Set via `set_system_style()` from the shell after window creation
-    pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    pub system_style: Option<Arc<azul_css::system::SystemStyle>>,
     /// Shared monitor list — initialized once at app start, updated by the platform
     /// layer on monitor topology changes. Arc<Mutex> allows zero-cost sharing
-    /// across all CallbackInfoRefData without cloning the Vec each time.
-    pub monitors: std::sync::Arc<std::sync::Mutex<MonitorVec>>,
-    /// XOR of all tier2b.font_family_hash values from the last resolved DOM.
+    /// across all `CallbackInfoRefData` without cloning the Vec each time.
+    pub monitors: Arc<std::sync::Mutex<MonitorVec>>,
+    /// XOR of all `tier2b.font_family_hash` values from the last resolved DOM.
     /// Used to skip font chain resolution on frames where the font requirements
     /// haven't changed (e.g. scroll-only frames).
     font_stacks_hash: u64,
     /// Snapshot of inline content before IME preedit injection.
     /// Saved on first setMarkedText so each subsequent call injects into
     /// clean original text instead of accumulating old preedits.
-    pre_preedit_content: Option<Vec<crate::text3::cache::InlineContent>>,
-    /// Configurable input interpreter: maps raw events → SystemChange actions.
+    pre_preedit_content: Option<Vec<InlineContent>>,
+    /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
     pub input_interpreter: azul_core::events::InputInterpreterCallback,
     /// Configurable post-callback filter.
     /// Default: `default_post_filter` (scroll-into-view after cursor ops).
     pub post_filter: azul_core::events::PostFilterCallback,
-    /// Registered routes from AppConfig.  Set once at window creation.
+    /// Registered routes from `AppConfig`.  Set once at window creation.
     /// Used by `CallbackChange::SwitchRoute` to look up layout callbacks.
     pub routes: azul_core::resources::RouteVec,
     /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
@@ -500,18 +510,19 @@ pub struct LayoutWindow {
     pub icu_localizer: IcuLocalizerHandle,
 }
 
-fn default_duration_500ms() -> Duration {
+const fn default_duration_500ms() -> Duration {
     Duration::System(SystemTimeDiff::from_millis(500))
 }
 
-fn default_duration_200ms() -> Duration {
+const fn default_duration_200ms() -> Duration {
     Duration::System(SystemTimeDiff::from_millis(200))
 }
 
 /// Helper function to convert Duration to milliseconds
 ///
-/// Duration is an enum with System (std::time::Duration) and Tick variants.
+/// Duration is an enum with System (`std::time::Duration`) and Tick variants.
 /// We need to handle both cases for proper time calculations.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 fn duration_to_millis(duration: Duration) -> u64 {
     match duration {
         #[cfg(feature = "std")]
@@ -534,7 +545,7 @@ fn duration_to_millis(duration: Duration) -> u64 {
 impl LayoutWindow {
     /// Create a new layout window with empty caches.
     ///
-    /// For full initialization with WindowInternal compatibility, use `new_full()`.
+    /// For full initialization with `WindowInternal` compatibility, use `new_full()`.
     /// The single place every `LayoutWindow` field is initialized; the public
     /// constructors below are thin wrappers over this (deduplicated 2026-05-21,
     /// so adding a field touches one site instead of three).
@@ -552,7 +563,7 @@ impl LayoutWindow {
                 scroll_id_to_node_id: HashMap::new(),
                 counters: HashMap::new(),
                 float_cache: HashMap::new(),
-                cache_map: Default::default(),
+                cache_map: solver3::cache::LayoutCacheMap::default(),
                 previous_positions: Vec::new(),
                 cached_display_list: None,
                 prev_dom_ptr: 0,
@@ -605,7 +616,7 @@ impl LayoutWindow {
             pending_lifecycle_events: Vec::new(),
             pending_unmount_invocations: Vec::new(),
             system_style: None,
-            monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
             pre_preedit_content: None,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
@@ -618,15 +629,21 @@ impl LayoutWindow {
 
     /// Create a new layout window with empty caches.
     ///
-    /// For full initialization with WindowInternal compatibility, use `new_full()`.
-    pub fn new(fc_cache: FcFontCache) -> Result<Self, crate::solver3::LayoutError> {
+    /// For full initialization with `WindowInternal` compatibility, use `new_full()`.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the layout window cannot be initialized.
+    pub fn new(fc_cache: FcFontCache) -> Result<Self, solver3::LayoutError> {
         Ok(Self::from_font_manager(FontManager::new(fc_cache)?))
     }
 
     /// Create a new layout window that shares already-parsed fonts with
-    /// Create a LayoutWindow from a `FontContext` — shares all font data,
+    /// Create a `LayoutWindow` from a `FontContext` — shares all font data,
     /// starts with fresh layout cache, text cache, and all other state.
-    pub fn from_font_context(ctx: &crate::text3::cache::FontContext) -> Result<Self, crate::solver3::LayoutError> {
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the layout window cannot be initialized.
+    pub fn from_font_context(ctx: &crate::text3::cache::FontContext) -> Result<Self, solver3::LayoutError> {
         let fm = ctx.to_font_manager();
         let fc_cache = fm.fc_cache.clone();
         let parsed_fonts = fm.parsed_fonts.clone();
@@ -635,11 +652,14 @@ impl LayoutWindow {
         Ok(lw)
     }
 
-    /// Create from shared fc_cache + parsed_fonts Arcs.
+    /// Create from shared `fc_cache` + `parsed_fonts` Arcs.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the layout window cannot be initialized.
     pub fn new_with_shared_fonts(
         fc_cache: FcFontCache,
-        parsed_fonts: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, FontRef>>>,
-    ) -> Result<Self, crate::solver3::LayoutError> {
+        parsed_fonts: Arc<std::sync::Mutex<HashMap<rust_fontconfig::FontId, FontRef>>>,
+    ) -> Result<Self, solver3::LayoutError> {
         Ok(Self::from_font_manager(FontManager::from_arc_shared(
             fc_cache,
             parsed_fonts,
@@ -673,7 +693,7 @@ impl LayoutWindow {
     /// This is the main entry point for layout. It handles:
     /// - Incremental layout updates using the cached layout tree
     /// - Text shaping and line breaking
-    /// - VirtualView callback invocation and recursive layout
+    /// - `VirtualView` callback invocation and recursive layout
     /// - Display list generation for rendering
     /// - Accessibility tree synchronization
     ///
@@ -685,6 +705,9 @@ impl LayoutWindow {
     ///
     /// # Returns
     /// The display list ready for rendering, or an error if layout fails.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if layout fails.
     pub fn layout_and_generate_display_list(
         &mut self,
         root_dom: StyledDom,
@@ -722,8 +745,7 @@ impl LayoutWindow {
         if let Err(ref e) = result {
             if let Some(msgs) = debug_messages.as_mut() {
                 msgs.push(LayoutDebugMessage::error(format!(
-                    "[layout_and_generate_display_list] Layout FAILED: {:?}",
-                    e
+                    "[layout_and_generate_display_list] Layout FAILED: {e:?}"
                 )));
             }
         } else if let Some(msgs) = debug_messages.as_mut() {
@@ -747,15 +769,18 @@ impl LayoutWindow {
         result
     }
 
-    /// Run the real layout solver for a single StyledDom + viewport
+    /// Run the real layout solver for a single `StyledDom` + viewport
     /// (taffy block/flex/grid → `layout_cache.calculated_positions`).
     ///
     /// Made `pub` for the web backend (`AzStartup_solveLayoutReal`),
     /// which lifts this from ARM to wasm to position the headless
-    /// StyledDom. On web the display-list step inside `layout_document`
+    /// `StyledDom`. On web the display-list step inside `layout_document`
     /// is hot-patched out at lift time (web emits TLV patches, not a
     /// display list); positions are written to the cache *before* that
     /// step, so the lifted path still produces correct geometry.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if recursive layout fails.
     pub fn layout_dom_recursive(
         &mut self,
         styled_dom: StyledDom,
@@ -796,6 +821,8 @@ impl LayoutWindow {
         )
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn layout_dom_recursive_impl(
         &mut self,
         styled_dom: StyledDom,
@@ -804,6 +831,21 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
+        // Optional memory-breakdown print for the CSS property cache.
+        // Gated on AZ_MEM_BREAKDOWN=1; off costs one env-var read on
+        // the first call (`OnceLock`-cached) and nothing after.
+        static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
+        // `Probe::span` spans (layout, style, cascade, paint, text-shape,
+        // callbacks, …). Drains the thread-local buffer once per pass so
+        // the printout reflects ONE layout/relayout frame — which makes it
+        // easy to see which phase spiked during a stuttering frame.
+        static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
+        // cascade-walk count per layout pass. Narrow diagnostic for
+        // prop-cache triage — not a general CPU profile.
+        static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
         let dom_id = if styled_dom.dom_id.inner == 0 {
             DomId::ROOT_ID
         } else {
@@ -823,9 +865,7 @@ impl LayoutWindow {
         };
 
         // Get the platform from system_style, falling back to compile-time detection
-        let platform = self.system_style.as_ref()
-            .map(|s| s.platform.clone())
-            .unwrap_or_else(azul_css::system::Platform::current);
+        let platform = self.system_style.as_ref().map_or_else(azul_css::system::Platform::current, |s| s.platform.clone());
 
         // Font Resolution And Loading
         // This must happen BEFORE layout_document() is called
@@ -852,8 +892,7 @@ impl LayoutWindow {
             // which most layouts do NOT re-run.
             let compact_cache_ref = styled_dom.css_property_cache.ptr.compact_cache.as_ref();
             let font_dirty_count = compact_cache_ref
-                .map(|cc| cc.font_dirty_nodes.len())
-                .unwrap_or(1); // if no compact cache, treat as dirty
+                .map_or(1, |cc| cc.font_dirty_nodes.len()); // if no compact cache, treat as dirty
 
             let font_stacks_sig = compact_cache_ref.map(|cc| {
                 // Fast polynomial rolling hash over the `prev_font_hashes`
@@ -861,10 +900,10 @@ impl LayoutWindow {
                 // which is collision-resistant enough for our one-at-a-time
                 // "did this DOM's font stacks change" comparison and an
                 // order of magnitude cheaper than SipHash for ~300 nodes.
-                let mut h: u64 = 0xcbf29ce484222325;
-                for &fh in cc.prev_font_hashes.iter() {
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for &fh in &cc.prev_font_hashes {
                     h = h.rotate_left(13) ^ fh;
-                    h = h.wrapping_mul(0x100000001b3);
+                    h = h.wrapping_mul(0x0100_0000_01b3);
                 }
                 h
             });
@@ -895,7 +934,7 @@ impl LayoutWindow {
                 // Merge font hash→families from compact cache into FontManager
                 // so the reverse map accumulates across DOMs.
                 if let Some(cc) = styled_dom.css_property_cache.ptr.compact_cache.as_ref() {
-                    for (k, v) in cc.font_hash_to_families.iter() {
+                    for (k, v) in &cc.font_hash_to_families {
                         self.font_manager.font_hash_to_families.insert(*k, v.clone());
                     }
                 }
@@ -915,7 +954,7 @@ impl LayoutWindow {
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after collect_and_resolve.
-                unsafe { crate::az_mark(0x60770_u32, (chains.chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60770_u32, chains.chains.len() as u32); }
                 // WEB-LIFT last resort (the DEFINITIVE spot — the layout's own `chains` that
                 // feed load_missing_for_chains below): the lifted font-query path can leave a
                 // chain with NO fonts even when a fallback IS registered (generic→OS-name +
@@ -937,7 +976,7 @@ impl LayoutWindow {
                     }
                 }
                 // [g80] chains after the window.rs last-resort loop (values_mut path).
-                unsafe { crate::az_mark(0x60774_u32, (chains.chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60774_u32, chains.chains.len() as u32); }
                 // [az-web-lift 2026-06-05] REMOVED a WASM-ONLY diagnostic probe that computed
                 // nchains/total_fonts/nreg here purely to write debug markers. Its
                 // `chains.chains.values().map(|c| …).sum()` closure-iterator chain (and/or the
@@ -977,8 +1016,7 @@ impl LayoutWindow {
                 if let Some(msgs) = debug_messages.as_mut() {
                     for (font_id, error) in &failed {
                         msgs.push(LayoutDebugMessage::warning(format!(
-                            "[FontLoading] Failed to load font {:?}: {}",
-                            font_id, error
+                            "[FontLoading] Failed to load font {font_id:?}: {error}"
                         )));
                     }
                 }
@@ -988,13 +1026,13 @@ impl LayoutWindow {
                 // an identical DOM skips the resolver entirely).
                 let fc_chains = chains.into_fontconfig_chains();
                 // [g80] fc_chains after into_fontconfig_chains (the BTreeMap rebuild) — does it drop them?
-                unsafe { crate::az_mark(0x60778_u32, (fc_chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60778_u32, fc_chains.len() as u32); }
                 self.font_manager.set_font_chain_cache_with_sig(
                     fc_chains,
                     font_stacks_sig,
                 );
                 // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig persist it?).
-                unsafe { crate::az_mark(0x6077C_u32, ((self.font_manager.font_chain_cache.len() as u32))); }
+                unsafe { crate::az_mark(0x6077C_u32, (self.font_manager.font_chain_cache.len() as u32)); }
             }
         }
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
@@ -1046,7 +1084,7 @@ impl LayoutWindow {
                 viewport,
                 &self.font_manager,
                 &scroll_offsets,
-                &std::collections::BTreeMap::new(),
+                &BTreeMap::new(),
                 debug_messages,
                 Some(&gpu_cache),
                 &self.renderer_resources,
@@ -1093,11 +1131,6 @@ impl LayoutWindow {
             return Ok(());
         }
 
-        // Optional memory-breakdown print for the CSS property cache.
-        // Gated on AZ_MEM_BREAKDOWN=1; off costs one env-var read on
-        // the first call (`OnceLock`-cached) and nothing after.
-        static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> =
-            std::sync::OnceLock::new();
         if *MEM_BREAKDOWN_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
             let sr = styled_dom.memory_report();
             eprintln!("[MEM] StyledDom ({} nodes) total={} KiB", sr.node_count, sr.total_bytes() / 1024);
@@ -1150,7 +1183,7 @@ impl LayoutWindow {
 
             let grand_total = sr.total_bytes() + sc.total_bytes() + tc.total_bytes();
             eprintln!("[MEM] --- GRAND TOTAL (StyledDom + Solver3 + TextCache) = {} KiB = {:.2} MiB ---",
-                grand_total / 1024, grand_total as f64 / 1048576.0);
+                grand_total / 1024, grand_total as f64 / 1_048_576.0);
 
             #[cfg(feature = "probe")]
             {
@@ -1164,28 +1197,18 @@ impl LayoutWindow {
             }
         }
 
-        // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
-        // `Probe::span` spans (layout, style, cascade, paint, text-shape,
-        // callbacks, …). Drains the thread-local buffer once per pass so
-        // the printout reflects ONE layout/relayout frame — which makes it
-        // easy to see which phase spiked during a stuttering frame.
-        static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
         }
 
-        // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
-        // cascade-walk count per layout pass. Narrow diagnostic for
-        // prop-cache triage — not a general CPU profile.
-        static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {
             let counts = azul_core::prop_cache::drain_css_prop_counts();
             let total: usize = counts.iter().map(|(_, n)| *n).sum();
             if total > 0 {
-                eprintln!("[CASCADE] cascade-walks this pass: {} total", total);
+                eprintln!("[CASCADE] cascade-walks this pass: {total} total");
                 for (label, n) in counts.iter().take(20) {
-                    eprintln!("[CASCADE]   {:>8}  {}", n, label);
+                    eprintln!("[CASCADE]   {n:>8}  {label}");
                 }
             }
         }
@@ -1214,13 +1237,13 @@ impl LayoutWindow {
                         // Register transform keys
                         if let Some(transform_key) = info.thumb_transform_key {
                             match hit_id {
-                                azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
+                                ScrollbarHitId::VerticalThumb(_, nid) => {
                                     if !gpu_cache.transform_keys.contains_key(nid) {
                                         gpu_cache.transform_keys.insert(*nid, transform_key);
                                         gpu_cache.current_transform_values.insert(*nid, info.thumb_initial_transform);
                                     }
                                 }
-                                azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
+                                ScrollbarHitId::HorizontalThumb(_, nid) => {
                                     if !gpu_cache.h_transform_keys.contains_key(nid) {
                                         gpu_cache.h_transform_keys.insert(*nid, transform_key);
                                         gpu_cache.h_current_transform_values.insert(*nid, info.thumb_initial_transform);
@@ -1247,14 +1270,14 @@ impl LayoutWindow {
                         };
                         if let Some(opacity_key) = info.opacity_key {
                             match hit_id {
-                                azul_core::hit_test::ScrollbarHitId::VerticalThumb(_, nid) => {
+                                ScrollbarHitId::VerticalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
                                     if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.scrollbar_v_opacity_keys.entry(key) {
                                         e.insert(opacity_key);
                                         gpu_cache.scrollbar_v_opacity_values.insert(key, initial_opacity);
                                     }
                                 }
-                                azul_core::hit_test::ScrollbarHitId::HorizontalThumb(_, nid) => {
+                                ScrollbarHitId::HorizontalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
                                     if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.scrollbar_h_opacity_keys.entry(key) {
                                         e.insert(opacity_key);
@@ -1275,7 +1298,7 @@ impl LayoutWindow {
 
         // Scan for VirtualViews *after* the initial layout pass
         // Pass styled_dom directly — layout_results isn't populated yet at this point
-        let vviews = self.scan_for_virtual_views(&styled_dom, &tree, &self.layout_cache.calculated_positions);
+        let vviews = Self::scan_for_virtual_views(&styled_dom, &tree, &self.layout_cache.calculated_positions);
 
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             eprintln!("[vview] scan found {} VirtualView node(s): {:?}", vviews.len(),
@@ -1297,8 +1320,8 @@ impl LayoutWindow {
                 // The placeholder was emitted by generate_display_list() at the
                 // correct position (outside any scroll frame, inside the parent clip).
                 let mut replaced = false;
-                for item in display_list.items.iter_mut() {
-                    if let crate::solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
+                for item in &mut display_list.items {
+                    if let solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
                         node_id: ref placeholder_nid,
                         bounds: ref placeholder_bounds,
                         clip_rect: ref placeholder_clip,
@@ -1312,7 +1335,7 @@ impl LayoutWindow {
                                     node_id.index(), placeholder_bounds.inner(), bounds
                                 );
                             }
-                            *item = crate::solver3::display_list::DisplayListItem::VirtualView {
+                            *item = solver3::display_list::DisplayListItem::VirtualView {
                                 child_dom_id,
                                 bounds: *placeholder_bounds,
                                 clip_rect: *placeholder_clip,
@@ -1327,7 +1350,7 @@ impl LayoutWindow {
                     // Fallback: if no placeholder found (shouldn't happen), append at end
                     display_list
                         .items
-                        .push(crate::solver3::display_list::DisplayListItem::VirtualView {
+                        .push(solver3::display_list::DisplayListItem::VirtualView {
                             child_dom_id,
                             bounds: bounds.into(),
                             clip_rect: bounds.into(),
@@ -1359,10 +1382,9 @@ impl LayoutWindow {
     }
 
     fn scan_for_virtual_views(
-        &self,
         styled_dom: &StyledDom,
         layout_tree: &LayoutTree,
-        calculated_positions: &crate::solver3::PositionVec,
+        calculated_positions: &solver3::PositionVec,
     ) -> Vec<(NodeId, LogicalRect)> {
         let node_data_container = styled_dom.node_data.as_container();
         layout_tree
@@ -1387,14 +1409,14 @@ impl LayoutWindow {
     /// image, keyed by the ORIGINAL callback image's hash.
     ///
     /// The CPU renderer (`cpurender`) cannot invoke image callbacks itself — it
-    /// draws a grey placeholder for `DecodedImage::Callback` (e.g. the AzulPaint
+    /// draws a grey placeholder for `DecodedImage::Callback` (e.g. the `AzulPaint`
     /// canvas: an `<img>` whose data is a callback). The GPU path handles this
-    /// in `process_image_callback_updates` (producing WebRender textures); this
+    /// in `process_image_callback_updates` (producing `WebRender` textures); this
     /// is the CPU equivalent, producing images that `render_frame` blits via
     /// [`crate::cpurender`]'s image path.
     ///
     /// Pass the backend's GL context. In CPU render mode it is effectively
-    /// `None`/unusable, so a callback like AzulPaint's `render_canvas` takes its
+    /// `None`/unusable, so a callback like `AzulPaint`'s `render_canvas` takes its
     /// CPU branch and returns a raw `RawImage`. The result is stored in
     /// [`Self::cpu_image_callback_results`] and threaded into `CpuRenderState`.
     ///
@@ -1410,13 +1432,11 @@ impl LayoutWindow {
         for (dom_id, lr) in &self.layout_results {
             let node_data_container = lr.styled_dom.node_data.as_container();
             for (idx, node) in lr.layout_tree.nodes.iter().enumerate() {
-                let node_dom_id = match node.dom_node_id {
-                    Some(n) => n,
-                    None => continue,
+                let Some(node_dom_id) = node.dom_node_id else {
+                    continue;
                 };
-                let node_data = match node_data_container.get(node_dom_id) {
-                    Some(nd) => nd,
-                    None => continue,
+                let Some(node_data) = node_data_container.get(node_dom_id) else {
+                    continue;
                 };
                 if let NodeType::Image(image_ref) = node_data.get_node_type() {
                     if !matches!(image_ref.get_data(), DecodedImage::Callback(_)) {
@@ -1486,6 +1506,9 @@ impl LayoutWindow {
     /// relayout only the affected parts of the tree when the window size changes.
     ///
     /// Returns the new display list after the resize.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if relayout on resize fails.
     pub fn resize_window(
         &mut self,
         styled_dom: StyledDom,
@@ -1493,7 +1516,7 @@ impl LayoutWindow {
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ) -> Result<DisplayList, crate::solver3::LayoutError> {
+    ) -> Result<DisplayList, solver3::LayoutError> {
         // Create a temporary FullWindowState with the new size
         let mut window_state = FullWindowState::default();
         window_state.size.dimensions = new_size;
@@ -1526,7 +1549,7 @@ impl LayoutWindow {
             scroll_id_to_node_id: HashMap::new(),
             counters: HashMap::new(),
             float_cache: HashMap::new(),
-            cache_map: Default::default(),
+            cache_map: solver3::cache::LayoutCacheMap::default(),
             previous_positions: Vec::new(),
                 cached_display_list: None,
                 prev_dom_ptr: 0,
@@ -1559,28 +1582,28 @@ impl LayoutWindow {
     /// Get scroll position for a node
     pub fn get_scroll_position(&self, dom_id: DomId, node_id: NodeId) -> Option<ScrollPosition> {
         let states = self.scroll_manager.get_scroll_states_for_dom(dom_id);
-        states.get(&node_id).cloned()
+        states.get(&node_id).copied()
     }
 
-    /// Set selection state for a DOM (no-op: selection_manager removed, multi_cursor handles this)
+    /// Set selection state for a DOM (no-op: `selection_manager` removed, `multi_cursor` handles this)
     pub fn set_selection(&mut self, _dom_id: DomId, _selection: SelectionState) {
         // no-op: selection_manager removed
     }
 
-    /// Get selection state for a DOM (always None: selection_manager removed)
-    pub fn get_selection(&self, _dom_id: DomId) -> Option<&SelectionState> {
+    /// Get selection state for a DOM (always None: `selection_manager` removed)
+    pub const fn get_selection(&self, _dom_id: DomId) -> Option<&SelectionState> {
         None
     }
 
-    /// Invoke a VirtualView callback and perform layout on the returned DOM.
+    /// Invoke a `VirtualView` callback and perform layout on the returned DOM.
     ///
     /// This is the entry point that looks up the necessary `VirtualViewNode` data before
     /// delegating to the core implementation logic.
-    /// Invoke a VirtualView callback for a node. Returns the child DomId if the
+    /// Invoke a `VirtualView` callback for a node. Returns the child `DomId` if the
     /// callback was invoked and the child DOM was laid out.
     ///
-    /// This calls the VirtualView's own RefAny callback (NOT the main layout() callback),
-    /// swaps the child StyledDom, and re-layouts only the VirtualView sub-tree.
+    /// This calls the `VirtualView`'s own `RefAny` callback (NOT the main `layout()` callback),
+    /// swaps the child `StyledDom`, and re-layouts only the `VirtualView` sub-tree.
     pub fn invoke_virtual_view_callback(
         &mut self,
         parent_dom_id: DomId,
@@ -1597,9 +1620,9 @@ impl LayoutWindow {
         )
     }
 
-    /// Invoke a VirtualView callback. If `styled_dom_override` is provided, use it
+    /// Invoke a `VirtualView` callback. If `styled_dom_override` is provided, use it
     /// instead of reading from `self.layout_results` (needed during initial
-    /// layout when layout_results isn't populated yet).
+    /// layout when `layout_results` isn't populated yet).
     fn invoke_virtual_view_callback_with_dom(
         &mut self,
         parent_dom_id: DomId,
@@ -1613,8 +1636,7 @@ impl LayoutWindow {
     ) -> Option<DomId> {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "invoke_virtual_view_callback called for node {:?}",
-                node_id
+                "invoke_virtual_view_callback called for node {node_id:?}"
             )));
         }
 
@@ -1627,23 +1649,19 @@ impl LayoutWindow {
             let layout_result = self.layout_results.get(&parent_dom_id)?;
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info(format!(
-                    "Got layout result for parent DOM {:?}",
-                    parent_dom_id
+                    "Got layout result for parent DOM {parent_dom_id:?}"
                 )));
             }
             let node_data_container = layout_result.styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            match node_data.get_virtual_view_node_ref() {
-                Some(vv) => vv.clone(),
-                None => {
-                    if let Some(msgs) = debug_messages {
-                        msgs.push(LayoutDebugMessage::info(format!(
-                            "Node is NOT VirtualView, type = {:?}",
-                            node_data.get_node_type()
-                        )));
-                    }
-                    return None;
+            if let Some(vv) = node_data.get_virtual_view_node_ref() { vv.clone() } else {
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "Node is NOT VirtualView, type = {:?}",
+                        node_data.get_node_type()
+                    )));
                 }
+                return None;
             }
         };
 
@@ -1664,7 +1682,7 @@ impl LayoutWindow {
         )
     }
 
-    /// Core implementation for invoking a VirtualView callback and managing the recursive layout.
+    /// Core implementation for invoking a `VirtualView` callback and managing the recursive layout.
     ///
     /// This method implements the 5 conditional re-invocation rules by coordinating
     /// with the `VirtualViewManager` and `ScrollManager`.
@@ -1695,30 +1713,26 @@ impl LayoutWindow {
             node_id,
             bounds,
             LogicalRect::new(LogicalPosition::zero(), bounds.size), // Initial content_rect
-            now.clone(),
+            now,
         );
 
         // Check with the VirtualViewManager to see if re-invocation is necessary.
         // It handles all 5 conditional rules.
-        let reason = match self.virtual_view_manager.check_reinvoke(
+        let Some(reason) = self.virtual_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
             bounds,
-        ) {
-            Some(r) => r,
-            None => {
-                // No re-invocation needed, but we still need the child_dom_id for the display list.
-                return self
-                    .virtual_view_manager
-                    .get_nested_dom_id(parent_dom_id, node_id);
-            }
+        ) else {
+            // No re-invocation needed, but we still need the child_dom_id for the display list.
+            return self
+                .virtual_view_manager
+                .get_nested_dom_id(parent_dom_id, node_id);
         };
 
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "VirtualView ({:?}, {:?}) - Reason: {:?}",
-                parent_dom_id, node_id, reason
+                "VirtualView ({parent_dom_id:?}, {node_id:?}) - Reason: {reason:?}"
             )));
         }
 
@@ -1735,7 +1749,7 @@ impl LayoutWindow {
             &self.font_manager.fc_cache,
             &self.image_cache,
             window_state.theme,
-            azul_core::callbacks::HidpiAdjustedBounds {
+            HidpiAdjustedBounds {
                 logical_size: bounds.size,
                 hidpi_factor,
             },
@@ -1759,7 +1773,7 @@ impl LayoutWindow {
         let mut child_styled_dom = match callback_return.dom {
             azul_core::dom::OptionDom::Some(dom) => {
                 // Convert Dom → StyledDom (single deferred cascade pass)
-                azul_core::styled_dom::StyledDom::create_from_dom(dom)
+                StyledDom::create_from_dom(dom)
             },
             azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
@@ -1767,7 +1781,7 @@ impl LayoutWindow {
                     // For the very first render, create an empty div as a fallback.
                     let mut empty_dom = Dom::create_div();
                     let empty_css = Css::empty();
-                    azul_core::styled_dom::StyledDom::create(&mut empty_dom, empty_css)
+                    StyledDom::create(&mut empty_dom, empty_css)
                 } else {
                     // For subsequent calls, returning None means "keep the old DOM".
                     // We just need to update the scroll info and return the existing child ID.
@@ -1832,49 +1846,31 @@ impl LayoutWindow {
 
     /// Get the size of a laid-out node
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
-        let layout_result = match self.layout_results.get(&node_id.dom) {
-            Some(r) => r,
-            None => { return None; }
-        };
+        let layout_result = self.layout_results.get(&node_id.dom)?;
         let nid = node_id.node.into_crate_internal()?;
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
-            Some(x) => x,
-            None => { return None; }
-        };
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
         let layout_index = *layout_indices.first()?;
-        let layout_node = match layout_result.layout_tree.get(layout_index) {
-            Some(n) => n,
-            None => { return None; }
-        };
+        let layout_node = layout_result.layout_tree.get(layout_index)?;
         layout_node.used_size
     }
 
     /// Get the position of a laid-out node
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
-        let layout_result = match self.layout_results.get(&node_id.dom) {
-            Some(r) => r,
-            None => { return None; }
-        };
+        let layout_result = self.layout_results.get(&node_id.dom)?;
         let nid = node_id.node.into_crate_internal()?;
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
-            Some(x) => x,
-            None => { return None; }
-        };
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
         let layout_index = *layout_indices.first()?;
-        let position = match layout_result.calculated_positions.get(layout_index) {
-            Some(p) => p,
-            None => { return None; }
-        };
+        let position = layout_result.calculated_positions.get(layout_index)?;
         Some(*position)
     }
 
     /// Get the hit test bounds of a node from the display list
     ///
-    /// This is more reliable than get_node_position + get_node_size because
+    /// This is more reliable than `get_node_position` + `get_node_size` because
     /// the display list always contains the correct final rendered positions,
-    /// including for nodes that may not have entries in calculated_positions.
+    /// including for nodes that may not have entries in `calculated_positions`.
     pub fn get_node_hit_test_bounds(&self, node_id: DomNodeId) -> Option<LogicalRect> {
         use crate::solver3::display_list::DisplayListItem;
 
@@ -1983,6 +1979,7 @@ impl LayoutWindow {
     /// and collects the deterministic `FontKey` derived from the font hash.
     /// Callers can diff the result against `renderer_resources.currently_registered_fonts`
     /// to find fonts that are no longer used.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     pub fn scan_used_fonts(&self) -> BTreeSet<FontKey> {
         use crate::solver3::display_list::DisplayListItem;
 
@@ -2031,7 +2028,7 @@ impl LayoutWindow {
         images
     }
 
-    /// Helper function to convert ScrollManager to nested format for CallbackInfo
+    /// Helper function to convert `ScrollManager` to nested format for `CallbackInfo`
     fn get_nested_scroll_states(
         &self,
         dom_id: DomId,
@@ -2071,7 +2068,7 @@ impl LayoutWindow {
         &mut self,
         node_id: DomNodeId,
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
-        now: azul_core::task::Instant,
+        now: Instant,
     ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
         crate::managers::scroll_into_view::scroll_node_into_view(
             node_id,
@@ -2091,7 +2088,7 @@ impl LayoutWindow {
         cursor_rect: LogicalRect,
         node_id: DomNodeId,
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
-        now: azul_core::task::Instant,
+        now: Instant,
     ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
         crate::managers::scroll_into_view::scroll_cursor_into_view(
             cursor_rect,
@@ -2132,7 +2129,9 @@ impl LayoutWindow {
 
     /// Tick all timers (called once per frame)
     /// Returns a list of timer IDs that are ready to run
-    pub fn tick_timers(&mut self, current_time: azul_core::task::Instant) -> Vec<TimerId> {
+    // Instant is a ref-counted FFI clock handle; called by every dll backend's event loop by value.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn tick_timers(&mut self, current_time: Instant) -> Vec<TimerId> {
         let mut ready_timers = Vec::new();
 
         for (timer_id, timer) in &mut self.timers {
@@ -2175,10 +2174,7 @@ impl LayoutWindow {
                 duration_to_millis(next_run.duration_since(&now))
             };
 
-            min_ms = Some(match min_ms {
-                Some(current_min) => current_min.min(ms_until),
-                None => ms_until,
-            });
+            min_ms = Some(min_ms.map_or(ms_until, |current_min| current_min.min(ms_until)));
         }
 
         min_ms
@@ -2218,7 +2214,7 @@ impl LayoutWindow {
     /// This timer toggles cursor visibility at ~530ms intervals.
     /// It checks if enough time has passed since the last user input before blinking,
     /// to avoid blinking while the user is actively typing.
-    pub fn create_cursor_blink_timer(&self, _window_state: &FullWindowState) -> crate::timer::Timer {
+    pub fn create_cursor_blink_timer(&self, _window_state: &FullWindowState) -> Timer {
         use azul_core::task::{Duration, SystemTimeDiff};
         use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
@@ -2232,7 +2228,7 @@ impl LayoutWindow {
         Timer {
             refany,
             node_id: None.into(),
-            created: azul_core::task::Instant::now(),
+            created: Instant::now(),
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
@@ -2248,8 +2244,8 @@ impl LayoutWindow {
     ///
     /// Fires exactly once after `hover_time_ms` elapsed. On expiry the callback
     /// looks up the currently-hovered node's `title` / `alt` / `aria-label`
-    /// attribute and emits a `ShowTooltip` CallbackChange, then terminates.
-    pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> crate::timer::Timer {
+    /// attribute and emits a `ShowTooltip` `CallbackChange`, then terminates.
+    pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> Timer {
         use azul_core::task::{Duration, SystemTimeDiff};
         use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
@@ -2257,11 +2253,11 @@ impl LayoutWindow {
         Timer {
             refany: RefAny::new(()),
             node_id: None.into(),
-            created: azul_core::task::Instant::now(),
+            created: Instant::now(),
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::Some(Duration::System(
-                SystemTimeDiff::from_millis(hover_time_ms as u64),
+                SystemTimeDiff::from_millis(u64::from(hover_time_ms)),
             )),
             interval: azul_core::task::OptionDuration::None,
             timeout: azul_core::task::OptionDuration::None,
@@ -2300,8 +2296,7 @@ impl LayoutWindow {
         let node_has_tooltip = |node_id: NodeId| -> bool {
             node_data_cont
                 .get(node_id)
-                .map(|n| n.get_accessible_label().is_some())
-                .unwrap_or(false)
+                .is_some_and(|n| n.get_accessible_label().is_some())
         };
 
         match current_hover {
@@ -2312,7 +2307,7 @@ impl LayoutWindow {
         }
     }
 
-    /// Check if a node is contenteditable (internal version using NodeId)
+    /// Check if a node is contenteditable (internal version using `NodeId`)
     fn is_node_contenteditable_internal(&self, dom_id: DomId, node_id: NodeId) -> bool {
         use crate::solver3::getters::is_node_contenteditable;
 
@@ -2359,29 +2354,24 @@ impl LayoutWindow {
     /// layer should take.
     pub fn handle_focus_change_for_cursor_blink(
         &mut self,
-        new_focus: Option<azul_core::dom::DomNodeId>,
+        new_focus: Option<DomNodeId>,
         current_window_state: &FullWindowState,
     ) -> CursorBlinkTimerAction {
         // Check if the new focus is on a contenteditable element
         // Use the inherited check for W3C conformance
-        let contenteditable_info = match new_focus {
-            Some(focus_node) => {
-                if let Some(node_id) = focus_node.node.into_crate_internal() {
-                    // Check if this node or any ancestor is contenteditable
-                    if self.is_node_contenteditable_inherited_internal(focus_node.dom, node_id) {
-                        // Find the text node where the cursor should be placed
-                        let text_node_id = self.find_last_text_child(focus_node.dom, node_id)
-                            .unwrap_or(node_id);
-                        Some((focus_node.dom, node_id, text_node_id))
-                    } else {
-                        None
-                    }
+        let contenteditable_info = new_focus.and_then(|focus_node| {
+            focus_node.node.into_crate_internal().and_then(|node_id| {
+                // Check if this node or any ancestor is contenteditable
+                if self.is_node_contenteditable_inherited_internal(focus_node.dom, node_id) {
+                    // Find the text node where the cursor should be placed
+                    let text_node_id = self.find_last_text_child(focus_node.dom, node_id)
+                        .unwrap_or(node_id);
+                    Some((focus_node.dom, node_id, text_node_id))
                 } else {
                     None
                 }
-            }
-            None => None,
-        };
+            })
+        });
 
         // Determine the action based on current state and new focus
         let timer_was_active = self.text_edit_manager.blink.is_blink_timer_active();
@@ -2397,17 +2387,17 @@ impl LayoutWindow {
             );
 
             // Make cursor visible and record current time (even before actual initialization)
-            let now = azul_core::task::Instant::now();
+            let now = Instant::now();
             self.text_edit_manager.blink.reset_blink_on_input(now);
             self.text_edit_manager.blink.set_blink_timer_active(true);
 
-            if !timer_was_active {
+            if timer_was_active {
+                // Timer already active, just continue
+                CursorBlinkTimerAction::NoChange
+            } else {
                 // Need to start the timer
                 let timer = self.create_cursor_blink_timer(current_window_state);
                 CursorBlinkTimerAction::Start(timer)
-            } else {
-                // Timer already active, just continue
-                CursorBlinkTimerAction::NoChange
             }
         } else {
             // Focus is moving away from contenteditable or being cleared
@@ -2449,17 +2439,16 @@ impl LayoutWindow {
     /// `true` if cursor was initialized, `false` if no pending focus or initialization failed.
     pub fn finalize_pending_focus_changes(&mut self) -> bool {
         // Take the pending focus info (this clears the flag)
-        let pending = match self.focus_manager.take_pending_contenteditable_focus() {
-            Some(p) => p,
-            None => return false,
+        let Some(pending) = self.focus_manager.take_pending_contenteditable_focus() else {
+            return false;
         };
 
         // Bug B+H fix: If process_mouse_click_for_selection already positioned
         // the cursor in this node during the same event cycle, don't override it
         // with initialize_cursor_at_end. The click handler sets cursor on the IFC
         // root node (may differ from text_node_id), so check both.
-        if self.text_edit_manager.multi_cursor.as_ref().map(|mc| mc.node_id.dom == pending.dom_id && mc.node_id.node.into_crate_internal() == Some(pending.text_node_id)).unwrap_or(false)
-            || self.text_edit_manager.multi_cursor.as_ref().map(|mc| mc.node_id.dom == pending.dom_id && mc.node_id.node.into_crate_internal() == Some(pending.container_node_id)).unwrap_or(false)
+        if self.text_edit_manager.multi_cursor.as_ref().is_some_and(|mc| mc.node_id.dom == pending.dom_id && mc.node_id.node.into_crate_internal() == Some(pending.text_node_id))
+            || self.text_edit_manager.multi_cursor.as_ref().is_some_and(|mc| mc.node_id.dom == pending.dom_id && mc.node_id.node.into_crate_internal() == Some(pending.container_node_id))
         {
             return true;
         }
@@ -2472,16 +2461,16 @@ impl LayoutWindow {
         let cursor = text_layout.as_ref()
             .and_then(|layout| {
                 layout.items.iter().rev()
-                    .find_map(|item| if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
-                        Some(azul_core::selection::TextCursor {
+                    .find_map(|item| if let ShapedItem::Cluster(c) = &item.item {
+                        Some(TextCursor {
                             cluster_id: c.source_cluster_id,
-                            affinity: azul_core::selection::CursorAffinity::Trailing,
+                            affinity: CursorAffinity::Trailing,
                         })
                     } else { None })
             })
-            .unwrap_or(azul_core::selection::TextCursor {
-                cluster_id: azul_core::selection::GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
-                affinity: azul_core::selection::CursorAffinity::Trailing,
+            .unwrap_or(TextCursor {
+                cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+                affinity: CursorAffinity::Trailing,
             });
         self.text_edit_manager.initialize_editing(cursor, pending.dom_id, pending.text_node_id, 0);
         true
@@ -2510,9 +2499,9 @@ impl LayoutWindow {
         layout_result.layout_tree.get_inline_layout_for_node(layout_index)
     }
 
-    /// Single dispatch: (direction, step) → UnifiedLayout cursor movement.
+    /// Single dispatch: (direction, step) → `UnifiedLayout` cursor movement.
     fn resolve_step_static(
-        layout: &crate::text3::cache::UnifiedLayout,
+        layout: &UnifiedLayout,
         cursor: &TextCursor,
         direction: azul_core::events::SelectionDirection,
         step: azul_core::events::SelectionStep,
@@ -2534,20 +2523,19 @@ impl LayoutWindow {
 
     /// Apply a unified selection operation (navigation, extend, or delete).
     ///
-    /// Single entry point that replaces the separate ArrowKeyNavigation and
-    /// DeleteTextSelection handlers, as well as handle_cursor_movement and
-    /// handle_multi_cursor_movement.
+    /// Single entry point that replaces the separate `ArrowKeyNavigation` and
+    /// `DeleteTextSelection` handlers, as well as `handle_cursor_movement` and
+    /// `handle_multi_cursor_movement`.
     pub fn apply_selection_op(
         &mut self,
-        target: azul_core::dom::DomNodeId,
+        target: DomNodeId,
         op: &azul_core::events::SelectionOp,
     ) -> bool {
         use azul_core::events::{SelectionMode, SelectionStep, SelectionDirection};
 
         let dom_id = target.dom;
-        let node_id = match target.node.into_crate_internal() {
-            Some(id) => id,
-            None => return false,
+        let Some(node_id) = target.node.into_crate_internal() else {
+            return false;
         };
 
         let layout = match self.get_inline_layout_for_node(dom_id, node_id) {
@@ -2602,10 +2590,10 @@ impl LayoutWindow {
         let new_cursor = movement_fn(layout, &current_cursor);
 
         // Only return if cursor actually moved
-        if new_cursor != current_cursor {
-            Some(new_cursor)
-        } else {
+        if new_cursor == current_cursor {
             None
+        } else {
+            Some(new_cursor)
         }
     }
 
@@ -2628,8 +2616,8 @@ impl LayoutWindow {
         self.regenerate_display_list_for_dom(dom_id);
     }
 
-    /// Move all cursors in a MultiCursorState using a movement function.
-    /// This is the multi-cursor version of handle_cursor_movement.
+    /// Move all cursors in a `MultiCursorState` using a movement function.
+    /// This is the multi-cursor version of `handle_cursor_movement`.
     pub fn handle_multi_cursor_movement(
         &mut self,
         dom_id: DomId,
@@ -2702,25 +2690,9 @@ impl LayoutWindow {
         crate::hit_test::CursorTypeHitTest::new(hit_test, self)
     }
 
-    /// Synchronize scrollbar opacity values with the GPU value cache.
-    ///
-    /// This method updates GPU opacity keys for all scrollbars based on scroll activity
-    /// tracked by the ScrollManager. It enables smooth scrollbar fading without
-    /// requiring display list regeneration.
-    ///
-    /// # Arguments
-    ///
-    /// * `dom_id` - The DOM to synchronize scrollbar opacity for
-    /// * `layout_tree` - The layout tree containing scrollbar information
-    /// * `now` - Current timestamp for calculating fade progress
-    /// * `fade_delay` - Delay before scrollbar starts fading (e.g., 500ms)
-    /// * `fade_duration` - Duration of the fade animation (e.g., 200ms)
-    ///
-    /// # Returns
-    ///
-    /// A vector of GPU scrollbar opacity change events
-
     /// Helper function to calculate scrollbar opacity based on activity time
+    // Instant is a ref-counted FFI clock handle threaded through the scrollbar-fade path by value.
+    #[allow(clippy::needless_pass_by_value)]
     fn calculate_scrollbar_opacity(
         last_activity: Option<Instant>,
         now: Instant,
@@ -2748,17 +2720,32 @@ impl LayoutWindow {
 
     /// Synchronize scrollbar opacity values with the GPU value cache.
     ///
-    /// Static method that takes individual components instead of &mut self to avoid borrow
-    /// conflicts.
+    /// This method updates GPU opacity keys for all scrollbars based on scroll activity
+    /// tracked by the `ScrollManager`. It enables smooth scrollbar fading without
+    /// requiring display list regeneration. Static method that takes individual
+    /// components instead of `&mut self` to avoid borrow conflicts.
+    ///
+    /// # Arguments
+    ///
+    /// * `dom_id` - The DOM to synchronize scrollbar opacity for
+    /// * `layout_tree` - The layout tree containing scrollbar information
+    /// * `now` - Current timestamp for calculating fade progress
+    /// * `fade_delay` - Delay before scrollbar starts fading (e.g., 500ms)
+    /// * `fade_duration` - Duration of the fade animation (e.g., 200ms)
+    ///
+    /// # Returns
+    ///
+    /// A vector of GPU scrollbar opacity change events
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,
         dom_id: DomId,
         layout_tree: &LayoutTree,
         system_callbacks: &ExternalSystemCallbacks,
-        fade_delay: azul_core::task::Duration,
-        fade_duration: azul_core::task::Duration,
-    ) -> Vec<azul_core::gpu::GpuScrollbarOpacityEvent> {
+        fade_delay: Duration,
+        fade_duration: Duration,
+    ) -> Vec<GpuScrollbarOpacityEvent> {
         let mut events = Vec::new();
         let mut any_opacity_nonzero = false;
         let gpu_cache = gpu_state_manager.caches.entry(dom_id).or_default();
@@ -2770,14 +2757,12 @@ impl LayoutWindow {
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
             // Check if node needs scrollbars
             let warm = layout_tree.warm(node_idx);
-            let scrollbar_info = match warm.and_then(|w| w.scrollbar_info.as_ref()) {
-                Some(info) => info,
-                None => continue,
+            let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
+                continue;
             };
 
-            let node_id = match node.dom_node_id {
-                Some(nid) => nid,
-                None => continue, // Skip anonymous boxes
+            let Some(node_id) = node.dom_node_id else {
+                continue; // Skip anonymous boxes
             };
 
             // Calculate current opacity from ScrollManager
@@ -2822,8 +2807,8 @@ impl LayoutWindow {
             // the first display list won't have the binding, and GPU-only scroll
             // updates (build_image_only_transaction) can never make the scrollbar
             // visible because WebRender doesn't know about the binding.
+            let key = (dom_id, node_id);
             if scrollbar_info.needs_vertical {
-                let key = (dom_id, node_id);
                 let existing = gpu_cache.scrollbar_v_opacity_values.get(&key);
 
                 match existing {
@@ -2857,7 +2842,6 @@ impl LayoutWindow {
                 }
             } else {
                 // Remove if scrollbar no longer needed
-                let key = (dom_id, node_id);
                 if let Some(opacity_key) = gpu_cache.scrollbar_v_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_v_opacity_values.remove(&key);
                     events.push(GpuScrollbarOpacityEvent::VerticalRemoved(
@@ -2870,7 +2854,6 @@ impl LayoutWindow {
 
             // Handle horizontal scrollbar (same logic as vertical above)
             if scrollbar_info.needs_horizontal {
-                let key = (dom_id, node_id);
                 let existing = gpu_cache.scrollbar_h_opacity_values.get(&key);
 
                 match existing {
@@ -2904,7 +2887,6 @@ impl LayoutWindow {
                 }
             } else {
                 // Remove if scrollbar no longer needed
-                let key = (dom_id, node_id);
                 if let Some(opacity_key) = gpu_cache.scrollbar_h_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_h_opacity_values.remove(&key);
                     events.push(GpuScrollbarOpacityEvent::HorizontalRemoved(
@@ -2927,14 +2909,14 @@ impl LayoutWindow {
     /// Compute stable scroll IDs for all scrollable nodes in a layout tree
     ///
     /// This should be called after layout but before display list generation.
-    /// It creates stable IDs based on node_data_hash that persist across frames.
+    /// It creates stable IDs based on `node_data_hash` that persist across frames.
     ///
     /// Returns:
-    /// - scroll_ids: Map from layout node index -> external scroll ID
-    /// - scroll_id_to_node_id: Map from scroll ID -> DOM NodeId (for hit testing)
-    pub fn compute_scroll_ids(
+    /// - `scroll_ids`: Map from layout node index -> external scroll ID
+    /// - `scroll_id_to_node_id`: Map from scroll ID -> DOM `NodeId` (for hit testing)
+    #[must_use] pub fn compute_scroll_ids(
         layout_tree: &LayoutTree,
-        styled_dom: &azul_core::styled_dom::StyledDom,
+        styled_dom: &StyledDom,
     ) -> (HashMap<usize, u64>, HashMap<u64, NodeId>) {
         use azul_css::props::layout::LayoutOverflow;
 
@@ -2991,10 +2973,11 @@ impl LayoutWindow {
     /// for positioning menus, tooltips, or other overlays.
     ///
     /// Returns None if the node is not currently laid out (e.g., display:none)
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn get_node_layout_rect(
         &self,
-        node_id: azul_core::dom::DomNodeId,
-    ) -> Option<azul_core::geom::LogicalRect> {
+        node_id: DomNodeId,
+    ) -> Option<LogicalRect> {
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
         { let _ = (0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8)); }
@@ -3002,26 +2985,17 @@ impl LayoutWindow {
         // Find the layout node index corresponding to this DOM node
         // Convert NodeHierarchyItemId to Option<NodeId> for comparison
         let target_node_id = node_id.node.into_crate_internal();
-        let layout_idx = match layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) {
-            Some(i) => i,
-            None => { { let _ = (0xE5_0000FFu32); } return None; }
-        };
+        let Some(layout_idx) = layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) else { { let _ = (0xE5_0000FFu32); } return None; };
         { let _ = (0xE5_000003u32 | ((self.layout_cache.calculated_positions.len() as u32 & 0xfff) << 8)); }
 
         // Get the calculated layout position from cache (already in logical units)
-        let calc_pos = match self.layout_cache.calculated_positions.get(layout_idx) {
-            Some(p) => p,
-            None => { { let _ = (0xE5_0000FEu32); } return None; }
-        };
+        let Some(calc_pos) = self.layout_cache.calculated_positions.get(layout_idx) else { { let _ = (0xE5_0000FEu32); } return None; };
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
 
         // Get the used size (the actual laid-out size)
-        let used_size = match layout_node.used_size {
-            Some(s) => s,
-            None => { { let _ = (0xE5_0000FDu32); } return None; }
-        };
+        let Some(used_size) = layout_node.used_size else { { let _ = (0xE5_0000FDu32); } return None; };
         { let _ = (0xE5_000004u32); }
 
         // Convert size to logical coordinates
@@ -3065,11 +3039,11 @@ impl LayoutWindow {
             let node_id = mc.node_id.node.into_crate_internal()?;
             let primary = mc.get_primary()?;
             let (anchor_offset, focus_offset) = match &primary.selection {
-                azul_core::selection::Selection::Cursor(c) => {
+                Selection::Cursor(c) => {
                     let off = c.cluster_id.start_byte_in_run as usize;
                     (off, off)
                 }
-                azul_core::selection::Selection::Range(r) => (
+                Selection::Range(r) => (
                     r.start.cluster_id.start_byte_in_run as usize,
                     r.end.cluster_id.start_byte_in_run as usize,
                 ),
@@ -3115,6 +3089,7 @@ impl LayoutWindow {
     /// updated value + cursor/selection.  Falls back to full rebuild if the
     /// tree hasn't been initialized yet or there's no active editing.
     #[cfg(feature = "a11y")]
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn update_a11y_tree_incremental(&mut self) {
         if !self.a11y_manager.tree_initialized {
             // First time — need full tree
@@ -3122,15 +3097,13 @@ impl LayoutWindow {
         }
 
         // Only worth doing incremental if we have an active editing node
-        let mc = match self.text_edit_manager.multi_cursor.as_ref() {
-            Some(mc) => mc,
-            None => return, // No cursor — nothing to update incrementally
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return; // No cursor — nothing to update incrementally
         };
 
         let dom_node_id = mc.node_id;
-        let node_id = match dom_node_id.node.into_crate_internal() {
-            Some(id) => id,
-            None => return,
+        let Some(node_id) = dom_node_id.node.into_crate_internal() else {
+            return;
         };
         let dom_id = dom_node_id.dom;
 
@@ -3139,9 +3112,8 @@ impl LayoutWindow {
             self.extract_text_from_inline_content(&dirty.content)
         } else {
             // Fall back to StyledDom text
-            let lr = match self.layout_results.get(&dom_id) {
-                Some(lr) => lr,
-                None => return self.update_a11y_tree(),
+            let Some(lr) = self.layout_results.get(&dom_id) else {
+                return self.update_a11y_tree();
             };
             let node_data = lr.styled_dom.node_data.as_ref();
             let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
@@ -3150,7 +3122,7 @@ impl LayoutWindow {
                 let mut child = item.first_child_id(node_id);
                 while let Some(child_id) = child {
                     if let Some(cd) = node_data.get(child_id.index()) {
-                        if let azul_core::dom::NodeType::Text(t) = &cd.node_type {
+                        if let NodeType::Text(t) = &cd.node_type {
                             if !text.is_empty() { text.push(' '); }
                             text.push_str(t.as_str());
                         }
@@ -3170,16 +3142,15 @@ impl LayoutWindow {
         // Get the node data to determine role
         let role = self.layout_results.get(&dom_id)
             .and_then(|lr| lr.styled_dom.node_data.as_ref().get(node_id.index()))
-            .map(|nd| {
-                if nd.is_contenteditable() || matches!(nd.node_type, azul_core::dom::NodeType::TextArea) {
+            .map_or(accesskit::Role::GenericContainer, |nd| {
+                if nd.is_contenteditable() || matches!(nd.node_type, NodeType::TextArea) {
                     accesskit::Role::MultilineTextInput
-                } else if matches!(nd.node_type, azul_core::dom::NodeType::Input) {
+                } else if matches!(nd.node_type, NodeType::Input) {
                     accesskit::Role::TextInput
                 } else {
                     accesskit::Role::GenericContainer
                 }
-            })
-            .unwrap_or(accesskit::Role::GenericContainer);
+            });
 
         let mut node = accesskit::Node::new(role);
         node.set_value(text_content.as_str());
@@ -3191,11 +3162,11 @@ impl LayoutWindow {
         let primary = mc.get_primary();
         if let Some(identified) = primary {
             let (anchor_off, focus_off) = match &identified.selection {
-                azul_core::selection::Selection::Cursor(c) => {
+                Selection::Cursor(c) => {
                     let off = c.cluster_id.start_byte_in_run as usize;
                     (off, off)
                 }
-                azul_core::selection::Selection::Range(r) => (
+                Selection::Range(r) => (
                     r.start.cluster_id.start_byte_in_run as usize,
                     r.end.cluster_id.start_byte_in_run as usize,
                 ),
@@ -3241,7 +3212,7 @@ impl LayoutWindow {
         });
     }
 
-    pub fn get_focused_cursor_rect(&self) -> Option<azul_core::geom::LogicalRect> {
+    pub fn get_focused_cursor_rect(&self) -> Option<LogicalRect> {
         // Get the focused node
         let focused_node = self.focus_manager.focused_node?;
 
@@ -3279,13 +3250,13 @@ impl LayoutWindow {
 
     /// Compute the bounding rect of all selection ranges in the focused node.
     /// Returns the union of all selection rects in absolute coordinates.
-    pub fn calculate_selection_bounding_rect(&self) -> Option<azul_core::geom::LogicalRect> {
+    pub fn calculate_selection_bounding_rect(&self) -> Option<LogicalRect> {
         let focused_node = self.focus_manager.focused_node?;
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
 
         // Collect Range selections
-        let ranges: alloc::vec::Vec<_> = mc.selections.iter().filter_map(|s| {
-            if let azul_core::selection::Selection::Range(ref r) = s.selection {
+        let ranges: Vec<_> = mc.selections.iter().filter_map(|s| {
+            if let Selection::Range(ref r) = s.selection {
                 Some(*r)
             } else {
                 None
@@ -3340,17 +3311,20 @@ impl LayoutWindow {
     /// new multi-cursor selection.
     ///
     /// Returns true if a new selection was added.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if there is no active multi-cursor.
     pub fn select_next_occurrence(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
-        let mc = match self.text_edit_manager.multi_cursor.as_mut() {
-            Some(mc) => mc,
-            None => return false,
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
         };
         let node_id = mc.node_id;
-        let dom_node_id = match node_id.node.into_crate_internal() {
-            Some(id) => id,
-            None => return false,
+        let Some(dom_node_id) = node_id.node.into_crate_internal() else {
+            return false;
         };
 
         // Get primary selection text (or word at cursor)
@@ -3360,17 +3334,16 @@ impl LayoutWindow {
         };
 
         let (search_range, need_word_expand) = match &primary.selection {
-            azul_core::selection::Selection::Range(r) => (*r, false),
-            azul_core::selection::Selection::Cursor(c) => {
+            Selection::Range(r) => (*r, false),
+            Selection::Cursor(c) => {
                 // Need to expand to word first
-                (azul_core::selection::SelectionRange { start: *c, end: *c }, true)
+                (SelectionRange { start: *c, end: *c }, true)
             }
         };
 
         // Get the inline layout
-        let inline_layout = match self.get_node_inline_layout(node_id.dom, dom_node_id) {
-            Some(l) => l,
-            None => return false,
+        let Some(inline_layout) = self.get_node_inline_layout(node_id.dom, dom_node_id) else {
+            return false;
         };
 
         // If no range yet, expand to word
@@ -3411,11 +3384,10 @@ impl LayoutWindow {
         // Search forward from the end of the last selection
         let mc = self.text_edit_manager.multi_cursor.as_ref().unwrap();
         let last_end_byte = mc.selections.last()
-            .map(|s| match &s.selection {
-                azul_core::selection::Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
-                azul_core::selection::Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
-            })
-            .unwrap_or(0);
+            .map_or(0, |s| match &s.selection {
+                Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
+                Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
+            });
 
         let search_run = word_range.start.cluster_id.source_run;
 
@@ -3427,20 +3399,20 @@ impl LayoutWindow {
                 let match_start = last_end_byte + offset;
                 let match_end = match_start + search_text.len();
 
-                let new_range = azul_core::selection::SelectionRange {
-                    start: azul_core::selection::TextCursor {
-                        cluster_id: azul_core::selection::GraphemeClusterId {
+                let new_range = SelectionRange {
+                    start: TextCursor {
+                        cluster_id: GraphemeClusterId {
                             source_run: search_run,
                             start_byte_in_run: match_start as u32,
                         },
-                        affinity: azul_core::selection::CursorAffinity::Leading,
+                        affinity: CursorAffinity::Leading,
                     },
-                    end: azul_core::selection::TextCursor {
-                        cluster_id: azul_core::selection::GraphemeClusterId {
+                    end: TextCursor {
+                        cluster_id: GraphemeClusterId {
                             source_run: search_run,
                             start_byte_in_run: match_end as u32,
                         },
-                        affinity: azul_core::selection::CursorAffinity::Trailing,
+                        affinity: CursorAffinity::Trailing,
                     },
                 };
 
@@ -3448,7 +3420,7 @@ impl LayoutWindow {
                 let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
                 if need_word_expand {
                     if let Some(first) = mc.selections.first_mut() {
-                        first.selection = azul_core::selection::Selection::Range(word_range);
+                        first.selection = Selection::Range(word_range);
                     }
                 }
                 let _ = mc.add_selection(new_range);
@@ -3460,27 +3432,27 @@ impl LayoutWindow {
                     let match_start = offset;
                     let match_end = match_start + search_text.len();
 
-                    let new_range = azul_core::selection::SelectionRange {
-                        start: azul_core::selection::TextCursor {
-                            cluster_id: azul_core::selection::GraphemeClusterId {
+                    let new_range = SelectionRange {
+                        start: TextCursor {
+                            cluster_id: GraphemeClusterId {
                                 source_run: search_run,
                                 start_byte_in_run: match_start as u32,
                             },
-                            affinity: azul_core::selection::CursorAffinity::Leading,
+                            affinity: CursorAffinity::Leading,
                         },
-                        end: azul_core::selection::TextCursor {
-                            cluster_id: azul_core::selection::GraphemeClusterId {
+                        end: TextCursor {
+                            cluster_id: GraphemeClusterId {
                                 source_run: search_run,
                                 start_byte_in_run: match_end as u32,
                             },
-                            affinity: azul_core::selection::CursorAffinity::Trailing,
+                            affinity: CursorAffinity::Trailing,
                         },
                     };
 
                     let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
                     if need_word_expand {
                         if let Some(first) = mc.selections.first_mut() {
-                            first.selection = azul_core::selection::Selection::Range(word_range);
+                            first.selection = Selection::Range(word_range);
                         }
                     }
                     let _ = mc.add_selection(new_range);
@@ -3495,7 +3467,7 @@ impl LayoutWindow {
         if need_word_expand {
             let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
             if let Some(first) = mc.selections.first_mut() {
-                first.selection = azul_core::selection::Selection::Range(word_range);
+                first.selection = Selection::Range(word_range);
             }
             self.text_edit_manager.mark_dirty();
             return true;
@@ -3521,7 +3493,7 @@ impl LayoutWindow {
     /// - Text cache cannot find cursor position
     ///
     /// For scroll-into-view calculations (absolute coordinates), use `get_focused_cursor_rect()`.
-    pub fn get_focused_cursor_rect_viewport(&self) -> Option<azul_core::geom::LogicalRect> {
+    pub fn get_focused_cursor_rect_viewport(&self) -> Option<LogicalRect> {
         // Start with absolute position
         let mut cursor_rect = self.get_focused_cursor_rect()?;
 
@@ -3584,12 +3556,12 @@ impl LayoutWindow {
     }
 
     /// Find the nearest scrollable ancestor for a given node
-    /// Returns (DomId, NodeId) of the scrollable container, or None if no scrollable ancestor
+    /// Returns (`DomId`, `NodeId`) of the scrollable container, or None if no scrollable ancestor
     /// exists
     pub fn find_scrollable_ancestor(
         &self,
-        mut node_id: azul_core::dom::DomNodeId,
-    ) -> Option<azul_core::dom::DomNodeId> {
+        mut node_id: DomNodeId,
+    ) -> Option<DomNodeId> {
         // Get the layout tree
         let layout_tree = self.layout_cache.tree.as_ref()?;
 
@@ -3614,9 +3586,9 @@ impl LayoutWindow {
                     .is_some()
                 {
                     // Found a scrollable ancestor
-                    return Some(azul_core::dom::DomNodeId {
+                    return Some(DomNodeId {
                         dom: node_id.dom,
-                        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                        node: NodeHierarchyItemId::from_crate_internal(
                             Some(check_node_id),
                         ),
                     });
@@ -3643,7 +3615,7 @@ impl LayoutWindow {
     /// 4. Compute scroll delta (instant with padding, or accelerated with zones)
     /// 5. Apply scroll with appropriate animation
     ///
-    /// ## Distance-Based Acceleration (ScrollMode::Accelerated)
+    /// ## Distance-Based Acceleration (`ScrollMode::Accelerated`)
     /// ```text
     /// Distance from edge:  Scroll speed per frame:
     /// 0-20px              Dead zone (no scroll)
@@ -3686,40 +3658,34 @@ impl LayoutWindow {
         };
 
         // Get the focused node (or bail if no focus)
-        let focused_node = match self.focus_manager.focused_node {
-            Some(node) => node,
-            None => return false,
+        let Some(focused_node) = self.focus_manager.focused_node else {
+            return false;
         };
 
         // Find scrollable ancestor
-        let scroll_container = match self.find_scrollable_ancestor(focused_node) {
-            Some(node) => node,
-            None => return false, // No scrollable ancestor
+        let Some(scroll_container) = self.find_scrollable_ancestor(focused_node) else {
+            return false; // No scrollable ancestor
         };
 
         // Get container bounds and current scroll state
-        let layout_tree = match self.layout_cache.tree.as_ref() {
-            Some(tree) => tree,
-            None => return false,
+        let Some(layout_tree) = self.layout_cache.tree.as_ref() else {
+            return false;
         };
 
-        let scrollable_node_internal = match scroll_container.node.into_crate_internal() {
-            Some(id) => id,
-            None => return false,
+        let Some(scrollable_node_internal) = scroll_container.node.into_crate_internal() else {
+            return false;
         };
 
-        let layout_idx = match layout_tree
+        let Some(layout_idx) = layout_tree
             .nodes
             .iter()
             .position(|n| n.dom_node_id == Some(scrollable_node_internal))
-        {
-            Some(idx) => idx,
-            None => return false,
+        else {
+            return false;
         };
 
-        let scrollable_layout_node = match layout_tree.nodes.get(layout_idx) {
-            Some(node) => node,
-            None => return false,
+        let Some(scrollable_layout_node) = layout_tree.nodes.get(layout_idx) else {
+            return false;
         };
 
         let container_pos = self
@@ -3737,12 +3703,11 @@ impl LayoutWindow {
         };
 
         // Get current scroll state
-        let scroll_state = match self
+        let Some(scroll_state) = self
             .scroll_manager
             .get_scroll_state(scroll_container.dom, scrollable_node_internal)
-        {
-            Some(state) => state,
-            None => return false,
+        else {
+            return false;
         };
 
         // Calculate visible area (container rect adjusted by scroll offset)
@@ -3940,13 +3905,14 @@ fn calculate_accelerated_scroll_delta(distance: EdgeDistance) -> LogicalPosition
 }
 
 /// Result of a layout operation
+#[derive(Debug)]
 pub struct LayoutResult {
     pub display_list: DisplayList,
     pub warnings: Vec<String>,
 }
 
 impl LayoutResult {
-    pub fn new(display_list: DisplayList, warnings: Vec<String>) -> Self {
+    #[must_use] pub const fn new(display_list: DisplayList, warnings: Vec<String>) -> Self {
         Self {
             display_list,
             warnings,
@@ -3955,7 +3921,7 @@ impl LayoutResult {
 }
 
 impl LayoutWindow {
-    /// Runs a single timer, similar to CallbacksOfHitTest.call()
+    /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
     ///
     /// NOTE: The timer has to be selected first by the calling code and verified
     /// that it is ready to run
@@ -3963,13 +3929,18 @@ impl LayoutWindow {
     /// Run a single timer callback and return raw changes + update.
     ///
     /// If the timer should terminate, a `RemoveTimer` change is appended.
+    // Instant is a ref-counted FFI clock handle threaded through the event loop by value.
+    #[allow(clippy::needless_pass_by_value)]
+    /// # Panics
+    ///
+    /// Panics if `timer_id` does not correspond to a registered timer.
     pub fn run_single_timer(
         &mut self,
         timer_id: usize,
         frame_start: Instant,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
-        system_style: std::sync::Arc<azul_css::system::SystemStyle>,
+        system_style: Arc<azul_css::system::SystemStyle>,
         system_callbacks: &ExternalSystemCallbacks,
         previous_window_state: &Option<FullWindowState>,
         current_window_state: &FullWindowState,
@@ -3990,23 +3961,19 @@ impl LayoutWindow {
             .and_then(|t| t.node_id.into_option());
 
         if timer_exists {
-            let hit_dom_node = match timer_node_id {
-                Some(s) => s,
-                None => DomNodeId {
+            let hit_dom_node = timer_node_id.map_or_else(|| DomNodeId {
                     dom: DomId::ROOT_ID,
                     node: NodeHierarchyItemId::from_crate_internal(None),
-                },
-            };
+                }, |s| s);
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
-            let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
 
             let timer_ctx = self
                 .timers
                 .get(&TimerId { id: timer_id })
-                .map(|t| t.callback.ctx.clone())
-                .unwrap_or(OptionRefAny::None);
+                .map_or(OptionRefAny::None, |t| t.callback.ctx.clone());
 
             let ref_data = crate::callbacks::CallbackInfoRefData {
                 layout_window: self,
@@ -4055,12 +4022,15 @@ impl LayoutWindow {
 
     #[cfg(feature = "std")]
     /// Run all thread writeback callbacks and return raw changes + update.
+    // system_style is an Arc<SystemStyle> handed to this layout entry point by every dll backend;
+    // taking the Arc by value (one refcount) matches that boundary and avoids a cross-backend &-ripple.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn run_all_threads(
         &mut self,
         data: &mut RefAny,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
-        system_style: std::sync::Arc<azul_css::system::SystemStyle>,
+        system_style: Arc<azul_css::system::SystemStyle>,
         system_callbacks: &ExternalSystemCallbacks,
         previous_window_state: &Option<FullWindowState>,
         current_window_state: &FullWindowState,
@@ -4081,9 +4051,8 @@ impl LayoutWindow {
         let thread_ids: Vec<ThreadId> = self.threads.keys().copied().collect();
 
         for thread_id in thread_ids {
-            let thread = match self.threads.get_mut(&thread_id) {
-                Some(t) => t,
-                None => continue,
+            let Some(thread) = self.threads.get_mut(&thread_id) else {
+                continue;
             };
 
             let hit_dom_node = DomNodeId {
@@ -4094,12 +4063,9 @@ impl LayoutWindow {
             let cursor_in_viewport = OptionLogicalPosition::None;
 
             let (msg, writeback_data_ptr, is_finished) = {
-                let thread_inner = &mut *match thread.ptr.lock().ok() {
-                    Some(s) => s,
-                    None => {
-                        all_changes.push(CallbackChange::RemoveThread { thread_id });
-                        continue;
-                    }
+                let thread_inner = &mut *if let Ok(s) = thread.ptr.lock() { s } else {
+                    all_changes.push(CallbackChange::RemoveThread { thread_id });
+                    continue;
                 };
 
                 let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
@@ -4109,7 +4075,7 @@ impl LayoutWindow {
                     OptionThreadReceiveMsg::Some(s) => s,
                 };
 
-                let writeback_data_ptr: *mut RefAny = &mut thread_inner.writeback_data as *mut _;
+                let writeback_data_ptr: *mut RefAny = &raw mut thread_inner.writeback_data;
                 let is_finished = thread_inner.is_finished();
 
                 (msg, writeback_data_ptr, is_finished)
@@ -4126,7 +4092,7 @@ impl LayoutWindow {
                 ThreadReceiveMsg::WriteBack(t) => t,
             };
 
-            let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
 
             let ref_data = crate::callbacks::CallbackInfoRefData {
                 layout_window: self,
@@ -4184,7 +4150,7 @@ impl LayoutWindow {
         data: &mut RefAny,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
-        system_style: std::sync::Arc<azul_css::system::SystemStyle>,
+        system_style: Arc<azul_css::system::SystemStyle>,
         system_callbacks: &ExternalSystemCallbacks,
         previous_window_state: &Option<FullWindowState>,
         current_window_state: &FullWindowState,
@@ -4222,7 +4188,7 @@ impl LayoutWindow {
         data: &mut RefAny,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
-        system_style: std::sync::Arc<azul_css::system::SystemStyle>,
+        system_style: Arc<azul_css::system::SystemStyle>,
         system_callbacks: &ExternalSystemCallbacks,
         previous_window_state: &Option<FullWindowState>,
         current_window_state: &FullWindowState,
@@ -4245,17 +4211,13 @@ impl LayoutWindow {
                 .get_current(&crate::managers::hover::InputPointId::Mouse)
                 .and_then(|ht| ht.hovered_nodes.get(&hit_dom_node.dom))
                 .and_then(|hit| hit.regular_hit_test_nodes.get(&node_id))
-                .map(|item| OptionLogicalPosition::Some(item.point_relative_to_item))
-                .unwrap_or(OptionLogicalPosition::None),
+                .map_or(OptionLogicalPosition::None, |item| OptionLogicalPosition::Some(item.point_relative_to_item)),
             None => OptionLogicalPosition::None,
         };
-        let cursor_in_viewport = match current_window_state.mouse_state.cursor_position.get_position() {
-            Some(pos) => OptionLogicalPosition::Some(pos),
-            None => OptionLogicalPosition::None,
-        };
+        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
 
         // Create changes container for callback transaction system
-        let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
 
         // Create reference data container.
         //
@@ -4306,7 +4268,7 @@ impl LayoutWindow {
     ///
     /// The system style is used to resolve CSS system colors like `selection-background`,
     /// `selection-text`, `accent`, etc. If not set, hard-coded fallback values are used.
-    pub fn set_system_style(&mut self, system_style: std::sync::Arc<azul_css::system::SystemStyle>) {
+    pub fn set_system_style(&mut self, system_style: Arc<azul_css::system::SystemStyle>) {
         #[cfg(feature = "icu")]
         {
             self.icu_localizer = crate::icu::IcuLocalizerHandle::from_system_language(&system_style.language);
@@ -4523,7 +4485,7 @@ mod tests {
             dom_id,
             node_id,
             delta: LogicalPosition::new(10.0, 20.0),
-            timestamp: now.clone(),
+            timestamp: now,
             source: crate::managers::scroll_state::ScrollInputSource::WheelDiscrete,
         };
 
@@ -4582,7 +4544,7 @@ mod tests {
         assert!(gpu_cache.scrollbar_h_opacity_keys.is_empty());
 
         // Add a vertical scrollbar opacity key
-        let opacity_key = azul_core::resources::OpacityKey::unique();
+        let opacity_key = OpacityKey::unique();
         gpu_cache
             .scrollbar_v_opacity_keys
             .insert((dom_id, node_id), opacity_key);
@@ -4631,9 +4593,9 @@ impl LayoutWindow {
             let node_id = NodeId::new(i);
 
             // Check if node has text content
-            if self.node_has_text_content(styled_dom, node_id) {
+            if Self::node_has_text_content(styled_dom, node_id) {
                 // Check if text is selectable
-                if self.is_text_selectable(styled_dom, node_id) {
+                if Self::is_text_selectable(styled_dom, node_id) {
                     return Some((*dom_id, node_id));
                 }
             }
@@ -4669,9 +4631,9 @@ impl LayoutWindow {
             let node_id = NodeId::new(i);
 
             // Check if node has text content
-            if self.node_has_text_content(styled_dom, node_id) {
+            if Self::node_has_text_content(styled_dom, node_id) {
                 // Check if text is selectable
-                if self.is_text_selectable(styled_dom, node_id) {
+                if Self::is_text_selectable(styled_dom, node_id) {
                     return Some((*dom_id, node_id));
                 }
             }
@@ -4713,7 +4675,7 @@ impl LayoutWindow {
     }
 
     /// Checks if a node has text content.
-    fn node_has_text_content(&self, styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    fn node_has_text_content(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         // Check if node itself is a text node
         let node_data_container = styled_dom.node_data.as_container();
         let node_type = node_data_container[node_id].get_node_type();
@@ -4741,9 +4703,9 @@ impl LayoutWindow {
     }
 
     /// Checks if text in a node is selectable based on CSS user-select property.
-    fn is_text_selectable(&self, styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    fn is_text_selectable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-        crate::solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
+        solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
     }
 
     /// Process an accessibility action from an assistive technology.
@@ -4758,20 +4720,23 @@ impl LayoutWindow {
     /// * `now` - Current timestamp for animations
     ///
     /// # Returns
-    /// A BTreeMap of affected nodes with:
-    /// - Key: DomNodeId that was affected
+    /// A `BTreeMap` of affected nodes with:
+    /// - Key: `DomNodeId` that was affected
     /// - Value: (Vec<EventFilter> synthetic events to dispatch, bool indicating if node needs
     ///   re-layout)
     ///
     /// Empty map = action was not applicable or nothing changed
     #[cfg(feature = "a11y")]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::needless_pass_by_value)] // public action-dispatch API called across the dll shell backends; by-value AccessibilityAction is the natural shape and avoids churning every platform caller for a perf-neutral change
     pub fn process_accessibility_action(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        action: azul_core::dom::AccessibilityAction,
+        action: AccessibilityAction,
         now: std::time::Instant,
-    ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
+    ) -> BTreeMap<DomNodeId, (Vec<EventFilter>, bool)> {
         use crate::managers::text_input::TextInputSource;
 
         let mut affected_nodes = BTreeMap::new();
@@ -4799,7 +4764,7 @@ impl LayoutWindow {
                         // checked in addition to the attribute for robustness
                         let is_contenteditable = styled_node.is_contenteditable()
                             || styled_node.attributes().as_ref().iter().any(|attr| {
-                                matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
+                                matches!(attr, AttributeType::ContentEditable(_))
                             });
 
                         if is_contenteditable {
@@ -4808,15 +4773,15 @@ impl LayoutWindow {
                             let inline_layout = self.get_inline_layout_for_node(dom_id, node_id).cloned();
                             if let Some(ref layout) = inline_layout {
                                 let cursor = layout.items.iter().rev()
-                                    .find_map(|item| if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
-                                        Some(azul_core::selection::TextCursor {
+                                    .find_map(|item| if let ShapedItem::Cluster(c) = &item.item {
+                                        Some(TextCursor {
                                             cluster_id: c.source_cluster_id,
-                                            affinity: azul_core::selection::CursorAffinity::Trailing,
+                                            affinity: CursorAffinity::Trailing,
                                         })
                                     } else { None })
-                                    .unwrap_or(azul_core::selection::TextCursor {
-                                        cluster_id: azul_core::selection::GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
-                                        affinity: azul_core::selection::CursorAffinity::Trailing,
+                                    .unwrap_or(TextCursor {
+                                        cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+                                        affinity: CursorAffinity::Trailing,
                                     });
                                 self.text_edit_manager.initialize_editing(cursor, dom_id, node_id, 0);
 
@@ -4867,8 +4832,8 @@ impl LayoutWindow {
 
                 // Use viewport-relative scroll amounts (75% of viewport dimension)
                 let bounds = self.get_node_bounds(scroll_dom, scroll_nid);
-                let vp_h = bounds.map(|b| b.size.height as f32).unwrap_or(600.0);
-                let vp_w = bounds.map(|b| b.size.width as f32).unwrap_or(800.0);
+                let vp_h = bounds.map_or(600.0, |b| b.size.height as f32);
+                let vp_w = bounds.map_or(800.0, |b| b.size.width as f32);
 
                 let (dx, dy) = match action {
                     AccessibilityAction::ScrollLeft  => (-vp_w * 0.75, 0.0),
@@ -4883,7 +4848,7 @@ impl LayoutWindow {
                     scroll_nid,
                     LogicalPosition { x: dx, y: dy },
                     std::time::Duration::from_millis(250).into(),
-                    azul_core::events::EasingFunction::EaseOut,
+                    EasingFunction::EaseOut,
                     now.into(),
                 );
             }
@@ -4893,7 +4858,7 @@ impl LayoutWindow {
                     node_id,
                     pos,
                     std::time::Duration::from_millis(0).into(),
-                    azul_core::events::EasingFunction::Linear,
+                    EasingFunction::Linear,
                     now.into(),
                 );
             }
@@ -4903,7 +4868,7 @@ impl LayoutWindow {
                     node_id,
                     pos,
                     std::time::Duration::from_millis(300).into(),
-                    azul_core::events::EasingFunction::EaseInOut,
+                    EasingFunction::EaseInOut,
                     now.into(),
                 );
             }
@@ -4938,61 +4903,54 @@ impl LayoutWindow {
                 let is_increment = matches!(action, AccessibilityAction::Increment);
 
                 // Get the current value
-                let current_value = if let Some(layout_result) = self.layout_results.get(&dom_id) {
-                    if let Some(styled_node) = layout_result
+                let current_value = self.layout_results.get(&dom_id).and_then(|layout_result| {
+                    layout_result
                         .styled_dom
                         .node_data
                         .as_ref()
                         .get(node_id.index())
-                    {
-                        // Try "value" attribute first
-                        styled_node
-                            .attributes()
-                            .as_ref()
-                            .iter()
-                            .find_map(|attr| {
-                                if let AttributeType::Value(v) = attr {
-                                    Some(v.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                            .or_else(|| {
-                                // Fallback to text content
-                                if let NodeType::Text(text) = styled_node.get_node_type() {
-                                    Some(text.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
+                        .and_then(|styled_node| {
+                            // Try "value" attribute first
+                            styled_node
+                                .attributes()
+                                .as_ref()
+                                .iter()
+                                .find_map(|attr| {
+                                    if let AttributeType::Value(v) = attr {
+                                        Some(v.as_str().to_string())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .or_else(|| {
+                                    // Fallback to text content
+                                    if let NodeType::Text(text) = styled_node.get_node_type() {
+                                        Some(text.as_str().to_string())
+                                    } else {
+                                        None
+                                    }
+                                })
+                        })
+                });
 
                 // Parse as number, increment/decrement, convert back to string
                 if let Some(value_str) = current_value {
                     let parsed: Result<f64, _> = value_str.trim().parse();
 
-                    let new_value_str = if let Ok(num) = parsed {
+                    let new_value_str = parsed.map_or_else(|_| if is_increment {
+                            "1".to_string()
+                        } else {
+                            "-1".to_string()
+                        }, |num| {
                         // Successfully parsed as number
                         let new_num = if is_increment { num + 1.0 } else { num - 1.0 };
                         // Format with same precision as input if possible
                         if num.fract() == 0.0 {
                             format!("{}", new_num as i64)
                         } else {
-                            format!("{}", new_num)
+                            format!("{new_num}")
                         }
-                    } else {
-                        // Not a number - treat as 0 and increment/decrement
-                        if is_increment {
-                            "1".to_string()
-                        } else {
-                            "-1".to_string()
-                        }
-                    };
+                    });
 
                     // Record as text input (will fire On::TextInput callbacks)
                     let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -5067,24 +5025,18 @@ impl LayoutWindow {
             // Context menu - check if node has a menu and trigger right-click event
             AccessibilityAction::ShowContextMenu => {
                 // Check if the node has a context menu attached
-                let layout_result = match self.layout_results.get(&dom_id) {
-                    Some(lr) => lr,
-                    None => {
-                        return affected_nodes;
-                    }
+                let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                    return affected_nodes;
                 };
 
                 // Get the node from the styled DOM
-                let styled_node = match layout_result
+                let Some(styled_node) = layout_result
                     .styled_dom
                     .node_data
                     .as_ref()
                     .get(node_id.index())
-                {
-                    Some(node) => node,
-                    None => {
-                        return affected_nodes;
-                    }
+                else {
+                    return affected_nodes;
                 };
 
                 // Check if node has context menu
@@ -5097,8 +5049,8 @@ impl LayoutWindow {
                     let dom_node_id = DomNodeId { dom: dom_id, node: hierarchy_id };
                     affected_nodes.insert(
                         dom_node_id,
-                        (vec![azul_core::events::EventFilter::Hover(
-                            azul_core::events::HoverEventFilter::RightMouseDown,
+                        (vec![EventFilter::Hover(
+                            HoverEventFilter::RightMouseDown,
                         )], false),
                     );
                 }
@@ -5109,7 +5061,7 @@ impl LayoutWindow {
                 let nodes = self.edit_text_node(
                     dom_id,
                     node_id,
-                    TextEditType::ReplaceSelection(text.as_str().to_string()),
+                    &TextEditType::ReplaceSelection(text.as_str().to_string()),
                 );
                 for node in nodes {
                     affected_nodes.insert(node, (Vec::new(), true)); // true = needs re-layout
@@ -5119,7 +5071,7 @@ impl LayoutWindow {
                 let nodes = self.edit_text_node(
                     dom_id,
                     node_id,
-                    TextEditType::SetValue(text.as_str().to_string()),
+                    &TextEditType::SetValue(text.as_str().to_string()),
                 );
                 for node in nodes {
                     affected_nodes.insert(node, (Vec::new(), true));
@@ -5129,7 +5081,7 @@ impl LayoutWindow {
                 let nodes = self.edit_text_node(
                     dom_id,
                     node_id,
-                    TextEditType::SetNumericValue(value.get() as f64),
+                    &TextEditType::SetNumericValue(f64::from(value.get())),
                 );
                 for node in nodes {
                     affected_nodes.insert(node, (Vec::new(), true));
@@ -5141,35 +5093,29 @@ impl LayoutWindow {
 
                 if let Some(inline_layout) = text_layout {
                     // Convert byte offsets to TextCursor positions
-                    let start_cursor = self.byte_offset_to_cursor(
+                    let start_cursor = Self::byte_offset_to_cursor(
                         inline_layout.as_ref(),
                         selection.selection_start as u32,
                     );
-                    let end_cursor = self.byte_offset_to_cursor(
+                    let end_cursor = Self::byte_offset_to_cursor(
                         inline_layout.as_ref(),
                         selection.selection_end as u32,
                     );
 
-                    if let (Some(start), Some(end)) = (start_cursor, end_cursor) {
+                    {
+                        let (start, end) = (start_cursor, end_cursor);
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
                         let dom_node_id = DomNodeId {
                             dom: dom_id,
                             node: hierarchy_id,
                         };
 
-                        if start == end {
-                            // Same position - just set cursor
-                            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                                mc.set_single_cursor(start);
-                            }
-                        } else {
-                            // Different positions - set cursor to start of selection
-                            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                                mc.set_single_cursor(start);
-                            }
+                        // A collapsed selection (start == end) and a ranged one
+                        // both place the cursor at the selection start.
+                        let _ = end;
+                        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                            mc.set_single_cursor(start);
                         }
-                    } else {
-                        // Could not convert byte offsets to cursors - silently ignore
                     }
                 } else {
                     // No text layout available for node - silently ignore
@@ -5192,13 +5138,13 @@ impl LayoutWindow {
     /// Process text input from keyboard using cursor/selection/focus managers.
     ///
     /// This is the new unified text input handling. The framework manages text editing
-    /// internally using managers, then fires callbacks (On::TextInput, On::Changed)
+    /// internally using managers, then fires callbacks (`On::TextInput`, `On::Changed`)
     /// after the internal state is already updated.
     ///
     /// ## Workflow
     /// 1. Check if focus manager has a focused contenteditable node
     /// 2. Get cursor/selection from managers
-    /// 3. Call edit_text_node to apply the edit and update cache
+    /// 3. Call `edit_text_node` to apply the edit and update cache
     /// 4. Collect affected nodes that need dirty marking
     /// 5. Return map for re-layout triggering
     ///
@@ -5206,14 +5152,14 @@ impl LayoutWindow {
     /// * `text_input` - The text that was typed (can be multiple chars for IME)
     ///
     /// ## Returns
-    /// BTreeMap of affected nodes with:
-    /// - Key: DomNodeId that was affected
-    /// - Value: (Vec<EventFilter> synthetic events, bool needs_relayout)
+    /// `BTreeMap` of affected nodes with:
+    /// - Key: `DomNodeId` that was affected
+    /// - Value: (Vec<EventFilter> synthetic events, bool `needs_relayout`)
     /// - Empty map = no focused contenteditable node
     pub fn record_text_input(
         &mut self,
         text_input: &str,
-    ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
+    ) -> BTreeMap<DomNodeId, (Vec<EventFilter>, bool)> {
         use std::collections::BTreeMap;
 
         use crate::managers::text_input::TextInputSource;
@@ -5225,18 +5171,12 @@ impl LayoutWindow {
         }
 
         // Get focused node
-        let focused_node = match self.focus_manager.get_focused_node().copied() {
-            Some(node) => node,
-            None => {
-                return affected_nodes;
-            }
+        let Some(focused_node) = self.focus_manager.get_focused_node().copied() else {
+            return affected_nodes;
         };
 
-        let node_id = match focused_node.node.into_crate_internal() {
-            Some(id) => id,
-            None => {
-                return affected_nodes;
-            }
+        let Some(node_id) = focused_node.node.into_crate_internal() else {
+            return affected_nodes;
         };
 
         // Get the OLD text before any changes
@@ -5268,7 +5208,12 @@ impl LayoutWindow {
     ///
     /// Returns the nodes that need to be marked dirty for re-layout,
     /// and whether a full re-layout is needed (text size changed).
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn apply_text_changeset(&mut self) -> TextChangesetResult {
+        use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
+        use crate::text3::edit::{edit_text, TextEdit};
+        static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
         // Get the changeset from TextInputManager
         let empty = TextChangesetResult { dirty_nodes: Vec::new(), needs_relayout: false };
 
@@ -5281,36 +5226,26 @@ impl LayoutWindow {
             }
         };
 
-        let node_id = match changeset.node.node.into_crate_internal() {
-            Some(id) => id,
-            None => {
-                self.text_input_manager.clear_changeset();
-                return empty;
-            }
+        let Some(node_id) = changeset.node.node.into_crate_internal() else {
+            self.text_input_manager.clear_changeset();
+            return empty;
         };
 
         let dom_id = changeset.node.dom;
 
         // Check if node is contenteditable
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => {
-                self.text_input_manager.clear_changeset();
-                return empty;
-            }
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            self.text_input_manager.clear_changeset();
+            return empty;
         };
 
-        let styled_node = match layout_result
+        let Some(styled_node) = layout_result
             .styled_dom
             .node_data
             .as_ref()
-            .get(node_id.index())
-        {
-            Some(node) => node,
-            None => {
-                self.text_input_manager.clear_changeset();
-                return empty;
-            }
+            .get(node_id.index()) else {
+            self.text_input_manager.clear_changeset();
+            return empty;
         };
 
         // Check BOTH: the contenteditable boolean field AND the attribute
@@ -5318,7 +5253,7 @@ impl LayoutWindow {
         // checked in addition to the attribute for robustness
         let is_contenteditable = styled_node.is_contenteditable()
             || styled_node.attributes().as_ref().iter().any(|attr| {
-                matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
+                matches!(attr, AttributeType::ContentEditable(_))
             });
 
         if !is_contenteditable {
@@ -5331,7 +5266,7 @@ impl LayoutWindow {
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
         let mc_selections = self.text_edit_manager.multi_cursor.as_ref()
-            .map(|mc| mc.to_selections())
+            .map(azul_core::selection::MultiCursorState::to_selections)
             .unwrap_or_default();
         let current_selection = if !mc_selections.is_empty() {
             mc_selections
@@ -5365,18 +5300,17 @@ impl LayoutWindow {
         });
 
         let pre_state = crate::managers::undo_redo::NodeStateSnapshot {
-            node_id: azul_core::id::NodeId::new(node_id.index()),
+            node_id: NodeId::new(node_id.index()),
             text_content: old_text.into(),
             cursor_position: old_cursor.into(),
             selection_range: old_selection_range.into(),
             #[cfg(feature = "std")]
-            timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
+            timestamp: Instant::System(std::time::Instant::now().into()),
             #[cfg(not(feature = "std"))]
             timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
         };
 
         // Apply the edit using text3::edit - this is a pure function
-        use crate::text3::edit::{edit_text, TextEdit};
         let text_edit = TextEdit::Insert(changeset.inserted_text.as_str().to_string());
         let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
 
@@ -5391,42 +5325,35 @@ impl LayoutWindow {
 
         // Record this operation to the undo/redo manager AFTER successful mutation
 
-        use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
-
         // Get the new cursor position after edit using the layout's cursor rect
         let new_cursor = self
             .get_focused_cursor_rect()
-            .map(|r| CursorPosition::InWindow(r.origin))
-            .unwrap_or(CursorPosition::Uninitialized);
+            .map_or(CursorPosition::Uninitialized, |r| CursorPosition::InWindow(r.origin));
 
         let old_cursor_pos = old_cursor
             .as_ref()
-            .map(|_| {
+            .map_or(CursorPosition::Uninitialized, |_| {
                 // The old cursor position was before the edit — the layout may
                 // have already updated so we use the same rect as new_cursor.
                 // This is acceptable for undo: the exact pre-edit position is
                 // approximated; what matters is restoring focus to the node.
                 self.get_focused_cursor_rect()
-                    .map(|r| CursorPosition::InWindow(r.origin))
-                    .unwrap_or(CursorPosition::Uninitialized)
-            })
-            .unwrap_or(CursorPosition::Uninitialized);
+                    .map_or(CursorPosition::Uninitialized, |r| CursorPosition::InWindow(r.origin))
+            });
 
         // Generate a unique changeset ID
-        static CHANGESET_COUNTER: std::sync::atomic::AtomicUsize =
-            std::sync::atomic::AtomicUsize::new(0);
-        let changeset_id = CHANGESET_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let changeset_id = CHANGESET_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         let undo_changeset = TextChangeset {
             id: changeset_id,
             target: changeset.node,
             operation: TextOperation::InsertText(TextOpInsertText {
-                text: changeset.inserted_text.clone(),
+                text: changeset.inserted_text,
                 position: old_cursor_pos,
                 new_cursor,
             }),
             #[cfg(feature = "std")]
-            timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
+            timestamp: Instant::System(std::time::Instant::now().into()),
             #[cfg(not(feature = "std"))]
             timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
         };
@@ -5452,14 +5379,13 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Vec<azul_core::dom::DomNodeId> {
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Vec::new(),
+    ) -> Vec<DomNodeId> {
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
         };
 
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-        let node_dom_id = azul_core::dom::DomNodeId {
+        let node_dom_id = DomNodeId {
             dom: dom_id,
             node: hierarchy_id,
         };
@@ -5470,22 +5396,18 @@ impl LayoutWindow {
             .node_hierarchy
             .as_container()
             .get(node_id)
-            .and_then(|item| item.parent_id())
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
             .map(|parent_node_id| {
                 let parent_hierarchy_id =
                     NodeHierarchyItemId::from_crate_internal(Some(parent_node_id));
-                azul_core::dom::DomNodeId {
+                DomNodeId {
                     dom: dom_id,
                     node: parent_hierarchy_id,
                 }
             });
 
         // Return node + parent (if exists)
-        if let Some(parent) = parent_id {
-            vec![node_dom_id, parent]
-        } else {
-            vec![node_dom_id]
-        }
+        parent_id.map_or_else(|| vec![node_dom_id], |parent| vec![node_dom_id, parent])
     }
 
     /// Legacy name for backward compatibility
@@ -5493,23 +5415,23 @@ impl LayoutWindow {
     pub fn process_text_input(
         &mut self,
         text_input: &str,
-    ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
+    ) -> BTreeMap<DomNodeId, (Vec<EventFilter>, bool)> {
         self.record_text_input(text_input)
     }
 
     /// Get the last text changeset (what was changed in the last text input)
-    pub fn get_last_text_changeset(&self) -> Option<&PendingTextEdit> {
+    pub const fn get_last_text_changeset(&self) -> Option<&PendingTextEdit> {
         self.text_input_manager.get_pending_changeset()
     }
 
     /// Get the current inline content (text before text input is applied)
     ///
     /// This is a query function that retrieves the current text state from the node.
-    /// Returns InlineContent vector if the node has text.
+    /// Returns `InlineContent` vector if the node has text.
     ///
     /// # Implementation Note
     /// This function FIRST checks `dirty_text_nodes` for optimistic state (edits not yet
-    /// committed to StyledDom), then falls back to the StyledDom. This is critical for
+    /// committed to `StyledDom`), then falls back to the `StyledDom`. This is critical for
     /// correct text input handling - without this, each keystroke would read stale state.
     pub fn get_text_before_textinput(&self, dom_id: DomId, node_id: NodeId) -> Vec<InlineContent> {
         // CRITICAL FIX: Check dirty_text_nodes first!
@@ -5523,20 +5445,18 @@ impl LayoutWindow {
 
         // Fallback to committed state from StyledDom
         // Get the layout result for this DOM
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Vec::new(),
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
         };
 
         // Get the node data
-        let node_data = match layout_result
+        let Some(node_data) = layout_result
             .styled_dom
             .node_data
             .as_ref()
             .get(node_id.index())
-        {
-            Some(nd) => nd,
-            None => return Vec::new(),
+        else {
+            return Vec::new();
         };
 
         // Extract text content from the node
@@ -5568,17 +5488,16 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> alloc::sync::Arc<StyleProperties> {
+    ) -> Arc<StyleProperties> {
         use alloc::sync::Arc;
 
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Arc::new(Default::default()),
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Arc::new(StyleProperties::default());
         };
 
         // Use the proper CSS property resolution from solver3::getters
         let vp = layout_result.viewport.size;
-        let props = crate::solver3::getters::get_style_properties(
+        let props = solver3::getters::get_style_properties(
             &layout_result.styled_dom,
             node_id,
             self.system_style.as_ref(),
@@ -5594,15 +5513,13 @@ impl LayoutWindow {
         dom_id: DomId,
         parent_node_id: NodeId,
     ) -> Vec<InlineContent> {
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return Vec::new(),
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
         };
 
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
-        let parent_item = match node_hierarchy.get(parent_node_id.index()) {
-            Some(item) => item,
-            None => return Vec::new(),
+        let Some(parent_item) = node_hierarchy.get(parent_node_id.index()) else {
+            return Vec::new();
         };
 
         let mut result = Vec::new();
@@ -5615,9 +5532,8 @@ impl LayoutWindow {
             result.extend(child_content);
 
             // Move to next sibling
-            let child_item = match node_hierarchy.get(child_id.index()) {
-                Some(item) => item,
-                None => break,
+            let Some(child_item) = node_hierarchy.get(child_id.index()) else {
+                break;
             };
             current_child = child_item.next_sibling_id();
         }
@@ -5627,7 +5543,11 @@ impl LayoutWindow {
 
     /// Extract plain text string from inline content
     ///
-    /// This is a helper for building the changeset's resulting_text field.
+    /// This is a helper for building the changeset's `resulting_text` field.
+    // `&self` is only reached via the recursive Ruby arm; it is kept because this is a public
+    // method called as `lw.extract_text_from_inline_content(..)` across dll and layout, and
+    // converting to an associated fn would break that API at every call site.
+    #[allow(clippy::only_used_in_recursion)]
     pub fn extract_text_from_inline_content(&self, content: &[InlineContent]) -> String {
         let mut result = String::new();
 
@@ -5668,8 +5588,13 @@ impl LayoutWindow {
     ///
     /// This function:
     /// 1. Stores the new content in `dirty_text_nodes` for tracking
-    /// 2. Re-runs the text3 layout pipeline (create_logical_items -> reorder -> shape -> fragment)
-    /// 3. Updates the inline_layout_result on the IFC root node in the layout tree
+    /// 2. Re-runs the text3 layout pipeline (`create_logical_items` -> reorder -> shape -> fragment)
+    /// 3. Updates the `inline_layout_result` on the IFC root node in the layout tree
+    // called by the dll text-edit backends (event.rs/macos) with freshly-built content;
+    // it is both cloned into the dirty-node cache and re-read for relayout, so it is taken
+    // owned at this boundary rather than rippling a &[InlineContent] across the backends.
+    #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn update_text_cache_after_edit(
         &mut self,
         dom_id: DomId,
@@ -5695,11 +5620,8 @@ impl LayoutWindow {
         // The IFC may be on this node OR a child — search all mapped layout nodes
         // and their children for one with inline_layout_result.
         let (mut constraints, ifc_layout_index) = {
-            let layout_result = match self.layout_results.get(&dom_id) {
-                Some(r) => r,
-                None => {
-                    return;
-                }
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return;
             };
 
             // Find the layout node with inline_layout_result via dom_to_layout
@@ -5734,18 +5656,13 @@ impl LayoutWindow {
                             }
                         }
                         if found.is_some() { break; }
-                        child = node_hierarchy.get(child_id.index()).and_then(|h| h.next_sibling_id());
+                        child = node_hierarchy.get(child_id.index()).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
                     }
                 }
             }
 
-            let (ifc_idx, cached_layout) = match found {
-                Some(f) => {
-                    f
-                },
-                None => {
-                    return;
-                }
+            let Some((ifc_idx, cached_layout)) = found else {
+                return;
             };
 
             match &cached_layout.constraints {
@@ -5823,17 +5740,13 @@ impl LayoutWindow {
             .and_then(|w| w.inline_layout_result.as_ref())
             .cloned();
 
-        let new_layout = if let Some(cached) = cached_snapshot {
-            self.try_incremental_text_relayout(
+        let new_layout = cached_snapshot.map_or_else(|| self.relayout_text_node_internal(&new_inline_content, &constraints), |cached| self.try_incremental_text_relayout(
                 &new_inline_content,
                 &constraints,
                 &cached,
                 node_id,
             )
-            .map(|(layout, _skipped_fragment)| layout)
-        } else {
-            self.relayout_text_node_internal(&new_inline_content, &constraints)
-        };
+            .map(|(layout, _skipped_fragment)| layout));
 
         let Some(new_layout) = new_layout else {
             return;
@@ -5878,15 +5791,18 @@ impl LayoutWindow {
 
     /// Re-apply a dirty text node's content to the layout cache after a full DOM rebuild.
     ///
-    /// Called by regenerate_layout() after layout_and_generate_display_list().
+    /// Called by `regenerate_layout()` after `layout_and_generate_display_list()`.
     /// The layout just ran on the stale DOM text, so we re-shape the edited text
-    /// from dirty_text_nodes and update the inline layout result + display list.
+    /// from `dirty_text_nodes` and update the inline layout result + display list.
     /// Inject preedit text into the text cache and regenerate the display list.
     ///
     /// Called from the platform IME handler (setMarkedText). Gets the current
     /// text content, splices the preedit string at the cursor position, then
     /// re-shapes and regenerates the display list so the preedit glyphs appear
     /// inline with an underline.
+    /// # Panics
+    ///
+    /// Panics if there is no saved pre-preedit content to restore.
     pub fn apply_preedit_to_text_cache(&mut self, dom_id: DomId, node_id: NodeId) {
         let preedit = match &self.text_edit_manager.preedit_text {
             Some(p) if !p.is_empty() => p.clone(),
@@ -5898,9 +5814,8 @@ impl LayoutWindow {
             }
         };
 
-        let cursor = match self.text_edit_manager.get_primary_cursor() {
-            Some(c) => c,
-            None => return,
+        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
+            return;
         };
 
         // Save the original content on the FIRST preedit call so we always
@@ -5916,7 +5831,7 @@ impl LayoutWindow {
         // Insert preedit at cursor position
         let run_idx = cursor.cluster_id.source_run as usize;
         let byte_pos = cursor.cluster_id.start_byte_in_run as usize;
-        if let Some(crate::text3::cache::InlineContent::Text(run)) = content.get_mut(run_idx) {
+        if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
             let clamped_pos = byte_pos.min(run.text.len());
             run.text.insert_str(clamped_pos, &preedit);
         }
@@ -5941,7 +5856,7 @@ impl LayoutWindow {
     ///
     /// This is the critical missing piece for text input: after `update_text_cache_after_edit`
     /// updates the `inline_layout_result` on layout tree nodes, the `DomLayoutResult.display_list`
-    /// must be regenerated. Otherwise, `generate_frame()` sends the OLD display list to WebRender
+    /// must be regenerated. Otherwise, `generate_frame()` sends the OLD display list to `WebRender`
     /// and the screen shows stale text.
     ///
     /// This method creates a temporary `LayoutContext` from the existing `LayoutWindow` state
@@ -5953,9 +5868,8 @@ impl LayoutWindow {
         };
 
         // Get all the data we need from the layout result
-        let layout_result = match self.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => { return; }
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return;
         };
 
         let tree = &layout_result.layout_tree;
@@ -5981,7 +5895,7 @@ impl LayoutWindow {
         let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
 
         let mut ctx = LayoutContext {
-            scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
             styled_dom,
             font_manager: &self.font_manager,
             text_selections: &text_selections_map,
@@ -6059,7 +5973,7 @@ impl LayoutWindow {
         constraints: &UnifiedConstraints,
     ) -> Option<(
         Vec<crate::text3::cache::LogicalItem>,
-        Vec<crate::text3::cache::ShapedItem>,
+        Vec<ShapedItem>,
     )> {
         use crate::text3::cache::{
             create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection,
@@ -6096,7 +6010,7 @@ impl LayoutWindow {
     fn fragment_layout_from_shaped(
         &self,
         logical_items: &[crate::text3::cache::LogicalItem],
-        shaped_items: &[crate::text3::cache::ShapedItem],
+        shaped_items: &[ShapedItem],
         constraints: &UnifiedConstraints,
     ) -> Option<UnifiedLayout> {
         use crate::text3::cache::{perform_fragment_layout, BreakCursor};
@@ -6109,21 +6023,22 @@ impl LayoutWindow {
     /// Attempt an incremental IFC relayout for a text edit.
     ///
     /// Runs stages 1-3 (logical items, bidi, shape) on the new content, then
-    /// checks whether the cached UnifiedLayout can be patched without
+    /// checks whether the cached `UnifiedLayout` can be patched without
     /// re-running line-breaking (stage 4).
     ///
     /// Returns `Some((new_layout, skipped_fragment_layout))`:
     ///   - `skipped_fragment_layout == true` means we took the incremental
     ///     fast path and returned a patched cached layout.
     ///   - `skipped_fragment_layout == false` means we fell back to full
-    ///     fragment_layout (stage 4) but reused shape output from stages 1-3.
+    ///     `fragment_layout` (stage 4) but reused shape output from stages 1-3.
     ///
-    /// Returns `None` only if logical_items + reorder + shape itself fails.
+    /// Returns `None` only if `logical_items` + reorder + shape itself fails.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn try_incremental_text_relayout(
         &self,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
-        cached: &crate::solver3::layout_tree::CachedInlineLayout,
+        cached: &solver3::layout_tree::CachedInlineLayout,
         edited_node_id: NodeId,
     ) -> Option<(UnifiedLayout, bool)> {
         use crate::text3::cache::{
@@ -6258,13 +6173,13 @@ impl LayoutWindow {
         Some((layout, false))
     }
 
-    /// Helper to get node used_size for accessibility actions
+    /// Helper to get node `used_size` for accessibility actions
     #[cfg(feature = "a11y")]
     fn get_node_used_size_a11y(
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Option<azul_core::geom::LogicalSize> {
+    ) -> Option<LogicalSize> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
         let idx = *layout_indices.first()?;
@@ -6273,6 +6188,7 @@ impl LayoutWindow {
     }
 
     /// Get the layout bounds (position and size) of a specific node
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn get_node_bounds(
         &self,
         dom_id: DomId,
@@ -6305,6 +6221,7 @@ impl LayoutWindow {
 
     /// Scroll a node into view if it's not currently visible in the viewport
     #[cfg(feature = "a11y")]
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
     fn scroll_to_node_if_needed(
         &mut self,
         dom_id: DomId,
@@ -6317,9 +6234,9 @@ impl LayoutWindow {
         };
 
         // 2. Find nearest scrollable ancestor
-        let dom_node_id = azul_core::dom::DomNodeId {
+        let dom_node_id = DomNodeId {
             dom: dom_id,
-            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         };
         let Some(scroll_ancestor) = self.find_scrollable_ancestor(dom_node_id) else {
             return;
@@ -6375,7 +6292,7 @@ impl LayoutWindow {
             scroll_node_id,
             LogicalPosition { x: scroll_x, y: scroll_y },
             std::time::Duration::from_millis(300).into(),
-            azul_core::events::EasingFunction::EaseOut,
+            EasingFunction::EaseOut,
             now.into(),
         );
     }
@@ -6392,6 +6309,7 @@ impl LayoutWindow {
     /// 2. Checks if the cursor is visible in the current viewport
     /// 3. If not, calculates the minimum scroll offset needed
     /// 4. Animates the scroll to bring the cursor into view
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
     fn scroll_cursor_into_view_if_needed(
         &mut self,
         dom_id: DomId,
@@ -6423,17 +6341,15 @@ impl LayoutWindow {
         let cursor_abs_y = node_bounds.origin.y as f32 + cursor_rect.origin.y;
 
         // Walk up the DOM tree to find the nearest scrollable ancestor
-        let dom_node_id = azul_core::dom::DomNodeId {
+        let dom_node_id = DomNodeId {
             dom: dom_id,
-            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         };
-        let scroll_ancestor = match self.find_scrollable_ancestor(dom_node_id) {
-            Some(a) => a,
-            None => return, // No scrollable container
+        let Some(scroll_ancestor) = self.find_scrollable_ancestor(dom_node_id) else {
+            return; // No scrollable container
         };
-        let scroll_node_id = match scroll_ancestor.node.into_crate_internal() {
-            Some(id) => id,
-            None => return,
+        let Some(scroll_node_id) = scroll_ancestor.node.into_crate_internal() else {
+            return;
         };
 
         // Get the scrollable ancestor's bounds and scroll offset
@@ -6491,14 +6407,14 @@ impl LayoutWindow {
                 y: target_scroll_y,
             },
             std::time::Duration::from_millis(200).into(),
-            azul_core::events::EasingFunction::EaseOut,
+            EasingFunction::EaseOut,
             now.into(),
         );
     }
 
-    /// Convert a byte offset in the text to a TextCursor position
+    /// Convert a byte offset in the text to a `TextCursor` position
     ///
-    /// This is used for accessibility SetTextSelection action, which provides
+    /// This is used for accessibility `SetTextSelection` action, which provides
     /// byte offsets rather than grapheme cluster IDs.
     ///
     /// # Arguments
@@ -6508,32 +6424,32 @@ impl LayoutWindow {
     ///
     /// # Returns
     ///
-    /// A TextCursor positioned at the given byte offset, or None if the offset
+    /// A `TextCursor` positioned at the given byte offset, or None if the offset
     /// is out of bounds.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn byte_offset_to_cursor(
-        &self,
         text_layout: &UnifiedLayout,
         byte_offset: u32,
-    ) -> Option<TextCursor> {
+    ) -> TextCursor {
         // Handle offset 0 as special case (start of text)
         if byte_offset == 0 {
             // Find first cluster in items
             for item in &text_layout.items {
                 if let ShapedItem::Cluster(cluster) = &item.item {
-                    return Some(TextCursor {
+                    return TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Trailing,
-                    });
+                    };
                 }
             }
             // No clusters found - return default
-            return Some(TextCursor {
+            return TextCursor {
                 cluster_id: GraphemeClusterId {
                     source_run: 0,
                     start_byte_in_run: 0,
                 },
                 affinity: CursorAffinity::Trailing,
-            });
+            };
         }
 
         // Iterate through items to find which cluster contains this byte offset
@@ -6548,10 +6464,10 @@ impl LayoutWindow {
                 // Check if our target byte offset falls within this cluster
                 if byte_offset >= current_byte_offset && byte_offset <= cluster_end_byte {
                     // Found the cluster
-                    return Some(TextCursor {
+                    return TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Trailing,
-                    });
+                    };
                 }
 
                 current_byte_offset = cluster_end_byte;
@@ -6561,21 +6477,21 @@ impl LayoutWindow {
         // Offset is beyond the end of all text - return cursor at end of last cluster
         for item in text_layout.items.iter().rev() {
             if let ShapedItem::Cluster(cluster) = &item.item {
-                return Some(TextCursor {
+                return TextCursor {
                     cluster_id: cluster.source_cluster_id,
                     affinity: CursorAffinity::Trailing,
-                });
+                };
             }
         }
 
         // No clusters at all - return default position
-        Some(TextCursor {
+        TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Trailing,
-        })
+        }
     }
 
     /// Get the inline layout result for a specific node
@@ -6586,7 +6502,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Option<alloc::sync::Arc<UnifiedLayout>> {
+    ) -> Option<Arc<UnifiedLayout>> {
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
 
@@ -6600,7 +6516,7 @@ impl LayoutWindow {
         layout_tree.warm(layout_idx)?
             .inline_layout_result
             .as_ref()
-            .map(|c| c.clone_layout())
+            .map(solver3::layout_tree::CachedInlineLayout::clone_layout)
     }
 
     /// Edit the text content of a node (used for text input actions)
@@ -6610,26 +6526,27 @@ impl LayoutWindow {
     /// with the new shaped text that reflects the edit, cursor, and selection.
     ///
     /// It handles:
-    /// - ReplaceSelectedText: Replaces the current selection with new text
-    /// - SetValue: Sets the entire text value
-    /// - SetNumericValue: Converts number to string and sets value
+    /// - `ReplaceSelectedText`: Replaces the current selection with new text
+    /// - `SetValue`: Sets the entire text value
+    /// - `SetNumericValue`: Converts number to string and sets value
     ///
     /// # Returns
     ///
-    /// Returns a Vec of DomNodeIds (node + parent) that need to be marked dirty
+    /// Returns a Vec of `DomNodeIds` (node + parent) that need to be marked dirty
     /// for re-layout. The caller MUST use this return value to trigger layout.
     #[must_use = "Returned nodes must be marked dirty for re-layout"]
     #[cfg(feature = "a11y")]
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     pub fn edit_text_node(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        edit_type: TextEditType,
-    ) -> Vec<azul_core::dom::DomNodeId> {
+        edit_type: &TextEditType,
+    ) -> Vec<DomNodeId> {
         use crate::managers::text_input::TextInputSource;
 
         // Convert TextEditType to string
-        let text_input = match &edit_type {
+        let text_input = match edit_type {
             TextEditType::ReplaceSelection(text) => text.clone(),
             TextEditType::SetValue(text) => text.clone(),
             TextEditType::SetNumericValue(value) => value.to_string(),
@@ -6641,7 +6558,7 @@ impl LayoutWindow {
 
         // Create DomNodeId
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-        let dom_node_id = azul_core::dom::DomNodeId {
+        let dom_node_id = DomNodeId {
             dom: dom_id,
             node: hierarchy_id,
         };
@@ -6678,12 +6595,12 @@ impl LayoutWindow {
     /// - Triple click: Select paragraph (line) at click position
     ///
     /// ## Workflow
-    /// 1. Use HoverManager's hit test to find hit nodes
+    /// 1. Use `HoverManager`'s hit test to find hit nodes
     /// 2. Find the IFC layout via `inline_layout_result` (IFC root) or `ifc_membership` (text node)
-    /// 3. Use point_relative_to_item for local cursor position
+    /// 3. Use `point_relative_to_item` for local cursor position
     /// 4. Hit-test the text layout to get logical cursor
     /// 5. Apply appropriate selection based on click count
-    /// 6. Update SelectionManager with new selection
+    /// 6. Update `SelectionManager` with new selection
     ///
     /// ## IFC Architecture
     /// Text nodes don't store `inline_layout_result` directly. Instead:
@@ -6697,26 +6614,26 @@ impl LayoutWindow {
     ///
     /// ## Returns
     /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit text
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn process_mouse_click_for_selection(
         &mut self,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
         time_ms: u64,
-    ) -> Option<Vec<azul_core::dom::DomNodeId>> {
+    ) -> Option<Vec<DomNodeId>> {
         use crate::managers::hover::InputPointId;
         use crate::text3::selection::{select_paragraph_at_cursor, select_word_at_cursor};
 
         // found_selection stores: (dom_id, ifc_root_node_id, selection_range, local_pos)
         // IMPORTANT: We always store the IFC root NodeId, not the text node NodeId,
         // because selections are rendered via inline_layout_result which lives on the IFC root.
-        let mut found_selection: Option<(DomId, NodeId, SelectionRange, azul_core::geom::LogicalPosition)> = None;
+        let mut found_selection: Option<(DomId, NodeId, SelectionRange, LogicalPosition)> = None;
 
         // Try to get hit test from HoverManager first (fast path, uses WebRender's point_relative_to_item)
         if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
             // Iterate through hit nodes from the HoverManager
             for (dom_id, hit) in &hit_test.hovered_nodes {
-                let layout_result = match self.layout_results.get(dom_id) {
-                    Some(lr) => lr,
-                    None => continue,
+                let Some(layout_result) = self.layout_results.get(dom_id) else {
+                    continue;
                 };
                 // Use layout tree from layout_result, not layout_cache
                 let tree = &layout_result.layout_tree;
@@ -6728,7 +6645,7 @@ impl LayoutWindow {
                 let get_dom_depth = |node_id: &NodeId| -> usize {
                     let mut depth = 0;
                     let mut current = *node_id;
-                    while let Some(parent) = node_hierarchy.get(current).and_then(|h| h.parent_id()) {
+                    while let Some(parent) = node_hierarchy.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
                         depth += 1;
                         current = parent;
                     }
@@ -6746,19 +6663,17 @@ impl LayoutWindow {
 
                 for (node_id, hit_item) in sorted_hits {
                     // Check if text is selectable
-                    if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
+                    if !Self::is_text_selectable(&layout_result.styled_dom, *node_id) {
                         continue;
                     }
 
                     // Find the layout node for this DOM node
                     let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
-                    let layout_node_idx = match layout_node_idx {
-                        Some(idx) => idx,
-                        None => continue,
+                    let Some(layout_node_idx) = layout_node_idx else {
+                        continue;
                     };
-                    let warm_node = match tree.warm(layout_node_idx) {
-                        Some(w) => w,
-                        None => continue,
+                    let Some(warm_node) = tree.warm(layout_node_idx) else {
+                        continue;
                     };
 
                     // Get the IFC layout and IFC root NodeId
@@ -6814,22 +6729,19 @@ impl LayoutWindow {
 
                 // Only iterate IFC roots (nodes with inline_layout_result)
                 for (node_idx, layout_node) in tree.nodes.iter().enumerate() {
-                    let warm = match tree.warm(node_idx) {
-                        Some(w) => w,
-                        None => continue,
+                    let Some(warm) = tree.warm(node_idx) else {
+                        continue;
                     };
-                    let cached_layout = match warm.inline_layout_result.as_ref() {
-                        Some(c) => c,
-                        None => continue, // Skip non-IFC-root nodes
+                    let Some(cached_layout) = warm.inline_layout_result.as_ref() else {
+                        continue; // Skip non-IFC-root nodes
                     };
 
-                    let node_id = match layout_node.dom_node_id {
-                        Some(n) => n,
-                        None => continue,
+                    let Some(node_id) = layout_node.dom_node_id else {
+                        continue;
                     };
 
                     // Check if text is selectable
-                    if !self.is_text_selectable(&layout_result.styled_dom, node_id) {
+                    if !Self::is_text_selectable(&layout_result.styled_dom, node_id) {
                         continue;
                     }
 
@@ -6843,7 +6755,7 @@ impl LayoutWindow {
                     // Check if position is within node bounds
                     let node_size = layout_node.used_size.unwrap_or_else(|| {
                         let bounds = cached_layout.layout.bounds();
-                        azul_core::geom::LogicalSize::new(bounds.width, bounds.height)
+                        LogicalSize::new(bounds.width, bounds.height)
                     });
 
                     if position.x < node_pos.x || position.x > node_pos.x + node_size.width ||
@@ -6852,7 +6764,7 @@ impl LayoutWindow {
                     }
 
                     // Convert global position to node-local coordinates
-                    let local_pos = azul_core::geom::LogicalPosition {
+                    let local_pos = LogicalPosition {
                         x: position.x - node_pos.x,
                         y: position.y - node_pos.y,
                     };
@@ -6880,7 +6792,7 @@ impl LayoutWindow {
         // Create DomNodeId for click state tracking - use IFC root's NodeId
         // Selection state is keyed by IFC root because that's where inline_layout_result lives
         let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id));
-        let dom_node_id = azul_core::dom::DomNodeId {
+        let dom_node_id = DomNodeId {
             dom: dom_id,
             node: node_hierarchy_id,
         };
@@ -6919,7 +6831,7 @@ impl LayoutWindow {
         // Check if the node OR ANY ANCESTOR is contenteditable before setting focus
         // The contenteditable attribute is typically on a parent div, not on the IFC root or text node
         let is_contenteditable = self.layout_results.get(&dom_id)
-            .map(|lr| {
+            .is_some_and(|lr| {
                 let node_hierarchy = lr.styled_dom.node_hierarchy.as_container();
                 let node_data = lr.styled_dom.node_data.as_ref();
 
@@ -6936,18 +6848,17 @@ impl LayoutWindow {
 
                         // Also check the attribute (for backwards compatibility)
                         let has_contenteditable_attr = styled_node.attributes().as_ref().iter().any(|attr| {
-                            matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
+                            matches!(attr, AttributeType::ContentEditable(_))
                         });
                         if has_contenteditable_attr {
                             return true;
                         }
                     }
                     // Move to parent
-                    current_node = node_hierarchy.get(node_id).and_then(|h| h.parent_id());
+                    current_node = node_hierarchy.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
                 }
                 false
-            })
-            .unwrap_or(false);
+            });
 
         // NOTE: Do NOT call focus_manager.set_focused_node() here!
         // The click-to-focus system in event.rs (process_window_events) handles
@@ -6956,18 +6867,18 @@ impl LayoutWindow {
         // appear until the next full layout (e.g., resize).
 
         // Initialize editing at the clicked position via unified API.
-        let ce_key = self.layout_results.get(&dom_id).map(|lr| {
+        let ce_key = self.layout_results.get(&dom_id).map_or(0, |lr| {
             azul_core::diff::calculate_contenteditable_key(
                 lr.styled_dom.node_data.as_ref(),
                 lr.styled_dom.node_hierarchy.as_ref(),
                 ifc_root_node_id,
             )
-        }).unwrap_or(0);
+        });
         self.text_edit_manager.initialize_editing(
             final_range.start, dom_id, ifc_root_node_id, ce_key,
         );
-        let now = azul_core::task::Instant::now();
-        self.text_edit_manager.blink.reset_blink_on_input(now.clone());
+        let now = Instant::now();
+        self.text_edit_manager.blink.reset_blink_on_input(now);
         self.text_edit_manager.blink.set_blink_timer_active(true);
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
@@ -6985,7 +6896,7 @@ impl LayoutWindow {
     /// the anchor (mousedown position) to the current focus (drag position).
     ///
     /// Uses the anchor/focus model:
-    /// - Anchor is fixed at the initial click position (set by process_mouse_click_for_selection)
+    /// - Anchor is fixed at the initial click position (set by `process_mouse_click_for_selection`)
     /// - Focus moves with the mouse during drag
     /// - Affected nodes between anchor and focus are computed in DOM order
     ///
@@ -6997,9 +6908,9 @@ impl LayoutWindow {
     /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering
     pub fn process_mouse_drag_for_selection(
         &mut self,
-        _start_position: azul_core::geom::LogicalPosition,
-        current_position: azul_core::geom::LogicalPosition,
-    ) -> Option<Vec<azul_core::dom::DomNodeId>> {
+        _start_position: LogicalPosition,
+        current_position: LogicalPosition,
+    ) -> Option<Vec<DomNodeId>> {
         use azul_core::selection::{Selection, SelectionRange};
 
         // Get the anchor cursor and editing node from MultiCursorState.
@@ -7026,7 +6937,7 @@ impl LayoutWindow {
             .unwrap_or_default();
         let cached = tree.warm(layout_idx)?.inline_layout_result.as_ref()?;
 
-        let local_pos = azul_core::geom::LogicalPosition {
+        let local_pos = LogicalPosition {
             x: current_position.x - node_pos.x,
             y: current_position.y - node_pos.y,
         };
@@ -7065,9 +6976,9 @@ impl LayoutWindow {
     /// * `None` - If no cursor/selection exists or deletion failed
     pub fn delete_selection(
         &mut self,
-        target: azul_core::dom::DomNodeId,
+        target: DomNodeId,
         forward: bool,
-    ) -> Option<Vec<azul_core::dom::DomNodeId>> {
+    ) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
         let node_id = target.node.into_crate_internal()?;
 
@@ -7106,7 +7017,7 @@ impl LayoutWindow {
     ///
     /// This method extracts both plain text and styled text from the selection ranges.
     /// It iterates through all selected text, extracts the actual characters, and
-    /// preserves styling information from the ShapedGlyph's StyleProperties.
+    /// preserves styling information from the `ShapedGlyph`'s `StyleProperties`.
     ///
     /// This is NOT reading from the system clipboard - use `clipboard_manager.get_paste_content()`
     /// for that. This extracts content FROM the selection TO be copied.
@@ -7129,8 +7040,8 @@ impl LayoutWindow {
 
         // Collect range selections (collapsed cursors contribute nothing to a copy).
         let ranges: Vec<_> = mc.selections.iter().filter_map(|s| match &s.selection {
-            azul_core::selection::Selection::Range(r) => Some(*r),
-            _ => None,
+            Selection::Range(r) => Some(*r),
+            Selection::Cursor(_) => None,
         }).collect();
         if ranges.is_empty() {
             return None;
@@ -7202,33 +7113,34 @@ impl LayoutWindow {
     ///
     /// # Arguments
     ///
-    /// * `image_callbacks_changed` - Map of DomId -> Set of NodeIds that need re-rendering
+    /// * `image_callbacks_changed` - Map of `DomId` -> Set of `NodeIds` that need re-rendering
     /// * `gl_context` - OpenGL context pointer for rendering
     ///
     /// # Returns
     ///
-    /// Vector of (DomId, NodeId, Texture) tuples for textures that were updated
+    /// Vector of (`DomId`, `NodeId`, Texture) tuples for textures that were updated
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn process_image_callback_updates(
         &mut self,
         image_callbacks_changed: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
         gl_context: &OptionGlContextPtr,
     ) -> Vec<(DomId, NodeId, azul_core::gl::Texture)> {
         use crate::callbacks::{RenderImageCallback, RenderImageCallbackInfo};
+        use std::panic;
 
         let mut updated_textures = Vec::new();
 
         for (dom_id, node_ids) in image_callbacks_changed {
-            let layout_result = match self.layout_results.get_mut(dom_id) {
-                Some(lr) => lr,
-                None => continue,
+            let Some(layout_result) = self.layout_results.get_mut(dom_id) else {
+                continue;
             };
 
             for node_id in node_ids {
                 // Get the node data - store container ref to extend lifetime
                 let node_data_container = layout_result.styled_dom.node_data.as_container();
-                let node_data = match node_data_container.get(*node_id) {
-                    Some(nd) => nd,
-                    None => continue,
+                let Some(node_data) = node_data_container.get(*node_id) else {
+                    continue;
                 };
 
                 // Check if this is an Image node with a callback
@@ -7256,9 +7168,8 @@ impl LayoutWindow {
                 };
 
                 // Get the layout node to determine size
-                let layout_node = match layout_result.layout_tree.get(layout_index) {
-                    Some(ln) => ln,
-                    None => continue,
+                let Some(layout_node) = layout_result.layout_tree.get(layout_index) else {
+                    continue;
                 };
 
                 // Get the size from the layout node (used_size is the computed size from layout)
@@ -7269,7 +7180,7 @@ impl LayoutWindow {
 
                 let callback_domnode_id = DomNodeId {
                     dom: *dom_id,
-                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    node: NodeHierarchyItemId::from_crate_internal(Some(
                         *node_id,
                     )),
                 };
@@ -7312,7 +7223,6 @@ impl LayoutWindow {
                                                 } else {
                                                     let callback = RenderImageCallback::from_core(&core_callback.callback);
                                                     let refany_clone = core_callback.refany.clone();
-                                                    use std::panic;
                                                     let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
                                                         (callback.cb)(refany_clone, gl_callback_info)
                                                     }));
@@ -7352,10 +7262,8 @@ impl LayoutWindow {
 
                 // Extract the texture from the returned ImageRef
                 if let Some(image_ref) = new_image_ref {
-                    if let Some(decoded_image) = image_ref.into_inner() {
-                        if let azul_core::resources::DecodedImage::Gl(texture) = decoded_image {
-                            updated_textures.push((*dom_id, *node_id, texture));
-                        }
+                    if let Some(azul_core::resources::DecodedImage::Gl(texture)) = image_ref.into_inner() {
+                        updated_textures.push((*dom_id, *node_id, texture));
                     }
                 }
             }
@@ -7364,13 +7272,13 @@ impl LayoutWindow {
         updated_textures
     }
 
-    /// Check if a scrolled node is a VirtualView that needs re-invocation. If so,
+    /// Check if a scrolled node is a `VirtualView` that needs re-invocation. If so,
     /// queue it in `pending_virtual_view_updates` for processing before the next frame.
     ///
-    /// This is the bridge between the scroll system and the VirtualView lifecycle:
-    ///   ScrollTo → scroll_manager.scroll_to() → check_and_queue_virtual_view_reinvoke()
+    /// This is the bridge between the scroll system and the `VirtualView` lifecycle:
+    ///   `ScrollTo` → `scroll_manager.scroll_to()` → `check_and_queue_virtual_view_reinvoke()`
     ///
-    /// Returns `true` if a VirtualView update was queued (caller should trigger a
+    /// Returns `true` if a `VirtualView` update was queued (caller should trigger a
     /// display list rebuild instead of a lightweight repaint).
     pub fn check_and_queue_virtual_view_reinvoke(
         &mut self,
@@ -7378,13 +7286,12 @@ impl LayoutWindow {
         node_id: NodeId,
     ) -> bool {
         // Get the VirtualView's current layout bounds (needed for check_reinvoke)
-        let bounds = match Self::get_virtual_view_bounds_from_layout(
+        let Some(bounds) = Self::get_virtual_view_bounds_from_layout(
             &self.layout_results,
             dom_id,
             node_id,
-        ) {
-            Some(b) => b,
-            None => return false, // Not a VirtualView or no layout info
+        ) else {
+            return false; // Not a VirtualView or no layout info
         };
 
         // Ask the VirtualViewManager whether this VirtualView needs re-invocation
@@ -7404,22 +7311,22 @@ impl LayoutWindow {
         }
     }
 
-    /// Process VirtualView updates requested by callbacks
+    /// Process `VirtualView` updates requested by callbacks
     ///
-    /// This method handles manual VirtualView re-rendering triggered by `trigger_virtual_view_rerender()`.
-    /// It invokes the VirtualView callback with `DomRecreated` reason and performs layout on the
-    /// returned DOM, then submits a new display list to WebRender for that pipeline.
+    /// This method handles manual `VirtualView` re-rendering triggered by `trigger_virtual_view_rerender()`.
+    /// It invokes the `VirtualView` callback with `DomRecreated` reason and performs layout on the
+    /// returned DOM, then submits a new display list to `WebRender` for that pipeline.
     ///
     /// # Arguments
     ///
-    /// * `vviews_to_update` - Map of DomId -> Set of NodeIds that need re-rendering
+    /// * `vviews_to_update` - Map of `DomId` -> Set of `NodeIds` that need re-rendering
     /// * `window_state` - Current window state
     /// * `renderer_resources` - Renderer resources
     /// * `system_callbacks` - External system callbacks
     ///
     /// # Returns
     ///
-    /// Vector of (DomId, NodeId) tuples for VirtualViews that were successfully updated
+    /// Vector of (`DomId`, `NodeId`) tuples for `VirtualViews` that were successfully updated
     pub fn process_virtual_view_updates(
         &mut self,
         vviews_to_update: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
@@ -7432,13 +7339,12 @@ impl LayoutWindow {
         for (dom_id, node_ids) in vviews_to_update {
             for node_id in node_ids {
                 // Extract virtualized view bounds from layout result
-                let bounds = match Self::get_virtual_view_bounds_from_layout(
+                let Some(bounds) = Self::get_virtual_view_bounds_from_layout(
                     &self.layout_results,
                     *dom_id,
                     *node_id,
-                ) {
-                    Some(b) => b,
-                    None => continue,
+                ) else {
+                    continue;
                 };
 
                 // Force re-invocation by clearing the "was_invoked" flag
@@ -7462,9 +7368,9 @@ impl LayoutWindow {
         updated_vviews
     }
 
-    /// Queue VirtualView updates to be processed in the next frame
+    /// Queue `VirtualView` updates to be processed in the next frame
     ///
-    /// This is called after callbacks to store the vviews_to_update from callback changes
+    /// This is called after callbacks to store the `vviews_to_update` from callback changes
     pub fn queue_virtual_view_updates(
         &mut self,
         vviews_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
@@ -7477,12 +7383,12 @@ impl LayoutWindow {
         }
     }
 
-    /// Queue EVERY known VirtualView for re-invocation on the EXISTING DOM (no
-    /// RefreshDom / DOM rebuild). Used when a shared dataset was mutated
+    /// Queue EVERY known `VirtualView` for re-invocation on the EXISTING DOM (no
+    /// `RefreshDom` / DOM rebuild). Used when a shared dataset was mutated
     /// out-of-band — e.g. a background `MapWidget` tile-fetch writeback updated
-    /// the cache that the VirtualView's `refany` clone points at. Re-invoking in
+    /// the cache that the `VirtualView`'s `refany` clone points at. Re-invoking in
     /// place keeps the content callback reading the same underlying data the
-    /// worker threads write to; a RefreshDom would rebuild the DOM, allocate a
+    /// worker threads write to; a `RefreshDom` would rebuild the DOM, allocate a
     /// fresh dataset, and orphan the workers' clone (so later tiles would never
     /// reach the rendered view).
     pub fn queue_all_virtual_view_reinvoke(&mut self) {
@@ -7496,9 +7402,9 @@ impl LayoutWindow {
         self.queue_virtual_view_updates(updates);
     }
 
-    /// Process and clear pending VirtualView updates
+    /// Process and clear pending `VirtualView` updates
     ///
-    /// This is called during frame generation to re-render updated VirtualViews
+    /// This is called during frame generation to re-render updated `VirtualViews`
     pub fn process_pending_virtual_view_updates(
         &mut self,
         window_state: &FullWindowState,
@@ -7538,9 +7444,9 @@ impl LayoutWindow {
         updated
     }
 
-    /// Helper: Extract VirtualView bounds from layout results
+    /// Helper: Extract `VirtualView` bounds from layout results
     ///
-    /// Returns None if the node is not a VirtualView or doesn't have layout info
+    /// Returns None if the node is not a `VirtualView` or doesn't have layout info
     fn get_virtual_view_bounds_from_layout(
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
         dom_id: DomId,

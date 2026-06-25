@@ -1,0 +1,265 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Test all feature combinations on desktop platforms
+  feature-matrix:
+    name: Feature Matrix (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        features:
+          - ""  # default = std + parsing + multithreading
+          - "--no-default-features --features std"
+          - "--no-default-features --features parsing"  # parsing implies std
+          - "--no-default-features --features std,multithreading"
+          - "--no-default-features --features std,parsing,multithreading"
+          - "--all-features"
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Check
+      run: cargo check ${{ matrix.features }}
+    - name: Build
+      run: cargo build ${{ matrix.features }}
+    - name: Test
+      run: cargo test ${{ matrix.features }}
+
+  # Cross-compilation checks (no_std / mobile / WASM)
+  cross-check:
+    name: Cross (${{ matrix.target }}, ${{ matrix.features }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # WASM (parsing implies std; mmapio/rayon excluded via cfg)
+          - target: wasm32-unknown-unknown
+            features: "--no-default-features --features parsing"
+          # WASM with WASI
+          - target: wasm32-wasip1
+            features: "--no-default-features --features parsing"
+          # iOS
+          - target: aarch64-apple-ios
+            features: "--no-default-features --features parsing"
+            os: macos-latest
+          # iOS Simulator
+          - target: aarch64-apple-ios-sim
+            features: "--no-default-features --features parsing"
+            os: macos-latest
+          # Android
+          - target: aarch64-linux-android
+            features: "--no-default-features --features parsing"
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+    - name: Check
+      run: cargo check --lib --target ${{ matrix.target }} ${{ matrix.features }}
+
+  # C bindings build + test
+  c-bindings:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            lib_prefix: lib
+            static_ext: .a
+            dynamic_ext: .so
+            compiler: gcc
+          - os: windows-latest
+            lib_prefix: ""
+            static_ext: .lib
+            dynamic_ext: .dll
+            compiler: msvc
+          - os: windows-latest
+            lib_prefix: lib
+            static_ext: .a
+            dynamic_ext: .dll
+            compiler: gcc
+          - os: macos-latest
+            lib_prefix: lib
+            static_ext: .a
+            dynamic_ext: .dylib
+            compiler: gcc
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install GNU target (Windows GCC)
+      if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
+      run: rustup target add x86_64-pc-windows-gnu
+
+    - name: Build Rust library (MSVC)
+      if: matrix.compiler == 'msvc'
+      run: cargo build --release --features ffi
+
+    - name: Build Rust library (GCC/Unix)
+      if: matrix.compiler == 'gcc' && matrix.os != 'windows-latest'
+      run: cargo build --release --features ffi
+
+    - name: Build Rust library (GCC/Windows)
+      if: matrix.compiler == 'gcc' && matrix.os == 'windows-latest'
+      run: cargo build --release --features ffi --target x86_64-pc-windows-gnu
+
+    - name: Create include directory
+      run: mkdir -p include
+      shell: bash
+
+    - name: Copy header files
+      run: cp ffi/rust_fontconfig.h include/rust_fontconfig.h
+      shell: bash
+
+    - name: Install build tools (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get update && sudo apt-get install -y build-essential
+
+    # ── Build C examples ──────────────────────────────────────────────
+
+    - name: Build C examples (Unix-like)
+      if: matrix.os != 'windows-latest'
+      run: |
+        gcc -Wall -o example ffi/example.c -Iinclude -L./target/release -lrust_fontconfig
+        gcc -Wall -o example_registry ffi/example_registry.c -Iinclude -L./target/release -lrust_fontconfig
+        cp target/release/${{ matrix.lib_prefix }}rust_fontconfig${{ matrix.static_ext }} .
+        cp target/release/${{ matrix.lib_prefix }}rust_fontconfig${{ matrix.dynamic_ext }} .
+
+    - name: Setup MSVC dev environment
+      if: matrix.os == 'windows-latest' && matrix.compiler == 'msvc'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Build C examples (Windows MSVC)
+      if: matrix.os == 'windows-latest' && matrix.compiler == 'msvc'
+      shell: cmd
+      run: |
+        cl.exe /W4 /EHsc /Fe:example.exe ffi/example.c /I include /link /LIBPATH:target\release rust_fontconfig.dll.lib
+        cl.exe /W4 /EHsc /Fe:example_registry.exe ffi/example_registry.c /I include /link /LIBPATH:target\release rust_fontconfig.dll.lib
+        copy target\release\rust_fontconfig.dll .
+        dir *.exe *.dll
+
+    - name: Build C examples (Windows GCC)
+      if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
+      shell: bash
+      run: |
+        gcc -Wall -o example.exe ffi/example.c -Iinclude -L./target/x86_64-pc-windows-gnu/release -lrust_fontconfig
+        gcc -Wall -o example_registry.exe ffi/example_registry.c -Iinclude -L./target/x86_64-pc-windows-gnu/release -lrust_fontconfig
+        cp target/x86_64-pc-windows-gnu/release/rust_fontconfig.dll .
+        ls -la *.exe *.dll
+
+    # ── Run C examples ────────────────────────────────────────────────
+
+    - name: Set LD_LIBRARY_PATH (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: echo "LD_LIBRARY_PATH=$(pwd):$LD_LIBRARY_PATH" >> $GITHUB_ENV
+
+    - name: Set DYLD_LIBRARY_PATH (macOS)
+      if: matrix.os == 'macos-latest'
+      run: echo "DYLD_LIBRARY_PATH=$(pwd):$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+
+    - name: Set PATH for DLL (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: bash
+      run: echo "PATH=$(pwd):$PATH" >> $GITHUB_ENV
+
+    - name: Run C examples (Unix-like)
+      if: matrix.os != 'windows-latest'
+      shell: bash
+      run: |
+        set -e
+        echo "=== Old API example ==="
+        ./example list | head -20
+        echo "..."
+        echo ""
+        echo "=== Registry example: Demo 1 (Azul-style fast startup) ==="
+        ./example_registry 1
+        echo ""
+        echo "=== Registry example: Demo 2 (Incremental loading) ==="
+        ./example_registry 2
+        echo ""
+        echo "=== Registry example: Demo 3 (Old vs New API) ==="
+        ./example_registry 3
+
+    - name: Run C examples (Windows MSVC)
+      if: matrix.os == 'windows-latest' && matrix.compiler == 'msvc'
+      shell: cmd
+      run: |
+        .\example.exe list
+        echo.
+        .\example_registry.exe 1
+        echo.
+        .\example_registry.exe 2
+        echo.
+        .\example_registry.exe 3
+
+    - name: Run C examples (Windows GCC)
+      if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
+      shell: bash
+      run: |
+        set -e
+        echo "=== Old API example ==="
+        ./example.exe list | head -20
+        echo "..."
+        echo ""
+        echo "=== Registry example: Demo 1 ==="
+        ./example_registry.exe 1
+        echo ""
+        echo "=== Registry example: Demo 2 ==="
+        ./example_registry.exe 2
+        echo ""
+        echo "=== Registry example: Demo 3 ==="
+        ./example_registry.exe 3
+
+    # ── Upload artifacts ──────────────────────────────────────────────
+
+    - name: Upload static library
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.lib_prefix }}rust_fontconfig${{ matrix.static_ext }}-${{ matrix.os }}-${{ matrix.compiler }}
+        path: ${{ matrix.lib_prefix }}rust_fontconfig${{ matrix.static_ext }}
+
+    - name: Upload dynamic library
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.lib_prefix }}rust_fontconfig${{ matrix.dynamic_ext }}-${{ matrix.os }}-${{ matrix.compiler }}
+        path: ${{ matrix.lib_prefix }}rust_fontconfig${{ matrix.dynamic_ext }}
+
+    - name: Upload import library (Windows MSVC)
+      if: matrix.os == 'windows-latest' && matrix.compiler == 'msvc'
+      uses: actions/upload-artifact@v4
+      with:
+        name: rust_fontconfig.dll.lib-${{ matrix.os }}-msvc
+        path: rust_fontconfig.dll.lib
+
+    - name: Upload headers
+      uses: actions/upload-artifact@v4
+      with:
+        name: headers-${{ matrix.os }}-${{ matrix.compiler }}
+        path: include/
+
+    - name: Upload C examples
+      uses: actions/upload-artifact@v4
+      with:
+        name: examples-${{ matrix.os }}-${{ matrix.compiler }}
+        path: |
+          example${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          example_registry${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          ffi/example.c
+          ffi/example_registry.c

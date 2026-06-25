@@ -68,7 +68,7 @@ pub struct SvgLine {
 impl SvgLine {
     /// Creates a new line segment from start to end point
     #[inline]
-    pub const fn new(start: SvgPoint, end: SvgPoint) -> Self {
+    #[must_use] pub const fn new(start: SvgPoint, end: SvgPoint) -> Self {
         Self { start, end }
     }
 
@@ -76,10 +76,10 @@ impl SvgLine {
     ///
     /// The normal points 90 degrees to the right of the line direction.
     /// Returns `None` if the line has zero length.
-    pub fn inwards_normal(&self) -> Option<SvgPoint> {
+    #[must_use] pub fn inwards_normal(&self) -> Option<SvgPoint> {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
-        let edge_length = (dx * dx + dy * dy).sqrt();
+        let edge_length = dx.hypot(dy);
         let x = -dy / edge_length;
         let y = dx / edge_length;
 
@@ -91,7 +91,7 @@ impl SvgLine {
     }
 
     /// Computes the outward-facing normal vector for this line (opposite of `inwards_normal`).
-    pub fn outwards_normal(&self) -> Option<SvgPoint> {
+    #[must_use] pub fn outwards_normal(&self) -> Option<SvgPoint> {
         let inwards = self.inwards_normal()?;
         Some(SvgPoint {
             x: -inwards.x,
@@ -100,55 +100,57 @@ impl SvgLine {
     }
 
     /// Reverses the direction of the line by swapping start and end points.
-    pub fn reverse(&mut self) {
-        std::mem::swap(&mut self.start, &mut self.end);
+    pub const fn reverse(&mut self) {
+        core::mem::swap(&mut self.start, &mut self.end);
     }
     /// Returns the start point of the line.
-    pub fn get_start(&self) -> SvgPoint {
+    #[must_use] pub const fn get_start(&self) -> SvgPoint {
         self.start
     }
     /// Returns the end point of the line.
-    pub fn get_end(&self) -> SvgPoint {
+    #[must_use] pub const fn get_end(&self) -> SvgPoint {
         self.end
     }
 
     /// Returns the parametric `t` value (0.0–1.0) at the given arc-length offset.
-    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
+    #[must_use] pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         offset / self.get_length()
     }
 
     /// Returns the tangent vector of the line.
     /// For a line, the tangent is constant (same direction everywhere),
     /// so no `t` parameter is needed.
-    pub fn get_tangent_vector_at_t(&self) -> SvgVector {
+    #[must_use] pub fn get_tangent_vector_at_t(&self) -> SvgVector {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
         SvgVector {
-            x: dx as f64,
-            y: dy as f64,
+            x: f64::from(dx),
+            y: f64::from(dy),
         }
         .normalize()
     }
 
     /// Returns the X coordinate at parametric position `t` (0.0 = start, 1.0 = end).
-    pub fn get_x_at_t(&self, t: f64) -> f64 {
-        self.start.x as f64 + (self.end.x as f64 - self.start.x as f64) * t
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
+        f64::from(self.start.x) + (f64::from(self.end.x) - f64::from(self.start.x)) * t
     }
 
     /// Returns the Y coordinate at parametric position `t` (0.0 = start, 1.0 = end).
-    pub fn get_y_at_t(&self, t: f64) -> f64 {
-        self.start.y as f64 + (self.end.y as f64 - self.start.y as f64) * t
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
+        f64::from(self.start.y) + (f64::from(self.end.y) - f64::from(self.start.y)) * t
     }
 
     /// Returns the Euclidean length of the line segment.
-    pub fn get_length(&self) -> f64 {
+    #[must_use] pub fn get_length(&self) -> f64 {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
-        libm::hypotf(dx, dy) as f64
+        f64::from(libm::hypotf(dx, dy))
     }
 
     /// Returns the axis-aligned bounding rectangle of this line segment.
-    pub fn get_bounds(&self) -> SvgRect {
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         let min_x = self.start.x.min(self.end.x);
         let max_x = self.start.x.max(self.end.x);
 
@@ -186,112 +188,112 @@ impl_option!(
 );
 
 impl SvgPathElement {
-    /// Creates a line path element from a SvgLine
+    /// Creates a line path element from a `SvgLine`
     #[inline]
-    pub const fn line(l: SvgLine) -> Self {
-        SvgPathElement::Line(l)
+    #[must_use] pub const fn line(l: SvgLine) -> Self {
+        Self::Line(l)
     }
 
-    /// Creates a quadratic curve path element from a SvgQuadraticCurve
+    /// Creates a quadratic curve path element from a `SvgQuadraticCurve`
     #[inline]
-    pub const fn quadratic_curve(qc: SvgQuadraticCurve) -> Self {
-        SvgPathElement::QuadraticCurve(qc)
+    #[must_use] pub const fn quadratic_curve(qc: SvgQuadraticCurve) -> Self {
+        Self::QuadraticCurve(qc)
     }
 
-    /// Creates a cubic curve path element from a SvgCubicCurve
+    /// Creates a cubic curve path element from a `SvgCubicCurve`
     #[inline]
-    pub const fn cubic_curve(cc: SvgCubicCurve) -> Self {
-        SvgPathElement::CubicCurve(cc)
+    #[must_use] pub const fn cubic_curve(cc: SvgCubicCurve) -> Self {
+        Self::CubicCurve(cc)
     }
 
     /// Sets the end point of this path element.
-    pub fn set_last(&mut self, point: SvgPoint) {
+    pub const fn set_last(&mut self, point: SvgPoint) {
         match self {
-            SvgPathElement::Line(l) => l.end = point,
-            SvgPathElement::QuadraticCurve(qc) => qc.end = point,
-            SvgPathElement::CubicCurve(cc) => cc.end = point,
+            Self::Line(l) => l.end = point,
+            Self::QuadraticCurve(qc) => qc.end = point,
+            Self::CubicCurve(cc) => cc.end = point,
         }
     }
 
     /// Sets the start point of this path element.
-    pub fn set_first(&mut self, point: SvgPoint) {
+    pub const fn set_first(&mut self, point: SvgPoint) {
         match self {
-            SvgPathElement::Line(l) => l.start = point,
-            SvgPathElement::QuadraticCurve(qc) => qc.start = point,
-            SvgPathElement::CubicCurve(cc) => cc.start = point,
+            Self::Line(l) => l.start = point,
+            Self::QuadraticCurve(qc) => qc.start = point,
+            Self::CubicCurve(cc) => cc.start = point,
         }
     }
 
     /// Reverses the direction of this path element.
-    pub fn reverse(&mut self) {
+    pub const fn reverse(&mut self) {
         match self {
-            SvgPathElement::Line(l) => l.reverse(),
-            SvgPathElement::QuadraticCurve(qc) => qc.reverse(),
-            SvgPathElement::CubicCurve(cc) => cc.reverse(),
+            Self::Line(l) => l.reverse(),
+            Self::QuadraticCurve(qc) => qc.reverse(),
+            Self::CubicCurve(cc) => cc.reverse(),
         }
     }
     /// Returns the start point of this path element.
-    pub fn get_start(&self) -> SvgPoint {
+    #[must_use] pub const fn get_start(&self) -> SvgPoint {
         match self {
-            SvgPathElement::Line(l) => l.get_start(),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_start(),
-            SvgPathElement::CubicCurve(cc) => cc.get_start(),
+            Self::Line(l) => l.get_start(),
+            Self::QuadraticCurve(qc) => qc.get_start(),
+            Self::CubicCurve(cc) => cc.get_start(),
         }
     }
     /// Returns the end point of this path element.
-    pub fn get_end(&self) -> SvgPoint {
+    #[must_use] pub const fn get_end(&self) -> SvgPoint {
         match self {
-            SvgPathElement::Line(l) => l.get_end(),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_end(),
-            SvgPathElement::CubicCurve(cc) => cc.get_end(),
+            Self::Line(l) => l.get_end(),
+            Self::QuadraticCurve(qc) => qc.get_end(),
+            Self::CubicCurve(cc) => cc.get_end(),
         }
     }
     /// Returns the axis-aligned bounding rectangle of this path element.
-    pub fn get_bounds(&self) -> SvgRect {
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         match self {
-            SvgPathElement::Line(l) => l.get_bounds(),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_bounds(),
-            SvgPathElement::CubicCurve(cc) => cc.get_bounds(),
+            Self::Line(l) => l.get_bounds(),
+            Self::QuadraticCurve(qc) => qc.get_bounds(),
+            Self::CubicCurve(cc) => cc.get_bounds(),
         }
     }
     /// Returns the arc length of this path element.
-    pub fn get_length(&self) -> f64 {
+    #[must_use] pub fn get_length(&self) -> f64 {
         match self {
-            SvgPathElement::Line(l) => l.get_length(),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_length(),
-            SvgPathElement::CubicCurve(cc) => cc.get_length(),
+            Self::Line(l) => l.get_length(),
+            Self::QuadraticCurve(qc) => qc.get_length(),
+            Self::CubicCurve(cc) => cc.get_length(),
         }
     }
     /// Returns the parametric `t` value at the given arc-length offset.
-    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
+    #[must_use] pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         match self {
-            SvgPathElement::Line(l) => l.get_t_at_offset(offset),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_t_at_offset(offset),
-            SvgPathElement::CubicCurve(cc) => cc.get_t_at_offset(offset),
+            Self::Line(l) => l.get_t_at_offset(offset),
+            Self::QuadraticCurve(qc) => qc.get_t_at_offset(offset),
+            Self::CubicCurve(cc) => cc.get_t_at_offset(offset),
         }
     }
     /// Returns the normalized tangent vector at parametric position `t`.
-    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
+    #[must_use] pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         match self {
-            SvgPathElement::Line(l) => l.get_tangent_vector_at_t(),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_tangent_vector_at_t(t),
-            SvgPathElement::CubicCurve(cc) => cc.get_tangent_vector_at_t(t),
+            Self::Line(l) => l.get_tangent_vector_at_t(),
+            Self::QuadraticCurve(qc) => qc.get_tangent_vector_at_t(t),
+            Self::CubicCurve(cc) => cc.get_tangent_vector_at_t(t),
         }
     }
     /// Returns the X coordinate at parametric position `t`.
-    pub fn get_x_at_t(&self, t: f64) -> f64 {
+    #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
         match self {
-            SvgPathElement::Line(l) => l.get_x_at_t(t),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_x_at_t(t),
-            SvgPathElement::CubicCurve(cc) => cc.get_x_at_t(t),
+            Self::Line(l) => l.get_x_at_t(t),
+            Self::QuadraticCurve(qc) => qc.get_x_at_t(t),
+            Self::CubicCurve(cc) => cc.get_x_at_t(t),
         }
     }
     /// Returns the Y coordinate at parametric position `t`.
-    pub fn get_y_at_t(&self, t: f64) -> f64 {
+    #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
         match self {
-            SvgPathElement::Line(l) => l.get_y_at_t(t),
-            SvgPathElement::QuadraticCurve(qc) => qc.get_y_at_t(t),
-            SvgPathElement::CubicCurve(cc) => cc.get_y_at_t(t),
+            Self::Line(l) => l.get_y_at_t(t),
+            Self::QuadraticCurve(qc) => qc.get_y_at_t(t),
+            Self::CubicCurve(cc) => cc.get_y_at_t(t),
         }
     }
 }
@@ -320,31 +322,29 @@ impl_option!(
 );
 
 impl SvgPath {
-    /// Creates a new SvgPath from a vector of path elements
+    /// Creates a new `SvgPath` from a vector of path elements
     #[inline]
-    pub const fn create(items: SvgPathElementVec) -> Self {
+    #[must_use] pub const fn create(items: SvgPathElementVec) -> Self {
         Self { items }
     }
 
     /// Returns the start point of the first element, or `None` if the path is empty.
-    pub fn get_start(&self) -> Option<SvgPoint> {
-        self.items.as_ref().first().map(|s| s.get_start())
+    #[must_use] pub fn get_start(&self) -> Option<SvgPoint> {
+        self.items.as_ref().first().map(SvgPathElement::get_start)
     }
 
     /// Returns the end point of the last element, or `None` if the path is empty.
-    pub fn get_end(&self) -> Option<SvgPoint> {
-        self.items.as_ref().last().map(|s| s.get_end())
+    #[must_use] pub fn get_end(&self) -> Option<SvgPoint> {
+        self.items.as_ref().last().map(SvgPathElement::get_end)
     }
 
     /// Closes the path by appending a line from the last point to the first point, if needed.
     pub fn close(&mut self) {
-        let first = match self.items.as_ref().first() {
-            Some(s) => s,
-            None => return,
+        let Some(first) = self.items.as_ref().first() else {
+            return;
         };
-        let last = match self.items.as_ref().last() {
-            Some(s) => s,
-            None => return,
+        let Some(last) = self.items.as_ref().last() else {
+            return;
         };
         if first.get_start() != last.get_end() {
             let mut elements = self.items.as_slice().to_vec();
@@ -357,7 +357,7 @@ impl SvgPath {
     }
 
     /// Returns `true` if the path's first start point equals its last end point.
-    pub fn is_closed(&self) -> bool {
+    #[must_use] pub fn is_closed(&self) -> bool {
         let first = self.items.as_ref().first();
         let last = self.items.as_ref().last();
         match (first, last) {
@@ -378,7 +378,7 @@ impl SvgPath {
 
         // reverse the order inside the item itself
         // i.e. swap line.start and line.end
-        for item in vec.iter_mut() {
+        for item in &mut vec {
             item.reverse();
         }
 
@@ -392,8 +392,8 @@ impl SvgPath {
         let self_last_point = self.items.as_ref().last()?.get_end();
         let other_start_point = path.items.as_ref().first()?.get_start();
         let interpolated_join_point = SvgPoint {
-            x: (self_last_point.x + other_start_point.x) / 2.0,
-            y: (self_last_point.y + other_start_point.y) / 2.0,
+            x: f32::midpoint(self_last_point.x, other_start_point.x),
+            y: f32::midpoint(self_last_point.y, other_start_point.y),
         };
 
         // swap self.items with a default vec
@@ -417,7 +417,7 @@ impl SvgPath {
         Some(())
     }
     /// Returns the axis-aligned bounding rectangle of the entire path.
-    pub fn get_bounds(&self) -> SvgRect {
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         let mut first_bounds = match self.items.as_ref().first() {
             Some(s) => s.get_bounds(),
             None => return SvgRect::default(),
@@ -447,27 +447,26 @@ impl_option!(
 );
 
 impl SvgMultiPolygon {
-    /// Creates a new SvgMultiPolygon from a vector of paths (rings)
+    /// Creates a new `SvgMultiPolygon` from a vector of paths (rings)
     /// NOTE: If a ring represents a hole, simply reverse the order of points
     #[inline]
-    pub const fn create(rings: SvgPathVec) -> Self {
+    #[must_use] pub const fn create(rings: SvgPathVec) -> Self {
         Self { rings }
     }
 
     /// Returns the axis-aligned bounding rectangle of all rings in this multi-polygon.
-    pub fn get_bounds(&self) -> SvgRect {
-        let mut first_bounds = match self
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
+        let Some(mut first_bounds) = self
             .rings
             .get(0)
-            .and_then(|b| b.items.get(0).map(|i| i.get_bounds()))
-        {
-            Some(s) => s,
+            .and_then(|b| b.items.get(0).map(SvgPathElement::get_bounds))
+        else {
             // Empty polygon has zero-sized bounds at origin
-            None => return SvgRect::default(),
+            return SvgRect::default();
         };
 
-        for ring in self.rings.iter() {
-            for item in ring.items.iter() {
+        for ring in &self.rings {
+            for item in &ring.items {
                 first_bounds.union_with(&item.get_bounds());
             }
         }
@@ -531,32 +530,32 @@ impl_vec_partialord!(SvgSimpleNode, SvgSimpleNodeVec);
 
 impl SvgSimpleNode {
     /// Returns the axis-aligned bounding rectangle of this node.
-    pub fn get_bounds(&self) -> SvgRect {
+    // Same-body arms dispatch on differently-typed bindings (SvgPath vs SvgCircle),
+    // so the identical `a.get_bounds()` bodies cannot be combined into one or-pattern.
+    #[allow(clippy::match_same_arms)]
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         match self {
-            SvgSimpleNode::Path(a) => a.get_bounds(),
-            SvgSimpleNode::Circle(a) => a.get_bounds(),
-            SvgSimpleNode::Rect(a) => *a,
-            SvgSimpleNode::CircleHole(a) => a.get_bounds(),
-            SvgSimpleNode::RectHole(a) => *a,
+            Self::Path(a) => a.get_bounds(),
+            Self::Circle(a) => a.get_bounds(),
+            Self::Rect(a) => *a,
+            Self::CircleHole(a) => a.get_bounds(),
+            Self::RectHole(a) => *a,
         }
     }
     /// Returns `true` if this node represents a closed shape.
-    pub fn is_closed(&self) -> bool {
+    #[must_use] pub fn is_closed(&self) -> bool {
         match self {
-            SvgSimpleNode::Path(a) => a.is_closed(),
-            SvgSimpleNode::Circle(_) => true,
-            SvgSimpleNode::Rect(_) => true,
-            SvgSimpleNode::CircleHole(_) => true,
-            SvgSimpleNode::RectHole(_) => true,
+            Self::Path(a) => a.is_closed(),
+            Self::Circle(_) | Self::Rect(_) | Self::CircleHole(_) | Self::RectHole(_) => true,
         }
     }
 }
 
 impl SvgNode {
     /// Returns the axis-aligned bounding rectangle of this SVG node.
-    pub fn get_bounds(&self) -> SvgRect {
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         match self {
-            SvgNode::MultiPolygonCollection(a) => {
+            Self::MultiPolygonCollection(a) => {
                 let mut first_mp_bounds = match a.get(0) {
                     Some(s) => s.get_bounds(),
                     None => return SvgRect::default(),
@@ -568,8 +567,8 @@ impl SvgNode {
 
                 first_mp_bounds
             }
-            SvgNode::MultiPolygon(a) => a.get_bounds(),
-            SvgNode::MultiShape(a) => {
+            Self::MultiPolygon(a) => a.get_bounds(),
+            Self::MultiShape(a) => {
                 let mut first_mp_bounds = match a.get(0) {
                     Some(s) => s.get_bounds(),
                     None => return SvgRect::default(),
@@ -581,17 +580,17 @@ impl SvgNode {
 
                 first_mp_bounds
             }
-            SvgNode::Path(a) => a.get_bounds(),
-            SvgNode::Circle(a) => a.get_bounds(),
-            SvgNode::Rect(a) => *a,
+            Self::Path(a) => a.get_bounds(),
+            Self::Circle(a) => a.get_bounds(),
+            Self::Rect(a) => *a,
         }
     }
     /// Returns `true` if all sub-paths in this node are closed.
-    pub fn is_closed(&self) -> bool {
+    #[must_use] pub fn is_closed(&self) -> bool {
         match self {
-            SvgNode::MultiPolygonCollection(a) => {
-                for mp in a.iter() {
-                    for p in mp.rings.as_ref().iter() {
+            Self::MultiPolygonCollection(a) => {
+                for mp in a {
+                    for p in mp.rings.as_ref() {
                         if !p.is_closed() {
                             return false;
                         }
@@ -600,8 +599,8 @@ impl SvgNode {
 
                 true
             }
-            SvgNode::MultiPolygon(a) => {
-                for p in a.rings.as_ref().iter() {
+            Self::MultiPolygon(a) => {
+                for p in a.rings.as_ref() {
                     if !p.is_closed() {
                         return false;
                     }
@@ -609,8 +608,8 @@ impl SvgNode {
 
                 true
             }
-            SvgNode::MultiShape(a) => {
-                for p in a.as_ref().iter() {
+            Self::MultiShape(a) => {
+                for p in a.as_ref() {
                     if !p.is_closed() {
                         return false;
                     }
@@ -618,9 +617,8 @@ impl SvgNode {
 
                 true
             }
-            SvgNode::Path(a) => a.is_closed(),
-            SvgNode::Circle(_) => true,
-            SvgNode::Rect(_) => true,
+            Self::Path(a) => a.is_closed(),
+            Self::Circle(_) | Self::Rect(_) => true,
         }
     }
 }
@@ -713,13 +711,14 @@ pub struct SvgCircle {
 
 impl SvgCircle {
     /// Returns `true` if the given point lies inside the circle.
-    pub fn contains_point(&self, x: f32, y: f32) -> bool {
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[must_use] pub fn contains_point(&self, x: f32, y: f32) -> bool {
         let x_diff = libm::fabsf(x - self.center_x);
         let y_diff = libm::fabsf(y - self.center_y);
         (x_diff * x_diff) + (y_diff * y_diff) < (self.radius * self.radius)
     }
     /// Returns the axis-aligned bounding rectangle of this circle.
-    pub fn get_bounds(&self) -> SvgRect {
+    #[must_use] pub fn get_bounds(&self) -> SvgRect {
         SvgRect {
             width: self.radius * 2.0,
             height: self.radius * 2.0,
@@ -767,13 +766,13 @@ impl_vec_clone!(
 impl_vec_partialeq!(TessellatedSvgNode, TessellatedSvgNodeVec);
 
 impl TessellatedSvgNode {
-    pub fn empty() -> Self {
+    #[must_use] pub fn empty() -> Self {
         Self::default()
     }
 }
 
 impl TessellatedSvgNodeVec {
-    pub fn get_ref(&self) -> TessellatedSvgNodeVecRef {
+    #[must_use] pub fn get_ref(&self) -> TessellatedSvgNodeVecRef {
         let slice = self.as_ref();
         TessellatedSvgNodeVecRef {
             ptr: slice.as_ptr(),
@@ -783,7 +782,7 @@ impl TessellatedSvgNodeVec {
 }
 
 impl fmt::Debug for TessellatedSvgNodeVecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -805,7 +804,7 @@ impl Clone for TessellatedSvgNodeVecRef {
 }
 
 impl TessellatedSvgNodeVecRef {
-    pub fn as_slice(&self) -> &[TessellatedSvgNode] {
+    #[must_use] pub const fn as_slice(&self) -> &[TessellatedSvgNode] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -844,13 +843,13 @@ impl_vec_clone!(
 impl_vec_partialeq!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
 
 impl TessellatedColoredSvgNode {
-    pub fn empty() -> Self {
+    #[must_use] pub fn empty() -> Self {
         Self::default()
     }
 }
 
 impl TessellatedColoredSvgNodeVec {
-    pub fn get_ref(&self) -> TessellatedColoredSvgNodeVecRef {
+    #[must_use] pub fn get_ref(&self) -> TessellatedColoredSvgNodeVecRef {
         let slice = self.as_ref();
         TessellatedColoredSvgNodeVecRef {
             ptr: slice.as_ptr(),
@@ -860,7 +859,7 @@ impl TessellatedColoredSvgNodeVec {
 }
 
 impl fmt::Debug for TessellatedColoredSvgNodeVecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -882,7 +881,7 @@ impl Clone for TessellatedColoredSvgNodeVecRef {
 }
 
 impl TessellatedColoredSvgNodeVecRef {
-    pub fn as_slice(&self) -> &[TessellatedColoredSvgNode] {
+    #[must_use] pub const fn as_slice(&self) -> &[TessellatedColoredSvgNode] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -907,6 +906,10 @@ impl_vec_partialeq!(SvgColoredVertex, SvgColoredVertexVec);
 ///
 /// Converts `StyleTransform` list into column-major `[f32; 16]` for OpenGL,
 /// and packages it along with the bbox size uniform.
+// target_size is physical pixel dimensions (u32); GL uniforms are f32. Pixel
+// counts are always well within f32's exact-integer range (2^24), so the
+// precision loss the lint warns about cannot occur for any real render target.
+#[allow(clippy::cast_precision_loss)]
 fn compute_svg_transform_uniforms(
     target_size: PhysicalSizeU32,
     transforms: &[StyleTransform],
@@ -948,7 +951,7 @@ fn compute_svg_transform_uniforms(
     (bbox_uniform, transform_uniform)
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct TessellatedGPUSvgNode {
     pub vertex_index_buffer: VertexBuffer,
@@ -956,7 +959,7 @@ pub struct TessellatedGPUSvgNode {
 
 impl TessellatedGPUSvgNode {
     /// Uploads the tesselated SVG node to GPU memory
-    pub fn new(node: &TessellatedSvgNode, gl: GlContextPtr) -> Self {
+    #[must_use] pub fn new(node: &TessellatedSvgNode, gl: GlContextPtr) -> Self {
         let svg_shader_id = gl.ptr.svg_shader;
         Self {
             vertex_index_buffer: VertexBuffer::new(
@@ -970,6 +973,7 @@ impl TessellatedGPUSvgNode {
     }
 
     /// Draw the vertex buffer to the texture with the given color and transform
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
     pub fn draw(
         &self,
         texture: &mut Texture,
@@ -1001,7 +1005,7 @@ impl TessellatedGPUSvgNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct TessellatedColoredGPUSvgNode {
     pub vertex_index_buffer: VertexBuffer,
@@ -1009,7 +1013,7 @@ pub struct TessellatedColoredGPUSvgNode {
 
 impl TessellatedColoredGPUSvgNode {
     /// Uploads the tesselated SVG node to GPU memory
-    pub fn new(node: &TessellatedColoredSvgNode, gl: GlContextPtr) -> Self {
+    #[must_use] pub fn new(node: &TessellatedColoredSvgNode, gl: GlContextPtr) -> Self {
         let svg_shader_id = gl.ptr.svg_multicolor_shader;
         Self {
             vertex_index_buffer: VertexBuffer::new(
@@ -1023,6 +1027,7 @@ impl TessellatedColoredGPUSvgNode {
     }
 
     /// Draw the vertex buffer to the texture with the given color and transform
+    #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
     pub fn draw(
         &self,
         texture: &mut Texture,
@@ -1032,6 +1037,9 @@ impl TessellatedColoredGPUSvgNode {
         let (bbox_uniform, transform_uniform) =
             compute_svg_transform_uniforms(target_size, transforms.as_ref());
 
+        // two separately-named GL uniforms collected into the draw-call array;
+        // not a tuple->array conversion.
+        #[allow(clippy::tuple_array_conversions)]
         let uniforms = [bbox_uniform, transform_uniform];
 
         GlShader::draw(
@@ -1052,27 +1060,27 @@ pub enum SvgStyle {
 }
 
 impl SvgStyle {
-    pub fn get_antialias(&self) -> bool {
+    #[must_use] pub const fn get_antialias(&self) -> bool {
         match self {
-            SvgStyle::Fill(f) => f.anti_alias,
-            SvgStyle::Stroke(s) => s.anti_alias,
+            Self::Fill(f) => f.anti_alias,
+            Self::Stroke(s) => s.anti_alias,
         }
     }
-    pub fn get_high_quality_aa(&self) -> bool {
+    #[must_use] pub const fn get_high_quality_aa(&self) -> bool {
         match self {
-            SvgStyle::Fill(f) => f.high_quality_aa,
-            SvgStyle::Stroke(s) => s.high_quality_aa,
+            Self::Fill(f) => f.high_quality_aa,
+            Self::Stroke(s) => s.high_quality_aa,
         }
     }
-    pub fn get_transform(&self) -> SvgTransform {
+    #[must_use] pub const fn get_transform(&self) -> SvgTransform {
         match self {
-            SvgStyle::Fill(f) => f.transform,
-            SvgStyle::Stroke(s) => s.transform,
+            Self::Fill(f) => f.transform,
+            Self::Stroke(s) => s.transform,
         }
     }
 }
 /// SVG fill rule for determining the interior of a shape.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 #[derive(Default)]
 pub enum SvgFillRule {
@@ -1343,13 +1351,13 @@ pub struct SvgParseOptions {
     /// 12
     pub font_size: f32,
     /// Specifies the default shape rendering method. Will be used when an SVG element's
-    /// shape-rendering property is set to auto. Default: GeometricPrecision
+    /// shape-rendering property is set to auto. Default: `GeometricPrecision`
     pub shape_rendering: ShapeRendering,
     /// Specifies the default text rendering method. Will be used when an SVG element's
-    /// text-rendering property is set to auto. Default: OptimizeLegibility
+    /// text-rendering property is set to auto. Default: `OptimizeLegibility`
     pub text_rendering: TextRendering,
     /// Specifies the default image rendering method. Will be used when an SVG element's
-    /// image-rendering property is set to auto. Default: OptimizeQuality
+    /// image-rendering property is set to auto. Default: `OptimizeQuality`
     pub image_rendering: ImageRendering,
     /// When empty, text elements will be skipped. Default: `System`
     pub fontdb: FontDatabase,
@@ -1361,7 +1369,7 @@ pub struct SvgParseOptions {
 impl Default for SvgParseOptions {
     fn default() -> Self {
         let lang_vec: Vec<AzString> = vec![String::from("en").into()];
-        SvgParseOptions {
+        Self {
             relative_image_path: OptionString::None,
             default_font_family: "Times New Roman".to_string().into(),
             languages: lang_vec.into(),
@@ -1376,7 +1384,7 @@ impl Default for SvgParseOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct SvgXmlOptions {
     pub use_single_quote: bool,
@@ -1386,15 +1394,15 @@ pub struct SvgXmlOptions {
 
 impl Default for SvgXmlOptions {
     fn default() -> Self {
-        SvgXmlOptions {
+        Self {
             use_single_quote: false,
             indent: Indent::Spaces(2),
             attributes_indent: Indent::Spaces(2),
         }
     }
 }
-
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
 #[repr(C, u8)]
 pub enum SvgParseError {
     NoParserAvailable,
@@ -1406,8 +1414,8 @@ pub enum SvgParseError {
 }
 
 impl fmt::Display for SvgParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::SvgParseError::*;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::SvgParseError::{NoParserAvailable, ElementsLimitReached, NotAnUtf8Str, MalformedGZip, InvalidSize, ParsingFailed};
         match self {
             NoParserAvailable => write!(
                 f,
@@ -1420,7 +1428,7 @@ impl fmt::Display for SvgParseError {
                 "Error parsing SVG: SVG is compressed with a malformed GZIP compression"
             ),
             InvalidSize => write!(f, "Error parsing SVG: Invalid size"),
-            ParsingFailed(e) => write!(f, "Error parsing SVG: Parsing SVG as XML failed: {}", e),
+            ParsingFailed(e) => write!(f, "Error parsing SVG: Parsing SVG as XML failed: {e}"),
         }
     }
 }
@@ -1441,7 +1449,7 @@ impl_result!(
 );
 
 /// Indentation style for SVG XML serialization.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(C, u8)]
 pub enum Indent {
     None,

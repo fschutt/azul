@@ -19,7 +19,7 @@
 //! **Note:** Running elements, named strings, and per-page `@page` selectors are not
 //! yet implemented; only page counters and header/footer configuration are functional.
 //!
-//! See: https://www.w3.org/TR/css-gcpm-3/
+//! See: <https://www.w3.org/TR/css-gcpm-3>/
 
 use std::sync::Arc;
 
@@ -90,11 +90,11 @@ impl Default for CounterFormat {
 
 impl CounterFormat {
     /// Format a number according to this counter style.
-    pub fn format(&self, n: usize) -> String {
+    #[must_use] pub fn format(&self, n: usize) -> String {
         use super::counters::{to_alphabetic, to_greek, to_roman};
         match self {
             Self::Decimal => n.to_string(),
-            Self::DecimalLeadingZero => format!("{:02}", n),
+            Self::DecimalLeadingZero => format!("{n:02}"),
             Self::LowerRoman => to_roman(n, false),
             Self::UpperRoman => to_roman(n, true),
             Self::LowerAlpha => to_alphabetic(n, false),
@@ -106,6 +106,7 @@ impl CounterFormat {
 
 /// Information about the current page, passed to content generators.
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)] // independent page-position flags (first/last/left/right)
 pub struct PageInfo {
     /// Current page number (1-indexed for display)
     pub page_number: usize,
@@ -124,8 +125,8 @@ pub struct PageInfo {
 }
 
 impl PageInfo {
-    /// Create PageInfo for a specific page.
-    pub fn new(page_number: usize, total_pages: usize) -> Self {
+    /// Create `PageInfo` for a specific page.
+    #[must_use] pub const fn new(page_number: usize, total_pages: usize) -> Self {
         Self {
             page_number,
             total_pages,
@@ -193,7 +194,7 @@ impl Default for HeaderFooterConfig {
 
 impl HeaderFooterConfig {
     /// Create a config with page numbers in the footer.
-    pub fn with_page_numbers() -> Self {
+    #[must_use] pub fn with_page_numbers() -> Self {
         Self {
             show_footer: true,
             footer_content: MarginBoxContent::Combined(vec![
@@ -207,7 +208,7 @@ impl HeaderFooterConfig {
     }
 
     /// Create a config with page numbers in both header and footer.
-    pub fn with_header_and_footer_page_numbers() -> Self {
+    #[must_use] pub fn with_header_and_footer_page_numbers() -> Self {
         Self {
             show_header: true,
             show_footer: true,
@@ -226,6 +227,7 @@ impl HeaderFooterConfig {
     }
 
     /// Set custom header text.
+    #[must_use]
     pub fn with_header_text(mut self, text: impl Into<String>) -> Self {
         self.show_header = true;
         self.header_content = MarginBoxContent::Text(text.into());
@@ -233,6 +235,7 @@ impl HeaderFooterConfig {
     }
 
     /// Set custom footer text.
+    #[must_use]
     pub fn with_footer_text(mut self, text: impl Into<String>) -> Self {
         self.show_footer = true;
         self.footer_content = MarginBoxContent::Text(text.into());
@@ -240,7 +243,10 @@ impl HeaderFooterConfig {
     }
 
     /// Generate the text content for a margin box given page info.
-    pub fn generate_content(&self, content: &MarginBoxContent, info: PageInfo) -> String {
+    // `&self` is only reached via the recursive Combined arm; it is kept because this is a
+    // public method and converting to an associated fn would break the `x.generate_content(..)` API.
+    #[allow(clippy::only_used_in_recursion)]
+    #[must_use] pub fn generate_content(&self, content: &MarginBoxContent, info: PageInfo) -> String {
         match content {
             MarginBoxContent::None => String::new(),
             MarginBoxContent::Text(s) => s.clone(),
@@ -259,18 +265,18 @@ impl HeaderFooterConfig {
                 .collect(),
             MarginBoxContent::NamedString(name) => {
                 // TODO: Look up named string from document context
-                format!("[string:{}]", name)
+                format!("[string:{name}]")
             }
             MarginBoxContent::RunningElement(name) => {
                 // Running elements are rendered as display items, not text
-                format!("[element:{}]", name)
+                format!("[element:{name}]")
             }
             MarginBoxContent::Custom(f) => f(info),
         }
     }
 
     /// Get the header text for a specific page.
-    pub fn header_text(&self, info: PageInfo) -> String {
+    #[must_use] pub fn header_text(&self, info: PageInfo) -> String {
         if !self.show_header {
             return String::new();
         }
@@ -281,7 +287,7 @@ impl HeaderFooterConfig {
     }
 
     /// Get the footer text for a specific page.
-    pub fn footer_text(&self, info: PageInfo) -> String {
+    #[must_use] pub fn footer_text(&self, info: PageInfo) -> String {
         if !self.show_footer {
             return String::new();
         }
@@ -317,6 +323,7 @@ impl HeaderFooterConfig {
 /// let header_footer = config.to_header_footer_config();
 /// ```
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)] // independent header/footer toggle flags
 pub struct FakePageConfig {
     /// Show header on pages
     pub show_header: bool,
@@ -376,12 +383,12 @@ impl Default for FakePageConfig {
 
 impl FakePageConfig {
     /// Create a new empty configuration (no headers/footers).
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
     /// Enable footer with "Page X of Y" format.
-    pub fn with_footer_page_numbers(mut self) -> Self {
+    #[must_use] pub const fn with_footer_page_numbers(mut self) -> Self {
         self.show_footer = true;
         self.footer_page_number = true;
         self.footer_total_pages = true;
@@ -389,14 +396,14 @@ impl FakePageConfig {
     }
 
     /// Enable header with "Page X" format.
-    pub fn with_header_page_numbers(mut self) -> Self {
+    #[must_use] pub const fn with_header_page_numbers(mut self) -> Self {
         self.show_header = true;
         self.header_page_number = true;
         self
     }
 
     /// Enable both header and footer with page numbers.
-    pub fn with_header_and_footer_page_numbers(mut self) -> Self {
+    #[must_use] pub const fn with_header_and_footer_page_numbers(mut self) -> Self {
         self.show_header = true;
         self.show_footer = true;
         self.header_page_number = true;
@@ -406,6 +413,7 @@ impl FakePageConfig {
     }
 
     /// Set custom header text.
+    #[must_use]
     pub fn with_header_text(mut self, text: impl Into<String>) -> Self {
         self.show_header = true;
         self.header_text = Some(text.into());
@@ -413,6 +421,7 @@ impl FakePageConfig {
     }
 
     /// Set custom footer text.
+    #[must_use]
     pub fn with_footer_text(mut self, text: impl Into<String>) -> Self {
         self.show_footer = true;
         self.footer_text = Some(text.into());
@@ -420,46 +429,46 @@ impl FakePageConfig {
     }
 
     /// Set the number format for page counters.
-    pub fn with_number_format(mut self, format: CounterFormat) -> Self {
+    #[must_use] pub const fn with_number_format(mut self, format: CounterFormat) -> Self {
         self.number_format = format;
         self
     }
 
     /// Skip header/footer on the first page.
-    pub fn skip_first_page(mut self, skip: bool) -> Self {
+    #[must_use] pub const fn skip_first_page(mut self, skip: bool) -> Self {
         self.skip_first_page = skip;
         self
     }
 
     /// Set header height.
-    pub fn with_header_height(mut self, height: f32) -> Self {
+    #[must_use] pub const fn with_header_height(mut self, height: f32) -> Self {
         self.header_height = height;
         self
     }
 
     /// Set footer height.
-    pub fn with_footer_height(mut self, height: f32) -> Self {
+    #[must_use] pub const fn with_footer_height(mut self, height: f32) -> Self {
         self.footer_height = height;
         self
     }
 
     /// Set font size for header/footer text.
-    pub fn with_font_size(mut self, size: f32) -> Self {
+    #[must_use] pub const fn with_font_size(mut self, size: f32) -> Self {
         self.font_size = size;
         self
     }
 
     /// Set text color for header/footer.
-    pub fn with_text_color(mut self, color: ColorU) -> Self {
+    #[must_use] pub const fn with_text_color(mut self, color: ColorU) -> Self {
         self.text_color = color;
         self
     }
 
-    /// Convert this fake config to the internal HeaderFooterConfig.
+    /// Convert this fake config to the internal `HeaderFooterConfig`.
     ///
     /// This is the bridge between the user-facing API and the internal
     /// pagination engine.
-    pub fn to_header_footer_config(&self) -> HeaderFooterConfig {
+    #[must_use] pub fn to_header_footer_config(&self) -> HeaderFooterConfig {
         HeaderFooterConfig {
             show_header: self.show_header,
             show_footer: self.show_footer,
@@ -473,20 +482,20 @@ impl FakePageConfig {
         }
     }
 
-    /// Build the MarginBoxContent for the header.
+    /// Build the `MarginBoxContent` for the header.
     fn build_header_content(&self) -> MarginBoxContent {
         Self::build_margin_content(
-            &self.header_text,
+            self.header_text.as_deref(),
             self.header_page_number,
             self.header_total_pages,
             self.number_format,
         )
     }
 
-    /// Build the MarginBoxContent for the footer.
+    /// Build the `MarginBoxContent` for the footer.
     fn build_footer_content(&self) -> MarginBoxContent {
         Self::build_margin_content(
-            &self.footer_text,
+            self.footer_text.as_deref(),
             self.footer_page_number,
             self.footer_total_pages,
             self.number_format,
@@ -495,26 +504,25 @@ impl FakePageConfig {
 
     /// Shared helper for building header/footer margin box content.
     fn build_margin_content(
-        text: &Option<String>,
+        text: Option<&str>,
         page_number: bool,
         total_pages: bool,
         number_format: CounterFormat,
     ) -> MarginBoxContent {
         let mut parts = Vec::new();
 
-        if let Some(ref text) = text {
-            parts.push(MarginBoxContent::Text(text.clone()));
+        if let Some(text) = text {
+            parts.push(MarginBoxContent::Text(text.to_string()));
             if page_number {
                 parts.push(MarginBoxContent::Text(" - ".to_string()));
             }
         }
 
         if page_number {
+            parts.push(MarginBoxContent::Text("Page ".to_string()));
             if number_format == CounterFormat::Decimal {
-                parts.push(MarginBoxContent::Text("Page ".to_string()));
                 parts.push(MarginBoxContent::PageCounter);
             } else {
-                parts.push(MarginBoxContent::Text("Page ".to_string()));
                 parts.push(MarginBoxContent::PageCounterFormatted {
                     format: number_format,
                 });
@@ -561,7 +569,7 @@ pub struct TableHeaderTracker {
 }
 
 impl TableHeaderTracker {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
@@ -574,7 +582,7 @@ impl TableHeaderTracker {
     ///
     /// Returns the thead items that need to be injected at the top of the page,
     /// along with the Y offset where they should appear.
-    pub fn get_repeated_headers_for_page(
+    #[must_use] pub fn get_repeated_headers_for_page(
         &self,
         page_index: usize,
         page_top_y: f32,

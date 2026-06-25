@@ -15,7 +15,7 @@ use std::path::Path;
 // ============================================================================
 
 /// Configuration for reading ZIP archives
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 #[repr(C)]
 pub struct ZipReadConfig {
     /// Maximum file size to extract (0 = unlimited)
@@ -27,16 +27,16 @@ pub struct ZipReadConfig {
 }
 
 impl ZipReadConfig {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
     
-    pub fn with_max_file_size(mut self, max_size: u64) -> Self {
+    #[must_use] pub const fn with_max_file_size(mut self, max_size: u64) -> Self {
         self.max_file_size = max_size;
         self
     }
     
-    pub fn with_allow_path_traversal(mut self, allow: bool) -> Self {
+    #[must_use] pub const fn with_allow_path_traversal(mut self, allow: bool) -> Self {
         self.allow_path_traversal = allow;
         self
     }
@@ -68,11 +68,11 @@ impl Default for ZipWriteConfig {
 }
 
 impl ZipWriteConfig {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
     
-    pub fn store() -> Self {
+    #[must_use] pub fn store() -> Self {
         Self {
             compression_method: 0,
             compression_level: 0,
@@ -80,7 +80,7 @@ impl ZipWriteConfig {
         }
     }
     
-    pub fn deflate(level: u8) -> Self {
+    #[must_use] pub fn deflate(level: u8) -> Self {
         Self {
             compression_method: 1,
             compression_level: level.min(9),
@@ -88,6 +88,7 @@ impl ZipWriteConfig {
         }
     }
     
+    #[must_use]
     pub fn with_comment(mut self, comment: impl Into<String>) -> Self {
         self.comment = comment.into();
         self
@@ -114,7 +115,7 @@ pub struct ZipPathEntry {
     pub crc32: u32,
 }
 
-/// Vec of ZipPathEntry
+/// Vec of `ZipPathEntry`
 pub type ZipPathEntryVec = Vec<ZipPathEntry>;
 
 /// File entry in a ZIP archive (with data, for writing)
@@ -149,7 +150,7 @@ impl ZipFileEntry {
     }
 }
 
-/// Vec of ZipFileEntry  
+/// Vec of `ZipFileEntry`  
 pub type ZipFileEntryVec = Vec<ZipFileEntry>;
 
 // ============================================================================
@@ -157,7 +158,7 @@ pub type ZipFileEntryVec = Vec<ZipFileEntry>;
 // ============================================================================
 
 /// Error when reading ZIP archives
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ZipReadError {
     /// Invalid ZIP format
@@ -177,13 +178,13 @@ pub enum ZipReadError {
 impl fmt::Display for ZipReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ZipReadError::InvalidFormat(msg) => write!(f, "Invalid ZIP format: {}", msg),
-            ZipReadError::FileNotFound(path) => write!(f, "File not found: {}", path),
-            ZipReadError::IoError(msg) => write!(f, "I/O error: {}", msg),
-            ZipReadError::UnsafePath(path) => write!(f, "Unsafe path: {}", path),
-            ZipReadError::EncryptedFile(path) => write!(f, "Encrypted file: {}", path),
-            ZipReadError::FileTooLarge { path, size, max_size } => {
-                write!(f, "File too large: {} ({} > {})", path, size, max_size)
+            Self::InvalidFormat(msg) => write!(f, "Invalid ZIP format: {msg}"),
+            Self::FileNotFound(path) => write!(f, "File not found: {path}"),
+            Self::IoError(msg) => write!(f, "I/O error: {msg}"),
+            Self::UnsafePath(path) => write!(f, "Unsafe path: {path}"),
+            Self::EncryptedFile(path) => write!(f, "Encrypted file: {path}"),
+            Self::FileTooLarge { path, size, max_size } => {
+                write!(f, "File too large: {path} ({size} > {max_size})")
             }
         }
     }
@@ -193,7 +194,7 @@ impl fmt::Display for ZipReadError {
 impl std::error::Error for ZipReadError {}
 
 /// Error when writing ZIP archives
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ZipWriteError {
     /// I/O error
@@ -207,9 +208,9 @@ pub enum ZipWriteError {
 impl fmt::Display for ZipWriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ZipWriteError::IoError(msg) => write!(f, "I/O error: {}", msg),
-            ZipWriteError::InvalidPath(path) => write!(f, "Invalid path: {}", path),
-            ZipWriteError::CompressionError(msg) => write!(f, "Compression error: {}", msg),
+            Self::IoError(msg) => write!(f, "I/O error: {msg}"),
+            Self::InvalidPath(path) => write!(f, "Invalid path: {path}"),
+            Self::CompressionError(msg) => write!(f, "Compression error: {msg}"),
         }
     }
 }
@@ -231,7 +232,7 @@ pub struct ZipFile {
 
 impl ZipFile {
     /// Create a new empty ZIP archive
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
         }
@@ -245,7 +246,10 @@ impl ZipFile {
     /// 
     /// # Returns
     /// List of path entries (metadata only)
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
+    /// # Errors
+    ///
+    /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
     pub fn list(data: &[u8], config: &ZipReadConfig) -> Result<ZipPathEntryVec, ZipReadError> {
         use std::io::Cursor;
         
@@ -287,7 +291,10 @@ impl ZipFile {
     /// 
     /// # Returns
     /// The file contents, or None if not found
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
+    /// # Errors
+    ///
+    /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
     pub fn get_single_file(
         data: &[u8], 
         entry: &ZipPathEntry,
@@ -318,7 +325,7 @@ impl ZipFile {
             return Ok(Some(Vec::new()));
         }
         
-        let mut contents = Vec::with_capacity(entry.size as usize);
+        let mut contents = Vec::with_capacity(usize::try_from(entry.size).unwrap_or(0));
         file.read_to_end(&mut contents)
             .map_err(|e| ZipReadError::IoError(e.to_string()))?;
         
@@ -328,13 +335,16 @@ impl ZipFile {
     /// Load a ZIP archive from bytes
     /// 
     /// # Arguments
-    /// * `data` - ZIP file bytes (consumed)
+    /// * `data` - ZIP file bytes (borrowed)
     /// * `config` - Read configuration
-    #[cfg(feature = "zip_support")]
-    pub fn from_bytes(data: Vec<u8>, config: &ZipReadConfig) -> Result<Self, ZipReadError> {
+    #[cfg(feature = "zip")]
+    /// # Errors
+    ///
+    /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
+    pub fn from_bytes(data: &[u8], config: &ZipReadConfig) -> Result<Self, ZipReadError> {
         use std::io::{Cursor, Read};
-        
-        let cursor = Cursor::new(&data);
+
+        let cursor = Cursor::new(data);
         let mut archive = zip::ZipArchive::new(cursor)
             .map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
         
@@ -379,18 +389,24 @@ impl ZipFile {
     }
     
     /// Load a ZIP archive from a file path
-    #[cfg(all(feature = "zip_support", feature = "std"))]
+    #[cfg(all(feature = "zip", feature = "std"))]
+    /// # Errors
+    ///
+    /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
     pub fn from_file(path: &Path, config: &ZipReadConfig) -> Result<Self, ZipReadError> {
         let data = std::fs::read(path)
             .map_err(|e| ZipReadError::IoError(e.to_string()))?;
-        Self::from_bytes(data, config)
+        Self::from_bytes(&data, config)
     }
     
     /// Write the ZIP archive to bytes
     /// 
     /// # Arguments
     /// * `config` - Write configuration
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
+    /// # Errors
+    ///
+    /// Returns a `ZipWriteError` if the archive cannot be built or written.
     pub fn to_bytes(&self, config: &ZipWriteConfig) -> Result<Vec<u8>, ZipWriteError> {
         use std::io::{Cursor, Write};
         use zip::write::SimpleFileOptions;
@@ -411,7 +427,7 @@ impl ZipFile {
         
         let options = SimpleFileOptions::default()
             .compression_method(compression)
-            .compression_level(Some(config.compression_level as i64))
+            .compression_level(Some(i64::from(config.compression_level)))
             .unix_permissions(config.unix_permissions);
         
         for entry in &self.entries {
@@ -433,7 +449,10 @@ impl ZipFile {
     }
     
     /// Write the ZIP archive to a file
-    #[cfg(all(feature = "zip_support", feature = "std"))]
+    #[cfg(all(feature = "zip", feature = "std"))]
+    /// # Errors
+    ///
+    /// Returns a `ZipWriteError` if the archive cannot be built or written.
     pub fn to_file(&self, path: &Path, config: &ZipWriteConfig) -> Result<(), ZipWriteError> {
         let data = self.to_bytes(config)?;
         std::fs::write(path, data)
@@ -466,22 +485,22 @@ impl ZipFile {
     }
     
     /// Get an entry by path
-    pub fn get(&self, path: &str) -> Option<&ZipFileEntry> {
+    #[must_use] pub fn get(&self, path: &str) -> Option<&ZipFileEntry> {
         self.entries.iter().find(|e| e.path == path)
     }
     
     /// Check if archive contains a path
-    pub fn contains(&self, path: &str) -> bool {
+    #[must_use] pub fn contains(&self, path: &str) -> bool {
         self.entries.iter().any(|e| e.path == path)
     }
     
     /// Get list of all paths
-    pub fn paths(&self) -> Vec<&str> {
+    #[must_use] pub fn paths(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.path.as_str()).collect()
     }
     
     /// Filter entries by suffix (e.g., ".fluent", ".json")
-    pub fn filter_by_suffix(&self, suffix: &str) -> Vec<&ZipFileEntry> {
+    #[must_use] pub fn filter_by_suffix(&self, suffix: &str) -> Vec<&ZipFileEntry> {
         self.entries.iter()
             .filter(|e| !e.is_directory && e.path.ends_with(suffix))
             .collect()
@@ -493,14 +512,20 @@ impl ZipFile {
 // ============================================================================
 
 /// Create a ZIP archive from file entries (consumes entries, no clone)
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
+/// # Errors
+///
+/// Returns a `ZipWriteError` if the archive cannot be built or written.
 pub fn zip_create(entries: Vec<ZipFileEntry>, config: &ZipWriteConfig) -> Result<Vec<u8>, ZipWriteError> {
     let zip = ZipFile { entries };
     zip.to_bytes(config)
 }
 
 /// Create a ZIP archive from path/data pairs (consumes entries, no clone)
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
+/// # Errors
+///
+/// Returns a `ZipWriteError` if the archive cannot be built or written.
 pub fn zip_create_from_files(
     files: Vec<(String, Vec<u8>)>, 
     config: &ZipWriteConfig,
@@ -513,14 +538,20 @@ pub fn zip_create_from_files(
 }
 
 /// Extract all files from ZIP data
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
+/// # Errors
+///
+/// Returns a `ZipReadError` if the archive is malformed or cannot be read.
 pub fn zip_extract_all(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipFileEntry>, ZipReadError> {
-    let zip = ZipFile::from_bytes(data.to_vec(), config)?;
+    let zip = ZipFile::from_bytes(data, config)?;
     Ok(zip.entries)
 }
 
 /// List contents of ZIP data without extracting
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
+/// # Errors
+///
+/// Returns a `ZipReadError` if the archive is malformed or cannot be read.
 pub fn zip_list_contents(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipPathEntry>, ZipReadError> {
     ZipFile::list(data, config)
 }
@@ -556,7 +587,7 @@ mod tests {
         assert!(dir.data.is_empty());
     }
     
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     #[test]
     fn test_zip_roundtrip() {
         let files = vec![
@@ -575,7 +606,7 @@ mod tests {
         assert!(entries.iter().any(|e| e.path == "sub/nested.txt"));
     }
     
-    #[cfg(feature = "zip_support")]
+    #[cfg(feature = "zip")]
     #[test]
     fn test_zip_file_manipulation() {
         let mut zip = ZipFile::new();

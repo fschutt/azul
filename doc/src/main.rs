@@ -1702,7 +1702,7 @@ fn generate_release_pages(
         // links resolve to a `docker build`-able URL. Best-effort: a missing source
         // (running outside the repo) just skips that demo.
         for crate_name in [
-            "azul-paint", "azul-maps", "azul-vault", "azul-spirit-level",
+            "azul-paint", "azul-widgets", "azul-maps", "azul-vault",
             "azul-gamepad", "azul-camera-app", "azul-screenshare-app",
             "azul-video-app", "azul-meet", "azul-self-test",
         ] {

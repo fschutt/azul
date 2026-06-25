@@ -53,9 +53,9 @@ impl_option!(
 impl Menu {
     /// Creates a new menu with the given items.
     ///
-    /// Uses default position (AutoCursor) and right mouse button for context menus.
+    /// Uses default position (`AutoCursor`) and right mouse button for context menus.
     #[must_use]
-    pub fn create(items: MenuItemVec) -> Self {
+    pub const fn create(items: MenuItemVec) -> Self {
         Self {
             items,
             position: MenuPopupPosition::AutoCursor,
@@ -65,12 +65,12 @@ impl Menu {
 
     /// Builder method to set the popup position.
     #[must_use]
-    pub fn with_position(mut self, position: MenuPopupPosition) -> Self {
+    pub const fn with_position(mut self, position: MenuPopupPosition) -> Self {
         self.position = position;
         self
     }
 
-    /// Computes a 64-bit hash of this menu using the HighwayHash algorithm.
+    /// Computes a 64-bit hash of this menu using the `HighwayHash` algorithm.
     ///
     /// This is used to detect changes in menu structure for caching and optimization.
     #[must_use]
@@ -134,13 +134,14 @@ pub enum MenuItemState {
     /// Menu item is disabled, but NOT greyed out
     Disabled,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents a single item in a menu.
 ///
 /// Menu items can be regular text items with labels and callbacks,
 /// visual separators, or line breaks for horizontal menu layouts.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
+#[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C ABI/api.json
 pub enum MenuItem {
     /// A regular menu item with a label, optional icon, callback, and sub-items
     String(StringMenuItem),
@@ -183,7 +184,7 @@ pub struct StringMenuItem {
     /// (ex. "File", "Edit", "View")
     pub label: AzString,
     /// Optional accelerator combination
-    /// (ex. "CTRL + X" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut
+    /// (ex. "CTRL + X" = [`VirtualKeyCode::Ctrl`, `VirtualKeyCode::X`]) for keyboard shortcut
     pub accelerator: OptionVirtualKeyCodeCombo,
     /// Optional callback to call
     pub callback: OptionCoreMenuCallback,
@@ -200,7 +201,7 @@ impl StringMenuItem {
     /// All optional fields default to `None` / `Normal`.
     #[must_use]
     pub const fn create(label: AzString) -> Self {
-        StringMenuItem {
+        Self {
             label,
             accelerator: OptionVirtualKeyCodeCombo::None,
             callback: OptionCoreMenuCallback::None,

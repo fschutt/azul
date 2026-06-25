@@ -8,6 +8,7 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     props::{
         basic::{color::ColorU, *},
@@ -51,7 +52,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// A toggleable checkbox widget with customizable styling and toggle callback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CheckBox {
     pub check_box_state: CheckBoxStateWrapper,
@@ -61,17 +62,17 @@ pub struct CheckBox {
     pub content_style: CssPropertyWithConditionsVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CheckBoxStateWrapper {
-    /// Content (image or text) of this CheckBox, centered by default
+    /// Content (image or text) of this `CheckBox`, centered by default
     pub inner: CheckBoxState,
-    /// Optional: Function to call when the CheckBox is toggled
+    /// Optional: Function to call when the `CheckBox` is toggled
     pub on_toggle: OptionCheckBoxOnToggle,
 }
 
 /// The checked/unchecked state of a [`CheckBox`].
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Copy, Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CheckBoxState {
     pub checked: bool,
@@ -181,7 +182,7 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = 
 ];
 
 impl CheckBox {
-    pub fn create(checked: bool) -> Self {
+    #[must_use] pub fn create(checked: bool) -> Self {
         Self {
             check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
@@ -203,6 +204,7 @@ impl CheckBox {
     }
 
     #[inline]
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
@@ -219,6 +221,7 @@ impl CheckBox {
     }
 
     #[inline]
+    #[must_use]
     pub fn with_on_toggle<C: Into<CheckBoxOnToggleCallback>>(
         mut self,
         data: RefAny,
@@ -229,7 +232,7 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{Dom, EventFilter, HoverEventFilter},
@@ -242,7 +245,7 @@ impl CheckBox {
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
-                        cb: self::input::default_on_checkbox_clicked as usize,
+                        cb: input::default_on_checkbox_clicked as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(self.check_box_state),
@@ -272,14 +275,12 @@ mod input {
         mut check_box: RefAny,
         mut info: CallbackInfo,
     ) -> Update {
-        let mut check_box = match check_box.downcast_mut::<CheckBoxStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(mut check_box) = check_box.downcast_mut::<CheckBoxStateWrapper>() else {
+            return Update::DoNothing;
         };
 
-        let checkbox_content_id = match info.get_first_child(info.get_hit_node()) {
-            Some(s) => s,
-            None => return Update::DoNothing,
+        let Some(checkbox_content_id) = info.get_first_child(info.get_hit_node()) else {
+            return Update::DoNothing;
         };
 
         check_box.inner.checked = !check_box.inner.checked;
@@ -288,7 +289,7 @@ mod input {
             // rustc doesn't understand the borrowing lifetime here
             let check_box = &mut *check_box;
             let ontoggle = &mut check_box.on_toggle;
-            let inner = check_box.inner.clone();
+            let inner = check_box.inner;
 
             match ontoggle.as_mut() {
                 Some(CheckBoxOnToggle {
@@ -316,7 +317,7 @@ mod input {
 }
 
 impl From<CheckBox> for Dom {
-    fn from(b: CheckBox) -> Dom {
+    fn from(b: CheckBox) -> Self {
         b.dom()
     }
 }

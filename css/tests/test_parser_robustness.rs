@@ -101,7 +101,7 @@ fn test_css_parser_very_long_selector() {
 #[test]
 fn test_css_parser_very_long_value() {
     let value = "a".repeat(10000);
-    let css = format!("div {{ content: '{}' }}", value);
+    let css = format!("div {{ content: '{value}' }}");
     let (result, _warnings) = new_from_str(&css);
     let _ = result;
 }
@@ -304,7 +304,7 @@ fn test_css_parser_flex_shorthand() {
 #[test]
 fn test_flex_shorthand_single_number() {
     use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
-    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::layout::flex::LayoutFlexBasis;
     use azul_css::props::basic::length::FloatValue;
     use azul_css::props::basic::pixel::PixelValue;
 
@@ -330,7 +330,7 @@ fn test_flex_shorthand_single_number() {
 #[test]
 fn test_flex_shorthand_two_numbers() {
     use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
-    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::layout::flex::LayoutFlexBasis;
     use azul_css::props::basic::length::FloatValue;
     use azul_css::props::basic::pixel::PixelValue;
 
@@ -351,7 +351,7 @@ fn test_flex_shorthand_two_numbers() {
 #[test]
 fn test_flex_shorthand_number_and_width() {
     use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
-    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::layout::flex::LayoutFlexBasis;
     use azul_css::props::basic::length::FloatValue;
     use azul_css::props::basic::pixel::PixelValue;
 
@@ -372,7 +372,7 @@ fn test_flex_shorthand_number_and_width() {
 #[test]
 fn test_flex_shorthand_none() {
     use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
-    use azul_css::props::layout::flex::LayoutFlexBasis;
+    
 
     let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "none").unwrap();
     assert_eq!(props.len(), 3);
@@ -387,7 +387,7 @@ fn test_flex_shorthand_none() {
 #[test]
 fn test_flex_shorthand_three_values() {
     use azul_css::props::property::{parse_combined_css_property, CombinedCssPropertyType, CssProperty};
-    use azul_css::props::layout::flex::{LayoutFlexGrow, LayoutFlexShrink, LayoutFlexBasis};
+    use azul_css::props::layout::flex::LayoutFlexBasis;
     use azul_css::props::basic::length::FloatValue;
 
     let props = parse_combined_css_property(CombinedCssPropertyType::Flex, "1 2 auto").unwrap();

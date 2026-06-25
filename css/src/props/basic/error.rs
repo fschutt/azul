@@ -9,8 +9,8 @@ use crate::corety::AzString;
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
-/// Owned version of InvalidValueErr with AzString.
-#[derive(Debug, Clone, PartialEq)]
+/// Owned version of `InvalidValueErr` with `AzString`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct InvalidValueErrOwned {
     pub value: AzString,
@@ -36,17 +36,17 @@ impl ParseFloatError {
         // relying on Display message wording or allocating a format string.
         let empty_err = "".parse::<f32>().unwrap_err();
         if *e == empty_err {
-            ParseFloatError::Empty
+            Self::Empty
         } else {
-            ParseFloatError::Invalid
+            Self::Invalid
         }
     }
 
     /// Reconstruct a `core::num::ParseFloatError` from our C-compatible variant.
-    pub fn to_std(&self) -> core::num::ParseFloatError {
+    #[must_use] pub fn to_std(&self) -> core::num::ParseFloatError {
         match self {
-            ParseFloatError::Empty => "".parse::<f32>().unwrap_err(),
-            ParseFloatError::Invalid => "x".parse::<f32>().unwrap_err(),
+            Self::Empty => "".parse::<f32>().unwrap_err(),
+            Self::Invalid => "x".parse::<f32>().unwrap_err(),
         }
     }
 }
@@ -54,15 +54,15 @@ impl ParseFloatError {
 impl core::fmt::Display for ParseFloatError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ParseFloatError::Empty => write!(f, "cannot parse float from empty string"),
-            ParseFloatError::Invalid => write!(f, "invalid float literal"),
+            Self::Empty => write!(f, "cannot parse float from empty string"),
+            Self::Invalid => write!(f, "invalid float literal"),
         }
     }
 }
 
 impl From<core::num::ParseFloatError> for ParseFloatError {
     fn from(e: core::num::ParseFloatError) -> Self {
-        ParseFloatError::from_std(&e)
+        Self::from_std(&e)
     }
 }
 
@@ -87,26 +87,25 @@ pub enum ParseIntError {
 
 impl ParseIntError {
     /// Convert from `core::num::ParseIntError` using the stable `kind()` method.
-    fn from_std(e: &core::num::ParseIntError) -> Self {
+    const fn from_std(e: &core::num::ParseIntError) -> Self {
         use core::num::IntErrorKind;
         match e.kind() {
-            IntErrorKind::Empty => ParseIntError::Empty,
-            IntErrorKind::InvalidDigit => ParseIntError::InvalidDigit,
-            IntErrorKind::PosOverflow => ParseIntError::PosOverflow,
-            IntErrorKind::NegOverflow => ParseIntError::NegOverflow,
-            IntErrorKind::Zero => ParseIntError::Zero,
-            _ => ParseIntError::InvalidDigit, // future-proofing
+            IntErrorKind::Empty => Self::Empty,
+            IntErrorKind::PosOverflow => Self::PosOverflow,
+            IntErrorKind::NegOverflow => Self::NegOverflow,
+            IntErrorKind::Zero => Self::Zero,
+            _ => Self::InvalidDigit, // future-proofing
         }
     }
 
     /// Reconstruct a `core::num::ParseIntError` from our C-compatible variant.
-    pub fn to_std(&self) -> core::num::ParseIntError {
+    #[must_use] pub fn to_std(&self) -> core::num::ParseIntError {
         match self {
-            ParseIntError::Empty => "".parse::<i32>().unwrap_err(),
-            ParseIntError::InvalidDigit => "x".parse::<i32>().unwrap_err(),
-            ParseIntError::PosOverflow => "99999999999999999999".parse::<i32>().unwrap_err(),
-            ParseIntError::NegOverflow => "-99999999999999999999".parse::<i32>().unwrap_err(),
-            ParseIntError::Zero => {
+            Self::Empty => "".parse::<i32>().unwrap_err(),
+            Self::InvalidDigit => "x".parse::<i32>().unwrap_err(),
+            Self::PosOverflow => "99999999999999999999".parse::<i32>().unwrap_err(),
+            Self::NegOverflow => "-99999999999999999999".parse::<i32>().unwrap_err(),
+            Self::Zero => {
                 // Zero variant cannot be reproduced on stable Rust; falls back to InvalidDigit.
                 // Note: round-tripping Zero through to_std() then from_std() yields InvalidDigit.
                 "x".parse::<i32>().unwrap_err()
@@ -118,32 +117,32 @@ impl ParseIntError {
 impl core::fmt::Display for ParseIntError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ParseIntError::Empty => write!(f, "cannot parse integer from empty string"),
-            ParseIntError::InvalidDigit => write!(f, "invalid digit found in string"),
-            ParseIntError::PosOverflow => write!(f, "number too large to fit in target type"),
-            ParseIntError::NegOverflow => write!(f, "number too small to fit in target type"),
-            ParseIntError::Zero => write!(f, "number would be zero for non-zero type"),
+            Self::Empty => write!(f, "cannot parse integer from empty string"),
+            Self::InvalidDigit => write!(f, "invalid digit found in string"),
+            Self::PosOverflow => write!(f, "number too large to fit in target type"),
+            Self::NegOverflow => write!(f, "number too small to fit in target type"),
+            Self::Zero => write!(f, "number would be zero for non-zero type"),
         }
     }
 }
 
 impl From<core::num::ParseIntError> for ParseIntError {
     fn from(e: core::num::ParseIntError) -> Self {
-        ParseIntError::from_std(&e)
+        Self::from_std(&e)
     }
 }
 
-/// Wrapper for a ParseFloatError paired with the input string that failed.
+/// Wrapper for a `ParseFloatError` paired with the input string that failed.
 /// Used by multiple Owned error enums that need to store both the error and input.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ParseFloatErrorWithInput {
     pub error: ParseFloatError,
     pub input: AzString,
 }
 
-/// Wrapper for WrongNumberOfComponents errors in CSS filter/transform parsing.
-#[derive(Debug, Clone, PartialEq)]
+/// Wrapper for `WrongNumberOfComponents` errors in CSS filter/transform parsing.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct WrongComponentCountError {
     pub expected: usize,
@@ -151,14 +150,14 @@ pub struct WrongComponentCountError {
     pub input: AzString,
 }
 
-impl<'a> InvalidValueErr<'a> {
-    pub fn to_contained(&self) -> InvalidValueErrOwned {
+impl InvalidValueErr<'_> {
+    #[must_use] pub fn to_contained(&self) -> InvalidValueErrOwned {
         InvalidValueErrOwned { value: self.0.to_string().into() }
     }
 }
 
 impl InvalidValueErrOwned {
-    pub fn to_shared<'a>(&'a self) -> InvalidValueErr<'a> {
+    #[must_use] pub fn to_shared(&self) -> InvalidValueErr<'_> {
         InvalidValueErr(self.value.as_str())
     }
 }

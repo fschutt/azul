@@ -11,6 +11,7 @@ use azul_core::{
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
     props::{
@@ -183,7 +184,7 @@ impl_vec_mut!(RibbonTab, RibbonTabVec);
 
 impl RibbonTab {
     /// Creates a new tab with the given label and no sections.
-    pub fn new(label: AzString) -> Self {
+    #[must_use] pub const fn new(label: AzString) -> Self {
         Self { label, sections: RibbonSectionVec::from_const_slice(&[]) }
     }
 
@@ -193,7 +194,7 @@ impl RibbonTab {
     }
 
     /// Builder method: appends a section and returns `self`.
-    pub fn with_section(mut self, section: RibbonSection) -> Self {
+    #[must_use] pub fn with_section(mut self, section: RibbonSection) -> Self {
         self.add_section(section);
         self
     }
@@ -201,19 +202,19 @@ impl RibbonTab {
 
 impl RibbonSection {
     /// Creates a new section with the given title and content DOM.
-    pub fn new(title: AzString, content: Dom) -> Self {
+    #[must_use] pub const fn new(title: AzString, content: Dom) -> Self {
         Self { title, content }
     }
 }
 
 impl Ribbon {
     /// Creates a new ribbon with the given tabs, defaulting to the first tab active.
-    pub fn new(tabs: RibbonTabVec) -> Self {
+    #[must_use] pub fn new(tabs: RibbonTabVec) -> Self {
         Self { tabs, active_tab: 0, on_tab_click: None.into() }
     }
 
     /// Sets the active tab by index, clamping to the last valid tab.
-    pub fn set_active_tab(&mut self, index: usize) {
+    pub const fn set_active_tab(&mut self, index: usize) {
         let max = self.tabs.len().saturating_sub(1);
         self.active_tab = if index > max { max } else { index };
     }
@@ -226,13 +227,14 @@ impl Ribbon {
     }
 
     /// Builder method: registers a tab-click callback and returns `self`.
+    #[must_use]
     pub fn with_on_tab_click<C: Into<RibbonOnTabClickCallback>>(mut self, data: RefAny, cb: C) -> Self {
         self.set_on_tab_click(data, cb);
         self
     }
 
     /// Builds the ribbon DOM, rendering the tab bar and the active tab's sections.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         let active_tab = self.active_tab;
         let has_callback = self.on_tab_click.is_some();
 
@@ -294,9 +296,8 @@ struct TabClickData {
 }
 
 extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let mut data = match refany.downcast_mut::<TabClickData>() {
-        Some(d) => d,
-        None => return Update::DoNothing,
+    let Some(mut data) = refany.downcast_mut::<TabClickData>() else {
+        return Update::DoNothing;
     };
     let idx = data.tab_idx;
     match data.on_tab_click.as_mut() {
@@ -308,5 +309,5 @@ extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Upd
 }
 
 impl From<Ribbon> for Dom {
-    fn from(r: Ribbon) -> Dom { r.dom() }
+    fn from(r: Ribbon) -> Self { r.dom() }
 }

@@ -1,3 +1,4 @@
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use super::*;
 
 use std::collections::HashMap;
@@ -28,18 +29,20 @@ pub struct LayerId(pub u64);
 ///
 /// Holds a tree of `Layer`s, each with its own pixbuf. On incremental updates
 /// only damaged layers are re-rendered, and scroll is handled by pixel-shift.
+#[derive(Debug)]
 pub struct CompositorState {
     /// All layers keyed by ID.
     pub layers: HashMap<LayerId, Layer>,
     /// Root layer of the tree.
     pub root_layer: LayerId,
-    /// Monotonic counter for generating unique LayerIds.
+    /// Monotonic counter for generating unique `LayerIds`.
     next_layer_id: u64,
     /// Previous frame's per-node positions, used for damage computation.
     pub previous_positions: Vec<LogicalPosition>,
 }
 
 /// A single compositing layer with its own pixel buffer.
+#[derive(Debug)]
 pub struct Layer {
     pub id: LayerId,
     /// Persistent RGBA buffer for this layer's content.
@@ -89,7 +92,8 @@ pub enum LayerReason {
 
 impl CompositorState {
     /// Create a new compositor with a root layer sized to the viewport.
-    pub fn new(width: u32, height: u32) -> Self {
+    #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+    #[must_use] pub fn new(width: u32, height: u32) -> Self {
         let root_id = LayerId(0);
         let root_layer = Layer::new(
             root_id,
@@ -105,7 +109,7 @@ impl CompositorState {
         );
         let mut layers = HashMap::new();
         layers.insert(root_id, root_layer);
-        CompositorState {
+        Self {
             layers,
             root_layer: root_id,
             next_layer_id: 1,
@@ -114,19 +118,24 @@ impl CompositorState {
     }
 
     /// Allocate a new unique layer ID.
-    pub fn alloc_layer_id(&mut self) -> LayerId {
+    pub const fn alloc_layer_id(&mut self) -> LayerId {
         let id = LayerId(self.next_layer_id);
         self.next_layer_id += 1;
         id
     }
 
     /// Read-only peek at the next layer ID counter (for leak probes).
-    pub fn next_layer_id_peek(&self) -> u64 {
+    #[must_use] pub const fn next_layer_id_peek(&self) -> u64 {
         self.next_layer_id
     }
 
     /// Walk the display list and create layers for scroll frames, filters, opacity, transforms.
-    /// Returns a mapping from display-list item index to the LayerId it should render into.
+    /// Returns a mapping from display-list item index to the `LayerId` it should render into.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if the internal layer stack underflows (a malformed display list).
     pub fn allocate_layers_from_display_list(
         &mut self,
         display_list: &DisplayList,
@@ -217,7 +226,7 @@ impl CompositorState {
                         if pw > 0 && ph > 0 {
                             let new_id = self.alloc_layer_id();
                             let mut layer = Layer::new(new_id, b, pw, ph);
-                            layer.filters = filters.clone();
+                            layer.filters.clone_from(filters);
                             let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
                             layer.display_list_range = (i + 1, end);
                             self.layers.insert(new_id, layer);
@@ -258,12 +267,12 @@ impl CompositorState {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
                         layer.transform = TransAffine::new_custom(
-                            m[0][0] as f64,
-                            m[0][1] as f64,
-                            m[1][0] as f64,
-                            m[1][1] as f64,
-                            m[3][0] as f64,
-                            m[3][1] as f64,
+                            f64::from(m[0][0]),
+                            f64::from(m[0][1]),
+                            f64::from(m[1][0]),
+                            f64::from(m[1][1]),
+                            f64::from(m[3][0]),
+                            f64::from(m[3][1]),
                         );
                         let end =
                             find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
@@ -372,7 +381,7 @@ impl CompositorState {
         }
 
         // Distribute damage rects to affected layers
-        for (_, layer) in self.layers.iter_mut() {
+        for layer in self.layers.values_mut() {
             for damage in &damage_rects {
                 if let Some(intersection) = rect_intersection(&layer.bounds, damage) {
                     layer.damage.push(intersection);
@@ -383,6 +392,12 @@ impl CompositorState {
     }
 
     /// Render display list items into their respective layer pixbufs.
+    /// # Panics
+    ///
+    /// Panics if a referenced layer id is not present in the layer map.
+    /// # Errors
+    ///
+    /// Returns an error string if the layers cannot be composited.
     pub fn render_layers(
         &mut self,
         display_list: &DisplayList,
@@ -482,6 +497,7 @@ impl CompositorState {
         self.composite_layer_recursive(self.root_layer, output, 0.0, 0.0, dpi_factor);
     }
 
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn composite_layer_recursive(
         &self,
         layer_id: LayerId,
@@ -490,9 +506,8 @@ impl CompositorState {
         parent_offset_y: f32,
         dpi_factor: f32,
     ) {
-        let layer = match self.layers.get(&layer_id) {
-            Some(l) => l,
-            None => return,
+        let Some(layer) = self.layers.get(&layer_id) else {
+            return;
         };
 
         let abs_x = parent_offset_x + layer.bounds.origin.x;
@@ -559,6 +574,14 @@ impl CompositorState {
     }
 
     /// Handle scroll by shifting pixels and re-rendering the exposed strip.
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    /// # Panics
+    ///
+    /// Panics if `layer_id` is not present in the layer map.
+    /// # Errors
+    ///
+    /// Returns an error string if the layer cannot be scrolled.
     pub fn scroll_layer(
         &mut self,
         scroll_id: LocalScrollId,
@@ -576,9 +599,8 @@ impl CompositorState {
             .find(|(_, l)| l.scroll_id == Some(scroll_id))
             .map(|(id, _)| *id);
 
-        let layer_id = match layer_id {
-            Some(id) => id,
-            None => return Ok(()), // No layer for this scroll ID
+        let Some(layer_id) = layer_id else {
+            return Ok(()); // No layer for this scroll ID
         };
 
         let layer = self.layers.get_mut(&layer_id).unwrap();
@@ -646,7 +668,7 @@ impl CompositorState {
 
 impl Layer {
     fn new(id: LayerId, bounds: LogicalRect, pixel_width: u32, pixel_height: u32) -> Self {
-        Layer {
+        Self {
             id,
             pixbuf: AzulPixmap::new(pixel_width.max(1), pixel_height.max(1)).unwrap_or_else(|| {
                 AzulPixmap {
@@ -685,10 +707,11 @@ enum MatchKind {
 }
 
 /// Find the matching Pop for a given Push at index `start`.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -> usize {
     let mut depth = 1u32;
-    for i in (start + 1)..items.len() {
-        match (&items[i], kind) {
+    for (i, item) in items.iter().enumerate().skip(start + 1) {
+        match (item, kind) {
             (DisplayListItem::PushScrollFrame { .. }, MatchKind::ScrollFrame) => depth += 1,
             (DisplayListItem::PopScrollFrame, MatchKind::ScrollFrame) => {
                 depth -= 1;
@@ -830,6 +853,8 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
 /// not opaque over its clip can drag whatever showed through. Real scroll
 /// containers paint an opaque background or fully cover their box, so this is a
 /// known, documented limitation rather than a correctness bug for the common case.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn scroll_shift_region(
     pixmap: &mut AzulPixmap,
     clip_bounds: &LogicalRect,
@@ -925,10 +950,12 @@ pub fn scroll_shift_region(
 // `px_*` deltas follows the renderer: positive = content moves up/left, so the
 // exposed strip is the trailing (bottom/right) edge.
 
-/// Single-axis VERTICAL move: shift whole rows up (px_dy>0) or down (px_dy<0).
+/// Single-axis VERTICAL move: shift whole rows up (`px_dy>0`) or down (`px_dy`<0).
 /// Iteration order is chosen so a row read as a source is never already
 /// overwritten (src and dst row SETS overlap, so order matters).
 #[inline]
+#[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn shift_vertical_1d(
     data: &mut [u8],
     stride_px: i32,
@@ -956,10 +983,12 @@ fn shift_vertical_1d(
     }
 }
 
-/// Single-axis HORIZONTAL move: shift each row's pixels left (px_dx>0) or right
-/// (px_dx<0). Source and dest overlap WITHIN a row, so `copy_within`'s memmove
+/// Single-axis HORIZONTAL move: shift each row's pixels left (`px_dx>0`) or right
+/// (`px_dx`<0). Source and dest overlap WITHIN a row, so `copy_within`'s memmove
 /// semantics handle it directly — no per-row ordering needed.
 #[inline]
+#[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn shift_horizontal_1d(
     data: &mut [u8],
     stride_px: i32,
@@ -988,12 +1017,14 @@ fn shift_horizontal_1d(
 
 /// Diagonal (two-axis) pan in ONE pass: each destination row is copied directly
 /// from its diagonally-offset source row, applying the column shift in the same
-/// `copy_within`. Because |px_dy| ≥ 1, the source and dest rows are always
+/// `copy_within`. Because |`px_dy`| ≥ 1, the source and dest rows are always
 /// DIFFERENT rows ≥ one stride apart, so the per-copy byte ranges never overlap
 /// regardless of the horizontal direction — only the row iteration order (by
 /// `px_dy` sign) matters, exactly as in the vertical case. This does the work of
 /// the two 1-D passes with half the memory traffic.
 #[inline]
+#[allow(clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn shift_diagonal_2d(
     data: &mut [u8],
     stride_px: i32,
@@ -1047,6 +1078,8 @@ fn shift_diagonal_2d(
 /// opaque fills (stored at content coords) into viewport space for the coverage
 /// test. A scroll frame over nothing-but-the-clear-color is always eligible (no
 /// backdrop to drag). Returns `true` when there is no such frame (nothing to do).
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn scroll_fast_path_eligible(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
@@ -1057,9 +1090,8 @@ pub fn scroll_fast_path_eligible(
     let start = display_list.items.iter().position(|it| {
         matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
     });
-    let start = match start {
-        Some(s) => s,
-        None => return true, // no frame for this id → nothing to shift
+    let Some(start) = start else {
+        return true; // no frame for this id → nothing to shift
     };
     let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
         .min(display_list.items.len());
@@ -1095,7 +1127,7 @@ pub fn scroll_fast_path_eligible(
     let clip_area = (clip_bounds.size.width * clip_bounds.size.height).max(1.0);
     let mut backdrop_fills: Vec<LogicalRect> = Vec::new();
     let mut backdrop_color: Option<ColorU> = None;
-    for it in display_list.items[..start].iter() {
+    for it in &display_list.items[..start] {
         if it.is_state_management() {
             continue;
         }
@@ -1154,6 +1186,7 @@ fn opaque_fill_rect(it: &DisplayListItem) -> Option<LogicalRect> {
 /// True if every ~4px sample of `target` lies inside some rect in `covers`.
 /// Point-sampled so sub-4px gaps (imperceptible if dragged) don't force a full
 /// repaint; empty `covers` → not covered.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     if covers.is_empty() {
         return false;
@@ -1164,8 +1197,10 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     let x1 = x0 + target.size.width;
     let y1 = y0 + target.size.height;
     let mut y = y0 + step * 0.5;
+    #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
     while y < y1 {
         let mut x = x0 + step * 0.5;
+        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while x < x1 {
             let inside = covers.iter().any(|r| {
                 x >= r.origin.x
@@ -1184,6 +1219,9 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
 }
 
 /// Apply CSS filters to a pixbuf at composite time.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
         match filter {
@@ -1196,7 +1234,7 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                     .height
                     .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
                     * dpi_factor;
-                let radius = ((rx + ry) / 2.0).ceil() as u32;
+                let radius = f32::midpoint(rx, ry).ceil() as u32;
                 if radius > 0 {
                     let w = pixmap.width;
                     let h = pixmap.height;
@@ -1210,15 +1248,15 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
             StyleFilter::Opacity(pct) => {
                 let op = (pct.normalized() * 255.0).clamp(0.0, 255.0) as u32;
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[3] = ((chunk[3] as u32 * op) / 255) as u8;
+                    chunk[3] = ((u32::from(chunk[3]) * op) / 255) as u8;
                 }
             }
             StyleFilter::Grayscale(pct) => {
                 let amount = pct.normalized().clamp(0.0, 1.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                     chunk[0] = (r + (gray - r) * amount).clamp(0.0, 255.0) as u8;
                     chunk[1] = (g + (gray - g) * amount).clamp(0.0, 255.0) as u8;
@@ -1228,39 +1266,39 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
             StyleFilter::Brightness(pct) => {
                 let factor = pct.normalized().max(0.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = (chunk[0] as f32 * factor).clamp(0.0, 255.0) as u8;
-                    chunk[1] = (chunk[1] as f32 * factor).clamp(0.0, 255.0) as u8;
-                    chunk[2] = (chunk[2] as f32 * factor).clamp(0.0, 255.0) as u8;
+                    chunk[0] = (f32::from(chunk[0]) * factor).clamp(0.0, 255.0) as u8;
+                    chunk[1] = (f32::from(chunk[1]) * factor).clamp(0.0, 255.0) as u8;
+                    chunk[2] = (f32::from(chunk[2]) * factor).clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Contrast(pct) => {
                 let factor = pct.normalized().max(0.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = ((((chunk[0] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                    chunk[0] = ((((f32::from(chunk[0]) / 255.0) - 0.5) * factor + 0.5) * 255.0)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[1] = ((((chunk[1] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                    chunk[1] = ((((f32::from(chunk[1]) / 255.0) - 0.5) * factor + 0.5) * 255.0)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[2] = ((((chunk[2] as f32 / 255.0) - 0.5) * factor + 0.5) * 255.0)
+                    chunk[2] = ((((f32::from(chunk[2]) / 255.0) - 0.5) * factor + 0.5) * 255.0)
                         .clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Invert(pct) => {
                 let amount = pct.normalized().clamp(0.0, 1.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    chunk[0] = (chunk[0] as f32 + (255.0 - 2.0 * chunk[0] as f32) * amount)
+                    chunk[0] = (f32::from(chunk[0]) + (255.0 - 2.0 * f32::from(chunk[0])) * amount)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[1] = (chunk[1] as f32 + (255.0 - 2.0 * chunk[1] as f32) * amount)
+                    chunk[1] = (f32::from(chunk[1]) + (255.0 - 2.0 * f32::from(chunk[1])) * amount)
                         .clamp(0.0, 255.0) as u8;
-                    chunk[2] = (chunk[2] as f32 + (255.0 - 2.0 * chunk[2] as f32) * amount)
+                    chunk[2] = (f32::from(chunk[2]) + (255.0 - 2.0 * f32::from(chunk[2])) * amount)
                         .clamp(0.0, 255.0) as u8;
                 }
             }
             StyleFilter::Sepia(pct) => {
                 let amount = pct.normalized().clamp(0.0, 1.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let sr = (0.393 * r + 0.769 * g + 0.189 * b).min(255.0);
                     let sg = (0.349 * r + 0.686 * g + 0.168 * b).min(255.0);
                     let sb = (0.272 * r + 0.534 * g + 0.131 * b).min(255.0);
@@ -1272,9 +1310,9 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
             StyleFilter::Saturate(pct) => {
                 let s = pct.normalized().max(0.0);
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                     chunk[0] = (gray + (r - gray) * s).clamp(0.0, 255.0) as u8;
                     chunk[1] = (gray + (g - gray) * s).clamp(0.0, 255.0) as u8;
@@ -1286,9 +1324,9 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                 let cos_a = rad.cos();
                 let sin_a = rad.sin();
                 for chunk in pixmap.data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32;
-                    let g = chunk[1] as f32;
-                    let b = chunk[2] as f32;
+                    let r = f32::from(chunk[0]);
+                    let g = f32::from(chunk[1]);
+                    let b = f32::from(chunk[2]);
                     let nr = (0.213 + 0.787 * cos_a - 0.213 * sin_a) * r
                         + (0.715 - 0.715 * cos_a - 0.715 * sin_a) * g
                         + (0.072 - 0.072 * cos_a + 0.928 * sin_a) * b;
@@ -1378,7 +1416,7 @@ fn render_display_list_range(
 ///
 /// The comparison is conservative: any item whose bounds or content changed
 /// produces a damage rect covering both the old and new bounds.
-pub fn compute_display_list_damage(
+#[must_use] pub fn compute_display_list_damage(
     old: &DisplayList,
     new: &DisplayList,
 ) -> Option<Vec<LogicalRect>> {
@@ -1415,10 +1453,12 @@ pub fn compute_display_list_damage(
     Some(damage)
 }
 
-/// Are two display lists visually identical? (same length, same item
+/// Are two display lists visually identical?
+///
+/// (same length, same item
 /// discriminants, every item `is_visually_equal`). Cheaper proxy than a
 /// structural hash, reusing the same per-item comparison the damage diff uses.
-pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
+#[must_use] pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
     if a.items.len() != b.items.len() {
         return false;
     }
@@ -1432,23 +1472,23 @@ pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
 ///
 /// The parent display list only carries a `VirtualView { child_dom_id, bounds }`
 /// item that stays byte-identical when the *child* DOM re-renders (e.g. a
-/// MapWidget tile arriving on a worker thread and re-invoking the VirtualView
+/// `MapWidget` tile arriving on a worker thread and re-invoking the `VirtualView`
 /// in place). So `compute_display_list_damage` — which only diffs the parent —
 /// reports "nothing changed", and `render_frame` would skip the frame, freezing
-/// the child content. This compares each VirtualView's child DL against the
+/// the child content. This compares each `VirtualView`'s child DL against the
 /// previous frame's and returns the on-screen bounds of every one that differs,
 /// so the caller can damage exactly those regions.
 ///
 /// `current` / `previous` are keyed by the child `DomId` (the non-root entries
 /// of `layout_results`). A child that is newly present or newly absent counts
 /// as changed.
-pub fn compute_virtual_view_damage(
+#[must_use] pub fn compute_virtual_view_damage(
     parent: &DisplayList,
     current: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
 ) -> Vec<LogicalRect> {
     let mut damage = Vec::new();
-    for item in parent.items.iter() {
+    for item in &parent.items {
         if let DisplayListItem::VirtualView { child_dom_id, bounds, .. } = item {
             let changed = match (current.get(child_dom_id), previous.get(child_dom_id)) {
                 (Some(c), Some(p)) => {
@@ -1467,6 +1507,7 @@ pub fn compute_virtual_view_damage(
 }
 
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {
         return;
@@ -1511,7 +1552,7 @@ fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     }
 }
 
-pub(crate) fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool {
+#[must_use] pub fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool {
     a.origin.x - gap <= b.origin.x + b.size.width
         && b.origin.x - gap <= a.origin.x + a.size.width
         && a.origin.y - gap <= b.origin.y + b.size.height
@@ -1520,7 +1561,7 @@ pub(crate) fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f
 
 /// Compute damage rects for a grow-only window resize.
 /// Returns the right strip and bottom strip that need rendering.
-pub fn compute_resize_damage(
+#[must_use] pub fn compute_resize_damage(
     old_width: f32,
     old_height: f32,
     new_width: f32,
@@ -1556,7 +1597,9 @@ pub fn compute_resize_damage(
 
 /// Compare a rectangular sub-region of two pixmaps pixel-by-pixel.
 /// Returns the number of pixels that differ by more than `threshold` per channel.
-pub fn compare_region(
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
+#[must_use] pub fn compare_region(
     a: &AzulPixmap,
     b: &AzulPixmap,
     x: u32,
@@ -1573,9 +1616,9 @@ pub fn compare_region(
             if ai + 3 >= a.data.len() || bi + 3 >= b.data.len() {
                 continue;
             }
-            let dr = (a.data[ai] as i16 - b.data[bi] as i16).unsigned_abs() as u8;
-            let dg = (a.data[ai + 1] as i16 - b.data[bi + 1] as i16).unsigned_abs() as u8;
-            let db = (a.data[ai + 2] as i16 - b.data[bi + 2] as i16).unsigned_abs() as u8;
+            let dr = (i16::from(a.data[ai]) - i16::from(b.data[bi])).unsigned_abs() as u8;
+            let dg = (i16::from(a.data[ai + 1]) - i16::from(b.data[bi + 1])).unsigned_abs() as u8;
+            let db = (i16::from(a.data[ai + 2]) - i16::from(b.data[bi + 2])).unsigned_abs() as u8;
             if dr > threshold || dg > threshold || db > threshold {
                 diff_count += 1;
             }
@@ -1595,6 +1638,7 @@ mod scroll_shift_tests {
     /// Pixmap where every pixel encodes its own coords: R = x&0xFF, G = y&0xFF.
     /// After a shift, a pixel's (R,G) tells you which source pixel landed there,
     /// so we can assert the move is an exact translation.
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     fn xy_pixmap(w: u32, h: u32) -> AzulPixmap {
         let mut p = AzulPixmap::new(w, h).unwrap();
         let d = p.data_mut();
@@ -1609,6 +1653,7 @@ mod scroll_shift_tests {
         }
         p
     }
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     fn at(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
         let w = p.width();
         let d = p.data();
@@ -1632,22 +1677,24 @@ mod scroll_shift_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
     fn vertical_scroll_one_strip_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Scroll DOWN by 30 → content moves UP → bottom strip exposed.
         let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (0.0, 30.0), 1.0);
-        assert_eq!(strips.len(), 1, "single-axis scroll = one strip, got {:?}", strips);
+        assert_eq!(strips.len(), 1, "single-axis scroll = one strip, got {strips:?}");
         let s = &strips[0];
         assert!(
             (s.origin.y - (100.0 - s.size.height)).abs() < 0.01 && s.size.width == 200.0,
-            "vertical scroll-down must expose a full-width BOTTOM strip, got {:?}",
-            s
+            "vertical scroll-down must expose a full-width BOTTOM strip, got {s:?}"
         );
         // Kept region (top): (x, y) now holds original (x, y+30).
         assert_eq!(at(&p, 50, 10), [50, 40, 0, 255], "content not translated up by 30");
     }
 
     #[test]
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
     fn diagonal_pan_two_strips_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Diagonal scroll down-right by (20, 30): content moves up-left.
@@ -1656,16 +1703,14 @@ mod scroll_shift_tests {
         assert_eq!(
             strips.len(),
             2,
-            "diagonal pan must expose TWO strips (L-shape), got {:?}",
-            strips
+            "diagonal pan must expose TWO strips (L-shape), got {strips:?}"
         );
         // One full-width strip (the vertical move) + one full-height strip (horizontal).
         let has_h_strip = strips.iter().any(|s| s.size.width == 200.0);
         let has_v_strip = strips.iter().any(|s| s.size.height == 100.0);
         assert!(
             has_h_strip && has_v_strip,
-            "expected a full-width AND a full-height strip, got {:?}",
-            strips
+            "expected a full-width AND a full-height strip, got {strips:?}"
         );
         // Kept top-left region: (sx,sy) now holds original (sx+20, sy+30).
         // (50,40) is inside the kept block (bottom strip y>=69, right strip x>=179).
@@ -1679,14 +1724,12 @@ mod scroll_shift_tests {
         let mut p = xy_pixmap(200, 100);
         // Clip is a sub-region; everything OUTSIDE must be byte-identical after.
         let clip = rect(8.0, 16.0, 180.0, 60.0); // phys [8,188) x [16,76)
-        let _ = scroll_shift_region(&mut p, &clip, (0.0, 10.0), 1.0);
+        drop(scroll_shift_region(&mut p, &clip, (0.0, 10.0), 1.0));
         for &(x, y) in &[(0u32, 0u32), (199, 99), (100, 5), (100, 90), (2, 50), (190, 50)] {
             assert_eq!(
                 at(&p, x, y),
                 [(x & 0xFF) as u8, (y & 0xFF) as u8, 0, 255],
-                "pixel ({},{}) OUTSIDE the clip was modified — scroll leaked past its frame",
-                x,
-                y
+                "pixel ({x},{y}) OUTSIDE the clip was modified — scroll leaked past its frame"
             );
         }
         // Inside the kept region it DID move: (50,40) holds original (50,50).
@@ -1694,6 +1737,7 @@ mod scroll_shift_tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn shift_larger_than_region_returns_full_clip() {
         let mut p = xy_pixmap(64, 64);
         let clip = rect(0.0, 0.0, 64.0, 64.0);
@@ -1721,6 +1765,7 @@ mod scroll_shift_tests {
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
         rect(x, y, w, h).into()
     }
+    #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
     fn fill(x: f32, y: f32, w: f32, h: f32, a: u8) -> DisplayListItem {
         DisplayListItem::Rect {
             bounds: wr(x, y, w, h),

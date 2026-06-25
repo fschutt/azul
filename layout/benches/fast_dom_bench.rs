@@ -1,10 +1,10 @@
-/// Benchmark: Full rendering pipeline for 50K-node XHTML document.
-///
-/// Measures per-frame cost with warm font cache (matching real-world usage).
-/// Font loading is excluded — in a real app, FcFontRegistry loads fonts in
-/// background threads during app init.
-///
-/// Run with: cargo bench -p azul-layout --bench fast_dom_bench
+//! Benchmark: Full rendering pipeline for 50K-node XHTML document.
+//!
+//! Measures per-frame cost with warm font cache (matching real-world usage).
+//! Font loading is excluded — in a real app, FcFontRegistry loads fonts in
+//! background threads during app init.
+//!
+//! Run with: cargo bench -p azul-layout --bench fast_dom_bench
 
 use std::time::Instant;
 
@@ -18,7 +18,7 @@ fn main() {
             match std::fs::read_to_string(alt) {
                 Ok(c) => c,
                 Err(_) => {
-                    eprintln!("Cannot find benchmark file: {}", e);
+                    eprintln!("Cannot find benchmark file: {e}");
                     return;
                 }
             }
@@ -31,7 +31,7 @@ fn main() {
     // =========================================================================
     // PRE-LOAD: Font cache (excluded from benchmark, same as real app startup)
     // =========================================================================
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use azul_core::{
         dom::DomId,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -55,22 +55,22 @@ fn main() {
     let t1 = Instant::now();
     registry.spawn_scout_and_builders();
     let spawn_ms = t1.elapsed().as_secs_f64() * 1000.0;
-    println!("  spawn threads:     {:.2}ms", spawn_ms);
+    println!("  spawn threads:     {spawn_ms:.2}ms");
 
     let t2 = Instant::now();
     let os = rust_fontconfig::OperatingSystem::current();
     let common_stacks = rust_fontconfig::config::tokenize_common_families(os);
     registry.request_fonts(&common_stacks);
     let request_ms = t2.elapsed().as_secs_f64() * 1000.0;
-    println!("  request_fonts:     {:.2}ms (blocks until common fonts parsed)", request_ms);
+    println!("  request_fonts:     {request_ms:.2}ms (blocks until common fonts parsed)");
 
     let t3 = Instant::now();
-    let fc_cache = std::sync::Arc::new(registry.into_fc_font_cache());
+    let fc_cache = registry.shared_cache();
     let snapshot_ms = t3.elapsed().as_secs_f64() * 1000.0;
     println!("  snapshot cache:    {:.2}ms ({} font entries)", snapshot_ms, fc_cache.len());
 
     // Warm up: parse once to discover + load required fonts
-    let mut font_manager = FontManager::from_arc(fc_cache.clone()).expect("font manager");
+    let mut font_manager = FontManager::new(fc_cache.clone()).expect("font manager");
     {
         let warmup_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
         use azul_layout::solver3::getters::*;
@@ -93,19 +93,19 @@ fn main() {
             let load_result = load_fonts_from_disk(
                 &fonts_to_load,
                 &font_manager.fc_cache,
-                |bytes, index| loader.load_font(bytes, index),
+                |bytes, index| loader.load_font_shared(bytes, index),
             );
             font_manager.insert_fonts(load_result.loaded);
         }
         let load_ms = t6.elapsed().as_secs_f64() * 1000.0;
 
         font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
-        println!("  collect+resolve:   {:.2}ms (single pass)", chain_ms);
+        println!("  collect+resolve:   {chain_ms:.2}ms (single pass)");
         println!("  load from disk:    {:.2}ms ({} fonts needed, {} total loaded)",
             load_ms, need_count, font_manager.get_loaded_font_ids().len());
     }
     let total_prefont_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    println!("  TOTAL pre-load:    {:.2}ms\n", total_prefont_ms);
+    println!("  TOTAL pre-load:    {total_prefont_ms:.2}ms\n");
 
     // =========================================================================
     // PER-FRAME BENCHMARK (warm fonts)
@@ -115,7 +115,7 @@ fn main() {
     let dpi = 1.0_f32;
 
     const ITERATIONS: usize = 5;
-    println!("--- Per-frame pipeline ({} iterations, warm fonts) ---", ITERATIONS);
+    println!("--- Per-frame pipeline ({ITERATIONS} iterations, warm fonts) ---");
 
     let mut pipeline_times = Vec::new();
     let mut stage_times = Vec::new(); // (parse+cascade, font_chains, layout+dl, render)
@@ -126,7 +126,7 @@ fn main() {
         // Stage 1: XML → StyledDom (tokenize + build FastDom + cascade)
         let t_s1 = Instant::now();
         let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).unwrap();
-        let node_count = styled_dom.node_hierarchy.as_ref().len();
+        let _node_count = styled_dom.node_hierarchy.as_ref().len();
         let s1_ms = t_s1.elapsed().as_secs_f64() * 1000.0;
 
         // Stage 1.5: Font chain resolution (warm — no disk I/O, single pass)
@@ -147,17 +147,7 @@ fn main() {
             origin: LogicalPosition::zero(),
             size: LogicalSize { width: viewport_w, height: viewport_h },
         };
-        let mut layout_cache = LayoutCache {
-            tree: None,
-            calculated_positions: Vec::new(),
-            viewport: None,
-            scroll_ids: HashMap::new(),
-            scroll_id_to_node_id: HashMap::new(),
-            counters: HashMap::new(),
-            float_cache: HashMap::new(),
-            cache_map: Default::default(),
-            previous_positions: Vec::new(),
-        };
+        let mut layout_cache = LayoutCache::default();
         let mut text_cache = TextLayoutCache::new();
         let renderer_resources = RendererResources::default();
         let get_system_time_fn = azul_core::task::GetSystemTimeCallback {
@@ -167,10 +157,9 @@ fn main() {
         let display_list = solver3::layout_document(
             &mut layout_cache,
             &mut text_cache,
-            styled_dom,
+            &styled_dom,
             viewport,
             &font_manager,
-            &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
             &mut None,
@@ -219,10 +208,10 @@ fn main() {
     let s3_avg = avg(&stage_times.iter().map(|s| s.3).collect::<Vec<_>>());
     let total_avg = avg(&pipeline_times);
 
-    println!("  parse + cascade:   {:.1}ms", s1_avg);
-    println!("  font chains:       {:.1}ms", s1b_avg);
-    println!("  layout + DL:       {:.1}ms", s2_avg);
-    println!("  CPU render:        {:.1}ms", s3_avg);
+    println!("  parse + cascade:   {s1_avg:.1}ms");
+    println!("  font chains:       {s1b_avg:.1}ms");
+    println!("  layout + DL:       {s2_avg:.1}ms");
+    println!("  CPU render:        {s3_avg:.1}ms");
     println!("  ────────────────────────");
-    println!("  TOTAL per-frame:   {:.1}ms", total_avg);
+    println!("  TOTAL per-frame:   {total_avg:.1}ms");
 }

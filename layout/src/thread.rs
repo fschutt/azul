@@ -28,10 +28,13 @@ use crate::callbacks::CallbackInfo;
 macro_rules! impl_callback_traits {
     ($name:ident) => {
         impl core::fmt::Debug for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 write!(f, concat!(stringify!($name), " {{ cb: {:p} }}"), self.cb as *const ())
             }
         }
+        // generated for both Copy and non-Copy callback structs; the explicit field
+        // copy works uniformly (a derive can't be emitted for an externally-defined struct).
+        #[allow(clippy::expl_impl_clone_on_copy, clippy::non_canonical_clone_impl)]
         impl Clone for $name {
             fn clone(&self) -> Self { Self { cb: self.cb } }
         }
@@ -60,7 +63,7 @@ macro_rules! impl_callback_traits {
 }
 
 // Types that need to be defined locally (not in azul-core)
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Message that is sent back from the running thread to the main thread
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
@@ -68,7 +71,7 @@ pub enum ThreadReceiveMsg {
     WriteBack(ThreadWriteBackMsg),
     Update(Update),
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
 pub enum OptionThreadReceiveMsg {
@@ -78,25 +81,22 @@ pub enum OptionThreadReceiveMsg {
 
 impl From<Option<ThreadReceiveMsg>> for OptionThreadReceiveMsg {
     fn from(inner: Option<ThreadReceiveMsg>) -> Self {
-        match inner {
-            None => OptionThreadReceiveMsg::None,
-            Some(v) => OptionThreadReceiveMsg::Some(v),
-        }
+        inner.map_or_else(|| Self::None, Self::Some)
     }
 }
 
 impl OptionThreadReceiveMsg {
-    pub fn into_option(self) -> Option<ThreadReceiveMsg> {
+    #[must_use] pub fn into_option(self) -> Option<ThreadReceiveMsg> {
         match self {
-            OptionThreadReceiveMsg::None => None,
-            OptionThreadReceiveMsg::Some(v) => Some(v),
+            Self::None => None,
+            Self::Some(v) => Some(v),
         }
     }
 
-    pub fn as_ref(&self) -> Option<&ThreadReceiveMsg> {
+    #[must_use] pub const fn as_ref(&self) -> Option<&ThreadReceiveMsg> {
         match self {
-            OptionThreadReceiveMsg::None => None,
-            OptionThreadReceiveMsg::Some(v) => Some(v),
+            Self::None => None,
+            Self::Some(v) => Some(v),
         }
     }
 }
@@ -118,16 +118,16 @@ impl ThreadWriteBackMsg {
     }
 }
 
-/// ThreadSender allows sending messages from the background thread to the main thread
+/// `ThreadSender` allows sending messages from the background thread to the main thread
 #[derive(Debug)]
 #[repr(C)]
 pub struct ThreadSender {
     #[cfg(feature = "std")]
-    pub ptr: alloc::boxed::Box<Arc<Mutex<ThreadSenderInner>>>,
+    pub ptr: Box<Arc<Mutex<ThreadSenderInner>>>,
     #[cfg(not(feature = "std"))]
     pub ptr: *const core::ffi::c_void,
     pub run_destructor: bool,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     pub ctx: OptionRefAny,
 }
 
@@ -158,16 +158,16 @@ impl ThreadSender {
     }
 
     #[cfg(feature = "std")]
-    pub fn new(t: ThreadSenderInner) -> Self {
+    #[must_use] pub fn new(t: ThreadSenderInner) -> Self {
         Self {
-            ptr: alloc::boxed::Box::new(Arc::new(Mutex::new(t))),
+            ptr: Box::new(Arc::new(Mutex::new(t))),
             run_destructor: true,
             ctx: OptionRefAny::None,
         }
     }
 
     /// Get the FFI context (e.g., Python callable)
-    pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
         self.ctx.clone()
     }
 
@@ -178,11 +178,10 @@ impl ThreadSender {
 
     #[cfg(feature = "std")]
     pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
-        let ts = match self.ptr.lock().ok() {
-            Some(s) => s,
-            None => return false,
+        let Some(ts) = self.ptr.lock().ok() else {
+            return false;
         };
-        (ts.send_fn.cb)(ts.ptr.as_ref() as *const _ as *const core::ffi::c_void, msg)
+        (ts.send_fn.cb)(std::ptr::from_ref(ts.ptr.as_ref()).cast::<core::ffi::c_void>(), msg)
     }
 }
 
@@ -192,7 +191,7 @@ impl ThreadSender {
 #[repr(C)]
 pub struct ThreadSenderInner {
     #[cfg(feature = "std")]
-    pub ptr: alloc::boxed::Box<Sender<ThreadReceiveMsg>>,
+    pub ptr: Box<Sender<ThreadReceiveMsg>>,
     #[cfg(not(feature = "std"))]
     pub ptr: *const core::ffi::c_void,
     pub send_fn: ThreadSendCallback,
@@ -205,7 +204,7 @@ unsafe impl Send for ThreadSenderInner {}
 #[cfg(feature = "std")]
 impl core::hash::Hash for ThreadSenderInner {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.ptr.as_ref() as *const _ as usize).hash(state);
+        (std::ptr::from_ref(self.ptr.as_ref()) as usize).hash(state);
     }
 }
 
@@ -223,8 +222,8 @@ impl Eq for ThreadSenderInner {}
 impl PartialOrd for ThreadSenderInner {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(
-            (self.ptr.as_ref() as *const _ as usize)
-                .cmp(&(other.ptr.as_ref() as *const _ as usize)),
+            (std::ptr::from_ref(self.ptr.as_ref()) as usize)
+                .cmp(&(std::ptr::from_ref(other.ptr.as_ref()) as usize)),
         )
     }
 }
@@ -232,7 +231,7 @@ impl PartialOrd for ThreadSenderInner {
 #[cfg(feature = "std")]
 impl Ord for ThreadSenderInner {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize))
+        (std::ptr::from_ref(self.ptr.as_ref()) as usize).cmp(&(std::ptr::from_ref(other.ptr.as_ref()) as usize))
     }
 }
 
@@ -245,6 +244,7 @@ impl Drop for ThreadSenderInner {
 /// Callback for sending messages from thread to main thread
 pub type ThreadSendCallbackType = extern "C" fn(*const core::ffi::c_void, ThreadReceiveMsg) -> bool;
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadSendCallback {
     pub cb: ThreadSendCallbackType,
@@ -252,9 +252,10 @@ pub struct ThreadSendCallback {
 
 impl_callback_traits!(ThreadSendCallback);
 
-/// Destructor callback for ThreadSender
+/// Destructor callback for `ThreadSender`
 pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInner);
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadSenderDestructorCallback {
     pub cb: ThreadSenderDestructorCallbackType,
@@ -267,7 +268,7 @@ impl_callback_traits!(ThreadSenderDestructorCallback);
 /// This callback runs on the main UI thread and has access to:
 /// - The thread's original data
 /// - Data sent back from the background thread
-/// - Full CallbackInfo for DOM queries and UI updates
+/// - Full `CallbackInfo` for DOM queries and UI updates
 pub type WriteBackCallbackType = extern "C" fn(
     /* original thread data */ RefAny,
     /* data to write back */ RefAny,
@@ -278,13 +279,13 @@ pub type WriteBackCallbackType = extern "C" fn(
 #[repr(C)]
 pub struct WriteBackCallback {
     pub cb: WriteBackCallbackType,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
 
 impl WriteBackCallback {
-    /// Create a new WriteBackCallback
+    /// Create a new `WriteBackCallback`
     pub fn new(cb: WriteBackCallbackType) -> Self {
         Self {
             cb,
@@ -293,7 +294,7 @@ impl WriteBackCallback {
     }
 
     /// Invoke the callback
-    pub fn invoke(
+    #[must_use] pub fn invoke(
         &self,
         thread_data: RefAny,
         writeback_data: RefAny,
@@ -304,7 +305,7 @@ impl WriteBackCallback {
 }
 
 impl core::fmt::Debug for WriteBackCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "WriteBackCallback {{ cb: {:p} }}", self.cb as *const ())
     }
 }
@@ -359,13 +360,13 @@ pub type ThreadCallbackType = extern "C" fn(RefAny, ThreadSender, ThreadReceiver
 #[repr(C)]
 pub struct ThreadCallback {
     pub cb: ThreadCallbackType,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
 
 impl ThreadCallback {
-    /// Create a new ThreadCallback
+    /// Create a new `ThreadCallback`
     pub fn new(cb: ThreadCallbackType) -> Self {
         Self {
             cb,
@@ -375,7 +376,7 @@ impl ThreadCallback {
 }
 
 impl core::fmt::Debug for ThreadCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "ThreadCallback {{ cb: {:p} }}", self.cb as *const ())
     }
 }
@@ -443,7 +444,9 @@ azul_core::impl_managed_callback! {
     wrapper:        ThreadCallback,
     info_ty:        ThreadSender,
     return_ty:      (),
-    default_ret:    (),
+    // unit default-return; written via Default::default() so clippy's unused_unit
+    // doesn't fire on a bare `()` in this macro-argument position.
+    default_ret:    Default::default(),
     invoker_static: THREAD_CALLBACK_INVOKER,
     invoker_ty:     AzThreadCallbackInvoker,
     thunk_fn:       az_thread_callback_thunk,
@@ -456,6 +459,7 @@ azul_core::impl_managed_callback! {
 pub type LibraryReceiveThreadMsgCallbackType =
     extern "C" fn(*const core::ffi::c_void) -> OptionThreadReceiveMsg;
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct LibraryReceiveThreadMsgCallback {
     pub cb: LibraryReceiveThreadMsgCallbackType,
@@ -466,6 +470,7 @@ impl_callback_traits!(LibraryReceiveThreadMsgCallback);
 /// Callback type for the destructor that cleans up a `ThreadInner`
 pub type ThreadDestructorCallbackType = extern "C" fn(*mut ThreadInner);
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadDestructorCallback {
     pub cb: ThreadDestructorCallbackType,
@@ -478,7 +483,7 @@ impl_callback_traits!(ThreadDestructorCallback);
 #[repr(C)]
 pub struct Thread {
     #[cfg(feature = "std")]
-    pub ptr: alloc::boxed::Box<Arc<Mutex<ThreadInner>>>,
+    pub ptr: Box<Arc<Mutex<ThreadInner>>>,
     #[cfg(not(feature = "std"))]
     pub ptr: *const core::ffi::c_void,
     pub run_destructor: bool,
@@ -501,9 +506,9 @@ impl Drop for Thread {
 
 impl Thread {
     #[cfg(feature = "std")]
-    pub fn new(ti: ThreadInner) -> Self {
+    #[must_use] pub fn new(ti: ThreadInner) -> Self {
         Self {
-            ptr: alloc::boxed::Box::new(Arc::new(Mutex::new(ti))),
+            ptr: Box::new(Arc::new(Mutex::new(ti))),
             run_destructor: true,
         }
     }
@@ -537,13 +542,10 @@ impl Thread {
     /// state is behind a `Mutex`), so this takes `&self` and is callable from a
     /// callback that only holds `&Thread` via `CallbackInfo::get_thread`. Used to push
     /// resize / seek / source-change messages to a persistent worker. Returns false
-    /// if the channel is closed (or always, on no_std).
+    /// if the channel is closed (or always, on `no_std`).
     #[cfg(feature = "std")]
-    pub fn send_message(&self, msg: ThreadSendMsg) -> bool {
-        match self.ptr.lock() {
-            Ok(inner) => inner.sender.send(msg).is_ok(),
-            Err(_) => false,
-        }
+    #[must_use] pub fn send_message(&self, msg: ThreadSendMsg) -> bool {
+        self.ptr.lock().is_ok_and(|inner| inner.sender.send(msg).is_ok())
     }
     #[cfg(not(feature = "std"))]
     pub fn send_message(&self, _msg: ThreadSendMsg) -> bool {
@@ -553,9 +555,9 @@ impl Thread {
     /// Clone the main→worker `Sender` so a holder without a `CallbackInfo` (e.g. a
     /// dataset-merge callback) can message the running worker later — used for the
     /// scrub/seek path, where the merge callback compares the old/new `VideoConfig`
-    /// and pushes a seek to the worker. `None` on no_std.
+    /// and pushes a seek to the worker. `None` on `no_std`.
     #[cfg(feature = "std")]
-    pub fn clone_sender(&self) -> Option<Sender<ThreadSendMsg>> {
+    #[must_use] pub fn clone_sender(&self) -> Option<Sender<ThreadSendMsg>> {
         self.ptr.lock().ok().map(|inner| (*inner.sender).clone())
     }
     #[cfg(not(feature = "std"))]
@@ -573,22 +575,22 @@ impl Thread {
 #[repr(C)]
 pub struct ThreadInner {
     #[cfg(feature = "std")]
-    pub thread_handle: alloc::boxed::Box<Option<JoinHandle<()>>>,
+    pub thread_handle: Box<Option<JoinHandle<()>>>,
     #[cfg(not(feature = "std"))]
     pub thread_handle: *const core::ffi::c_void,
 
     #[cfg(feature = "std")]
-    pub sender: alloc::boxed::Box<Sender<ThreadSendMsg>>,
+    pub sender: Box<Sender<ThreadSendMsg>>,
     #[cfg(not(feature = "std"))]
     pub sender: *const core::ffi::c_void,
 
     #[cfg(feature = "std")]
-    pub receiver: alloc::boxed::Box<Receiver<ThreadReceiveMsg>>,
+    pub receiver: Box<Receiver<ThreadReceiveMsg>>,
     #[cfg(not(feature = "std"))]
     pub receiver: *const core::ffi::c_void,
 
     #[cfg(feature = "std")]
-    pub dropcheck: alloc::boxed::Box<alloc::sync::Weak<()>>,
+    pub dropcheck: Box<alloc::sync::Weak<()>>,
     #[cfg(not(feature = "std"))]
     pub dropcheck: *const core::ffi::c_void,
 
@@ -602,16 +604,16 @@ pub struct ThreadInner {
 #[cfg(feature = "std")]
 impl ThreadInner {
     /// Returns true if the Thread has been finished, false otherwise
-    pub fn is_finished(&self) -> bool {
+    #[must_use] pub fn is_finished(&self) -> bool {
         (self.check_thread_finished_fn.cb)(
-            self.dropcheck.as_ref() as *const _ as *const core::ffi::c_void
+            std::ptr::from_ref(self.dropcheck.as_ref()).cast::<core::ffi::c_void>()
         )
     }
 
     /// Send a message to the thread
     pub fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
         (self.send_thread_msg_fn.cb)(
-            self.sender.as_ref() as *const _ as *const core::ffi::c_void,
+            std::ptr::from_ref(self.sender.as_ref()).cast::<core::ffi::c_void>(),
             msg,
         )
     }
@@ -619,7 +621,7 @@ impl ThreadInner {
     /// Try to receive a message from the thread (non-blocking)
     pub fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
         (self.receive_thread_msg_fn.cb)(
-            self.receiver.as_ref() as *const _ as *const core::ffi::c_void
+            std::ptr::from_ref(self.receiver.as_ref()).cast::<core::ffi::c_void>()
         )
     }
 }
@@ -654,8 +656,8 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
     let thread = unsafe { &mut *thread };
 
     if let Some(thread_handle) = thread.thread_handle.take() {
-        let _ = thread.sender.send(ThreadSendMsg::TerminateThread);
-        let _ = thread_handle.join(); // ignore the result, don't panic
+        drop(thread.sender.send(ThreadSendMsg::TerminateThread));
+        drop(thread_handle.join()); // ignore the result, don't panic
     }
 }
 
@@ -667,7 +669,7 @@ extern "C" fn library_send_thread_msg_fn(
     sender: *const core::ffi::c_void,
     msg: ThreadSendMsg,
 ) -> bool {
-    unsafe { &*(sender as *const Sender<ThreadSendMsg>) }
+    unsafe { &*sender.cast::<Sender<ThreadSendMsg>>() }
         .send(msg)
         .is_ok()
 }
@@ -684,7 +686,7 @@ extern "C" fn library_send_thread_msg_fn(
 extern "C" fn library_receive_thread_msg_fn(
     receiver: *const core::ffi::c_void,
 ) -> OptionThreadReceiveMsg {
-    unsafe { &*(receiver as *const Receiver<ThreadReceiveMsg>) }
+    unsafe { &*receiver.cast::<Receiver<ThreadReceiveMsg>>() }
         .try_recv()
         .ok()
         .into()
@@ -702,7 +704,7 @@ extern "C" fn default_send_thread_msg_fn(
     sender: *const core::ffi::c_void,
     msg: ThreadReceiveMsg,
 ) -> bool {
-    unsafe { &*(sender as *const Sender<ThreadReceiveMsg>) }
+    unsafe { &*sender.cast::<Sender<ThreadReceiveMsg>>() }
         .send(msg)
         .is_ok()
 }
@@ -719,7 +721,7 @@ extern "C" fn default_send_thread_msg_fn(
 extern "C" fn default_receive_thread_msg_fn(
     receiver: *const core::ffi::c_void,
 ) -> OptionThreadSendMsg {
-    unsafe { &*(receiver as *const Receiver<ThreadSendMsg>) }
+    unsafe { &*receiver.cast::<Receiver<ThreadSendMsg>>() }
         .try_recv()
         .ok()
         .into()
@@ -734,7 +736,7 @@ extern "C" fn default_receive_thread_msg_fn(
 
 #[cfg(feature = "std")]
 extern "C" fn default_check_thread_finished(dropcheck: *const core::ffi::c_void) -> bool {
-    let weak = unsafe { &*(dropcheck as *const alloc::sync::Weak<()>) };
+    let weak = unsafe { &*dropcheck.cast::<alloc::sync::Weak<()>>() };
     weak.upgrade().is_none()
 }
 
@@ -744,13 +746,13 @@ extern "C" fn default_check_thread_finished(_dropcheck: *const core::ffi::c_void
 }
 
 #[cfg(feature = "std")]
-extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}
+const extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}
 
 #[cfg(not(feature = "std"))]
 extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}
 
 #[cfg(feature = "std")]
-extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) {}
+const extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) {}
 
 #[cfg(not(feature = "std"))]
 extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) {}
@@ -768,14 +770,14 @@ impl Copy for CreateThreadCallback {}
 
 /// Create a new thread using the standard library
 #[cfg(feature = "std")]
-pub extern "C" fn create_thread_libstd(
+#[must_use] pub extern "C" fn create_thread_libstd(
     thread_initialize_data: RefAny,
     writeback_data: RefAny,
     callback: ThreadCallback,
 ) -> Thread {
     let (sender_receiver, receiver_receiver) = channel::<ThreadReceiveMsg>();
     let mut sender_receiver = ThreadSender::new(ThreadSenderInner {
-        ptr: alloc::boxed::Box::new(sender_receiver),
+        ptr: Box::new(sender_receiver),
         send_fn: ThreadSendCallback {
             cb: default_send_thread_msg_fn,
         },
@@ -788,7 +790,7 @@ pub extern "C" fn create_thread_libstd(
 
     let (sender_sender, receiver_sender) = channel::<ThreadSendMsg>();
     let mut receiver_sender = ThreadReceiver::new(ThreadReceiverInner {
-        ptr: alloc::boxed::Box::new(receiver_sender),
+        ptr: Box::new(receiver_sender),
         recv_fn: ThreadRecvCallback {
             cb: default_receive_thread_msg_fn,
         },
@@ -810,12 +812,12 @@ pub extern "C" fn create_thread_libstd(
         // _thread_check_guard gets dropped here, signals that the thread has finished
     }));
 
-    let thread_handle: alloc::boxed::Box<Option<JoinHandle<()>>> =
-        alloc::boxed::Box::new(thread_handle);
-    let sender: alloc::boxed::Box<Sender<ThreadSendMsg>> = alloc::boxed::Box::new(sender_sender);
-    let receiver: alloc::boxed::Box<Receiver<ThreadReceiveMsg>> =
-        alloc::boxed::Box::new(receiver_receiver);
-    let dropcheck: alloc::boxed::Box<alloc::sync::Weak<()>> = alloc::boxed::Box::new(dropcheck);
+    let thread_handle: Box<Option<JoinHandle<()>>> =
+        Box::new(thread_handle);
+    let sender: Box<Sender<ThreadSendMsg>> = Box::new(sender_sender);
+    let receiver: Box<Receiver<ThreadReceiveMsg>> =
+        Box::new(receiver_receiver);
+    let dropcheck: Box<alloc::sync::Weak<()>> = Box::new(dropcheck);
 
     Thread::new(ThreadInner {
         thread_handle,
@@ -875,7 +877,7 @@ mod tests {
         assert_eq!(callback, cloned);
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Optional Thread type for API compatibility
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
@@ -886,18 +888,15 @@ pub enum OptionThread {
 
 impl From<Option<Thread>> for OptionThread {
     fn from(o: Option<Thread>) -> Self {
-        match o {
-            None => OptionThread::None,
-            Some(t) => OptionThread::Some(t),
-        }
+        o.map_or_else(|| Self::None, Self::Some)
     }
 }
 
 impl OptionThread {
-    pub fn into_option(self) -> Option<Thread> {
+    #[must_use] pub fn into_option(self) -> Option<Thread> {
         match self {
-            OptionThread::None => None,
-            OptionThread::Some(t) => Some(t),
+            Self::None => None,
+            Self::Some(t) => Some(t),
         }
     }
 }
@@ -913,8 +912,8 @@ impl OptionThread {
 /// # Arguments
 /// * `milliseconds` - Number of milliseconds to sleep
 #[cfg(feature = "std")]
-pub fn thread_sleep_ms(milliseconds: u64) -> azul_css::corety::EmptyStruct {
-    std::thread::sleep(std::time::Duration::from_millis(milliseconds));
+#[must_use] pub fn thread_sleep_ms(milliseconds: u64) -> azul_css::corety::EmptyStruct {
+    thread::sleep(std::time::Duration::from_millis(milliseconds));
     azul_css::corety::EmptyStruct::new()
 }
 
@@ -930,8 +929,8 @@ pub fn thread_sleep_ms(_milliseconds: u64) -> azul_css::corety::EmptyStruct {
 /// # Arguments
 /// * `microseconds` - Number of microseconds to sleep
 #[cfg(feature = "std")]
-pub fn thread_sleep_us(microseconds: u64) -> azul_css::corety::EmptyStruct {
-    std::thread::sleep(std::time::Duration::from_micros(microseconds));
+#[must_use] pub fn thread_sleep_us(microseconds: u64) -> azul_css::corety::EmptyStruct {
+    thread::sleep(std::time::Duration::from_micros(microseconds));
     azul_css::corety::EmptyStruct::new()
 }
 
@@ -947,8 +946,8 @@ pub fn thread_sleep_us(_microseconds: u64) -> azul_css::corety::EmptyStruct {
 /// # Arguments
 /// * `nanoseconds` - Number of nanoseconds to sleep
 #[cfg(feature = "std")]
-pub fn thread_sleep_ns(nanoseconds: u64) -> azul_css::corety::EmptyStruct {
-    std::thread::sleep(std::time::Duration::from_nanos(nanoseconds));
+#[must_use] pub fn thread_sleep_ns(nanoseconds: u64) -> azul_css::corety::EmptyStruct {
+    thread::sleep(std::time::Duration::from_nanos(nanoseconds));
     azul_css::corety::EmptyStruct::new()
 }
 

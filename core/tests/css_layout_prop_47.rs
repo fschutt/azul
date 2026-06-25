@@ -71,14 +71,12 @@ fn component_css_descendant_selectors_apply_in_subtree() {
     let item_display = cache.get_display(&nd[it], &it, &sn[it].styled_node_state).cloned();
 
     eprintln!(
-        "[component-css test] container.min_width={:?} item.display={:?}",
-        container_minwidth, item_display
+        "[component-css test] container.min_width={container_minwidth:?} item.display={item_display:?}"
     );
     assert!(container_minwidth.is_some(), ".menu-container min-width must apply to the container (owner)");
-    let item_is_flex = matches!(&item_display, Some(v) if format!("{:?}", v).contains("Flex"));
+    let item_is_flex = matches!(&item_display, Some(v) if format!("{v:?}").contains("Flex"));
     assert!(
         item_is_flex,
-        ".menu-item display:flex must apply to the DESCENDANT item (got {:?})",
-        item_display
+        ".menu-item display:flex must apply to the DESCENDANT item (got {item_display:?})"
     );
 }

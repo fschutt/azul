@@ -29,19 +29,19 @@ use crate::{
     },
 };
 
-/// Creates a FontRef from font bytes by parsing them into a ParsedFont.
+/// Creates a `FontRef` from font bytes by parsing them into a `ParsedFont`.
 ///
 /// This is a bridge function that:
 ///
-/// 1. Parses the bytes into a ParsedFont
-/// 2. Wraps it in a FontRef with proper reference counting
+/// 1. Parses the bytes into a `ParsedFont`
+/// 2. Wraps it in a `FontRef` with proper reference counting
 ///
 /// # Arguments
 ///
 /// - `font_bytes` - The raw font file data
 /// - `font_index` - Index of the font in a font collection (0 for single fonts)
 /// - `parse_outlines` - Whether to parse glyph outlines (expensive, usually false for layout)
-pub fn font_ref_from_bytes(
+#[must_use] pub fn font_ref_from_bytes(
     font_bytes: &[u8],
     font_index: usize,
     parse_outlines: bool,
@@ -53,24 +53,24 @@ pub fn font_ref_from_bytes(
     Some(crate::parsed_font_to_font_ref(parsed_font))
 }
 
-/// A FontLoader that parses font data from a byte slice.
+/// A `FontLoader` that parses font data from a byte slice.
 ///
 /// It is designed to be used in conjunction with a mechanism that reads font files
 /// from paths into memory. This loader simply handles the parsing aspect.
-#[derive(Debug, Default, Clone)]
+#[derive(Copy, Debug, Default, Clone)]
 pub struct PathLoader;
 
 impl PathLoader {
     /// Creates a new `PathLoader`.
-    pub fn new() -> Self {
-        PathLoader
+    #[must_use] pub const fn new() -> Self {
+        Self
     }
 
     /// Read a font from disk and parse via the lazy-LocaGlyf path.
     /// Convenience wrapper for callers that have a path but no
     /// `Arc<FontBytes>` yet — uses a heap read (`Owned`) since a
     /// loose path won't go through the fontconfig dedup cache.
-    pub(crate) fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
+    pub(crate) fn load_from_path(self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
         let font_bytes = std::fs::read(path).map_err(|_| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
@@ -79,8 +79,8 @@ impl PathLoader {
                 unicode_ranges: Vec::new(),
             })
         })?;
-        let arc_owned = std::sync::Arc::<[u8]>::from(font_bytes);
-        let bytes = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(arc_owned));
+        let arc_owned = Arc::<[u8]>::from(font_bytes);
+        let bytes = Arc::new(rust_fontconfig::FontBytes::Owned(arc_owned));
         self.load_font_shared(bytes, font_index)
     }
 
@@ -93,13 +93,16 @@ impl PathLoader {
     /// `load_fonts_from_disk` calls this via the closure passed
     /// into `FontManager::load_missing_for_chains`. Fonts that
     /// never get rasterized (common — every face of a `.ttc` gets a
-    /// FontId, but pages only hit a couple of them) skip their
+    /// `FontId`, but pages only hit a couple of them) skip their
     /// per-face loca+glyf materialisation entirely; with
     /// `FontBytes::Mmapped` the unread pages also never count
     /// toward RSS.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cannot be loaded.
     pub fn load_font_shared(
         &self,
-        font_bytes: std::sync::Arc<rust_fontconfig::FontBytes>,
+        font_bytes: Arc<rust_fontconfig::FontBytes>,
         font_index: usize,
     ) -> Result<FontRef, LayoutError> {
         let mut warnings = Vec::new();
@@ -122,11 +125,11 @@ impl FontManager<FontRef> {
     /// Returns the number of faces evicted. Embedders can call this
     /// from a memory-pressure hook or on a timer; servo-shot
     /// exposes it via `--azul-evict-after-each` for measurement.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
         use crate::font::parsed::ParsedFont;
-        let parsed = match self.parsed_fonts.lock() {
-            Ok(p) => p,
-            Err(_) => return 0,
+        let Ok(parsed) = self.parsed_fonts.lock() else {
+            return 0;
         };
         // We compare against the same monotonic clock the font's
         // `last_used` is sampled from. `last_used == 0` means
@@ -153,7 +156,7 @@ impl FontManager<FontRef> {
 // ParsedFontTrait Implementation for FontRef
 
 // Implement ShallowClone for FontRef
-impl crate::text3::cache::ShallowClone for FontRef {
+impl ShallowClone for FontRef {
     fn shallow_clone(&self) -> Self {
         // FontRef::clone increments the reference count
         self.clone()
@@ -202,7 +205,7 @@ impl ParsedFontTrait for FontRef {
     }
 
     fn get_font_metrics(&self) -> LayoutFontMetrics {
-        crate::font_ref_to_parsed_font(self).font_metrics.clone()
+        crate::font_ref_to_parsed_font(self).font_metrics
     }
 
     fn num_glyphs(&self) -> u16 {
@@ -214,9 +217,9 @@ impl ParsedFontTrait for FontRef {
     }
 }
 
-/// Extension trait for FontRef to provide access to font bytes and metrics
+/// Extension trait for `FontRef` to provide access to font bytes and metrics
 ///
-/// This trait provides methods that require access to the inner ParsedFont data.
+/// This trait provides methods that require access to the inner `ParsedFont` data.
 pub trait FontRefExt {
     /// Get the original font bytes. Returns an empty slice when the
     /// underlying `ParsedFont` was created without retaining its
@@ -233,8 +236,7 @@ impl FontRefExt for FontRef {
         crate::font_ref_to_parsed_font(self)
             .original_bytes
             .as_ref()
-            .map(|b| b.as_slice())
-            .unwrap_or(&[])
+            .map_or(&[], |b| b.as_slice())
     }
 
     fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics {
@@ -330,7 +332,7 @@ impl FontRefExt for FontRef {
 
 impl ParsedFont {
     /// Internal helper that shapes text and returns Glyph
-    /// Delegates to shape_text_internal and converts the font reference.
+    /// Delegates to `shape_text_internal` and converts the font reference.
     fn shape_text_for_font_ref(
         &self,
         _font_ref: &FontRef,
@@ -346,13 +348,13 @@ impl ParsedFont {
         shape_text_internal(self, text, script, language, direction, style)
     }
 
-    fn get_hash(&self) -> u64 {
+    const fn get_hash(&self) -> u64 {
         self.hash
     }
 
     fn get_glyph_size(&self, glyph_id: u16, font_size_px: f32) -> Option<LogicalSize> {
         self.get_or_decode_glyph(glyph_id).map(|record| {
-            let units_per_em = self.font_metrics.units_per_em as f32;
+            let units_per_em = f32::from(self.font_metrics.units_per_em);
             let scale_factor = if units_per_em > 0.0 {
                 font_size_px / units_per_em
             } else {
@@ -363,8 +365,8 @@ impl ParsedFont {
             let bbox = &record.bounding_box;
 
             LogicalSize {
-                width: (bbox.max_x - bbox.min_x) as f32 * scale_factor,
-                height: (bbox.max_y - bbox.min_y) as f32 * scale_factor,
+                width: f32::from(bbox.max_x - bbox.min_x) * scale_factor,
+                height: f32::from(bbox.max_y - bbox.min_y) * scale_factor,
             }
         })
     }
@@ -373,11 +375,11 @@ impl ParsedFont {
         let glyph_id = self.lookup_glyph_index('-' as u32)?;
         let advance_units = self.get_horizontal_advance(glyph_id);
         let scale_factor = if self.font_metrics.units_per_em > 0 {
-            font_size / (self.font_metrics.units_per_em as f32)
+            font_size / f32::from(self.font_metrics.units_per_em)
         } else {
             return None;
         };
-        let scaled_advance = advance_units as f32 * scale_factor;
+        let scaled_advance = f32::from(advance_units) * scale_factor;
         Some((glyph_id, scaled_advance))
     }
 
@@ -386,11 +388,11 @@ impl ParsedFont {
         let glyph_id = self.lookup_glyph_index('\u{0640}' as u32)?;
         let advance_units = self.get_horizontal_advance(glyph_id);
         let scale_factor = if self.font_metrics.units_per_em > 0 {
-            font_size / (self.font_metrics.units_per_em as f32)
+            font_size / f32::from(self.font_metrics.units_per_em)
         } else {
             return None;
         };
-        let scaled_advance = advance_units as f32 * scale_factor;
+        let scaled_advance = f32::from(advance_units) * scale_factor;
         Some((glyph_id, scaled_advance))
     }
 }
@@ -400,7 +402,7 @@ const FALLBACK_SCALE: f32 = 0.01;
 
 // Helper Functions
 
-/// Builds a FeatureMask with the appropriate OpenType features for a given script.
+/// Builds a `FeatureMask` with the appropriate OpenType features for a given script.
 /// This ensures proper text shaping for complex scripts like Arabic, Devanagari, etc.
 ///
 /// The function includes:
@@ -409,8 +411,9 @@ const FALLBACK_SCALE: f32 = 0.01;
 ///
 /// This is designed to be stable and explicit - we control exactly which features
 /// are enabled rather than relying on allsorts' defaults which may change.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn build_feature_mask_for_script(script: Script) -> FeatureMask {
-    use Script::*;
+    use Script::{Arabic, Devanagari, Bengali, Gujarati, Gurmukhi, Kannada, Malayalam, Oriya, Tamil, Telugu, Myanmar, Khmer, Thai, Hebrew, Hangul, Ethiopic, Latin, Greek, Cyrillic, Georgian, Hiragana, Katakana, Mandarin, Sinhala};
 
     // Start with common features that apply to most scripts
     let mut mask = FeatureMask::default(); // Includes: CALT, CCMP, CLIG, LIGA, LOCL, RLIG
@@ -516,8 +519,9 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
 }
 
 /// Maps the layout engine's `Script` enum to an OpenType script tag `u32`.
-fn to_opentype_script_tag(script: Script) -> u32 {
-    use Script::*;
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn to_opentype_script_tag(script: Script) -> u32 {
+    use Script::{Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi, Hangul, Hebrew, Hiragana, Kannada, Katakana, Khmer, Latin, Malayalam, Mandarin, Myanmar, Oriya, Sinhala, Tamil, Telugu, Thai};
     // Tags from https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
     match script {
         Arabic => u32::from_be_bytes(*b"arab"),
@@ -561,7 +565,7 @@ fn parse_font_feature(feature_str: &str) -> Option<(u32, u32)> {
         return None;
     }
     // Pad with spaces if necessary
-    let padded_tag_str = format!("{:<4}", tag_str);
+    let padded_tag_str = format!("{tag_str:<4}");
 
     let tag = u32::from_be_bytes(padded_tag_str.as_bytes().try_into().ok()?);
     let value = value_str.parse::<u32>().ok()?;
@@ -626,8 +630,9 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
 
 /// Maps the `hyphenation::Language` enum to an OpenType language tag `u32`.
 #[cfg(feature = "text_layout_hyphenation")]
-fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
-    use hyphenation::Language::*;
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
+    use hyphenation::Language::{Afrikaans, Albanian, Armenian, Assamese, Basque, Belarusian, Bengali, Bulgarian, Catalan, Chinese, Coptic, Croatian, Czech, Danish, Dutch, EnglishGB, EnglishUS, Esperanto, Estonian, Ethiopic, Finnish, FinnishScholastic, French, Friulan, Galician, Georgian, German1901, German1996, GermanSwiss, GreekAncient, GreekMono, GreekPoly, Gujarati, Hindi, Hungarian, Icelandic, Indonesian, Interlingua, Irish, Italian, Kannada, Kurmanji, Latin, LatinClassic, LatinLiturgical, Latvian, Lithuanian, Macedonian, Malayalam, Marathi, Mongolian, NorwegianBokmal, NorwegianNynorsk, Occitan, Oriya, Pali, Panjabi, Piedmontese, Polish, Portuguese, Romanian, Romansh, Russian, Sanskrit, SerbianCyrillic, SerbocroatianCyrillic, SerbocroatianLatin, SlavonicChurch, Slovak, Slovenian, Spanish, Swedish, Tamil, Telugu, Thai, Turkish, Turkmen, Ukrainian, Uppersorbian, Welsh};
     // A complete list of language tags can be found at:
     // https://docs.microsoft.com/en-us/typography/opentype/spec/languagetags
     let tag_bytes = match lang {
@@ -716,7 +721,10 @@ fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
 }
 
 /// Internal shaping implementation - the single source of truth for text shaping.
-/// Both FontRef and ParsedFont use this function.
+/// Both `FontRef` and `ParsedFont` use this function.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn shape_text_internal(
     parsed_font: &ParsedFont,
     text: &str,
@@ -750,23 +758,22 @@ fn shape_text_internal(
 
     let opt_gdef = parsed_font.opt_gdef_table.as_deref();
 
-    let mut raw_glyphs: Vec<allsorts::gsub::RawGlyph<()>> = Vec::new();
+    let mut raw_glyphs: Vec<gsub::RawGlyph<()>> = Vec::new();
     {
         let mut ci = 0usize;
         while ci < text.len() {
-            let ch = match text[ci..].chars().next() {
-                Some(c) => c,
-                None => break,
+            let Some(ch) = text[ci..].chars().next() else {
+                break;
             };
             let cluster = ci;
             let glyph_index = parsed_font.lookup_glyph_index(ch as u32).unwrap_or(0);
-            if cluster <= u16::MAX as usize {
-                raw_glyphs.push(allsorts::gsub::RawGlyph {
+            if u16::try_from(cluster).is_ok() {
+                raw_glyphs.push(gsub::RawGlyph {
                     unicodes: tinyvec::tiny_vec![[char; 1] => ch],
                     glyph_index,
                     liga_component_pos: cluster as u16,
-                    glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
-                    flags: allsorts::gsub::RawGlyphFlags::empty(),
+                    glyph_origin: gsub::GlyphOrigin::Char(ch),
+                    flags: gsub::RawGlyphFlags::empty(),
                     extra_data: (),
                     variation: None,
                 });
@@ -823,7 +830,7 @@ fn shape_text_internal(
 
     let font_size = style.font_size_px;
     let scale_factor = if parsed_font.font_metrics.units_per_em > 0 {
-        font_size / (parsed_font.font_metrics.units_per_em as f32)
+        font_size / f32::from(parsed_font.font_metrics.units_per_em)
     } else {
         FALLBACK_SCALE
     };
@@ -838,11 +845,11 @@ fn shape_text_internal(
         cap_height: parsed_font.font_metrics.cap_height,
     };
     let style_arc = Arc::new(style.clone());
-    let bidi_level = BidiLevel::new(if direction.is_rtl() { 1 } else { 0 });
+    let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));
 
     let mut shaped_glyphs = Vec::new();
-    for info in infos.iter() {
-        let cluster = info.glyph.liga_component_pos as u32;
+    for info in &infos {
+        let cluster = u32::from(info.glyph.liga_component_pos);
         let source_char = text
             .get(cluster as usize..)
             .and_then(|s| s.chars().next())
@@ -853,11 +860,11 @@ fn shape_text_internal(
         let ppem = font_size.round() as u16;
         let advance = parsed_font
             .get_hinted_advance_px(info.glyph.glyph_index, ppem)
-            .unwrap_or(base_advance as f32 * scale_factor);
-        let kerning = info.kerning as f32 * scale_factor;
+            .unwrap_or_else(|| f32::from(base_advance) * scale_factor);
+        let kerning = f32::from(info.kerning) * scale_factor;
 
         let (offset_x_units, offset_y_units) =
-            if let allsorts::gpos::Placement::Distance(x, y) = info.placement {
+            if let gpos::Placement::Distance(x, y) = info.placement {
                 (x, y)
             } else {
                 (0, 0)
@@ -870,7 +877,7 @@ fn shape_text_internal(
             glyph_id: info.glyph.glyph_index,
             codepoint: source_char,
             font_hash,
-            font_metrics: font_metrics.clone(),
+            font_metrics,
             style: Arc::clone(&style_arc),
             source: GlyphSource::Char,
             logical_byte_index: cluster as usize,
@@ -883,11 +890,10 @@ fn shape_text_internal(
                 x: offset_x,
                 y: offset_y,
             },
-            vertical_advance: vert.as_ref().map(|v| v.advance * font_size).unwrap_or(0.0),
-            vertical_origin_y: vert.as_ref().map(|v| v.origin_y * font_size).unwrap_or(0.0),
+            vertical_advance: vert.as_ref().map_or(0.0, |v| v.advance * font_size),
+            vertical_origin_y: vert.as_ref().map_or(0.0, |v| v.origin_y * font_size),
             vertical_bearing: vert
-                .map(|v| Point { x: v.bearing_x * font_size, y: v.bearing_y * font_size })
-                .unwrap_or(Point { x: 0.0, y: 0.0 }),
+                .map_or(Point { x: 0.0, y: 0.0 }, |v| Point { x: v.bearing_x * font_size, y: v.bearing_y * font_size }),
             orientation: GlyphOrientation::Horizontal,
             script,
             bidi_level,
@@ -898,8 +904,11 @@ fn shape_text_internal(
     Ok(shaped_glyphs)
 }
 
-/// Public helper function to shape text for ParsedFont, returning Glyph
-/// This is used by the ParsedFontTrait implementation for ParsedFont
+/// Public helper function to shape text for `ParsedFont`, returning Glyph
+/// This is used by the `ParsedFontTrait` implementation for `ParsedFont`
+/// # Errors
+///
+/// Returns a `LayoutError` if the text cannot be shaped.
 pub fn shape_text_for_parsed_font(
     parsed_font: &ParsedFont,
     text: &str,

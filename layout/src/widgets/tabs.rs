@@ -1,12 +1,15 @@
 //! Native-styled tab widget consisting of a [`TabHeader`] (the clickable tab bar)
-//! and [`TabContent`] (the panel shown for the active tab). Styling emulates
-//! the Windows-native tab control appearance via inline CSS constants.
+//! and [`TabContent`] (the panel shown for the active tab).
+//!
+//! Styling emulates the Windows-native tab control appearance via inline CSS
+//! constants.
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -1202,7 +1205,7 @@ azul_core::impl_managed_callback! {
 }
 
 impl TabHeader {
-    pub fn create(tabs: StringVec) -> Self {
+    #[must_use] pub fn create(tabs: StringVec) -> Self {
         Self {
             tabs,
             active_tab: 0,
@@ -1210,17 +1213,18 @@ impl TabHeader {
         }
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self::default();
         core::mem::swap(&mut default, self);
         default
     }
 
-    pub fn set_active_tab(&mut self, active_tab: usize) {
+    pub const fn set_active_tab(&mut self, active_tab: usize) {
         self.active_tab = active_tab;
     }
 
-    pub fn with_active_tab(mut self, active_tab: usize) -> Self {
+    #[must_use] pub const fn with_active_tab(mut self, active_tab: usize) -> Self {
         self.set_active_tab(active_tab);
         self
     }
@@ -1233,6 +1237,7 @@ impl TabHeader {
         .into();
     }
 
+    #[must_use]
     pub fn with_on_click<C: Into<TabOnClickCallback>>(
         mut self,
         refany: RefAny,
@@ -1242,8 +1247,39 @@ impl TabHeader {
         self
     }
 
-    pub fn dom(self) -> Dom {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::callbacks::CoreCallbackDataVec;
+
+        // classes for previous tab
+        const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-norightborder",
+            )),
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-not-active",
+            )),
+        ]; // CSS_MATCH_4415083954137121609
+
+        // classes for current tab
+        const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[Class(
+            AzString::from_const_str("__azul-native-tabs-tab-active"),
+        )];
+
+        // classes for next tab
+        const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-noleftborder",
+            )),
+            Class(AzString::from_const_str(
+                "__azul-native-tabs-tab-not-active",
+            )),
+        ];
+
+        // classes for default inactive tab
+        const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[Class(
+            AzString::from_const_str("__azul-native-tabs-tab-not-active"),
+        )];
 
         let on_click_is_some = self.on_click.is_some();
 
@@ -1278,36 +1314,6 @@ impl TabHeader {
                     };
 
                     let tab_is_active = self.active_tab == tab_idx;
-
-                    // classes for previous tab
-                    const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-norightborder",
-                        )),
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-not-active",
-                        )),
-                    ]; // CSS_MATCH_4415083954137121609
-
-                    // classes for current tab
-                    const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[Class(
-                        AzString::from_const_str("__azul-native-tabs-tab-active"),
-                    )];
-
-                    // classes for next tab
-                    const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-noleftborder",
-                        )),
-                        Class(AzString::from_const_str(
-                            "__azul-native-tabs-tab-not-active",
-                        )),
-                    ];
-
-                    // classes for default inactive tab
-                    const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[Class(
-                        AzString::from_const_str("__azul-native-tabs-tab-not-active"),
-                    )];
 
                     let (ids_and_classes, css_props) = if tab_is_active {
                         (
@@ -1392,29 +1398,30 @@ impl Default for TabContent {
 }
 
 impl TabContent {
-    pub fn new(content: Dom) -> Self {
+    #[must_use] pub const fn new(content: Dom) -> Self {
         Self {
             content,
             has_padding: true,
         }
     }
 
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self::default();
         core::mem::swap(&mut default, self);
         default
     }
 
-    pub fn with_padding(mut self, padding: bool) -> Self {
+    #[must_use] pub const fn with_padding(mut self, padding: bool) -> Self {
         self.set_padding(padding);
         self
     }
 
-    pub fn set_padding(&mut self, padding: bool) {
+    pub const fn set_padding(&mut self, padding: bool) {
         self.has_padding = padding;
     }
 
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[Class(
             AzString::from_const_str("__azul-native-tabs-content"),
         )];
@@ -1441,8 +1448,8 @@ struct TabLocalDataset {
     on_click: OptionTabOnClick,
 }
 
-extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    fn select_new_tab_inner(mut refany: RefAny, info: &mut CallbackInfo) -> Option<Update> {
+extern "C" fn on_tab_click(mut refany: RefAny, info: CallbackInfo) -> Update {
+    fn select_new_tab_inner(mut refany: RefAny, info: &CallbackInfo) -> Option<Update> {
         let mut tab_local_dataset = refany.downcast_mut::<TabLocalDataset>()?;
         let tab_idx = tab_local_dataset.tab_idx;
         let tab_header_state = TabHeaderState {
@@ -1465,5 +1472,5 @@ extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update
         Some(result)
     }
 
-    select_new_tab_inner(refany, &mut info).unwrap_or(Update::RefreshDom)
+    select_new_tab_inner(refany, &info).unwrap_or(Update::RefreshDom)
 }

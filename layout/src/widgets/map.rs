@@ -50,7 +50,7 @@ use azul_css::AzString;
 // ────────── POD types (api.json + codegen surface) ─────────────────────
 
 /// Identity of one tile in a tiled-map XYZ scheme. Matches Leaflet /
-/// OpenLayers / Mapbox conventions (Web Mercator, origin top-left).
+/// `OpenLayers` / Mapbox conventions (Web Mercator, origin top-left).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct MapTileId {
@@ -64,9 +64,9 @@ pub struct MapTileId {
 }
 
 /// Configuration of one map tile layer — usually the base raster /
-/// vector layer. Additional layers (heatmaps, custom GeoJSON) compose
+/// vector layer. Additional layers (heatmaps, custom `GeoJSON`) compose
 /// as further `MapWidget` instances stacked atop.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct MapTileLayer {
     /// `{z}` / `{x}` / `{y}` placeholders are substituted at fetch
@@ -76,7 +76,7 @@ pub struct MapTileLayer {
     pub min_zoom: u8,
     /// Maximum integer zoom this layer supports.
     pub max_zoom: u8,
-    /// Attribution string the user MUST display (ODbL "© OpenStreetMap
+    /// Attribution string the user MUST display (`ODbL` "© OpenStreetMap
     /// contributors" or similar). Most providers require it.
     pub attribution: AzString,
     /// MapCSS-style stylesheet driving per-layer fill / stroke /
@@ -171,7 +171,7 @@ pub struct MapWidget {
 }
 
 impl MapWidget {
-    pub fn create(layer: MapTileLayer) -> Self {
+    #[must_use] pub fn create(layer: MapTileLayer) -> Self {
         Self {
             layer,
             viewport: MapViewport::default(),
@@ -181,12 +181,12 @@ impl MapWidget {
         }
     }
 
-    pub fn with_viewport(mut self, viewport: MapViewport) -> Self {
+    #[must_use] pub const fn with_viewport(mut self, viewport: MapViewport) -> Self {
         self.viewport = viewport;
         self
     }
 
-    pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
+    #[must_use] pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
         self.container_style = css;
         self
     }
@@ -207,6 +207,7 @@ impl MapWidget {
     }
 
     /// Builder form of [`set_on_viewport_changed`](Self::set_on_viewport_changed).
+    #[must_use]
     pub fn with_on_viewport_changed<C: Into<MapViewportChangedCallback>>(
         mut self,
         data: RefAny,
@@ -228,6 +229,7 @@ impl MapWidget {
     }
 
     /// Builder form of [`set_on_pin_tap`](Self::set_on_pin_tap).
+    #[must_use]
     pub fn with_on_pin_tap<C: Into<MapPinTapCallback>>(
         mut self,
         data: RefAny,
@@ -242,14 +244,15 @@ impl MapWidget {
     /// angle Mercator (accurate at city zooms). Inverse of
     /// [`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement
     /// the projection (e.g. to drop a pin where the user tapped).
-    pub fn latlon_at_px(
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[must_use] pub fn latlon_at_px(
         viewport: MapViewport,
         px: azul_core::geom::LogicalPosition,
         container: azul_core::geom::LogicalSize,
     ) -> MapLatLon {
-        let world = 256.0_f64 * 2.0_f64.powf(viewport.zoom as f64);
-        let dx = (px.x - container.width * 0.5) as f64;
-        let dy = (px.y - container.height * 0.5) as f64;
+        let world = 256.0_f64 * 2.0_f64.powf(f64::from(viewport.zoom));
+        let dx = f64::from(px.x - container.width * 0.5);
+        let dy = f64::from(px.y - container.height * 0.5);
         let lon = (viewport.centre_lon_deg + dx * 360.0 / world).clamp(-180.0, 180.0);
         let cos_lat = viewport.centre_lat_deg.to_radians().cos();
         let lat = (viewport.centre_lat_deg - dy * 360.0 / world * cos_lat).clamp(-85.0, 85.0);
@@ -261,16 +264,18 @@ impl MapWidget {
 
     /// Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in
     /// container pixels at `viewport`.
-    pub fn px_at_latlon(
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[must_use] pub fn px_at_latlon(
         viewport: MapViewport,
         coord: MapLatLon,
         container: azul_core::geom::LogicalSize,
     ) -> azul_core::geom::LogicalPosition {
-        let world = 256.0_f64 * 2.0_f64.powf(viewport.zoom as f64);
+        let world = 256.0_f64 * 2.0_f64.powf(f64::from(viewport.zoom));
         let cos_lat = viewport.centre_lat_deg.to_radians().cos();
-        let px = container.width as f64 * 0.5
+        let px = f64::from(container.width) * 0.5
             + (coord.lon_deg - viewport.centre_lon_deg) * world / 360.0;
-        let py = container.height as f64 * 0.5
+        let py = f64::from(container.height) * 0.5
             - (coord.lat_deg - viewport.centre_lat_deg) * world / (360.0 * cos_lat);
         azul_core::geom::LogicalPosition::new(px as f32, py as f32)
     }
@@ -290,7 +295,7 @@ impl MapWidget {
     ///
     /// No tile-fetch worker is wired — tiles render as placeholders.
     /// Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
         self.build_dom(None)
     }
 
@@ -302,7 +307,7 @@ impl MapWidget {
     /// `azul_dll::desktop::extra::map::tile_fetch_worker`; wrap it in a
     /// `ThreadCallback` to pass it here. See the recipe in
     /// `MOBILE_SESSION_LOG.md`.
-    pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
+    #[must_use] pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
     }
 
@@ -328,7 +333,7 @@ impl MapWidget {
             // a non-empty `container_style` (via `with_container_style`) overrides.
             .with_css("position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;")
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_map_tile_cache as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_map_tile_cache))
             // AfterMount fires once when the widget first appears (and
             // again after a DOM-structure change re-mounts it). It's the
             // earliest point with a `CallbackInfo`, so we kick the
@@ -337,47 +342,47 @@ impl MapWidget {
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_after_mount as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_after_mount),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_down as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseOver),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchStart),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_down as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchMove),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchEnd),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchCancel),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_up),
             )
             // Native gesture events (UIPinchGestureRecognizer on iOS,
             // ScaleGestureDetector on Android, NSMagnificationGestureRecognizer
@@ -386,17 +391,17 @@ impl MapWidget {
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::PinchIn),
                 dataset.clone(),
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::PinchOut),
                 dataset,
-                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+                crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
             .with_child(
                 Dom::create_virtual_view(
                     virtual_view_data,
-                    map_widget_render as azul_core::callbacks::VirtualViewCallbackType,
+                    azul_core::callbacks::VirtualViewCallback::create(map_widget_render),
                 )
                 // Fill the widget div with a PERCENTAGE box (not absolute). The
                 // outer div above is absolutely sized, so its height IS definite —
@@ -411,7 +416,7 @@ impl MapWidget {
         if self.container_style.as_slice().is_empty() {
             root
         } else {
-            root.with_css_props(self.container_style.clone())
+            root.with_css_props(self.container_style)
         }
     }
 }
@@ -462,7 +467,7 @@ pub struct MapTileCache {
 }
 
 impl MapTileCache {
-    pub fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
+    #[must_use] pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
         Self {
             layer,
             viewport,
@@ -501,6 +506,8 @@ impl MapTileCache {
     /// space), and the farthest are dropped first. IN-FLIGHT tiles
     /// (`Pending`/`Fetching`) are never evicted (their worker would write into a
     /// gone entry), and on-screen tiles score near-zero so they survive.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     pub fn prune_distant_tiles(&mut self) {
         const MAX_CACHED_TILES: usize = 192;
         if self.tiles.len() <= MAX_CACHED_TILES {
@@ -508,27 +515,27 @@ impl MapTileCache {
         }
 
         let z = (self.viewport.zoom.floor() as i32)
-            .clamp(self.layer.min_zoom as i32, self.layer.max_zoom as i32)
+            .clamp(i32::from(self.layer.min_zoom), i32::from(self.layer.max_zoom))
             as u8;
-        let tile_count = 1u32 << z as u32;
-        let cx = lon_to_tile_x(self.viewport.centre_lon_deg, tile_count as f64);
-        let cy = lat_to_tile_y(self.viewport.centre_lat_deg, tile_count as f64);
+        let tile_count = 1u32 << u32::from(z);
+        let cx = lon_to_tile_x(self.viewport.centre_lon_deg, f64::from(tile_count));
+        let cy = lat_to_tile_y(self.viewport.centre_lat_deg, f64::from(tile_count));
 
         // Higher score = evict sooner.
         let score = |id: &MapTileId| -> f64 {
-            let zt_count = 1u32 << id.z as u32;
+            let zt_count = 1u32 << u32::from(id.z);
             // Project the tile's centre into the CURRENT zoom's tile space so
             // distances across zoom levels are comparable.
-            let scale = tile_count as f64 / zt_count as f64;
-            let tx = (id.x as f64 + 0.5) * scale;
-            let ty = (id.y as f64 + 0.5) * scale;
-            let dz = (id.z as i32 - z as i32).abs() as f64;
+            let scale = f64::from(tile_count) / f64::from(zt_count);
+            let tx = (f64::from(id.x) + 0.5) * scale;
+            let ty = (f64::from(id.y) + 0.5) * scale;
+            let dz = f64::from((i32::from(id.z) - i32::from(z)).abs());
             let dx = tx - cx;
             let dy = ty - cy;
             dz * 10_000.0 + dx * dx + dy * dy
         };
 
-        let mut evictable: alloc::vec::Vec<(f64, MapTileId)> = self
+        let mut evictable: Vec<(f64, MapTileId)> = self
             .tiles
             .iter()
             .filter(|(_, e)| !matches!(e, TileEntry::Pending | TileEntry::Fetching))
@@ -556,7 +563,7 @@ pub enum TileEntry {
     /// Distinct from `Pending` so the spawn pass doesn't double-fire.
     Fetching,
     /// Tile decoded into an SVG document. Held as the raw SVG
-    /// string for now; the VirtualView callback will feed it
+    /// string for now; the `VirtualView` callback will feed it
     /// through the framework's svg-to-dom pipeline on the next
     /// re-render.
     Ready { svg: AzString },
@@ -567,7 +574,7 @@ pub enum TileEntry {
 }
 
 /// Worker-thread input: which tile to fetch, the resolved URL, and the
-/// MapCSS stylesheet to apply when converting features to SVG. Boxed
+/// `MapCSS` stylesheet to apply when converting features to SVG. Boxed
 /// into the `Thread::create` init `RefAny`.
 #[derive(Debug, Clone)]
 pub struct TileFetchInit {
@@ -625,7 +632,7 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
         let old_guard = old_data.downcast_mut::<MapTileCache>();
         if let (Some(new_g), Some(mut old_g)) = (new_g, old_guard) {
             if old_g.fetch_callback.is_none() {
-                old_g.fetch_callback = new_g.fetch_callback.clone();
+                old_g.fetch_callback.clone_from(&new_g.fetch_callback);
             }
             old_g.viewport = new_g.viewport;
             old_g.layer = new_g.layer.clone();
@@ -645,7 +652,9 @@ use crate::timer::{Timer, TimerCallback, TimerCallbackInfo};
 
 // --- User hook: on_viewport_changed (backreference DI, FFI-exposed) ---
 
-/// User hook fired when the user pans or zooms the map. Lets app code observe
+/// User hook fired when the user pans or zooms the map.
+///
+/// Lets app code observe
 /// or persist the widget-driven `MapViewport` (which otherwise lives only in
 /// the opaque `MapTileCache`). The backreference DI pattern (architecture.md).
 pub type MapViewportChangedCallbackType =
@@ -687,7 +696,9 @@ fn invoke_viewport_changed(
 // --- User hook: on_pin_tap (backreference DI, FFI-exposed) ---
 
 /// User hook fired when the user taps the map (a press + release at ~the same
-/// point, no pan/pinch). Receives the tapped [`MapLatLon`] (projected via
+/// point, no pan/pinch).
+///
+/// Receives the tapped [`MapLatLon`] (projected via
 /// [`MapWidget::latlon_at_px`]) so apps can drop a pin without wiring their own
 /// tap handling + projection. The backreference DI pattern (architecture.md).
 pub type MapPinTapCallbackType = extern "C" fn(RefAny, CallbackInfo, MapLatLon) -> Update;
@@ -719,7 +730,7 @@ fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon)
 }
 
 /// Pointer down → record the drag anchor. The widget knows nothing
-/// about the user's overall state RefAny — only its own dataset —
+/// about the user's overall state `RefAny` — only its own dataset —
 /// so the anchor lives in `MapTileCache::drag_anchor`.
 extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
@@ -747,26 +758,25 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 /// `dz = log2(current_distance / pinch_anchor)`. The next move resets
 /// the anchor to the current distance so the gesture stays
 /// continuous across many frames.
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
         let dragging = data
             .downcast_ref::<MapTileCache>()
-            .map(|c| c.drag_anchor.is_some())
-            .unwrap_or(false);
-        eprintln!("[map] pointer_move fired (dragging={})", dragging);
+            .is_some_and(|c| c.drag_anchor.is_some());
+        eprintln!("[map] pointer_move fired (dragging={dragging})");
     }
     // Active pinch wins over single-finger pan.
     if let Some(pinch) = info.get_pinch().into_option() {
-        let mut cache = match data.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return Update::DoNothing,
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return Update::DoNothing;
         };
         let anchor = *cache.pinch_anchor.get_or_insert(pinch.current_distance);
         if anchor > 1.0 && pinch.current_distance > 1.0 {
             let dz = (pinch.current_distance / anchor).log2();
-            let min = cache.layer.min_zoom as f32;
-            let max = cache.layer.max_zoom as f32;
+            let min = f32::from(cache.layer.min_zoom);
+            let max = f32::from(cache.layer.max_zoom);
             cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
         }
         cache.pinch_anchor = Some(pinch.current_distance);
@@ -788,17 +798,15 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
         None => return Update::DoNothing,
     };
-    let mut cache_guard = match data.downcast_mut::<MapTileCache>() {
-        Some(c) => c,
-        None => return Update::DoNothing,
+    let Some(mut cache_guard) = data.downcast_mut::<MapTileCache>() else {
+        return Update::DoNothing;
     };
-    let anchor = match cache_guard.drag_anchor {
-        Some(a) => a,
-        None => return Update::DoNothing, // no active drag
+    let Some(anchor) = cache_guard.drag_anchor else {
+        return Update::DoNothing; // no active drag
     };
 
-    let dx_px = (pos.x - anchor.x) as f64;
-    let dy_px = (pos.y - anchor.y) as f64;
+    let dx_px = f64::from(pos.x - anchor.x);
+    let dy_px = f64::from(pos.y - anchor.y);
     if dx_px.abs() < 0.5 && dy_px.abs() < 0.5 {
         return Update::DoNothing;
     }
@@ -806,7 +814,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let (new_lon, new_lat) = pan_viewport(
         cache_guard.viewport.centre_lat_deg,
         cache_guard.viewport.centre_lon_deg,
-        cache_guard.viewport.zoom as f64,
+        f64::from(cache_guard.viewport.zoom),
         dx_px,
         dy_px,
     );
@@ -827,6 +835,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
 /// can be in flight (and pinch supersedes pan in the move handler);
 /// clear both anchors on release.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // Cursor + container size for tap projection (read before borrowing data).
     let up_pos = info
@@ -835,23 +844,19 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
         .map(|p| azul_core::geom::LogicalPosition::new(p.x, p.y));
     let container = info
         .get_hit_node_rect()
-        .map(|r| r.size)
-        .unwrap_or(azul_core::geom::LogicalSize::new(0.0, 0.0));
-    let (press, viewport, hook) = match data.downcast_mut::<MapTileCache>() {
-        Some(mut cache) => {
+        .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
+    let (press, viewport, hook) = data.downcast_mut::<MapTileCache>().map_or_else(|| (None, MapViewport::default(), OptionMapPinTap::None), |mut cache| {
             let out = (cache.press_origin, cache.viewport, cache.on_pin_tap.clone());
             cache.drag_anchor = None;
             cache.pinch_anchor = None;
             cache.press_origin = None;
             out
-        }
-        None => (None, MapViewport::default(), OptionMapPinTap::None),
-    };
+        });
     // A press + release at ~the same point (no pan/pinch) is a tap: project it
     // to lat/lon and fire the user's on_pin_tap hook.
     if let (Some(origin), Some(up)) = (press, up_pos) {
-        let dx = (up.x - origin.x) as f64;
-        let dy = (up.y - origin.y) as f64;
+        let dx = f64::from(up.x - origin.x);
+        let dy = f64::from(up.y - origin.y);
         if dx * dx + dy * dy < 36.0 {
             let coord = MapWidget::latlon_at_px(viewport, up, container);
             invoke_pin_tap(&hook, &info, coord);
@@ -867,7 +872,7 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 /// Mouse-wheel / trackpad scroll over the map = ZOOM (Leaflet / Google-Maps
-/// convention), not content scroll. The map's VirtualView has no scroll overflow,
+/// convention), not content scroll. The map's `VirtualView` has no scroll overflow,
 /// so the framework's queued wheel deltas would otherwise be wasted — drain them
 /// and apply as a zoom step, then queue + spawn the tiles the new zoom needs and
 /// re-render in place.
@@ -877,14 +882,11 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     // the scroll-physics input queue (which only feeds scrollable nodes).
     let dy: f32 = {
         let hn = info.get_hit_node();
-        match hn.node.into_crate_internal() {
-            Some(nid) => info.get_scroll_delta(hn.dom, nid).map(|d| d.y).unwrap_or(0.0),
-            None => 0.0,
-        }
+        hn.node.into_crate_internal().map_or(0.0, |nid| info.get_scroll_delta(hn.dom, nid).map_or(0.0, |d| d.y))
     };
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
-        eprintln!("[map] scroll fired dy={}", dy);
+        eprintln!("[map] scroll fired dy={dy}");
     }
     if dy == 0.0 {
         return Update::DoNothing;
@@ -893,15 +895,13 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     // the new zoom needs).
     let bounds = info
         .get_hit_node_rect()
-        .map(|r| r.size)
-        .unwrap_or(azul_core::geom::LogicalSize::new(0.0, 0.0));
+        .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
     let (vp, hook) = {
-        let mut cache = match data.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return Update::DoNothing,
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return Update::DoNothing;
         };
-        let min = cache.layer.min_zoom as f32;
-        let max = cache.layer.max_zoom as f32;
+        let min = f32::from(cache.layer.min_zoom);
+        let max = f32::from(cache.layer.max_zoom);
         // ~0.5 zoom levels per wheel notch. X11 delivers wheel-up as dy > 0;
         // wheel-up zooms IN, wheel-down zooms OUT (Leaflet / Google-Maps).
         let dz = dy.signum() * 0.5;
@@ -951,6 +951,7 @@ fn lat_to_tile_y(lat_deg: f64, tile_count: f64) -> f64 {
 /// Verified against the forward direction in the tests below; the
 /// upcoming tap-to-pin handler reuses it to turn a tap into a lat/lon.
 #[allow(dead_code)]
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn tile_x_to_lon(x: f64, tile_count: f64) -> f64 {
     x / tile_count * 360.0 - 180.0
 }
@@ -971,6 +972,8 @@ fn tile_y_to_lat(y: f64, tile_count: f64) -> f64 {
 /// poles. Longitude wraps to [-180, 180); latitude clamps to the
 /// Web-Mercator ±85.05° limit. The shared, unit-tested core of
 /// `map_on_pointer_move`.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn pan_viewport(
     centre_lat_deg: f64,
     centre_lon_deg: f64,
@@ -988,7 +991,9 @@ fn pan_viewport(
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
-/// the framework's existing XML→DOM path. The SVG is wrapped in a
+/// the framework's existing XML→DOM path.
+///
+/// The SVG is wrapped in a
 /// minimal `<html><body>` envelope because `str_to_dom_unstyled`
 /// expects a document root; the wrapper divs are zero-impact in
 /// layout. Returns `None` if the `xml` feature is off or parsing
@@ -999,7 +1004,7 @@ fn pan_viewport(
 // (`str_to_dom_unstyled` → `SvgNodeData::Path`) only produces a clip mask, so it
 // cannot paint the feature colours — hence the tiles rendered grey.
 #[cfg(all(feature = "xml", feature = "cpurender"))]
-pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
+#[must_use] pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
     let img = crate::cpurender::render_svg_to_imageref(svg.as_bytes(), 256, 256).ok()?;
     Some(
         Dom::create_image(img)
@@ -1024,7 +1029,7 @@ fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
 
 /// Fires once when the widget first mounts. Kicks the initial tile
 /// fetches so the map populates without waiting for a user gesture.
-/// (The VirtualView marks the viewport's tiles `Pending` during the
+/// (The `VirtualView` marks the viewport's tiles `Pending` during the
 /// layout pass that precedes mount-event dispatch; this handler then
 /// spawns the workers for them.) Returns `RefreshDom` so the
 /// `Fetching` state shows immediately.
@@ -1063,7 +1068,7 @@ extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// hundreds at once). Each thread gets:
 /// - init `RefAny` = `TileFetchInit { tile, url }`
 /// - writeback `RefAny` = a clone of the cache dataset, so
-///   `map_tile_writeback` mutates the same cache the VirtualView reads.
+///   `map_tile_writeback` mutates the same cache the `VirtualView` reads.
 ///
 /// Tiles transition `Pending → Fetching` here so they aren't
 /// re-spawned next frame. No-op when the cache has no `fetch_callback`.
@@ -1079,9 +1084,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     // `info.add_thread`.
     let mut to_spawn: Vec<TileFetchInit> = Vec::new();
     {
-        let mut cache = match data.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return,
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return;
         };
         if cache.fetch_callback.is_none() {
             return; // no worker wired — leave tiles Pending (placeholder grid)
@@ -1111,9 +1115,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     }
 
     let cb = {
-        let cache = match data.downcast_ref::<MapTileCache>() {
-            Some(c) => c,
-            None => return,
+        let Some(cache) = data.downcast_ref::<MapTileCache>() else {
+            return;
         };
         match cache.fetch_callback.as_ref() {
             Some(cb) => cb.clone(),
@@ -1131,14 +1134,14 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     }
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
-        eprintln!("[map] spawn_pending: {} thread(s) spawned", spawn_count);
+        eprintln!("[map] spawn_pending: {spawn_count} thread(s) spawned");
     }
 }
 
 /// Low-frequency timer that spawns fetches for any `Pending` tiles the
-/// VirtualView marked since the last spawn — the path that the
-/// pointer/scroll/after_mount handlers can't cover (a rebuild-driven viewport
-/// change marks tiles `Pending` in the VirtualView render, which has no
+/// `VirtualView` marked since the last spawn — the path that the
+/// `pointer/scroll/after_mount` handlers can't cover (a rebuild-driven viewport
+/// change marks tiles `Pending` in the `VirtualView` render, which has no
 /// `add_thread`). Installed once in `map_on_after_mount`. The `data` clone
 /// tracks the persistent dataset, so writebacks land in the rendered cache.
 /// Cheap no-op when nothing is `Pending`; never `RefreshDom`s (that would
@@ -1156,7 +1159,7 @@ extern "C" fn map_fetch_sweep_tick(
 
 /// `{z}/{x}/{y}` substitution. Mirrors `azul_dll`'s `build_tile_url`
 /// (the widget can't reach the dll, so it's duplicated here — trivial).
-fn build_tile_url(template: &str, tile: MapTileId) -> alloc::string::String {
+fn build_tile_url(template: &str, tile: MapTileId) -> String {
     use alloc::string::ToString;
     template
         .replace("{z}", &tile.z.to_string())
@@ -1164,12 +1167,14 @@ fn build_tile_url(template: &str, tile: MapTileId) -> alloc::string::String {
         .replace("{y}", &tile.y.to_string())
 }
 
-/// Worker-thread → main-thread writeback. `cache_dataset` is the
+/// Worker-thread → main-thread writeback.
+///
+/// `cache_dataset` is the
 /// `writeback_data` handed to `Thread::create` (the same
 /// `MapTileCache` the widget reads); `incoming` is the `TileReadyMsg`
 /// the worker sent. Stamps the tile `Ready` (or `Failed`) and asks for
-/// a relayout so the VirtualView renders the new content.
-pub extern "C" fn map_tile_writeback(
+/// a relayout so the `VirtualView` renders the new content.
+#[must_use] pub extern "C" fn map_tile_writeback(
     mut cache_dataset: RefAny,
     mut incoming: RefAny,
     mut info: CallbackInfo,
@@ -1179,9 +1184,8 @@ pub extern "C" fn map_tile_writeback(
         None => return Update::DoNothing,
     };
     {
-        let mut cache = match cache_dataset.downcast_mut::<MapTileCache>() {
-            Some(c) => c,
-            None => return Update::DoNothing,
+        let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
+            return Update::DoNothing;
         };
         #[cfg(feature = "std")]
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
@@ -1216,6 +1220,8 @@ pub extern "C" fn map_tile_writeback(
 /// view is already requested; the result is clamped to the valid
 /// `0..=tile_count-1` grid. The pure core of `map_widget_render`'s grid
 /// loop — what decides which tiles get fetched.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 fn visible_tile_range(
     centre_x: f32,
     centre_y: f32,
@@ -1244,29 +1250,32 @@ fn visible_tile_range(
 /// `0..tile_count` band — the horizontal world-wrap. `rem_euclid` (not `%`)
 /// so columns west of the antimeridian map to the east side: at `tile_count`
 /// = 4, column `-1` → `3`, column `4` → `0`.
+#[allow(clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
     x.rem_euclid(tile_count.max(1) as i32) as u32
 }
 
 /// `f(view)` — the tile ids a `viewport` needs to fill a `bounds`-sized widget.
-/// Shared by the VirtualView render and the pan/zoom handlers so a handler can
+/// Shared by the `VirtualView` render and the pan/zoom handlers so a handler can
 /// mark + spawn the NEW viewport's tiles immediately, rather than waiting for the
 /// next render pass to discover them. Mirrors `map_widget_render`'s grid math.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn map_visible_tiles(
     viewport: &MapViewport,
     bounds: azul_core::geom::LogicalSize,
     layer: &MapTileLayer,
-) -> alloc::vec::Vec<MapTileId> {
+) -> Vec<MapTileId> {
     let z_int =
-        (viewport.zoom.floor() as i32).clamp(layer.min_zoom as i32, layer.max_zoom as i32) as u8;
-    let tile_count = 1u32 << z_int as u32;
-    let frac_zoom = viewport.zoom - z_int as f32;
+        (viewport.zoom.floor() as i32).clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
+    let tile_count = 1u32 << u32::from(z_int);
+    let frac_zoom = viewport.zoom - f32::from(z_int);
     let zoom_scale = 2.0_f32.powf(frac_zoom);
-    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, tile_count as f64) as f32;
-    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
+    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count)) as f32;
+    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count)) as f32;
     let (x_min, x_max, y_min, y_max) =
         visible_tile_range(centre_x, centre_y, bounds.width, bounds.height, zoom_scale, tile_count);
-    let mut tiles = alloc::vec::Vec::new();
+    let mut tiles = Vec::new();
     for x in x_min..=x_max {
         for y in y_min..=y_max {
             tiles.push(MapTileId { z: z_int, x: wrap_tile_x(x, tile_count), y: y as u32 });
@@ -1277,10 +1286,17 @@ fn map_visible_tiles(
 
 // ────────── VirtualView callback — visible-tile rendering ─────────────
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 extern "C" fn map_widget_render(
     data: RefAny,
     info: VirtualViewCallbackInfo,
 ) -> VirtualViewReturn {
+    enum TileDisplay {
+        Glyph(&'static str),
+        Svg(AzString),
+    }
     let mut data = data;
     let bounds = info.get_bounds();
     let bounds_logical = bounds.get_logical_size();
@@ -1293,7 +1309,7 @@ extern "C" fn map_widget_render(
     // render nothing until the layout settles to a finite box.
     if !width_px.is_finite() || !height_px.is_finite() || width_px <= 0.0 || height_px <= 0.0 {
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
-            eprintln!("[map] non-finite bounds {}x{} — skipping render", width_px, height_px);
+            eprintln!("[map] non-finite bounds {width_px}x{height_px} — skipping render");
         }
         return VirtualViewReturn {
             dom: OptionDom::None,
@@ -1320,16 +1336,16 @@ extern "C" fn map_widget_render(
     // Round the requested fractional zoom down to the nearest integer
     // tile zoom the layer supports.
     let z_int = (viewport.zoom.floor() as i32)
-        .clamp(layer.min_zoom as i32, layer.max_zoom as i32)
+        .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom))
         as u8;
-    let tile_count = 1u32 << z_int as u32;
-    let frac_zoom = viewport.zoom - z_int as f32;
+    let tile_count = 1u32 << u32::from(z_int);
+    let frac_zoom = viewport.zoom - f32::from(z_int);
     let zoom_scale = 2.0_f32.powf(frac_zoom);
 
     // Convert WGS-84 → Web-Mercator-XYZ tile-space via the shared
     // projection helpers (the single source of truth, unit-tested below).
-    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, tile_count as f64) as f32;
-    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
+    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count)) as f32;
+    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count)) as f32;
 
     // 256 is the Mercator tile pixel size at integer zoom; tile_px is also
     // used below to position each tile div.
@@ -1370,26 +1386,22 @@ extern "C" fn map_widget_render(
     // render loop can parse it into a DOM child; the rest carry a glyph
     // (`…` Pending / `⟳` Fetching / `✗` Failed) so the fetch path stays
     // observable.
-    enum TileDisplay {
-        Glyph(&'static str),
-        Svg(AzString),
-    }
-    let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_ref::<MapTileCache>() {
-        Some(c) => c
-            .tiles
-            .iter()
-            .map(|(id, e)| {
-                let disp = match e {
-                    TileEntry::Pending => TileDisplay::Glyph("…"),
-                    TileEntry::Fetching => TileDisplay::Glyph("⟳"),
-                    TileEntry::Ready { svg } => TileDisplay::Svg(svg.clone()),
-                    TileEntry::Failed { .. } => TileDisplay::Glyph("✗"),
-                };
-                (*id, disp)
-            })
-            .collect(),
-        None => BTreeMap::new(),
-    };
+    let states: BTreeMap<MapTileId, TileDisplay> = data
+        .downcast_ref::<MapTileCache>()
+        .map_or_else(BTreeMap::new, |c| {
+            c.tiles
+                .iter()
+                .map(|(id, e)| {
+                    let disp = match e {
+                        TileEntry::Pending => TileDisplay::Glyph("…"),
+                        TileEntry::Fetching => TileDisplay::Glyph("⟳"),
+                        TileEntry::Ready { svg } => TileDisplay::Svg(svg.clone()),
+                        TileEntry::Failed { .. } => TileDisplay::Glyph("✗"),
+                    };
+                    (*id, disp)
+                })
+                .collect()
+        });
 
     // Build the visible-tile grid. Each tile div is GPU-translated
     // into its screen position; the (CSS-driven) `transform` keeps
@@ -1411,27 +1423,27 @@ extern "C" fn map_widget_render(
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 data.clone(),
-                Callback::from(map_on_pointer_down as CallbackType),
+                Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseOver),
                 data.clone(),
-                Callback::from(map_on_pointer_move as CallbackType),
+                Callback::from_ptr(map_on_pointer_move),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 data.clone(),
-                Callback::from(map_on_pointer_up as CallbackType),
+                Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
                 data.clone(),
-                Callback::from(map_on_pointer_up as CallbackType),
+                Callback::from_ptr(map_on_pointer_up),
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::Scroll),
                 data.clone(),
-                Callback::from(map_on_scroll as CallbackType),
+                Callback::from_ptr(map_on_scroll),
             );
     }
 
@@ -1445,11 +1457,21 @@ extern "C" fn map_widget_render(
                 x: wrap_tile_x(x, tile_count),
                 y: y as u32,
             };
-            let screen_x =
-                ((x as f32 - centre_x) * tile_px + width_px * 0.5).round() as i32;
-            let screen_y =
-                ((y as f32 - centre_y) * tile_px + height_px * 0.5).round() as i32;
-            let size_px = tile_px.round().max(1.0) as i32;
+            // Derive each tile's on-screen box from the ROUNDED origins of THIS
+            // tile and the NEXT one along each axis, so neighbours always share an
+            // exact edge — no gaps, no overlaps — at fractional zoom too. A fixed
+            // `tile_px.round()` size drifts out of step with the per-tile rounded
+            // origin the moment `tile_px` isn't a whole number (any non-integer
+            // zoom, e.g. a scroll-wheel notch), scattering the tiles into a
+            // disconnected grid. At integer zoom `tile_px` is exactly 256, so each
+            // span is exactly 256 and this is identical to the previous behaviour.
+            let proj = |coord: f32, centre: f32, span_px: f32| {
+                ((coord - centre) * tile_px + span_px * 0.5).round() as i32
+            };
+            let screen_x = proj(x as f32, centre_x, width_px);
+            let screen_y = proj(y as f32, centre_y, height_px);
+            let size_w = (proj(x as f32 + 1.0, centre_x, width_px) - screen_x).max(1);
+            let size_h = (proj(y as f32 + 1.0, centre_y, height_px) - screen_y).max(1);
 
             // Placeholder (still-loading) tiles show the loading grid — a grey
             // background + 1px border — so fetch state is visible. A LOADED tile
@@ -1463,9 +1485,8 @@ extern "C" fn map_widget_render(
                 "background: #e7e9ec; border: 1px solid #d0d4d9;"
             };
             let style = alloc::format!(
-                "position: absolute; left: {}px; top: {}px; \
-                 width: {}px; height: {}px; {}",
-                screen_x, screen_y, size_px, size_px, chrome
+                "position: absolute; left: {screen_x}px; top: {screen_y}px; \
+                 width: {size_w}px; height: {size_h}px; {chrome}"
             );
 
             let mut tile_div = Dom::create_div().with_css(style.as_str());
@@ -1481,7 +1502,7 @@ extern "C" fn map_widget_render(
                     }
                     None => {
                         tile_div = tile_div.with_child(
-                            Dom::create_text(alloc::format!("✓? z{}/{}/{}", z_int, x, y))
+                            Dom::create_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
                                 .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                         );
                     }
@@ -1492,7 +1513,7 @@ extern "C" fn map_widget_render(
                         _ => "",
                     };
                     tile_div = tile_div.with_child(
-                        Dom::create_text(alloc::format!("{} z{}/{}/{}", state_tag, z_int, x, y))
+                        Dom::create_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
                             .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                     );
                 }
@@ -1572,6 +1593,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
     fn projection_round_trips() {
         // Forward then inverse must return the original coordinate, for
         // a handful of real-world points across several zooms.
@@ -1623,9 +1645,9 @@ mod tests {
     fn pan_clamps_latitude_to_mercator_limit() {
         // A huge vertical drag can't push the centre past ±85°.
         let (_, lat_north) = pan_viewport(84.0, 0.0, 0.0, 0.0, 1.0e6);
-        assert!(lat_north <= 85.0 && lat_north >= -85.0);
+        assert!((-85.0..=85.0).contains(&lat_north));
         let (_, lat_south) = pan_viewport(-84.0, 0.0, 0.0, 0.0, -1.0e6);
-        assert!(lat_south <= 85.0 && lat_south >= -85.0);
+        assert!((-85.0..=85.0).contains(&lat_south));
     }
 
     #[test]
@@ -1702,7 +1724,7 @@ mod tests {
             merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
         let g = merged.downcast_ref::<MapTileCache>().unwrap();
         // The build's viewport wins…
-        approx(g.viewport.zoom as f64, viewport_at(2.0).zoom as f64, 1e-6);
+        approx(f64::from(g.viewport.zoom), f64::from(viewport_at(2.0).zoom), 1e-6);
         // …while the fetched tiles survive in the same allocation.
         assert!(
             g.tiles.contains_key(&tile),

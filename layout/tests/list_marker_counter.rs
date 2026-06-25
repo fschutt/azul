@@ -1,17 +1,17 @@
-/// Tests for CSS counter formatting (CSS Lists Module Level 3)
-///
-/// Tests cover:
-/// - `format_counter()`: all list-style-type values
-///   - none, disc, circle, square (symbolic markers)
-///   - decimal, decimal-leading-zero (numeric)
-///   - lower-alpha, upper-alpha (alphabetic)
-///   - lower-roman, upper-roman (additive Roman numerals)
-///   - lower-greek, upper-greek (Greek letters)
-///
-/// CSS Spec references:
-/// - CSS Lists Module Level 3 § 7 Counter Styles
-/// - CSS Lists Module Level 3 § 3 Markers
-/// - https://www.w3.org/TR/css-counter-styles-3/
+//! Tests for CSS counter formatting (CSS Lists Module Level 3)
+//!
+//! Tests cover:
+//! - `format_counter()`: all list-style-type values
+//!   - none, disc, circle, square (symbolic markers)
+//!   - decimal, decimal-leading-zero (numeric)
+//!   - lower-alpha, upper-alpha (alphabetic)
+//!   - lower-roman, upper-roman (additive Roman numerals)
+//!   - lower-greek, upper-greek (Greek letters)
+//!
+//! CSS Spec references:
+//! - CSS Lists Module Level 3 § 7 Counter Styles
+//! - CSS Lists Module Level 3 § 3 Markers
+//! - https://www.w3.org/TR/css-counter-styles-3/
 
 use azul_css::props::style::lists::StyleListStyleType;
 use azul_layout::solver3::counters::format_counter;

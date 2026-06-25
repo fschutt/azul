@@ -13,33 +13,33 @@ use crate::shape::{CssShape, ShapePoint};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShapeParseError {
     /// Unknown shape function — the string contains the unrecognized function name
-    UnknownFunction(alloc::string::String),
+    UnknownFunction(String),
     /// Missing required parameter — the string names the expected parameter
-    MissingParameter(alloc::string::String),
+    MissingParameter(String),
     /// Invalid numeric value — the string contains the unparseable token
-    InvalidNumber(alloc::string::String),
+    InvalidNumber(String),
     /// Invalid syntax — the string contains a description of what went wrong
-    InvalidSyntax(alloc::string::String),
+    InvalidSyntax(String),
     /// Empty input string was provided
     EmptyInput,
 }
 
 impl core::fmt::Display for ShapeParseError {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ShapeParseError::UnknownFunction(func) => {
-                write!(f, "Unknown shape function: {}", func)
+            Self::UnknownFunction(func) => {
+                write!(f, "Unknown shape function: {func}")
             }
-            ShapeParseError::MissingParameter(param) => {
-                write!(f, "Missing required parameter: {}", param)
+            Self::MissingParameter(param) => {
+                write!(f, "Missing required parameter: {param}")
             }
-            ShapeParseError::InvalidNumber(num) => {
-                write!(f, "Invalid numeric value: {}", num)
+            Self::InvalidNumber(num) => {
+                write!(f, "Invalid numeric value: {num}")
             }
-            ShapeParseError::InvalidSyntax(msg) => {
-                write!(f, "Invalid syntax: {}", msg)
+            Self::InvalidSyntax(msg) => {
+                write!(f, "Invalid syntax: {msg}")
             }
-            ShapeParseError::EmptyInput => {
+            Self::EmptyInput => {
                 write!(f, "Empty input")
             }
         }
@@ -47,6 +47,9 @@ impl core::fmt::Display for ShapeParseError {
 }
 
 /// Parses a CSS shape value
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `shape` value.
 pub fn parse_shape(input: &str) -> Result<CssShape, ShapeParseError> {
     let input = input.trim();
 
@@ -70,7 +73,7 @@ pub fn parse_shape(input: &str) -> Result<CssShape, ShapeParseError> {
 /// Extracts function name and arguments from "func(args)"
 fn parse_function(
     input: &str,
-) -> Result<(alloc::string::String, alloc::string::String), ShapeParseError> {
+) -> Result<(String, String), ShapeParseError> {
     let open_paren = input
         .find('(')
         .ok_or_else(|| ShapeParseError::InvalidSyntax("Missing opening parenthesis".into()))?;
@@ -165,7 +168,7 @@ fn parse_polygon(args: &str) -> Result<CssShape, ShapeParseError> {
     };
 
     // Split by comma to get coordinate pairs
-    let pairs: Vec<&str> = point_str.split(',').map(|s| s.trim()).collect();
+    let pairs: Vec<&str> = point_str.split(',').map(str::trim).collect();
 
     if pairs.is_empty() {
         return Err(ShapeParseError::MissingParameter(
@@ -173,15 +176,14 @@ fn parse_polygon(args: &str) -> Result<CssShape, ShapeParseError> {
         ));
     }
 
-    let mut points = alloc::vec::Vec::new();
+    let mut points = Vec::new();
 
     for pair in pairs {
         let coords: Vec<&str> = pair.split_whitespace().collect();
 
         if coords.len() < 2 {
             return Err(ShapeParseError::InvalidSyntax(format!(
-                "Expected x y pair, got: {}",
-                pair
+                "Expected x y pair, got: {pair}"
             )));
         }
 
@@ -258,11 +260,10 @@ fn parse_inset(args: &str) -> Result<CssShape, ShapeParseError> {
         }
     };
 
-    if let Some(radius) = border_radius {
-        Ok(CssShape::inset_rounded(top, right, bottom, left, radius))
-    } else {
-        Ok(CssShape::inset(top, right, bottom, left))
-    }
+    border_radius.map_or_else(
+        || Ok(CssShape::inset(top, right, bottom, left)),
+        |radius| Ok(CssShape::inset_rounded(top, right, bottom, left, radius)),
+    )
 }
 
 /// Parses a path: `path("svg-path-data")`
@@ -313,6 +314,8 @@ fn parse_length(s: &str) -> Result<f32, ShapeParseError> {
 
 #[cfg(test)]
 mod tests {
+    // Tests assert that parsed values equal the exact source literals.
+    #![allow(clippy::float_cmp)]
     use super::*;
     use crate::{
         corety::OptionF32,

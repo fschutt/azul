@@ -47,9 +47,9 @@ use azul_css::AzString;
 
 use crate::refany::RefAny;
 
-/// RTTI id stamped into every RefAny created via [`host_handle_to_refany`].
+/// RTTI id stamped into every `RefAny` created via [`host_handle_to_refany`].
 ///
-/// Hosts must not reuse this id for their own user-data RefAnys, otherwise
+/// Hosts must not reuse this id for their own user-data `RefAnys`, otherwise
 /// `refany_to_host_handle` would mis-identify their data as a host handle
 /// and the destructor would call the registered releaser with a bogus id.
 /// The high 32 bits are reserved for azul-internal RTTI ids; the low 32
@@ -60,15 +60,19 @@ pub const AZ_HOST_HANDLE_RTTI_ID: u64 = 0xA20A_4853_5448_5F44;
 /// [`host_handle_to_refany`]. Just the opaque host-language id — the actual
 /// host callable lives on the host side keyed by this id.
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct HostHandlePayload {
     pub id: u64,
 }
 
 /// A single atomic-pointer slot for one registered host-side function
-/// pointer. `0` means "not registered"; the static thunks bail out (returning
+/// pointer.
+///
+/// `0` means "not registered"; the static thunks bail out (returning
 /// the kind's default value) when they see an unregistered slot rather than
 /// transmuting `0` into a fn pointer and crashing.
 #[repr(C)]
+#[derive(Debug)]
 pub struct InvokerSlot {
     fn_ptr: AtomicUsize,
 }
@@ -76,7 +80,7 @@ pub struct InvokerSlot {
 impl InvokerSlot {
     /// Create an empty slot. `const` so it can be used to declare `static`
     /// per-kind slots in `impl_managed_callback!` expansions.
-    pub const fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             fn_ptr: AtomicUsize::new(0),
         }
@@ -108,7 +112,9 @@ impl Default for InvokerSlot {
 /// when a host-handle [`RefAny`]'s last clone drops.
 pub static HOST_HANDLE_RELEASER: InvokerSlot = InvokerSlot::new();
 
-/// Process-global slot for the host's *generic* invoker. Set via
+/// Process-global slot for the host's *generic* invoker.
+///
+/// Set via
 /// [`AzApp_setGenericInvoker`]. Used as a fallback in macro-generated
 /// per-kind thunks when the per-kind invoker is not registered, and as
 /// the **only** dispatch path for user-defined custom callback kinds in
@@ -202,16 +208,16 @@ extern "C" fn host_handle_destructor(ptr: *mut c_void) {
 /// Wrap a host-language `u64` handle in a [`RefAny`] suitable for storing
 /// in a callback wrapper's `ctx` field.
 ///
-/// The returned RefAny's destructor calls back through the registered
+/// The returned `RefAny`'s destructor calls back through the registered
 /// host releaser when the last clone is dropped, giving the host an
 /// opportunity to release whatever its `id` was keying.
 pub fn host_handle_to_refany(id: u64) -> RefAny {
     let payload = HostHandlePayload { id };
     let type_name: AzString = "AzHostHandle".into();
     RefAny::new_c(
-        &payload as *const HostHandlePayload as *const c_void,
-        core::mem::size_of::<HostHandlePayload>(),
-        core::mem::align_of::<HostHandlePayload>(),
+        &raw const payload as *const c_void,
+        size_of::<HostHandlePayload>(),
+        align_of::<HostHandlePayload>(),
         AZ_HOST_HANDLE_RTTI_ID,
         type_name,
         host_handle_destructor,
@@ -221,10 +227,12 @@ pub fn host_handle_to_refany(id: u64) -> RefAny {
 }
 
 /// Read the host-language id back out of a [`RefAny`] previously created
-/// via [`host_handle_to_refany`]. Returns `None` for any other RefAny, so
+/// via [`host_handle_to_refany`].
+///
+/// Returns `None` for any other `RefAny`, so
 /// a static thunk that mistakenly receives a non-host-handle ctx falls
 /// back to the kind's default value rather than reading random bytes.
-pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
+#[must_use] pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
     if !refany.is_type(AZ_HOST_HANDLE_RTTI_ID) {
         return None;
     }
@@ -236,11 +244,13 @@ pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
     Some(unsafe { (*ptr).id })
 }
 
-/// C-ABI: build a [`RefAny`] wrapping a host-language id. Lets managed-FFI
+/// C-ABI: build a [`RefAny`] wrapping a host-language id.
+///
+/// Lets managed-FFI
 /// bindings use the same machinery for user data that callbacks already use
 /// — one releaser, one id-keyed table, one lifetime story.
 ///
-/// The returned RefAny's destructor fires the releaser registered via
+/// The returned `RefAny`'s destructor fires the releaser registered via
 /// [`AzApp_setHostHandleReleaser`] once the last clone drops, so the host
 /// can drop its `id → value` entry.
 #[no_mangle]
@@ -256,6 +266,7 @@ pub extern "C" fn AzRefAny_newHostHandle(id: u64) -> RefAny {
 /// `0` if the host's id allocator starts at `1` (the convention used by
 /// every binding in this repo).
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
 pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
     if refany.is_null() {
         return 0;
@@ -265,7 +276,9 @@ pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
     refany_to_host_handle(r).unwrap_or(0)
 }
 
-/// Macro that expands to the per-callback-kind boilerplate: a static thunk
+/// Macro that expands to the per-callback-kind boilerplate:
+///
+/// a static thunk
 /// (compiled into libazul) that the framework calls with by-value args, a
 /// `<Wrapper>::create_from_host_handle(u64)` constructor, and an
 /// `AzApp_set<Kind>Invoker` setter the host calls once at module load.
@@ -347,7 +360,7 @@ macro_rules! impl_managed_callback {
         /// by pointer, no aggregate-by-value anywhere). The static thunk
         /// in libazul does the by-value plumbing on the C ABI side.
         ///
-        /// LuaJIT FFI in particular cannot return aggregates larger than
+        /// `LuaJIT` FFI in particular cannot return aggregates larger than
         /// 8 bytes from a callback, so we use an out-pointer for the
         /// return value uniformly across kinds — even for `Update` which
         /// would fit in a register, so the macro stays homogeneous.
@@ -374,6 +387,12 @@ macro_rules! impl_managed_callback {
             info: $info_ty,
             $( $extra_name : $extra_ty , )*
         ) -> $ret {
+            // Wrapper name as a null-terminated C string. `stringify!`
+            // expands `$wrapper:ty` to e.g. `Callback`,
+            // `ButtonOnClickCallback`, etc. — matching what the host's
+            // dispatch table keys on.
+            const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
+
             let ctx = info.get_ctx();
             let handle = match ctx {
                 $crate::refany::OptionRefAny::Some(ref refany) => {
@@ -402,20 +421,14 @@ macro_rules! impl_managed_callback {
                 let generic: $crate::host_invoker::AzGenericInvoker =
                     unsafe { core::mem::transmute(generic_addr) };
 
-                // Wrapper name as a null-terminated C string. `stringify!`
-                // expands `$wrapper:ty` to e.g. `Callback`,
-                // `ButtonOnClickCallback`, etc. — matching what the host's
-                // dispatch table keys on.
-                const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
-
                 // Build the args array: pointers to each by-value frame
                 // arg, in declared order (data, info, extras…). Lifetime
                 // is the scope of this thunk; the host MUST NOT retain
                 // these pointers past the call. Array size is inferred
                 // (2 base args + however many extras the macro forwarded).
                 let args = [
-                    &data as *const _ as *const core::ffi::c_void,
-                    &info as *const _ as *const core::ffi::c_void,
+                    &raw const data as *const core::ffi::c_void,
+                    &raw const info as *const core::ffi::c_void,
                     $( & $extra_name as *const _ as *const core::ffi::c_void , )*
                 ];
 
@@ -425,7 +438,7 @@ macro_rules! impl_managed_callback {
                     KIND_STR.as_ptr() as *const core::ffi::c_char,
                     args.as_ptr(),
                     args.len(),
-                    &mut out as *mut _ as *mut core::ffi::c_void,
+                    &raw mut out as *mut core::ffi::c_void,
                 );
                 return out;
             }
@@ -440,10 +453,10 @@ macro_rules! impl_managed_callback {
             let mut out: $ret = $default;
             invoker(
                 handle,
-                &data as *const $crate::refany::RefAny,
-                &info as *const $info_ty,
+                &raw const data,
+                &raw const info,
                 $( & $extra_name as *const $extra_ty , )*
-                &mut out as *mut $ret,
+                &raw mut out,
             );
             out
         }
@@ -454,7 +467,7 @@ macro_rules! impl_managed_callback {
             /// language is responsible for keeping its id→callable table
             /// in sync with the releaser registered via
             /// `AzApp_setHostHandleReleaser`.
-            pub fn create_from_host_handle(handle: u64) -> Self {
+            #[must_use] pub fn create_from_host_handle(handle: u64) -> Self {
                 Self {
                     cb: $thunk_fn,
                     ctx: $crate::refany::OptionRefAny::Some(

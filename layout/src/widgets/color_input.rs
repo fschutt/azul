@@ -6,6 +6,7 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     props::{
         basic::*,
@@ -19,7 +20,7 @@ use azul_css::{
 use crate::callbacks::{Callback, CallbackInfo};
 
 /// Rectangular input that displays a color and triggers a callback when clicked.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ColorInput {
     pub color_input_state: ColorInputStateWrapper,
@@ -50,7 +51,7 @@ azul_core::impl_managed_callback! {
 }
 
 /// Wrapper around [`ColorInputState`] that includes a title and an optional value-change callback.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct ColorInputStateWrapper {
     pub inner: ColorInputState,
@@ -69,7 +70,7 @@ impl Default for ColorInputStateWrapper {
 }
 
 /// Holds the current color value of a [`ColorInput`] widget.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[derive(Copy, Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
 pub struct ColorInputState {
     pub color: ColorU,
@@ -182,16 +183,15 @@ impl ColorInput {
 }
 
 extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut color_input) = data.downcast_mut::<ColorInputStateWrapper>() else {
+        return Update::DoNothing;
     };
 
     // No built-in color picker dialog — the on_value_change callback
     // receives the current color so the caller can open their own picker.
     let color_input = &mut *color_input;
     let onvaluechange = &mut color_input.on_value_change;
-    let inner = color_input.inner.clone();
+    let inner = color_input.inner;
 
     match onvaluechange.as_mut() {
         Some(ColorInputOnValueChange {

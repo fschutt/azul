@@ -1499,6 +1499,47 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     if state == 0 {
         return 1;
     }
+    // [DIAG 2026-06-24 REVERT] Lifted-wasm HashMap narrowing test. The layout solver's font
+    // cache traps on Mutex<HashMap> (chain_cache); BTreeMap/Vec/struct-key/Arc<RwLock> all
+    // work but HashMap::insert gives len=0 → the hashbrown SwissTable mis-lifts. Narrow it.
+    // Markers 0x40700+; 0xDEAD000N sentinel = test trapped before that marker.
+    {
+        use std::collections::BTreeMap;
+        for i in 0..14u32 { core::ptr::write_volatile((0x40700 + i * 4) as *mut u32, 0xDEAD_0000u32 | i); }
+        let mut m1: BTreeMap<u32, u32> = BTreeMap::new();
+        m1.insert(42, 99); m1.insert(7, 13);
+        let mut s1 = 0u32; for (k, v) in m1.iter() { s1 = s1.wrapping_add(*k).wrapping_add(*v); }
+        core::ptr::write_volatile(0x40700 as *mut u32, m1.len() as u32);     // expect 2
+        core::ptr::write_volatile(0x40704 as *mut u32, s1);                  // expect 161
+        let mut m2: BTreeMap<String, u32> = BTreeMap::new();
+        m2.insert("foo".to_string(), 5); m2.insert("bar".to_string(), 9);
+        let mut s2 = 0u32; for (k, v) in m2.iter() { s2 = s2.wrapping_add(k.len() as u32).wrapping_add(*v); }
+        core::ptr::write_volatile(0x40708 as *mut u32, m2.len() as u32);     // expect 2
+        core::ptr::write_volatile(0x4070C as *mut u32, s2);                  // expect 20
+        let mut v3: Vec<String> = Vec::new();
+        v3.push("aa".to_string()); v3.push("bbb".to_string());
+        let mut s3 = 0u32; for x in v3.iter() { s3 = s3.wrapping_add(x.len() as u32); }
+        core::ptr::write_volatile(0x40710 as *mut u32, v3.len() as u32);     // expect 2
+        core::ptr::write_volatile(0x40714 as *mut u32, s3);                  // expect 5
+        // T_sse: the EXACT SSE ops + memset(0xFF) control-init the hashbrown SwissTable probe uses.
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            use core::arch::x86_64::*;
+            let all_ff = [0xFFu8; 16];
+            core::ptr::write_volatile(0x40718 as *mut u32, _mm_movemask_epi8(_mm_loadu_si128(all_ff.as_ptr() as *const __m128i)) as u32); // movdqu+pmovmskb → 0xffff
+            let mut c = [0u8; 16]; c[0] = 0x42; c[2] = 0x42; c[4] = 0x42;
+            core::ptr::write_volatile(0x4071C as *mut u32, _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(c.as_ptr() as *const __m128i), _mm_set1_epi8(0x42i8))) as u32); // pcmpeqb → 0x15
+            core::ptr::write_volatile(0x40720 as *mut u32, _mm_movemask_epi8(_mm_set1_epi8(0x80u8 as i8)) as u32); // set1+pmovmskb → 0xffff
+            let mut buf = vec![0u8; 32];
+            core::ptr::write_bytes(buf.as_mut_ptr(), 0xFFu8, 32);
+            core::ptr::write_volatile(0x40724 as *mut u32, _mm_movemask_epi8(_mm_loadu_si128(buf.as_ptr() as *const __m128i)) as u32); // memset+movdqu → 0xffff
+            core::ptr::write_volatile(0x40728 as *mut u32, buf[20] as u32); // memset reached byte20 → 0xff
+        }
+        // T6: HashMap baseline (BROKEN — was len=0)
+        let mut h6: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        h6.insert(11, 110); h6.insert(22, 220);
+        core::ptr::write_volatile(0x4072C as *mut u32, h6.len() as u32);     // expect 2 (was 0)
+    }
     let s = &mut *(state as usize as *mut EventloopState);
     if s.current_dom_styled_ptr == 0 {
         return 2;
@@ -1601,6 +1642,30 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     let mut fc_fonts = Vec::new();
     fc_fonts.push((fc_pattern, fc_font));
     fc_cache.with_memory_fonts(fc_fonts);
+    // DIAG (2026-06-24, REVERT): enable rust-fontconfig's find_unicode_fallbacks gated markers
+    // (0x40830) — wasm-only, so the native pre-render path leaves them off.
+    rust_fontconfig::AZ_IN_WASM_SOLVE.store(true, core::sync::atomic::Ordering::Relaxed);
+    // PROBE0 (2026-06-24): minimal REAL-TYPE HashMap insert. HashMap<String,u32> uses a LIFTED
+    // reserve_rehash (unlike the u32_u32 STUB that gives the false HM=0). The chain_cache
+    // (HashMap<FontChainCacheKey,_>) insert TRAPS + the layout HANGS → both the hashbrown SwissTable
+    // lift. Placed FIRST so a trap here is READABLE (before the layout hang). 0x40870:
+    // A0A00001=before insert (trap here=insert broken); A0A00002=insert done; A0A00003=get OK.
+    {
+        use std::collections::HashMap;
+        unsafe { core::ptr::write_volatile(0x40870 as *mut u32, 0xA0A00001u32); }
+        let mut hm: HashMap<String, u32> = HashMap::new();
+        hm.insert("serif".to_string(), 1u32);
+        hm.insert(format!("sans-{}", viewport_w & 1), 2u32);
+        unsafe {
+            core::ptr::write_volatile(0x40870 as *mut u32, 0xA0A00002u32);
+            core::ptr::write_volatile(0x40874 as *mut u32, hm.len() as u32);
+        }
+        let g = hm.get("serif").copied().unwrap_or(0);
+        unsafe {
+            core::ptr::write_volatile(0x40870 as *mut u32, 0xA0A00003u32);
+            core::ptr::write_volatile(0x40878 as *mut u32, g);
+        }
+    }
     // DIAG (2026-06-02, REVERT): direct parse-check of the embedded SourceSerifPro to split
     // font-PARSE-mis-lift (ascender=0 → allsorts hhea/head table read lifts wrong) from
     // chain/not-loaded (parse OK here but the label never gets this font). WASM-ONLY (the
@@ -1630,6 +1695,195 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
             },
         }
     }
+    // ISOLATION (2026-06-24, wasm-only, PUBLIC APIs only — safe; the resolve block below
+    // TRAPS at func[248] `load [garbage-8]` in a loop. resolve_font_chain_uncached calls,
+    // per generic family, query_internal→query_matches_internal (scoring), then
+    // find_unicode_fallbacks). This pins the trapping sub-step BEFORE the full resolve.
+    // 0x406B0 = last step reached (0xB0B0000N); a trap freezes it. 0=trapped before step1.
+    {
+        use rust_fontconfig::{FcWeight, PatternMatch, UnicodeRange};
+        let no_ranges: [UnicodeRange; 0] = [];
+        // PROBE (wasm-only, PUBLIC API): resolve "serif" with scripts_hint=Some(&[]) → SKIPS
+        // find_unicode_fallbacks (lib.rs:2640 empty-ranges short-circuit), exercising ONLY
+        // cache_key+chain_cache.get + expand_font_families + per-family fuzzy_query_by_name.
+        // If this PASSES (0x406B0 reaches B0B00002) but the VERIFY block below (Some(&latin))
+        // TRAPS → the bug is in find_unicode_fallbacks. If this TRAPS (stays B0B00001) → the
+        // bug is in expand / fuzzy_query_by_name / chain_cache.get. (Different scripts_hint =
+        // different cache key, so this probe does NOT cache-shadow the VERIFY block.)
+        unsafe { core::ptr::write_volatile(0x406B0 as *mut u32, 0xB0B00001u32); }
+        let mut tp = Vec::new();
+        let cp = fc_cache.resolve_font_chain_with_scripts(
+            &["serif".to_string()], FcWeight::Normal, PatternMatch::False, PatternMatch::False,
+            Some(&no_ranges), &mut tp);
+        unsafe {
+            core::ptr::write_volatile(0x406B0 as *mut u32, 0xB0B00002u32);
+            core::ptr::write_volatile(0x406B4 as *mut u32, cp.css_fallbacks.len() as u32);
+            core::ptr::write_volatile(0x406B8 as *mut u32, cp.unicode_fallbacks.len() as u32);
+        }
+    }
+    // PROBE2 (wasm-only, PUBLIC API): if the probe above PASSED, the trap is in
+    // find_unicode_fallbacks → narrow it. (a) get_metadata_by_id for each registered id →
+    // directly tests state.metadata (the BTreeMap list() never reads — prime garbage suspect).
+    // (b) query() with a unicode-ranges pattern → query_internal (patterns-iter + metadata.get
+    // + calculate_unicode_compatibility). 0x406BC: C0C00001=get_metadata TRAPPED (metadata
+    // garbage); C0C00002=query_internal TRAPPED; C0C00003=both OK (→ find_unicode's outer sort).
+    {
+        use rust_fontconfig::{FcPattern, FcWeight, PatternMatch, UnicodeRange};
+        let ids: Vec<_> = fc_cache.list().into_iter().map(|(_, id)| id).collect();
+        unsafe {
+            core::ptr::write_volatile(0x406BC as *mut u32, 0xC0C00001u32);
+            core::ptr::write_volatile(0x406C0 as *mut u32, ids.len() as u32);
+        }
+        let mut meta_ok = 0u32;
+        for id in &ids {
+            if fc_cache.get_metadata_by_id(id).is_some() { meta_ok += 1; }
+        }
+        unsafe {
+            core::ptr::write_volatile(0x406BC as *mut u32, 0xC0C00002u32);
+            core::ptr::write_volatile(0x406C4 as *mut u32, meta_ok);
+        }
+        let mut ur = Vec::new();
+        ur.push(UnicodeRange { start: 0x20, end: 0x7F });
+        let pat = FcPattern {
+            name: None, weight: FcWeight::Normal,
+            italic: PatternMatch::DontCare, oblique: PatternMatch::DontCare,
+            unicode_ranges: ur, ..Default::default()
+        };
+        let mut qt = Vec::new();
+        let qr = fc_cache.query(&pat, &mut qt);
+        unsafe {
+            core::ptr::write_volatile(0x406BC as *mut u32, 0xC0C00003u32);
+            core::ptr::write_volatile(0x406C8 as *mut u32, qr.is_some() as u32);
+        }
+        // PROBE3 (2026-06-24): access the returned FontMatch's `unicode_ranges` — the EXACT
+        // field find_unicode_fallbacks's coverage loop iterates (lib.rs:2984 `for font_range
+        // in &candidate.unicode_ranges`). It = metadata.unicode_ranges.clone() (query:2088 ==
+        // query_internal:2144). PROBE2 passed because it only did is_some(); this READS the Vec.
+        // 0x406CC: D0D00001=.len() TRAPPED (Vec field garbage); D0D00002=iterating TRAPPED;
+        // D0D00003=OK (clone fine → trap is the candidates Vec / FontMatch struct sret-return).
+        if let Some(fm) = &qr {
+            unsafe { core::ptr::write_volatile(0x406CC as *mut u32, 0xD0D00001u32); }
+            let nr = fm.unicode_ranges.len();
+            unsafe {
+                core::ptr::write_volatile(0x406CC as *mut u32, 0xD0D00002u32);
+                core::ptr::write_volatile(0x406D0 as *mut u32, nr as u32);
+            }
+            let mut s = 0u32;
+            for r in &fm.unicode_ranges { s = s.wrapping_add(r.start ^ r.end); }
+            unsafe {
+                core::ptr::write_volatile(0x406CC as *mut u32, 0xD0D00003u32);
+                core::ptr::write_volatile(0x406D4 as *mut u32, s);
+            }
+        }
+    }
+    // PROBE4 (2026-06-24): query() works (single FontMatch fine, PROBE3) but query_internal
+    // (which find_unicode calls) returns Vec<FontMatch> via `.into_iter().map(FontMatch).collect()`
+    // (lib.rs:2140). The trap (func[252]) is that COLLECT — moving FontMatch (id u128 + 2 Vecs =
+    // 64B) into the Vec buffer. MINIMAL REPRO: build Vec<FontMatch> the same way + iterate
+    // element.unicode_ranges (the find_unicode coverage-loop access @2984). 0x406D8:
+    // E0E00001=collect TRAPPED; E0E00002=iterating element.unicode_ranges TRAPPED (moved
+    // FontMatch's Vec field garbage); E0E00003=OK (collect fine → query_internal-specific).
+    {
+        use rust_fontconfig::{FontMatch, FontId, UnicodeRange};
+        unsafe { core::ptr::write_volatile(0x406D8 as *mut u32, 0xE0E00001u32); }
+        let tuples: Vec<u128> = { let mut t = Vec::new(); t.push(0u128); t.push(1u128); t };
+        let fms: Vec<FontMatch> = tuples.into_iter().map(|id| {
+            let mut ur = Vec::new();
+            ur.push(UnicodeRange { start: 0, end: 0x10FFFF });
+            FontMatch { id: FontId(id), unicode_ranges: ur, fallbacks: Vec::new() }
+        }).collect();
+        unsafe {
+            core::ptr::write_volatile(0x406D8 as *mut u32, 0xE0E00002u32);
+            core::ptr::write_volatile(0x406DC as *mut u32, fms.len() as u32);
+        }
+        let mut s = 0u32;
+        for fm in &fms {
+            for r in &fm.unicode_ranges { s = s.wrapping_add(r.end); }
+        }
+        unsafe {
+            core::ptr::write_volatile(0x406D8 as *mut u32, 0xE0E00003u32);
+            core::ptr::write_volatile(0x406E0 as *mut u32, s);
+        }
+    }
+    // PROBE5 (2026-06-24): DEFINITIVE minimal repro. query_internal's collect (lib.rs:2140) is
+    // `Vec<(FontId,i32,i32,FcPattern)>.into_iter().map(FontMatch).collect()`. Because the Src
+    // tuple (with the big FcPattern) is LARGER than FontMatch (64B), it uses in_place_collect
+    // (buffer reuse) — NOT the normal collect PROBE4 used (Vec<u128>, smaller). Replicate the
+    // EXACT Src+Dst+closure → same in_place_collect monomorphization. 0x406E4: F0F00001=collect
+    // (in_place) TRAPPED; F0F00002=iterating element TRAPPED; F0F00003=OK (→ size/align differs).
+    {
+        use rust_fontconfig::{FontMatch, FontId, FcPattern, UnicodeRange};
+        unsafe { core::ptr::write_volatile(0x406E4 as *mut u32, 0xF0F00001u32); }
+        // PROBE6 (2026-06-24): PROBE5 PASSED but used CONSTANT inputs (maybe const-folded) +
+        // Default (EMPTY) name/family Strings. query_internal's real FcPattern has NON-EMPTY
+        // name/family Strings. The try_fold is DEDUP'd (one .ll shared) yet PROBE5 passes /
+        // query_internal traps → INPUT-DEPENDENT. Make inputs data-dependent (viewport_w → no
+        // const-fold) + non-empty Strings (matching query_internal) to repro the trap.
+        let n = ((viewport_w & 1) as u128) + 2;
+        let mut src: Vec<(FontId, i32, i32, FcPattern)> = Vec::new();
+        for k in 0..n {
+            let mut ur = Vec::new(); ur.push(UnicodeRange { start: k as u32, end: 0x10FFFF });
+            src.push((FontId(k), k as i32, (k as i32) + 1, FcPattern {
+                name: Some(format!("serif sans-serif monospace {}", k)),
+                family: Some("serif sans-serif monospace".to_string()),
+                unicode_ranges: ur, ..Default::default()
+            }));
+        }
+        let fms: Vec<FontMatch> = src.into_iter().map(|(id, _, _, metadata)| {
+            FontMatch { id, unicode_ranges: metadata.unicode_ranges.clone(), fallbacks: Vec::new() }
+        }).collect();
+        unsafe {
+            core::ptr::write_volatile(0x406E4 as *mut u32, 0xF0F00002u32);
+            core::ptr::write_volatile(0x406E8 as *mut u32, fms.len() as u32);
+        }
+        let mut s = 0u32;
+        for fm in &fms {
+            for r in &fm.unicode_ranges { s = s.wrapping_add(r.end); }
+        }
+        unsafe {
+            core::ptr::write_volatile(0x406E4 as *mut u32, 0xF0F00003u32);
+            core::ptr::write_volatile(0x406EC as *mut u32, s);
+        }
+        // PROBE8 (2026-06-24): CLONE the collect-produced Vec<FontMatch> — the DEEP Vec<FontMatch>::clone
+        // (= chain.unicode_fallbacks.clone() inside chain_cache.insert, the trap @CC000011) was NEVER tested:
+        // PROBE4/5/6 only built+iterated, never cloned. 0x40860: C8C80001=clone TRAPPED (minimal repro!);
+        // C8C80002=iterating-clone TRAPPED; C8C80003=OK (clone fine → bug is real-chain/HashMap-specific).
+        unsafe { core::ptr::write_volatile(0x40860 as *mut u32, 0xC8C80001u32); }
+        let fms_cloned: Vec<FontMatch> = fms.clone();
+        unsafe {
+            core::ptr::write_volatile(0x40860 as *mut u32, 0xC8C80002u32);
+            core::ptr::write_volatile(0x40864 as *mut u32, fms_cloned.len() as u32);
+        }
+        let mut s2 = 0u32;
+        for fm in &fms_cloned {
+            s2 = s2.wrapping_add(fm.unicode_ranges.len() as u32).wrapping_add(fm.fallbacks.len() as u32);
+        }
+        unsafe {
+            core::ptr::write_volatile(0x40860 as *mut u32, 0xC8C80003u32);
+            core::ptr::write_volatile(0x40868 as *mut u32, s2);
+        }
+    }
+    // PROBE7 (2026-06-24): PUBLIC-API isolation of find_unicode_fallbacks WITHOUT touching the
+    // crate. Resolve with EMPTY font_families + Some(&latin): the per-family loop runs 0 times →
+    // css_fallbacks=[] → find_unicode_fallbacks's `existing_prefixes` (lib.rs:2937, the untested
+    // family-String split_whitespace/collect over css groups) + the sort's use of it are SKIPPED,
+    // but query_internal(uncovered pattern) + the coverage loop STILL run. 0x406F0: F7F70001=this
+    // TRAPPED → bug is query_internal/coverage; F7F70002=this PASSED → (and VERIFY below traps) →
+    // bug is existing_prefixes / the outer sort_by(calculate_font_similarity_score).
+    {
+        use rust_fontconfig::{FcWeight, PatternMatch, UnicodeRange};
+        let latin7 = [UnicodeRange { start: 0x20, end: 0x7F }];
+        let empty_fam: [String; 0] = [];
+        unsafe { core::ptr::write_volatile(0x406F0 as *mut u32, 0xF7F70001u32); }
+        let mut t7 = Vec::new();
+        let c7 = fc_cache.resolve_font_chain_with_scripts(
+            &empty_fam, FcWeight::Normal, PatternMatch::False, PatternMatch::False,
+            Some(&latin7), &mut t7);
+        unsafe {
+            core::ptr::write_volatile(0x406F0 as *mut u32, 0xF7F70002u32);
+            core::ptr::write_volatile(0x406F4 as *mut u32, c7.unicode_fallbacks.len() as u32);
+        }
+    }
     // VERIFY-ROOT-CAUSE (2026-06-02, REVERT): run the EXACT resolution azul-layout
     // uses (resolve_font_chain_with_scripts for the generic "serif" query) to split
     // resolution-failure vs shaping-failure for text height=0. 0x40690=tag(5E5E0001),
@@ -1639,6 +1893,13 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     {
         let latin = [rust_fontconfig::UnicodeRange { start: 0x20, end: 0x7F }];
         let mut trace = Vec::new();
+        // SUB-MARKERS (2026-06-24): the resolve block TRAPS (markers: css/fontParsePre/
+        // fontParsePostWMF all set, resolveChain=0 → trap is in one of the 4 calls below).
+        // 0x40690 reads back as the LAST step reached: 0xAAAA000N = trapped IN step N;
+        // 0x5E5E0001 (set after this block) = all four completed. Wasm trap = func[248]
+        // `i64.load [garbage_ptr-8]→RDX` in a loop → likely a hashbrown ctrl/bucket walk on
+        // a garbage table ptr (chain_cache Mutex<HashMap>, the first chain_cache use).
+        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0001u32); }
         let chain = fc_cache.resolve_font_chain_with_scripts(
             &["serif".to_string()],
             rust_fontconfig::FcWeight::Normal,
@@ -1647,12 +1908,15 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
             Some(&latin),
             &mut trace,
         );
+        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0002u32); }
         let css_count: usize = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum();
         let uni_count = chain.unicode_fallbacks.len();
+        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0003u32); }
         let h = chain.resolve_char(&fc_cache, 'H');
+        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0004u32); }
         // Is the font even REGISTERED? len()=0 ⇒ with_memory_fonts didn't persist.
-        // (query() reaches an outlined-epilogue missing_block → traps, so only len().)
         let nfonts = fc_cache.len();
+        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0005u32); }
         // list() iterates state.patterns. If len()=1 but list().len()=0 → the Vec
         // ITERATION mis-lifts (len field ok, ptr/content wrong). If list().len()=1 →
         // iteration ok → query_matches_internal/find_unicode_fallbacks is the issue.

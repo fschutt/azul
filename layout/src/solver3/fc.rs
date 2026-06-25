@@ -72,6 +72,7 @@ use crate::{
 };
 
 /// Default scrollbar width in pixels (CSS `scrollbar-width: auto`).
+///
 /// This is only used as a fallback when per-node CSS cannot be queried.
 /// Prefer `getters::get_layout_scrollbar_width_px()` for per-node resolution.
 pub const DEFAULT_SCROLLBAR_WIDTH_PX: f32 = 16.0;
@@ -92,7 +93,7 @@ pub(crate) struct BfcLayoutResult {
 }
 
 impl BfcLayoutResult {
-    pub fn from_output(output: LayoutOutput) -> Self {
+    pub(crate) const fn from_output(output: LayoutOutput) -> Self {
         Self {
             output,
             escaped_top_margin: None,
@@ -112,11 +113,11 @@ pub enum OverflowBehavior {
 }
 
 impl OverflowBehavior {
-    pub fn is_clipped(&self) -> bool {
+    #[must_use] pub const fn is_clipped(&self) -> bool {
         matches!(self, Self::Hidden | Self::Clip | Self::Scroll | Self::Auto)
     }
 
-    pub fn is_scroll(&self) -> bool {
+    #[must_use] pub const fn is_scroll(&self) -> bool {
         matches!(self, Self::Scroll | Self::Auto)
     }
 }
@@ -138,7 +139,7 @@ pub struct LayoutConstraints<'a> {
     // Other properties like text-align would go here.
     pub text_align: TextAlign,
     /// The size of the containing block (parent's content box).
-    /// This is used for resolving percentage-based sizes and as parent_size for Taffy.
+    /// This is used for resolving percentage-based sizes and as `parent_size` for Taffy.
     pub containing_block_size: LogicalSize,
     /// The semantic type of the available width constraint.
     ///
@@ -172,7 +173,7 @@ impl Default for BfcState {
 }
 
 impl BfcState {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             pen: LogicalPosition::zero(),
             floats: FloatingContext::default(),
@@ -182,7 +183,7 @@ impl BfcState {
 }
 
 /// Manages vertical margin collapsing within a BFC.
-#[derive(Debug, Default, Clone)]
+#[derive(Copy, Debug, Default, Clone)]
 pub struct MarginCollapseContext {
     /// The bottom margin of the last in-flow, block-level element.
     /// Can be positive or negative.
@@ -251,7 +252,7 @@ impl FloatingContext {
     /// Returns a tuple of (`cross_start_offset`, `cross_end_offset`) relative to the
     /// BFC content box, defining the available space for an in-flow element.
     // +spec:inline-formatting-context:e70328 - line box width reduced by floats between containing block edges
-    pub fn available_line_box_space(
+    #[must_use] pub fn available_line_box_space(
         &self,
         main_start: f32,
         main_end: f32,
@@ -308,7 +309,7 @@ impl FloatingContext {
     // float to be cleared); clearance can be negative per spec example 2
     // +spec:floats:054a1e - Clearance computation: positions border edge below bottom outer edge of cleared floats
     // +spec:floats:cb984c - Clearance can be negative per spec example 2; inhibits margin collapsing
-    pub fn clearance_offset(
+    #[must_use] pub fn clearance_offset(
         &self,
         clear: LayoutClear,
         current_main_offset: f32,
@@ -364,12 +365,16 @@ struct BfcLayoutState {
 /// - CSS Grid § 5: Grid formatting contexts
 // +spec:block-formatting-context:b04653 - dispatches layout by formatting context type (BFC, IFC, Table, Flex, Grid)
 // +spec:block-formatting-context:e46499 - inner display type determines formatting context (BFC, IFC, table, flex, grid)
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+/// # Errors
+///
+/// Returns a `LayoutError` if laying out the formatting context fails.
 pub fn layout_formatting_context<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     // [g147e az-web-lift DIAG] PURE-CONSTANT entry marker (0x609E0+slot) — fires before any node read,
@@ -530,12 +535,13 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
 /// - Resolves explicit CSS dimensions to pixel values for `known_dimensions`
 /// - Uses `InherentSize` mode when explicit dimensions are set
 /// - Uses `ContentSize` mode for auto-sizing (shrink-to-fit)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_flex_grid<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<BfcLayoutResult> {
     // Available space comes directly from constraints - margins are handled by Taffy
     let available_space = TaffySize {
@@ -732,17 +738,20 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> (Option<f32>, bool) {
     node.dom_node_id
-        .map(|id| {
+        .map_or((None, false), |id| {
             let width = get_css_width(
                 ctx.styled_dom,
                 id,
                 &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state,
             );
             match width.unwrap_or_default() {
-                LayoutWidth::Auto => (None, false),
+                LayoutWidth::Auto
+                | LayoutWidth::MinContent
+                | LayoutWidth::MaxContent
+                | LayoutWidth::FitContent(_) => (None, false),
                 LayoutWidth::Px(px) => {
                     let pixels = resolve_size_metric(
                         px.metric,
@@ -752,7 +761,6 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     );
                     (Some(pixels), true)
                 }
-                LayoutWidth::MinContent | LayoutWidth::MaxContent | LayoutWidth::FitContent(_) => (None, false),
                 LayoutWidth::Calc(items) => {
                     let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
                     let em = get_element_font_size(ctx.styled_dom, id, node_state);
@@ -764,24 +772,26 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                 }
             }
         })
-        .unwrap_or((None, false))
 }
 
 /// Resolves explicit CSS height to pixel value for Taffy layout.
 fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> (Option<f32>, bool) {
     node.dom_node_id
-        .map(|id| {
+        .map_or((None, false), |id| {
             let height = get_css_height(
                 ctx.styled_dom,
                 id,
                 &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state,
             );
             match height.unwrap_or_default() {
-                LayoutHeight::Auto => (None, false),
+                LayoutHeight::Auto
+                | LayoutHeight::MinContent
+                | LayoutHeight::MaxContent
+                | LayoutHeight::FitContent(_) => (None, false),
                 LayoutHeight::Px(px) => {
                     let pixels = resolve_size_metric(
                         px.metric,
@@ -791,7 +801,6 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     );
                     (Some(pixels), true)
                 }
-                LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => (None, false),
                 LayoutHeight::Calc(items) => {
                     let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
                     let em = get_element_font_size(ctx.styled_dom, id, node_state);
@@ -803,7 +812,6 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                 }
             }
         })
-        .unwrap_or((None, false))
 }
 
 // +spec:floats:167a2c - Float positioning rules (CSS 2.2 § 9.5.1): left/right/none, precise placement constraints
@@ -811,7 +819,7 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
 // +spec:floats:15bfd9 - float:right positions element at line-right edge within BFC
 // +spec:floats:afc8e2 - Float positioning rules (CSS 2.2 § 9.5 rules 1-8): left/right edge containment, earlier-float stacking, outer-top constraints, and "move down" when insufficient space
 /// Position a float within a BFC, considering existing floats.
-/// Returns the LogicalRect (margin box) for the float.
+/// Returns the `LogicalRect` (margin box) for the float.
 // +spec:box-model:db0f02 - Float positioning: line boxes shortened by floats, floats shift down if no space, BFC elements must not overlap float margin boxes
 // +spec:containing-block:136e45 - Float shifted left/right until outer edge touches containing block edge or another float
 // +spec:containing-block:3ebb4e - Content moves below floats when containing block too narrow
@@ -854,10 +862,9 @@ fn position_float(
                 // +spec:writing-modes:84bcba - floats positioned at line-left / line-right
                 // Position at line-left (avail_start)
                 break avail_start + margin.cross_start(wm);
-            } else {
-                // Position at line-right (avail_end - size)
-                break avail_end - total_cross + margin.cross_start(wm);
             }
+            // Position at line-right (avail_end - size)
+            break avail_end - total_cross + margin.cross_start(wm);
         }
 
         // top is moved lower than earlier float's bottom (outer edge / margin box bottom)
@@ -880,9 +887,8 @@ fn position_float(
             // No overlapping floats found, use current position anyway
             if float_type == LayoutFloat::Left {
                 break avail_start + margin.cross_start(wm);
-            } else {
-                break avail_end - total_cross + margin.cross_start(wm);
             }
+            break avail_end - total_cross + margin.cross_start(wm);
         }
     };
 
@@ -943,12 +949,13 @@ fn position_float(
 /// This approach is compliant with the CSS visual formatting model and works within
 /// the constraints of the existing layout engine architecture.
 // +spec:display-property:f38f52 - BFC handles normal flow, relative positioning offsets, and float extraction (CSS 2.2 § 9.8)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_bfc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     let node = tree
@@ -990,29 +997,29 @@ fn layout_bfc<T: ParsedFontTrait>(
     // determines how main/cross map to physical x/y via from_main_cross().
     // +spec:inline-block:17944a - orthogonal flow roots get infinite available inline space here (not yet detected)
     // +spec:inline-block:a60e22 - other layout models pass through infinite inline space to contained block containers
-    let mut children_containing_block_size = if let Some(used_size) = node.used_size {
-        // Node has used_size (border-box) - convert to content-box.
-        // For auto-height containers, the pre-layout `used_size.height` is a
-        // placeholder (calculate_used_size_for_node returns 0 for block-level
-        // auto-height; apply_content_based_height resolves it after children lay out).
-        // In that window, `constraints.available_size.height` holds the containing
-        // block's height — the value children should use as their own containing
-        // block for percentage-height resolution and indefinite-height semantics.
-        let inner = node.box_props.inner_size(used_size, writing_mode);
-        let height_is_auto = tree
-            .warm(node_index)
-            .map(|w| w.computed_style.height.is_none())
-            .unwrap_or(true);
-        if height_is_auto {
-            LogicalSize::new(inner.width, constraints.available_size.height)
-        } else {
-            inner
-        }
-    } else {
+    let mut children_containing_block_size = node.used_size.map_or_else(
         // No used_size yet - use available_size directly (this is already content-box
         // when coming from parent's layout constraints)
-        constraints.available_size
-    };
+        || constraints.available_size,
+        |used_size| {
+            // Node has used_size (border-box) - convert to content-box.
+            // For auto-height containers, the pre-layout `used_size.height` is a
+            // placeholder (calculate_used_size_for_node returns 0 for block-level
+            // auto-height; apply_content_based_height resolves it after children lay
+            // out). In that window, `constraints.available_size.height` holds the
+            // containing block's height — the value children should use as their own
+            // containing block for percentage-height / indefinite-height semantics.
+            let inner = node.box_props.inner_size(used_size, writing_mode);
+            let height_is_auto = tree
+                .warm(node_index)
+                .is_none_or(|w| w.computed_style.height.is_none());
+            if height_is_auto {
+                LogicalSize::new(inner.width, constraints.available_size.height)
+            } else {
+                inner
+            }
+        },
+    );
 
     // +spec:overflow:ffe6f7 - scrollbar space subtracted from containing block per spec §11.1.1
     // Reserve space for vertical scrollbar when appropriate.
@@ -1028,7 +1035,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     //   layout loop's iteration cap handles oscillation safety.
     let scrollbar_reservation = node
         .dom_node_id
-        .map(|dom_id| {
+        .map_or(0.0, |dom_id| {
             let styled_node_state = ctx
                 .styled_dom
                 .styled_nodes
@@ -1037,8 +1044,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 .map(|s| s.styled_node_state)
                 .unwrap_or_default();
             let overflow_y =
-                crate::solver3::getters::get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
-            use azul_css::props::layout::LayoutOverflow;
+                get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
             match overflow_y.unwrap_or_default() {
                 LayoutOverflow::Scroll => {
                     crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
@@ -1046,8 +1052,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 LayoutOverflow::Auto => {
                     let already_needs = tree.warm(node_index)
                         .and_then(|w| w.scrollbar_info.as_ref())
-                        .map(|s| s.needs_vertical)
-                        .unwrap_or(false);
+                        .is_some_and(|s| s.needs_vertical);
                     if already_needs {
                         crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
                     } else {
@@ -1056,8 +1061,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 }
                 _ => 0.0,
             }
-        })
-        .unwrap_or(0.0);
+        });
 
     if scrollbar_reservation > 0.0 {
         children_containing_block_size.width =
@@ -1198,29 +1202,26 @@ fn layout_bfc<T: ParsedFontTrait>(
         // +spec:floats:2cec1b - float property determines positioning algorithm (float path)
         // +spec:floats:f6c0b2 - floats only processed in BFC; other formatting contexts (flex/grid) inhibit floating
         // Check if this child is a float - if so, position it at current main_pen
-        let is_float = if let Some(node_id) = child_dom_id {
+        if let Some(node_id) = child_dom_id {
             let float_type = get_float_property(ctx.styled_dom, Some(node_id));
 
             if float_type != LayoutFloat::None {
                 // Calculate float size just-in-time if not already computed
-                let float_size = match child_node.used_size {
-                    Some(size) => size,
-                    None => {
-                        let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
-                        let child_bp = child_node.box_props.unpack();
-                        let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
-                            ctx.styled_dom,
-                            child_dom_id,
-                            &children_containing_block_size,
-                            intrinsic,
-                            &child_bp,
-                            &ctx.viewport_size,
-                        )?;
-                        if let Some(node_mut) = tree.get_mut(child_index) {
-                            node_mut.used_size = Some(computed_size);
-                        }
-                        computed_size
+                let float_size = if let Some(size) = child_node.used_size { size } else {
+                    let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+                    let child_bp = child_node.box_props.unpack();
+                    let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
+                        ctx.styled_dom,
+                        child_dom_id,
+                        &children_containing_block_size,
+                        intrinsic,
+                        &child_bp,
+                        &ctx.viewport_size,
+                    )?;
+                    if let Some(node_mut) = tree.get_mut(child_index) {
+                        node_mut.used_size = Some(computed_size);
                     }
+                    computed_size
                 };
                 // Re-borrow after potential mutation
                 let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
@@ -1230,12 +1231,12 @@ fn layout_bfc<T: ParsedFontTrait>(
                 // +spec:floats:d0d163 - clear on floats adds constraint #10: float top below cleared floats' bottom
                 // +spec:floats:7adb9d - Clear on floats: constraint #10, top outer edge must be below earlier cleared floats
                 let float_clear = get_clear_property(ctx.styled_dom, Some(node_id));
-                let float_y = if float_clear != LayoutClear::None {
-                    float_context.clearance_offset(float_clear, main_pen + last_margin_bottom, writing_mode)
-                } else {
+                let float_y = if float_clear == LayoutClear::None {
                     // +spec:floats:ef96cb - Float margins never collapse with adjacent margins
                     // CSS 2.2 § 9.5: Float margins don't collapse with any other margins.
                     main_pen + last_margin_bottom
+                } else {
+                    float_context.clearance_offset(float_clear, main_pen + last_margin_bottom, writing_mode)
                 };
 
                 debug_info!(
@@ -1282,15 +1283,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                 // Continue to next child
                 continue;
             }
-            false
-        } else {
-            false
-        };
-
-        // Early exit for floats (already handled above)
-        if is_float {
-            continue;
         }
+
+        // Floats `continue` above; everything reaching here is normal-flow
+        // (non-float) content.
 
         // From here: normal flow (non-float) children only
 
@@ -1302,25 +1298,22 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // Calculate child's used_size just-in-time if not already computed
         // This replaces the old "Pass 1" that recursively laid out grandchildren with wrong positions
-        let child_size = match child_node.used_size {
-            Some(size) => size,
-            None => {
-                // Calculate size without recursive layout
-                let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
-                let child_used_size = crate::solver3::sizing::calculate_used_size_for_node(
-                    ctx.styled_dom,
-                    child_dom_id,
-                    &children_containing_block_size,
-                    intrinsic,
-                    &child_node.box_props.unpack(),
-                    &ctx.viewport_size,
-                )?;
-                // Update the node with computed size (we need to re-borrow mutably)
-                if let Some(node_mut) = tree.get_mut(child_index) {
-                    node_mut.used_size = Some(child_used_size);
-                }
-                child_used_size
+        let child_size = if let Some(size) = child_node.used_size { size } else {
+            // Calculate size without recursive layout
+            let intrinsic = tree.warm(child_index).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+            let child_used_size = crate::solver3::sizing::calculate_used_size_for_node(
+                ctx.styled_dom,
+                child_dom_id,
+                &children_containing_block_size,
+                intrinsic,
+                &child_node.box_props.unpack(),
+                &ctx.viewport_size,
+            )?;
+            // Update the node with computed size (we need to re-borrow mutably)
+            if let Some(node_mut) = tree.get_mut(child_index) {
+                node_mut.used_size = Some(child_used_size);
             }
+            child_used_size
         };
         // Re-borrow child_node after potential mutation
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
@@ -1345,12 +1338,12 @@ fn layout_bfc<T: ParsedFontTrait>(
         // own BFC layout produced an escaped_top_margin, that margin represents the
         // collapsed value of (child's margin, child's first child's margin, ...).
         // Use it for sibling collapse instead of the child's own margin.
-        let child_escaped_top = if !has_margin_collapse_blocker(&child_bp, writing_mode, true) {
+        let child_escaped_top = if has_margin_collapse_blocker(&child_bp, writing_mode, true) { None } else {
             tree.warm(child_index).and_then(|w| w.escaped_top_margin)
-        } else { None };
-        let child_escaped_bottom = if !has_margin_collapse_blocker(&child_bp, writing_mode, false) {
+        };
+        let child_escaped_bottom = if has_margin_collapse_blocker(&child_bp, writing_mode, false) { None } else {
             tree.warm(child_index).and_then(|w| w.escaped_bottom_margin)
-        } else { None };
+        };
 
         let child_margin_top = child_escaped_top.unwrap_or(child_own_margin_top);
         let child_margin_bottom = child_escaped_bottom.unwrap_or(child_own_margin_bottom);
@@ -1403,9 +1396,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             if is_first_child {
                 is_first_child = false;
                 // Empty first child: its collapsed margin can escape with parent's
-                if !parent_has_top_blocker {
-                    accumulated_top_margin = collapse_margins(parent_margin_top, self_collapsed);
-                } else {
+                if parent_has_top_blocker {
                     // Parent has blocker: add margins
                     if accumulated_top_margin == 0.0 {
                         accumulated_top_margin = parent_margin_top;
@@ -1413,6 +1404,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                     main_pen += accumulated_top_margin + self_collapsed;
                     top_margin_resolved = true;
                     accumulated_top_margin = 0.0;
+                } else {
+                    accumulated_top_margin = collapse_margins(parent_margin_top, self_collapsed);
                 }
                 last_margin_bottom = self_collapsed;
             } else {
@@ -1439,7 +1432,9 @@ fn layout_bfc<T: ParsedFontTrait>(
         //
         // This means child_margin_top is already accounted for in the hypothetical
         // position and must NOT be added again after clearance positions main_pen.
-        let clearance_applied = if child_clear != LayoutClear::None {
+        let clearance_applied = if child_clear == LayoutClear::None {
+            false
+        } else {
             let hypothetical = main_pen + collapse_margins(last_margin_bottom, child_margin_top);
             let cleared_position =
                 float_context.clearance_offset(child_clear, hypothetical, writing_mode);
@@ -1467,8 +1462,6 @@ fn layout_bfc<T: ParsedFontTrait>(
             } else {
                 false
             }
-        } else {
-            false
         };
 
         // PHASE 2: Parent-Child Top Margin Escape (First Child)
@@ -2275,7 +2268,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     if is_root_node {
         if let Some(top) = escaped_top_margin {
             // Adjust all child positions downward by the escaped top margin
-            for (_, pos) in output.positions.iter_mut() {
+            for pos in output.positions.values_mut() {
                 let current_main = pos.main(writing_mode);
                 *pos = LogicalPosition::from_main_cross(
                     current_main + top,
@@ -2451,7 +2444,7 @@ fn layout_bfc<T: ParsedFontTrait>(
 ///
 /// 3. **Invoke Text Layout**: Call the `text3` cache's `layout_flow` method to perform the complex
 ///    tasks of BIDI analysis, shaping, line breaking, justification, and vertical alignment.
-/// +spec:display-property:e96c82 - inline formatting context: flow of elements/text wrapped into lines
+///    +spec:display-property:e96c82 - inline formatting context: flow of elements/text wrapped into lines
 ///
 /// 4. **Integrate Results**: Process the `UnifiedLayout` returned by `text3`:
 ///
@@ -2468,12 +2461,14 @@ fn layout_bfc<T: ParsedFontTrait>(
 // +spec:display-property:574e7b - text-box-trim for inline boxes trims block-end to content edge (TODO: implement trimming per text-box-edge metric)
 // +spec:display-property:da284a - IFC: flow inline-level boxes into line boxes, size/position each fragment
 // +spec:inline-formatting-context:275f64 - IFC: boxes laid out horizontally into line boxes, respecting margins/borders/padding
+#[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<LayoutOutput> {
     unsafe { crate::az_mark(0x60704_u32, (0x20u32)); }
     // [g147 az-web-lift DIAG] CALLER-side tree validity at layout_ifc entry, indexed by node_index
@@ -2489,8 +2484,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     let float_count = constraints
         .bfc_state
         .as_ref()
-        .map(|s| s.floats.floats.len())
-        .unwrap_or(0);
+        .map_or(0, |s| s.floats.floats.len());
     debug_info!(
         ctx,
         "[layout_ifc] ENTRY: node_index={}, has_bfc_state={}, float_count={}",
@@ -2505,26 +2499,21 @@ fn layout_ifc<T: ParsedFontTrait>(
     // For anonymous boxes, we need to find the DOM ID from a parent or child
     // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit properties from their enclosing box
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-    let ifc_root_dom_id = match node.dom_node_id {
-        Some(id) => id,
-        None => {
-            // Anonymous box - get DOM ID from parent or first child with DOM ID
-            let parent_dom_id = node
-                .parent
-                .and_then(|p| tree.get(p))
-                .and_then(|n| n.dom_node_id);
+    let ifc_root_dom_id = if let Some(id) = node.dom_node_id { id } else {
+        // Anonymous box - get DOM ID from parent or first child with DOM ID
+        let parent_dom_id = node
+            .parent
+            .and_then(|p| tree.get(p))
+            .and_then(|n| n.dom_node_id);
 
-            if let Some(id) = parent_dom_id {
-                id
-            } else {
-                // Try to find DOM ID from first child
-                tree.children(node_index)
-                    .iter()
-                    .filter_map(|&child_idx| tree.get(child_idx))
-                    .filter_map(|n| n.dom_node_id)
-                    .next()
-                    .ok_or(LayoutError::InvalidTree)?
-            }
+        if let Some(id) = parent_dom_id {
+            id
+        } else {
+            // Try to find DOM ID from first child
+            tree.children(node_index)
+                .iter()
+                .filter_map(|&child_idx| tree.get(child_idx)).find_map(|n| n.dom_node_id)
+                .ok_or(LayoutError::InvalidTree)?
         }
     };
 
@@ -2629,8 +2618,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         let resize_has_floats = constraints
             .bfc_state
             .as_ref()
-            .map(|s| !s.floats.floats.is_empty())
-            .unwrap_or(false);
+            .is_some_and(|s| !s.floats.floats.is_empty());
         // #11 fix: cache validity is keyed on WIDTH only, so a same-width
         // RefreshDom whose text CHANGED would otherwise reuse the stale shaped
         // layout. Require the inline content hash to match too.
@@ -2654,39 +2642,35 @@ fn layout_ifc<T: ParsedFontTrait>(
                 // a static IFC); with nothing re-shaped yet, the best we can
                 // do is "no items changed at this level" → trivial GlyphSwap
                 // to return the cached layout unchanged.
-                let result = crate::text3::cache::try_incremental_relayout(
+                let result = text3::cache::try_incremental_relayout(
                     &[], // empty = no dirty items detected at this level
                     &old_advances,
                     &old_advances, // same advances since we haven't reshaped yet
                     line_breaks,
                 );
 
-                match result {
-                    crate::text3::cache::IncrementalRelayoutResult::GlyphSwap => {
-                        // No items changed — return cached layout directly
-                        debug_info!(ctx, "[layout_ifc] Phase 2d: GlyphSwap — reusing cached layout");
-                        let main_frag = &cached.layout;
-                        let frag_bounds = main_frag.bounds();
-                        let mut output = LayoutOutput::default();
-                        output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
-                        output.baseline = main_frag.last_baseline();
-                        // Re-position inline-block children from cached layout
-                        for positioned_item in &main_frag.items {
-                            if let ShapedItem::Object { source, .. } = &positioned_item.item {
-                                if let Some(&child_node_index) = child_map.get(source) {
-                                    output.positions.insert(child_node_index, LogicalPosition {
-                                        x: positioned_item.position.x,
-                                        y: positioned_item.position.y,
-                                    });
-                                }
+                if matches!(result, text3::cache::IncrementalRelayoutResult::GlyphSwap) {
+                    // No items changed — return cached layout directly
+                    debug_info!(ctx, "[layout_ifc] Phase 2d: GlyphSwap — reusing cached layout");
+                    let main_frag = &cached.layout;
+                    let frag_bounds = main_frag.bounds();
+                    let mut output = LayoutOutput::default();
+                    output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
+                    output.baseline = main_frag.last_baseline();
+                    // Re-position inline-block children from cached layout
+                    for positioned_item in &main_frag.items {
+                        if let ShapedItem::Object { source, .. } = &positioned_item.item {
+                            if let Some(&child_node_index) = child_map.get(source) {
+                                output.positions.insert(child_node_index, LogicalPosition {
+                                    x: positioned_item.position.x,
+                                    y: positioned_item.position.y,
+                                });
                             }
                         }
-                        return Ok(output);
                     }
-                    _ => {
-                        // Fall through to full layout_flow
-                    }
+                    return Ok(output);
                 }
+                // Fall through to full layout_flow
             }
         }
     }
@@ -2785,8 +2769,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         let has_floats = constraints
             .bfc_state
             .as_ref()
-            .map(|s| !s.floats.floats.is_empty())
-            .unwrap_or(false);
+            .is_some_and(|s| !s.floats.floats.is_empty());
         let current_width_type = constraints.available_width_type;
 
         let warm_node = tree.warm_mut(node_index).ok_or(LayoutError::InvalidTree)?;
@@ -2875,8 +2858,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 .ptr
                 .compact_cache
                 .as_ref()
-                .map(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_BOX_TRIM == 0)
-                .unwrap_or(false);
+                .is_some_and(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_BOX_TRIM == 0);
             if skip {
                 StyleTextBoxTrim::None
             } else {
@@ -2958,15 +2940,15 @@ fn layout_ifc<T: ParsedFontTrait>(
     Ok(output)
 }
 
-fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
+const fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
     TaffySize {
         width: Some(size.width),
         height: Some(size.height),
     }
 }
 
-/// Helper: Convert StyleFontStyle to text3::cache::FontStyle
-pub fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::FontStyle {
+/// Helper: Convert `StyleFontStyle` to `text3::cache::FontStyle`
+#[must_use] pub const fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::FontStyle {
     match style {
         StyleFontStyle::Normal => crate::font_traits::FontStyle::Normal,
         StyleFontStyle::Italic => crate::font_traits::FontStyle::Italic,
@@ -2974,8 +2956,8 @@ pub fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::FontStyl
     }
 }
 
-/// Helper: Convert StyleFontWeight to FcWeight
-pub fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
+/// Helper: Convert `StyleFontWeight` to `FcWeight`
+#[must_use] pub const fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
     match weight {
         StyleFontWeight::W100 => FcWeight::Thin,
         StyleFontWeight::W200 => FcWeight::ExtraLight,
@@ -3017,14 +2999,14 @@ fn resolve_size_metric(
     }
 }
 
-pub fn translate_taffy_size_back(size: TaffySize<f32>) -> LogicalSize {
+#[must_use] pub const fn translate_taffy_size_back(size: TaffySize<f32>) -> LogicalSize {
     LogicalSize {
         width: size.width,
         height: size.height,
     }
 }
 
-pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
+#[must_use] pub const fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
     LogicalPosition {
         x: point.x,
         y: point.y,
@@ -3074,7 +3056,7 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
     }
 
     // +spec:positioning:69468c - absolute/fixed forces independent formatting context
-    let position = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(dom_id));
+    let position = get_position_type(ctx.styled_dom, Some(dom_id));
     if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
         return true;
     }
@@ -3178,17 +3160,14 @@ fn is_block_level_replaced<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node:
 }
 
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     constraints: &'a LayoutConstraints<'a>,
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> UnifiedConstraints {
-    unsafe { crate::az_mark(0x60704_u32, (0x30u32)); }
-    // DOM-level declared flags: if a bit is clear, no node in this DOM
-    // declared the corresponding property → cascade walks always return
-    // None, and we use the default value directly. All flags default to
-    // "set" when there is no compact cache (paranoid fallback).
     use azul_css::compact_cache::{
         DOM_HAS_SHAPE_INSIDE, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_JUSTIFY,
         DOM_HAS_TEXT_INDENT, DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP,
@@ -3201,13 +3180,17 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         DOM_HAS_HYPHENS, DOM_HAS_WORD_BREAK, DOM_HAS_OVERFLOW_WRAP,
         DOM_HAS_LINE_BREAK, DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_LINE_HEIGHT,
     };
+    unsafe { crate::az_mark(0x60704_u32, (0x30u32)); }
+    // DOM-level declared flags: if a bit is clear, no node in this DOM
+    // declared the corresponding property → cascade walks always return
+    // None, and we use the default value directly. All flags default to
+    // "set" when there is no compact cache (paranoid fallback).
     let dom_declared = styled_dom
         .css_property_cache
         .ptr
         .compact_cache
         .as_ref()
-        .map(|cc| cc.dom_declared_flags)
-        .unwrap_or(!0u32);
+        .map_or(!0u32, |cc| cc.dom_declared_flags);
 
     // Convert floats into exclusion zones for text3 to flow around.
     let mut shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
@@ -3223,7 +3206,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .iter()
             .enumerate()
             .map(|(i, float_box)| {
-                let rect = crate::text3::cache::Rect {
+                let rect = text3::cache::Rect {
                     x: float_box.rect.origin.x,
                     y: float_box.rect.origin.y,
                     width: float_box.rect.size.width,
@@ -3298,7 +3281,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .unwrap_or(constraints.available_size.width) // Fallback: use width as height (square)
     };
 
-    let reference_box = crate::text3::cache::Rect {
+    let reference_box = text3::cache::Rect {
         x: 0.0,
         y: 0.0,
         width: constraints.available_size.width,
@@ -3393,7 +3376,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        LayoutTextJustify::default()
     };
 
     // Get font-size for resolving line-height
@@ -3405,10 +3388,10 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .css_property_cache
             .ptr
             .get_line_height(node_data, &id, node_state)
-            .and_then(|s| s.get_property().cloned())
+            .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        azul_css::props::style::text::StyleLineHeight::default()
     };
 
     let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {
@@ -3419,7 +3402,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleHyphens::default()
     };
 
     let word_break_css = if dom_declared & DOM_HAS_WORD_BREAK != 0 {
@@ -3430,7 +3413,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleWordBreak::default()
     };
 
     let overflow_wrap_css = if dom_declared & DOM_HAS_OVERFLOW_WRAP != 0 {
@@ -3441,7 +3424,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleOverflowWrap::default()
     };
 
     let line_break_css = if dom_declared & DOM_HAS_LINE_BREAK != 0 {
@@ -3452,7 +3435,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleLineBreak::default()
     };
 
     let text_align_last_css = if dom_declared & DOM_HAS_TEXT_ALIGN_LAST != 0 {
@@ -3463,7 +3446,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .and_then(|s| s.get_property().copied())
             .unwrap_or_default()
     } else {
-        Default::default()
+        StyleTextAlignLast::default()
     };
 
     let overflow_behaviour = get_overflow_x(styled_dom, id, node_state).unwrap_or_default();
@@ -3599,7 +3582,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .css_property_cache
             .ptr
             .get_text_indent(node_data, &id, node_state)
-            .and_then(|s| s.get_property().cloned())
+            .and_then(|s| s.get_property().copied())
     } else {
         None
     };
@@ -3609,7 +3592,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     );
     // +spec:intrinsic-sizing:0e8625 - percentage text-indent treated as 0 for intrinsic size contributions
     let text_indent = text_indent_prop
-        .map(|ti| {
+        .map_or(0.0, |ti| {
             // CSS Text 3 §8.1: "Percentages must be treated as 0 for the purpose
             // of calculating intrinsic size contributions"
             if is_intrinsic_sizing && ti.inner.to_percent().is_some() {
@@ -3625,10 +3608,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             };
             ti.inner
                 .resolve_with_context(&context, PropertyContext::Other)
-        })
-        .unwrap_or(0.0);
-    let text_indent_each_line = text_indent_prop.map(|ti| ti.each_line).unwrap_or(false);
-    let text_indent_hanging = text_indent_prop.map(|ti| ti.hanging).unwrap_or(false);
+        });
+    let text_indent_each_line = text_indent_prop.is_some_and(|ti| ti.each_line);
+    let text_indent_hanging = text_indent_prop.is_some_and(|ti| ti.hanging);
 
     // ResolutionContext shared by column-gap and column-width (both resolve
     // lengths against the same font/viewport, with no containing-block size).
@@ -3696,12 +3678,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         _ => StyleWhiteSpace::Normal,
     };
     let text_wrap = match resolved_ws {
-        StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
-        StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
-        StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
-        StyleWhiteSpace::PreWrap => text3::cache::TextWrap::Wrap,
-        StyleWhiteSpace::PreLine => text3::cache::TextWrap::Wrap,
-        StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
+        StyleWhiteSpace::Normal
+        | StyleWhiteSpace::PreWrap
+        | StyleWhiteSpace::PreLine
+        | StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
+        StyleWhiteSpace::Nowrap | StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
     };
     let white_space_mode = match resolved_ws {
         StyleWhiteSpace::Normal => text3::cache::WhiteSpaceMode::Normal,
@@ -3736,13 +3717,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .ptr
             .get_initial_letter_align(node_data, &id, node_state)
             .and_then(|s| s.get_property())
-            .map(|a| match a {
+            .map_or(text3::cache::InitialLetterAlign::Auto, |a| match a {
                 azul_css::props::style::text::StyleInitialLetterAlign::Auto => text3::cache::InitialLetterAlign::Auto,
                 azul_css::props::style::text::StyleInitialLetterAlign::Alphabetic => text3::cache::InitialLetterAlign::Alphabetic,
                 azul_css::props::style::text::StyleInitialLetterAlign::Hanging => text3::cache::InitialLetterAlign::Hanging,
                 azul_css::props::style::text::StyleInitialLetterAlign::Ideographic => text3::cache::InitialLetterAlign::Ideographic,
             })
-            .unwrap_or(text3::cache::InitialLetterAlign::Auto)
     } else {
         text3::cache::InitialLetterAlign::Auto
     };
@@ -3793,7 +3773,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         if letter_w > 0.0 && letter_h > 0.0 {
             // Place the exclusion at the inline-start (x=0, y=0 relative to the IFC).
             // This creates a rectangular exclusion that text flows around.
-            shape_exclusions.push(ShapeBoundary::Rectangle(crate::text3::cache::Rect {
+            shape_exclusions.push(ShapeBoundary::Rectangle(text3::cache::Rect {
                 x: 0.0,
                 y: 0.0,
                 width: letter_w,
@@ -3821,8 +3801,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .ptr
             .get_hanging_punctuation(node_data, &id, node_state)
             .and_then(|s| s.get_property())
-            .map(|hp| hp.is_enabled())
-            .unwrap_or(false)
+            .is_some_and(azul_css::props::style::StyleHangingPunctuation::is_enabled)
     } else {
         false
     };
@@ -3859,8 +3838,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .ptr
             .get_exclusion_margin(node_data, &id, node_state)
             .and_then(|s| s.get_property())
-            .map(|em| em.inner.get())
-            .unwrap_or(0.0)
+            .map_or(0.0, |em| em.inner.get())
     } else {
         0.0
     };
@@ -3871,8 +3849,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .ptr
             .get_shape_margin(node_data, &id, node_state)
             .and_then(|s| s.get_property())
-            .map(|sm| sm.inner.number.get())
-            .unwrap_or(0.0)
+            .map_or(0.0, |sm| sm.inner.number.get())
     } else {
         0.0
     };
@@ -3976,10 +3953,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // +spec:text-alignment-spacing:01244f - text-justify: none disables justification, auto uses inter-word as universal default
         text_justify: match text_justify {
             LayoutTextJustify::None => text3::cache::JustifyContent::None,
-            LayoutTextJustify::Auto => text3::cache::JustifyContent::InterWord,
-            LayoutTextJustify::InterWord => text3::cache::JustifyContent::InterWord,
-            LayoutTextJustify::InterCharacter => text3::cache::JustifyContent::InterCharacter,
-            LayoutTextJustify::Distribute => text3::cache::JustifyContent::InterCharacter, // distribute computes to inter-character
+            LayoutTextJustify::Auto | LayoutTextJustify::InterWord => {
+                text3::cache::JustifyContent::InterWord
+            }
+            // distribute computes to inter-character
+            LayoutTextJustify::InterCharacter | LayoutTextJustify::Distribute => {
+                text3::cache::JustifyContent::InterCharacter
+            }
         },
         // +spec:line-height:79f3aa - line-height resolved: normal defaults to 1.2, <number>/<percentage> × font-size
         // Negative normalized() = absolute px value (convention from parser for "50px" etc.)
@@ -4055,7 +4035,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 // +spec:inline-formatting-context:9c272d - CSS table model: row-primary structure, display-to-table-element mapping, visual formatting as rectangular grid
 /// Lays out a Table Formatting Context.
 /// Table column information for layout calculations
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct TableColumnInfo {
     /// Minimum width required for this column
     pub min_width: f32,
@@ -4066,7 +4046,7 @@ pub struct TableColumnInfo {
 }
 
 /// Information about a table cell for layout
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct TableCellInfo {
     /// Node index in the layout tree
     pub node_index: usize,
@@ -4098,7 +4078,7 @@ struct TableLayoutContext {
     // +spec:inline-formatting-context:440ca9 - border-collapse/border-spacing/visibility:collapse table properties (CSS 2.2 §17.5-17.6)
     /// Border collapse mode
     border_collapse: StyleBorderCollapse,
-    /// Border spacing (only used when border_collapse is Separate)
+    /// Border spacing (only used when `border_collapse` is Separate)
     border_spacing: LayoutBorderSpacing,
     /// CSS 2.2 Section 17.4: Index of table-caption child, if any
     caption_index: Option<usize>,
@@ -4149,7 +4129,7 @@ pub enum BorderSource {
 }
 
 /// Information about a border for conflict resolution
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct BorderInfo {
     pub width: f32,
     pub style: BorderStyle,
@@ -4158,7 +4138,7 @@ pub struct BorderInfo {
 }
 
 impl BorderInfo {
-    pub fn new(width: f32, style: BorderStyle, color: ColorU, source: BorderSource) -> Self {
+    #[must_use] pub const fn new(width: f32, style: BorderStyle, color: ColorU, source: BorderSource) -> Self {
         Self {
             width,
             style,
@@ -4170,7 +4150,7 @@ impl BorderInfo {
     // +spec:block-formatting-context:f772ae - border style priority for table border conflict resolution
     /// Get the priority of a border style for conflict resolution
     /// Higher number = higher priority
-    pub fn style_priority(style: &BorderStyle) -> u8 {
+    #[must_use] pub const fn style_priority(style: &BorderStyle) -> u8 {
         match style {
             BorderStyle::Hidden => 255, // Highest - suppresses all borders
             BorderStyle::None => 0,     // Lowest - loses to everything
@@ -4195,7 +4175,7 @@ impl BorderInfo {
     /// Returns the winning border
     // +spec:table-layout:21053b - border conflict resolution: hidden suppresses all, style priorities
     // +spec:table-layout:076617 - border conflict resolution algorithm and border style semantics in collapsing model
-    pub fn resolve_conflict(a: &BorderInfo, b: &BorderInfo) -> Option<BorderInfo> {
+    #[must_use] pub fn resolve_conflict(a: &Self, b: &Self) -> Option<Self> {
         // 1. 'hidden' wins and suppresses all borders
         if a.style == BorderStyle::Hidden || b.style == BorderStyle::Hidden {
             return None;
@@ -4209,18 +4189,18 @@ impl BorderInfo {
             return None;
         }
         if a_is_none {
-            return Some(b.clone());
+            return Some(*b);
         }
         if b_is_none {
-            return Some(a.clone());
+            return Some(*a);
         }
 
         // 3. Wider border wins
         if a.width > b.width {
-            return Some(a.clone());
+            return Some(*a);
         }
         if b.width > a.width {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         // 4. If same width, compare style priority
@@ -4228,27 +4208,29 @@ impl BorderInfo {
         let b_priority = Self::style_priority(&b.style);
 
         if a_priority > b_priority {
-            return Some(a.clone());
+            return Some(*a);
         }
         if b_priority > a_priority {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         // 5. If same style, source priority:
         // Cell > Row > RowGroup > Column > ColumnGroup > Table
         if a.source > b.source {
-            return Some(a.clone());
+            return Some(*a);
         }
         if b.source > a.source {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         // 6. Same priority - prefer first one (left/top in LTR)
-        Some(a.clone())
+        Some(*a)
     }
 }
 
 /// Get border information for a node
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn get_border_info<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
@@ -4279,10 +4261,10 @@ fn get_border_info<T: ParsedFontTrait>(
 
     let Some(dom_id) = node.dom_node_id else {
         return (
-            default_border.clone(),
-            default_border.clone(),
-            default_border.clone(),
-            default_border.clone(),
+            default_border,
+            default_border,
+            default_border,
+            default_border,
         );
     };
 
@@ -4324,7 +4306,7 @@ fn get_border_info<T: ParsedFontTrait>(
             if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                 0.0 // sentinel → fall back to 0
             } else {
-                raw as f32 / 10.0
+                f32::from(raw) / 10.0
             }
         };
 
@@ -4333,13 +4315,13 @@ fn get_border_info<T: ParsedFontTrait>(
         let bbw = decode_width(cc.get_border_bottom_width_raw(idx));
         let blw = decode_width(cc.get_border_left_width_raw(idx));
 
-        let top = if bts == BorderStyle::None { default_border.clone() }
+        let top = if bts == BorderStyle::None { default_border }
             else { BorderInfo::new(btw, bts, btc, source) };
-        let right = if brs == BorderStyle::None { default_border.clone() }
+        let right = if brs == BorderStyle::None { default_border }
             else { BorderInfo::new(brw, brs, brc, source) };
-        let bottom = if bbs == BorderStyle::None { default_border.clone() }
+        let bottom = if bbs == BorderStyle::None { default_border }
             else { BorderInfo::new(bbw, bbs, bbc, source) };
-        let left = if bls == BorderStyle::None { default_border.clone() }
+        let left = if bls == BorderStyle::None { default_border }
             else { BorderInfo::new(blw, bls, blc, source) };
 
         return (top, right, bottom, left);
@@ -4368,109 +4350,97 @@ fn get_border_info<T: ParsedFontTrait>(
     let top = cache
         .get_border_top_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_top_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
-                .map(|w| {
+                .map_or(0.0, |w| {
                     w.inner
                         .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
-                .unwrap_or(0.0);
+                });
             let color = cache
                 .get_border_top_color(node_data, &dom_id, &node_state)
                 .and_then(|c| c.get_property())
-                .map(|c| c.inner)
-                .unwrap_or(ColorU {
+                .map_or(ColorU {
                     r: 0,
                     g: 0,
                     b: 0,
                     a: 255,
-                });
+                }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     // Right border
     let right = cache
         .get_border_right_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_right_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
-                .map(|w| {
+                .map_or(0.0, |w| {
                     w.inner
                         .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
-                .unwrap_or(0.0);
+                });
             let color = cache
                 .get_border_right_color(node_data, &dom_id, &node_state)
                 .and_then(|c| c.get_property())
-                .map(|c| c.inner)
-                .unwrap_or(ColorU {
+                .map_or(ColorU {
                     r: 0,
                     g: 0,
                     b: 0,
                     a: 255,
-                });
+                }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     // Bottom border
     let bottom = cache
         .get_border_bottom_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_bottom_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
-                .map(|w| {
+                .map_or(0.0, |w| {
                     w.inner
                         .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
-                .unwrap_or(0.0);
+                });
             let color = cache
                 .get_border_bottom_color(node_data, &dom_id, &node_state)
                 .and_then(|c| c.get_property())
-                .map(|c| c.inner)
-                .unwrap_or(ColorU {
+                .map_or(ColorU {
                     r: 0,
                     g: 0,
                     b: 0,
                     a: 255,
-                });
+                }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     // Left border
     let left = cache
         .get_border_left_style(node_data, &dom_id, &node_state)
         .and_then(|s| s.get_property())
-        .map(|style_val| {
+        .map_or_else(|| default_border, |style_val| {
             let width = cache
                 .get_border_left_width(node_data, &dom_id, &node_state)
                 .and_then(|w| w.get_property())
-                .map(|w| {
+                .map_or(0.0, |w| {
                     w.inner
                         .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
-                .unwrap_or(0.0);
+                });
             let color = cache
                 .get_border_left_color(node_data, &dom_id, &node_state)
                 .and_then(|c| c.get_property())
-                .map(|c| c.inner)
-                .unwrap_or(ColorU {
+                .map_or(ColorU {
                     r: 0,
                     g: 0,
                     b: 0,
                     a: 255,
-                });
+                }, |c| c.inner);
             BorderInfo::new(width, style_val.inner, color, source)
-        })
-        .unwrap_or_else(|| default_border.clone());
+        });
 
     (top, right, bottom, left)
 }
@@ -4537,8 +4507,8 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
                 && v_raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD
             {
                 return LayoutBorderSpacing::new_separate(
-                    azul_css::props::basic::pixel::PixelValue::px(h_raw as f32 / 10.0),
-                    azul_css::props::basic::pixel::PixelValue::px(v_raw as f32 / 10.0),
+                    azul_css::props::basic::pixel::PixelValue::px(f32::from(h_raw) / 10.0),
+                    azul_css::props::basic::pixel::PixelValue::px(f32::from(v_raw) / 10.0),
                 );
             }
             // sentinel → fall through to slow path
@@ -4660,7 +4630,7 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 /// A cell is considered empty if:
 ///
 /// - It has no children, OR
-/// - It has children but no inline_layout_result (no rendered content)
+/// - It has children but no `inline_layout_result` (no rendered content)
 ///
 /// Note: Full whitespace detection would require checking text content during rendering.
 /// This function provides a basic check suitable for layout phase.
@@ -4697,12 +4667,20 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
 /// Main function to layout a table formatting context
 // +spec:table-layout:235e8e - CSS 2.2 §17.1-17.2 table model: fixed/auto algorithms, row/column/cell/caption structure
 // +spec:table-layout:a6422d - CSS table model: table structure analysis, row/column/cell layout, caption, border-collapse
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if the table's root node has no associated DOM node id.
+/// # Errors
+///
+/// Returns a `LayoutError` if laying out the table fails.
 pub fn layout_table_fc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<LayoutOutput> {
     debug_log!(ctx, "Laying out table");
 
@@ -4855,7 +4833,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
     // Phase 5: Position cells in final grid and collect positions
     let mut cell_positions =
-        position_table_cells(&mut table_ctx, tree, ctx, node_index, constraints)?;
+        position_table_cells(&table_ctx, tree, ctx, node_index, constraints)?;
 
     // Calculate final table size including border-spacing
     let mut table_width: f32 = table_ctx
@@ -5085,7 +5063,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
                 child.formatting_context,
                 FormattingContext::TableColumnGroup
             ) {
-                analyze_table_colgroup(tree, child_idx, &mut table_ctx, ctx)?;
+                analyze_table_colgroup(tree, child_idx, &table_ctx, ctx)?;
                 continue;
             }
 
@@ -5132,7 +5110,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
 fn analyze_table_colgroup<T: ParsedFontTrait>(
     tree: &LayoutTree,
     colgroup_index: usize,
-    table_ctx: &mut TableLayoutContext,
+    table_ctx: &TableLayoutContext,
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<()> {
     let colgroup_node = tree.get(colgroup_index).ok_or(LayoutError::InvalidTree)?;
@@ -5170,11 +5148,12 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
 /// These are HTML presentational attributes (`AttributeType::ColSpan`/`RowSpan`
 /// on `NodeData`), not CSS properties. Missing or non-positive values default to
 /// 1 per the HTML parsing rules.
+#[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
     let mut colspan = 1usize;
     let mut rowspan = 1usize;
     let node_data = &styled_dom.node_data.as_container()[dom_id];
-    for attr in node_data.attributes().as_ref().iter() {
+    for attr in node_data.attributes().as_ref() {
         match attr {
             azul_core::dom::AttributeType::ColSpan(n) => colspan = (*n).max(1) as usize,
             azul_core::dom::AttributeType::RowSpan(n) => rowspan = (*n).max(1) as usize,
@@ -5216,8 +5195,7 @@ fn analyze_table_row<T: ParsedFontTrait>(
                 // Read colspan/rowspan from the cell's HTML attributes (default 1).
                 let (colspan, rowspan) = cell
                     .dom_node_id
-                    .map(|dom_id| get_cell_spans(ctx.styled_dom, dom_id))
-                    .unwrap_or((1, 1));
+                    .map_or((1, 1), |dom_id| get_cell_spans(ctx.styled_dom, dom_id));
 
                 let cell_info = TableCellInfo {
                     node_index: cell_idx,
@@ -5264,6 +5242,8 @@ fn analyze_table_row<T: ParsedFontTrait>(
 /// from width calculations
 // +spec:table-layout:c5e446 - Fixed table layout algorithm: column widths from col elements or first-row cells, remaining columns divide equally
 /// +spec:width-calculation:8c958a - Fixed table layout: column widths from col elements, first-row cells, then equal distribution (CSS 2.2 §17.5.2.1)
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -5304,9 +5284,8 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         }
 
         // Look up the cell's CSS width via its dom_node_id
-        let dom_id = match tree.get(cell_info.node_index).and_then(|n| n.dom_node_id) {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = tree.get(cell_info.node_index).and_then(|n| n.dom_node_id) else {
+            continue;
         };
 
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
@@ -5418,20 +5397,20 @@ fn clear_subtree_cache(
 /// Measure a cell's content width for a given intrinsic sizing mode.
 ///
 /// CSS 2.2 Section 17.5.2.2: shared helper for min-content and max-content
-/// width measurement. Lays out the cell subtree in ComputeSize mode and
+/// width measurement. Lays out the cell subtree in `ComputeSize` mode and
 /// returns the border-box width (content + padding + border).
 fn measure_cell_content_width<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     cell_index: usize,
-    constraints: &LayoutConstraints,
-    sizing_mode: crate::text3::cache::AvailableSpace,
+    constraints: &LayoutConstraints<'_>,
+    sizing_mode: text3::cache::AvailableSpace,
 ) -> Result<f32> {
     let width_type = match sizing_mode {
-        crate::text3::cache::AvailableSpace::MinContent => Text3AvailableSpace::MinContent,
-        crate::text3::cache::AvailableSpace::MaxContent => Text3AvailableSpace::MaxContent,
-        crate::text3::cache::AvailableSpace::Definite(w) => Text3AvailableSpace::Definite(w),
+        text3::cache::AvailableSpace::MinContent => Text3AvailableSpace::MinContent,
+        text3::cache::AvailableSpace::MaxContent => Text3AvailableSpace::MaxContent,
+        text3::cache::AvailableSpace::Definite(w) => Text3AvailableSpace::Definite(w),
     };
     let cell_constraints = LayoutConstraints {
         available_size: LogicalSize {
@@ -5483,13 +5462,11 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     // intrinsic sizing — that would make every column appear infinitely wide.
     let content_width = tree.warm(cell_index)
         .and_then(|w| w.overflow_content_size)
-        .map(|s| s.width)
-        .unwrap_or_else(|| {
+        .map_or_else(|| {
             tree.get(cell_index)
                 .and_then(|n| n.used_size)
-                .map(|s| s.width)
-                .unwrap_or(0.0)
-        });
+                .map_or(0.0, |s| s.width)
+        }, |s| s.width);
 
     Ok(content_width
         + padding.cross_start(wm) + padding.cross_end(wm)
@@ -5500,13 +5477,13 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
 fn measure_cell_min_content_width<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     cell_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<f32> {
     measure_cell_content_width(
         ctx, tree, text_cache, cell_index, constraints,
-        crate::text3::cache::AvailableSpace::MinContent,
+        text3::cache::AvailableSpace::MinContent,
     )
 }
 
@@ -5514,13 +5491,13 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
 fn measure_cell_max_content_width<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     cell_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<f32> {
     measure_cell_content_width(
         ctx, tree, text_cache, cell_index, constraints,
-        crate::text3::cache::AvailableSpace::MaxContent,
+        text3::cache::AvailableSpace::MaxContent,
     )
 }
 
@@ -5528,9 +5505,9 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
 fn calculate_column_widths_auto<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     ctx: &mut LayoutContext<'_, T>,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     calculate_column_widths_auto_with_width(
         table_ctx,
@@ -5549,12 +5526,15 @@ fn calculate_column_widths_auto<T: ParsedFontTrait>(
 // +spec:table-layout:5e1145 - Automatic table layout: MCW/max-content per cell, column min/max, colspan distribution, final width from MIN/MAX
 // +spec:width-calculation:42dfca - CSS 2.2 §17.5.2.2 automatic table layout: MCW/max-content per cell, column min/max, multi-span distribution, final table width
 /// +spec:width-calculation:335ef1 - Automatic table layout: width given by column widths and borders (CSS 2.2 §17.5.2.2)
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     ctx: &mut LayoutContext<'_, T>,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     table_width: f32,
 ) -> Result<()> {
     // Auto layout: calculate min/max content width for each cell
@@ -5741,6 +5721,7 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
 }
 
 /// Distribute a multi-column cell's width across the columns it spans
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn distribute_cell_width_across_columns(
     columns: &mut [TableColumnInfo],
     start_col: usize,
@@ -5800,13 +5781,14 @@ fn distribute_cell_width_across_columns(
 }
 
 /// Layout a cell with its computed column width to determine its content height
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn layout_cell_for_height<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     cell_index: usize,
     cell_width: f32,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<f32> {
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
     let cell_dom_id = cell_node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
@@ -5975,7 +5957,7 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
             let inline_result = &cached_layout.layout;
             // The baseline is the ascent of the first item from the top of the cell
             if let Some(first_item) = inline_result.items.first() {
-                let (item_ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&first_item.item);
+                let (item_ascent, _) = text3::cache::get_item_vertical_metrics_approx(&first_item.item);
                 let padding_top = cell_bp.padding.top;
                 let border_top = cell_bp.border.top;
                 return padding_top + border_top + first_item.position.y + item_ascent;
@@ -6011,12 +5993,14 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 //   rowspan distribution, vertical-align in table cells, cell baseline definition
 /// Calculate row heights based on cell content after column widths are determined
 // +spec:inline-formatting-context:87b90d - Table height algorithms: row height = max(computed height, cell heights, MIN); vertical-align in cells (baseline/top/middle/bottom, sub/super/etc. fall back to baseline)
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn calculate_row_heights<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     ctx: &mut LayoutContext<'_, T>,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     debug_table_layout!(
         ctx,
@@ -6189,12 +6173,10 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             // +spec:box-model:0ab9b0 - empty-cells:hide suppresses borders/backgrounds, row gets zero height if all cells hidden+empty
             // Check if ALL cells in this row have empty-cells:hide and are empty
             let all_hidden_empty = row_cells.iter().all(|&cell_idx| {
-                if let Some(cell_node) = tree.get(cell_idx) {
+                tree.get(cell_idx).is_none_or(|cell_node| {
                     let ec = get_empty_cells_property(ctx, cell_node);
                     ec == StyleEmptyCells::Hide && is_cell_empty(tree, cell_idx)
-                } else {
-                    true
-                }
+                })
             });
             if all_hidden_empty {
                 table_ctx.row_heights[row_idx] = 0.0;
@@ -6207,12 +6189,15 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 }
 
 /// Position all cells in the table grid with calculated widths and heights
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn position_table_cells<T: ParsedFontTrait>(
-    table_ctx: &mut TableLayoutContext,
+    table_ctx: &TableLayoutContext,
     tree: &mut LayoutTree,
     ctx: &mut LayoutContext<'_, T>,
     table_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<BTreeMap<usize, LogicalPosition>> {
     debug_log!(ctx, "Positioning table cells in grid");
 
@@ -6426,7 +6411,6 @@ fn position_table_cells<T: ParsedFontTrait>(
         let vertical_align_adjustment = if let Some(warm_node) = tree.warm(cell_info.node_index) {
             if let Some(ref cached_layout) = warm_node.inline_layout_result {
                 let inline_result = &cached_layout.layout;
-                use StyleVerticalAlign;
 
                 // Get vertical-align property from styled_dom
                 let vertical_align = if let Some(dom_id) = cell_dom_node_id {
@@ -6512,7 +6496,7 @@ fn position_table_cells<T: ParsedFontTrait>(
                         .iter()
                         .map(|item| PositionedItem {
                             item: item.item.clone(),
-                            position: crate::text3::cache::Point {
+                            position: text3::cache::Point {
                                 x: item.position.x,
                                 y: item.position.y + y_offset,
                             },
@@ -6575,7 +6559,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     ifc_root_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     use crate::solver3::layout_tree::{IfcId, IfcMembership};
     use crate::text3::cache::InlineContent;
@@ -6594,12 +6578,14 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     Ok((content, child_map))
 }
 
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     ifc_root_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     content: &mut Vec<InlineContent>,
     child_map: &mut HashMap<ContentIndex, usize>,
 ) -> Result<()> {
@@ -6653,31 +6639,22 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
     // Get the DOM node ID of the IFC root, or find it from parent/children for anonymous boxes
     // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit properties from their enclosing box
-    let ifc_root_dom_id = match ifc_root_node.dom_node_id {
-        Some(id) => id,
-        None => {
-            // Anonymous box - get DOM ID from parent or first child with DOM ID
-            let parent_dom_id = ifc_root_node
-                .parent
-                .and_then(|p| tree.get(p))
-                .and_then(|n| n.dom_node_id);
+    let ifc_root_dom_id = if let Some(id) = ifc_root_node.dom_node_id { id } else {
+        // Anonymous box - get DOM ID from parent or first child with DOM ID
+        let parent_dom_id = ifc_root_node
+            .parent
+            .and_then(|p| tree.get(p))
+            .and_then(|n| n.dom_node_id);
 
-            if let Some(id) = parent_dom_id {
-                id
-            } else {
-                // Try to find DOM ID from first child
-                match tree.children(ifc_root_index)
-                    .iter()
-                    .filter_map(|&child_idx| tree.get(child_idx))
-                    .filter_map(|n| n.dom_node_id)
-                    .next()
-                {
-                    Some(id) => id,
-                    None => {
-                        debug_warning!(ctx, "IFC root and all ancestors/children have no DOM ID");
-                        return Ok(());
-                    }
-                }
+        if let Some(id) = parent_dom_id {
+            id
+        } else {
+            // Try to find DOM ID from first child
+            if let Some(id) = tree.children(ifc_root_index)
+                .iter()
+                .filter_map(|&child_idx| tree.get(child_idx)).find_map(|n| n.dom_node_id) { id } else {
+                debug_warning!(ctx, "IFC root and all ancestors/children have no DOM ID");
+                return Ok(());
             }
         }
     };
@@ -6731,7 +6708,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     ctx.styled_dom,
                     dom_id,
                     text_content.as_str(),
-                    style,
+                    &style,
                 );
                 content.extend(text_items);
                 child_map.insert(content_index, child_index);
@@ -6753,7 +6730,19 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Non-text inline child - add as shape for inline-block
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
 
-            if display != LayoutDisplay::Inline {
+            if display == LayoutDisplay::Inline {
+                // Regular inline element - collect its text children
+                let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height));
+                collect_inline_span_recursive(
+                    ctx,
+                    tree,
+                    dom_id,
+                    &span_style,
+                    content,
+                    &children,
+                    constraints,
+                )?;
+            } else {
                 // +spec:display-property:a37a9a - atomic inline-level boxes treated as neutral characters in bidi reordering
                 // This is an atomic inline-level box (e.g., inline-block, image).
                 // We must determine its size and baseline before passing it to text3.
@@ -6886,19 +6875,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     source_node_id: Some(dom_id),
                 }));
                 child_map.insert(shape_content_index, child_index);
-            } else {
-                // Regular inline element - collect its text children
-                let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height));
-                collect_inline_span_recursive(
-                    ctx,
-                    tree,
-                    dom_id,
-                    span_style,
-                    content,
-                    child_map,
-                    &children,
-                    constraints,
-                )?;
             }
         }
 
@@ -6975,8 +6951,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 .iter()
                 .find(|&&child_idx| {
                     tree.warm(child_idx)
-                        .map(|w| w.pseudo_element == Some(PseudoElement::Marker))
-                        .unwrap_or(false)
+                        .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
                 })
                 .copied();
 
@@ -7069,7 +7044,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             ctx.styled_dom,
             ifc_root_dom_id,
             text_content.as_str(),
-            style,
+            &style,
         );
         content.extend(text_items);
         return Ok(());
@@ -7148,7 +7123,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 dom_child_id,
                 text_content.as_str(),
-                style,
+                &style,
             );
             content.extend(text_items);
             // [g136] TEXT branch taken + pushed; content.len now.
@@ -7181,8 +7156,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             .find(|&&idx| {
                 tree.get(idx)
                     .and_then(|n| n.dom_node_id)
-                    .map(|id| id == dom_child_id)
-                    .unwrap_or(false)
+                    .is_some_and(|id| id == dom_child_id)
             })
             .copied();
 
@@ -7410,7 +7384,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Get intrinsic size from the image data or fall back to layout node
             let intrinsic_size = tree.warm(child_index)
                 .and_then(|w| w.intrinsic_sizes)
-                .unwrap_or(IntrinsicSizes {
+                .unwrap_or_else(|| IntrinsicSizes {
                     max_content_width: 50.0,
                     max_content_height: 50.0,
                     ..Default::default()
@@ -7470,7 +7444,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 },
                 // Images are bottom-aligned with the baseline by default
                 baseline_offset: 0.0,
-                alignment: crate::text3::cache::VerticalAlign::Baseline,
+                alignment: text3::cache::VerticalAlign::Baseline,
                 object_fit: ObjectFit::Fill,
             }));
             // For images, text3 uses the content array index as run_index
@@ -7496,9 +7470,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 ctx,
                 tree,
                 dom_id,
-                span_style,
+                &span_style,
                 content,
-                child_map,
                 &children,
                 constraints,
             )?;
@@ -7529,15 +7502,15 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 /// - Text nodes: collected with the span's inherited style
 /// - Nested inline spans: recursively descended
 /// - Inline-blocks, images: measured and added as shapes
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn collect_inline_span_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     span_dom_id: NodeId,
-    span_style: StyleProperties,
+    span_style: &StyleProperties,
     content: &mut Vec<InlineContent>,
-    child_map: &mut HashMap<ContentIndex, usize>,
     parent_children: &[usize], // Layout tree children of parent IFC
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     debug_info!(
         ctx,
@@ -7566,30 +7539,29 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             ctx.styled_dom, span_dom_id, node_state
         );
         let line_height = line_height_value
-            .map(|v| text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
-            .unwrap_or(text3::cache::LineHeight::Normal);
+            .map_or(text3::cache::LineHeight::Normal, |v| text3::cache::LineHeight::Px(v.inner.normalized() * font_size));
 
         let cb_width = constraints.containing_block_size.main(constraints.writing_mode);
-        let padding_top = crate::solver3::getters::get_css_padding_top(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let padding_bottom = crate::solver3::getters::get_css_padding_bottom(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+        let padding_top = get_css_padding_top(ctx.styled_dom, span_dom_id, node_state)
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
+        let padding_bottom = get_css_padding_bottom(ctx.styled_dom, span_dom_id, node_state)
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
         let padding_left = crate::solver3::getters::get_css_padding_left(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
         let padding_right = crate::solver3::getters::get_css_padding_right(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let border_top = crate::solver3::getters::get_css_border_top_width(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
-        let border_bottom = crate::solver3::getters::get_css_border_bottom_width(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
+        let border_top = get_css_border_top_width(ctx.styled_dom, span_dom_id, node_state)
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
+        let border_bottom = get_css_border_bottom_width(ctx.styled_dom, span_dom_id, node_state)
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
         let border_left = crate::solver3::getters::get_css_border_left_width(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
         let border_right = crate::solver3::getters::get_css_border_right_width(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
         let margin_left = crate::solver3::getters::get_css_margin_left(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
         let margin_right = crate::solver3::getters::get_css_margin_right(ctx.styled_dom, span_dom_id, node_state)
-            .exact().map(|pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+            .exact().map_or(0.0, |pv| pv.to_pixels_internal(cb_width, font_size, DEFAULT_FONT_SIZE));
 
         let resolved_line_height = line_height.resolve(font_size, 0.0, 0.0, 0.0, 0);
         let total_height = resolved_line_height + padding_top + padding_bottom + border_top + border_bottom;
@@ -7628,7 +7600,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 child_dom_id,
                 text_content.as_str(),
-                Arc::new(span_style.clone()),
+                &Arc::new(span_style.clone()),
             );
             content.extend(text_items);
             continue;
@@ -7644,8 +7616,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             .find(|&&idx| {
                 tree.get(idx)
                     .and_then(|n| n.dom_node_id)
-                    .map(|id| id == child_dom_id)
-                    .unwrap_or(false)
+                    .is_some_and(|id| id == child_dom_id)
             })
             .copied();
 
@@ -7662,9 +7633,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     ctx,
                     tree,
                     child_dom_id,
-                    child_style,
+                    &child_style,
                     content,
-                    child_map,
                     parent_children,
                     constraints,
                 )?;
@@ -7781,9 +7751,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     ctx,
                     tree,
                     child_dom_id,
-                    child_style,
+                    &child_style,
                     content,
-                    child_map,
                     parent_children,
                     constraints,
                 )?;
@@ -7800,7 +7769,7 @@ fn position_floated_child(
     _child_index: usize,
     child_margin_box_size: LogicalSize,
     float_type: LayoutFloat,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     _bfc_content_box: LogicalRect,
     current_main_offset: f32,
     floating_context: &mut FloatingContext,
@@ -7846,7 +7815,8 @@ fn position_floated_child(
             };
             floating_context.floats.push(new_float_box);
             return Ok(final_pos);
-        } else {
+        }
+        {
             // +spec:floats:3d89d8 - shift float downward when not enough horizontal room
             // It doesn't fit. We must move the float down past an obstacle.
             // Find the lowest main-axis end of all floats that are blocking
@@ -7902,7 +7872,7 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutC
 // +spec:overflow:4f5b99 - scrollable overflow rectangle: content_size is the minimal axis-aligned rect containing scrollable overflow
 // +spec:overflow:e983f4 - overflow:auto/scroll boxes must allow user to access overflowed content via scrollbars
 // +spec:overflow:97c257 - relative positioning causing overflow in auto/scroll boxes must trigger scrollbar creation
-pub fn check_scrollbar_necessity(
+#[must_use] pub fn check_scrollbar_necessity(
     content_size: LogicalSize,
     container_size: LogicalSize,
     overflow_x: OverflowBehavior,
@@ -7976,7 +7946,7 @@ pub fn check_scrollbar_necessity(
 /// - If both margins are negative, the result is the more negative of the two.
 /// - If the margins have mixed signs, they are effectively summed.
 // +spec:margin-collapsing:814a26 - vertical margins between sibling blocks collapse
-pub fn collapse_margins(a: f32, b: f32) -> f32 {
+#[must_use] pub fn collapse_margins(a: f32, b: f32) -> f32 {
     if a.is_sign_positive() && b.is_sign_positive() {
         a.max(b)
     } else if a.is_sign_negative() && b.is_sign_negative() {
@@ -8070,9 +8040,8 @@ fn has_margin_collapse_blocker(
 ///
 /// `true` if the element is empty and its margins can collapse internally
 fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
-    let node = match tree.get(node_index) {
-        Some(n) => n,
-        None => return true,
+    let Some(node) = tree.get(node_index) else {
+        return true;
     };
     // Per CSS 2.2 § 8.3.1: An empty block is one that:
     // - Has zero computed 'min-height'
@@ -8107,7 +8076,7 @@ fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
 /// This function looks up the counter value from the cache and formats it
 /// according to the list-style-type property.
 ///
-/// Per CSS Lists Module Level 3, the ::marker pseudo-element is the first child
+/// Per CSS Lists Module Level 3, the `::marker` pseudo-element is the first child
 /// of the list-item, and references the same DOM node. Counter resolution happens
 /// on the list-item (parent) node.
 fn generate_list_marker_text(
@@ -8120,9 +8089,8 @@ fn generate_list_marker_text(
     use crate::solver3::counters::format_counter;
 
     // Get the marker node
-    let marker_node = match tree.get(marker_index) {
-        Some(n) => n,
-        None => return String::new(),
+    let Some(marker_node) = tree.get(marker_index) else {
+        return String::new();
     };
 
     // Verify this is actually a ::marker pseudo-element
@@ -8132,9 +8100,8 @@ fn generate_list_marker_text(
     if marker_pseudo != Some(PseudoElement::Marker) {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::warning(format!(
-                "[generate_list_marker_text] WARNING: Node {} is not a ::marker pseudo-element \
-                 (pseudo={:?}, anonymous_type={:?})",
-                marker_index, marker_pseudo, marker_anonymous_type
+                "[generate_list_marker_text] WARNING: Node {marker_index} is not a ::marker pseudo-element \
+                 (pseudo={marker_pseudo:?}, anonymous_type={marker_anonymous_type:?})"
             )));
         }
         // Fallback for old-style anonymous markers during transition
@@ -8144,66 +8111,50 @@ fn generate_list_marker_text(
     }
 
     // Get the parent list-item node (::marker is first child of list-item)
-    let list_item_index = match marker_node.parent {
-        Some(p) => p,
-        None => {
-            if let Some(msgs) = debug_messages {
-                msgs.push(LayoutDebugMessage::error(
-                    "[generate_list_marker_text] ERROR: Marker has no parent".to_string(),
-                ));
-            }
-            return String::new();
+    let Some(list_item_index) = marker_node.parent else {
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::error(
+                "[generate_list_marker_text] ERROR: Marker has no parent".to_string(),
+            ));
         }
+        return String::new();
     };
 
-    let list_item_node = match tree.get(list_item_index) {
-        Some(n) => n,
-        None => return String::new(),
+    let Some(list_item_node) = tree.get(list_item_index) else {
+        return String::new();
     };
 
-    let list_item_dom_id = match list_item_node.dom_node_id {
-        Some(id) => id,
-        None => {
-            if let Some(msgs) = debug_messages {
-                msgs.push(LayoutDebugMessage::error(
-                    "[generate_list_marker_text] ERROR: List-item has no DOM ID".to_string(),
-                ));
-            }
-            return String::new();
+    let Some(list_item_dom_id) = list_item_node.dom_node_id else {
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::error(
+                "[generate_list_marker_text] ERROR: List-item has no DOM ID".to_string(),
+            ));
         }
+        return String::new();
     };
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[generate_list_marker_text] marker_index={}, list_item_index={}, \
-             list_item_dom_id={:?}",
-            marker_index, list_item_index, list_item_dom_id
+            "[generate_list_marker_text] marker_index={marker_index}, list_item_index={list_item_index}, \
+             list_item_dom_id={list_item_dom_id:?}"
         )));
     }
 
     // Get list-style-type from the list-item or its container
-    let list_container_dom_id = if let Some(grandparent_index) = list_item_node.parent {
-        if let Some(grandparent) = tree.get(grandparent_index) {
-            grandparent.dom_node_id
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let list_container_dom_id = list_item_node.parent.and_then(|grandparent_index| {
+        tree.get(grandparent_index).and_then(|grandparent| grandparent.dom_node_id)
+    });
 
     // Try to get list-style-type from the list container first,
     // then fall back to the list-item
-    let list_style_type = if let Some(container_id) = list_container_dom_id {
+    let list_style_type = list_container_dom_id.map_or_else(|| get_list_style_type(styled_dom, Some(list_item_dom_id)), |container_id| {
         let container_type = get_list_style_type(styled_dom, Some(container_id));
-        if container_type != StyleListStyleType::default() {
-            container_type
-        } else {
+        if container_type == StyleListStyleType::default() {
             get_list_style_type(styled_dom, Some(list_item_dom_id))
+        } else {
+            container_type
         }
-    } else {
-        get_list_style_type(styled_dom, Some(list_item_dom_id))
-    };
+    });
 
     // Get the counter value for "list-item" counter from the LIST-ITEM node
     // Per CSS spec, counters are scoped to elements, and the list-item counter
@@ -8215,8 +8166,7 @@ fn generate_list_marker_text(
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::warning(format!(
                     "[generate_list_marker_text] WARNING: No counter found for list-item at index \
-                     {}, defaulting to 1",
-                    list_item_index
+                     {list_item_index}, defaulting to 1"
                 )));
             }
             1
@@ -8224,8 +8174,7 @@ fn generate_list_marker_text(
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[generate_list_marker_text] counter_value={} for list_item_index={}",
-            counter_value, list_item_index
+            "[generate_list_marker_text] counter_value={counter_value} for list_item_index={list_item_index}"
         )));
     }
 
@@ -8245,16 +8194,16 @@ fn generate_list_marker_text(
             | StyleListStyleType::LowerGreek
             | StyleListStyleType::UpperGreek
     ) {
-        format!("{}. ", marker_text)
+        format!("{marker_text}. ")
     } else {
-        format!("{} ", marker_text)
+        format!("{marker_text} ")
     }
 }
 
 /// Generates marker text segments for a list item marker.
 ///
-/// Simply returns a single StyledRun with the marker text using the base_style.
-/// The font stack in base_style already includes fallbacks with 100% Unicode coverage,
+/// Simply returns a single `StyledRun` with the marker text using the `base_style`.
+/// The font stack in `base_style` already includes fallbacks with 100% Unicode coverage,
 /// so font resolution happens during text shaping, not here.
 fn generate_list_marker_segments(
     tree: &LayoutTree,
@@ -8273,15 +8222,13 @@ fn generate_list_marker_segments(
 
     if let Some(msgs) = debug_messages {
         let font_families: Vec<&str> = match &base_style.font_stack {
-            crate::text3::cache::FontStack::Stack(selectors) => {
+            text3::cache::FontStack::Stack(selectors) => {
                 selectors.iter().map(|f| f.family.as_str()).collect()
             }
-            crate::text3::cache::FontStack::Ref(_) => vec!["<embedded-font>"],
+            text3::cache::FontStack::Ref(_) => vec!["<embedded-font>"],
         };
         msgs.push(LayoutDebugMessage::info(format!(
-            "[generate_list_marker_segments] Marker text: '{}' with font stack: {:?}",
-            marker_text,
-            font_families
+            "[generate_list_marker_segments] Marker text: '{marker_text}' with font stack: {font_families:?}"
         )));
     }
 
@@ -8299,7 +8246,7 @@ fn generate_list_marker_segments(
 /// or NL (next line). Per CSS Text 3 §5.1, these must be treated as forced line
 /// breaks regardless of the white-space property value.
 #[inline]
-fn is_bk_or_nl_class(c: char) -> bool {
+const fn is_bk_or_nl_class(c: char) -> bool {
     matches!(c, '\u{000B}' | '\u{000C}' | '\u{0085}' | '\u{2028}' | '\u{2029}')
 }
 
@@ -8458,28 +8405,10 @@ fn apply_segment_break_transform(text: &str) -> String {
 // ============================================================================
 // +spec:white-space-processing:b64e38 - parser may normalize/collapse whitespace before CSS; CSS cannot restore
 
-/// Splits text content into InlineContent items based on white-space CSS property.
-///
-///
-/// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as
-/// forced line breaks per CSS Text Level 3 specification:
-/// https://www.w3.org/TR/css-text-3/#white-space-property
-///
-/// Additionally, Unicode characters with BK or NL line breaking class (VT, FF, NEL, LS, PS)
-/// are always treated as forced line breaks regardless of the white-space value.
-///
-/// This function:
-/// 1. Checks the white-space property of the node (or its parent for text nodes)
-/// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts `InlineContent::LineBreak`
-/// 3. Otherwise: returns the text as a single `InlineContent::Text`
-/// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
-///
-/// Returns a Vec of InlineContent items that correctly represent line breaks.
-
 // +spec:display-property:1389e3 - bidi control characters per UAX #9 for Unicode bidirectional algorithm
 // +spec:display-property:aad99b - inline boxes can be split into fragments due to bidi text processing
 // Bidi_Control property (UAX #9). These characters are ignored during white-space processing.
-fn is_bidi_control(c: char) -> bool {
+const fn is_bidi_control(c: char) -> bool {
     matches!(c,
         '\u{200E}' | // LEFT-TO-RIGHT MARK
         '\u{200F}' | // RIGHT-TO-LEFT MARK
@@ -8501,7 +8430,7 @@ fn is_bidi_control(c: char) -> bool {
 /// Only spaces (U+0020), tabs (U+0009), and segment breaks (LF, CR, FF) qualify.
 /// Other Unicode whitespace (e.g. U+00A0 non-breaking space) is NOT document white space.
 #[inline]
-fn is_css_document_whitespace(c: char) -> bool {
+const fn is_css_document_whitespace(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')
 }
 
@@ -8511,11 +8440,28 @@ fn is_css_document_whitespace(c: char) -> bool {
 // white space characters are processed prior to line breaking and bidi reordering
 // +spec:inline-block:381c0c - white-space property: collapsing, wrapping, and forced breaks per mode
 // +spec:display-property:8acfaa - Phase I white-space collapsing for each inline in an IFC, ignoring bidi controls
+/// Splits text content into `InlineContent` items based on white-space CSS property.
+///
+/// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as
+/// forced line breaks per CSS Text Level 3 specification:
+/// <https://www.w3.org/TR/css-text-3/#white-space-property>
+///
+/// Additionally, Unicode characters with BK or NL line breaking class (VT, FF, NEL, LS, PS)
+/// are always treated as forced line breaks regardless of the white-space value.
+///
+/// This function:
+/// 1. Checks the white-space property of the node (or its parent for text nodes)
+/// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts `InlineContent::LineBreak`
+/// 3. Otherwise: returns the text as a single `InlineContent::Text`
+/// 4. In ALL modes: BK/NL class chars (VT, FF, NEL, LS, PS) produce forced breaks
+///
+/// Returns a Vec of `InlineContent` items that correctly represent line breaks.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     text: &str,
-    style: Arc<StyleProperties>,
+    style: &Arc<StyleProperties>,
 ) -> Vec<InlineContent> {
     use crate::text3::cache::{BreakType, ClearType, InlineBreak};
 
@@ -8536,7 +8482,7 @@ pub fn split_text_for_whitespace(
     let parent_id = node_hierarchy[dom_id].parent_id();
     
     // Try parent first, then fall back to the node itself
-    let white_space = if let Some(parent) = parent_id {
+    let white_space = parent_id.map_or(StyleWhiteSpace::Normal, |parent| {
         let styled_nodes = styled_dom.styled_nodes.as_container();
         let parent_state = styled_nodes
             .get(parent)
@@ -8547,9 +8493,7 @@ pub fn split_text_for_whitespace(
             MultiValue::Exact(ws) => ws,
             _ => StyleWhiteSpace::Normal,
         }
-    } else {
-        StyleWhiteSpace::Normal
-    };
+    });
 
     let mut result = Vec::new();
 
@@ -8586,14 +8530,14 @@ pub fn split_text_for_whitespace(
                     if !part.is_empty() {
                         result.push(InlineContent::Text(StyledRun {
                             text: part.to_string(),
-                            style: Arc::clone(&style),
+                            style: Arc::clone(style),
                             logical_start_byte: 0,
                             source_node_id: Some(dom_id),
                         }));
                     }
 
                     if tab_parts.peek().is_some() {
-                        result.push(InlineContent::Tab { style: Arc::clone(&style) });
+                        result.push(InlineContent::Tab { style: Arc::clone(style) });
                     }
                 }
 
@@ -8624,7 +8568,7 @@ pub fn split_text_for_whitespace(
                 if !collapsed.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
                         text: collapsed,
-                        style: Arc::clone(&style),
+                        style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
                     }));
@@ -8673,8 +8617,8 @@ pub fn split_text_for_whitespace(
                     " ".to_string()
                 } else if !collapsed.is_empty() {
                     // Check if original had leading/trailing document whitespace
-                    let had_leading = segment.chars().next().map(is_css_document_whitespace).unwrap_or(false);
-                    let had_trailing = segment.chars().last().map(is_css_document_whitespace).unwrap_or(false);
+                    let had_leading = segment.chars().next().is_some_and(is_css_document_whitespace);
+                    let had_trailing = segment.chars().last().is_some_and(is_css_document_whitespace);
 
                     let mut r = String::new();
                     if had_leading { r.push(' '); }
@@ -8690,7 +8634,7 @@ pub fn split_text_for_whitespace(
                 if !final_text.is_empty() {
                     result.push(InlineContent::Text(StyledRun {
                         text: final_text,
-                        style: Arc::clone(&style),
+                        style: Arc::clone(style),
                         logical_start_byte: 0,
                         source_node_id: Some(dom_id),
                     }));
@@ -8713,8 +8657,8 @@ pub fn split_text_for_whitespace(
     // This means full-width only transforms spaces (U+0020) to U+3000 IDEOGRAPHIC SPACE
     // within preserved white space, because non-preserved spaces were already collapsed in Phase I above.
     let text_transform = style.text_transform;
-    if text_transform != crate::text3::cache::TextTransform::None {
-        for item in result.iter_mut() {
+    if text_transform != text3::cache::TextTransform::None {
+        for item in &mut result {
             if let InlineContent::Text(run) = item {
                 run.text = apply_text_transform(&run.text, text_transform);
             }
@@ -8724,7 +8668,7 @@ pub fn split_text_for_whitespace(
     result
 }
 
-fn apply_text_transform(text: &str, transform: crate::text3::cache::TextTransform) -> String {
+fn apply_text_transform(text: &str, transform: text3::cache::TextTransform) -> String {
     use crate::text3::cache::TextTransform;
     match transform {
         TextTransform::None => text.to_string(),
@@ -8800,12 +8744,22 @@ fn apply_text_transform(text: &str, transform: crate::text3::cache::TextTransfor
 /// The caller should use these dimensions to create a float-like exclusion at the
 /// start of the block container, causing subsequent lines to wrap around the letter.
 // +spec:width-calculation:7f4f68 - initial-letter-wrap exclusion area (none behavior; first/grid require glyph outlines)
-pub fn layout_initial_letter(
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[must_use] pub fn layout_initial_letter(
     initial_letter_size: f32,
     initial_letter_sink: u32,
     content_box_width: f32,
     line_height: f32,
 ) -> (f32, f32) {
+    // Estimate the letter width using a typical Latin capital letter aspect ratio.
+    // The advance width of a capital letter is approximately 0.7x the cap height.
+    // This is a heuristic; a full implementation would measure the actual glyph(s).
+    const CAP_WIDTH_RATIO: f32 = 0.7;
+
+    // Add a small gap between the letter box and the adjacent inline content.
+    // CSS Inline Level 3 section 3.5: browsers typically add ~4px padding.
+    const LETTER_GAP: f32 = 4.0;
+
     // Guard against degenerate values
     if initial_letter_size <= 0.0 || line_height <= 0.0 || content_box_width <= 0.0 {
         return (0.0, 0.0);
@@ -8816,15 +8770,8 @@ pub fn layout_initial_letter(
     // CSS Inline Level 3 section 3.3: The initial letter box height spans `size` lines.
     let letter_height = initial_letter_size * line_height;
 
-    // Estimate the letter width using a typical Latin capital letter aspect ratio.
-    // The advance width of a capital letter is approximately 0.7x the cap height.
-    // This is a heuristic; a full implementation would measure the actual glyph(s).
-    const CAP_WIDTH_RATIO: f32 = 0.7;
     let letter_width_raw = letter_height * CAP_WIDTH_RATIO;
 
-    // Add a small gap between the letter box and the adjacent inline content.
-    // CSS Inline Level 3 section 3.5: browsers typically add ~4px padding.
-    const LETTER_GAP: f32 = 4.0;
     let letter_width = (letter_width_raw + LETTER_GAP).min(content_box_width);
 
     // +spec:containing-block:67fd99 - block-axis positioning: size >= sink shifts by (sink-1)*line_height toward block-end

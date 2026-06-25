@@ -3,6 +3,7 @@
 //! into a DOM via [`ProgressBar::dom()`].
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -179,7 +180,7 @@ pub struct ProgressBar {
 }
 
 /// Internal state for a [`ProgressBar`], tracking completion percentage.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct ProgressBarState {
     pub percent_done: f32,
@@ -189,7 +190,7 @@ pub struct ProgressBarState {
 impl ProgressBar {
     /// Creates a new progress bar with the given completion percentage (0.0 to 100.0).
     #[inline]
-    pub fn create(percent_done: f32) -> Self {
+    #[must_use] pub const fn create(percent_done: f32) -> Self {
         Self {
             progressbar_state: ProgressBarState {
                 percent_done,
@@ -207,7 +208,8 @@ impl ProgressBar {
 
     /// Replaces `self` with a default (0%) progress bar, returning the previous value.
     #[inline]
-    pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0);
         core::mem::swap(&mut s, self);
         s
@@ -217,7 +219,7 @@ impl ProgressBar {
         self.container_background = background;
     }
 
-    pub fn with_container_background(mut self, background: StyleBackgroundContentVec) -> Self {
+    #[must_use] pub fn with_container_background(mut self, background: StyleBackgroundContentVec) -> Self {
         self.set_container_background(background);
         self
     }
@@ -226,29 +228,30 @@ impl ProgressBar {
         self.bar_background = background;
     }
 
-    pub fn with_bar_background(mut self, background: StyleBackgroundContentVec) -> Self {
+    #[must_use] pub fn with_bar_background(mut self, background: StyleBackgroundContentVec) -> Self {
         self.set_bar_background(background);
         self
     }
 
-    pub fn set_height(&mut self, height: PixelValue) {
+    pub const fn set_height(&mut self, height: PixelValue) {
         self.height = height;
     }
 
-    pub fn with_height(mut self, height: PixelValue) -> Self {
+    #[must_use] pub const fn with_height(mut self, height: PixelValue) -> Self {
         self.set_height(height);
         self
     }
 
     /// Renders this progress bar into a [`Dom`] tree consisting of a container div
     /// with two children: the filled bar and the remaining empty space.
-    pub fn dom(self) -> Dom {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use] pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 
         // Use percentage widths for the progress bar and remaining space.
         // The container uses flex-direction: row, and we set explicit widths
         // on the children using CSS percentages.
-        let percent_done = self.progressbar_state.percent_done.max(0.0).min(100.0);
+        let percent_done = self.progressbar_state.percent_done.clamp(0.0, 100.0);
 
         Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
@@ -586,7 +589,7 @@ impl ProgressBar {
                             }),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                            StyleBackgroundContentVecValue::Exact(self.bar_background.clone()),
+                            StyleBackgroundContentVecValue::Exact(self.bar_background),
                         )),
                     ]))
                     .with_ids_and_classes({

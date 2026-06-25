@@ -41,7 +41,7 @@ pub type TimerCallbackType = extern "C" fn(
 #[repr(C)]
 pub struct TimerCallback {
     pub cb: TimerCallbackType,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
@@ -56,7 +56,7 @@ impl TimerCallback {
 }
 
 impl core::fmt::Debug for TimerCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "TimerCallback {{ cb: {:p} }}", self.cb as *const ())
     }
 }
@@ -126,7 +126,7 @@ impl Timer {
         callback: C,
         get_system_time_fn: GetSystemTimeCallback,
     ) -> Self {
-        Timer {
+        Self {
             refany,
             node_id: None.into(),
             created: (get_system_time_fn.cb)(),
@@ -139,7 +139,7 @@ impl Timer {
         }
     }
 
-    pub fn tick_millis(&self) -> u64 {
+    #[must_use] pub const fn tick_millis(&self) -> u64 {
         match self.interval.as_ref() {
             Some(Duration::System(s)) => s.millis(),
             Some(Duration::Tick(s)) => s.tick_diff,
@@ -147,7 +147,7 @@ impl Timer {
         }
     }
 
-    pub fn is_about_to_finish(&self, instant_now: &Instant) -> bool {
+    #[must_use] pub fn is_about_to_finish(&self, instant_now: &Instant) -> bool {
         match self.timeout {
             OptionDuration::Some(timeout) => {
                 instant_now.duration_since(&self.created).greater_than(&timeout)
@@ -156,11 +156,8 @@ impl Timer {
         }
     }
 
-    pub fn instant_of_next_run(&self) -> Instant {
-        let last_run = match self.last_run.as_ref() {
-            Some(s) => s,
-            None => &self.created,
-        };
+    #[must_use] pub fn instant_of_next_run(&self) -> Instant {
+        let last_run = self.last_run.as_ref().map_or(&self.created, |s| s);
 
         last_run
             .clone()
@@ -169,19 +166,19 @@ impl Timer {
     }
 
     #[inline]
-    pub fn with_delay(mut self, delay: Duration) -> Self {
+    #[must_use] pub const fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = OptionDuration::Some(delay);
         self
     }
 
     #[inline]
-    pub fn with_interval(mut self, interval: Duration) -> Self {
+    #[must_use] pub const fn with_interval(mut self, interval: Duration) -> Self {
         self.interval = OptionDuration::Some(interval);
         self
     }
 
     #[inline]
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+    #[must_use] pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = OptionDuration::Some(timeout);
         self
     }
@@ -257,13 +254,14 @@ impl Default for Timer {
             TimerCallbackReturn::terminate_unchanged()
         }
 
-        extern "C" fn default_time() -> Instant {
+        const extern "C" fn default_time() -> Instant {
             Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
         }
 
-        Timer::create(
+        let cb: TimerCallbackType = default_callback;
+        Self::create(
             RefAny::new(()),
-            default_callback as TimerCallbackType,
+            cb,
             GetSystemTimeCallback { cb: default_time },
         )
     }
@@ -273,8 +271,9 @@ impl Default for Timer {
 ///
 /// This wraps `CallbackInfo` and adds timer-specific fields like `call_count` and `frame_start`.
 /// `CallbackInfo` methods are available via explicit delegation methods below.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[repr(C)]
+#[allow(clippy::pub_underscore_fields)] // _abi_ref/_abi_mut: intentional FFI/api.json ABI-stability placeholder fields
 pub struct TimerCallbackInfo {
     pub callback_info: CallbackInfo,
     pub node_id: OptionDomNodeId,
@@ -286,7 +285,7 @@ pub struct TimerCallbackInfo {
 }
 
 impl TimerCallbackInfo {
-    pub fn create(
+    #[must_use] pub const fn create(
         callback_info: CallbackInfo,
         node_id: OptionDomNodeId,
         frame_start: Instant,
@@ -304,21 +303,21 @@ impl TimerCallbackInfo {
         }
     }
 
-    pub fn get_attached_node_size(&self) -> Option<LogicalSize> {
+    #[must_use] pub fn get_attached_node_size(&self) -> Option<LogicalSize> {
         let node_id = self.node_id.into_option()?;
         self.callback_info.get_node_size(node_id)
     }
 
-    pub fn get_attached_node_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+    #[must_use] pub fn get_attached_node_position(&self) -> Option<LogicalPosition> {
         let node_id = self.node_id.into_option()?;
         self.callback_info.get_node_position(node_id)
     }
 
-    pub fn get_callback_info(&self) -> &CallbackInfo {
+    #[must_use] pub const fn get_callback_info(&self) -> &CallbackInfo {
         &self.callback_info
     }
 
-    pub fn get_callback_info_mut(&mut self) -> &mut CallbackInfo {
+    pub const fn get_callback_info_mut(&mut self) -> &mut CallbackInfo {
         &mut self.callback_info
     }
 
@@ -327,7 +326,7 @@ impl TimerCallbackInfo {
     // as CallbackInfo without using Deref (which causes issues with FFI codegen)
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
         self.callback_info.get_ctx()
     }
 
@@ -389,7 +388,7 @@ impl TimerCallbackInfo {
         self.callback_info.update_all_image_callbacks();
     }
 
-    /// Trigger re-rendering of a VirtualView (applied after callback returns)
+    /// Trigger re-rendering of a `VirtualView` (applied after callback returns)
     pub fn trigger_virtual_view_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
         self.callback_info.trigger_virtual_view_rerender(dom_id, node_id);
     }
@@ -435,82 +434,82 @@ impl TimerCallbackInfo {
     }
 
     /// Get current window flags
-    pub fn get_current_window_flags(&self) -> WindowFlags {
+    #[must_use] pub const fn get_current_window_flags(&self) -> WindowFlags {
         self.callback_info.get_current_window_flags()
     }
 
     /// Get current keyboard state
-    pub fn get_current_keyboard_state(&self) -> KeyboardState {
+    #[must_use] pub fn get_current_keyboard_state(&self) -> KeyboardState {
         self.callback_info.get_current_keyboard_state()
     }
 
     /// Get current mouse state
-    pub fn get_current_mouse_state(&self) -> MouseState {
+    #[must_use] pub const fn get_current_mouse_state(&self) -> MouseState {
         self.callback_info.get_current_mouse_state()
     }
 
     /// Get the cursor position relative to the hit node
-    pub fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
+    #[must_use] pub const fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
         self.callback_info.get_cursor_relative_to_node()
     }
 
     /// Get the cursor position relative to the viewport
-    pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
+    #[must_use] pub const fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
         self.callback_info.get_cursor_relative_to_viewport()
     }
 
     /// Get the current cursor position
-    pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
+    #[must_use] pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
         self.callback_info.get_cursor_position()
     }
 
     /// Get the current time (when the timer callback started)
-    pub fn get_current_time(&self) -> Instant {
+    #[must_use] pub fn get_current_time(&self) -> Instant {
         self.frame_start.clone()
     }
 
     /// Check if any node in a specific DOM is focused
-    pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
+    #[must_use] pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
         self.callback_info.is_dom_focused(dom_id)
     }
 
     /// Check if pen is in contact
-    pub fn is_pen_in_contact(&self) -> bool {
+    #[must_use] pub fn is_pen_in_contact(&self) -> bool {
         self.callback_info.is_pen_in_contact()
     }
 
     /// Check if pen eraser is active
-    pub fn is_pen_eraser(&self) -> bool {
+    #[must_use] pub fn is_pen_eraser(&self) -> bool {
         self.callback_info.is_pen_eraser()
     }
 
     /// Check if pen barrel button is pressed
-    pub fn is_pen_barrel_button_pressed(&self) -> bool {
+    #[must_use] pub fn is_pen_barrel_button_pressed(&self) -> bool {
         self.callback_info.is_pen_barrel_button_pressed()
     }
 
     /// Check if dragging is active
-    pub fn is_dragging(&self) -> bool {
+    #[must_use] pub const fn is_dragging(&self) -> bool {
         self.callback_info.get_current_mouse_state().left_down
     }
 
     /// Check if drag is active
-    pub fn is_drag_active(&self) -> bool {
+    #[must_use] pub const fn is_drag_active(&self) -> bool {
         self.callback_info.get_current_mouse_state().left_down
     }
 
     /// Check if node drag is active
-    pub fn is_node_drag_active(&self) -> bool {
+    #[must_use] pub const fn is_node_drag_active(&self) -> bool {
         self.callback_info.get_current_mouse_state().left_down
     }
 
     /// Check if file drag is active
-    pub fn is_file_drag_active(&self) -> bool {
+    #[must_use] pub fn is_file_drag_active(&self) -> bool {
         self.callback_info.is_file_drag_active()
     }
 
     /// Check if there's sufficient history for gestures
-    pub fn has_sufficient_history_for_gestures(&self) -> bool {
+    #[must_use] pub fn has_sufficient_history_for_gestures(&self) -> bool {
         self.callback_info.has_sufficient_history_for_gestures()
     }
 
@@ -519,10 +518,10 @@ impl TimerCallbackInfo {
     /// Get a read-only snapshot of a scroll node's bounds and position.
     ///
     /// Timer callbacks use this to read current scroll state for physics calculation.
-    pub fn get_scroll_node_info(
+    #[must_use] pub fn get_scroll_node_info(
         &self,
-        dom_id: azul_core::dom::DomId,
-        node_id: azul_core::id::NodeId,
+        dom_id: DomId,
+        node_id: NodeId,
     ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> {
         self.callback_info.get_scroll_node_info(dom_id, node_id)
     }
@@ -531,11 +530,11 @@ impl TimerCallbackInfo {
     ///
     /// Used by auto-scroll timer to find which container to scroll when
     /// the user drags beyond the container edge.
-    pub fn find_scroll_parent(
+    #[must_use] pub fn find_scroll_parent(
         &self,
-        dom_id: azul_core::dom::DomId,
-        node_id: azul_core::id::NodeId,
-    ) -> Option<azul_core::id::NodeId> {
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<NodeId> {
         self.callback_info.find_scroll_parent(dom_id, node_id)
     }
 
@@ -544,21 +543,21 @@ impl TimerCallbackInfo {
     /// The physics timer calls `take_all()` each tick to drain inputs
     /// recorded by platform event handlers.
     #[cfg(feature = "std")]
-    pub fn get_scroll_input_queue(
+    #[must_use] pub fn get_scroll_input_queue(
         &self,
     ) -> crate::managers::scroll_state::ScrollInputQueue {
         self.callback_info.get_scroll_input_queue()
     }
 
-    /// Scroll a node to a specific position (via transactional CallbackChange).
+    /// Scroll a node to a specific position (via transactional `CallbackChange`).
     ///
     /// This is the primary way for timer callbacks to update scroll positions.
     /// The change is applied after the callback returns.
     pub fn scroll_to(
         &mut self,
-        dom_id: azul_core::dom::DomId,
+        dom_id: DomId,
         node_id: azul_core::styled_dom::NodeHierarchyItemId,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
     ) {
         self.callback_info.scroll_to(dom_id, node_id, position);
     }
@@ -566,9 +565,9 @@ impl TimerCallbackInfo {
     /// Scroll to position without clamping (for rubber-banding/overscroll).
     pub fn scroll_to_unclamped(
         &mut self,
-        dom_id: azul_core::dom::DomId,
+        dom_id: DomId,
         node_id: azul_core::styled_dom::NodeHierarchyItemId,
-        position: azul_core::geom::LogicalPosition,
+        position: LogicalPosition,
     ) {
         self.callback_info.scroll_to_unclamped(dom_id, node_id, position);
     }
@@ -595,6 +594,9 @@ impl TimerCallbackInfo {
 /// Optional Timer type for API compatibility
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
+// FFI Option enum; boxing the Some variant would break the #[repr(C, u8)] C ABI / api.json.
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(clippy::large_enum_variant)]
 pub enum OptionTimer {
     None,
     Some(Timer),
@@ -602,18 +604,15 @@ pub enum OptionTimer {
 
 impl From<Option<Timer>> for OptionTimer {
     fn from(o: Option<Timer>) -> Self {
-        match o {
-            None => OptionTimer::None,
-            Some(t) => OptionTimer::Some(t),
-        }
+        o.map_or_else(|| Self::None, Self::Some)
     }
 }
 
 impl OptionTimer {
-    pub fn into_option(self) -> Option<Timer> {
+    #[must_use] pub fn into_option(self) -> Option<Timer> {
         match self {
-            OptionTimer::None => None,
-            OptionTimer::Some(t) => Some(t),
+            Self::None => None,
+            Self::Some(t) => Some(t),
         }
     }
 }

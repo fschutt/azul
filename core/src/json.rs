@@ -23,7 +23,7 @@ use azul_css::{
 pub struct Json {
     /// The type of this JSON value
     pub value_type: JsonType,
-    /// Internal storage - interpretation depends on value_type
+    /// Internal storage - interpretation depends on `value_type`
     /// For objects/arrays, this contains serialized data
     pub internal: JsonInternal,
 }
@@ -75,7 +75,7 @@ pub enum JsonType {
 }
 
 /// Error when parsing JSON
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct JsonParseError {
     /// Error message
@@ -111,7 +111,7 @@ pub struct JsonKeyValue {
 
 impl JsonKeyValue {
     /// Create a new key-value pair
-    pub fn create(key: AzString, value: Json) -> Self {
+    #[must_use] pub const fn create(key: AzString, value: Json) -> Self {
         Self { key, value }
     }
 }
@@ -129,9 +129,10 @@ impl_vec_clone!(JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor);
 impl_vec_debug!(JsonKeyValue, JsonKeyValueVec);
 
 impl JsonKeyValueVec {
-    /// Creates a new, heap-allocated JsonKeyValueVec by copying elements from a C array
+    /// Creates a new, heap-allocated `JsonKeyValueVec` by copying elements from a C array
     #[inline]
-    pub fn copy_from_array(ptr: *const JsonKeyValue, len: usize) -> Self {
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+    #[must_use] pub fn copy_from_array(ptr: *const JsonKeyValue, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
             return Self::new();
         }
@@ -148,9 +149,10 @@ impl_vec_partialeq!(Json, JsonVec);
 impl_vec_mut!(Json, JsonVec);
 
 impl JsonVec {
-    /// Creates a new, heap-allocated JsonVec by copying elements from a C array
+    /// Creates a new, heap-allocated `JsonVec` by copying elements from a C array
     #[inline]
-    pub fn copy_from_array(ptr: *const Json, len: usize) -> Self {
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+    #[must_use] pub fn copy_from_array(ptr: *const Json, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
             return Self::new();
         }
@@ -187,6 +189,7 @@ impl_option!(i64, OptionI64, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord
 /// overflow.  The upper bound uses `< 2^63` (not `<= i64::MAX as f64`)
 /// because `i64::MAX` cannot be represented exactly in `f64` — the cast
 /// rounds up to `2^63`, which would cause overflow on `n as i64`.
+#[allow(clippy::cast_possible_truncation)] // bounded DPI/dimension/number conversion
 fn f64_as_i64(n: f64) -> Option<i64> {
     if n.fract() == 0.0 && n >= -(2_f64.powi(63)) && n < 2_f64.powi(63) {
         Some(n as i64)
@@ -201,7 +204,7 @@ fn f64_as_i64(n: f64) -> Option<i64> {
 
 impl Json {
     /// Create a null JSON value
-    pub fn null() -> Self {
+    #[must_use] pub fn null() -> Self {
         Self {
             value_type: JsonType::Null,
             internal: JsonInternal::default(),
@@ -209,7 +212,7 @@ impl Json {
     }
 
     /// Create a boolean JSON value
-    pub fn bool(value: bool) -> Self {
+    #[must_use] pub fn bool(value: bool) -> Self {
         Self {
             value_type: JsonType::Bool,
             internal: JsonInternal {
@@ -221,7 +224,7 @@ impl Json {
     }
 
     /// Create a number JSON value (floating-point)
-    pub fn number(value: f64) -> Self {
+    #[must_use] pub fn number(value: f64) -> Self {
         Self {
             value_type: JsonType::Number,
             internal: JsonInternal {
@@ -236,7 +239,8 @@ impl Json {
     ///
     /// **Note:** the value is stored as `f64` internally, so `i64` values with
     /// magnitude greater than 2^53 will lose precision silently.
-    pub fn integer(value: i64) -> Self {
+    #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
+    #[must_use] pub fn integer(value: i64) -> Self {
         Self {
             value_type: JsonType::Number,
             internal: JsonInternal {
@@ -260,37 +264,37 @@ impl Json {
     }
 
     /// Check if this is null
-    pub fn is_null(&self) -> bool {
+    #[must_use] pub fn is_null(&self) -> bool {
         self.value_type == JsonType::Null
     }
 
     /// Check if this is a boolean
-    pub fn is_bool(&self) -> bool {
+    #[must_use] pub fn is_bool(&self) -> bool {
         self.value_type == JsonType::Bool
     }
 
     /// Check if this is a number
-    pub fn is_number(&self) -> bool {
+    #[must_use] pub fn is_number(&self) -> bool {
         self.value_type == JsonType::Number
     }
 
     /// Check if this is a string
-    pub fn is_string(&self) -> bool {
+    #[must_use] pub fn is_string(&self) -> bool {
         self.value_type == JsonType::String
     }
 
     /// Check if this is an array
-    pub fn is_array(&self) -> bool {
+    #[must_use] pub fn is_array(&self) -> bool {
         self.value_type == JsonType::Array
     }
 
     /// Check if this is an object
-    pub fn is_object(&self) -> bool {
+    #[must_use] pub fn is_object(&self) -> bool {
         self.value_type == JsonType::Object
     }
 
     /// Get as boolean (returns None if not a bool)
-    pub fn as_bool(&self) -> OptionBool {
+    #[must_use] pub fn as_bool(&self) -> OptionBool {
         if self.value_type == JsonType::Bool {
             OptionBool::Some(self.internal.bool_value)
         } else {
@@ -299,7 +303,7 @@ impl Json {
     }
 
     /// Get as number (returns None if not a number)
-    pub fn as_number(&self) -> OptionF64 {
+    #[must_use] pub fn as_number(&self) -> OptionF64 {
         if self.value_type == JsonType::Number {
             OptionF64::Some(self.internal.number_value)
         } else {
@@ -308,19 +312,16 @@ impl Json {
     }
 
     /// Get as integer (returns None if not a number or not an integer)
-    pub fn as_i64(&self) -> OptionI64 {
+    #[must_use] pub fn as_i64(&self) -> OptionI64 {
         if self.value_type == JsonType::Number {
-            match f64_as_i64(self.internal.number_value) {
-                Some(i) => OptionI64::Some(i),
-                None => OptionI64::None,
-            }
+            f64_as_i64(self.internal.number_value).map_or(OptionI64::None, OptionI64::Some)
         } else {
             OptionI64::None
         }
     }
 
     /// Get as string (returns None if not a string)
-    pub fn as_string(&self) -> OptionString {
+    #[must_use] pub fn as_string(&self) -> OptionString {
         if self.value_type == JsonType::String {
             OptionString::Some(self.internal.string_value.clone())
         } else {
@@ -329,7 +330,7 @@ impl Json {
     }
 
     /// Get the raw internal string value (for arrays/objects this is the serialized JSON)
-    pub fn raw_string(&self) -> &str {
+    #[must_use] pub fn raw_string(&self) -> &str {
         self.internal.string_value.as_str()
     }
 }
@@ -346,9 +347,9 @@ impl fmt::Display for Json {
             JsonType::Number => {
                 let num = self.internal.number_value;
                 if let Some(i) = f64_as_i64(num) {
-                    write!(f, "{}", i)
+                    write!(f, "{i}")
                 } else {
-                    write!(f, "{}", num)
+                    write!(f, "{num}")
                 }
             }
             JsonType::String => write!(f, "\"{}\"", self.internal.string_value.as_str()),

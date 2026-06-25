@@ -1,6 +1,6 @@
-// cargo run --example opengl --features serde_support
+// cargo run --example opengl --features serde
 
-#![cfg(feature = "serde_support")]
+#![cfg(feature = "serde")]
 
 use azul::callbacks::RenderImageCallbackInfo;
 use azul::css::{

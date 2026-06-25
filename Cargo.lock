@@ -892,13 +892,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8259ebd5ee48a37fd8931116405456fd67efbb5435b4789e45bdbccf5d7dea7e"
 
 [[package]]
-name = "azul-spirit-level"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
 name = "azul-vault"
 version = "0.1.0"
 dependencies = [
@@ -910,6 +903,14 @@ name = "azul-video-app"
 version = "0.1.0"
 dependencies = [
  "azul-dll",
+]
+
+[[package]]
+name = "azul-widgets"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
 ]
 
 [[package]]
@@ -6440,8 +6441,6 @@ dependencies = [
 [[package]]
 name = "rust-fontconfig"
 version = "4.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43065fe29d0d6e295fa41528b48629bea90e6d1d5ddd12c1beec2bb4fa50df58"
 dependencies = [
  "allsorts-azul",
  "bincode 1.3.3",

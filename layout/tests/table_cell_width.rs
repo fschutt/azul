@@ -7,7 +7,6 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -46,13 +45,6 @@ fn layout_dom(dom: Dom, css_str: &str, width: f32, height: f32) -> LayoutWindow 
         .unwrap();
 
     layout_window
-}
-
-fn get_root_id() -> DomNodeId {
-    DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-    }
 }
 
 fn node_id(index: usize) -> DomNodeId {
@@ -115,11 +107,11 @@ fn test_table_percentage_width_cells_expand() {
             }
         }
     }
-    eprintln!("  Total cell width: {:.1}, cell_count: {}", total_cell_width, cell_count);
+    eprintln!("  Total cell width: {total_cell_width:.1}, cell_count: {cell_count}");
 
     // The cells should approximately fill the table
     assert!(total_cell_width > 600.0,
-        "Cells should fill most of the 680px table, total cell width = {}", total_cell_width);
+        "Cells should fill most of the 680px table, total cell width = {total_cell_width}");
 }
 
 /// Table WITHOUT explicit width — auto width should still expand to fill containing block.
@@ -302,9 +294,9 @@ fn test_table_cell_with_explicit_css_gets_width() {
             }
         }
     }
-    eprintln!("\nNodes with ~200px width (expected cells): {:?}", cell_widths);
+    eprintln!("\nNodes with ~200px width (expected cells): {cell_widths:?}");
     assert!(cell_widths.len() >= 2,
-        "Should have at least 2 nodes with 200px width (the cells), got {:?}", cell_widths);
+        "Should have at least 2 nodes with 200px width (the cells), got {cell_widths:?}");
 
     // The table itself should be 400px
     let table_rect = layout_window.get_node_layout_rect(node_id(1)).expect("table rect");
@@ -374,15 +366,14 @@ fn test_hn_header_three_cells_all_nonzero() {
     for i in 0..25 {
         if let Some(rect) = layout_window.get_node_layout_rect(node_id(i)) {
             // Cells should be > 0 width and < total table width
-            if rect.size.width > 0.0 && rect.size.width < 400.0 && rect.size.height > 10.0 {
-                if rect.size.width < min_cell_width {
+            if rect.size.width > 0.0 && rect.size.width < 400.0 && rect.size.height > 10.0
+                && rect.size.width < min_cell_width {
                     min_cell_width = rect.size.width;
                     min_cell_idx = i;
                 }
-            }
         }
     }
-    eprintln!("\n  Narrowest cell-like node: node[{}] w={:.1}", min_cell_idx, min_cell_width);
+    eprintln!("\n  Narrowest cell-like node: node[{min_cell_idx}] w={min_cell_width:.1}");
 
     // Also test: simple cells with inline <a> children directly
     eprintln!("\n=== Simple: <td><a>login</a></td> vs <td>login</td> ===");
@@ -445,6 +436,5 @@ fn test_hn_header_three_cells_all_nonzero() {
     }
 
     assert!(min_cell_width > 20.0,
-        "Narrowest cell should be > 20px (for 'login' text), got {:.1}px at node[{}]",
-        min_cell_width, min_cell_idx);
+        "Narrowest cell should be > 20px (for 'login' text), got {min_cell_width:.1}px at node[{min_cell_idx}]");
 }

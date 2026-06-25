@@ -77,7 +77,7 @@ use crate::{
 pub enum Update {
     /// The screen does not need to redraw after the callback has been called
     DoNothing,
-    /// After the callback is called, the screen needs to redraw (layout() function being called
+    /// After the callback is called, the screen needs to redraw (`layout()` function being called
     /// again)
     RefreshDom,
     /// The layout has to be re-calculated for all windows
@@ -86,9 +86,9 @@ pub enum Update {
 
 impl Update {
     pub fn max_self(&mut self, other: Self) {
-        if *self == Update::DoNothing && other != Update::DoNothing {
-            *self = other;
-        } else if *self == Update::RefreshDom && other == Update::RefreshDomAllWindows {
+        if (*self == Self::DoNothing && other != Self::DoNothing)
+            || (*self == Self::RefreshDom && other == Self::RefreshDomAllWindows)
+        {
             *self = other;
         }
     }
@@ -110,24 +110,24 @@ impl Update {
 ///
 /// The memory management across the callback boundary is handled by
 /// the caller (see `LayoutCallback` and `LayoutCallbackInfo`).
-pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> crate::dom::Dom;
+pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom;
 
-extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> crate::dom::Dom {
-    crate::dom::Dom::create_body()
+extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> Dom {
+    Dom::create_body()
 }
 
 /// Wrapper around the layout callback
 ///
-/// For FFI languages (Python, Java, etc.), the RefAny contains both:
+/// For FFI languages (Python, Java, etc.), the `RefAny` contains both:
 /// - The user's application data
 /// - The callback function object from the foreign language
 ///
 /// The trampoline function (stored in `cb`) knows how to extract both
-/// from the RefAny and invoke the foreign callback with the user data.
+/// from the `RefAny` and invoke the foreign callback with the user data.
 #[repr(C)]
 pub struct LayoutCallback {
     pub cb: LayoutCallbackType,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
@@ -149,8 +149,8 @@ impl LayoutCallback {
 crate::impl_managed_callback! {
     wrapper:        LayoutCallback,
     info_ty:        LayoutCallbackInfo,
-    return_ty:      crate::dom::Dom,
-    default_ret:    crate::dom::Dom::create_body(),
+    return_ty:      Dom,
+    default_ret:    Dom::create_body(),
     invoker_static: LAYOUT_CALLBACK_INVOKER,
     invoker_ty:     AzLayoutCallbackInvoker,
     thunk_fn:       az_layout_callback_thunk,
@@ -176,7 +176,7 @@ pub type VirtualViewCallbackType = extern "C" fn(RefAny, VirtualViewCallbackInfo
 #[repr(C)]
 pub struct VirtualViewCallback {
     pub cb: VirtualViewCallbackType,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
@@ -204,21 +204,21 @@ impl VirtualViewCallback {
     }
 }
 
-/// Reason why a VirtualView callback is being invoked.
+/// Reason why a `VirtualView` callback is being invoked.
 ///
 /// This helps the callback optimize its behavior based on why it's being called.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum VirtualViewCallbackReason {
-    /// Initial render - first time the VirtualView appears
+    /// Initial render - first time the `VirtualView` appears
     InitialRender,
     /// Parent DOM was recreated (cache invalidated)
     DomRecreated,
-    /// Window/VirtualView bounds expanded beyond current scroll_size
+    /// Window/VirtualView bounds expanded beyond current `scroll_size`
     BoundsExpanded,
     /// Scroll position is near an edge (within `EDGE_THRESHOLD`, currently 200px)
     EdgeScrolled(EdgeType),
-    /// Scroll position extends beyond current scroll_size
+    /// Scroll position extends beyond current `scroll_size`
     ScrollBeyondContent,
 }
 
@@ -244,7 +244,7 @@ pub struct VirtualViewCallbackInfo {
     pub scroll_offset: LogicalPosition,
     pub virtual_scroll_size: LogicalSize,
     pub virtual_scroll_offset: LogicalPosition,
-    /// Pointer to the callable (OptionRefAny) for FFI language bindings (Python, etc.)
+    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
     /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
     callable_ptr: *const OptionRefAny,
     /// Extension for future ABI stability (mutable data)
@@ -252,6 +252,7 @@ pub struct VirtualViewCallbackInfo {
 }
 
 impl Clone for VirtualViewCallbackInfo {
+    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
     fn clone(&self) -> Self {
         Self {
             reason: self.reason,
@@ -270,7 +271,7 @@ impl Clone for VirtualViewCallbackInfo {
 }
 
 impl VirtualViewCallbackInfo {
-    pub fn new<'a>(
+    #[must_use] pub const fn new<'a>(
         reason: VirtualViewCallbackReason,
         system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
@@ -283,8 +284,8 @@ impl VirtualViewCallbackInfo {
     ) -> Self {
         Self {
             reason,
-            system_fonts: system_fonts as *const FcFontCache,
-            image_cache: image_cache as *const ImageCache,
+            system_fonts: core::ptr::from_ref::<FcFontCache>(system_fonts),
+            image_cache: core::ptr::from_ref::<ImageCache>(image_cache),
             window_theme,
             bounds,
             scroll_size,
@@ -297,12 +298,12 @@ impl VirtualViewCallbackInfo {
     }
 
     /// Set the callable pointer for FFI language bindings
-    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
-        self.callable_ptr = callable as *const OptionRefAny;
+    pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+        self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
         if self.callable_ptr.is_null() {
             OptionRefAny::None
         } else {
@@ -310,19 +311,19 @@ impl VirtualViewCallbackInfo {
         }
     }
 
-    pub fn get_bounds(&self) -> HidpiAdjustedBounds {
+    #[must_use] pub const fn get_bounds(&self) -> HidpiAdjustedBounds {
         self.bounds
     }
 
-    fn internal_get_system_fonts(&self) -> &FcFontCache {
+    const fn internal_get_system_fonts(&self) -> &FcFontCache {
         unsafe { &*self.system_fonts }
     }
-    fn internal_get_image_cache(&self) -> &ImageCache {
+    const fn internal_get_image_cache(&self) -> &ImageCache {
         unsafe { &*self.image_cache }
     }
 }
 
-/// Return value for a VirtualView rendering callback.
+/// Return value for a `VirtualView` rendering callback.
 ///
 /// Contains two size/offset pairs for lazy loading and virtualization:
 ///
@@ -333,7 +334,7 @@ impl VirtualViewCallbackInfo {
 /// beyond `scroll_size`, or scrolling near content edges (`EDGE_THRESHOLD`, currently 200px).
 ///
 /// Return `OptionDom::None` to keep the current DOM and only update scroll bounds.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct VirtualViewReturn {
     /// The DOM with actual rendered content, or None to keep current DOM.
@@ -381,8 +382,8 @@ pub struct VirtualViewReturn {
 }
 
 impl Default for VirtualViewReturn {
-    fn default() -> VirtualViewReturn {
-        VirtualViewReturn {
+    fn default() -> Self {
+        Self {
             dom: OptionDom::None,
             scroll_size: LogicalSize::zero(),
             scroll_offset: LogicalPosition::zero(),
@@ -393,7 +394,7 @@ impl Default for VirtualViewReturn {
 }
 
 impl VirtualViewReturn {
-    /// Creates a new VirtualViewReturn with updated DOM content.
+    /// Creates a new `VirtualViewReturn` with updated DOM content.
     ///
     /// Use this when the callback has rendered new content to display.
     ///
@@ -403,7 +404,7 @@ impl VirtualViewReturn {
     /// - `scroll_offset` - Position of rendered content in virtual space
     /// - `virtual_scroll_size` - Size for scrollbar representation
     /// - `virtual_scroll_offset` - Usually `LogicalPosition::zero()`
-    pub fn with_dom(
+    #[must_use] pub const fn with_dom(
         dom: Dom,
         scroll_size: LogicalSize,
         scroll_offset: LogicalPosition,
@@ -430,7 +431,7 @@ impl VirtualViewReturn {
     /// - `scroll_offset` - Position of current content in virtual space
     /// - `virtual_scroll_size` - Size for scrollbar representation
     /// - `virtual_scroll_offset` - Usually `LogicalPosition::zero()`
-    pub fn keep_current(
+    #[must_use] pub const fn keep_current(
         scroll_size: LogicalSize,
         scroll_offset: LogicalPosition,
         virtual_scroll_size: LogicalSize,
@@ -459,8 +460,8 @@ pub struct TimerCallbackReturn {
 }
 
 impl TimerCallbackReturn {
-    /// Creates a new TimerCallbackReturn with the given update and terminate flags.
-    pub fn create(should_update: Update, should_terminate: TerminateTimer) -> Self {
+    /// Creates a new `TimerCallbackReturn` with the given update and terminate flags.
+    #[must_use] pub const fn create(should_update: Update, should_terminate: TerminateTimer) -> Self {
         Self {
             should_update,
             should_terminate,
@@ -468,7 +469,7 @@ impl TimerCallbackReturn {
     }
 
     /// Timer continues running, no DOM update needed.
-    pub fn continue_unchanged() -> Self {
+    #[must_use] pub const fn continue_unchanged() -> Self {
         Self {
             should_update: Update::DoNothing,
             should_terminate: TerminateTimer::Continue,
@@ -476,7 +477,7 @@ impl TimerCallbackReturn {
     }
 
     /// Timer continues running and DOM should be refreshed.
-    pub fn continue_and_refresh_dom() -> Self {
+    #[must_use] pub const fn continue_and_refresh_dom() -> Self {
         Self {
             should_update: Update::RefreshDom,
             should_terminate: TerminateTimer::Continue,
@@ -484,7 +485,7 @@ impl TimerCallbackReturn {
     }
 
     /// Timer should stop, no DOM update needed.
-    pub fn terminate_unchanged() -> Self {
+    #[must_use] pub const fn terminate_unchanged() -> Self {
         Self {
             should_update: Update::DoNothing,
             should_terminate: TerminateTimer::Terminate,
@@ -492,7 +493,7 @@ impl TimerCallbackReturn {
     }
 
     /// Timer should stop and DOM should be refreshed.
-    pub fn terminate_and_refresh_dom() -> Self {
+    #[must_use] pub const fn terminate_and_refresh_dom() -> Self {
         Self {
             should_update: Update::RefreshDom,
             should_terminate: TerminateTimer::Terminate,
@@ -508,20 +509,21 @@ impl Default for TimerCallbackReturn {
 
 /// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
+///
 #[derive(Debug)]
 #[repr(C)]
-/// Reference data container for LayoutCallbackInfo (all read-only fields)
+/// Reference data container for `LayoutCallbackInfo` (all read-only fields)
 ///
 /// This struct consolidates all readonly references that layout callbacks need to query state.
 /// By grouping these into a single struct, we reduce the number of parameters to
-/// LayoutCallbackInfo::new() from 6 to 2, making the API more maintainable and easier to extend.
+/// `LayoutCallbackInfo::new()` from 6 to 2, making the API more maintainable and easier to extend.
 ///
 /// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
 /// reference.
 pub struct LayoutCallbackInfoRefData<'a> {
-    /// Allows the layout() function to reference image IDs
+    /// Allows the `layout()` function to reference image IDs
     pub image_cache: &'a ImageCache,
-    /// OpenGL context so that the layout() function can render textures
+    /// OpenGL context so that the `layout()` function can render textures
     pub gl_context: &'a OptionGlContextPtr,
     /// Reference to the system font cache
     pub system_fonts: &'a FcFontCache,
@@ -578,14 +580,15 @@ pub struct LayoutCallbackInfo {
     pub theme: WindowTheme,
     /// What triggered this `layout()` call. Read via `relayout_reason()`.
     pub relayout_reason: RelayoutReason,
-    /// Pointer to the callable (OptionRefAny) for FFI language bindings (Python, etc.)
+    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
     /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
     callable_ptr: *const OptionRefAny,
     /// Extension for future ABI stability (mutable data)
-    _abi_mut: *mut core::ffi::c_void,
+    _abi_mut: *mut c_void,
 }
 
 impl Clone for LayoutCallbackInfo {
+    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
     fn clone(&self) -> Self {
         Self {
             ref_data: self.ref_data,
@@ -609,7 +612,7 @@ impl core::fmt::Debug for LayoutCallbackInfo {
 }
 
 impl LayoutCallbackInfo {
-    pub fn new<'a>(
+    #[must_use] pub const fn new<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,
         theme: WindowTheme,
@@ -617,7 +620,10 @@ impl LayoutCallbackInfo {
         Self::new_with_reason(ref_data, window_size, theme, RelayoutReason::Initial)
     }
 
-    pub fn new_with_reason<'a>(
+    // the `as *const ...<'static>` is a deliberate 'a -> 'static lifetime launder
+    // on the raw pointer (see SAFETY note below), not a redundant cast.
+    #[allow(clippy::unnecessary_cast)]
+    #[must_use] pub const fn new_with_reason<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,
         theme: WindowTheme,
@@ -626,7 +632,7 @@ impl LayoutCallbackInfo {
         Self {
             // SAFETY: We cast away the lifetime 'a to 'static because LayoutCallbackInfo
             // only lives for the duration of the callback, which is shorter than 'a
-            ref_data: ref_data as *const LayoutCallbackInfoRefData<'a>
+            ref_data: core::ptr::from_ref::<LayoutCallbackInfoRefData<'a>>(ref_data)
                 as *const LayoutCallbackInfoRefData<'static>,
             window_size,
             theme,
@@ -637,17 +643,17 @@ impl LayoutCallbackInfo {
     }
 
     /// Returns what triggered the current `layout()` invocation.
-    pub fn relayout_reason(&self) -> RelayoutReason {
+    #[must_use] pub const fn relayout_reason(&self) -> RelayoutReason {
         self.relayout_reason
     }
 
     /// Set the callable pointer for FFI language bindings
-    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
-        self.callable_ptr = callable as *const OptionRefAny;
+    pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+        self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
         if self.callable_ptr.is_null() {
             OptionRefAny::None
         } else {
@@ -656,25 +662,25 @@ impl LayoutCallbackInfo {
     }
 
     /// Get a clone of the system style Arc
-    pub fn get_system_style(&self) -> Arc<SystemStyle> {
+    #[must_use] pub fn get_system_style(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
     }
 
-    fn internal_get_image_cache(&self) -> &ImageCache {
+    const fn internal_get_image_cache(&self) -> &ImageCache {
         unsafe { (*self.ref_data).image_cache }
     }
-    fn internal_get_system_fonts(&self) -> &FcFontCache {
+    const fn internal_get_system_fonts(&self) -> &FcFontCache {
         unsafe { (*self.ref_data).system_fonts }
     }
-    fn internal_get_gl_context(&self) -> &OptionGlContextPtr {
+    const fn internal_get_gl_context(&self) -> &OptionGlContextPtr {
         unsafe { (*self.ref_data).gl_context }
     }
 
-    pub fn get_gl_context(&self) -> OptionGlContextPtr {
+    #[must_use] pub fn get_gl_context(&self) -> OptionGlContextPtr {
         self.internal_get_gl_context().clone()
     }
 
-    pub fn get_system_fonts(&self) -> Vec<AzStringPair> {
+    #[must_use] pub fn get_system_fonts(&self) -> Vec<AzStringPair> {
         let fc_cache = self.internal_get_system_fonts();
 
         fc_cache
@@ -684,7 +690,7 @@ impl LayoutCallbackInfo {
                 let source = fc_cache.get_font_by_id(&font_id)?;
                 match source {
                     OwnedFontSource::Memory(_) => None,
-                    OwnedFontSource::Disk(d) => Some((pattern.name.as_ref()?.clone(), d.path.clone())),
+                    OwnedFontSource::Disk(d) => Some((pattern.name.as_ref()?.clone(), d.path)),
                 }
             })
             .map(|(k, v)| AzStringPair {
@@ -694,7 +700,7 @@ impl LayoutCallbackInfo {
             .collect()
     }
 
-    pub fn get_image(&self, image_id: &AzString) -> Option<ImageRef> {
+    #[must_use] pub fn get_image(&self, image_id: &AzString) -> Option<ImageRef> {
         self.internal_get_image_cache()
             .get_css_image_id(image_id)
             .cloned()
@@ -703,62 +709,63 @@ impl LayoutCallbackInfo {
     /// Get the active route match (pattern + extracted parameters).
     ///
     /// Returns `None` if no routes are configured or no route is active.
-    pub fn get_active_route(&self) -> Option<&crate::resources::RouteMatch> {
+    #[must_use] pub const fn get_active_route(&self) -> Option<&crate::resources::RouteMatch> {
         unsafe { (*self.ref_data).active_route }
     }
 
     /// Get a route parameter by key (e.g. `get_route_param("id")` for `/user/:id`).
     ///
     /// Returns `None` if no route is active or the parameter doesn't exist.
-    pub fn get_route_param(&self, key: &str) -> Option<&AzString> {
+    #[must_use] pub fn get_route_param(&self, key: &str) -> Option<&AzString> {
         self.get_active_route()?.get_param(key)
     }
 
     // Responsive layout helper methods
     /// Returns true if the window width is less than the given pixel value
-    pub fn window_width_less_than(&self, px: f32) -> bool {
+    #[must_use] pub fn window_width_less_than(&self, px: f32) -> bool {
         self.window_size.dimensions.width < px
     }
 
     /// Returns true if the window width is greater than the given pixel value
-    pub fn window_width_greater_than(&self, px: f32) -> bool {
+    #[must_use] pub fn window_width_greater_than(&self, px: f32) -> bool {
         self.window_size.dimensions.width > px
     }
 
     /// Returns true if the window width is between min and max (inclusive)
-    pub fn window_width_between(&self, min_px: f32, max_px: f32) -> bool {
+    #[must_use] pub fn window_width_between(&self, min_px: f32, max_px: f32) -> bool {
         let width = self.window_size.dimensions.width;
         width >= min_px && width <= max_px
     }
 
     /// Returns true if the window height is less than the given pixel value
-    pub fn window_height_less_than(&self, px: f32) -> bool {
+    #[must_use] pub fn window_height_less_than(&self, px: f32) -> bool {
         self.window_size.dimensions.height < px
     }
 
     /// Returns true if the window height is greater than the given pixel value
-    pub fn window_height_greater_than(&self, px: f32) -> bool {
+    #[must_use] pub fn window_height_greater_than(&self, px: f32) -> bool {
         self.window_size.dimensions.height > px
     }
 
     /// Returns true if the window height is between min and max (inclusive)
-    pub fn window_height_between(&self, min_px: f32, max_px: f32) -> bool {
+    #[must_use] pub fn window_height_between(&self, min_px: f32, max_px: f32) -> bool {
         let height = self.window_size.dimensions.height;
         height >= min_px && height <= max_px
     }
 
     /// Returns the current window width in pixels
-    pub fn get_window_width(&self) -> f32 {
+    #[must_use] pub const fn get_window_width(&self) -> f32 {
         self.window_size.dimensions.width
     }
 
     /// Returns the current window height in pixels
-    pub fn get_window_height(&self) -> f32 {
+    #[must_use] pub const fn get_window_height(&self) -> f32 {
         self.window_size.dimensions.height
     }
 
     /// Returns the current window DPI scale factor (1.0 = 96 DPI, 2.0 = 192 DPI)
-    pub fn get_dpi_factor(&self) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
+    #[must_use] pub fn get_dpi_factor(&self) -> f32 {
         self.window_size.dpi as f32 / 96.0
     }
 }
@@ -775,8 +782,9 @@ pub struct HidpiAdjustedBounds {
 }
 
 impl HidpiAdjustedBounds {
-    #[inline(always)]
-    pub fn from_bounds(bounds: LayoutSize, hidpi_factor: DpiScaleFactor) -> Self {
+    #[inline]
+    #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
+    #[must_use] pub const fn from_bounds(bounds: LayoutSize, hidpi_factor: DpiScaleFactor) -> Self {
         let logical_size = LogicalSize::new(bounds.width as f32, bounds.height as f32);
         Self {
             logical_size,
@@ -784,21 +792,21 @@ impl HidpiAdjustedBounds {
         }
     }
 
-    pub fn get_physical_size(&self) -> PhysicalSize<u32> {
+    #[must_use] pub fn get_physical_size(&self) -> PhysicalSize<u32> {
         self.get_logical_size()
             .to_physical(self.get_hidpi_factor().inner.get())
     }
 
-    pub fn get_logical_size(&self) -> LogicalSize {
+    #[must_use] pub const fn get_logical_size(&self) -> LogicalSize {
         self.logical_size
     }
 
-    pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
+    #[must_use] pub const fn get_hidpi_factor(&self) -> DpiScaleFactor {
         self.hidpi_factor
     }
 }
 
-/// Defines the focus_targeted node ID for the next frame
+/// Defines the `focus_targeted` node ID for the next frame
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum FocusTarget {
@@ -839,14 +847,14 @@ pub struct FocusTargetPath {
 /// unsafely cast back to the actual function pointer type:
 /// `extern "C" fn(RefAny, CallbackInfo) -> Update`
 ///
-/// This design allows azul-core to store callbacks without depending on azul-layout's CallbackInfo
+/// This design allows azul-core to store callbacks without depending on azul-layout's `CallbackInfo`
 /// type. The actual function pointer type is defined in azul-layout as `CallbackType`.
 pub type CoreCallbackType = usize;
 
 /// Stores a callback as usize (actually a function pointer cast to usize)
 ///
 /// **IMPORTANT**: The `cb` field stores a function pointer disguised as usize to avoid
-/// circular dependencies between azul-core and azul-layout. When creating a CoreCallback,
+/// circular dependencies between azul-core and azul-layout. When creating a `CoreCallback`,
 /// you can directly assign a function pointer - Rust will implicitly cast it to usize.
 /// When invoking, the usize must be unsafely cast back to the function pointer type.
 ///
@@ -855,16 +863,16 @@ pub type CoreCallbackType = usize;
 #[repr(C)]
 pub struct CoreCallback {
     pub cb: CoreCallbackType,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
 
-/// Allow creating CoreCallback from a raw function pointer (as usize)
+/// Allow creating `CoreCallback` from a raw function pointer (as usize)
 /// Sets callable to None (for native Rust/C usage)
 impl From<CoreCallbackType> for CoreCallback {
     fn from(cb: CoreCallbackType) -> Self {
-        CoreCallback {
+        Self {
             cb,
             ctx: OptionRefAny::None,
         }
@@ -909,13 +917,13 @@ impl_vec_hash!(CoreCallbackData, CoreCallbackDataVec);
 
 impl CoreCallbackDataVec {
     #[inline]
-    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CoreCallbackData> {
+    #[must_use] pub fn as_container(&self) -> NodeDataContainerRef<'_, CoreCallbackData> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
     }
     #[inline]
-    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, CoreCallbackData> {
+    pub fn as_container_mut(&mut self) -> NodeDataContainerRefMut<'_, CoreCallbackData> {
         NodeDataContainerRefMut {
             internal: self.as_mut(),
         }
@@ -932,16 +940,16 @@ pub type CoreRenderImageCallbackType = usize;
 #[repr(C)]
 pub struct CoreRenderImageCallback {
     pub cb: CoreRenderImageCallbackType,
-    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
 
-/// Allow creating CoreRenderImageCallback from a raw function pointer (as usize)
+/// Allow creating `CoreRenderImageCallback` from a raw function pointer (as usize)
 /// Sets callable to None (for native Rust/C usage)
 impl From<CoreRenderImageCallbackType> for CoreRenderImageCallback {
     fn from(cb: CoreRenderImageCallbackType) -> Self {
-        CoreRenderImageCallback {
+        Self {
             cb,
             ctx: OptionRefAny::None,
         }

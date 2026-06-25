@@ -286,8 +286,7 @@ fn identical_leaves_under_different_parents_do_not_match() {
     for mv in &result.node_moves {
         assert_eq!(
             mv.old_node_id, mv.new_node_id,
-            "identical frames: expected 1:1 NodeId mapping, got {:?}",
-            mv
+            "identical frames: expected 1:1 NodeId mapping, got {mv:?}"
         );
     }
 }

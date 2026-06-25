@@ -1,17 +1,17 @@
-/// Integration tests for CSS white-space processing (CSS Text Level 3 §4)
-///
-/// Tests cover:
-/// - `white-space: normal` → collapse sequences of whitespace into a single space
-/// - `white-space: nowrap` → same collapsing as normal, but no wrapping
-/// - `white-space: pre` → preserve all whitespace, honor newlines
-/// - `white-space: pre-wrap` → preserve whitespace, honor newlines, allow wrapping
-/// - `white-space: pre-line` → collapse whitespace but honor newlines
-///
-/// CSS Spec references:
-/// - CSS Text Level 3 §3: White Space and Wrapping
-/// - CSS Text Level 3 §4.1.1: Phase I: Collapsing and Transformation
-/// - CSS Text Level 3 §4.1.2: Phase II: Trimming and Positioning
-/// - https://www.w3.org/TR/css-text-3/#white-space-processing
+//! Integration tests for CSS white-space processing (CSS Text Level 3 §4)
+//!
+//! Tests cover:
+//! - `white-space: normal` → collapse sequences of whitespace into a single space
+//! - `white-space: nowrap` → same collapsing as normal, but no wrapping
+//! - `white-space: pre` → preserve all whitespace, honor newlines
+//! - `white-space: pre-wrap` → preserve whitespace, honor newlines, allow wrapping
+//! - `white-space: pre-line` → collapse whitespace but honor newlines
+//!
+//! CSS Spec references:
+//! - CSS Text Level 3 §3: White Space and Wrapping
+//! - CSS Text Level 3 §4.1.1: Phase I: Collapsing and Transformation
+//! - CSS Text Level 3 §4.1.2: Phase II: Trimming and Positioning
+//! - https://www.w3.org/TR/css-text-3/#white-space-processing
 
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};

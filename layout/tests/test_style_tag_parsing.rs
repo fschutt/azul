@@ -15,16 +15,6 @@ fn as_text(child: &XmlNodeChild) -> &str {
     }
 }
 
-/// Find the first element child, skipping whitespace text nodes
-fn first_element_child(children: &[XmlNodeChild]) -> &azul_core::xml::XmlNode {
-    for child in children {
-        if let XmlNodeChild::Element(e) = child {
-            return e;
-        }
-    }
-    panic!("No element child found");
-}
-
 /// Find element child by tag name, skipping text nodes
 fn find_element_child<'a>(children: &'a [XmlNodeChild], tag: &str) -> &'a azul_core::xml::XmlNode {
     for child in children {
@@ -34,7 +24,7 @@ fn find_element_child<'a>(children: &'a [XmlNodeChild], tag: &str) -> &'a azul_c
             }
         }
     }
-    panic!("No element child with tag '{}' found", tag);
+    panic!("No element child with tag '{tag}' found");
 }
 
 #[test]
@@ -62,7 +52,7 @@ fn test_style_tag_parsing_simple() {
 
     // Head should have 1 child: <style>
     assert!(
-        head.children.as_ref().len() > 0,
+        !head.children.as_ref().is_empty(),
         "HEAD should have children (style tag)"
     );
 
@@ -78,7 +68,7 @@ fn test_style_tag_parsing_simple() {
         "STYLE should have 1 text child"
     );
     let css_text = as_text(&style.children.as_ref()[0]);
-    eprintln!("CSS text: '{}'", css_text);
+    eprintln!("CSS text: '{css_text}'");
     assert_eq!(css_text, "body { color: red; }");
 }
 
@@ -99,7 +89,7 @@ fn test_style_tag_parsing_with_quotes() {
 
     eprintln!("HEAD has {} children", head.children.as_ref().len());
     assert!(
-        head.children.as_ref().len() > 0,
+        !head.children.as_ref().is_empty(),
         "HEAD should have style child"
     );
 
@@ -108,7 +98,7 @@ fn test_style_tag_parsing_with_quotes() {
 
     assert_eq!(style.children.as_ref().len(), 1);
     let css_text = as_text(&style.children.as_ref()[0]);
-    eprintln!("CSS text: '{}'", css_text);
+    eprintln!("CSS text: '{css_text}'");
     assert!(
         css_text.contains("font-family"),
         "CSS should contain font-family"

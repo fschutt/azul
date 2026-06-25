@@ -1,14 +1,14 @@
-/// Integration tests for CSS float positioning through full layout pipeline
-/// (CSS 2.2 §9.5 Floats, §9.5.1 Positioning, §9.5.2 Clear)
-///
-/// These tests exercise the `position_float`, `position_floated_child`, and
-/// `layout_bfc` code paths in fc.rs through the full layout pipeline.
-///
-/// CSS Spec references:
-/// - CSS 2.2 §9.5: Float positioning rules
-/// - CSS 2.2 §9.5.1: The 'float' property and its 9 rules
-/// - CSS 2.2 §9.5.2: The 'clear' property
-/// - CSS 2.2 §9.4.1: Block formatting contexts
+//! Integration tests for CSS float positioning through full layout pipeline
+//! (CSS 2.2 §9.5 Floats, §9.5.1 Positioning, §9.5.2 Clear)
+//!
+//! These tests exercise the `position_float`, `position_floated_child`, and
+//! `layout_bfc` code paths in fc.rs through the full layout pipeline.
+//!
+//! CSS Spec references:
+//! - CSS 2.2 §9.5: Float positioning rules
+//! - CSS 2.2 §9.5.1: The 'float' property and its 9 rules
+//! - CSS 2.2 §9.5.2: The 'clear' property
+//! - CSS 2.2 §9.4.1: Block formatting contexts
 
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};

@@ -1038,7 +1038,7 @@ impl X11Window {
                 None => return false,
             };
             if let Some(menu) = binding.get(nid).and_then(|nd| nd.get_context_menu()) {
-                break (**menu).clone();
+                break menu.clone();
             }
             cur = hierarchy.get(nid).and_then(|h| h.parent_id());
         };

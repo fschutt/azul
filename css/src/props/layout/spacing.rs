@@ -25,7 +25,7 @@ use crate::{
 macro_rules! impl_spacing_type_impls {
     ($name:ident) => {
         impl ::core::fmt::Debug for $name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self.inner)
             }
         }
@@ -158,8 +158,8 @@ macro_rules! impl_spacing_parse_error {
         );
 
         #[cfg(feature = "parser")]
-        impl<'a> $borrowed<'a> {
-            pub fn to_contained(&self) -> $owned {
+        impl $borrowed<'_> {
+            #[must_use] pub fn to_contained(&self) -> $owned {
                 match self {
                     $borrowed::PixelValueParseError(e) => {
                         $owned::PixelValueParseError(e.to_contained())
@@ -172,7 +172,7 @@ macro_rules! impl_spacing_parse_error {
 
         #[cfg(feature = "parser")]
         impl $owned {
-            pub fn to_shared<'a>(&'a self) -> $borrowed<'a> {
+            #[must_use] pub fn to_shared(&self) -> $borrowed<'_> {
                 match self {
                     $owned::PixelValueParseError(e) => {
                         $borrowed::PixelValueParseError(e.to_shared())
@@ -189,16 +189,16 @@ macro_rules! impl_spacing_parse_error {
 
 /// Error from parsing a CSS `padding` shorthand value.
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutPaddingParseError<'a> {
     PixelValueParseError(CssPixelValueParseError<'a>),
     TooManyValues,
     TooFewValues,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Owned variant of [`LayoutPaddingParseError`].
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutPaddingParseErrorOwned {
     PixelValueParseError(CssPixelValueParseErrorOwned),
@@ -220,9 +220,12 @@ pub struct LayoutPadding {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_padding<'a>(
-    input: &'a str,
-) -> Result<LayoutPadding, LayoutPaddingParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `padding` value.
+pub fn parse_layout_padding(
+    input: &str,
+) -> Result<LayoutPadding, LayoutPaddingParseError<'_>> {
     let values: Vec<_> = input.split_whitespace().collect();
 
     let parsed_values: Vec<PixelValueWithAuto> = values
@@ -282,16 +285,16 @@ pub fn parse_layout_padding<'a>(
 
 /// Error from parsing a CSS `margin` shorthand value.
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutMarginParseError<'a> {
     PixelValueParseError(CssPixelValueParseError<'a>),
     TooManyValues,
     TooFewValues,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Owned variant of [`LayoutMarginParseError`].
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutMarginParseErrorOwned {
     PixelValueParseError(CssPixelValueParseErrorOwned),
@@ -313,7 +316,10 @@ pub struct LayoutMargin {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_margin<'a>(input: &'a str) -> Result<LayoutMargin, LayoutMarginParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `margin` value.
+pub fn parse_layout_margin(input: &str) -> Result<LayoutMargin, LayoutMarginParseError<'_>> {
     // Margin parsing logic is identical to padding, so we can reuse the padding parser
     // and just map the Ok and Err variants to the margin-specific types.
     match parse_layout_padding(input) {
@@ -349,12 +355,15 @@ macro_rules! typed_pixel_value_parser {
         #[doc = $import_str]
         #[doc = $test_str]
         ///```
-        pub fn $fn<'a>(input: &'a str) -> Result<$return, CssPixelValueParseError<'a>> {
+        /// # Errors
+        ///
+        /// Returns an error if `input` is not a valid CSS value for this property.
+        pub fn $fn(input: &str) -> Result<$return, CssPixelValueParseError<'_>> {
             crate::props::basic::parse_pixel_value(input).map(|e| $return { inner: e })
         }
 
         impl crate::props::formatter::FormatAsCssValue for $return {
-            fn format_as_css_value(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn format_as_css_value(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 self.inner.format_as_css_value(f)
             }
         }

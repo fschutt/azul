@@ -1299,7 +1299,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             echo "=== Building $demo on ${{ matrix.os }} ==="
             cargo build --release -p "$demo" || echo "::warning::$demo failed to build on ${{ matrix.os }} (likely missing platform deps) — skipping"
           done
@@ -1310,7 +1310,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p demos-staging
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             src="target/release/${demo}${{ matrix.bin_ext }}"
             if [ -f "$src" ]; then
               dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
@@ -1770,7 +1770,7 @@ jobs:
           # needs signing to install on a phone) and the simulator slice
           # (aarch64-apple-ios-sim → <demo>-ios-sim.app.zip, runs UNSIGNED in the
           # iOS Simulator via `xcrun simctl install`).
-          for demo in azul-paint azul-maps azul-vault azul-spirit-level azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
+          for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
@@ -1842,7 +1842,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           mkdir -p mobile-apps
-          for demo in azul-maps azul-paint azul-self-test; do
+          for demo in azul-maps azul-paint azul-widgets azul-self-test; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 AZ_ANDROID_NO_JAVA=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo" \
@@ -3131,7 +3131,8 @@ jobs:
     name: Clippy
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error: the extreme-lints gate is meant to go RED so the
+    # outstanding lint debt is a visible failure to triage (2026-06-20).
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -3140,25 +3141,38 @@ jobs:
           components: clippy
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
-      - name: clippy + summary
+      - name: clippy (extreme lints — enforced as -D warnings)
         shell: bash
         run: |
-          cargo clippy -p azul-core -p azul-css -p azul-layout --no-default-features --features std 2>&1 | tee clippy.txt || true
-          mkdir -p stats && cp clippy.txt stats/clippy.txt
+          set -o pipefail
+          # "Extreme lints" lockdown (2026-06-20): the crates declare a maximal
+          # opt-in lint set (clippy all/pedantic/nursery/cargo + opt-in rustc
+          # lints) at warn-level. Enforce them as ERRORS here so CI surfaces the
+          # full outstanding lint debt as a triage report. EXPECTED TO BE RED
+          # until the lints are fixed/scoped — that red IS the report. Builds and
+          # other jobs stay green (the lints are warn-level outside this gate).
+          cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
+
+      - name: clippy summary
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p stats && cp clippy.txt stats/clippy.txt 2>/dev/null || true
           {
-            echo '## 📎 Clippy (azul-core / azul-css / azul-layout)'
+            echo '## 📎 Clippy (extreme lints — azul-core / azul-css / azul-layout)'
             echo ''
-            echo "Warnings: **$(grep -c 'warning:' clippy.txt || echo 0)**"
+            echo "Findings: **$(grep -cE '^(warning|error):' clippy.txt 2>/dev/null || echo 0)**"
             echo ''
             echo '<details><summary>output (tail)</summary>'
             echo ''
             echo '```'
-            tail -150 clippy.txt
+            tail -200 clippy.txt 2>/dev/null || true
             echo '```'
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload clippy report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: stats-clippy

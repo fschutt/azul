@@ -5,7 +5,7 @@
 use azul_css::AzString;
 
 /// Manager for file drop state and hovered file tracking
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDropManager {
     /// File being hovered during drag-and-drop operation
     hovered_file: Option<AzString>,
@@ -26,7 +26,7 @@ impl Default for FileDropManager {
 
 impl FileDropManager {
     /// Create a new file drop manager
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             hovered_file: None,
             dropped_file: None,
@@ -50,24 +50,24 @@ impl FileDropManager {
 
     /// Whether a hover ended without a drop since the last
     /// [`FileDropManager::clear_hover_cancelled`] (one-shot).
-    pub fn hover_was_cancelled(&self) -> bool {
+    #[must_use] pub const fn hover_was_cancelled(&self) -> bool {
         self.hover_cancelled
     }
 
     /// Clear the one-shot hover-cancel flag. Called by the platform drag
     /// handler after `determine_all_events` has emitted the `FileHoverCancel`
     /// event (mirrors the `set_dropped_file(None)` reset after `FileDrop`).
-    pub fn clear_hover_cancelled(&mut self) {
+    pub const fn clear_hover_cancelled(&mut self) {
         self.hover_cancelled = false;
     }
 
     /// Get the currently hovered file
-    pub fn get_hovered_file(&self) -> Option<&AzString> {
+    #[must_use] pub const fn get_hovered_file(&self) -> Option<&AzString> {
         self.hovered_file.as_ref()
     }
 
     /// Get the currently dropped file
-    pub fn get_dropped_file(&self) -> Option<&AzString> {
+    #[must_use] pub const fn get_dropped_file(&self) -> Option<&AzString> {
         self.dropped_file.as_ref()
     }
 

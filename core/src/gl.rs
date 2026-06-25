@@ -54,7 +54,7 @@ pub type GLfloat = f32;
 
 pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
 
-/// Passing *const c_void is not easily possible when generating APIs,
+/// Passing *const `c_void` is not easily possible when generating APIs,
 /// so this wrapper struct is for easier API generation
 #[repr(C)]
 #[derive(Debug)]
@@ -110,14 +110,14 @@ impl Clone for Refstr {
     }
 }
 
-impl core::fmt::Debug for Refstr {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for Refstr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
 impl Refstr {
-    pub fn as_str(&self) -> &str {
+    #[must_use] pub const fn as_str(&self) -> &str {
         unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) }
     }
 }
@@ -147,14 +147,14 @@ impl Clone for RefstrVecRef {
     }
 }
 
-impl core::fmt::Debug for RefstrVecRef {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for RefstrVecRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
 
 impl RefstrVecRef {
-    pub fn as_slice(&self) -> &[Refstr] {
+    #[must_use] pub const fn as_slice(&self) -> &[Refstr] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -184,8 +184,8 @@ impl Clone for GLint64VecRefMut {
     }
 }
 
-impl core::fmt::Debug for GLint64VecRefMut {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GLint64VecRefMut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -200,10 +200,10 @@ impl From<&mut [GLint64]> for GLint64VecRefMut {
 }
 
 impl GLint64VecRefMut {
-    pub fn as_slice(&self) -> &[GLint64] {
+    #[must_use] pub const fn as_slice(&self) -> &[GLint64] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
-    fn as_mut_slice(&mut self) -> &mut [GLint64] {
+    const fn as_mut_slice(&mut self) -> &mut [GLint64] {
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -224,8 +224,8 @@ impl Clone for GLfloatVecRefMut {
     }
 }
 
-impl core::fmt::Debug for GLfloatVecRefMut {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GLfloatVecRefMut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -240,10 +240,10 @@ impl From<&mut [GLfloat]> for GLfloatVecRefMut {
 }
 
 impl GLfloatVecRefMut {
-    pub fn as_slice(&self) -> &[GLfloat] {
+    #[must_use] pub const fn as_slice(&self) -> &[GLfloat] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
-    fn as_mut_slice(&mut self) -> &mut [GLfloat] {
+    const fn as_mut_slice(&mut self) -> &mut [GLfloat] {
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -264,8 +264,8 @@ impl Clone for GLintVecRefMut {
     }
 }
 
-impl core::fmt::Debug for GLintVecRefMut {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GLintVecRefMut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -280,10 +280,10 @@ impl From<&mut [GLint]> for GLintVecRefMut {
 }
 
 impl GLintVecRefMut {
-    pub fn as_slice(&self) -> &[GLint] {
+    #[must_use] pub const fn as_slice(&self) -> &[GLint] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
-    fn as_mut_slice(&mut self) -> &mut [GLint] {
+    const fn as_mut_slice(&mut self) -> &mut [GLint] {
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -304,8 +304,8 @@ impl Clone for GLuintVecRef {
     }
 }
 
-impl core::fmt::Debug for GLuintVecRef {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GLuintVecRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -320,7 +320,7 @@ impl From<&[GLuint]> for GLuintVecRef {
 }
 
 impl GLuintVecRef {
-    pub fn as_slice(&self) -> &[GLuint] {
+    #[must_use] pub const fn as_slice(&self) -> &[GLuint] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -341,8 +341,8 @@ impl Clone for GLenumVecRef {
     }
 }
 
-impl core::fmt::Debug for GLenumVecRef {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GLenumVecRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -357,7 +357,7 @@ impl From<&[GLenum]> for GLenumVecRef {
 }
 
 impl GLenumVecRef {
-    pub fn as_slice(&self) -> &[GLenum] {
+    #[must_use] pub const fn as_slice(&self) -> &[GLenum] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -388,13 +388,13 @@ impl From<&[u8]> for U8VecRef {
 }
 
 impl U8VecRef {
-    pub fn as_slice(&self) -> &[u8] {
+    #[must_use] pub const fn as_slice(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
 impl fmt::Debug for U8VecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -419,12 +419,12 @@ impl PartialEq for U8VecRef {
 
 impl Eq for U8VecRef {}
 
-impl core::hash::Hash for U8VecRef {
+impl Hash for U8VecRef {
     fn hash<H>(&self, state: &mut H)
     where
-        H: core::hash::Hasher,
+        H: Hasher,
     {
-        self.as_slice().hash(state)
+        self.as_slice().hash(state);
     }
 }
 
@@ -444,8 +444,8 @@ impl Clone for F32VecRef {
     }
 }
 
-impl core::fmt::Debug for F32VecRef {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for F32VecRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -460,7 +460,7 @@ impl From<&[f32]> for F32VecRef {
 }
 
 impl F32VecRef {
-    pub fn as_slice(&self) -> &[f32] {
+    #[must_use] pub const fn as_slice(&self) -> &[f32] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -481,8 +481,8 @@ impl Clone for I32VecRef {
     }
 }
 
-impl core::fmt::Debug for I32VecRef {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for I32VecRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -497,7 +497,7 @@ impl From<&[i32]> for I32VecRef {
 }
 
 impl I32VecRef {
-    pub fn as_slice(&self) -> &[i32] {
+    #[must_use] pub const fn as_slice(&self) -> &[i32] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -518,8 +518,8 @@ impl Clone for GLbooleanVecRefMut {
     }
 }
 
-impl core::fmt::Debug for GLbooleanVecRefMut {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GLbooleanVecRefMut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -534,10 +534,10 @@ impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
 }
 
 impl GLbooleanVecRefMut {
-    pub fn as_slice(&self) -> &[GLboolean] {
+    #[must_use] pub const fn as_slice(&self) -> &[GLboolean] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
-    fn as_mut_slice(&mut self) -> &mut [GLboolean] {
+    const fn as_mut_slice(&mut self) -> &mut [GLboolean] {
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -558,8 +558,8 @@ impl Clone for U8VecRefMut {
     }
 }
 
-impl core::fmt::Debug for U8VecRefMut {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for U8VecRefMut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -574,10 +574,10 @@ impl From<&mut [u8]> for U8VecRefMut {
 }
 
 impl U8VecRefMut {
-    pub fn as_slice(&self) -> &[u8] {
+    #[must_use] pub const fn as_slice(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
-    fn as_mut_slice(&mut self) -> &mut [u8] {
+    const fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -641,10 +641,10 @@ pub enum GlType {
 }
 
 impl From<GlContextGlType> for GlType {
-    fn from(a: GlContextGlType) -> GlType {
+    fn from(a: GlContextGlType) -> Self {
         match a {
-            GlContextGlType::Gl => GlType::Gl,
-            GlContextGlType::GlEs => GlType::Gles,
+            GlContextGlType::Gl => Self::Gl,
+            GlContextGlType::GlEs => Self::Gles,
         }
     }
 }
@@ -652,6 +652,8 @@ impl From<GlContextGlType> for GlType {
 // (U8Vec, u32)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GetProgramBinaryReturn {
     pub _0: U8Vec,
     pub _1: u32,
@@ -660,6 +662,8 @@ pub struct GetProgramBinaryReturn {
 // (i32, u32, AzString)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GetActiveAttribReturn {
     pub _0: i32,
     pub _1: u32,
@@ -669,6 +673,8 @@ pub struct GetActiveAttribReturn {
 // (i32, u32, AzString)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GetActiveUniformReturn {
     pub _0: i32,
     pub _1: u32,
@@ -690,20 +696,20 @@ impl Clone for GLsyncPtr {
     }
 }
 
-impl core::fmt::Debug for GLsyncPtr {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GLsyncPtr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x{:0x}", self.ptr as usize)
     }
 }
 
 impl GLsyncPtr {
-    pub fn new(p: GLsync) -> Self {
+    #[must_use] pub const fn new(p: GLsync) -> Self {
         Self {
-            ptr: p as *const c_void,
+            ptr: p,
             run_destructor: true,
         }
     }
-    pub fn get(self) -> GLsync {
+    #[must_use] pub fn get(self) -> GLsync {
         self.ptr as GLsync
     }
 }
@@ -718,8 +724,8 @@ impl Drop for GLsyncPtr {
 /// be shared across pipelines, however this turns out to be very difficult in practice.
 pub type GlTextureStorage = OrderedMap<Epoch, OrderedMap<ExternalImageId, Texture>>;
 
-/// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
-/// as WebRender needs it for drawing. To transparently do this, we store the epoch that the
+/// Non-cleaned up textures. When a `GlTexture` is registered, it has to stay active as long
+/// as `WebRender` needs it for drawing. To transparently do this, we store the epoch that the
 /// texture was originally created with, and check, **after we have drawn the frame**,
 /// if there are any textures that need cleanup.
 ///
@@ -727,10 +733,10 @@ pub type GlTextureStorage = OrderedMap<Epoch, OrderedMap<ExternalImageId, Textur
 /// texture) does not run until we remove the textures
 ///
 /// Note: Because textures could be used after the current draw call (ex. for scrolling),
-/// the ACTIVE_GL_TEXTURES are indexed by their epoch. Use `renderer.flush_pipeline_info()`
+/// the `ACTIVE_GL_TEXTURES` are indexed by their epoch. Use `renderer.flush_pipeline_info()`
 /// to see which textures are still active and which ones can be safely removed.
 ///
-/// See: https://github.com/servo/webrender/issues/2940
+/// See: <https://github.com/servo/webrender/issues/2940>
 ///
 /// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever
 /// be misused)
@@ -740,6 +746,10 @@ static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> 
 /// for the inserted texture
 ///
 /// This function exists so azul doesn't have to use `lazy_static` as a dependency
+///
+/// # Panics
+///
+/// Panics if the global active-GL-texture table has not been initialized.
 pub fn insert_into_active_gl_textures(
     document_id: DocumentId,
     epoch: Epoch,
@@ -769,14 +779,12 @@ pub fn insert_into_active_gl_textures(
 pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
     // TODO: Handle overflow of Epochs correctly (low priority)
     unsafe {
-        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
-            Some(s) => s,
-            None => return,
+        let Some(active_textures) = ACTIVE_GL_TEXTURES.as_mut() else {
+            return;
         };
 
-        let active_epochs = match active_textures.get_mut(document_id) {
-            Some(s) => s,
-            None => return,
+        let Some(active_epochs) = active_textures.get_mut(document_id) else {
+            return;
         };
 
         // NOTE: original code used retain() but that
@@ -796,7 +804,7 @@ pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: 
 }
 
 // document_id, epoch, external_image_id
-pub fn remove_single_texture_from_active_gl_textures(
+#[must_use] pub fn remove_single_texture_from_active_gl_textures(
     document_id: &DocumentId,
     epoch: &Epoch,
     external_image_id: &ExternalImageId,
@@ -808,18 +816,18 @@ pub fn remove_single_texture_from_active_gl_textures(
     Some(())
 }
 
-/// Removes a DocumentId from the active epochs
+/// Removes a `DocumentId` from the active epochs
 pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
     unsafe {
-        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
-            Some(s) => s,
-            None => return,
+        let Some(active_textures) = ACTIVE_GL_TEXTURES.as_mut() else {
+            return;
         };
         active_textures.remove(document_id);
     }
 }
 
 /// Destroys all textures, usually done before destroying the OpenGL context
+#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 pub fn gl_textures_clear_opengl_cache() {
     unsafe {
         ACTIVE_GL_TEXTURES = None;
@@ -836,7 +844,8 @@ pub fn gl_textures_clear_opengl_cache() {
 // we encounter an invalid ID, webrender simply won't draw anything,
 // but at least it won't crash. Usually invalid textures are also 0x0
 // pixels large - so it's not like we had anything to draw anyway.
-pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
+#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
+#[must_use] pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
     let active_textures = unsafe { ACTIVE_GL_TEXTURES.as_ref()? };
     active_textures
         .values()
@@ -850,9 +859,11 @@ pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, 
         })
 }
 
-/// For .get_gl_precision_format(), but ABI-safe - returning an array or a tuple is not ABI-safe
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+/// For .`get_gl_precision_format()`, but ABI-safe - returning an array or a tuple is not ABI-safe
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+#[allow(clippy::pub_underscore_fields)]
 pub struct GlShaderPrecisionFormatReturn {
     pub _0: GLint,
     pub _1: GLint,
@@ -899,7 +910,7 @@ impl Drop for GlContextPtr {
 }
 
 impl GlContextPtr {
-    pub fn get_svg_shader(&self) -> GLuint {
+    #[must_use] pub fn get_svg_shader(&self) -> GLuint {
         self.ptr.svg_shader
     }
     /// Whether this hardware GL context proved usable at construction (the SVG
@@ -907,20 +918,20 @@ impl GlContextPtr {
     /// creation succeeded but the driver can't run our shaders -- the caller
     /// should fall back to CPU rendering. Always `false` for a Software context
     /// (which never compiles these shaders); only meaningful on the GPU path.
-    pub fn is_gl_usable(&self) -> bool {
+    #[must_use] pub fn is_gl_usable(&self) -> bool {
         self.ptr.svg_shader != 0
     }
     /// The GLSL `#version` the driver accepted at construction (e.g. "150" or
     /// "300 es"), discovered by the probe. Empty string if the context is
     /// unusable / software. Exposed in the API so apps can report/branch on it.
-    pub fn get_usable_glsl_version(&self) -> AzString {
+    #[must_use] pub fn get_usable_glsl_version(&self) -> AzString {
         self.ptr.glsl_version.clone()
     }
     /// Soft-brush shader program for the GPU painting API (0 if unusable).
-    pub fn get_brush_shader(&self) -> GLuint {
+    #[must_use] pub fn get_brush_shader(&self) -> GLuint {
         self.ptr.brush_shader
     }
-    pub fn get_fxaa_shader(&self) -> GLuint {
+    #[must_use] pub fn get_fxaa_shader(&self) -> GLuint {
         self.ptr.fxaa_shader
     }
 }
@@ -941,6 +952,19 @@ pub struct GlContextPtrInner {
     pub glsl_version: AzString,
 }
 
+impl fmt::Debug for GlContextPtrInner {
+    // `ptr` wraps the external GL context (not Debug); show the rest.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlContextPtrInner")
+            .field("svg_shader", &self.svg_shader)
+            .field("svg_multicolor_shader", &self.svg_multicolor_shader)
+            .field("fxaa_shader", &self.fxaa_shader)
+            .field("brush_shader", &self.brush_shader)
+            .field("glsl_version", &self.glsl_version)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for GlContextPtrInner {
     fn drop(&mut self) {
         self.ptr.delete_program(self.svg_shader);
@@ -959,8 +983,8 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord]
 );
 
-impl core::fmt::Debug for GlContextPtr {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Debug for GlContextPtr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x{:0x}", self.as_usize())
     }
 }
@@ -1094,6 +1118,8 @@ void main() {
 /// (Retained for diagnostics; the version probe in `GlContextPtr::new` now does
 /// its own status checks.)
 #[allow(dead_code)]
+#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
@@ -1101,13 +1127,15 @@ fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &
         #[cfg(feature = "std")]
         {
             let log = gl_context.get_shader_info_log(shader);
-            eprintln!("azul: {} shader compile error: {}", _label, log);
+            eprintln!("azul: {_label} shader compile error: {log}");
         }
     }
 }
 
 /// Checks if a program linked successfully. Logs an error under `std`.
 #[allow(dead_code)]
+#[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &str) {
     let mut status = [0_i32];
     unsafe { gl_context.get_program_iv(program, gl::LINK_STATUS, &mut status) };
@@ -1115,7 +1143,7 @@ fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &s
         #[cfg(feature = "std")]
         {
             let log = gl_context.get_program_info_log(program);
-            eprintln!("azul: {} program link error: {}", _label, log);
+            eprintln!("azul: {_label} program link error: {log}");
         }
     }
 }
@@ -1125,7 +1153,7 @@ fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &s
 /// `__VERSION__`, so only the directive needs to change between GL and GLES.
 #[cfg(feature = "std")]
 fn shader_with_glsl_version(src: &[u8], version_line: &[u8]) -> Vec<u8> {
-    let body_start = src.iter().position(|&b| b == b'\n').map(|i| i + 1).unwrap_or(0);
+    let body_start = src.iter().position(|&b| b == b'\n').map_or(0, |i| i + 1);
     let mut out = Vec::with_capacity(version_line.len() + src.len() - body_start);
     out.extend_from_slice(version_line);
     out.extend_from_slice(&src[body_start..]);
@@ -1139,6 +1167,8 @@ fn shader_with_glsl_version(src: &[u8], version_line: &[u8]) -> Vec<u8> {
 /// unable to compile our shaders (broken driver, or a GLES context that rejects
 /// the desktop `#version 150`).
 #[cfg(feature = "std")]
+// OpenGL binding: gl::* enum constants passed to the gl API as GLint/GLenum.
+#[allow(clippy::cast_possible_wrap)]
 fn try_compile_program(
     gl_context: &GenericGlContext,
     vert_src: &[u8],
@@ -1186,7 +1216,7 @@ fn try_compile_program(
 
 /// GLSL `#version` directives to try, in preference order, per context type.
 /// The first that compiles+links the SVG shaders is used for every program.
-fn glsl_version_candidates(gl_type: GlType) -> &'static [&'static [u8]] {
+const fn glsl_version_candidates(gl_type: GlType) -> &'static [&'static [u8]] {
     match gl_type {
         GlType::Gl => &[b"#version 150\n", b"#version 330\n", b"#version 140\n"],
         GlType::Gles => &[b"#version 300 es\n", b"#version 100\n"],
@@ -1194,7 +1224,7 @@ fn glsl_version_candidates(gl_type: GlType) -> &'static [&'static [u8]] {
 }
 
 impl GlContextPtr {
-    pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
+    #[must_use] pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
         // Only attempt the SVG/FXAA GL shaders for a real GPU. In Software/CPU
         // mode nothing composites through them.
         //
@@ -1222,41 +1252,37 @@ impl GlContextPtr {
                         break;
                     }
                 }
-                match chosen {
-                    Some(ver) => {
-                        // "150" / "300 es": the directive minus "#version " and newline.
-                        let ver_str: AzString = core::str::from_utf8(ver)
-                            .unwrap_or("")
-                            .trim()
-                            .trim_start_matches("#version ")
-                            .into();
-                        eprintln!(
-                            "azul: GL usable -- shaders compiled at GLSL {} ({:?})",
-                            ver_str.as_str(),
-                            gl_type
-                        );
-                        let mc = try_compile_program(
-                            &gl_context, SVG_MULTICOLOR_VERTEX_SHADER, SVG_MULTICOLOR_FRAGMENT_SHADER,
-                            ver, &[(0, "vAttrXY"), (1, "vColor")],
-                        ).unwrap_or(0);
-                        let fxaa = try_compile_program(
-                            &gl_context, FXAA_VERTEX_SHADER, FXAA_FRAGMENT_SHADER, ver, &[(0, "vAttrXY")],
-                        ).unwrap_or(0);
-                        let brush = try_compile_program(
-                            &gl_context, BRUSH_VERTEX_SHADER, BRUSH_FRAGMENT_SHADER, ver,
-                            &[(0, "aPos"), (1, "aUv")],
-                        ).unwrap_or(0);
-                        (svg, mc, fxaa, brush, ver_str)
-                    }
-                    None => {
-                        eprintln!(
-                            "azul: GL context UNUSABLE -- no GLSL version ({:?}) compiled the SVG \
-                             shaders; the window should fall back to CPU rendering (is_gl_usable()=false)",
-                            gl_type
-                        );
-                        (0, 0, 0, 0, AzString::from_const_str(""))
-                    }
-                }
+                chosen.map_or_else(|| {
+                    eprintln!(
+                        "azul: GL context UNUSABLE -- no GLSL version ({gl_type:?}) compiled the SVG \
+                         shaders; the window should fall back to CPU rendering (is_gl_usable()=false)"
+                    );
+                    (0, 0, 0, 0, AzString::from_const_str(""))
+                }, |ver| {
+                    // "150" / "300 es": the directive minus "#version " and newline.
+                    let ver_str: AzString = core::str::from_utf8(ver)
+                        .unwrap_or("")
+                        .trim()
+                        .trim_start_matches("#version ")
+                        .into();
+                    eprintln!(
+                        "azul: GL usable -- shaders compiled at GLSL {} ({:?})",
+                        ver_str.as_str(),
+                        gl_type
+                    );
+                    let mc = try_compile_program(
+                        &gl_context, SVG_MULTICOLOR_VERTEX_SHADER, SVG_MULTICOLOR_FRAGMENT_SHADER,
+                        ver, &[(0, "vAttrXY"), (1, "vColor")],
+                    ).unwrap_or(0);
+                    let fxaa = try_compile_program(
+                        &gl_context, FXAA_VERTEX_SHADER, FXAA_FRAGMENT_SHADER, ver, &[(0, "vAttrXY")],
+                    ).unwrap_or(0);
+                    let brush = try_compile_program(
+                        &gl_context, BRUSH_VERTEX_SHADER, BRUSH_FRAGMENT_SHADER, ver,
+                        &[(0, "aPos"), (1, "aUv")],
+                    ).unwrap_or(0);
+                    (svg, mc, fxaa, brush, ver_str)
+                })
             } else {
                 (0, 0, 0, 0, AzString::from_const_str(""))
             };
@@ -1280,7 +1306,7 @@ impl GlContextPtr {
         }
     }
 
-    pub fn get(&self) -> &Rc<GenericGlContext> {
+    #[must_use] pub fn get(&self) -> &Rc<GenericGlContext> {
         &self.ptr.ptr
     }
     fn as_usize(&self) -> usize {
@@ -1288,8 +1314,13 @@ impl GlContextPtr {
     }
 }
 
+// This impl is the OpenGL API wrapper: every method mirrors a C/gleam GL call and
+// takes the C-ABI argument types (GlVoidPtrConst, *VecRef, …) BY VALUE to match that
+// ABI/FFI calling convention. Switching them to references would break the contract,
+// so needless_pass_by_value is allowed for the whole GL-binding impl.
+#[allow(clippy::needless_pass_by_value)]
 impl GlContextPtr {
-    pub fn get_type(&self) -> GlType {
+    #[must_use] pub fn get_type(&self) -> GlType {
         self.get().get_type().into()
     }
     pub fn buffer_data_untyped(
@@ -1300,7 +1331,7 @@ impl GlContextPtr {
         usage: GLenum,
     ) {
         self.get()
-            .buffer_data_untyped(target, size, data.ptr, usage)
+            .buffer_data_untyped(target, size, data.ptr, usage);
     }
     pub fn buffer_sub_data_untyped(
         &self,
@@ -1310,14 +1341,14 @@ impl GlContextPtr {
         data: GlVoidPtrConst,
     ) {
         self.get()
-            .buffer_sub_data_untyped(target, offset, size, data.ptr)
+            .buffer_sub_data_untyped(target, offset, size, data.ptr);
     }
-    pub fn map_buffer(&self, target: GLenum, access: GLbitfield) -> GlVoidPtrMut {
+    #[must_use] pub fn map_buffer(&self, target: GLenum, access: GLbitfield) -> GlVoidPtrMut {
         GlVoidPtrMut {
             ptr: self.get().map_buffer(target, access),
         }
     }
-    pub fn map_buffer_range(
+    #[must_use] pub fn map_buffer_range(
         &self,
         target: GLenum,
         offset: GLintptr,
@@ -1328,11 +1359,11 @@ impl GlContextPtr {
             ptr: self.get().map_buffer_range(target, offset, length, access),
         }
     }
-    pub fn unmap_buffer(&self, target: GLenum) -> GLboolean {
+    #[must_use] pub fn unmap_buffer(&self, target: GLenum) -> GLboolean {
         self.get().unmap_buffer(target)
     }
     pub fn tex_buffer(&self, target: GLenum, internal_format: GLenum, buffer: GLuint) {
-        self.get().tex_buffer(target, internal_format, buffer)
+        self.get().tex_buffer(target, internal_format, buffer);
     }
     pub fn shader_source(&self, shader: GLuint, strings: StringVec) {
         fn str_to_bytes(input: &str) -> Vec<u8> {
@@ -1346,12 +1377,12 @@ impl GlContextPtr {
             .collect::<Vec<_>>();
         let shaders_as_bytes = shaders_as_bytes
             .iter()
-            .map(|s| s.as_ref())
+            .map(AsRef::as_ref)
             .collect::<Vec<_>>();
-        self.get().shader_source(shader, &shaders_as_bytes)
+        self.get().shader_source(shader, &shaders_as_bytes);
     }
     pub fn read_buffer(&self, mode: GLenum) {
-        self.get().read_buffer(mode)
+        self.get().read_buffer(mode);
     }
     pub fn read_pixels_into_buffer(
         &self,
@@ -1371,9 +1402,9 @@ impl GlContextPtr {
             format,
             pixel_type,
             dst_buffer.as_mut_slice(),
-        )
+        );
     }
-    pub fn read_pixels(
+    #[must_use] pub fn read_pixels(
         &self,
         x: GLint,
         y: GLint,
@@ -1397,74 +1428,74 @@ impl GlContextPtr {
     ) {
         unsafe {
             self.get()
-                .read_pixels_into_pbo(x, y, width, height, format, pixel_type)
+                .read_pixels_into_pbo(x, y, width, height, format, pixel_type);
         }
     }
     pub fn sample_coverage(&self, value: GLclampf, invert: bool) {
-        self.get().sample_coverage(value, invert)
+        self.get().sample_coverage(value, invert);
     }
     pub fn polygon_offset(&self, factor: GLfloat, units: GLfloat) {
-        self.get().polygon_offset(factor, units)
+        self.get().polygon_offset(factor, units);
     }
     pub fn pixel_store_i(&self, name: GLenum, param: GLint) {
-        self.get().pixel_store_i(name, param)
+        self.get().pixel_store_i(name, param);
     }
-    pub fn gen_buffers(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_buffers(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_buffers(n).into()
     }
-    pub fn gen_renderbuffers(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_renderbuffers(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_renderbuffers(n).into()
     }
-    pub fn gen_framebuffers(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_framebuffers(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_framebuffers(n).into()
     }
-    pub fn gen_textures(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_textures(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_textures(n).into()
     }
-    pub fn gen_vertex_arrays(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_vertex_arrays(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_vertex_arrays(n).into()
     }
-    pub fn gen_queries(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_queries(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_queries(n).into()
     }
     pub fn begin_query(&self, target: GLenum, id: GLuint) {
-        self.get().begin_query(target, id)
+        self.get().begin_query(target, id);
     }
     pub fn end_query(&self, target: GLenum) {
-        self.get().end_query(target)
+        self.get().end_query(target);
     }
     pub fn query_counter(&self, id: GLuint, target: GLenum) {
-        self.get().query_counter(id, target)
+        self.get().query_counter(id, target);
     }
-    pub fn get_query_object_iv(&self, id: GLuint, pname: GLenum) -> i32 {
+    #[must_use] pub fn get_query_object_iv(&self, id: GLuint, pname: GLenum) -> i32 {
         self.get().get_query_object_iv(id, pname)
     }
-    pub fn get_query_object_uiv(&self, id: GLuint, pname: GLenum) -> u32 {
+    #[must_use] pub fn get_query_object_uiv(&self, id: GLuint, pname: GLenum) -> u32 {
         self.get().get_query_object_uiv(id, pname)
     }
-    pub fn get_query_object_i64v(&self, id: GLuint, pname: GLenum) -> i64 {
+    #[must_use] pub fn get_query_object_i64v(&self, id: GLuint, pname: GLenum) -> i64 {
         self.get().get_query_object_i64v(id, pname)
     }
-    pub fn get_query_object_ui64v(&self, id: GLuint, pname: GLenum) -> u64 {
+    #[must_use] pub fn get_query_object_ui64v(&self, id: GLuint, pname: GLenum) -> u64 {
         self.get().get_query_object_ui64v(id, pname)
     }
     pub fn delete_queries(&self, queries: GLuintVecRef) {
-        self.get().delete_queries(queries.as_slice())
+        self.get().delete_queries(queries.as_slice());
     }
     pub fn delete_vertex_arrays(&self, vertex_arrays: GLuintVecRef) {
-        self.get().delete_vertex_arrays(vertex_arrays.as_slice())
+        self.get().delete_vertex_arrays(vertex_arrays.as_slice());
     }
     pub fn delete_buffers(&self, buffers: GLuintVecRef) {
-        self.get().delete_buffers(buffers.as_slice())
+        self.get().delete_buffers(buffers.as_slice());
     }
     pub fn delete_renderbuffers(&self, renderbuffers: GLuintVecRef) {
-        self.get().delete_renderbuffers(renderbuffers.as_slice())
+        self.get().delete_renderbuffers(renderbuffers.as_slice());
     }
     pub fn delete_framebuffers(&self, framebuffers: GLuintVecRef) {
-        self.get().delete_framebuffers(framebuffers.as_slice())
+        self.get().delete_framebuffers(framebuffers.as_slice());
     }
     pub fn delete_textures(&self, textures: GLuintVecRef) {
-        self.get().delete_textures(textures.as_slice())
+        self.get().delete_textures(textures.as_slice());
     }
     pub fn framebuffer_renderbuffer(
         &self,
@@ -1474,7 +1505,7 @@ impl GlContextPtr {
         renderbuffer: GLuint,
     ) {
         self.get()
-            .framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer)
+            .framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer);
     }
     pub fn renderbuffer_storage(
         &self,
@@ -1484,46 +1515,46 @@ impl GlContextPtr {
         height: GLsizei,
     ) {
         self.get()
-            .renderbuffer_storage(target, internalformat, width, height)
+            .renderbuffer_storage(target, internalformat, width, height);
     }
     pub fn depth_func(&self, func: GLenum) {
-        self.get().depth_func(func)
+        self.get().depth_func(func);
     }
     pub fn active_texture(&self, texture: GLenum) {
-        self.get().active_texture(texture)
+        self.get().active_texture(texture);
     }
     pub fn attach_shader(&self, program: GLuint, shader: GLuint) {
-        self.get().attach_shader(program, shader)
+        self.get().attach_shader(program, shader);
     }
     pub fn bind_attrib_location(&self, program: GLuint, index: GLuint, name: &str) {
         self.get()
-            .bind_attrib_location(program, index, name)
+            .bind_attrib_location(program, index, name);
     }
     pub fn get_uniform_iv(&self, program: GLuint, location: GLint, mut result: GLintVecRefMut) {
         unsafe {
             self.get()
-                .get_uniform_iv(program, location, result.as_mut_slice())
+                .get_uniform_iv(program, location, result.as_mut_slice());
         }
     }
     pub fn get_uniform_fv(&self, program: GLuint, location: GLint, mut result: GLfloatVecRefMut) {
         unsafe {
             self.get()
-                .get_uniform_fv(program, location, result.as_mut_slice())
+                .get_uniform_fv(program, location, result.as_mut_slice());
         }
     }
-    pub fn get_uniform_block_index(&self, program: GLuint, name: &str) -> GLuint {
+    #[must_use] pub fn get_uniform_block_index(&self, program: GLuint, name: &str) -> GLuint {
         self.get().get_uniform_block_index(program, name)
     }
-    pub fn get_uniform_indices(&self, program: GLuint, names: RefstrVecRef) -> GLuintVec {
+    #[must_use] pub fn get_uniform_indices(&self, program: GLuint, names: RefstrVecRef) -> GLuintVec {
         let names_vec = names
             .as_slice()
             .iter()
-            .map(|n| n.as_str())
+            .map(Refstr::as_str)
             .collect::<Vec<_>>();
         self.get().get_uniform_indices(program, &names_vec).into()
     }
     pub fn bind_buffer_base(&self, target: GLenum, index: GLuint, buffer: GLuint) {
-        self.get().bind_buffer_base(target, index, buffer)
+        self.get().bind_buffer_base(target, index, buffer);
     }
     pub fn bind_buffer_range(
         &self,
@@ -1534,7 +1565,7 @@ impl GlContextPtr {
         size: GLsizeiptr,
     ) {
         self.get()
-            .bind_buffer_range(target, index, buffer, offset, size)
+            .bind_buffer_range(target, index, buffer, offset, size);
     }
     pub fn uniform_block_binding(
         &self,
@@ -1543,25 +1574,25 @@ impl GlContextPtr {
         uniform_block_binding: GLuint,
     ) {
         self.get()
-            .uniform_block_binding(program, uniform_block_index, uniform_block_binding)
+            .uniform_block_binding(program, uniform_block_index, uniform_block_binding);
     }
     pub fn bind_buffer(&self, target: GLenum, buffer: GLuint) {
-        self.get().bind_buffer(target, buffer)
+        self.get().bind_buffer(target, buffer);
     }
     pub fn bind_vertex_array(&self, vao: GLuint) {
-        self.get().bind_vertex_array(vao)
+        self.get().bind_vertex_array(vao);
     }
     pub fn bind_renderbuffer(&self, target: GLenum, renderbuffer: GLuint) {
-        self.get().bind_renderbuffer(target, renderbuffer)
+        self.get().bind_renderbuffer(target, renderbuffer);
     }
     pub fn bind_framebuffer(&self, target: GLenum, framebuffer: GLuint) {
-        self.get().bind_framebuffer(target, framebuffer)
+        self.get().bind_framebuffer(target, framebuffer);
     }
     pub fn bind_texture(&self, target: GLenum, texture: GLuint) {
-        self.get().bind_texture(target, texture)
+        self.get().bind_texture(target, texture);
     }
     pub fn draw_buffers(&self, bufs: GLenumVecRef) {
-        self.get().draw_buffers(bufs.as_slice())
+        self.get().draw_buffers(bufs.as_slice());
     }
     pub fn tex_image_2d(
         &self,
@@ -1576,7 +1607,7 @@ impl GlContextPtr {
         opt_data: OptionU8VecRef,
     ) {
         let opt_data = opt_data.as_option();
-        let opt_data: Option<&[u8]> = opt_data.map(|o| o.as_slice());
+        let opt_data: Option<&[u8]> = opt_data.map(U8VecRef::as_slice);
         self.get().tex_image_2d(
             target,
             level,
@@ -1587,7 +1618,7 @@ impl GlContextPtr {
             format,
             ty,
             opt_data,
-        )
+        );
     }
     pub fn compressed_tex_image_2d(
         &self,
@@ -1607,7 +1638,7 @@ impl GlContextPtr {
             height,
             border,
             data.as_slice(),
-        )
+        );
     }
     pub fn compressed_tex_sub_image_2d(
         &self,
@@ -1629,7 +1660,7 @@ impl GlContextPtr {
             height,
             format,
             data.as_slice(),
-        )
+        );
     }
     pub fn tex_image_3d(
         &self,
@@ -1645,7 +1676,7 @@ impl GlContextPtr {
         opt_data: OptionU8VecRef,
     ) {
         let opt_data = opt_data.as_option();
-        let opt_data: Option<&[u8]> = opt_data.map(|o| o.as_slice());
+        let opt_data: Option<&[u8]> = opt_data.map(U8VecRef::as_slice);
         self.get().tex_image_3d(
             target,
             level,
@@ -1657,7 +1688,7 @@ impl GlContextPtr {
             format,
             ty,
             opt_data,
-        )
+        );
     }
     pub fn copy_tex_image_2d(
         &self,
@@ -1671,7 +1702,7 @@ impl GlContextPtr {
         border: GLint,
     ) {
         self.get()
-            .copy_tex_image_2d(target, level, internal_format, x, y, width, height, border)
+            .copy_tex_image_2d(target, level, internal_format, x, y, width, height, border);
     }
     pub fn copy_tex_sub_image_2d(
         &self,
@@ -1685,7 +1716,7 @@ impl GlContextPtr {
         height: GLsizei,
     ) {
         self.get()
-            .copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height)
+            .copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height);
     }
     pub fn copy_tex_sub_image_3d(
         &self,
@@ -1701,7 +1732,7 @@ impl GlContextPtr {
     ) {
         self.get().copy_tex_sub_image_3d(
             target, level, xoffset, yoffset, zoffset, x, y, width, height,
-        )
+        );
     }
     pub fn tex_sub_image_2d(
         &self,
@@ -1725,7 +1756,7 @@ impl GlContextPtr {
             format,
             ty,
             data.as_slice(),
-        )
+        );
     }
     pub fn tex_sub_image_2d_pbo(
         &self,
@@ -1741,7 +1772,7 @@ impl GlContextPtr {
     ) {
         self.get().tex_sub_image_2d_pbo(
             target, level, xoffset, yoffset, width, height, format, ty, offset,
-        )
+        );
     }
     pub fn tex_sub_image_3d(
         &self,
@@ -1769,7 +1800,7 @@ impl GlContextPtr {
             format,
             ty,
             data.as_slice(),
-        )
+        );
     }
     pub fn tex_sub_image_3d_pbo(
         &self,
@@ -1787,7 +1818,7 @@ impl GlContextPtr {
     ) {
         self.get().tex_sub_image_3d_pbo(
             target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset,
-        )
+        );
     }
     pub fn tex_storage_2d(
         &self,
@@ -1798,7 +1829,7 @@ impl GlContextPtr {
         height: GLsizei,
     ) {
         self.get()
-            .tex_storage_2d(target, levels, internal_format, width, height)
+            .tex_storage_2d(target, levels, internal_format, width, height);
     }
     pub fn tex_storage_3d(
         &self,
@@ -1810,7 +1841,7 @@ impl GlContextPtr {
         depth: GLsizei,
     ) {
         self.get()
-            .tex_storage_3d(target, levels, internal_format, width, height, depth)
+            .tex_storage_3d(target, levels, internal_format, width, height, depth);
     }
     pub fn get_tex_image_into_buffer(
         &self,
@@ -1821,7 +1852,7 @@ impl GlContextPtr {
         mut output: U8VecRefMut,
     ) {
         self.get()
-            .get_tex_image_into_buffer(target, level, format, ty, output.as_mut_slice())
+            .get_tex_image_into_buffer(target, level, format, ty, output.as_mut_slice());
     }
     pub fn copy_image_sub_data(
         &self,
@@ -1845,12 +1876,12 @@ impl GlContextPtr {
             self.get().copy_image_sub_data(
                 src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target,
                 dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth,
-            )
+            );
         }
     }
     pub fn invalidate_framebuffer(&self, target: GLenum, attachments: GLenumVecRef) {
         self.get()
-            .invalidate_framebuffer(target, attachments.as_slice())
+            .invalidate_framebuffer(target, attachments.as_slice());
     }
     pub fn invalidate_sub_framebuffer(
         &self,
@@ -1868,7 +1899,7 @@ impl GlContextPtr {
             yoffset,
             width,
             height,
-        )
+        );
     }
     pub fn get_integer_v(&self, name: GLenum, mut result: GLintVecRefMut) {
         unsafe { self.get().get_integer_v(name, result.as_mut_slice()) }
@@ -1879,13 +1910,13 @@ impl GlContextPtr {
     pub fn get_integer_iv(&self, name: GLenum, index: GLuint, mut result: GLintVecRefMut) {
         unsafe {
             self.get()
-                .get_integer_iv(name, index, result.as_mut_slice())
+                .get_integer_iv(name, index, result.as_mut_slice());
         }
     }
     pub fn get_integer_64iv(&self, name: GLenum, index: GLuint, mut result: GLint64VecRefMut) {
         unsafe {
             self.get()
-                .get_integer_64iv(name, index, result.as_mut_slice())
+                .get_integer_64iv(name, index, result.as_mut_slice());
         }
     }
     pub fn get_boolean_v(&self, name: GLenum, mut result: GLbooleanVecRefMut) {
@@ -1894,7 +1925,7 @@ impl GlContextPtr {
     pub fn get_float_v(&self, name: GLenum, mut result: GLfloatVecRefMut) {
         unsafe { self.get().get_float_v(name, result.as_mut_slice()) }
     }
-    pub fn get_framebuffer_attachment_parameter_iv(
+    #[must_use] pub fn get_framebuffer_attachment_parameter_iv(
         &self,
         target: GLenum,
         attachment: GLenum,
@@ -1903,20 +1934,20 @@ impl GlContextPtr {
         self.get()
             .get_framebuffer_attachment_parameter_iv(target, attachment, pname)
     }
-    pub fn get_renderbuffer_parameter_iv(&self, target: GLenum, pname: GLenum) -> GLint {
+    #[must_use] pub fn get_renderbuffer_parameter_iv(&self, target: GLenum, pname: GLenum) -> GLint {
         self.get().get_renderbuffer_parameter_iv(target, pname)
     }
-    pub fn get_tex_parameter_iv(&self, target: GLenum, name: GLenum) -> GLint {
+    #[must_use] pub fn get_tex_parameter_iv(&self, target: GLenum, name: GLenum) -> GLint {
         self.get().get_tex_parameter_iv(target, name)
     }
-    pub fn get_tex_parameter_fv(&self, target: GLenum, name: GLenum) -> GLfloat {
+    #[must_use] pub fn get_tex_parameter_fv(&self, target: GLenum, name: GLenum) -> GLfloat {
         self.get().get_tex_parameter_fv(target, name)
     }
     pub fn tex_parameter_i(&self, target: GLenum, pname: GLenum, param: GLint) {
-        self.get().tex_parameter_i(target, pname, param)
+        self.get().tex_parameter_i(target, pname, param);
     }
     pub fn tex_parameter_f(&self, target: GLenum, pname: GLenum, param: GLfloat) {
-        self.get().tex_parameter_f(target, pname, param)
+        self.get().tex_parameter_f(target, pname, param);
     }
     pub fn framebuffer_texture_2d(
         &self,
@@ -1927,7 +1958,7 @@ impl GlContextPtr {
         level: GLint,
     ) {
         self.get()
-            .framebuffer_texture_2d(target, attachment, textarget, texture, level)
+            .framebuffer_texture_2d(target, attachment, textarget, texture, level);
     }
     pub fn framebuffer_texture_layer(
         &self,
@@ -1938,8 +1969,9 @@ impl GlContextPtr {
         layer: GLint,
     ) {
         self.get()
-            .framebuffer_texture_layer(target, attachment, texture, level, layer)
+            .framebuffer_texture_layer(target, attachment, texture, level, layer);
     }
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     pub fn blit_framebuffer(
         &self,
         src_x0: GLint,
@@ -1955,10 +1987,10 @@ impl GlContextPtr {
     ) {
         self.get().blit_framebuffer(
             src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter,
-        )
+        );
     }
     pub fn vertex_attrib_4f(&self, index: GLuint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) {
-        self.get().vertex_attrib_4f(index, x, y, z, w)
+        self.get().vertex_attrib_4f(index, x, y, z, w);
     }
     pub fn vertex_attrib_pointer_f32(
         &self,
@@ -1969,7 +2001,7 @@ impl GlContextPtr {
         offset: GLuint,
     ) {
         self.get()
-            .vertex_attrib_pointer_f32(index, size, normalized, stride, offset)
+            .vertex_attrib_pointer_f32(index, size, normalized, stride, offset);
     }
     pub fn vertex_attrib_pointer(
         &self,
@@ -1981,7 +2013,7 @@ impl GlContextPtr {
         offset: GLuint,
     ) {
         self.get()
-            .vertex_attrib_pointer(index, size, type_, normalized, stride, offset)
+            .vertex_attrib_pointer(index, size, type_, normalized, stride, offset);
     }
     pub fn vertex_attrib_i_pointer(
         &self,
@@ -1992,28 +2024,28 @@ impl GlContextPtr {
         offset: GLuint,
     ) {
         self.get()
-            .vertex_attrib_i_pointer(index, size, type_, stride, offset)
+            .vertex_attrib_i_pointer(index, size, type_, stride, offset);
     }
     pub fn vertex_attrib_divisor(&self, index: GLuint, divisor: GLuint) {
-        self.get().vertex_attrib_divisor(index, divisor)
+        self.get().vertex_attrib_divisor(index, divisor);
     }
     pub fn viewport(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei) {
-        self.get().viewport(x, y, width, height)
+        self.get().viewport(x, y, width, height);
     }
     pub fn scissor(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei) {
-        self.get().scissor(x, y, width, height)
+        self.get().scissor(x, y, width, height);
     }
     pub fn line_width(&self, width: GLfloat) {
-        self.get().line_width(width)
+        self.get().line_width(width);
     }
     pub fn use_program(&self, program: GLuint) {
-        self.get().use_program(program)
+        self.get().use_program(program);
     }
     pub fn validate_program(&self, program: GLuint) {
-        self.get().validate_program(program)
+        self.get().validate_program(program);
     }
     pub fn draw_arrays(&self, mode: GLenum, first: GLint, count: GLsizei) {
-        self.get().draw_arrays(mode, first, count)
+        self.get().draw_arrays(mode, first, count);
     }
     pub fn draw_arrays_instanced(
         &self,
@@ -2023,7 +2055,7 @@ impl GlContextPtr {
         primcount: GLsizei,
     ) {
         self.get()
-            .draw_arrays_instanced(mode, first, count, primcount)
+            .draw_arrays_instanced(mode, first, count, primcount);
     }
     pub fn draw_elements(
         &self,
@@ -2033,7 +2065,7 @@ impl GlContextPtr {
         indices_offset: GLuint,
     ) {
         self.get()
-            .draw_elements(mode, count, element_type, indices_offset)
+            .draw_elements(mode, count, element_type, indices_offset);
     }
     pub fn draw_elements_instanced(
         &self,
@@ -2044,13 +2076,13 @@ impl GlContextPtr {
         primcount: GLsizei,
     ) {
         self.get()
-            .draw_elements_instanced(mode, count, element_type, indices_offset, primcount)
+            .draw_elements_instanced(mode, count, element_type, indices_offset, primcount);
     }
     pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32) {
-        self.get().blend_color(r, g, b, a)
+        self.get().blend_color(r, g, b, a);
     }
     pub fn blend_func(&self, sfactor: GLenum, dfactor: GLenum) {
-        self.get().blend_func(sfactor, dfactor)
+        self.get().blend_func(sfactor, dfactor);
     }
     pub fn blend_func_separate(
         &self,
@@ -2060,135 +2092,138 @@ impl GlContextPtr {
         dest_alpha: GLenum,
     ) {
         self.get()
-            .blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha)
+            .blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha);
     }
     pub fn blend_equation(&self, mode: GLenum) {
-        self.get().blend_equation(mode)
+        self.get().blend_equation(mode);
     }
     pub fn blend_equation_separate(&self, mode_rgb: GLenum, mode_alpha: GLenum) {
-        self.get().blend_equation_separate(mode_rgb, mode_alpha)
+        self.get().blend_equation_separate(mode_rgb, mode_alpha);
     }
+    // mirrors glColorMask(GLboolean, GLboolean, GLboolean, GLboolean) — the four
+    // RGBA write-mask flags are the GL API, not a refactorable bool soup.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool) {
-        self.get().color_mask(r, g, b, a)
+        self.get().color_mask(r, g, b, a);
     }
     pub fn cull_face(&self, mode: GLenum) {
-        self.get().cull_face(mode)
+        self.get().cull_face(mode);
     }
     pub fn front_face(&self, mode: GLenum) {
-        self.get().front_face(mode)
+        self.get().front_face(mode);
     }
     pub fn enable(&self, cap: GLenum) {
-        self.get().enable(cap)
+        self.get().enable(cap);
     }
     pub fn disable(&self, cap: GLenum) {
-        self.get().disable(cap)
+        self.get().disable(cap);
     }
     pub fn hint(&self, param_name: GLenum, param_val: GLenum) {
-        self.get().hint(param_name, param_val)
+        self.get().hint(param_name, param_val);
     }
-    pub fn is_enabled(&self, cap: GLenum) -> GLboolean {
+    #[must_use] pub fn is_enabled(&self, cap: GLenum) -> GLboolean {
         self.get().is_enabled(cap)
     }
-    pub fn is_shader(&self, shader: GLuint) -> GLboolean {
+    #[must_use] pub fn is_shader(&self, shader: GLuint) -> GLboolean {
         self.get().is_shader(shader)
     }
-    pub fn is_texture(&self, texture: GLenum) -> GLboolean {
+    #[must_use] pub fn is_texture(&self, texture: GLenum) -> GLboolean {
         self.get().is_texture(texture)
     }
-    pub fn is_framebuffer(&self, framebuffer: GLenum) -> GLboolean {
+    #[must_use] pub fn is_framebuffer(&self, framebuffer: GLenum) -> GLboolean {
         self.get().is_framebuffer(framebuffer)
     }
-    pub fn is_renderbuffer(&self, renderbuffer: GLenum) -> GLboolean {
+    #[must_use] pub fn is_renderbuffer(&self, renderbuffer: GLenum) -> GLboolean {
         self.get().is_renderbuffer(renderbuffer)
     }
-    pub fn check_frame_buffer_status(&self, target: GLenum) -> GLenum {
+    #[must_use] pub fn check_frame_buffer_status(&self, target: GLenum) -> GLenum {
         self.get().check_frame_buffer_status(target)
     }
     pub fn enable_vertex_attrib_array(&self, index: GLuint) {
-        self.get().enable_vertex_attrib_array(index)
+        self.get().enable_vertex_attrib_array(index);
     }
     pub fn disable_vertex_attrib_array(&self, index: GLuint) {
-        self.get().disable_vertex_attrib_array(index)
+        self.get().disable_vertex_attrib_array(index);
     }
     pub fn uniform_1f(&self, location: GLint, v0: GLfloat) {
-        self.get().uniform_1f(location, v0)
+        self.get().uniform_1f(location, v0);
     }
     pub fn uniform_1fv(&self, location: GLint, values: F32VecRef) {
-        self.get().uniform_1fv(location, values.as_slice())
+        self.get().uniform_1fv(location, values.as_slice());
     }
     pub fn uniform_1i(&self, location: GLint, v0: GLint) {
-        self.get().uniform_1i(location, v0)
+        self.get().uniform_1i(location, v0);
     }
     pub fn uniform_1iv(&self, location: GLint, values: I32VecRef) {
-        self.get().uniform_1iv(location, values.as_slice())
+        self.get().uniform_1iv(location, values.as_slice());
     }
     pub fn uniform_1ui(&self, location: GLint, v0: GLuint) {
-        self.get().uniform_1ui(location, v0)
+        self.get().uniform_1ui(location, v0);
     }
     pub fn uniform_2f(&self, location: GLint, v0: GLfloat, v1: GLfloat) {
-        self.get().uniform_2f(location, v0, v1)
+        self.get().uniform_2f(location, v0, v1);
     }
     pub fn uniform_2fv(&self, location: GLint, values: F32VecRef) {
-        self.get().uniform_2fv(location, values.as_slice())
+        self.get().uniform_2fv(location, values.as_slice());
     }
     pub fn uniform_2i(&self, location: GLint, v0: GLint, v1: GLint) {
-        self.get().uniform_2i(location, v0, v1)
+        self.get().uniform_2i(location, v0, v1);
     }
     pub fn uniform_2iv(&self, location: GLint, values: I32VecRef) {
-        self.get().uniform_2iv(location, values.as_slice())
+        self.get().uniform_2iv(location, values.as_slice());
     }
     pub fn uniform_2ui(&self, location: GLint, v0: GLuint, v1: GLuint) {
-        self.get().uniform_2ui(location, v0, v1)
+        self.get().uniform_2ui(location, v0, v1);
     }
     pub fn uniform_3f(&self, location: GLint, v0: GLfloat, v1: GLfloat, v2: GLfloat) {
-        self.get().uniform_3f(location, v0, v1, v2)
+        self.get().uniform_3f(location, v0, v1, v2);
     }
     pub fn uniform_3fv(&self, location: GLint, values: F32VecRef) {
-        self.get().uniform_3fv(location, values.as_slice())
+        self.get().uniform_3fv(location, values.as_slice());
     }
     pub fn uniform_3i(&self, location: GLint, v0: GLint, v1: GLint, v2: GLint) {
-        self.get().uniform_3i(location, v0, v1, v2)
+        self.get().uniform_3i(location, v0, v1, v2);
     }
     pub fn uniform_3iv(&self, location: GLint, values: I32VecRef) {
-        self.get().uniform_3iv(location, values.as_slice())
+        self.get().uniform_3iv(location, values.as_slice());
     }
     pub fn uniform_3ui(&self, location: GLint, v0: GLuint, v1: GLuint, v2: GLuint) {
-        self.get().uniform_3ui(location, v0, v1, v2)
+        self.get().uniform_3ui(location, v0, v1, v2);
     }
     pub fn uniform_4f(&self, location: GLint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) {
-        self.get().uniform_4f(location, x, y, z, w)
+        self.get().uniform_4f(location, x, y, z, w);
     }
     pub fn uniform_4i(&self, location: GLint, x: GLint, y: GLint, z: GLint, w: GLint) {
-        self.get().uniform_4i(location, x, y, z, w)
+        self.get().uniform_4i(location, x, y, z, w);
     }
     pub fn uniform_4iv(&self, location: GLint, values: I32VecRef) {
-        self.get().uniform_4iv(location, values.as_slice())
+        self.get().uniform_4iv(location, values.as_slice());
     }
     pub fn uniform_4ui(&self, location: GLint, x: GLuint, y: GLuint, z: GLuint, w: GLuint) {
-        self.get().uniform_4ui(location, x, y, z, w)
+        self.get().uniform_4ui(location, x, y, z, w);
     }
     pub fn uniform_4fv(&self, location: GLint, values: F32VecRef) {
-        self.get().uniform_4fv(location, values.as_slice())
+        self.get().uniform_4fv(location, values.as_slice());
     }
     pub fn uniform_matrix_2fv(&self, location: GLint, transpose: bool, value: F32VecRef) {
         self.get()
-            .uniform_matrix_2fv(location, transpose, value.as_slice())
+            .uniform_matrix_2fv(location, transpose, value.as_slice());
     }
     pub fn uniform_matrix_3fv(&self, location: GLint, transpose: bool, value: F32VecRef) {
         self.get()
-            .uniform_matrix_3fv(location, transpose, value.as_slice())
+            .uniform_matrix_3fv(location, transpose, value.as_slice());
     }
     pub fn uniform_matrix_4fv(&self, location: GLint, transpose: bool, value: F32VecRef) {
         self.get()
-            .uniform_matrix_4fv(location, transpose, value.as_slice())
+            .uniform_matrix_4fv(location, transpose, value.as_slice());
     }
     pub fn depth_mask(&self, flag: bool) {
-        self.get().depth_mask(flag)
+        self.get().depth_mask(flag);
     }
     pub fn depth_range(&self, near: f64, far: f64) {
-        self.get().depth_range(near, far)
+        self.get().depth_range(near, far);
     }
-    pub fn get_active_attrib(&self, program: GLuint, index: GLuint) -> GetActiveAttribReturn {
+    #[must_use] pub fn get_active_attrib(&self, program: GLuint, index: GLuint) -> GetActiveAttribReturn {
         let r = self.get().get_active_attrib(program, index);
         GetActiveAttribReturn {
             _0: r.0,
@@ -2196,7 +2231,7 @@ impl GlContextPtr {
             _2: r.2.into(),
         }
     }
-    pub fn get_active_uniform(&self, program: GLuint, index: GLuint) -> GetActiveUniformReturn {
+    #[must_use] pub fn get_active_uniform(&self, program: GLuint, index: GLuint) -> GetActiveUniformReturn {
         let r = self.get().get_active_uniform(program, index);
         GetActiveUniformReturn {
             _0: r.0,
@@ -2204,7 +2239,7 @@ impl GlContextPtr {
             _2: r.2.into(),
         }
     }
-    pub fn get_active_uniforms_iv(
+    #[must_use] pub fn get_active_uniforms_iv(
         &self,
         program: GLuint,
         indices: GLuintVec,
@@ -2214,7 +2249,7 @@ impl GlContextPtr {
             .get_active_uniforms_iv(program, indices.into_library_owned_vec(), pname)
             .into()
     }
-    pub fn get_active_uniform_block_i(
+    #[must_use] pub fn get_active_uniform_block_i(
         &self,
         program: GLuint,
         index: GLuint,
@@ -2222,7 +2257,7 @@ impl GlContextPtr {
     ) -> GLint {
         self.get().get_active_uniform_block_i(program, index, pname)
     }
-    pub fn get_active_uniform_block_iv(
+    #[must_use] pub fn get_active_uniform_block_iv(
         &self,
         program: GLuint,
         index: GLuint,
@@ -2232,30 +2267,30 @@ impl GlContextPtr {
             .get_active_uniform_block_iv(program, index, pname)
             .into()
     }
-    pub fn get_active_uniform_block_name(&self, program: GLuint, index: GLuint) -> AzString {
+    #[must_use] pub fn get_active_uniform_block_name(&self, program: GLuint, index: GLuint) -> AzString {
         self.get()
             .get_active_uniform_block_name(program, index)
             .into()
     }
-    pub fn get_attrib_location(&self, program: GLuint, name: &str) -> c_int {
+    #[must_use] pub fn get_attrib_location(&self, program: GLuint, name: &str) -> c_int {
         self.get().get_attrib_location(program, name)
     }
-    pub fn get_frag_data_location(&self, program: GLuint, name: &str) -> c_int {
+    #[must_use] pub fn get_frag_data_location(&self, program: GLuint, name: &str) -> c_int {
         self.get().get_frag_data_location(program, name)
     }
-    pub fn get_uniform_location(&self, program: GLuint, name: &str) -> c_int {
+    #[must_use] pub fn get_uniform_location(&self, program: GLuint, name: &str) -> c_int {
         self.get().get_uniform_location(program, name)
     }
-    pub fn get_program_info_log(&self, program: GLuint) -> AzString {
+    #[must_use] pub fn get_program_info_log(&self, program: GLuint) -> AzString {
         self.get().get_program_info_log(program).into()
     }
     pub fn get_program_iv(&self, program: GLuint, pname: GLenum, mut result: GLintVecRefMut) {
         unsafe {
             self.get()
-                .get_program_iv(program, pname, result.as_mut_slice())
+                .get_program_iv(program, pname, result.as_mut_slice());
         }
     }
-    pub fn get_program_binary(&self, program: GLuint) -> GetProgramBinaryReturn {
+    #[must_use] pub fn get_program_binary(&self, program: GLuint) -> GetProgramBinaryReturn {
         let r = self.get().get_program_binary(program);
         GetProgramBinaryReturn {
             _0: r.0.into(),
@@ -2264,45 +2299,45 @@ impl GlContextPtr {
     }
     pub fn program_binary(&self, program: GLuint, format: GLenum, binary: U8VecRef) {
         self.get()
-            .program_binary(program, format, binary.as_slice())
+            .program_binary(program, format, binary.as_slice());
     }
     pub fn program_parameter_i(&self, program: GLuint, pname: GLenum, value: GLint) {
-        self.get().program_parameter_i(program, pname, value)
+        self.get().program_parameter_i(program, pname, value);
     }
     pub fn get_vertex_attrib_iv(&self, index: GLuint, pname: GLenum, mut result: GLintVecRefMut) {
         unsafe {
             self.get()
-                .get_vertex_attrib_iv(index, pname, result.as_mut_slice())
+                .get_vertex_attrib_iv(index, pname, result.as_mut_slice());
         }
     }
     pub fn get_vertex_attrib_fv(&self, index: GLuint, pname: GLenum, mut result: GLfloatVecRefMut) {
         unsafe {
             self.get()
-                .get_vertex_attrib_fv(index, pname, result.as_mut_slice())
+                .get_vertex_attrib_fv(index, pname, result.as_mut_slice());
         }
     }
-    pub fn get_vertex_attrib_pointer_v(&self, index: GLuint, pname: GLenum) -> GLsizeiptr {
+    #[must_use] pub fn get_vertex_attrib_pointer_v(&self, index: GLuint, pname: GLenum) -> GLsizeiptr {
         self.get().get_vertex_attrib_pointer_v(index, pname)
     }
-    pub fn get_buffer_parameter_iv(&self, target: GLuint, pname: GLenum) -> GLint {
+    #[must_use] pub fn get_buffer_parameter_iv(&self, target: GLuint, pname: GLenum) -> GLint {
         self.get().get_buffer_parameter_iv(target, pname)
     }
-    pub fn get_shader_info_log(&self, shader: GLuint) -> AzString {
+    #[must_use] pub fn get_shader_info_log(&self, shader: GLuint) -> AzString {
         self.get().get_shader_info_log(shader).into()
     }
-    pub fn get_string(&self, which: GLenum) -> AzString {
+    #[must_use] pub fn get_string(&self, which: GLenum) -> AzString {
         self.get().get_string(which).into()
     }
-    pub fn get_string_i(&self, which: GLenum, index: GLuint) -> AzString {
+    #[must_use] pub fn get_string_i(&self, which: GLenum, index: GLuint) -> AzString {
         self.get().get_string_i(which, index).into()
     }
     pub fn get_shader_iv(&self, shader: GLuint, pname: GLenum, mut result: GLintVecRefMut) {
         unsafe {
             self.get()
-                .get_shader_iv(shader, pname, result.as_mut_slice())
+                .get_shader_iv(shader, pname, result.as_mut_slice());
         }
     }
-    pub fn get_shader_precision_format(
+    #[must_use] pub fn get_shader_precision_format(
         &self,
         shader_type: GLuint,
         precision_type: GLuint,
@@ -2317,80 +2352,80 @@ impl GlContextPtr {
         }
     }
     pub fn compile_shader(&self, shader: GLuint) {
-        self.get().compile_shader(shader)
+        self.get().compile_shader(shader);
     }
-    pub fn create_program(&self) -> GLuint {
+    #[must_use] pub fn create_program(&self) -> GLuint {
         self.get().create_program()
     }
     pub fn delete_program(&self, program: GLuint) {
-        self.get().delete_program(program)
+        self.get().delete_program(program);
     }
-    pub fn create_shader(&self, shader_type: GLenum) -> GLuint {
+    #[must_use] pub fn create_shader(&self, shader_type: GLenum) -> GLuint {
         self.get().create_shader(shader_type)
     }
     pub fn delete_shader(&self, shader: GLuint) {
-        self.get().delete_shader(shader)
+        self.get().delete_shader(shader);
     }
     pub fn detach_shader(&self, program: GLuint, shader: GLuint) {
-        self.get().detach_shader(program, shader)
+        self.get().detach_shader(program, shader);
     }
     pub fn link_program(&self, program: GLuint) {
-        self.get().link_program(program)
+        self.get().link_program(program);
     }
     pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32) {
-        self.get().clear_color(r, g, b, a)
+        self.get().clear_color(r, g, b, a);
     }
     pub fn clear(&self, buffer_mask: GLbitfield) {
-        self.get().clear(buffer_mask)
+        self.get().clear(buffer_mask);
     }
     pub fn clear_depth(&self, depth: f64) {
-        self.get().clear_depth(depth)
+        self.get().clear_depth(depth);
     }
     pub fn clear_stencil(&self, s: GLint) {
-        self.get().clear_stencil(s)
+        self.get().clear_stencil(s);
     }
     pub fn flush(&self) {
-        self.get().flush()
+        self.get().flush();
     }
     pub fn finish(&self) {
-        self.get().finish()
+        self.get().finish();
     }
-    pub fn get_error(&self) -> GLenum {
+    #[must_use] pub fn get_error(&self) -> GLenum {
         self.get().get_error()
     }
     pub fn stencil_mask(&self, mask: GLuint) {
-        self.get().stencil_mask(mask)
+        self.get().stencil_mask(mask);
     }
     pub fn stencil_mask_separate(&self, face: GLenum, mask: GLuint) {
-        self.get().stencil_mask_separate(face, mask)
+        self.get().stencil_mask_separate(face, mask);
     }
     pub fn stencil_func(&self, func: GLenum, ref_: GLint, mask: GLuint) {
-        self.get().stencil_func(func, ref_, mask)
+        self.get().stencil_func(func, ref_, mask);
     }
     pub fn stencil_func_separate(&self, face: GLenum, func: GLenum, ref_: GLint, mask: GLuint) {
-        self.get().stencil_func_separate(face, func, ref_, mask)
+        self.get().stencil_func_separate(face, func, ref_, mask);
     }
     pub fn stencil_op(&self, sfail: GLenum, dpfail: GLenum, dppass: GLenum) {
-        self.get().stencil_op(sfail, dpfail, dppass)
+        self.get().stencil_op(sfail, dpfail, dppass);
     }
     pub fn stencil_op_separate(&self, face: GLenum, sfail: GLenum, dpfail: GLenum, dppass: GLenum) {
-        self.get().stencil_op_separate(face, sfail, dpfail, dppass)
+        self.get().stencil_op_separate(face, sfail, dpfail, dppass);
     }
     pub fn egl_image_target_texture2d_oes(&self, target: GLenum, image: GlVoidPtrConst) {
         self.get()
-            .egl_image_target_texture2d_oes(target, image.ptr as *const gl_context_loader::c_void)
+            .egl_image_target_texture2d_oes(target, image.ptr as *const c_void);
     }
     pub fn generate_mipmap(&self, target: GLenum) {
-        self.get().generate_mipmap(target)
+        self.get().generate_mipmap(target);
     }
     pub fn insert_event_marker_ext(&self, message: &str) {
-        self.get().insert_event_marker_ext(message)
+        self.get().insert_event_marker_ext(message);
     }
     pub fn push_group_marker_ext(&self, message: &str) {
-        self.get().push_group_marker_ext(message)
+        self.get().push_group_marker_ext(message);
     }
     pub fn pop_group_marker_ext(&self) {
-        self.get().pop_group_marker_ext()
+        self.get().pop_group_marker_ext();
     }
     pub fn debug_message_insert_khr(
         &self,
@@ -2401,56 +2436,56 @@ impl GlContextPtr {
         message: &str,
     ) {
         self.get()
-            .debug_message_insert_khr(source, type_, id, severity, message)
+            .debug_message_insert_khr(source, type_, id, severity, message);
     }
     pub fn push_debug_group_khr(&self, source: GLenum, id: GLuint, message: &str) {
         self.get()
-            .push_debug_group_khr(source, id, message)
+            .push_debug_group_khr(source, id, message);
     }
     pub fn pop_debug_group_khr(&self) {
-        self.get().pop_debug_group_khr()
+        self.get().pop_debug_group_khr();
     }
-    pub fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> GLsyncPtr {
+    #[must_use] pub fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> GLsyncPtr {
         GLsyncPtr::new(self.get().fence_sync(condition, flags))
     }
-    pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) -> u32 {
+    #[must_use] pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) -> u32 {
         self.get().client_wait_sync(sync.get(), flags, timeout)
     }
     pub fn wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) {
-        self.get().wait_sync(sync.get(), flags, timeout)
+        self.get().wait_sync(sync.get(), flags, timeout);
     }
     pub fn delete_sync(&self, sync: GLsyncPtr) {
-        self.get().delete_sync(sync.get())
+        self.get().delete_sync(sync.get());
     }
     pub fn texture_range_apple(&self, target: GLenum, data: U8VecRef) {
-        self.get().texture_range_apple(target, data.as_slice())
+        self.get().texture_range_apple(target, data.as_slice());
     }
-    pub fn gen_fences_apple(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_fences_apple(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_fences_apple(n).into()
     }
     pub fn delete_fences_apple(&self, fences: GLuintVecRef) {
-        self.get().delete_fences_apple(fences.as_slice())
+        self.get().delete_fences_apple(fences.as_slice());
     }
     pub fn set_fence_apple(&self, fence: GLuint) {
-        self.get().set_fence_apple(fence)
+        self.get().set_fence_apple(fence);
     }
     pub fn finish_fence_apple(&self, fence: GLuint) {
-        self.get().finish_fence_apple(fence)
+        self.get().finish_fence_apple(fence);
     }
     pub fn test_fence_apple(&self, fence: GLuint) {
-        self.get().test_fence_apple(fence)
+        self.get().test_fence_apple(fence);
     }
-    pub fn test_object_apple(&self, object: GLenum, name: GLuint) -> GLboolean {
+    #[must_use] pub fn test_object_apple(&self, object: GLenum, name: GLuint) -> GLboolean {
         self.get().test_object_apple(object, name)
     }
     pub fn finish_object_apple(&self, object: GLenum, name: GLuint) {
-        self.get().finish_object_apple(object, name)
+        self.get().finish_object_apple(object, name);
     }
-    pub fn get_frag_data_index(&self, program: GLuint, name: &str) -> GLint {
+    #[must_use] pub fn get_frag_data_index(&self, program: GLuint, name: &str) -> GLint {
         self.get().get_frag_data_index(program, name)
     }
     pub fn blend_barrier_khr(&self) {
-        self.get().blend_barrier_khr()
+        self.get().blend_barrier_khr();
     }
     pub fn bind_frag_data_location_indexed(
         &self,
@@ -2460,9 +2495,9 @@ impl GlContextPtr {
         name: &str,
     ) {
         self.get()
-            .bind_frag_data_location_indexed(program, color_number, index, name)
+            .bind_frag_data_location_indexed(program, color_number, index, name);
     }
-    pub fn get_debug_messages(&self) -> DebugMessageVec {
+    #[must_use] pub fn get_debug_messages(&self) -> DebugMessageVec {
         let dmv: Vec<DebugMessage> = self
             .get()
             .get_debug_messages()
@@ -2478,17 +2513,17 @@ impl GlContextPtr {
         dmv.into()
     }
     pub fn provoking_vertex_angle(&self, mode: GLenum) {
-        self.get().provoking_vertex_angle(mode)
+        self.get().provoking_vertex_angle(mode);
     }
-    pub fn gen_vertex_arrays_apple(&self, n: GLsizei) -> GLuintVec {
+    #[must_use] pub fn gen_vertex_arrays_apple(&self, n: GLsizei) -> GLuintVec {
         self.get().gen_vertex_arrays_apple(n).into()
     }
     pub fn bind_vertex_array_apple(&self, vao: GLuint) {
-        self.get().bind_vertex_array_apple(vao)
+        self.get().bind_vertex_array_apple(vao);
     }
     pub fn delete_vertex_arrays_apple(&self, vertex_arrays: GLuintVecRef) {
         self.get()
-            .delete_vertex_arrays_apple(vertex_arrays.as_slice())
+            .delete_vertex_arrays_apple(vertex_arrays.as_slice());
     }
     pub fn copy_texture_chromium(
         &self,
@@ -2514,7 +2549,7 @@ impl GlContextPtr {
             unpack_flip_y,
             unpack_premultiply_alpha,
             unpack_unmultiply_alpha,
-        )
+        );
     }
     pub fn copy_sub_texture_chromium(
         &self,
@@ -2548,13 +2583,13 @@ impl GlContextPtr {
             unpack_flip_y,
             unpack_premultiply_alpha,
             unpack_unmultiply_alpha,
-        )
+        );
     }
     pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: GlVoidPtrConst) {
         self.get().egl_image_target_renderbuffer_storage_oes(
             target,
-            image.ptr as *const gl_context_loader::c_void,
-        )
+            image.ptr as *const c_void,
+        );
     }
     pub fn copy_texture_3d_angle(
         &self,
@@ -2580,7 +2615,7 @@ impl GlContextPtr {
             unpack_flip_y,
             unpack_premultiply_alpha,
             unpack_unmultiply_alpha,
-        )
+        );
     }
     pub fn copy_sub_texture_3d_angle(
         &self,
@@ -2620,7 +2655,7 @@ impl GlContextPtr {
             unpack_flip_y,
             unpack_premultiply_alpha,
             unpack_unmultiply_alpha,
-        )
+        );
     }
     pub fn buffer_storage(
         &self,
@@ -2629,10 +2664,10 @@ impl GlContextPtr {
         data: GlVoidPtrConst,
         flags: GLbitfield,
     ) {
-        self.get().buffer_storage(target, size, data.ptr, flags)
+        self.get().buffer_storage(target, size, data.ptr, flags);
     }
     pub fn flush_mapped_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr) {
-        self.get().flush_mapped_buffer_range(target, offset, length)
+        self.get().flush_mapped_buffer_range(target, offset, length);
     }
 }
 
@@ -2659,6 +2694,9 @@ impl Ord for GlContextPtr {
 /// Saved OpenGL state for save/restore around framebuffer operations.
 /// Used by `Texture::clear()` and `GlShader::draw()` to avoid corrupting
 /// the caller's GL state.
+// the `current_` prefix is intentional: each field holds the saved CURRENT GL
+// binding captured at save() to be restored in restore().
+#[allow(clippy::struct_field_names)]
 struct GlStateSave {
     current_multisample: [u8; 1],
     current_index_buffer: [i32; 1],
@@ -2672,7 +2710,7 @@ struct GlStateSave {
 
 impl GlStateSave {
     fn save(gl_context: &GlContextPtr) -> Self {
-        let mut s = GlStateSave {
+        let mut s = Self {
             current_multisample: [0],
             current_index_buffer: [0],
             current_vertex_buffer: [0],
@@ -2695,6 +2733,8 @@ impl GlStateSave {
         s
     }
 
+    // OpenGL binding: state values passed to the gl API as GLuint/GLsizei.
+    #[allow(clippy::cast_sign_loss)]
     fn restore(&self, gl_context: &GlContextPtr) {
         if u32::from(self.current_multisample[0]) == gl::TRUE {
             gl_context.enable(gl::MULTISAMPLE);
@@ -2731,6 +2771,7 @@ pub struct Texture {
 }
 
 impl Clone for Texture {
+    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     fn clone(&self) -> Self {
         unsafe {
             (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst);
@@ -2756,7 +2797,7 @@ impl_option!(
 );
 
 impl Texture {
-    pub fn create(
+    #[must_use] pub fn create(
         texture_id: GLuint,
         flags: TextureFlags,
         size: PhysicalSizeU32,
@@ -2776,7 +2817,12 @@ impl Texture {
         }
     }
 
-    pub fn allocate_rgba8(
+    // OpenGL binding: gl::* enum constants and texture dimensions are passed as
+    // GLint/GLsizei (i32); the values are GL-bounded and the `as i32` casts are the
+    // idiomatic form for the gl API.
+    #[allow(clippy::cast_possible_wrap)]
+    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
+    #[must_use] pub fn allocate_rgba8(
         gl_context: GlContextPtr,
         size: PhysicalSizeU32,
         background: ColorU,
@@ -2819,6 +2865,12 @@ impl Texture {
         )
     }
 
+    /// # Panics
+    ///
+    /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are empty).
+    // OpenGL binding: gl::* enum constants and texture dimensions passed as
+    // GLint/GLsizei (i32); values are GL-bounded, `as i32` is the idiomatic form.
+    #[allow(clippy::cast_possible_wrap)]
     pub fn clear(&mut self) {
         let saved = GlStateSave::save(&self.gl_context);
 
@@ -2898,7 +2950,7 @@ impl Texture {
         saved.restore(&self.gl_context);
     }
 
-    pub fn get_descriptor(&self) -> ImageDescriptor {
+    #[must_use] pub fn get_descriptor(&self) -> ImageDescriptor {
         ImageDescriptor {
             format: self.format,
             width: self.size.width as usize,
@@ -2945,7 +2997,7 @@ pub struct TextureFlags {
 }
 
 impl ::core::fmt::Display for Texture {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(
             f,
             "Texture {{ id: {}, {}x{} }}",
@@ -2957,7 +3009,7 @@ impl ::core::fmt::Display for Texture {
 macro_rules! impl_traits_for_gl_object {
     ($struct_name:ident, $gl_id_field:ident) => {
         impl ::core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -2988,72 +3040,6 @@ macro_rules! impl_traits_for_gl_object {
             }
         }
     };
-    ($struct_name:ident < $lt:lifetime > , $gl_id_field:ident) => {
-        impl<$lt> ::core::fmt::Debug for $struct_name<$lt> {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self)
-            }
-        }
-
-        impl<$lt> Hash for $struct_name<$lt> {
-            fn hash<H: Hasher>(&self, state: &mut H) {
-                self.$gl_id_field.hash(state);
-            }
-        }
-
-        impl<$lt> PartialEq for $struct_name<$lt> {
-            fn eq(&self, other: &$struct_name) -> bool {
-                self.$gl_id_field == other.$gl_id_field
-            }
-        }
-
-        impl<$lt> Eq for $struct_name<$lt> {}
-
-        impl<$lt> PartialOrd for $struct_name<$lt> {
-            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
-            }
-        }
-
-        impl<$lt> Ord for $struct_name<$lt> {
-            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-                (self.$gl_id_field).cmp(&(other.$gl_id_field))
-            }
-        }
-    };
-    ($struct_name:ident < $t:ident : $constraint:ident > , $gl_id_field:ident) => {
-        impl<$t: $constraint> ::core::fmt::Debug for $struct_name<$t> {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self)
-            }
-        }
-
-        impl<$t: $constraint> Hash for $struct_name<$t> {
-            fn hash<H: Hasher>(&self, state: &mut H) {
-                self.$gl_id_field.hash(state);
-            }
-        }
-
-        impl<$t: $constraint> PartialEq for $struct_name<$t> {
-            fn eq(&self, other: &$struct_name<$t>) -> bool {
-                self.$gl_id_field == other.$gl_id_field
-            }
-        }
-
-        impl<$t: $constraint> Eq for $struct_name<$t> {}
-
-        impl<$t: $constraint> PartialOrd for $struct_name<$t> {
-            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
-            }
-        }
-
-        impl<$t: $constraint> Ord for $struct_name<$t> {
-            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-                (self.$gl_id_field).cmp(&(other.$gl_id_field))
-            }
-        }
-    };
 }
 
 impl Texture {
@@ -3068,10 +3054,15 @@ impl Texture {
     /// GPU painting: stamp dabs along (`x0`,`y0`)->(`x1`,`y1`) into this texture
     /// via an FBO + the soft-brush shader, alpha-over blended. Same spacing +
     /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
     pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
         let gl = self.gl_context.clone();
         let prog = gl.get_brush_shader();
         let (tw, th) = (self.size.width as f32, self.size.height as f32);
+        // `!(radius > 0.0)` intentionally also rejects NaN (`radius <= 0.0` would not).
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if prog == 0 || self.texture_id == 0 || !(brush.radius > 0.0) || tw <= 0.0 || th <= 0.0 {
             return;
         }
@@ -3101,12 +3092,12 @@ impl Texture {
         gl.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         gl.use_program(prog);
 
-        let a = (brush.color.a as f32 / 255.0) * brush.flow.max(0.0).min(1.0);
+        let a = (f32::from(brush.color.a) / 255.0) * brush.flow.clamp(0.0, 1.0);
         gl.uniform_4f(
             gl.get_uniform_location(prog, "uColor"),
-            brush.color.r as f32 / 255.0,
-            brush.color.g as f32 / 255.0,
-            brush.color.b as f32 / 255.0,
+            f32::from(brush.color.r) / 255.0,
+            f32::from(brush.color.g) / 255.0,
+            f32::from(brush.color.b) / 255.0,
             a,
         );
         gl.uniform_1f(gl.get_uniform_location(prog, "uHardness"), brush.hardness);
@@ -3119,7 +3110,7 @@ impl Texture {
 
         let dx = x1 - x0;
         let dy = y1 - y0;
-        let len = (dx * dx + dy * dy).sqrt();
+        let len = dx.hypot(dy);
         let step = (brush.radius * brush.spacing.max(0.01)).max(0.5);
         let n = ((len / step).floor() as i32).max(0);
         let r = brush.radius;
@@ -3137,7 +3128,7 @@ impl Texture {
             ];
             gl.buffer_data_untyped(
                 gl::ARRAY_BUFFER,
-                (verts.len() * core::mem::size_of::<f32>()) as isize,
+                (verts.len() * size_of::<f32>()) as isize,
                 GlVoidPtrConst {
                     ptr: verts.as_ptr() as *const GLvoid,
                     run_destructor: false,
@@ -3158,7 +3149,8 @@ impl Texture {
 
     /// Read this texture's pixels back into an RGBA8 `RawImage` (top-left origin)
     /// -- for exporting the painted canvas to disk. Binds an FBO + glReadPixels.
-    pub fn copy_to_raw_image(&self) -> RawImage {
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
+    #[must_use] pub fn copy_to_raw_image(&self) -> RawImage {
         let gl = self.gl_context.clone();
         let (w, h) = (self.size.width as i32, self.size.height as i32);
         if self.texture_id == 0 || w <= 0 || h <= 0 {
@@ -3211,7 +3203,7 @@ impl Drop for Texture {
         self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
-            let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
+            drop(unsafe { Box::from_raw(self.refcount.cast_mut()) });
             self.gl_context
                 .delete_textures((&[self.texture_id])[..].into());
         }
@@ -3240,6 +3232,10 @@ impl_vec_hash!(VertexAttribute, VertexAttributeVec);
 
 impl VertexLayout {
     /// Submits the vertex buffer description to OpenGL
+    // OpenGL binding: vertex-attribute layout (locations, item counts, strides,
+    // offsets) passed to the gl API as GLuint/GLint/GLsizei; values are GL-bounded.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn bind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
         const VERTICES_ARE_NORMALIZED: bool = false;
 
@@ -3248,15 +3244,11 @@ impl VertexLayout {
         let stride_between_vertices: usize =
             self.fields.iter().map(VertexAttribute::get_stride).sum();
 
-        for vertex_attribute in self.fields.iter() {
-            let attribute_location = vertex_attribute
-                .layout_location
-                .as_option()
-                .map(|ll| *ll as i32)
-                .unwrap_or_else(|| {
-                    gl_context
-                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str())
-                });
+        for vertex_attribute in &self.fields {
+            let attribute_location = vertex_attribute.layout_location.as_option().map_or_else(
+                || gl_context.get_attrib_location(program_id, vertex_attribute.va_name.as_str()),
+                |ll| *ll as i32,
+            );
 
             gl_context.vertex_attrib_pointer(
                 attribute_location as u32,
@@ -3272,16 +3264,14 @@ impl VertexLayout {
     }
 
     /// Unsets the vertex buffer description
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts
     pub fn unbind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
-        for vertex_attribute in self.fields.iter() {
-            let attribute_location = vertex_attribute
-                .layout_location
-                .as_option()
-                .map(|ll| *ll as i32)
-                .unwrap_or_else(|| {
-                    gl_context
-                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str())
-                });
+        for vertex_attribute in &self.fields {
+            let attribute_location = vertex_attribute.layout_location.as_option().map_or_else(
+                || gl_context.get_attrib_location(program_id, vertex_attribute.va_name.as_str()),
+                |ll| *ll as i32,
+            );
             gl_context.disable_vertex_attrib_array(attribute_location as u32);
         }
     }
@@ -3311,7 +3301,7 @@ impl_option!(
 );
 
 impl VertexAttribute {
-    pub fn get_stride(&self) -> usize {
+    #[must_use] pub const fn get_stride(&self) -> usize {
         self.attribute_type.get_mem_size() * self.item_count
     }
 }
@@ -3334,8 +3324,8 @@ pub enum VertexAttributeType {
 impl VertexAttributeType {
     /// Returns the OpenGL id for the vertex attribute type, ex. `gl::UNSIGNED_BYTE` for
     /// `VertexAttributeType::UnsignedByte`.
-    pub fn get_gl_id(&self) -> GLuint {
-        use self::VertexAttributeType::*;
+    #[must_use] pub const fn get_gl_id(&self) -> GLuint {
+        use self::VertexAttributeType::{Float, Double, UnsignedByte, UnsignedShort, UnsignedInt};
         match self {
             Float => gl::FLOAT,
             Double => gl::DOUBLE,
@@ -3345,16 +3335,16 @@ impl VertexAttributeType {
         }
     }
 
-    pub fn get_mem_size(&self) -> usize {
+    #[must_use] pub const fn get_mem_size(&self) -> usize {
         use core::mem;
 
-        use self::VertexAttributeType::*;
+        use self::VertexAttributeType::{Float, Double, UnsignedByte, UnsignedShort, UnsignedInt};
         match self {
-            Float => mem::size_of::<f32>(),
-            Double => mem::size_of::<f64>(),
-            UnsignedByte => mem::size_of::<u8>(),
-            UnsignedShort => mem::size_of::<u16>(),
-            UnsignedInt => mem::size_of::<u32>(),
+            Float => size_of::<f32>(),
+            Double => size_of::<f64>(),
+            UnsignedByte => size_of::<u8>(),
+            UnsignedShort => size_of::<u16>(),
+            UnsignedInt => size_of::<u32>(),
         }
     }
 }
@@ -3363,7 +3353,7 @@ pub trait VertexLayoutDescription {
     fn get_description() -> VertexLayout;
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
@@ -3374,7 +3364,7 @@ pub struct VertexArrayObject {
 }
 
 impl VertexArrayObject {
-    pub fn new(vertex_layout: VertexLayout, vao_id: GLuint, gl_context: GlContextPtr) -> Self {
+    #[must_use] pub fn new(vertex_layout: VertexLayout, vao_id: GLuint, gl_context: GlContextPtr) -> Self {
         Self {
             vertex_layout,
             vao_id,
@@ -3403,7 +3393,7 @@ impl Drop for VertexArrayObject {
         self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
-            let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
+            drop(unsafe { Box::from_raw(self.refcount.cast_mut()) });
             self.gl_context
                 .delete_vertex_arrays((&[self.vao_id])[..].into());
         }
@@ -3422,8 +3412,8 @@ pub struct VertexBuffer {
     pub run_destructor: bool,
 }
 
-impl core::fmt::Display for VertexBuffer {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for VertexBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "VertexBuffer {{ buffer: {} (length: {}) }})",
@@ -3458,7 +3448,7 @@ impl Drop for VertexBuffer {
             self.vao.vertex_layout = VertexLayout {
                 fields: VertexAttributeVec::from_const_slice(&[]),
             };
-            let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
+            drop(unsafe { Box::from_raw(self.refcount.cast_mut()) });
             self.vao
                 .gl_context
                 .delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
@@ -3467,6 +3457,14 @@ impl Drop for VertexBuffer {
 }
 
 impl VertexBuffer {
+    /// # Panics
+    ///
+    /// Panics if the GL driver failed to create the vertex-array/buffer objects
+    /// (the returned id lists are empty).
+    // OpenGL binding: buffer sizes / vertex counts passed to the gl API as
+    // GLsizeiptr/GLint; values are GL-bounded.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn new<T: VertexLayoutDescription>(
         gl_context: GlContextPtr,
         shader_program_id: GLuint,
@@ -3496,7 +3494,7 @@ impl VertexBuffer {
         gl_context.bind_buffer(gl::ARRAY_BUFFER, *vertex_buffer_id);
         gl_context.buffer_data_untyped(
             gl::ARRAY_BUFFER,
-            std::mem::size_of_val(vertices) as isize,
+            size_of_val(vertices) as isize,
             GlVoidPtrConst {
                 ptr: vertices.as_ptr() as *const core::ffi::c_void,
                 run_destructor: true,
@@ -3508,7 +3506,7 @@ impl VertexBuffer {
         gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, *index_buffer_id);
         gl_context.buffer_data_untyped(
             gl::ELEMENT_ARRAY_BUFFER,
-            std::mem::size_of_val(indices) as isize,
+            size_of_val(indices) as isize,
             GlVoidPtrConst {
                 ptr: indices.as_ptr() as *const core::ffi::c_void,
                 run_destructor: true,
@@ -3532,7 +3530,7 @@ impl VertexBuffer {
         )
     }
 
-    pub fn new_raw(
+    #[must_use] pub fn new_raw(
         vertex_buffer_id: GLuint,
         vertex_buffer_len: usize,
         vao: VertexArrayObject,
@@ -3561,7 +3559,8 @@ pub enum GlApiVersion {
 
 impl GlApiVersion {
     /// Returns the OpenGL version of the context
-    pub fn get(gl_context: &GlContextPtr) -> Self {
+    #[allow(clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
+    #[must_use] pub fn get(gl_context: &GlContextPtr) -> Self {
         let mut major = [0];
         gl_context.get_integer_v(gl::MAJOR_VERSION, (&mut major[..]).into());
         let mut minor = [0];
@@ -3571,8 +3570,8 @@ impl GlApiVersion {
         let minor = minor[0] as usize;
 
         match gl_context.get_type() {
-            GlType::Gl => GlApiVersion::Gl { major, minor },
-            GlType::Gles => GlApiVersion::GlEs { major, minor },
+            GlType::Gl => Self::Gl { major, minor },
+            GlType::Gles => Self::GlEs { major, minor },
         }
     }
 }
@@ -3590,8 +3589,8 @@ pub enum IndexBufferFormat {
 
 impl IndexBufferFormat {
     /// Returns the `gl::TRIANGLE_STRIP` / `gl::POINTS`, etc.
-    pub fn get_gl_id(&self) -> GLuint {
-        use self::IndexBufferFormat::*;
+    #[must_use] pub const fn get_gl_id(&self) -> GLuint {
+        use self::IndexBufferFormat::{Points, Lines, LineStrip, Triangles, TriangleStrip, TriangleFan};
         match self {
             Points => gl::POINTS,
             Lines => gl::LINES,
@@ -3651,7 +3650,7 @@ pub enum UniformType {
 impl UniformType {
     /// Set a specific uniform
     pub fn set(self, gl_context: &Rc<GenericGlContext>, location: GLint) {
-        use self::UniformType::*;
+        use self::UniformType::{Float, FloatVec2, FloatVec3, FloatVec4, Int, IntVec2, IntVec3, IntVec4, UnsignedInt, UnsignedIntVec2, UnsignedIntVec3, UnsignedIntVec4, Matrix2, Matrix3, Matrix4};
         match self {
             Float(r) => gl_context.uniform_1f(location, r),
             FloatVec2([r, g]) => gl_context.uniform_2f(location, r, g),
@@ -3666,13 +3665,13 @@ impl UniformType {
             UnsignedIntVec3([r, g, b]) => gl_context.uniform_3ui(location, r, g, b),
             UnsignedIntVec4([r, g, b, a]) => gl_context.uniform_4ui(location, r, g, b, a),
             Matrix2 { transpose, matrix } => {
-                gl_context.uniform_matrix_2fv(location, transpose, &matrix[..])
+                gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]);
             }
             Matrix3 { transpose, matrix } => {
-                gl_context.uniform_matrix_3fv(location, transpose, &matrix[..])
+                gl_context.uniform_matrix_3fv(location, transpose, &matrix[..]);
             }
             Matrix4 { transpose, matrix } => {
-                gl_context.uniform_matrix_4fv(location, transpose, &matrix[..])
+                gl_context.uniform_matrix_4fv(location, transpose, &matrix[..]);
             }
         }
     }
@@ -3685,7 +3684,7 @@ pub struct GlShader {
 }
 
 impl ::core::fmt::Display for GlShader {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "GlShader {{ program_id: {} }}", self.program_id)
     }
 }
@@ -3708,7 +3707,7 @@ pub struct VertexShaderCompileError {
 impl_traits_for_gl_object!(VertexShaderCompileError, error_id);
 
 impl ::core::fmt::Display for VertexShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -3723,7 +3722,7 @@ pub struct FragmentShaderCompileError {
 impl_traits_for_gl_object!(FragmentShaderCompileError, error_id);
 
 impl ::core::fmt::Display for FragmentShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -3735,18 +3734,18 @@ pub enum GlShaderCompileError {
 }
 
 impl ::core::fmt::Display for GlShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        use self::GlShaderCompileError::*;
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        use self::GlShaderCompileError::{Vertex, Fragment};
         match self {
-            Vertex(vert_err) => write!(f, "Failed to compile vertex shader: {}", vert_err),
-            Fragment(frag_err) => write!(f, "Failed to compile fragment shader: {}", frag_err),
+            Vertex(vert_err) => write!(f, "Failed to compile vertex shader: {vert_err}"),
+            Fragment(frag_err) => write!(f, "Failed to compile fragment shader: {frag_err}"),
         }
     }
 }
 
 impl ::core::fmt::Debug for GlShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self)
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
@@ -3760,7 +3759,7 @@ pub struct GlShaderLinkError {
 impl_traits_for_gl_object!(GlShaderLinkError, error_id);
 
 impl ::core::fmt::Display for GlShaderLinkError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -3773,11 +3772,11 @@ pub enum GlShaderCreateError {
 }
 
 impl ::core::fmt::Display for GlShaderCreateError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        use self::GlShaderCreateError::*;
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        use self::GlShaderCreateError::{Compile, Link, NoShaderCompiler};
         match self {
-            Compile(compile_err) => write!(f, "Shader compile error: {}", compile_err),
-            Link(link_err) => write!(f, "Shader linking error: {}", link_err),
+            Compile(compile_err) => write!(f, "Shader compile error: {compile_err}"),
+            Link(link_err) => write!(f, "Shader linking error: {link_err}"),
             NoShaderCompiler => {
                 write!(f, "OpenGL implementation doesn't include a shader compiler")
             }
@@ -3786,8 +3785,8 @@ impl ::core::fmt::Display for GlShaderCreateError {
 }
 
 impl ::core::fmt::Debug for GlShaderCreateError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self)
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
@@ -3797,6 +3796,10 @@ impl GlShader {
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup
     /// necessary.
+    #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    /// # Errors
+    ///
+    /// Returns an error if the OpenGL implementation has no shader compiler, or if the vertex/fragment shader fails to compile or link.
     pub fn new(
         gl_context: &GlContextPtr,
         vertex_shader: &str,
@@ -3875,13 +3878,19 @@ impl GlShader {
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
 
-        Ok(GlShader {
+        Ok(Self {
             program_id,
             gl_context: gl_context.clone(),
         })
     }
 
     /// Draws vertex buffers, index buffers + uniforms to the texture
+    ///
+    /// # Panics
+    ///
+    /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are empty).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn draw(
         // shader to use for drawing
         shader_program_id: GLuint,
@@ -3987,7 +3996,7 @@ impl GlShader {
                     println!("GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS");
                 }
                 o => {
-                    println!("glFramebufferStatus returned unknown return code: {}", o);
+                    println!("glFramebufferStatus returned unknown return code: {o}");
                 }
             }
         }
@@ -4013,7 +4022,7 @@ impl GlShader {
         let mut uniform_locations: BTreeMap<AzString, i32> = BTreeMap::new();
         let mut max_uniform_len = 0;
         for (_, uniforms) in buffers {
-            for uniform in uniforms.iter() {
+            for uniform in *uniforms {
                 if !uniform_locations.contains_key(&uniform.uniform_name) {
                     uniform_locations.insert(
                         uniform.uniform_name.clone(),
@@ -4079,6 +4088,7 @@ impl GlShader {
     }
 }
 
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn get_gl_shader_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     context.get_shader_iv(shader_object, gl::COMPILE_STATUS, (&mut err[..]).into());
@@ -4090,6 +4100,7 @@ fn get_gl_shader_error(context: &GlContextPtr, shader_object: GLuint) -> Option<
     }
 }
 
+#[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 fn get_gl_program_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     context.get_program_iv(shader_object, gl::LINK_STATUS, (&mut err[..]).into());

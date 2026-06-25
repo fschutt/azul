@@ -4096,7 +4096,7 @@ impl Win32Window {
                         node_container
                             .get(NodeId::ZERO)
                             .and_then(|n| n.get_menu_bar())
-                            .map(|boxed_menu| (**boxed_menu).clone())
+                            .map(|boxed_menu| boxed_menu.clone())
                     })
             } else {
                 None

@@ -1014,6 +1014,29 @@ fn get_callback_typedef_info(
     }
 }
 
+/// Route a freshly-added type to its api.json module the way the existing
+/// widgets are organized (Button / CheckBox / NumberInput families): widget
+/// types live in `widgets` EXCEPT the by-concern callback/option types, which
+/// match the established placement (`*CallbackType` -> callbacks, `*Callback`
+/// -> dom, `Option*` -> option). Returns `None` for non-widget types so the
+/// caller falls back to keyword-based `determine_module`. The keyword router
+/// mis-files widget structs/states (Switch -> misc, SwitchStateWrapper -> css,
+/// …) because it never sees the source path; this restores it from full_path.
+fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
+    if !full_path.starts_with("azul_layout::widgets::") {
+        return None;
+    }
+    if type_name.ends_with("CallbackType") {
+        Some("callbacks".to_string())
+    } else if type_name.ends_with("Callback") {
+        Some("dom".to_string())
+    } else if type_name.starts_with("Option") {
+        Some("option".to_string())
+    } else {
+        Some("widgets".to_string())
+    }
+}
+
 /// Generate patches to add a type and all its transitive dependencies
 ///
 /// This function:
@@ -1088,8 +1111,11 @@ pub fn generate_add_type_patches(
             }
         };
 
-        // Determine module
-        let (module_name, is_misc) = determine_module(&current_type);
+        // Determine module (path-aware for widget types; see widget_module_for)
+        let (module_name, is_misc) = match widget_module_for(&current_type, &type_def.full_path) {
+            Some(m) => (m, false),
+            None => determine_module(&current_type),
+        };
         if is_misc {
             eprintln!(
                 "[WARN] Type '{}' mapped to 'misc' module - consider adding a keyword mapping",
@@ -1267,7 +1293,8 @@ pub fn generate_add_type_patches(
                         {
                             // Need to add this type too
                             if let Some(ref_type_def) = index.resolve(&ref_type, None) {
-                                let (module, _) = determine_module(&ref_type);
+                                let module = widget_module_for(&ref_type, &ref_type_def.full_path)
+                                    .unwrap_or_else(|| determine_module(&ref_type).0);
                                 let ref_derives = get_derives_from_kind(ref_type_def);
                                 // Generate a simple add patch for the referenced type
                                 let mut ref_patch =
@@ -1335,7 +1362,8 @@ pub fn generate_add_type_patches(
                             && !type_exists_in_api(&ref_type, version_data)
                         {
                             if let Some(ref_type_def) = index.resolve(&ref_type, None) {
-                                let (module, _) = determine_module(&ref_type);
+                                let module = widget_module_for(&ref_type, &ref_type_def.full_path)
+                                    .unwrap_or_else(|| determine_module(&ref_type).0);
                                 let ref_derives = get_derives_from_kind(ref_type_def);
                                 let mut ref_patch =
                                     AutofixPatch::new(format!("Add type {}", ref_type));

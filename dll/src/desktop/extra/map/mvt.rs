@@ -524,7 +524,7 @@ fn translate_linestring_for_tile(
                 tile_coord.x,
                 tile_coord.y,
             );
-            vec![lng as f64, lat as f64]
+            vec![lng, lat]
         })
         .collect()
 }
@@ -550,13 +550,22 @@ pub fn tile_pixel_to_lat_lng(
     z: u32,
     tile_global_x: u32,
     tile_global_y: u32,
-) -> (f32, f32) {
-    let n = 2_f32.powi(z as i32);
-    let extent_size = 4096.0; // Default MVT extent, adjust if your tiles use a different one
+) -> (f64, f64) {
+    // Compute in f64, NOT f32: the global pixel coordinate reaches
+    // `2^z * extent_size` (≈ 6.7e7 at z14 with a 4096 extent), which is far past
+    // f32's exact-integer ceiling (2^24 ≈ 1.6e7). In f32 the per-pixel `+tile_*_pixel`
+    // term and the tile-boundary multiples round to a coarse grid, so a feature's
+    // vertices snap inconsistently and adjacent tiles' shared edges stop lining up —
+    // coastlines/borders fracture across seams and the map reads as a disconnected
+    // jumble at street zooms. f64 keeps every coordinate exact across the whole
+    // zoom range. (Returns f64 so the downstream SVG projection, which is already
+    // f64, doesn't re-truncate.)
+    let n = 2_f64.powi(z as i32);
+    let extent_size = 4096.0_f64; // Default MVT extent, adjust if your tiles use a different one
 
     // Calculate global pixel coordinates (from 0 to (n * extent_size) - 1)
-    let global_pixel_x = (tile_global_x as f32 * extent_size) + tile_x_pixel;
-    let global_pixel_y = (tile_global_y as f32 * extent_size) + tile_y_pixel;
+    let global_pixel_x = (tile_global_x as f64 * extent_size) + tile_x_pixel as f64;
+    let global_pixel_y = (tile_global_y as f64 * extent_size) + tile_y_pixel as f64;
 
     // Normalize coordinates to a 0.0-1.0 range (mercator projection space)
     let x_norm = global_pixel_x / (n * extent_size);
@@ -564,7 +573,7 @@ pub fn tile_pixel_to_lat_lng(
 
     // Convert normalized mercator coordinates to WGS84 lat/lng
     let lng = x_norm * 360.0 - 180.0;
-    let lat_rad = (std::f32::consts::PI * (1.0 - 2.0 * y_norm)).sinh().atan();
+    let lat_rad = (std::f64::consts::PI * (1.0 - 2.0 * y_norm)).sinh().atan();
     let lat = lat_rad.to_degrees();
 
     (lng, lat)

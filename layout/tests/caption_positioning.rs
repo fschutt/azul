@@ -320,7 +320,7 @@ fn test_caption_layout_independence() {
 #[test]
 fn test_caption_side_values_complete() {
     // Verify all caption-side values are covered
-    let all_values = vec![StyleCaptionSide::Top, StyleCaptionSide::Bottom];
+    let all_values = [StyleCaptionSide::Top, StyleCaptionSide::Bottom];
 
     assert_eq!(all_values.len(), 2);
     assert!(all_values.contains(&StyleCaptionSide::Top));
