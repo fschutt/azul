@@ -236,7 +236,7 @@ fn test_css_spec_quote_empty_cells() {
     // 2. Controls rendering, not layout
     // 3. "No visible content" = no children or only whitespace
 
-    assert!(true); // Documentation test
+    // Documentation test (no runtime assertion needed)
 }
 
 #[test]

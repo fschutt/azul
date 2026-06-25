@@ -161,8 +161,6 @@ struct SvgInheritedStyle {
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
-
-#[cfg(all(feature = "std", feature = "xml"))]
 fn render_svg_group(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,

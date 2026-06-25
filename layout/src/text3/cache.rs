@@ -3667,12 +3667,12 @@ impl Hash for PartialStyleProperties {
         self.font_features.hash(state);
 
         // Manual hashing for Vec<(FourCc, f32)>
-        self.font_variations.as_ref().map(|v| {
+        if let Some(v) = self.font_variations.as_ref() {
             for (tag, val) in v {
                 tag.hash(state);
                 val.to_bits().hash(state);
             }
-        });
+        }
 
         self.tab_size.map(f32::to_bits).hash(state);
         self.text_transform.hash(state);
@@ -5874,6 +5874,7 @@ impl TextShapingCache {
         // and iterates without terminating → solveLayoutReal HANGS (fuel trap in layout_flow). The text
         // is fully laid out on the first iteration(s); cap the iterations so the loop always converges.
         // (native is unaffected — the cap is far above any real fragment count.)
+        #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_flow_iters: usize = 0;
         for fragment in flow_chain {
             #[cfg(feature = "web_lift")]
@@ -8012,6 +8013,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         // forever → solveLayoutReal HANGS inside perform_fragment_layout. Cap total iterations so the loop
         // always converges (the harness can then read the markers). native is unaffected (far above real
         // line counts). The 0x60BC4 marker exposes the iteration count.
+        #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_line_iters: usize = 0;
         while !cursor.is_done() {
             #[cfg(feature = "web_lift")]

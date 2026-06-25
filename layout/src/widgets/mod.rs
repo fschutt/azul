@@ -119,7 +119,7 @@ macro_rules! impl_widget_callback {
         impl From<$crate::callbacks::Callback> for $callback_value {
             // transmute target ($callback_value's cb fn-ptr type) varies per macro
             // instantiation, so an explicit annotation can't be written generically here.
-            #[allow(clippy::missing_transmute_annotations)]
+            #[allow(clippy::missing_transmute_annotations, clippy::useless_transmute)]
             fn from(cb: $crate::callbacks::Callback) -> $callback_value {
                 $callback_value {
                     cb: unsafe { core::mem::transmute(cb.cb) },

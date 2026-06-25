@@ -1898,11 +1898,12 @@ where
             return false;
         };
         let node_state = self.get_styled_node_state(dom_id);
-        match get_visibility(self.ctx.styled_dom, dom_id, &node_state) {
-            crate::solver3::getters::MultiValue::Exact(StyleVisibility::Hidden |
-StyleVisibility::Collapse) => true,
-            _ => false,
-        }
+        matches!(
+            get_visibility(self.ctx.styled_dom, dom_id, &node_state),
+            crate::solver3::getters::MultiValue::Exact(
+                StyleVisibility::Hidden | StyleVisibility::Collapse
+            )
+        )
     }
 
     /// Gets the cursor type for a text node from its CSS properties.
