@@ -1004,8 +1004,8 @@ mod tests {
     fn keydown_skipped_when_same_key_held() {
         let s = state_with_key(VirtualKeyCode::A);
         let events = run_determine(&s, &s);
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 0, "KeyDown should not fire when same key held");
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 0, "KeyDown should not fire when same key held");
     }
 
     #[test]
@@ -1014,8 +1014,8 @@ mod tests {
             &state_with_key(VirtualKeyCode::B),
             &state_with_key(VirtualKeyCode::A),
         );
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 1);
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 1);
     }
 
     #[test]
@@ -1045,8 +1045,8 @@ mod tests {
             &state_with_left_down(100.0, 200.0),
             &state_with_cursor(100.0, 200.0),
         );
-        let md: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseDown).collect();
-        assert_eq!(md.len(), 1);
+        let md = events.iter().filter(|e| e.event_type == EventType::MouseDown).count();
+        assert_eq!(md, 1);
     }
 
     #[test]
@@ -1055,8 +1055,8 @@ mod tests {
             &state_with_cursor(100.0, 200.0),
             &state_with_left_down(100.0, 200.0),
         );
-        let mu: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseUp).collect();
-        assert_eq!(mu.len(), 1);
+        let mu = events.iter().filter(|e| e.event_type == EventType::MouseUp).count();
+        assert_eq!(mu, 1);
     }
 
     #[test]
@@ -1072,8 +1072,8 @@ mod tests {
             &state_with_cursor(150.0, 250.0),
             &state_with_cursor(100.0, 200.0),
         );
-        let mo: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseOver).collect();
-        assert_eq!(mo.len(), 1);
+        let mo = events.iter().filter(|e| e.event_type == EventType::MouseOver).count();
+        assert_eq!(mo, 1);
     }
 
     #[test]
@@ -1089,8 +1089,8 @@ mod tests {
         let current = state_with_key(VirtualKeyCode::Left);
 
         let events = run_determine(&current, &previous);
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 1, "Key repeat should fire KeyDown when previous is cleared");
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 1, "Key repeat should fire KeyDown when previous is cleared");
     }
 
     #[test]
@@ -1102,7 +1102,7 @@ mod tests {
         let current = state_with_key(VirtualKeyCode::Left);
 
         let events = run_determine(&current, &previous);
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 0, "Without platform clearing, repeat is not detected");
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 0, "Without platform clearing, repeat is not detected");
     }
 }
