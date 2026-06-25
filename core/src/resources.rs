@@ -540,9 +540,13 @@ impl AppConfig {
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.
+        // Annotated binding coerces the fn item to the fn-pointer type that
+        // `Into<RegisterComponentLibraryFn>` is implemented for (no `as` cast).
+        let register_builtin: crate::xml::RegisterComponentLibraryFnType =
+            crate::xml::register_builtin_components;
         s.add_component_library(
             AzString::from_const_str("builtin"),
-            crate::xml::register_builtin_components as extern "C" fn() -> ComponentLibrary,
+            register_builtin,
         );
         s
     }

@@ -58,7 +58,6 @@
     dead_code,
     unused_doc_comments,
     unused_assignments,                    // compact_cache_builder incremental updates
-    mismatched_lifetime_syntaxes,
     unexpected_cfgs,
     unpredictable_function_pointer_comparisons, // intentional in dom callback comparison
     improper_ctypes_definitions,           // xml component fns use Rust fn pointers internally
