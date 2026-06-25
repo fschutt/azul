@@ -61,6 +61,9 @@ gpu-video = { path = "third_party/gpu-video" }
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
+# DIAG (2026-06-24, REVERT): vendored rust-fontconfig 4.4.4 with gated find_unicode_fallbacks
+# markers (AZ_IN_WASM_SOLVE static) to isolate query_internal vs the coverage loop in the lifted wasm.
+rust-fontconfig = { path = "third_party/rust-fontconfig" }
 # rev-pinned (azul-0.0.9-html tip 2026-06-11, kuchiki-free html feature) so
 # consumers build reproducibly without a printpdf crates.io release.
 printpdf = { git = "https://github.com/fschutt/printpdf", rev = "ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf" }

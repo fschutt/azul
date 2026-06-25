@@ -92,11 +92,33 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
         memmove: memcpyImpl,
         __multi3: azMulti3,
         __udivti3: azUdivti3,
+        // __remill_* intrinsics the lifted SOLVE needs — the probe previously STUBBED
+        // these to 0/no-op, so a CAS-retry loop in the solve never succeeded → spin-loop
+        // HANG (no [2d]). Provide real impls (mem = threaded Memory token, returned as-is).
+        __remill_read_memory_32: (mem, addr) => new DataView(memory.buffer).getUint32(Number(addr), true),
+        __remill_atomic_begin: (mem) => mem,
+        __remill_atomic_end: (mem) => mem,
+        __remill_compare_exchange_memory_64: (mem, addr, expPtr, desired) => {
+            const dv = new DataView(memory.buffer), a = Number(addr), e = Number(expPtr);
+            const actual = dv.getBigUint64(a, true);
+            if (actual === dv.getBigUint64(e, true)) dv.setBigUint64(a, BigInt.asUintN(64, BigInt(desired)), true);
+            dv.setBigUint64(e, actual, true); return mem;
+        },
+        __remill_compare_exchange_memory_8: (mem, addr, expPtr, desired) => {
+            const u8 = new Uint8Array(memory.buffer), a = Number(addr), e = Number(expPtr);
+            const actual = u8[a];
+            if (actual === u8[e]) u8[a] = Number(desired) & 0xFF;
+            u8[e] = actual; return mem;
+        },
     };
     const AZ_MATH = { fmaxf:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fminf:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), fmax:(a,b)=>a!==a?b:(b!==b?a:Math.max(a,b)), fmin:(a,b)=>a!==a?b:(b!==b?a:Math.min(a,b)), roundf:x=>Math.sign(x)*Math.round(Math.abs(x)), round:x=>Math.sign(x)*Math.round(Math.abs(x)), fabsf:Math.abs, fabs:Math.abs, sqrtf:Math.sqrt, sqrt:Math.sqrt, floorf:Math.floor, floor:Math.floor, ceilf:Math.ceil, ceil:Math.ceil, truncf:Math.trunc, trunc:Math.trunc, powf:Math.pow, pow:Math.pow };
-        const stubFor = n => AZ_MATH[n] || (/write_memory|barrier|exception_clear/.test(n)
-        ? () => {}
-        : (/_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0)));
+        const loggedStubs = new Set();
+        const stubFor = n => {
+            if (AZ_MATH[n]) return AZ_MATH[n];
+            if (/write_memory|barrier|exception_clear/.test(n)) return () => {};
+            if (!loggedStubs.has(n)) { console.log('[STUB-0] ' + n); loggedStubs.add(n); }
+            return /_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0);
+        };
     const h = env => ({
         get: (_, p) => typeof p === 'string'
             ? (Object.prototype.hasOwnProperty.call(env, p) ? env[p] : stubFor(p))
@@ -133,7 +155,7 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     });
     const mini = miniI.exports;
     memory = mini.memory;
-    const cbEnv = { memory, __indirect_function_table: table, memset: memsetImpl, memcpy: memcpyImpl, memmove: memcpyImpl, __multi3: azMulti3, __udivti3: azUdivti3 };
+    const cbEnv = { ...realEnv, memory };  // layout.wasm needs the same __remill_* impls (read_memory_32/CAS/atomic)
 
     if (cbBytes) {
         const { instance: cbI } = await WebAssembly.instantiate(cbBytes, {
@@ -371,6 +393,9 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                     const solved = (typeof mini.AzStartup_isLayoutSolved === 'function') ? mini.AzStartup_isLayoutSolved(state) : -1;
                     const rectsLen = (typeof mini.AzStartup_getPositionedRectsLen === 'function') ? mini.AzStartup_getPositionedRectsLen(state) : -1;
                     console.log('[2d] solveLayout rc=' + solveRc + ' solved=' + solved + ' rects_len=' + rectsLen);
+                    const dv3 = new DataView(memory.buffer); const u3 = (a) => dv3.getUint32(a, true);
+                    console.log('[2d-sse-ok] sse1movemask(0x' + u3(0x40718).toString(16) + ' want ffff) pcmpeqb(0x' + u3(0x4071C).toString(16) + ' want 15) set1(0x' + u3(0x40720).toString(16) + ' want ffff) memset+movdqu(0x' + u3(0x40724).toString(16) + ' want ffff) memsetByte(0x' + u3(0x40728).toString(16) + ' want ff) HM(' + u3(0x4072C) + ' want 2)');
+                    console.log('[2d-solvemarkers] css(0x' + u3(0x40578).toString(16) + ') fontParse(0x' + u3(0x40670).toString(16) + ') resolveChain(0x' + u3(0x40690).toString(16) + ')');
                 } else { console.log('[2d] solveLayout: no solver export'); }
             } catch (e) {
                 const dv2 = new DataView(memory.buffer);
@@ -379,6 +404,34 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
                 // font-parse post-with_memory_fonts (set only if WMF didn't trap), resolve chain.
                 console.log('[2d-markers] css(40578)=' + m(0x40578) + ' fontParsePre(40670)=' + m(0x40670) +
                     ' fontParsePostWMF(40650)=' + m(0x40650) + ' resolveChain(40690)=' + m(0x40690));
+                console.log('[2d-p0] HashMap<String,u32> step(40870)=' + m(0x40870) + ' len(40874)=' + dv2.getUint32(0x40874, true) + ' get(40878)=' + dv2.getUint32(0x40878, true) +
+                    '  [A0A00001=insert TRAPPED (minimal real-HashMap repro); A0A00002=insert OK len?=2; A0A00003=get OK get?=1]');
+                console.log('[2d-isolation] step(406b0)=' + m(0x406b0) + ' probeCss(406b4)=' + dv2.getUint32(0x406b4, true) +
+                    ' probeUni(406b8)=' + dv2.getUint32(0x406b8, true) + '  [B0B00001=probe TRAPPED→expand/fuzzy; B0B00002=probe OK→trap is find_unicode_fallbacks]');
+                console.log('[2d-probe2] step(406bc)=' + m(0x406bc) + ' nIds(406c0)=' + dv2.getUint32(0x406c0, true) +
+                    ' metaOk(406c4)=' + dv2.getUint32(0x406c4, true) + ' querySome(406c8)=' + dv2.getUint32(0x406c8, true) +
+                    '  [C0C00001=get_metadata TRAPPED; C0C00002=query_internal TRAPPED; C0C00003=both OK→outer sort]');
+                console.log('[2d-probe3] step(406cc)=' + m(0x406cc) + ' urLen(406d0)=' + dv2.getUint32(0x406d0, true) +
+                    ' urSum(406d4)=' + dv2.getUint32(0x406d4, true) + '  [D0D00001=.len() TRAPPED; D0D00002=iterate TRAPPED; D0D00003=unicode_ranges OK]');
+                console.log('[2d-probe4] step(406d8)=' + m(0x406d8) + ' fmsLen(406dc)=' + dv2.getUint32(0x406dc, true) +
+                    ' fmsSum(406e0)=' + dv2.getUint32(0x406e0, true) + '  [E0E00001=collect TRAPPED; E0E00002=iter-elem TRAPPED; E0E00003=Vec<FontMatch> collect OK]');
+                console.log('[2d-probe5] step(406e4)=' + m(0x406e4) + ' fmsLen(406e8)=' + dv2.getUint32(0x406e8, true) +
+                    ' fmsSum(406ec)=' + dv2.getUint32(0x406ec, true) + '  [F0F00001=in_place collect TRAPPED; F0F00002=iter-elem TRAPPED; F0F00003=OK]');
+                console.log('[2d-probe7] step(406f0)=' + m(0x406f0) + ' uniLen(406f4)=' + dv2.getUint32(0x406f4, true) +
+                    '  [F7F70001=empty-fam resolve TRAPPED→query_internal/coverage; F7F70002=PASSED→bug is existing_prefixes/sort]');
+                console.log('[2d-fuf] find_unicode marker(40830)=' + m(0x40830) +
+                    '  [FB000002=before query_internal(trap=query_internal); FB000003=after qi; FB000005=before coverage(trap=coverage loop); FB000006=done]');
+                console.log('[2d-cov] step(40838)=' + m(0x40838) + ' candN(4083C)=' + dv2.getUint32(0x4083C, true) +
+                    ' uncovN(40840)=' + dv2.getUint32(0x40840, true) + ' candUrLen(40844)=' + dv2.getUint32(0x40844, true) +
+                    ' candUrPtr(40848)=' + m(0x40848) + ' candFbLen(4084C)=' + dv2.getUint32(0x4084C, true) + ' candFbPtr(40858)=' + m(0x40858) +
+                    '  [step=(ci<<8)|sub: FF0001=done; candFbLen/Ptr GARBAGE (not 0/small)→dropped fallbacks-init store=the bug; chain.clone() then OOBs]');
+                console.log('[2d-post] step(40850)=' + m(0x40850) + ' chainUFLen(40854)=' + dv2.getUint32(0x40854, true) + ' chainCSSLen(4085C)=' + dv2.getUint32(0x4085C, true) +
+                    '  [CC000001=find_unicode ret; 04=before chain build; CC000010=uncached ret; 11=before chain.clone(); 13=clone OK before cache.insert; 12=insert done → 11=clone traps, 13=insert traps]');
+                console.log('[2d-p8] step(40860)=' + m(0x40860) + ' clonedLen(40864)=' + dv2.getUint32(0x40864, true) + ' sum(40868)=' + dv2.getUint32(0x40868, true) +
+                    '  [C8C80001=Vec<FontMatch>::clone TRAPPED (minimal repro); C8C80002=iter-clone TRAPPED; C8C80003=OK]');
+                const u = (a) => dv2.getUint32(a, true);
+                console.log('[2d-hashmap] sanity BTm(' + u(0x40700) + ',' + u(0x40704) + '=2,161) BTmStr(' + u(0x40708) + ',' + u(0x4070C) + '=2,20) Vec(' + u(0x40710) + ',' + u(0x40714) + '=2,5)');
+                console.log('[2d-sse] sse1movemask(0x' + u(0x40718).toString(16) + ' want ffff) pcmpeqb(0x' + u(0x4071C).toString(16) + ' want 15) set1(0x' + u(0x40720).toString(16) + ' want ffff) memset+movdqu(0x' + u(0x40724).toString(16) + ' want ffff) memsetByte(0x' + u(0x40728).toString(16) + ' want ff) HM(' + u(0x4072C) + ' want 2)  [0xdead000N=trapped before]');
                 console.log('[2d] solveLayout TRAPPED: ' + (e.stack || e.message));
             }
         }
