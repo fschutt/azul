@@ -7879,7 +7879,7 @@ fn calculate_line_metrics(
 ///
 /// Returns a `LayoutError` if fragment layout fails.
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
-    cursor: &mut BreakCursor,
+    cursor: &mut BreakCursor<'_>,
     logical_items: &[LogicalItem],
     fragment_constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -8313,7 +8313,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 ///
 /// Panics if a break unit is unexpectedly empty (an internal invariant).
 pub fn break_one_line<T: ParsedFontTrait>(
-    cursor: &mut BreakCursor,
+    cursor: &mut BreakCursor<'_>,
     line_constraints: &LineConstraints,
     is_vertical: bool,
     hyphenator: Option<&Standard>,
@@ -10415,7 +10415,7 @@ struct HyphenationResult {
 }
 
 fn perform_bidi_analysis<'a, 'b: 'a>(
-    styled_runs: &'a [TextRunInfo],
+    styled_runs: &'a [TextRunInfo<'_>],
     full_text: &'b str,
     force_lang: Option<Language>,
 ) -> (Vec<VisualRun<'a>>, BidiDirection) {

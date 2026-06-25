@@ -38,13 +38,13 @@ impl Drop for File {
 }
 
 impl fmt::Debug for File {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.path.as_str())
     }
 }
 
 impl fmt::Display for File {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.path.as_str())
     }
 }

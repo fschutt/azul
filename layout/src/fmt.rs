@@ -64,7 +64,7 @@ impl strfmt::DisplayStr for FmtValue {
 }
 
 impl fmt::Display for FmtValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Bool(v) => v.fmt(f),
             Self::Uchar(v) => v.fmt(f),

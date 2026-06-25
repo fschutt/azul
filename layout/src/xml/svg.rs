@@ -701,7 +701,7 @@ fn vertex_buffers_to_tessellated_cpu_node(v: VertexBuffers<SvgVertex, u32>) -> T
     let tess_result = tessellator.tessellate_path(
         &polygon,
         &FillOptions::tolerance(fill_style.tolerance),
-        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex<'_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -738,7 +738,7 @@ pub fn tessellate_multi_polygon_fill(
     let tess_result = tessellator.tessellate_path(
         &polygon,
         &FillOptions::tolerance(fill_style.tolerance),
-        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex<'_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -873,7 +873,7 @@ pub fn polygon_contains_point(
     let tess_result = stroke_tess.tessellate_path(
         &polygon,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -911,7 +911,7 @@ pub fn tessellate_multi_shape_stroke(
     let tess_result = stroke_tess.tessellate_path(
         &polygon,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -945,7 +945,7 @@ pub fn tessellate_multi_polygon_stroke(
     let tess_result = tessellator.tessellate_path(
         &polygon,
         &FillOptions::tolerance(fill_style.tolerance),
-        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex<'_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -977,7 +977,7 @@ pub fn tessellate_path_fill(path: &SvgPath, fill_style: SvgFillStyle) -> Tessell
     let tess_result = stroke_tess.tessellate_path(
         &polygon,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -1008,7 +1008,7 @@ pub fn tessellate_path_stroke(path: &SvgPath, stroke_style: SvgStrokeStyle) -> T
         center,
         c.radius,
         &FillOptions::tolerance(fill_style.tolerance),
-        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex<'_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -1041,7 +1041,7 @@ pub fn tessellate_circle_fill(c: &SvgCircle, fill_style: SvgFillStyle) -> Tessel
         center,
         c.radius,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -1088,7 +1088,7 @@ fn get_radii(r: &SvgRect) -> lyon::geom::Box2D<f32> {
     let tess_result = tesselator.tessellate_rectangle(
         &rect,
         &FillOptions::tolerance(fill_style.tolerance),
-        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex<'_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -1120,7 +1120,7 @@ pub fn tessellate_rect_fill(r: &SvgRect, fill_style: SvgFillStyle) -> Tessellate
     let tess_result = tesselator.tessellate_rectangle(
         &rect,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -1174,7 +1174,7 @@ pub fn tessellate_styled_node(node: &SvgStyledNode) -> TessellatedSvgNode {
     let tess_result = stroke_tess.tessellate_path(
         &path,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -1221,7 +1221,7 @@ pub fn tessellate_line_stroke(
     let tess_result = stroke_tess.tessellate_path(
         &path,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -1270,7 +1270,7 @@ pub fn tessellate_cubiccurve_stroke(
     let tess_result = stroke_tess.tessellate_path(
         &path,
         &stroke_options,
-        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex<'_, '_>| {
             let xy_arr = vertex.position();
             SvgVertex {
                 x: xy_arr.x,
@@ -2258,7 +2258,7 @@ impl From<ParsedSvg> for azul_core::svg::Svg {
 }
 
 impl fmt::Debug for ParsedSvg {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ParsedSvg({} bytes)", self.svg_data.as_ref().len())
     }
 }

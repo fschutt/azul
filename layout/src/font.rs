@@ -964,7 +964,7 @@ pub mod parsed {
             #[cfg(not(feature = "web_lift"))]
             let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
                 ReadScope::new(&name_data?)
-                    .read::<allsorts::tables::NameTable>()
+                    .read::<allsorts::tables::NameTable<'_>>()
                     .ok()
                     .and_then(|name_table| {
                         name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME)

@@ -53,13 +53,13 @@ macro_rules! impl_widget_callback {
         }
 
         impl ::core::fmt::Display for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{:?}", self)
             }
         }
 
         impl ::core::fmt::Debug for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
                 write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
             }

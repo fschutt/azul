@@ -1727,7 +1727,7 @@ impl DisplayListBuilder {
 ///
 /// Returns a `LayoutError` if display-list generation fails.
 pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
-    ctx: &mut LayoutContext<T>,
+    ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     calculated_positions: &super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,

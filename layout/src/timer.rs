@@ -56,7 +56,7 @@ impl TimerCallback {
 }
 
 impl core::fmt::Debug for TimerCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "TimerCallback {{ cb: {:p} }}", self.cb as *const ())
     }
 }

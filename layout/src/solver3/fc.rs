@@ -374,7 +374,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     // [g147e az-web-lift DIAG] PURE-CONSTANT entry marker (0x609E0+slot) — fires before any node read,
@@ -541,7 +541,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<BfcLayoutResult> {
     // Available space comes directly from constraints - margins are handled by Taffy
     let available_space = TaffySize {
@@ -738,7 +738,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> (Option<f32>, bool) {
     node.dom_node_id
         .map_or((None, false), |id| {
@@ -778,7 +778,7 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
 fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> (Option<f32>, bool) {
     node.dom_node_id
         .map_or((None, false), |id| {
@@ -955,7 +955,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     float_cache: &mut HashMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     let node = tree
@@ -2467,7 +2467,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<LayoutOutput> {
     unsafe { crate::az_mark(0x60704_u32, (0x20u32)); }
     // [g147 az-web-lift DIAG] CALLER-side tree validity at layout_ifc entry, indexed by node_index
@@ -4679,7 +4679,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     node_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<LayoutOutput> {
     debug_log!(ctx, "Laying out table");
 
@@ -5403,7 +5403,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     cell_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     sizing_mode: text3::cache::AvailableSpace,
 ) -> Result<f32> {
     let width_type = match sizing_mode {
@@ -5478,7 +5478,7 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     cell_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<f32> {
     measure_cell_content_width(
         ctx, tree, text_cache, cell_index, constraints,
@@ -5492,7 +5492,7 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     cell_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<f32> {
     measure_cell_content_width(
         ctx, tree, text_cache, cell_index, constraints,
@@ -5506,7 +5506,7 @@ fn calculate_column_widths_auto<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     ctx: &mut LayoutContext<'_, T>,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     calculate_column_widths_auto_with_width(
         table_ctx,
@@ -5533,7 +5533,7 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     ctx: &mut LayoutContext<'_, T>,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     table_width: f32,
 ) -> Result<()> {
     // Auto layout: calculate min/max content width for each cell
@@ -5787,7 +5787,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     cell_index: usize,
     cell_width: f32,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<f32> {
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
     let cell_dom_id = cell_node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
@@ -5999,7 +5999,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     ctx: &mut LayoutContext<'_, T>,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     debug_table_layout!(
         ctx,
@@ -6196,7 +6196,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     tree: &mut LayoutTree,
     ctx: &mut LayoutContext<'_, T>,
     table_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<BTreeMap<usize, LogicalPosition>> {
     debug_log!(ctx, "Positioning table cells in grid");
 
@@ -6558,7 +6558,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     ifc_root_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     use crate::solver3::layout_tree::{IfcId, IfcMembership};
     use crate::text3::cache::InlineContent;
@@ -6584,7 +6584,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     ifc_root_index: usize,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     content: &mut Vec<InlineContent>,
     child_map: &mut HashMap<ContentIndex, usize>,
 ) -> Result<()> {
@@ -7509,7 +7509,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
     span_style: &StyleProperties,
     content: &mut Vec<InlineContent>,
     parent_children: &[usize], // Layout tree children of parent IFC
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     debug_info!(
         ctx,
@@ -7768,7 +7768,7 @@ fn position_floated_child(
     _child_index: usize,
     child_margin_box_size: LogicalSize,
     float_type: LayoutFloat,
-    constraints: &LayoutConstraints,
+    constraints: &LayoutConstraints<'_>,
     _bfc_content_box: LogicalRect,
     current_main_offset: f32,
     floating_context: &mut FloatingContext,

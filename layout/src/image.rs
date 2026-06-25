@@ -26,7 +26,7 @@ pub mod decode {
     }
 
     impl fmt::Display for DecodeImageError {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 Self::InsufficientMemory => write!(
                     f,
@@ -187,7 +187,7 @@ pub mod encode {
     }
 
     impl fmt::Display for EncodeImageError {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             use self::EncodeImageError::{EncoderNotAvailable, InsufficientMemory, DimensionError, InvalidData, Unknown};
             match self {
                 EncoderNotAvailable => write!(

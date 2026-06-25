@@ -456,7 +456,7 @@ pub enum NodeGraphError {
 }
 
 impl fmt::Display for NodeGraphError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::NodeGraphError::{NodeMimeTypeMismatch, NodeInvalidIndex, NodeInvalidNode, NoRootNode};
         match self {
             NodeMimeTypeMismatch => write!(f, "MIME type mismatch"),

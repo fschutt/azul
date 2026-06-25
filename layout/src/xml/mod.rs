@@ -938,7 +938,7 @@ pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
 }
 
 #[cfg(feature = "xml")]
-fn translate_roxmltree_attribute(e: roxmltree::Attribute) -> XmlQualifiedName {
+fn translate_roxmltree_attribute(e: roxmltree::Attribute<'_, '_>) -> XmlQualifiedName {
     XmlQualifiedName {
         local_name: e.name().to_string().into(),
         namespace: e.namespace().map(|e| e.to_string().into()).into(),

@@ -28,7 +28,7 @@ use crate::callbacks::CallbackInfo;
 macro_rules! impl_callback_traits {
     ($name:ident) => {
         impl core::fmt::Debug for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 write!(f, concat!(stringify!($name), " {{ cb: {:p} }}"), self.cb as *const ())
             }
         }
@@ -303,7 +303,7 @@ impl WriteBackCallback {
 }
 
 impl core::fmt::Debug for WriteBackCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "WriteBackCallback {{ cb: {:p} }}", self.cb as *const ())
     }
 }
@@ -374,7 +374,7 @@ impl ThreadCallback {
 }
 
 impl core::fmt::Debug for ThreadCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "ThreadCallback {{ cb: {:p} }}", self.cb as *const ())
     }
 }

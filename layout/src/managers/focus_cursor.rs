@@ -364,7 +364,7 @@ impl<'a> FocusSearchContext<'a> {
 /// * `Ok(None)` - No focusable node exists in the search direction
 /// * `Err(_)` - Invalid DOM or node ID encountered
 fn search_focusable_node(
-    ctx: &FocusSearchContext,
+    ctx: &FocusSearchContext<'_>,
     mut dom_id: DomId,
     mut node_id: NodeId,
     direction: SearchDirection,
