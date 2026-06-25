@@ -263,12 +263,10 @@ impl NumberInput {
 
         let state = RefAny::new(self.number_input_state);
 
-        self.text_input.set_on_text_input(
-            state.clone(),
-            validate_text_input as TextInputOnTextInputCallbackType,
-        );
-        self.text_input
-            .set_on_focus_lost(state, on_focus_lost as TextInputOnFocusLostCallbackType);
+        let validate: TextInputOnTextInputCallbackType = validate_text_input;
+        self.text_input.set_on_text_input(state.clone(), validate);
+        let focus_lost: TextInputOnFocusLostCallbackType = on_focus_lost;
+        self.text_input.set_on_focus_lost(state, focus_lost);
         self.text_input.dom()
     }
 }

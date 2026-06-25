@@ -2483,24 +2483,28 @@ fn render_node(
 
                                    match &field.value {
                                        NodeTypeFieldValue::TextInput(initial_text) => {
+                                           let cb: TextInputOnFocusLostCallbackType = nodegraph_on_textinput_focus_lost;
                                            TextInput::create()
                                            .with_text(initial_text.clone())
-                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost as TextInputOnFocusLostCallbackType)
+                                           .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::NumberInput(initial_value) => {
+                                           let cb: NumberInputOnFocusLostCallbackType = nodegraph_on_numberinput_focus_lost;
                                            NumberInput::create(*initial_value)
-                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost as NumberInputOnFocusLostCallbackType)
+                                           .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::CheckBox(initial_checked) => {
+                                           let cb: CheckBoxOnToggleCallbackType = nodegraph_on_checkbox_value_changed;
                                            CheckBox::create(*initial_checked)
-                                           .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed as CheckBoxOnToggleCallbackType)
+                                           .with_on_toggle(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {
+                                           let cb: ColorInputOnValueChangeCallbackType = nodegraph_on_colorinput_value_changed;
                                            ColorInput::create(*initial_color)
-                                           .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed as ColorInputOnValueChangeCallbackType)
+                                           .with_on_value_change(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::FileInput(file_path) => {

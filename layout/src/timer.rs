@@ -258,9 +258,10 @@ impl Default for Timer {
             Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
         }
 
+        let cb: TimerCallbackType = default_callback;
         Self::create(
             RefAny::new(()),
-            default_callback as TimerCallbackType,
+            cb,
             GetSystemTimeCallback { cb: default_time },
         )
     }

@@ -1852,7 +1852,8 @@ mod list_view_click_tests {
     fn rows_get_a_click_callback_only_when_on_row_click_is_set() {
         let mut lv = ListView::default();
         lv.rows = ListViewRowVec::from_vec(vec![empty_row(), empty_row()]);
-        lv.set_on_row_click(RefAny::new(()), noop_row as ListViewOnRowClickCallbackType);
+        let on_row_click: ListViewOnRowClickCallbackType = noop_row;
+        lv.set_on_row_click(RefAny::new(()), on_row_click);
         let dom = lv.dom();
         // children = [header, rows]; each row div carries the MouseUp callback.
         let rows = dom.children.as_ref()[1].children.as_ref();
