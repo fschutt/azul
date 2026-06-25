@@ -820,7 +820,7 @@ extern "C" fn arena_string_destructor(vec: *mut U8Vec) {
         let v = &mut *vec;
         let arc_raw = v.cap as *const StringArenaInner;
         if !arc_raw.is_null() {
-            let _ = Arc::from_raw(arc_raw);
+            drop(Arc::from_raw(arc_raw));
             // Prevent a hypothetical double-drop from dereferencing
             // freed memory.
             v.cap = 0;

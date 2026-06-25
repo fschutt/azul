@@ -267,7 +267,7 @@ impl Drop for FontRef {
             && unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) } == 1 {
                 unsafe {
                     (self.parsed_destructor)(self.parsed.cast_mut());
-                    let _ = Box::from_raw(self.copies.cast_mut());
+                    drop(Box::from_raw(self.copies.cast_mut()));
                 }
             }
     }

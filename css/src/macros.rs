@@ -283,13 +283,13 @@ macro_rules! impl_vec {
                         // Skip when there is nothing to free. (Empty Vecs have
                         // cap == 0; valid non-empty Vecs are unaffected.)
                         if !self.ptr.is_null() && self.cap != 0 {
-                            let _ = unsafe {
+                            drop(unsafe {
                                 alloc::vec::Vec::from_raw_parts(
                                     self.ptr.cast_mut(),
                                     self.len,
                                     self.cap,
                                 )
-                            };
+                            });
                         }
                         self.destructor = $destructor_name::AlreadyDestroyed;
                     }
@@ -551,7 +551,12 @@ macro_rules! impl_vec_mut {
                         core::ptr::copy(ptr.offset(1), ptr, len - index - 1);
                     }
                     self.set_len(len - 1);
-                    let _ = ret;
+                    // Named binding (not `let _ =` / `drop()`): this macro is
+                    // generic over the element type, so a bare drop trips
+                    // dropping_copy_types for Copy elements while `let _ =` trips
+                    // let_underscore_drop for ones with a destructor. A named
+                    // unused binding drops at scope end and satisfies both.
+                    let _ret = ret;
                 }
             }
 
