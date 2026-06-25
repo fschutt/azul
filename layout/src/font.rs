@@ -1310,7 +1310,10 @@ pub mod parsed {
             // advance.
             let _ = (|| {
                 let space_gid = font.lookup_glyph_index(' ' as u32)?;
-                if let Ok(cache) = font.glyph_cache.read() {
+                {
+                    // StLock::read() is infallible (Result<_, Infallible>);
+                    // kept in a tight block so the guard drops at scope end.
+                    let Ok(cache) = font.glyph_cache.read();
                     if cache.contains_key(&space_gid) {
                         return None;
                     }
@@ -1331,7 +1334,9 @@ pub mod parsed {
                     raw_contour_ends: None,
                     instructions: None,
                 };
-                if let Ok(mut cache) = font.glyph_cache.write() {
+                {
+                    // StLock::write() is infallible (Result<_, Infallible>).
+                    let Ok(mut cache) = font.glyph_cache.write();
                     cache.insert(space_gid, Arc::new(space_record));
                 }
                 Some(())
@@ -1570,7 +1575,10 @@ pub mod parsed {
                 .store(monotonic_now_nanos(), std::sync::atomic::Ordering::Relaxed);
 
             // Fast path: cache hit.
-            if let Ok(cache) = self.glyph_cache.read() {
+            {
+                // StLock::read() is infallible; tight block drops the read
+                // guard before the write lock below (deadlock avoidance).
+                let Ok(cache) = self.glyph_cache.read();
                 if let Some(existing) = cache.get(&gid) {
                     return Some(Arc::clone(existing));
                 }
@@ -1582,7 +1590,9 @@ pub mod parsed {
             // in between.
             let record = self.decode_glyph_inner(gid);
             let arc = Arc::new(record);
-            if let Ok(mut cache) = self.glyph_cache.write() {
+            {
+                // StLock::write() is infallible (Result<_, Infallible>).
+                let Ok(mut cache) = self.glyph_cache.write();
                 cache
                     .entry(gid)
                     .or_insert_with(|| Arc::clone(&arc));
@@ -1622,7 +1632,9 @@ pub mod parsed {
         /// [`ParsedFont::get_or_decode_glyph`] (and bulk-prefilled
         /// by [`ParsedFont::prime_glyph_cache`]).
         pub fn for_each_decoded_glyph<F: FnMut(u16, &OwnedGlyph)>(&self, mut f: F) {
-            if let Ok(cache) = self.glyph_cache.read() {
+            {
+                // StLock::read() is infallible (Result<_, Infallible>).
+                let Ok(cache) = self.glyph_cache.read();
                 for (gid, glyph) in cache.iter() {
                     f(*gid, glyph.as_ref());
                 }
