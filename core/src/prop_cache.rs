@@ -482,7 +482,7 @@ impl<T> FlatVecVec<T> {
     #[must_use] pub fn get_slice(&self, node_index: usize) -> &[T] {
         if self.offsets.is_empty() {
             // Build phase fallback: use inner Vecs
-            self.build.get(node_index).map_or(&[], std::vec::Vec::as_slice)
+            self.build.get(node_index).map_or(&[], alloc::vec::Vec::as_slice)
         } else {
             // Read phase: use flat data
             if let Some(&(start, len)) = self.offsets.get(node_index) {
@@ -501,7 +501,7 @@ impl<T> FlatVecVec<T> {
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K) {
         let node_count = self.build.len();
-        let total: usize = self.build.iter().map(std::vec::Vec::len).sum();
+        let total: usize = self.build.iter().map(alloc::vec::Vec::len).sum();
 
         let mut flat_data = Vec::with_capacity(total);
         let mut offsets = Vec::with_capacity(node_count);
@@ -539,7 +539,7 @@ impl<T> FlatVecVec<T> {
     /// Flatten without sorting (for data that's already sorted).
     pub fn flatten(&mut self) {
         let node_count = self.build.len();
-        let total: usize = self.build.iter().map(std::vec::Vec::len).sum();
+        let total: usize = self.build.iter().map(alloc::vec::Vec::len).sum();
 
         let mut flat_data = Vec::with_capacity(total);
         let mut offsets = Vec::with_capacity(node_count);

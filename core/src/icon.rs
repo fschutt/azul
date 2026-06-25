@@ -107,6 +107,14 @@ mod nostd_lock {
             self.lock.locked.store(false, Ordering::Release);
         }
     }
+
+    // Mirror `std::sync::Mutex: Debug` so containers can derive Debug. Does not
+    // lock (the spinlock has no `try_lock`, and locking in `fmt` could deadlock).
+    impl<T> core::fmt::Debug for Mutex<T> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("Mutex").finish_non_exhaustive()
+        }
+    }
 }
 
 use azul_css::{AzString, system::SystemStyle};

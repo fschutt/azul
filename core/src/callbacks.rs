@@ -284,8 +284,8 @@ impl VirtualViewCallbackInfo {
     ) -> Self {
         Self {
             reason,
-            system_fonts: std::ptr::from_ref::<FcFontCache>(system_fonts),
-            image_cache: std::ptr::from_ref::<ImageCache>(image_cache),
+            system_fonts: core::ptr::from_ref::<FcFontCache>(system_fonts),
+            image_cache: core::ptr::from_ref::<ImageCache>(image_cache),
             window_theme,
             bounds,
             scroll_size,
@@ -299,7 +299,7 @@ impl VirtualViewCallbackInfo {
 
     /// Set the callable pointer for FFI language bindings
     pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
-        self.callable_ptr = std::ptr::from_ref::<OptionRefAny>(callable);
+        self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
@@ -632,7 +632,7 @@ impl LayoutCallbackInfo {
         Self {
             // SAFETY: We cast away the lifetime 'a to 'static because LayoutCallbackInfo
             // only lives for the duration of the callback, which is shorter than 'a
-            ref_data: std::ptr::from_ref::<LayoutCallbackInfoRefData<'a>>(ref_data)
+            ref_data: core::ptr::from_ref::<LayoutCallbackInfoRefData<'a>>(ref_data)
                 as *const LayoutCallbackInfoRefData<'static>,
             window_size,
             theme,
@@ -649,7 +649,7 @@ impl LayoutCallbackInfo {
 
     /// Set the callable pointer for FFI language bindings
     pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
-        self.callable_ptr = std::ptr::from_ref::<OptionRefAny>(callable);
+        self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)

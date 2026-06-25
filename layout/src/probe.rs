@@ -383,7 +383,10 @@ fn peak_rss_bytes_self() -> u64 {
 ///
 /// Call after major allocations are freed (e.g. after a layout pass).
 #[inline]
-pub const fn hint_purge_allocator() {
+// const only on the default-allocator no-op path (e.g. Linux); the mimalloc /
+// jemalloc / macOS `malloc_zone_pressure_relief` bodies call non-const fns
+#[allow(clippy::missing_const_for_fn)]
+pub fn hint_purge_allocator() {
     #[cfg(feature = "allocator_mimalloc")]
     {
         // Aggressive purge — returns arenas to the OS when possible.

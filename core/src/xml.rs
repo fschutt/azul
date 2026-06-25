@@ -689,7 +689,7 @@ impl Xml {
             .filter_map(|entry| {
                 let trimmed = entry.trim();
                 // srcset format: "url 1x" or "url 100w"
-                trimmed.split_whitespace().next().map(std::string::ToString::to_string)
+                trimmed.split_whitespace().next().map(alloc::string::ToString::to_string)
             })
             .filter(|url| !url.is_empty())
             .collect()
@@ -7246,11 +7246,11 @@ fn compile_node_fluent(
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
     let ids: Vec<String> = node.attributes.get_key("id")
-        .map(|v| v.split_whitespace().map(std::string::ToString::to_string).collect())
+        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
         .unwrap_or_default();
     matcher.path.extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
     let classes: Vec<String> = node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(std::string::ToString::to_string).collect())
+        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
         .unwrap_or_default();
     matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
 
@@ -7318,7 +7318,7 @@ fn compile_body_fluent<'a>(
     let mut s = (syntax.create_node)("Body");
     matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
     let classes: Vec<String> = body_node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(std::string::ToString::to_string).collect())
+        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
         .unwrap_or_default();
     matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
 
@@ -7484,11 +7484,11 @@ fn compile_node_c(
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
     let ids: Vec<String> = node.attributes.get_key("id")
-        .map(|v| v.split_whitespace().map(std::string::ToString::to_string).collect())
+        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
         .unwrap_or_default();
     matcher.path.extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
     let classes: Vec<String> = node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(std::string::ToString::to_string).collect())
+        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
         .unwrap_or_default();
     matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
 
@@ -7565,7 +7565,7 @@ pub fn str_to_c_code<'a>(
     let mut matcher = body_matcher(body_node);
     matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
     let classes: Vec<String> = body_node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(std::string::ToString::to_string).collect())
+        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
         .unwrap_or_default();
     matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
     let blocks = get_css_blocks(&global_style, &matcher);
