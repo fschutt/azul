@@ -1448,8 +1448,8 @@ struct TabLocalDataset {
     on_click: OptionTabOnClick,
 }
 
-extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    fn select_new_tab_inner(mut refany: RefAny, info: &mut CallbackInfo) -> Option<Update> {
+extern "C" fn on_tab_click(mut refany: RefAny, info: CallbackInfo) -> Update {
+    fn select_new_tab_inner(mut refany: RefAny, info: &CallbackInfo) -> Option<Update> {
         let mut tab_local_dataset = refany.downcast_mut::<TabLocalDataset>()?;
         let tab_idx = tab_local_dataset.tab_idx;
         let tab_header_state = TabHeaderState {
@@ -1472,5 +1472,5 @@ extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update
         Some(result)
     }
 
-    select_new_tab_inner(refany, &mut info).unwrap_or(Update::RefreshDom)
+    select_new_tab_inner(refany, &info).unwrap_or(Update::RefreshDom)
 }

@@ -4832,7 +4832,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
     // Phase 5: Position cells in final grid and collect positions
     let mut cell_positions =
-        position_table_cells(&mut table_ctx, tree, ctx, node_index, constraints)?;
+        position_table_cells(&table_ctx, tree, ctx, node_index, constraints)?;
 
     // Calculate final table size including border-spacing
     let mut table_width: f32 = table_ctx
@@ -5062,7 +5062,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
                 child.formatting_context,
                 FormattingContext::TableColumnGroup
             ) {
-                analyze_table_colgroup(tree, child_idx, &mut table_ctx, ctx)?;
+                analyze_table_colgroup(tree, child_idx, &table_ctx, ctx)?;
                 continue;
             }
 
@@ -5109,7 +5109,7 @@ fn analyze_table_structure<T: ParsedFontTrait>(
 fn analyze_table_colgroup<T: ParsedFontTrait>(
     tree: &LayoutTree,
     colgroup_index: usize,
-    table_ctx: &mut TableLayoutContext,
+    table_ctx: &TableLayoutContext,
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<()> {
     let colgroup_node = tree.get(colgroup_index).ok_or(LayoutError::InvalidTree)?;
@@ -6192,7 +6192,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn position_table_cells<T: ParsedFontTrait>(
-    table_ctx: &mut TableLayoutContext,
+    table_ctx: &TableLayoutContext,
     tree: &mut LayoutTree,
     ctx: &mut LayoutContext<'_, T>,
     table_index: usize,

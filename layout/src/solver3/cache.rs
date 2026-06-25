@@ -1752,7 +1752,7 @@ fn log_child_positioning<T: ParsedFontTrait>(
 fn process_inflow_child<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut TextLayoutCache,
+    text_cache: &TextLayoutCache,
     child_index: usize,
     child_relative_pos: LogicalPosition,
     self_content_box_pos: LogicalPosition,
@@ -1760,8 +1760,8 @@ fn process_inflow_child<T: ParsedFontTrait>(
     writing_mode: LayoutWritingMode,
     is_flex_or_grid: bool,
     calculated_positions: &mut super::PositionVec,
-    reflow_needed_for_scrollbars: &mut bool,
-    float_cache: &mut HashMap<usize, fc::FloatingContext>,
+    reflow_needed_for_scrollbars: bool,
+    float_cache: &HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     // Set relative position on child
     // child_relative_pos is [CoordinateSpace::Parent] - relative to parent's content-box
@@ -2304,7 +2304,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             writing_mode,
             is_flex_or_grid,
             calculated_positions,
-            reflow_needed_for_scrollbars,
+            *reflow_needed_for_scrollbars,
             float_cache,
         )?;
     }

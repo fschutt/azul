@@ -751,19 +751,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     // +spec:min-max-sizing:411904 - percentage block-sizes treated as auto during intrinsic sizing (content-sized CB)
     // +spec:min-max-sizing:737e62 - percentage heights don't resolve inside content-sized containing blocks
     fn calculate_block_intrinsic_sizes(
-        &mut self,
+        &self,
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let writing_mode = if let Some(dom_id) = node.dom_node_id {
+        let writing_mode = node.dom_node_id.map_or_else(LayoutWritingMode::default, |dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             get_writing_mode(self.ctx.styled_dom, dom_id, node_state).unwrap_or_default()
-        } else {
-            LayoutWritingMode::default()
-        };
+        });
 
         // NOTE: Text content detection is now handled in calculate_node_intrinsic_sizes
         // which calls calculate_ifc_root_intrinsic_sizes for blocks with inline content.
@@ -864,7 +862,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     // min-content contributions. For multi-line, it is the largest min-content contribution.
     // Auto margins on flex items are treated as 0 for this computation.
     fn calculate_flex_intrinsic_sizes(
-        &mut self,
+        &self,
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
@@ -872,16 +870,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
         // Determine flex-direction to know if main axis is horizontal or vertical
-        let is_row = if let Some(dom_id) = node.dom_node_id {
+        let is_row = node.dom_node_id.is_none_or(|dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             match get_flex_direction(self.ctx.styled_dom, dom_id, node_state) {
                 MultiValue::Exact(dir) => matches!(dir, LayoutFlexDirection::Row | LayoutFlexDirection::RowReverse),
                 _ => true, // default is row
             }
-        } else {
-            true // default flex-direction is row
-        };
+        });
 
         let mut sum_main_min: f32 = 0.0;
         let mut sum_main_max: f32 = 0.0;
@@ -920,7 +916,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         // For single-line (nowrap), min-content = sum; for multi-line (wrap), min-content = max
         // Default flex-wrap is nowrap (single-line)
-        let is_single_line = if let Some(dom_id) = node.dom_node_id {
+        let is_single_line = node.dom_node_id.is_none_or(|dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             let wrap_prop = crate::solver3::getters::get_flex_wrap_prop(
@@ -930,9 +926,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     val.get_property_or_default().unwrap_or_default(),
                     LayoutFlexWrap::NoWrap
                 ))
-        } else {
-            true
-        };
+        });
 
         let min_main = if is_single_line { sum_main_min } else { max_main_min };
         let max_main = sum_main_max;

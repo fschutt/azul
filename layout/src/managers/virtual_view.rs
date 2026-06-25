@@ -325,7 +325,7 @@ impl VirtualViewState {
     /// 1. Container bounds expanded beyond content size
     /// 2. User scrolled within `EDGE_THRESHOLD` pixels of an edge (for lazy loading)
     fn check_reinvoke_condition(
-        &mut self,
+        &self,
         current_offset: LogicalPosition,
         container_size: LogicalSize,
     ) -> Option<VirtualViewCallbackReason> {

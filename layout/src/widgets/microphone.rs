@@ -66,7 +66,7 @@ azul_core::impl_managed_callback! {
 /// `Update` (`DoNothing` when no hook is set).
 fn invoke_on_audio_frame(
     hook: &OptionOnAudioFrame,
-    info: &mut CallbackInfo,
+    info: &CallbackInfo,
     frame: AudioFrame,
 ) -> Update {
     match hook {
@@ -262,13 +262,13 @@ extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thre
 extern "C" fn mic_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
-    mut info: CallbackInfo,
+    info: CallbackInfo,
 ) -> Update {
     let hook = match writeback_data.downcast_ref::<MicrophoneWidgetState>() {
         Some(s) => s.on_frame.clone(),
         None => return Update::DoNothing,
     };
-    frame_data.downcast_ref::<AudioFrame>().map_or(Update::DoNothing, |frame| invoke_on_audio_frame(&hook, &mut info, frame.clone()))
+    frame_data.downcast_ref::<AudioFrame>().map_or(Update::DoNothing, |frame| invoke_on_audio_frame(&hook, &info, frame.clone()))
 }
 
 /// Carry live state forward across relayout (config + started; the `on_frame`
