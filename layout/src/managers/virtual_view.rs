@@ -64,6 +64,7 @@ struct VirtualViewState {
 /// Used to prevent repeated edge-scroll callbacks for the same edge
 /// until the user scrolls away and back.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(clippy::struct_excessive_bools)] // one independent bool per box edge (top/bottom/left/right)
 struct EdgeFlags {
     /// Near top edge
     top: bool,

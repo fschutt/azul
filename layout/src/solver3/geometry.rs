@@ -281,6 +281,7 @@ impl UnresolvedBoxProps {
 
 /// Tracks which margins are set to `auto` (for centering calculations).
 #[derive(Debug, Clone, Copy, Default)]
+#[allow(clippy::struct_excessive_bools)] // one independent bool per margin edge (auto flags)
 pub struct MarginAuto {
     pub left: bool,
     pub right: bool,

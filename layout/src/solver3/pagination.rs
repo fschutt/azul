@@ -106,6 +106,7 @@ impl CounterFormat {
 
 /// Information about the current page, passed to content generators.
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)] // independent page-position flags (first/last/left/right)
 pub struct PageInfo {
     /// Current page number (1-indexed for display)
     pub page_number: usize,
@@ -322,6 +323,7 @@ impl HeaderFooterConfig {
 /// let header_footer = config.to_header_footer_config();
 /// ```
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)] // independent header/footer toggle flags
 pub struct FakePageConfig {
     /// Show header on pages
     pub show_header: bool,
