@@ -952,7 +952,7 @@ impl LayoutWindow {
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after collect_and_resolve.
-                unsafe { crate::az_mark(0x60770_u32, (chains.chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60770_u32, chains.chains.len() as u32); }
                 // WEB-LIFT last resort (the DEFINITIVE spot — the layout's own `chains` that
                 // feed load_missing_for_chains below): the lifted font-query path can leave a
                 // chain with NO fonts even when a fallback IS registered (generic→OS-name +
@@ -974,7 +974,7 @@ impl LayoutWindow {
                     }
                 }
                 // [g80] chains after the window.rs last-resort loop (values_mut path).
-                unsafe { crate::az_mark(0x60774_u32, (chains.chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60774_u32, chains.chains.len() as u32); }
                 // [az-web-lift 2026-06-05] REMOVED a WASM-ONLY diagnostic probe that computed
                 // nchains/total_fonts/nreg here purely to write debug markers. Its
                 // `chains.chains.values().map(|c| …).sum()` closure-iterator chain (and/or the
@@ -1024,7 +1024,7 @@ impl LayoutWindow {
                 // an identical DOM skips the resolver entirely).
                 let fc_chains = chains.into_fontconfig_chains();
                 // [g80] fc_chains after into_fontconfig_chains (the BTreeMap rebuild) — does it drop them?
-                unsafe { crate::az_mark(0x60778_u32, (fc_chains.len() as u32) as u32); }
+                unsafe { crate::az_mark(0x60778_u32, fc_chains.len() as u32); }
                 self.font_manager.set_font_chain_cache_with_sig(
                     fc_chains,
                     font_stacks_sig,

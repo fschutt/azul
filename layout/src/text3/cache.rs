@@ -6755,7 +6755,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         );
     }
 
-    unsafe { crate::az_mark(0x60850_u32, (segments.len() as u32) as u32); } // [g123] segments count (split_text_by_font_coverage)
+    unsafe { crate::az_mark(0x60850_u32, segments.len() as u32); } // [g123] segments count (split_text_by_font_coverage)
     if segments.len() <= 1 {
         // Fast path: all characters use the same font (common case)
         let (seg_start, seg_end, font_id) = if let Some(s) = segments.first() { unsafe { crate::az_mark(0x60854_u32, 0x0000_0001_u32); } s } else {
