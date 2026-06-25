@@ -995,8 +995,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         for &row_idx in &rows {
             let mut row_height = 0.0f32;
-            let mut col = 0usize;
-            for &cell_idx in tree.children(row_idx) {
+            for (col, &cell_idx) in tree.children(row_idx).iter().enumerate() {
                 let cell_intrinsic = child_intrinsics.iter().find(|(k, _)| k == &cell_idx).map(|(_, v)| *v)
                     .unwrap_or_default();
                 // Also check if cell has IFC content we can measure
@@ -1028,7 +1027,6 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     col_max[col] = col_max[col].max(cell_max);
                 }
                 row_height = row_height.max(cell_h);
-                col += 1;
             }
             total_height += row_height;
         }

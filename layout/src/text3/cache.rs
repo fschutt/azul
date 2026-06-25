@@ -9051,9 +9051,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 (0.0, 0.0)
             }).collect()
         };
-        let mut inline_offset_idx = 0;
-
-        for item in justified_segment_items {
+        for (inline_offset_idx, item) in justified_segment_items.into_iter().enumerate() {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
             let effective_align = get_item_vertical_align(&item)
@@ -9101,7 +9099,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
             } else {
                 (0.0, 0.0)
             };
-            inline_offset_idx += 1;
             main_axis_pen += left_inset;
 
             let position = if is_vertical {

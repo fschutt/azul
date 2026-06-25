@@ -90,6 +90,7 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
 /// Shift pixel data in a pixmap by (dx, dy) pixels, clearing exposed regions.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
+    use core::cmp::Ordering;
     let w = pixmap.width as i32;
     let h = pixmap.height as i32;
     if dx.abs() >= w || dy.abs() >= h {
@@ -102,51 +103,59 @@ pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     let data = &mut pixmap.data;
 
     // Shift rows vertically
-    if dy > 0 {
-        // Shift down: copy from top to bottom
-        for row in (0..h - dy).rev() {
-            let src_start = (row * w * 4) as usize;
-            let dst_start = ((row + dy) * w * 4) as usize;
-            data.copy_within(src_start..src_start + stride, dst_start);
+    match dy.cmp(&0) {
+        Ordering::Greater => {
+            // Shift down: copy from top to bottom
+            for row in (0..h - dy).rev() {
+                let src_start = (row * w * 4) as usize;
+                let dst_start = ((row + dy) * w * 4) as usize;
+                data.copy_within(src_start..src_start + stride, dst_start);
+            }
+            // Clear top rows
+            for row in 0..dy {
+                let start = (row * w * 4) as usize;
+                data[start..start + stride].fill(0);
+            }
         }
-        // Clear top rows
-        for row in 0..dy {
-            let start = (row * w * 4) as usize;
-            data[start..start + stride].fill(0);
+        Ordering::Less => {
+            let ady = -dy;
+            // Shift up: copy from bottom to top
+            for row in ady..h {
+                let src_start = (row * w * 4) as usize;
+                let dst_start = ((row - ady) * w * 4) as usize;
+                data.copy_within(src_start..src_start + stride, dst_start);
+            }
+            // Clear bottom rows
+            for row in (h - ady)..h {
+                let start = (row * w * 4) as usize;
+                data[start..start + stride].fill(0);
+            }
         }
-    } else if dy < 0 {
-        let ady = -dy;
-        // Shift up: copy from bottom to top
-        for row in ady..h {
-            let src_start = (row * w * 4) as usize;
-            let dst_start = ((row - ady) * w * 4) as usize;
-            data.copy_within(src_start..src_start + stride, dst_start);
-        }
-        // Clear bottom rows
-        for row in (h - ady)..h {
-            let start = (row * w * 4) as usize;
-            data[start..start + stride].fill(0);
-        }
+        Ordering::Equal => {}
     }
 
     // Shift columns horizontally
-    if dx > 0 {
-        for row in 0..h {
-            let row_start = (row * w * 4) as usize;
-            let shift = (dx * 4) as usize;
-            // Shift right within the row
-            data.copy_within(row_start..row_start + stride - shift, row_start + shift);
-            // Clear left columns
-            data[row_start..row_start + shift].fill(0);
+    match dx.cmp(&0) {
+        Ordering::Greater => {
+            for row in 0..h {
+                let row_start = (row * w * 4) as usize;
+                let shift = (dx * 4) as usize;
+                // Shift right within the row
+                data.copy_within(row_start..row_start + stride - shift, row_start + shift);
+                // Clear left columns
+                data[row_start..row_start + shift].fill(0);
+            }
         }
-    } else if dx < 0 {
-        let adx = (-dx * 4) as usize;
-        for row in 0..h {
-            let row_start = (row * w * 4) as usize;
-            data.copy_within(row_start + adx..row_start + stride, row_start);
-            // Clear right columns
-            data[row_start + stride - adx..row_start + stride].fill(0);
+        Ordering::Less => {
+            let adx = (-dx * 4) as usize;
+            for row in 0..h {
+                let row_start = (row * w * 4) as usize;
+                data.copy_within(row_start + adx..row_start + stride, row_start);
+                // Clear right columns
+                data[row_start + stride - adx..row_start + stride].fill(0);
+            }
         }
+        Ordering::Equal => {}
     }
 }
 
