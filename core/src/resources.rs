@@ -879,7 +879,7 @@ impl ImageRef {
         unsafe {
             if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
                 let data = Box::from_raw(self.data.cast_mut());
-                let _ = Box::from_raw(self.copies.cast_mut());
+                drop(Box::from_raw(self.copies.cast_mut()));
                 core::mem::forget(self); // do not run the destructor
                 Some(*data)
             } else {
@@ -1121,8 +1121,8 @@ impl Drop for ImageRef {
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
-                let _ = Box::from_raw(self.data.cast_mut());
-                let _ = Box::from_raw(self.copies.cast_mut());
+                drop(Box::from_raw(self.data.cast_mut()));
+                drop(Box::from_raw(self.copies.cast_mut()));
             }
         }
     }
@@ -2452,7 +2452,7 @@ impl SharedRawImageData {
         unsafe {
             if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
                 let data = Box::from_raw(self.data.cast_mut());
-                let _ = Box::from_raw(self.copies.cast_mut());
+                drop(Box::from_raw(self.copies.cast_mut()));
                 core::mem::forget(self); // don't run the destructor
                 Some(*data)
             } else {
@@ -2486,8 +2486,8 @@ impl Drop for SharedRawImageData {
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
-                let _ = Box::from_raw(self.data.cast_mut());
-                let _ = Box::from_raw(self.copies.cast_mut());
+                drop(Box::from_raw(self.data.cast_mut()));
+                drop(Box::from_raw(self.copies.cast_mut()));
             }
         }
     }

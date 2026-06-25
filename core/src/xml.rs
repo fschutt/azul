@@ -1251,7 +1251,7 @@ impl Drop for ComponentFieldTypeBox {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
             unsafe {
-                let _ = Box::from_raw(self.ptr);
+                drop(Box::from_raw(self.ptr));
             }
         }
     }
@@ -1337,7 +1337,7 @@ impl Drop for ComponentFieldValueBox {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
             unsafe {
-                let _ = Box::from_raw(self.ptr);
+                drop(Box::from_raw(self.ptr));
             }
         }
     }
@@ -5430,14 +5430,16 @@ fn apply_xml_node_attributes(
             let Some(value) = s.next() else {
                 continue;
             };
-            let _ = azul_css::parser2::parse_css_declaration(
+            // Called for its side effect (writes parsed props into `attributes`);
+            // the returned value is intentionally discarded.
+            drop(azul_css::parser2::parse_css_declaration(
                 key.trim(),
                 value.trim(),
                 azul_css::parser2::ErrorLocationRange::default(),
                 &css_key_map,
                 &mut Vec::new(),
                 &mut attributes,
-            );
+            ));
         }
         let props = attributes
             .into_iter()

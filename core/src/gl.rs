@@ -3256,7 +3256,7 @@ impl Drop for Texture {
         self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
-            let _ = unsafe { Box::from_raw(self.refcount.cast_mut()) };
+            drop(unsafe { Box::from_raw(self.refcount.cast_mut()) });
             self.gl_context
                 .delete_textures((&[self.texture_id])[..].into());
         }
@@ -3446,7 +3446,7 @@ impl Drop for VertexArrayObject {
         self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
-            let _ = unsafe { Box::from_raw(self.refcount.cast_mut()) };
+            drop(unsafe { Box::from_raw(self.refcount.cast_mut()) });
             self.gl_context
                 .delete_vertex_arrays((&[self.vao_id])[..].into());
         }
@@ -3501,7 +3501,7 @@ impl Drop for VertexBuffer {
             self.vao.vertex_layout = VertexLayout {
                 fields: VertexAttributeVec::from_const_slice(&[]),
             };
-            let _ = unsafe { Box::from_raw(self.refcount.cast_mut()) };
+            drop(unsafe { Box::from_raw(self.refcount.cast_mut()) });
             self.vao
                 .gl_context
                 .delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
