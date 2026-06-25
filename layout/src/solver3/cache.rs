@@ -1800,7 +1800,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
     let child_inner_size = child_bp
         .inner_size(child_node.used_size.unwrap_or_default(), writing_mode);
     let child_children: Vec<usize> = tree.children(child_index).to_vec();
-    let child_fc = child_node.formatting_context.clone();
+    let child_fc = child_node.formatting_context;
 
     // Recurse to position grandchildren
     // OPTIMIZATION: For BFC/IFC children, layout_bfc/layout_ifc already computed their layout.

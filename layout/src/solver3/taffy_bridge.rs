@@ -1207,7 +1207,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Check if parent is a flex or grid container
-        let Some(parent_fc) = self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context.clone()) else {
+        let Some(parent_fc) = self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context) else {
             return (false, false);
         };
 
@@ -1516,7 +1516,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         let fc = self
             .tree
             .get(node_idx)
-            .map(|s| s.formatting_context.clone())
+            .map(|s| s.formatting_context)
             .unwrap_or_default();
 
         let mut result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
@@ -1524,7 +1524,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             let fc = tree
                 .tree
                 .get(node_idx)
-                .map(|s| s.formatting_context.clone())
+                .map(|s| s.formatting_context)
                 .unwrap_or_default();
 
             match fc {
@@ -1752,7 +1752,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 let fc = self
                     .tree
                     .get(node_idx)
-                    .map(|s| s.formatting_context.clone())
+                    .map(|s| s.formatting_context)
                     .unwrap_or_default();
                 
                 let is_shrink_to_fit = matches!(fc, FormattingContext::InlineBlock)

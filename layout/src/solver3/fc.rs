@@ -997,28 +997,29 @@ fn layout_bfc<T: ParsedFontTrait>(
     // determines how main/cross map to physical x/y via from_main_cross().
     // +spec:inline-block:17944a - orthogonal flow roots get infinite available inline space here (not yet detected)
     // +spec:inline-block:a60e22 - other layout models pass through infinite inline space to contained block containers
-    let mut children_containing_block_size = if let Some(used_size) = node.used_size {
-        // Node has used_size (border-box) - convert to content-box.
-        // For auto-height containers, the pre-layout `used_size.height` is a
-        // placeholder (calculate_used_size_for_node returns 0 for block-level
-        // auto-height; apply_content_based_height resolves it after children lay out).
-        // In that window, `constraints.available_size.height` holds the containing
-        // block's height — the value children should use as their own containing
-        // block for percentage-height resolution and indefinite-height semantics.
-        let inner = node.box_props.inner_size(used_size, writing_mode);
-        let height_is_auto = tree
-            .warm(node_index)
-            .is_none_or(|w| w.computed_style.height.is_none());
-        if height_is_auto {
-            LogicalSize::new(inner.width, constraints.available_size.height)
-        } else {
-            inner
-        }
-    } else {
+    let mut children_containing_block_size = node.used_size.map_or_else(
         // No used_size yet - use available_size directly (this is already content-box
         // when coming from parent's layout constraints)
-        constraints.available_size
-    };
+        || constraints.available_size,
+        |used_size| {
+            // Node has used_size (border-box) - convert to content-box.
+            // For auto-height containers, the pre-layout `used_size.height` is a
+            // placeholder (calculate_used_size_for_node returns 0 for block-level
+            // auto-height; apply_content_based_height resolves it after children lay
+            // out). In that window, `constraints.available_size.height` holds the
+            // containing block's height — the value children should use as their own
+            // containing block for percentage-height / indefinite-height semantics.
+            let inner = node.box_props.inner_size(used_size, writing_mode);
+            let height_is_auto = tree
+                .warm(node_index)
+                .is_none_or(|w| w.computed_style.height.is_none());
+            if height_is_auto {
+                LogicalSize::new(inner.width, constraints.available_size.height)
+            } else {
+                inner
+            }
+        },
+    );
 
     // +spec:overflow:ffe6f7 - scrollbar space subtracted from containing block per spec §11.1.1
     // Reserve space for vertical scrollbar when appropriate.

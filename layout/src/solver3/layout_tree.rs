@@ -929,7 +929,7 @@ impl LayoutTree {
             dom_node_id: hot.dom_node_id,
             children,
             used_size: hot.used_size,
-            formatting_context: hot.formatting_context.clone(),
+            formatting_context: hot.formatting_context,
             parent: hot.parent,
             intrinsic_sizes: warm.intrinsic_sizes,
             baseline: warm.baseline,
@@ -1136,7 +1136,7 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
 pub(crate) fn is_shrink_to_fit_context(
     styled_dom: &StyledDom,
     dom_node_id: Option<NodeId>,
-    fc: &FormattingContext,
+    fc: FormattingContext,
 ) -> bool {
     use crate::solver3::getters::{get_float, MultiValue};
     use crate::solver3::positioning::get_position_type;
@@ -1180,7 +1180,7 @@ fn compute_subtree_needs_intrinsic(
     let mut out = vec![false; n];
     for idx in (0..n).rev() {
         let hot = &tree.nodes[idx];
-        let self_stf = is_shrink_to_fit_context(styled_dom, hot.dom_node_id, &hot.formatting_context);
+        let self_stf = is_shrink_to_fit_context(styled_dom, hot.dom_node_id, hot.formatting_context);
         let mut any = self_stf;
         if !any {
             for &child in tree.children(idx) {
@@ -1618,7 +1618,7 @@ impl LayoutTreeBuilder {
                     let anon_idx = self.create_anonymous_node(
                         parent_idx,
                         anon_type,
-                        anon_fc.clone(),
+                        anon_fc,
                     );
                     #[allow(clippy::iter_with_drain)] // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
                     for np_id in non_matching_children.drain(..) {
@@ -1753,7 +1753,7 @@ impl LayoutTreeBuilder {
         let index = self.nodes.len();
 
         // +spec:display-property:e67146 - Anonymous boxes inherit from enclosing non-anonymous box; non-inherited props use initial values
-        let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context.clone());
+        let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context);
 
         self.nodes.push(LayoutNode {
             // ── HOT ──
@@ -1812,7 +1812,7 @@ impl LayoutTreeBuilder {
         let parent_fc = self
             .nodes
             .get(list_item_idx)
-            .map(|n| n.formatting_context.clone());
+            .map(|n| n.formatting_context);
         self.nodes.push(LayoutNode {
             // ── HOT ──
             box_props: BoxProps::default(),
@@ -1937,7 +1937,7 @@ impl LayoutTreeBuilder {
         // between here and build (builder &mut threading); if garbage, len mis-reads.
         { let _ = (0xCE00_0000u32 | (index as u32 & 0xffff)); }
         let parent_fc =
-            parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
+            parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
         // this is reached but step A is NOT, collect_box_props diverges; if this is
         // NOT reached, the parent Option discriminant mis-lifts (None→Some garbage).
         { let _ = (0xCD00_0001u32 | (u32::from(parent_fc.is_some()) << 8)); }
@@ -2020,7 +2020,7 @@ impl LayoutTreeBuilder {
         let mut new_node = old_node.clone();
         new_node.parent = parent;
         new_node.parent_formatting_context =
-            parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
+            parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
         new_node.children = Vec::new();
         new_node.dirty_flag = DirtyFlag::None;
         self.nodes.push(new_node);

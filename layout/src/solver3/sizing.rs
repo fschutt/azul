@@ -338,7 +338,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 crate::solver3::layout_tree::is_shrink_to_fit_context(
                     self.ctx.styled_dom,
                     n.dom_node_id,
-                    &n.formatting_context,
+                    n.formatting_context,
                 )
             });
         let child_ancestor_is_stf = ancestor_is_stf || self_is_stf;

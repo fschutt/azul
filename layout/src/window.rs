@@ -4729,6 +4729,7 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::needless_pass_by_value)] // public action-dispatch API called across the dll shell backends; by-value AccessibilityAction is the natural shape and avoids churning every platform caller for a perf-neutral change
     pub fn process_accessibility_action(
         &mut self,
         dom_id: DomId,
