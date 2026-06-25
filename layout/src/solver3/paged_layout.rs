@@ -3,8 +3,8 @@
 //! This module provides functionality for laying out documents with pagination,
 //! such as for PDF generation. It uses the new integrated architecture where:
 //!
-//! 1. page_index is assigned to nodes DURING layout based on Y position
-//! 2. generate_display_lists_paged() creates per-page DisplayLists by filtering
+//! 1. `page_index` is assigned to nodes DURING layout based on Y position
+//! 2. `generate_display_lists_paged()` creates per-page `DisplayLists` by filtering
 //! 3. No post-hoc fragmentation is needed
 //!
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
@@ -34,7 +34,7 @@ use crate::{
     },
 };
 
-/// Layout a document with integrated pagination, returning one DisplayList per page.
+/// Layout a document with integrated pagination, returning one `DisplayList` per page.
 ///
 /// +spec:positioning:a4936a - Absolutely positioned elements positioned relative to containing block ignoring page breaks
 /// Layout is performed on a continuous document; pages are split afterward by Y position,
@@ -43,9 +43,9 @@ use crate::{
 /// This function performs CSS Paged Media layout with fragmentation integrated
 /// into the layout process itself, using the new architecture where:
 ///
-/// 1. The FragmentationContext is passed to layout_document via LayoutContext
-/// 2. Nodes get their page_index assigned during layout based on absolute Y position
-/// 3. DisplayLists are generated per-page by filtering items based on page bounds
+/// 1. The `FragmentationContext` is passed to `layout_document` via `LayoutContext`
+/// 2. Nodes get their `page_index` assigned during layout based on absolute Y position
+/// 3. `DisplayLists` are generated per-page by filtering items based on page bounds
 ///
 /// Uses default page header/footer configuration (page numbers in footer).
 /// For custom headers/footers, use `layout_document_paged_with_config`.
@@ -55,9 +55,12 @@ use crate::{
 /// * Other arguments same as `layout_document()`
 ///
 /// # Returns
-/// A vector of DisplayLists, one per page. Each DisplayList contains the
+/// A vector of `DisplayLists`, one per page. Each `DisplayList` contains the
 /// elements that fit on that page, with Y-coordinates relative to the page origin.
 #[cfg(feature = "text_layout")]
+/// # Errors
+///
+/// Returns a `LayoutError` if paged layout fails.
 pub fn layout_document_paged<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -115,6 +118,13 @@ where
 /// * `page_config` - Configuration for page headers/footers (see `FakePageConfig`)
 /// * Other arguments same as `layout_document_paged()`
 #[cfg(feature = "text_layout")]
+// page_config is a small owned config struct passed once per paged-layout invocation by the
+// dll PDF backend and the test suite; taking it by value keeps that one-shot API ergonomic.
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if paged layout fails.
 pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -141,6 +151,10 @@ where
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
+    use crate::solver3::display_list::{
+        generate_display_list, paginate_display_list_with_slicer_and_breaks, SlicerConfig,
+    };
+
     // Font Resolution And Loading
     {
         use crate::solver3::getters::{
@@ -167,8 +181,7 @@ where
             for (font_id, error) in &load_result.failed {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::warning(format!(
-                        "[FontLoading] Failed to load font {:?}: {}",
-                        font_id, error
+                        "[FontLoading] Failed to load font {font_id:?}: {error}"
                     )));
                 }
             }
@@ -217,7 +230,6 @@ where
             get_system_time_fn,
         };
 
-        use crate::solver3::display_list::generate_display_list;
         let display_list = generate_display_list(
             &mut ctx,
             tree,
@@ -256,8 +268,7 @@ where
     // Debug: log page layout info
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Page content height: {}",
-            page_content_height
+            "[PagedLayout] Page content height: {page_content_height}"
         )));
     }
 
@@ -302,11 +313,6 @@ where
     // - Headers/footers with page numbers are automatically generated
     // - CSS fragmentation properties are respected
 
-    use crate::solver3::display_list::{
-        generate_display_list, paginate_display_list_with_slicer_and_breaks,
-        SlicerConfig,
-    };
-
     // Step 1: Generate ONE complete display list (infinite canvas)
     let full_display_list = generate_display_list(
         &mut ctx,
@@ -344,7 +350,7 @@ where
         allow_clipping: true,
         header_footer,
         page_width,
-        table_headers: Default::default(),
+        table_headers: crate::solver3::pagination::TableHeaderTracker::default(),
     };
 
     // Step 3: Paginate with CSS break property support
@@ -370,6 +376,7 @@ where
 /// The tree, positions, and scroll IDs are stored in `cache`. To generate a display list,
 /// call `generate_display_list` separately using the tree/positions from the cache.
 #[cfg(feature = "text_layout")]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -383,6 +390,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     _print_timing: bool,
 ) -> Result<()> {
     use crate::solver3::cache;
+    use crate::window::LayoutWindow;
 
     // Create temporary context without counters for tree generation
     let mut counter_values = std::collections::HashMap::new();
@@ -468,7 +476,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_log!(ctx, "No changes, layout cache is clean");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
-        use crate::window::LayoutWindow;
         let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, new_dom);
         cache.scroll_ids = scroll_ids;
         cache.scroll_id_to_node_id = scroll_id_to_node_id;
@@ -485,7 +492,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
             break;
         }
 
-        calculated_positions = cache.calculated_positions.clone();
+        calculated_positions.clone_from(&cache.calculated_positions);
         let mut reflow_needed_for_scrollbars = false;
 
         crate::solver3::sizing::calculate_intrinsic_sizes(
@@ -582,7 +589,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     );
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
-    use crate::window::LayoutWindow;
     let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, new_dom);
 
     // --- Step 4: Update Cache ---

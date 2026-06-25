@@ -42,7 +42,7 @@ impl Default for StyleExclusionMargin {
 }
 
 impl StyleExclusionMargin {
-    pub fn is_initial(&self) -> bool {
+    #[must_use] pub const fn is_initial(&self) -> bool {
         self.inner.number == 0
     }
 }
@@ -54,7 +54,7 @@ impl PrintAsCssValue for StyleExclusionMargin {
 }
 
 impl FormatAsCssValue for StyleExclusionMargin {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner.get())
     }
 }
@@ -69,7 +69,7 @@ impl FormatAsRustCode for StyleExclusionMargin {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleExclusionMarginParseError {
     FloatValue(ParseFloatError),
 }
@@ -86,7 +86,7 @@ impl_display! { StyleExclusionMarginParseError, {
 impl_from!(ParseFloatError, StyleExclusionMarginParseError::FloatValue);
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleExclusionMarginParseErrorOwned {
     FloatValue(AzString),
@@ -94,10 +94,10 @@ pub enum StyleExclusionMarginParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleExclusionMarginParseError {
-    pub fn to_contained(&self) -> StyleExclusionMarginParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> StyleExclusionMarginParseErrorOwned {
         match self {
             Self::FloatValue(e) => {
-                StyleExclusionMarginParseErrorOwned::FloatValue(format!("{}", e).into())
+                StyleExclusionMarginParseErrorOwned::FloatValue(format!("{e}").into())
             }
         }
     }
@@ -105,7 +105,7 @@ impl StyleExclusionMarginParseError {
 
 #[cfg(feature = "parser")]
 impl StyleExclusionMarginParseErrorOwned {
-    pub fn to_shared(&self) -> StyleExclusionMarginParseError {
+    #[must_use] pub fn to_shared(&self) -> StyleExclusionMarginParseError {
         match self {
             Self::FloatValue(_) => {
                 // ParseFloatError can't be reconstructed from its display string,
@@ -117,6 +117,9 @@ impl StyleExclusionMarginParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `exclusion-margin` value.
 pub fn parse_style_exclusion_margin(
     input: &str,
 ) -> Result<StyleExclusionMargin, StyleExclusionMarginParseError> {
@@ -151,7 +154,7 @@ impl Default for StyleHyphenationLanguage {
 }
 
 impl StyleHyphenationLanguage {
-    pub fn is_initial(&self) -> bool {
+    #[must_use] pub fn is_initial(&self) -> bool {
         self.inner.as_str() == "en-US"
     }
 }
@@ -163,7 +166,7 @@ impl PrintAsCssValue for StyleHyphenationLanguage {
 }
 
 impl FormatAsCssValue for StyleHyphenationLanguage {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "\"{}\"", self.inner.as_str())
     }
 }
@@ -178,7 +181,7 @@ impl FormatAsRustCode for StyleHyphenationLanguage {
 }
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum StyleHyphenationLanguageParseError {
     InvalidString(String),
 }
@@ -192,7 +195,7 @@ impl_display! { StyleHyphenationLanguageParseError, {
 }}
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum StyleHyphenationLanguageParseErrorOwned {
     InvalidString(AzString),
@@ -200,7 +203,7 @@ pub enum StyleHyphenationLanguageParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleHyphenationLanguageParseError {
-    pub fn to_contained(&self) -> StyleHyphenationLanguageParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> StyleHyphenationLanguageParseErrorOwned {
         match self {
             Self::InvalidString(e) => {
                 StyleHyphenationLanguageParseErrorOwned::InvalidString(e.clone().into())
@@ -211,7 +214,7 @@ impl StyleHyphenationLanguageParseError {
 
 #[cfg(feature = "parser")]
 impl StyleHyphenationLanguageParseErrorOwned {
-    pub fn to_shared(&self) -> StyleHyphenationLanguageParseError {
+    #[must_use] pub fn to_shared(&self) -> StyleHyphenationLanguageParseError {
         match self {
             Self::InvalidString(e) => StyleHyphenationLanguageParseError::InvalidString(e.to_string()),
         }
@@ -219,6 +222,9 @@ impl StyleHyphenationLanguageParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `hyphenation-language` value.
 pub fn parse_style_hyphenation_language(
     input: &str,
 ) -> Result<StyleHyphenationLanguage, StyleHyphenationLanguageParseError> {
@@ -250,6 +256,8 @@ pub fn parse_style_hyphenation_language(
 
 #[cfg(test)]
 mod tests {
+    // Tests assert that parsed values equal the exact source literals.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]

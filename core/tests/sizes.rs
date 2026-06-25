@@ -4,7 +4,6 @@
 
 use azul_core::dom::*;
 use azul_core::callbacks::*;
-use azul_core::a11y::*;
 use azul_core::refany::RefAny;
 use azul_core::styled_dom::*;
 

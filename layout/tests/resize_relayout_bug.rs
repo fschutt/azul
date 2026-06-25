@@ -84,7 +84,7 @@ fn absolute_inset_child_grows_on_viewport_resize() {
     let gc_small = layout_window
         .get_node_layout_rect(gc_id)
         .expect("grandchild rect @640x480");
-    println!("grandchild @640x480 = {:?}", gc_small);
+    println!("grandchild @640x480 = {gc_small:?}");
 
     // --- Pass 2: 1920x1080, SAME layout_window => same cache (the resize path) ---
     ws.size.dimensions = LogicalSize::new(1920.0, 1080.0);
@@ -101,7 +101,7 @@ fn absolute_inset_child_grows_on_viewport_resize() {
     let gc_large = layout_window
         .get_node_layout_rect(gc_id)
         .expect("grandchild rect @1920x1080");
-    println!("grandchild @1920x1080 = {:?}", gc_large);
+    println!("grandchild @1920x1080 = {gc_large:?}");
 
     // Sanity: the absolute inset:0 child fills the viewport on the first pass.
     assert!(

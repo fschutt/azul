@@ -14,6 +14,7 @@ use azul_core::{
     refany::RefAny,
     window::ContextMenuMouseButton,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -216,7 +217,7 @@ static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
 
 /// A drop-down / select widget that displays the currently selected item
 /// and opens a native menu popup when focused.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DropDown {
     /// The list of choices presented in the popup menu.
@@ -239,7 +240,7 @@ impl Default for DropDown {
 
 impl DropDown {
     /// Creates a new `DropDown` with the given choices and no callback.
-    pub fn new(choices: StringVec) -> Self {
+    #[must_use] pub fn new(choices: StringVec) -> Self {
         Self {
             choices,
             selected: 0,
@@ -256,20 +257,25 @@ impl DropDown {
     }
 
     /// Builder variant of [`Self::set_on_choice_change`].
+    #[must_use]
     pub fn with_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(mut self, data: RefAny, callback: C) -> Self {
         self.set_on_choice_change(data, callback);
         self
     }
 
     /// Replaces `self` with the default value and returns the original.
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut m = DropDown::default();
+        let mut m = Self::default();
         core::mem::swap(&mut m, self);
         m
     }
 
     /// Builds the DOM tree for this drop-down widget.
-    pub fn dom(self) -> Dom {
+    #[must_use] pub fn dom(self) -> Dom {
+        const DROPDOWN_CLASS: &[IdOrClass] =
+            &[Class(AzString::from_const_str("__azul-native-dropdown"))];
+
         let selected_text = self.choices
             .as_slice()
             .get(self.selected)
@@ -277,9 +283,6 @@ impl DropDown {
             .unwrap_or_else(|| AzString::from_const_str(""));
 
         let refany = RefAny::new(self);
-
-        const DROPDOWN_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-dropdown"))];
 
         // Wrapper: focusable trigger that opens popup on focus
         
@@ -291,7 +294,7 @@ impl DropDown {
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                    refany: refany.clone(),
+                    refany,
                     callback: CoreCallback {
                         cb: on_dropdown_click as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
@@ -327,9 +330,8 @@ struct ChoiceCallbackData {
 // ============================================================================
 
 extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let refany = match refany.downcast_ref::<DropDown>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(refany) = refany.downcast_ref::<DropDown>() else {
+        return Update::DoNothing;
     };
 
     let menu_items: Vec<MenuItem> = refany
@@ -358,9 +360,8 @@ extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> U
 }
 
 extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<ChoiceCallbackData>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<ChoiceCallbackData>() else {
+        return Update::DoNothing;
     };
 
     let choice_id = refany.choice_id;
@@ -374,7 +375,7 @@ extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Upda
 }
 
 impl From<DropDown> for Dom {
-    fn from(b: DropDown) -> Dom {
+    fn from(b: DropDown) -> Self {
         b.dom()
     }
 }

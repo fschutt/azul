@@ -470,7 +470,7 @@ fn test_justification_inter_word() {
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
     let (positioned, _) = position_one_line(
-        shaped_items,
+        &shaped_items,
         &LineConstraints {
             segments: vec![LineSegment {
                 start_x: 0.0,

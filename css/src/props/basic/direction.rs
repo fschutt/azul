@@ -30,19 +30,19 @@ pub enum DirectionCorner {
 }
 
 impl fmt::Display for DirectionCorner {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
             match self {
-                DirectionCorner::Right => "right",
-                DirectionCorner::Left => "left",
-                DirectionCorner::Top => "top",
-                DirectionCorner::Bottom => "bottom",
-                DirectionCorner::TopRight => "top right",
-                DirectionCorner::TopLeft => "top left",
-                DirectionCorner::BottomRight => "bottom right",
-                DirectionCorner::BottomLeft => "bottom left",
+                Self::Right => "right",
+                Self::Left => "left",
+                Self::Top => "top",
+                Self::Bottom => "bottom",
+                Self::TopRight => "top right",
+                Self::TopLeft => "top left",
+                Self::BottomRight => "bottom right",
+                Self::BottomLeft => "bottom left",
             }
         )
     }
@@ -50,13 +50,13 @@ impl fmt::Display for DirectionCorner {
 
 impl PrintAsCssValue for DirectionCorner {
     fn print_as_css_value(&self) -> String {
-        format!("{}", self)
+        format!("{self}")
     }
 }
 
 impl DirectionCorner {
-    pub const fn opposite(&self) -> Self {
-        use self::DirectionCorner::*;
+    #[must_use] pub const fn opposite(&self) -> Self {
+        use self::DirectionCorner::{Right, Left, Top, Bottom, TopRight, BottomLeft, TopLeft, BottomRight};
         match *self {
             Right => Left,
             Left => Right,
@@ -69,8 +69,8 @@ impl DirectionCorner {
         }
     }
 
-    pub const fn combine(&self, other: &Self) -> Option<Self> {
-        use self::DirectionCorner::*;
+    #[must_use] pub const fn combine(&self, other: &Self) -> Option<Self> {
+        use self::DirectionCorner::{Right, Top, TopRight, Left, TopLeft, Bottom, BottomRight, BottomLeft};
         match (*self, *other) {
             (Right, Top) | (Top, Right) => Some(TopRight),
             (Left, Top) | (Top, Left) => Some(TopLeft),
@@ -80,8 +80,8 @@ impl DirectionCorner {
         }
     }
 
-    pub const fn to_point(&self, rect: &LayoutRect) -> LayoutPoint {
-        use self::DirectionCorner::*;
+    #[must_use] pub const fn to_point(&self, rect: &LayoutRect) -> LayoutPoint {
+        use self::DirectionCorner::{Right, Left, Top, Bottom, TopRight, TopLeft, BottomRight, BottomLeft};
         match *self {
             Right => LayoutPoint {
                 x: rect.size.width,
@@ -137,7 +137,7 @@ pub enum Direction {
 
 impl Default for Direction {
     fn default() -> Self {
-        Direction::FromTo(DirectionCorners {
+        Self::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
             dir_to: DirectionCorner::Bottom,
         })
@@ -147,22 +147,22 @@ impl Default for Direction {
 impl PrintAsCssValue for Direction {
     fn print_as_css_value(&self) -> String {
         match self {
-            Direction::Angle(a) => format!("{}", a),
-            Direction::FromTo(d) => format!("to {}", d.dir_to), // simplified "from X to Y"
+            Self::Angle(a) => format!("{a}"),
+            Self::FromTo(d) => format!("to {}", d.dir_to), // simplified "from X to Y"
         }
     }
 }
 
 impl Direction {
-    pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
+    #[must_use] pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
         match self {
-            Direction::Angle(angle_value) => {
+            Self::Angle(angle_value) => {
                 // Convert the angle to start/end points on the rectangle.
                 // Normalize to [0, 360) so negative angles and angles >= 360 fall
                 // into the same quadrant branches below (rem_euclid is always >= 0).
                 let deg = (-angle_value.to_degrees()).rem_euclid(360.0);
-                let width_half = rect.size.width as f32 / 2.0;
-                let height_half = rect.size.height as f32 / 2.0;
+                let width_half = crate::cast::isize_to_f32(rect.size.width) / 2.0;
+                let height_half = crate::cast::isize_to_f32(rect.size.height) / 2.0;
                 let hypotenuse_len = libm::hypotf(width_half, height_half);
                 let angle_to_corner = libm::atanf(height_half / width_half).to_degrees();
                 let corner_angle = if deg < 90.0 {
@@ -180,23 +180,23 @@ impl Direction {
                 let dy = libm::cosf(deg.to_radians()) * line_length;
                 (
                     LayoutPoint::new(
-                        libm::roundf(width_half - dx) as isize,
-                        libm::roundf(height_half + dy) as isize,
+                        crate::cast::f32_to_isize(libm::roundf(width_half - dx)),
+                        crate::cast::f32_to_isize(libm::roundf(height_half + dy)),
                     ),
                     LayoutPoint::new(
-                        libm::roundf(width_half + dx) as isize,
-                        libm::roundf(height_half - dy) as isize,
+                        crate::cast::f32_to_isize(libm::roundf(width_half + dx)),
+                        crate::cast::f32_to_isize(libm::roundf(height_half - dy)),
                     ),
                 )
             }
-            Direction::FromTo(ft) => (ft.dir_from.to_point(rect), ft.dir_to.to_point(rect)),
+            Self::FromTo(ft) => (ft.dir_from.to_point(rect), ft.dir_to.to_point(rect)),
         }
     }
 }
 
 // -- Parser
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CssDirectionCornerParseError<'a> {
     InvalidDirection(&'a str),
 }
@@ -205,33 +205,33 @@ impl_display! { CssDirectionCornerParseError<'a>, {
     InvalidDirection(val) => format!("Invalid direction: \"{}\"", val),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssDirectionCornerParseErrorOwned {
     InvalidDirection(AzString),
 }
 
-impl<'a> CssDirectionCornerParseError<'a> {
-    pub fn to_contained(&self) -> CssDirectionCornerParseErrorOwned {
+impl CssDirectionCornerParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssDirectionCornerParseErrorOwned {
         match self {
             CssDirectionCornerParseError::InvalidDirection(s) => {
-                CssDirectionCornerParseErrorOwned::InvalidDirection(s.to_string().into())
+                CssDirectionCornerParseErrorOwned::InvalidDirection((*s).to_string().into())
             }
         }
     }
 }
 
 impl CssDirectionCornerParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssDirectionCornerParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssDirectionCornerParseError<'_> {
         match self {
-            CssDirectionCornerParseErrorOwned::InvalidDirection(s) => {
+            Self::InvalidDirection(s) => {
                 CssDirectionCornerParseError::InvalidDirection(s.as_str())
             }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssDirectionParseError<'a> {
     Error(&'a str),
     InvalidArguments(&'a str),
@@ -248,7 +248,7 @@ impl_display! {CssDirectionParseError<'a>, {
     AngleError(e) => format!("Invalid angle value: {}", e),
 }}
 
-impl<'a> From<ParseFloatError> for CssDirectionParseError<'a> {
+impl From<ParseFloatError> for CssDirectionParseError<'_> {
     fn from(e: ParseFloatError) -> Self {
         CssDirectionParseError::ParseFloat(e)
     }
@@ -256,7 +256,7 @@ impl<'a> From<ParseFloatError> for CssDirectionParseError<'a> {
 impl_from! { CssDirectionCornerParseError<'a>, CssDirectionParseError::CornerError }
 impl_from! { CssAngleValueParseError<'a>, CssDirectionParseError::AngleError }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssDirectionParseErrorOwned {
     Error(AzString),
@@ -266,12 +266,12 @@ pub enum CssDirectionParseErrorOwned {
     AngleError(CssAngleValueParseErrorOwned),
 }
 
-impl<'a> CssDirectionParseError<'a> {
-    pub fn to_contained(&self) -> CssDirectionParseErrorOwned {
+impl CssDirectionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssDirectionParseErrorOwned {
         match self {
-            CssDirectionParseError::Error(s) => CssDirectionParseErrorOwned::Error(s.to_string().into()),
+            CssDirectionParseError::Error(s) => CssDirectionParseErrorOwned::Error((*s).to_string().into()),
             CssDirectionParseError::InvalidArguments(s) => {
-                CssDirectionParseErrorOwned::InvalidArguments(s.to_string().into())
+                CssDirectionParseErrorOwned::InvalidArguments((*s).to_string().into())
             }
             CssDirectionParseError::ParseFloat(e) => {
                 CssDirectionParseErrorOwned::ParseFloat(e.clone().into())
@@ -287,19 +287,19 @@ impl<'a> CssDirectionParseError<'a> {
 }
 
 impl CssDirectionParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssDirectionParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssDirectionParseError<'_> {
         match self {
-            CssDirectionParseErrorOwned::Error(s) => CssDirectionParseError::Error(s.as_str()),
-            CssDirectionParseErrorOwned::InvalidArguments(s) => {
+            Self::Error(s) => CssDirectionParseError::Error(s.as_str()),
+            Self::InvalidArguments(s) => {
                 CssDirectionParseError::InvalidArguments(s.as_str())
             }
-            CssDirectionParseErrorOwned::ParseFloat(e) => {
+            Self::ParseFloat(e) => {
                 CssDirectionParseError::ParseFloat(e.to_std())
             }
-            CssDirectionParseErrorOwned::CornerError(e) => {
+            Self::CornerError(e) => {
                 CssDirectionParseError::CornerError(e.to_shared())
             }
-            CssDirectionParseErrorOwned::AngleError(e) => {
+            Self::AngleError(e) => {
                 CssDirectionParseError::AngleError(e.to_shared())
             }
         }
@@ -307,9 +307,9 @@ impl CssDirectionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-fn parse_direction_corner<'a>(
-    input: &'a str,
-) -> Result<DirectionCorner, CssDirectionCornerParseError<'a>> {
+fn parse_direction_corner(
+    input: &str,
+) -> Result<DirectionCorner, CssDirectionCornerParseError<'_>> {
     match input {
         "right" => Ok(DirectionCorner::Right),
         "left" => Ok(DirectionCorner::Left),
@@ -320,7 +320,10 @@ fn parse_direction_corner<'a>(
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_direction<'a>(input: &'a str) -> Result<Direction, CssDirectionParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `direction` value.
+pub fn parse_direction(input: &str) -> Result<Direction, CssDirectionParseError<'_>> {
     let mut input_iter = input.split_whitespace();
     let first_input = input_iter
         .next()

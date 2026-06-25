@@ -1,10 +1,10 @@
 //! Geolocation manager — cross-platform state for the GPS/location surface
-//! (SUPER_PLAN_2 §1.5 + research/04 §3 + research/08 §6).
+//! (`SUPER_PLAN_2` §1.5 + research/04 §3 + research/08 §6).
 //!
 //! Three callers drive it:
 //!
 //! - The **layout pass** scans the styled DOM for `GeolocationProbe`
-//!   NodeTypes. When the first probe appears the framework fires
+//!   `NodeTypes`. When the first probe appears the framework fires
 //!   `PermissionDiffEvent::Subscribe(Capability::Geolocation)` and the
 //!   platform backend starts a native `CLLocationManager` /
 //!   `LocationManager` / `geoclue` subscription. The reverse on the
@@ -33,7 +33,7 @@ pub use azul_core::geolocation::{GeolocationProbeConfig, LocationFix};
 /// Diff event the layout pass emits when a probe appears or disappears.
 /// Symmetric to `PermissionDiffEvent` — drives the platform backend's
 /// native subscribe / release calls.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum GeolocationDiffEvent {
     /// First probe of this config landed in the layout — start a
@@ -42,7 +42,7 @@ pub enum GeolocationDiffEvent {
     /// Last probe left — stop the native subscription.
     Release,
     /// Probe config changed without subscriber churn — reconfigure
-    /// the running subscription in place (e.g. high_accuracy false →
+    /// the running subscription in place (e.g. `high_accuracy` false →
     /// true).
     Reconfigure { config: GeolocationProbeConfig },
 }
@@ -64,15 +64,15 @@ pub struct GeolocationManager {
 }
 
 impl GeolocationManager {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn latest_fix(&self) -> Option<LocationFix> {
+    #[must_use] pub const fn latest_fix(&self) -> Option<LocationFix> {
         self.latest_fix
     }
 
-    pub fn refcount(&self) -> u32 {
+    #[must_use] pub const fn refcount(&self) -> u32 {
         self.refcount
     }
 
@@ -84,7 +84,7 @@ impl GeolocationManager {
     /// `f32::NAN`) compare equal — `PartialEq` returns `false` on
     /// NaN-vs-NaN, which would make every fix look "changed" even
     /// when nothing actually moved.
-    pub fn set_latest_fix(&mut self, fix: LocationFix) -> bool {
+    pub const fn set_latest_fix(&mut self, fix: LocationFix) -> bool {
         let changed = match self.latest_fix {
             Some(prev) => !Self::location_fix_bitwise_eq(&prev, &fix),
             None => true,
@@ -93,7 +93,7 @@ impl GeolocationManager {
         changed
     }
 
-    fn location_fix_bitwise_eq(a: &LocationFix, b: &LocationFix) -> bool {
+    const fn location_fix_bitwise_eq(a: &LocationFix, b: &LocationFix) -> bool {
         a.latitude_deg.to_bits() == b.latitude_deg.to_bits()
             && a.longitude_deg.to_bits() == b.longitude_deg.to_bits()
             && a.accuracy_m.to_bits() == b.accuracy_m.to_bits()
@@ -183,7 +183,7 @@ static PENDING_FIXES: std::sync::Mutex<Vec<LocationFix>> =
 /// Thread-safe; recovers from a poisoned lock so one panicking applier
 /// can't wedge delivery forever.
 pub fn push_location_fix(fix: LocationFix) {
-    let mut q = PENDING_FIXES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_FIXES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(fix);
 }
 
@@ -191,7 +191,7 @@ pub fn push_location_fix(fix: LocationFix) {
 /// Called once per layout pass; the caller applies them through
 /// [`GeolocationManager::set_latest_fix`] (the last one wins).
 pub fn drain_location_fixes() -> Vec<LocationFix> {
-    let mut q = PENDING_FIXES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut q = PENDING_FIXES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -238,7 +238,7 @@ mod tests {
         let mut mgr = GeolocationManager::new();
         mgr.diff_layout(|emit| emit(cfg()));
         mgr.set_latest_fix(fix(37.0, -122.0));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         mgr.diff_layout(|_emit| {});
         assert_eq!(mgr.refcount(), 0);
@@ -252,7 +252,7 @@ mod tests {
     fn config_drift_emits_reconfigure() {
         let mut mgr = GeolocationManager::new();
         mgr.diff_layout(|emit| emit(cfg()));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         mgr.diff_layout(|emit| emit(high_accuracy_cfg()));
         let events = mgr.take_pending_events();
@@ -262,7 +262,7 @@ mod tests {
             GeolocationDiffEvent::Reconfigure { config } => {
                 assert!(config.high_accuracy);
             }
-            _ => panic!("expected Reconfigure, got {:?}", ev),
+            _ => panic!("expected Reconfigure, got {ev:?}"),
         }
     }
 
@@ -270,7 +270,7 @@ mod tests {
     fn stable_config_does_not_re_emit() {
         let mut mgr = GeolocationManager::new();
         mgr.diff_layout(|emit| emit(cfg()));
-        let _ = mgr.take_pending_events();
+        drop(mgr.take_pending_events());
 
         // Same config across frames — no events.
         mgr.diff_layout(|emit| emit(cfg()));
@@ -294,9 +294,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn async_fixes_round_trip_through_manager() {
         // The channel is process-global; clear any residue first.
-        let _ = drain_location_fixes();
+        drop(drain_location_fixes());
 
         push_location_fix(fix(37.0, -122.0));
         push_location_fix(fix(48.8566, 2.3522)); // Paris — last wins

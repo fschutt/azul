@@ -211,8 +211,7 @@ fn test_border_conflict_source_priority() {
 #[test]
 fn test_border_conflict_source_priority_full_hierarchy() {
     // Test all source priorities
-    let borders = vec![
-        (
+    let borders = [(
             BorderSource::Table,
             ColorU {
                 r: 10,
@@ -265,8 +264,7 @@ fn test_border_conflict_source_priority_full_hierarchy() {
                 b: 0,
                 a: 255,
             },
-        ),
-    ];
+        )];
 
     // Cell should win against all others
     let cell = BorderInfo {
@@ -385,8 +383,7 @@ fn test_table_column_info_creation() {
 #[test]
 fn test_table_column_info_width_constraints() {
     // Test that we can create column info with various constraints
-    let cols = vec![
-        TableColumnInfo {
+    let cols = [TableColumnInfo {
             min_width: 0.0,
             max_width: f32::INFINITY,
             computed_width: None,
@@ -400,8 +397,7 @@ fn test_table_column_info_width_constraints() {
             min_width: 50.0,
             max_width: 300.0,
             computed_width: Some(150.0),
-        },
-    ];
+        }];
 
     assert_eq!(cols[0].min_width, 0.0);
     assert!(cols[0].max_width.is_infinite());
@@ -507,8 +503,7 @@ fn test_border_source_as_priority() {
 #[test]
 fn test_border_style_priority_full_hierarchy() {
     // Test full style hierarchy: double > solid > dashed > dotted > ridge > outset > groove > inset
-    let styles = vec![
-        (
+    let styles = [(
             BorderStyle::Double,
             ColorU {
                 r: 1,
@@ -579,8 +574,7 @@ fn test_border_style_priority_full_hierarchy() {
                 b: 0,
                 a: 255,
             },
-        ),
-    ];
+        )];
 
     // Double should win against all others
     let double = BorderInfo {
@@ -960,9 +954,7 @@ fn test_table_cell_grid_layout() {
 #[test]
 fn test_table_cell_grid_with_colspan() {
     // 2x2 table where first cell spans 2 columns
-    let cells = vec![
-        // Row 0: One cell spanning columns 0-1
-        TableCellInfo {
+    let cells = [TableCellInfo {
             node_index: 0,
             column: 0,
             colspan: 2,
@@ -983,8 +975,7 @@ fn test_table_cell_grid_with_colspan() {
             colspan: 1,
             row: 1,
             rowspan: 1,
-        },
-    ];
+        }];
 
     // First cell spans columns 0 and 1
     assert_eq!(cells[0].column, 0);
@@ -998,9 +989,7 @@ fn test_table_cell_grid_with_colspan() {
 #[test]
 fn test_table_cell_grid_with_rowspan() {
     // 2x2 table where first cell spans 2 rows
-    let cells = vec![
-        // Column 0: One cell spanning rows 0-1
-        TableCellInfo {
+    let cells = [TableCellInfo {
             node_index: 0,
             column: 0,
             colspan: 1,
@@ -1021,8 +1010,7 @@ fn test_table_cell_grid_with_rowspan() {
             colspan: 1,
             row: 1,
             rowspan: 1,
-        },
-    ];
+        }];
 
     // First cell spans rows 0 and 1
     assert_eq!(cells[0].row, 0);

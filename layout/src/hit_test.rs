@@ -38,7 +38,7 @@ use azul_css::props::style::StyleCursor;
 use crate::window::LayoutWindow;
 
 /// Result of cursor type hit-testing, determines which mouse cursor to display
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Copy, Debug, Clone, Default, PartialEq, Eq)]
 pub struct CursorTypeHitTest {
     /// The node that has a non-default cursor property (if any)
     pub cursor_node: Option<(DomId, NodeId)>,
@@ -50,7 +50,7 @@ impl CursorTypeHitTest {
     /// Create a new cursor type hit-test from a full hit-test and layout window.
     ///
     /// Finds the frontmost (lowest depth) node with a cursor property by checking
-    /// cursor_hit_test_nodes (text runs) and regular_hit_test_nodes (DOM nodes).
+    /// `cursor_hit_test_nodes` (text runs) and `regular_hit_test_nodes` (DOM nodes).
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self {
         use azul_core::hit_test::CursorType;
         
@@ -60,11 +60,10 @@ impl CursorTypeHitTest {
         let mut best_depth: u32 = u32::MAX;
 
         // Iterate through all hovered nodes across all DOMs
-        for (dom_id, hit_nodes) in hit_test.hovered_nodes.iter() {
+        for (dom_id, hit_nodes) in &hit_test.hovered_nodes {
             // Get the layout result for this DOM
-            let layout_result = match layout_window.get_layout_result(dom_id) {
-                Some(lr) => lr,
-                None => continue,
+            let Some(layout_result) = layout_window.get_layout_result(dom_id) else {
+                continue;
             };
 
             let styled_dom = &layout_result.styled_dom;
@@ -73,7 +72,7 @@ impl CursorTypeHitTest {
 
             // Check cursor_hit_test_nodes (direct text run hits with cursor
             // type encoded in the tag, no CSS lookup needed)
-            for (node_id, cursor_hit) in hit_nodes.cursor_hit_test_nodes.iter() {
+            for (node_id, cursor_hit) in &hit_nodes.cursor_hit_test_nodes {
                 let node_depth = cursor_hit.hit_depth;
                 
                 // Only consider if it's in front of our current best
@@ -94,7 +93,7 @@ impl CursorTypeHitTest {
             }
 
             // Check regular_hit_test_nodes (DOM nodes with CSS cursor property)
-            for (node_id, hit_item) in hit_nodes.regular_hit_test_nodes.iter() {
+            for (node_id, hit_item) in &hit_nodes.regular_hit_test_nodes {
                 let node_depth = hit_item.hit_depth;
 
                 // Only consider this node if it's in front of our current best
@@ -157,8 +156,8 @@ impl CursorTypeHitTest {
     }
 }
 
-/// Translate CursorType (from hit-test tag) to MouseCursorType
-fn translate_cursor_type(cursor_type: azul_core::hit_test::CursorType) -> MouseCursorType {
+/// Translate `CursorType` (from hit-test tag) to `MouseCursorType`
+const fn translate_cursor_type(cursor_type: azul_core::hit_test::CursorType) -> MouseCursorType {
     use azul_core::hit_test::CursorType;
     
     match cursor_type {
@@ -186,8 +185,9 @@ fn translate_cursor_type(cursor_type: azul_core::hit_test::CursorType) -> MouseC
     }
 }
 
-/// Translate CSS cursor value to MouseCursorType
-fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
+/// Translate CSS cursor value to `MouseCursorType`
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
     use azul_css::props::style::effects::StyleCursor;
 
     match cursor {

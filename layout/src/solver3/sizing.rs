@@ -107,7 +107,7 @@ fn resolve_px_with_box_model(
 // +spec:containing-block:8ad6f4 - Percentage resolution against containing block (editorial note: transferred percentages)
 // +spec:containing-block:257f3b - Block-axis percentages resolve against containing block size
 // +spec:containing-block:f1344e - percentage min/max-width resolved against containing block width; negative CB width yields zero
-pub fn resolve_percentage_with_box_model(
+#[must_use] pub fn resolve_percentage_with_box_model(
     containing_block_dimension: f32,
     percentage: f32,
     _margins: (f32, f32),
@@ -144,6 +144,10 @@ fn subtree_contains_text(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
 // @sub_ → enforce_sp_preservation save/restores SP around it. If new_tree survives (sizingEntry=2),
 // the inlined entry/frame-setup was mis-lifting SP. (g60's inline(always) was a no-op — already inlined.)
 #[inline(never)]
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+/// # Errors
+///
+/// Returns a `LayoutError` if intrinsic sizing fails.
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -156,7 +160,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // is in 121-142. compute_dirty_ancestor_closure RETURNS a HashSet by sret — prime suspect:
     // sret-slot overlapping new_tree, or the hashbrown empty-map bug. 0x407B4 (post-compute_dirty)
     // isolates compute_dirty vs calculator-creation.
-    unsafe { crate::az_mark(0x607B0_u32, ((tree.nodes.len() as u32))); }
+    unsafe { crate::az_mark(0x607B0_u32, (tree.nodes.len() as u32)); }
     if dirty_nodes.is_empty() {
         return Ok(());
     }
@@ -171,7 +175,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // excel.html even when only 3 nodes were actually dirty.
     let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
     // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet sret).
-    unsafe { crate::az_mark(0x607B4_u32, ((tree.nodes.len() as u32))); }
+    unsafe { crate::az_mark(0x607B4_u32, (tree.nodes.len() as u32)); }
 
     let mut calculator = IntrinsicSizeCalculator::new(ctx, text_cache);
     calculator.dirty_closure = Some(dirty_closure);
@@ -193,12 +197,12 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // tree.get(root)=None (0x40738=0) or nodes.len()=0 (0x40734), the InvalidTree@229 is
     // because RECONCILE produced a broken tree — root cause is reconcile, not sizing.
     unsafe {
-        crate::az_mark(0x60730_u32, ((tree.root as u32)));
-        crate::az_mark(0x60734_u32, ((tree.nodes.len() as u32)));
-        crate::az_mark(0x60738_u32, ((tree.get(tree.root).is_some() as u32)));
+        crate::az_mark(0x60730_u32, (tree.root as u32));
+        crate::az_mark(0x60734_u32, (tree.nodes.len() as u32));
+        crate::az_mark(0x60738_u32, u32::from(tree.get(tree.root).is_some()));
         // [az-diag g55] 0x4075C = the `tree` ptr the CALLEE sees. Compare with 0x40748
         // (caller's &new_tree). Same → nodes-field-offset mis-lift; differ → &mut arg mis-passed.
-        crate::az_mark(0x6075C_u32, (((tree as *const LayoutTree as usize) as u32)));
+        crate::az_mark(0x6075C_u32, ((std::ptr::from_ref::<LayoutTree>(tree) as usize) as u32));
     }
     calculator.calculate_intrinsic_recursive(tree, tree.root, false)?;
     debug_log!(ctx, "Finished intrinsic size calculation");
@@ -225,11 +229,11 @@ fn compute_dirty_ancestor_closure(
 struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     /// Shared text shaping cache, threaded through from the caller so
-    /// stages 1–3 of the inline layout pipeline (logical / BiDi / shaping)
+    /// stages 1–3 of the inline layout pipeline (logical / `BiDi` / shaping)
     /// are cache-hits across the sizing pass's min/max-content measurements
     /// AND the subsequent real layout pass. Previously each pass held its
     /// own `LayoutCache`, so identical text was shaped three times per
-    /// root_layout_pass — once per min-content measurement, once per
+    /// `root_layout_pass` — once per min-content measurement, once per
     /// max-content measurement, once at final layout.
     text_cache: &'c mut LayoutCache,
     /// If `Some`, only nodes in this set (the ancestor-closure of
@@ -240,7 +244,7 @@ struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
 }
 
 impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
-    fn new(ctx: &'a mut LayoutContext<'b, T>, text_cache: &'c mut LayoutCache) -> Self {
+    const fn new(ctx: &'a mut LayoutContext<'b, T>, text_cache: &'c mut LayoutCache) -> Self {
         Self {
             ctx,
             text_cache,
@@ -248,6 +252,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn calculate_intrinsic_recursive(
         &mut self,
         tree: &mut LayoutTree,
@@ -256,7 +261,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     ) -> Result<IntrinsicSizes> {
         // [az-diag g52 REVERT] 0x40720 = node_index entering calculate_intrinsic_recursive
         // (last value after the run = the node that InvalidTree'd or the stray child).
-        unsafe { crate::az_mark(0x60720_u32, ((node_index as u32))); }
+        unsafe { crate::az_mark(0x60720_u32, (node_index as u32)); }
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
@@ -284,8 +289,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 .subtree_needs_intrinsic
                 .get(node_index)
                 .copied()
-                .map(|v| !v)
-                .unwrap_or(false)
+                .is_some_and(|v| !v)
         {
             let default = IntrinsicSizes::default();
             if let Some(n) = tree.warm_mut(node_index) {
@@ -330,20 +334,19 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // ancestor up to and including self is STF.
         let self_is_stf = tree
             .get(node_index)
-            .map(|n| {
+            .is_some_and(|n| {
                 crate::solver3::layout_tree::is_shrink_to_fit_context(
                     self.ctx.styled_dom,
                     n.dom_node_id,
-                    &n.formatting_context,
+                    n.formatting_context,
                 )
-            })
-            .unwrap_or(false);
+            });
         let child_ancestor_is_stf = ancestor_is_stf || self_is_stf;
 
         let mut child_intrinsics = Vec::with_capacity(n);
         for &child_index in children {
             // [az-diag g52 REVERT] 0x40728 = child_index about to recurse (last = the stray).
-            unsafe { crate::az_mark(0x60728_u32, ((child_index as u32))); }
+            unsafe { crate::az_mark(0x60728_u32, (child_index as u32)); }
             // [g52 FIX] Defensive: reconcile can mis-list a stray/out-of-range child_index
             // (a Text node mis-listed as a layout child, or a lift artifact in the children
             // array). The unguarded recursion would hit `tree.get(child_index).ok_or(InvalidTree)`
@@ -390,6 +393,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         Ok(intrinsic)
     }
 
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn calculate_node_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
@@ -481,7 +485,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 let has_block_child = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .and_then(|c| c.dom_node_id)
-                        .map(|dom_id| {
+                        .is_some_and(|dom_id| {
                             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                             // Text nodes are inline-level
                             if matches!(node_data.get_node_type(), NodeType::Text(_)) {
@@ -490,13 +494,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                             let display = get_display_type(self.ctx.styled_dom, dom_id);
                             display.creates_block_context()
                         })
-                        .unwrap_or(false)
                 });
 
                 let has_inline_child = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
                         .and_then(|c| c.dom_node_id)
-                        .map(|dom_id| {
+                        .is_some_and(|dom_id| {
                             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                             if matches!(node_data.get_node_type(), NodeType::Text(_)) {
                                 return true;
@@ -510,7 +513,6 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                                 | LayoutDisplay::InlineTable
                             )
                         })
-                        .unwrap_or(false)
                 });
 
                 // IFC root only if there are inline children and NO block children.
@@ -519,16 +521,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 
                 // Also check if this block has direct text content (text nodes in DOM)
                 // but ONLY if there are no block-level layout children
-                let has_direct_text = if !has_block_child {
-                    if let Some(dom_id) = node.dom_node_id {
-                        let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
-                        dom_id.az_children(node_hierarchy).any(|child_id| {
-                            let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
-                            matches!(child_node_data.get_node_type(), NodeType::Text(_))
-                        })
-                    } else {
-                        false
-                    }
+                let has_direct_text = if has_block_child {
+                    false
+                } else if let Some(dom_id) = node.dom_node_id {
+                    let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
+                    dom_id.az_children(node_hierarchy).any(|child_id| {
+                        let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                        matches!(child_node_data.get_node_type(), NodeType::Text(_))
+                    })
                 } else {
                     false
                 };
@@ -586,8 +586,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // are not in the layout tree, only in the DOM).
                 let has_inline_children = tree.children(node_index).iter().any(|&child_idx| {
                     tree.get(child_idx)
-                        .map(|c| matches!(c.formatting_context, FormattingContext::Inline))
-                        .unwrap_or(false)
+                        .is_some_and(|c| matches!(c.formatting_context, FormattingContext::Inline))
                 });
 
                 let has_direct_text = if let Some(dom_id) = node.dom_node_id {
@@ -614,7 +613,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 }
             }
             FormattingContext::Table => {
-                self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics)
+                Ok(self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics))
             }
             FormattingContext::Flex => {
                 self.calculate_flex_intrinsic_sizes(tree, node_index, child_intrinsics)
@@ -627,6 +626,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     /// Calculate intrinsic sizes for an IFC root (a block containing inline content).
     /// This collects ALL inline descendants' text and measures it ONCE.
     // +spec:intrinsic-sizing:8f3c0c - hanging glyphs must be excluded from intrinsic size measurement
+    #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn calculate_ifc_root_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
@@ -636,7 +636,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         unsafe {
             let c = crate::az_mark_read(0x60758).wrapping_add(1);
             crate::az_mark(0x60758_u32, (c));
-            crate::az_mark(0x6075C_u32, ((node_index as u32)));
+            crate::az_mark(0x6075C_u32, (node_index as u32));
         }
         // Collect all inline content from this IFC root and its inline descendants
         // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching its
@@ -704,7 +704,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // If text MEASURES → the forced const pages contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
-        let intrinsic_text = match self.text_cache.measure_intrinsic_widths(
+        let Ok(intrinsic_text) = self.text_cache.measure_intrinsic_widths(
             &inline_content,
             &[],
             &constraints,
@@ -712,18 +712,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
             self.ctx.debug_messages,
-        ) {
-            Ok(r) => r,
-            Err(_) => {
-                return Ok(IntrinsicSizes {
-                    min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
-                    max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
-                    preferred_width: None,
-                    min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
-                    max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
-                    preferred_height: None,
-                });
-            }
+        ) else {
+            return Ok(IntrinsicSizes {
+                min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
+                max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
+                preferred_width: None,
+                min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
+                max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
+                preferred_height: None,
+            });
         };
 
         let min_width = intrinsic_text.min_content_width;
@@ -754,19 +751,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     // +spec:min-max-sizing:411904 - percentage block-sizes treated as auto during intrinsic sizing (content-sized CB)
     // +spec:min-max-sizing:737e62 - percentage heights don't resolve inside content-sized containing blocks
     fn calculate_block_intrinsic_sizes(
-        &mut self,
+        &self,
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let writing_mode = if let Some(dom_id) = node.dom_node_id {
+        let writing_mode = node.dom_node_id.map_or_else(LayoutWritingMode::default, |dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             get_writing_mode(self.ctx.styled_dom, dom_id, node_state).unwrap_or_default()
-        } else {
-            LayoutWritingMode::default()
-        };
+        });
 
         // NOTE: Text content detection is now handled in calculate_node_intrinsic_sizes
         // which calls calculate_ifc_root_intrinsic_sizes for blocks with inline content.
@@ -787,7 +782,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto margins as zero
                 let child_node = tree.get(child_index);
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
-                    if let Some(cn) = child_node {
+                    child_node.map_or((0.0, 0.0, 0.0, 0.0), |cn| {
                         let bp = cn.box_props.unpack();
                         let h = bp.margin.left + bp.margin.right
                               + bp.border.left + bp.border.right
@@ -798,9 +793,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                             LayoutWritingMode::HorizontalTb => (h, v_bp, bp.margin.top, bp.margin.bottom),
                             _ => (v_bp, h, bp.margin.left, bp.margin.right),
                         }
-                    } else {
-                        (0.0, 0.0, 0.0, 0.0)
-                    };
+                    });
 
                 let (child_min_cross, child_max_cross, child_border_box_main) = match writing_mode {
                     LayoutWritingMode::HorizontalTb => (
@@ -869,7 +862,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
     // min-content contributions. For multi-line, it is the largest min-content contribution.
     // Auto margins on flex items are treated as 0 for this computation.
     fn calculate_flex_intrinsic_sizes(
-        &mut self,
+        &self,
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
@@ -877,16 +870,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
         // Determine flex-direction to know if main axis is horizontal or vertical
-        let is_row = if let Some(dom_id) = node.dom_node_id {
+        let is_row = node.dom_node_id.is_none_or(|dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             match get_flex_direction(self.ctx.styled_dom, dom_id, node_state) {
                 MultiValue::Exact(dir) => matches!(dir, LayoutFlexDirection::Row | LayoutFlexDirection::RowReverse),
                 _ => true, // default is row
             }
-        } else {
-            true // default flex-direction is row
-        };
+        });
 
         let mut sum_main_min: f32 = 0.0;
         let mut sum_main_max: f32 = 0.0;
@@ -925,22 +916,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         // For single-line (nowrap), min-content = sum; for multi-line (wrap), min-content = max
         // Default flex-wrap is nowrap (single-line)
-        let is_single_line = if let Some(dom_id) = node.dom_node_id {
+        let is_single_line = node.dom_node_id.is_none_or(|dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             let wrap_prop = crate::solver3::getters::get_flex_wrap_prop(
                 self.ctx.styled_dom, dom_id, node_state,
             );
-            match wrap_prop {
-                Some(val) => matches!(
+            wrap_prop.is_none_or(|val| matches!(
                     val.get_property_or_default().unwrap_or_default(),
                     LayoutFlexWrap::NoWrap
-                ),
-                None => true, // default is nowrap
-            }
-        } else {
-            true
-        };
+                ))
+        });
 
         let min_main = if is_single_line { sum_main_min } else { max_main_min };
         let max_main = sum_main_max;
@@ -974,7 +960,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
-    ) -> Result<IntrinsicSizes> {
+    ) -> IntrinsicSizes {
         // Collect per-column min/max widths and total row heights.
         // Table structure: table > row-group? > row > cell
         let mut col_min: Vec<f32> = Vec::new();
@@ -984,7 +970,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // Iterate rows — children may be row groups (thead/tbody/tfoot) or direct rows
         let mut rows: Vec<usize> = Vec::new();
         for &child_idx in tree.children(node_index) {
-            let child = match tree.get(child_idx) { Some(c) => c, None => continue };
+            let Some(child) = tree.get(child_idx) else { continue };
             match child.formatting_context {
                 FormattingContext::TableRow => rows.push(child_idx),
                 FormattingContext::TableRowGroup => {
@@ -1003,8 +989,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         for &row_idx in &rows {
             let mut row_height = 0.0f32;
-            let mut col = 0usize;
-            for &cell_idx in tree.children(row_idx) {
+            for (col, &cell_idx) in tree.children(row_idx).iter().enumerate() {
                 let cell_intrinsic = child_intrinsics.iter().find(|(k, _)| k == &cell_idx).map(|(_, v)| *v)
                     .unwrap_or_default();
                 // Also check if cell has IFC content we can measure
@@ -1018,11 +1003,11 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
                 // Add cell box-model extras
                 let cell_node = tree.get(cell_idx);
-                let (h_extras, v_extras) = if let Some(cn) = cell_node {
+                let (h_extras, v_extras) = cell_node.map_or((0.0, 0.0), |cn| {
                     let bp = cn.box_props.unpack();
                     (bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
                      bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom)
-                } else { (0.0, 0.0) };
+                });
 
                 let cell_min = cell_is.min_content_width + h_extras;
                 let cell_max = cell_is.max_content_width + h_extras;
@@ -1036,7 +1021,6 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     col_max[col] = col_max[col].max(cell_max);
                 }
                 row_height = row_height.max(cell_h);
-                col += 1;
             }
             total_height += row_height;
         }
@@ -1044,14 +1028,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let min_width: f32 = col_min.iter().sum();
         let max_width: f32 = col_max.iter().sum();
 
-        Ok(IntrinsicSizes {
+        IntrinsicSizes {
             min_content_width: min_width,
             max_content_width: max_width,
             min_content_height: total_height,
             max_content_height: total_height,
             preferred_width: None,
             preferred_height: None,
-        })
+        }
     }
 }
 
@@ -1059,7 +1043,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 ///
 /// This function recursively collects text and inline-level content according to
 /// CSS Sizing Level 3, Section 4.1: "Intrinsic Sizes"
-/// https://www.w3.org/TR/css-sizing-3/#intrinsic-sizes
+/// <https://www.w3.org/TR/css-sizing-3/#intrinsic-sizes>
 ///
 /// For inline formatting contexts, we need to gather:
 /// 1. Text nodes (inline content)
@@ -1098,6 +1082,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
 /// - Collects text from DOM children (text nodes may not be in layout tree)
 /// - Recursively collects from inline children (display: inline)
 /// - Treats non-inline children as atomic inline-level boxes
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn collect_inline_content_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1108,13 +1093,10 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // FAILURE distinctly (inline-phase=0xBAD) so a node_index that fails HERE (before B1) is
     // visible even though a PRIOR successful call already wrote B8. This is the suspected
     // InvalidTree site (phase stuck at 0xA0 + B8 reached ⇒ a 2nd IFC call fails at this get).
-    unsafe { crate::az_mark(0x60754_u32, ((node_index as u32))); }
-    let node = match tree.get(node_index) {
-        Some(n) => n,
-        None => {
-            unsafe { crate::az_mark(0x6071C_u32, (0xBADu32)); }
-            return Err(LayoutError::InvalidTree);
-        }
+    unsafe { crate::az_mark(0x60754_u32, (node_index as u32)); }
+    let Some(node) = tree.get(node_index) else {
+        unsafe { crate::az_mark(0x6071C_u32, (0xBADu32)); }
+        return Err(LayoutError::InvalidTree);
     };
 
     // CRITICAL FIX: Text nodes may exist in the DOM but not as separate layout nodes!
@@ -1133,7 +1115,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             ctx.styled_dom,
             dom_id,
             &text,
-            style_props,
+            &style_props,
         );
         content.extend(text_items);
     }
@@ -1162,7 +1144,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 child_id,
                 &text,
-                style_props,
+                &style_props,
             );
             content.extend(text_items);
         }
@@ -1174,6 +1156,8 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 }
 
 /// Helper to process layout tree children for inline content collection
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn process_layout_children<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1183,11 +1167,11 @@ fn process_layout_children<T: ParsedFontTrait>(
     use azul_css::props::layout::{LayoutHeight, LayoutWidth};
 
     // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
-    unsafe { crate::az_mark(0x60708_u32, ((0xC0000000u32 | (node_index as u32 & 0xFFFFFF)))); }
+    unsafe { crate::az_mark(0x60708_u32, (0xC000_0000_u32 | (node_index as u32 & 0x00FF_FFFF))); }
     // Process layout tree children (these are elements with layout properties)
     for &child_index in tree.children(node_index) {
         // [g73] PLC loop: 0x6070C = current child_index being processed.
-        unsafe { crate::az_mark(0x6070C_u32, ((child_index as u32))); }
+        unsafe { crate::az_mark(0x6070C_u32, (child_index as u32)); }
         // 2026-06-02: was `.ok_or(LayoutError::InvalidTree)?` — a stray/invalid child_index in
         // tree.children (likely a Text node mis-listed during reconcile, since Text is INLINE
         // content not a layout-tree node) aborted the WHOLE intrinsic-sizing pass with
@@ -1285,6 +1269,9 @@ fn process_layout_children<T: ParsedFontTrait>(
 }
 
 // Keep old name as an alias for backward compatibility
+/// # Errors
+///
+/// Returns a `LayoutError` if collecting inline content fails.
 pub fn collect_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
@@ -1311,17 +1298,18 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 /// 4. A final `LogicalSize` is constructed from these logical dimensions.
 // +spec:overflow:3c4f25 - auto box sizes: four auto-determined size types resolved here
 // +spec:width-calculation:fb0629 - width/margin used values depend on box type, auto replaced by suitable value
-/// M12.7: out-of-line auto-width-block inline size — `(cb.width - margins - borders -
-/// padding).max(0.0)`. Extracted from calc_used_size's auto-width Block arm so the
-/// `.max(0.0)` runs in a small fn (proven to lift correctly), with a FRESH pointer
-/// deref (the huge calc_used_size body hoists/spills cb.width and the remill lift then
-/// reads it back 0). Returns by f32 (D0/V0 — the standard scalar return), NOT an out-ptr:
-/// the out-ptr version computed 800 correctly but the caller's reload was opt-forwarded
-/// to the init 0.0 across the opaque call (the helper's `*out` lowers to a direct
-/// linear-mem store not modeled as aliasing the caller's slot). The f32 return is the
-/// call's SSA result, which opt cannot replace. (The earlier "f32-return mis-lift" worry
-/// was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
+///    M12.7: out-of-line auto-width-block inline size — `(cb.width - margins - borders -
+/// padding).max(0.0)`. Extracted from `calc_used_size`'s auto-width Block arm so the
+///    `.max(0.0)` runs in a small fn (proven to lift correctly), with a FRESH pointer
+///    deref (the huge `calc_used_size` body hoists/spills cb.width and the remill lift then
+///    reads it back 0). Returns by f32 (D0/V0 — the standard scalar return), NOT an out-ptr:
+///    the out-ptr version computed 800 correctly but the caller's reload was opt-forwarded
+///    to the init 0.0 across the opaque call (the helper's `*out` lowers to a direct
+///    linear-mem store not modeled as aliasing the caller's slot). The f32 return is the
+///    call's SSA result, which opt cannot replace. (The earlier "f32-return mis-lift" worry
+///    was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
 #[inline(never)]
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     let aw = cb.width
         - bp.margin.left
@@ -1333,6 +1321,11 @@ fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     aw.max(0.0)
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if computing the used size fails.
 pub fn calculate_used_size_for_node(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
@@ -1343,7 +1336,7 @@ pub fn calculate_used_size_for_node(
     // A pointer arg lifts cleanly; the body reads only .width/.height (auto-deref).
     containing_block_size: &LogicalSize,
     intrinsic: IntrinsicSizes,
-    _box_props: &BoxProps,
+    box_props: &BoxProps,
     viewport_size: &LogicalSize,
 ) -> Result<LogicalSize> {
     let Some(id) = dom_id else {
@@ -1463,12 +1456,12 @@ pub fn calculate_used_size_for_node(
                 // +spec:width-calculation:a6fd29 - shrink-to-fit width for floats: min(max(preferred minimum, available), preferred)
                 // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
                 let available_width = (containing_block_size.width
-                    - _box_props.margin.left
-                    - _box_props.margin.right
-                    - _box_props.border.left
-                    - _box_props.border.right
-                    - _box_props.padding.left
-                    - _box_props.padding.right)
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
                     .max(0.0);
                 let preferred_minimum = intrinsic.min_content_width;
                 let preferred = intrinsic.max_content_width;
@@ -1482,12 +1475,12 @@ pub fn calculate_used_size_for_node(
                 // +spec:width-calculation:1661b4 - abs-pos non-replaced auto width uses shrink-to-fit (§10.3.7)
                 // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                 let available_width = (containing_block_size.width
-                    - _box_props.margin.left
-                    - _box_props.margin.right
-                    - _box_props.border.left
-                    - _box_props.border.right
-                    - _box_props.padding.left
-                    - _box_props.padding.right)
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
                     .max(0.0);
                 let preferred_minimum = intrinsic.min_content_width;
                 let preferred = intrinsic.max_content_width;
@@ -1527,18 +1520,18 @@ pub fn calculate_used_size_for_node(
                     // return comes back in D0 as the call's SSA result (opt can't forward
                     // the init over it), and with D8-D15 preserved across calc's later
                     // calls the value survives to the return.
-                    auto_block_inline_size(containing_block_size, _box_props)
+                    auto_block_inline_size(containing_block_size, box_props)
                 }
                 LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid | LayoutDisplay::InlineFlex => {
                     // +spec:width-calculation:c01de8 - inline-block auto width uses shrink-to-fit (§10.3.9)
                     // shrink-to-fit = min(max(preferred_minimum, available), preferred)
                     let available_width = (containing_block_size.width
-                        - _box_props.margin.left
-                        - _box_props.margin.right
-                        - _box_props.border.left
-                        - _box_props.border.right
-                        - _box_props.padding.left
-                        - _box_props.padding.right)
+                        - box_props.margin.left
+                        - box_props.margin.right
+                        - box_props.border.left
+                        - box_props.border.right
+                        - box_props.padding.left
+                        - box_props.padding.right)
                         .max(0.0);
                     let preferred_minimum = intrinsic.min_content_width;
                     let preferred = intrinsic.max_content_width;
@@ -1558,12 +1551,12 @@ pub fn calculate_used_size_for_node(
                         intrinsic.max_content_width
                     } else {
                         (containing_block_size.width
-                            - _box_props.margin.left
-                            - _box_props.margin.right
-                            - _box_props.border.left
-                            - _box_props.border.right
-                            - _box_props.padding.left
-                            - _box_props.padding.right)
+                            - box_props.margin.left
+                            - box_props.margin.right
+                            - box_props.border.left
+                            - box_props.border.right
+                            - box_props.padding.left
+                            - box_props.padding.right)
                             .max(0.0)
                     }
                 }
@@ -1579,19 +1572,17 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width, viewport_size.height,
             );
 
-            match pixels_opt {
-                Some(pixels) => pixels,
-                None => match px.to_percent() {
-                    Some(p) => resolve_percentage_with_box_model(
+            pixels_opt.unwrap_or_else(|| {
+                px.to_percent().map_or(intrinsic.max_content_width, |p| {
+                    resolve_percentage_with_box_model(
                         containing_block_size.width,
                         p.get(),
-                        (_box_props.margin.left, _box_props.margin.right),
-                        (_box_props.border.left, _box_props.border.right),
-                        (_box_props.padding.left, _box_props.padding.right),
-                    ),
-                    None => intrinsic.max_content_width,
-                },
-            }
+                        (box_props.margin.left, box_props.margin.right),
+                        (box_props.border.left, box_props.border.right),
+                        (box_props.padding.left, box_props.padding.right),
+                    )
+                })
+            })
         }
         // +spec:intrinsic-sizing:069c75 - min-content, max-content, fit-content() sizing value keywords
         // +spec:intrinsic-sizing:1ce4fa - §3.2 min-content/max-content/fit-content() sizing values
@@ -1671,8 +1662,8 @@ pub fn calculate_used_size_for_node(
                         (containing_block_size.height
                             - t
                             - b
-                            - _box_props.margin.top
-                            - _box_props.margin.bottom)
+                            - box_props.margin.top
+                            - box_props.margin.bottom)
                             .max(0.0),
                     ),
                     _ => None,
@@ -1708,20 +1699,18 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width, viewport_size.height,
             );
 
-            match pixels_opt {
-                Some(pixels) => pixels,
-                // +spec:height-calculation:37bc8c - percentage heights resolve against definite containing block height
-                None => match px.to_percent() {
-                    Some(p) => resolve_percentage_with_box_model(
+            // +spec:height-calculation:37bc8c - percentage heights resolve against definite containing block height
+            pixels_opt.unwrap_or_else(|| {
+                px.to_percent().map_or(intrinsic.max_content_height, |p| {
+                    resolve_percentage_with_box_model(
                         containing_block_size.height,
                         p.get(),
-                        (_box_props.margin.top, _box_props.margin.bottom),
-                        (_box_props.border.top, _box_props.border.bottom),
-                        (_box_props.padding.top, _box_props.padding.bottom),
-                    ),
-                    None => intrinsic.max_content_height,
-                },
-            }
+                        (box_props.margin.top, box_props.margin.bottom),
+                        (box_props.border.top, box_props.border.bottom),
+                        (box_props.padding.top, box_props.padding.bottom),
+                    )
+                })
+            })
         }
         // equivalent to automatic size (not min_content_height which is height at min-content width)
         LayoutHeight::MinContent => intrinsic.max_content_height,
@@ -1765,8 +1754,7 @@ pub fn calculate_used_size_for_node(
             _ => None,
         };
 
-        if let Some(ratio) = intrinsic_ratio {
-            if height_is_auto && !has_intrinsic_width && has_intrinsic_height {
+        intrinsic_ratio.map_or((resolved_width, resolved_height), |ratio| if height_is_auto && !has_intrinsic_width && has_intrinsic_height {
                 // §6.2 case: both auto, no intrinsic width, has intrinsic height + ratio
                 // → width = used height × ratio
                 (resolved_height * ratio, resolved_height)
@@ -1778,20 +1766,17 @@ pub fn calculate_used_size_for_node(
                 // §6.2 case: both auto, has ratio but no intrinsic width or height
                 // → use block-level non-replaced constraint equation for width
                 let block_width = (containing_block_size.width
-                    - _box_props.margin.left
-                    - _box_props.margin.right
-                    - _box_props.border.left
-                    - _box_props.border.right
-                    - _box_props.padding.left
-                    - _box_props.padding.right)
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
                     .max(0.0);
                 (block_width, block_width / ratio)
             } else {
                 (resolved_width, resolved_height)
-            }
-        } else {
-            (resolved_width, resolved_height)
-        }
+            })
     } else {
         (resolved_width, resolved_height)
     };
@@ -1826,7 +1811,7 @@ pub fn calculate_used_size_for_node(
             resolved_height,
             containing_block_size.width,
             containing_block_size.height,
-            _box_props,
+            box_props,
         )
     } else {
         // Non-replaced element: apply width and height constraints independently
@@ -1836,7 +1821,7 @@ pub fn calculate_used_size_for_node(
             node_state,
             resolved_width,
             containing_block_size.width,
-            _box_props,
+            box_props,
         );
 
         let ch = apply_height_constraints(
@@ -1845,7 +1830,7 @@ pub fn calculate_used_size_for_node(
             node_state,
             resolved_height,
             containing_block_size.height,
-            _box_props,
+            box_props,
         );
         (cw, ch)
     };
@@ -1872,14 +1857,14 @@ pub fn calculate_used_size_for_node(
         azul_css::props::layout::LayoutBoxSizing::BorderBox => {
             // +spec:box-sizing:cdfe09 - box-sizing: border-box makes width/height set the border box
             // +spec:box-sizing:3ba6d3 - content-box floors at 0px, so border-box can't be less than padding+border
-            let min_border_box_w = _box_props.padding.left
-                + _box_props.padding.right
-                + _box_props.border.left
-                + _box_props.border.right;
-            let min_border_box_h = _box_props.padding.top
-                + _box_props.padding.bottom
-                + _box_props.border.top
-                + _box_props.border.bottom;
+            let min_border_box_w = box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right;
+            let min_border_box_h = box_props.padding.top
+                + box_props.padding.bottom
+                + box_props.border.top
+                + box_props.border.bottom;
             // +spec:box-model:4f423b - used values refer to the border box when box-sizing: border-box
             // border-box: The width/height values already include border and padding
             // CSS Box Sizing Level 3: "the specified width and height (and respective min/max
@@ -1891,34 +1876,34 @@ pub fn calculate_used_size_for_node(
                 constrained_width.max(min_border_box_w)
             } else {
                 constrained_width
-                    + _box_props.padding.left
-                    + _box_props.padding.right
-                    + _box_props.border.left
-                    + _box_props.border.right
+                    + box_props.padding.left
+                    + box_props.padding.right
+                    + box_props.border.left
+                    + box_props.border.right
             };
             let bh = if height_is_quantitative {
                 constrained_height.max(min_border_box_h)
             } else {
                 constrained_height
-                    + _box_props.padding.top
-                    + _box_props.padding.bottom
-                    + _box_props.border.top
-                    + _box_props.border.bottom
+                    + box_props.padding.top
+                    + box_props.padding.bottom
+                    + box_props.border.top
+                    + box_props.border.bottom
             };
             (bw, bh)
         }
         azul_css::props::layout::LayoutBoxSizing::ContentBox => {
             // +spec:box-sizing:fead70 - content-box: width/height set content size, border+padding added outside
             let border_box_width = constrained_width
-                + _box_props.padding.left
-                + _box_props.padding.right
-                + _box_props.border.left
-                + _box_props.border.right;
+                + box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right;
             let border_box_height = constrained_height
-                + _box_props.padding.top
-                + _box_props.padding.bottom
-                + _box_props.border.top
-                + _box_props.border.bottom;
+                + box_props.padding.top
+                + box_props.padding.bottom
+                + box_props.border.top
+                + box_props.border.bottom;
             (border_box_width, border_box_height)
         }
     };
@@ -2169,7 +2154,7 @@ fn apply_height_constraints(
     result.max(min_height)
 }
 
-pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
+#[must_use] pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
     match &styled_dom.node_data.as_container()[node_id].get_node_type() {
         NodeType::Text(text_data) => {
             Some(text_data.as_str().to_string())

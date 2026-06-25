@@ -59,7 +59,7 @@ fn test_map_widget_fills_flex_container() {
     let mut layout_cache = fresh_layout_cache();
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);
-    let viewport = LogicalRect { origin: LogicalPosition::zero(), size: content_size };
+    let _viewport = LogicalRect { origin: LogicalPosition::zero(), size: content_size };
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();
@@ -91,12 +91,11 @@ fn test_map_widget_fills_flex_container() {
     // parent whose height was resolved AFTER its subtree was (never) laid out.
     let widget_div_h = tree.get(4).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
     let vview_h = tree.get(5).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
-    println!("=> map widget div height={:.1}, VirtualView height={:.1}", widget_div_h, vview_h);
-    assert!(widget_div_h > 400.0, "abs map widget div collapsed: {:.1}", widget_div_h);
+    println!("=> map widget div height={widget_div_h:.1}, VirtualView height={vview_h:.1}");
+    assert!(widget_div_h > 400.0, "abs map widget div collapsed: {widget_div_h:.1}");
     assert!(
         vview_h > 400.0,
-        "VirtualView collapsed to {:.1}px — %-height did not resolve against the abs-inset parent",
-        vview_h
+        "VirtualView collapsed to {vview_h:.1}px — %-height did not resolve against the abs-inset parent"
     );
 }
 
@@ -167,7 +166,6 @@ fn test_map_widget_fills_container() {
     // The map widget div + VirtualView must fill the 400px map area, not collapse to 0.
     assert!(
         max_inner_h > 350.0,
-        "map widget collapsed (max inner height {:.1}); expected it to fill the 400px container",
-        max_inner_h
+        "map widget collapsed (max inner height {max_inner_h:.1}); expected it to fill the 400px container"
     );
 }

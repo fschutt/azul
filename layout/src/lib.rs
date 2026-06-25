@@ -21,6 +21,34 @@
 // rest of the (hand-written) crate is actually checked.
 #![deny(unused_must_use)]
 #![warn(clippy::all)]
+// === "extreme lints" lockdown (2026-06-20) — maximal opt-in lint set ===
+// All clippy groups + opt-in rustc lints, warn-level so normal builds still
+// pass; the CI clippy job runs `-D warnings`, turning every one of these into
+// the outstanding-lint-failure report for Monday triage. NOT yet fixed.
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    // missing_docs,  // TODO(docs): re-enable as a dedicated final docs pass; disabled
+    //                // for now so the cleanup focuses on code-quality lints, not doc debt.
+    missing_debug_implementations,
+    missing_copy_implementations,
+    unreachable_pub,
+    unused_qualifications,
+    unused_lifetimes,
+    unused_import_braces,
+    unused_macro_rules,
+    unused_crate_dependencies,
+    meta_variable_misuse,
+    trivial_casts,
+    trivial_numeric_casts,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    variant_size_differences,
+    non_ascii_idents,
+    unsafe_op_in_unsafe_fn,
+    let_underscore_drop,
+)]
 #![allow(
     // `unknown_lints` lets the two forward-compat lints below be listed even on
     // the CI toolchain (1.88), where they are not yet known, without emitting an
@@ -39,15 +67,36 @@
     clippy::legacy_numeric_constants,
     unexpected_cfgs,                        // web-lift diagnostic cfgs
     deprecated,                             // image crate tiff encoder (only under `tiff`)
+    // transitive dependency-version dups not resolvable in azul's source —
+    // syn 1↔2 (proc-macro migration), heck/jni-sys/rustc-hash/rustls-webpki;
+    // re-audit when the dep tree aligns.
+    clippy::multiple_crate_versions,
 )]
 
 #[macro_use]
 extern crate alloc;
 extern crate core;
 
+// Dependencies kept for downstream/feature-plumbing use but not referenced
+// directly in this crate's source — marked intentionally linked so
+// unused_crate_dependencies stays quiet (the lint's own suggested fix).
+// `brotli-decompressor`: decompresses the codegen material_icons.ttf.br in azul-dll.
+#[cfg(feature = "icons")]
+use brotli_decompressor as _;
+// `lru`: reserved for the slippy-map tile cache (azul-dll widgets).
+use lru as _;
+// `unicode-normalization` / `xmlwriter`: pulled by text_layout / xml for the
+// shaping + SVG-writer paths consumed downstream.
+#[cfg(feature = "text_layout")]
+use unicode_normalization as _;
+#[cfg(feature = "xml")]
+use xmlwriter as _;
+
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
 /// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness
-/// peeks via `AzStartup_peekU32`). Compiles to NOTHING without the `web_lift`
+/// peeks via `AzStartup_peekU32`).
+///
+/// Compiles to NOTHING without the `web_lift`
 /// feature — absolute-address stores would segfault native builds (macOS
 /// `__PAGEZERO` covers the low 4 GiB). All in-tree diagnostic markers MUST go
 /// through this helper rather than calling `core::ptr::write_volatile` on a
@@ -58,8 +107,8 @@ extern crate core;
 /// With the `web_lift` feature enabled, `addr` must be a valid, writable wasm
 /// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
 /// the feature this is a no-op and always safe.
-#[inline(always)]
-pub unsafe fn az_mark(_addr: u32, _val: u32) {
+#[inline]
+pub const unsafe fn az_mark(_addr: u32, _val: u32) {
     #[cfg(feature = "web_lift")]
     core::ptr::write_volatile(_addr as usize as *mut u32, _val);
 }
@@ -72,8 +121,8 @@ pub unsafe fn az_mark(_addr: u32, _val: u32) {
 /// With the `web_lift` feature enabled, `addr` must be a valid, readable wasm
 /// linear-memory address (within the 0x40000–0xF0000 diagnostic band). Without
 /// the feature this is a no-op that returns 0 and is always safe.
-#[inline(always)]
-pub unsafe fn az_mark_read(_addr: u32) -> u32 {
+#[inline]
+#[must_use] pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
     #[cfg(feature = "web_lift")]
     return core::ptr::read_volatile(_addr as usize as *const u32);
     #[cfg(not(feature = "web_lift"))]
@@ -179,6 +228,7 @@ pub use file::{
 };
 
 /// HTTP client: GET/POST requests with pure-Rust TLS.
+///
 /// API surface always present (stub when off); ureq/rustls only pulled in with `http`.
 pub mod http;
 pub use http::{
@@ -200,9 +250,9 @@ pub use json::{
 };
 
 /// ZIP file creation, extraction, and listing.
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub mod zip;
-#[cfg(feature = "zip_support")]
+#[cfg(feature = "zip")]
 pub use zip::{
     zip_create, zip_create_from_files, zip_extract_all, zip_list_contents,
     ZipFile, ZipFileEntry, ZipFileEntryVec, ZipPathEntry, ZipPathEntryVec,
@@ -254,6 +304,7 @@ pub mod event_determination;
 pub mod font;
 
 /// Headless backend for CPU-only rendering without a display server.
+///
 /// Used with `AZUL_HEADLESS=1` for E2E testing, CI, and screenshot capture.
 #[cfg(feature = "text_layout")]
 pub mod headless;
@@ -338,6 +389,9 @@ pub use managers::text_input::{PendingTextEdit, OptionPendingTextEdit};
 #[cfg(feature = "text_layout")]
 /// Parses raw font bytes into a [`FontRef`](azul_css::props::basic::FontRef)
 /// suitable for use in the layout system.
+// signature must match the `ParseFontFn = fn(LoadedFontSource) -> ...` callback type
+// (core/src/resources.rs) and the api.json export, so the owned param cannot become &.
+#[allow(clippy::needless_pass_by_value)]
 pub fn parse_font_fn(
     source: azul_core::resources::LoadedFontSource,
 ) -> Option<azul_css::props::basic::FontRef> {
@@ -355,13 +409,13 @@ pub fn parse_font_fn(
 /// Wraps a [`ParsedFont`] in a [`FontRef`](azul_css::props::basic::FontRef),
 /// transferring ownership to the returned handle.
 pub fn parsed_font_to_font_ref(
-    parsed_font: crate::font::parsed::ParsedFont,
+    parsed_font: ParsedFont,
 ) -> azul_css::props::basic::FontRef {
     use core::ffi::c_void;
 
     extern "C" fn parsed_font_destructor(ptr: *mut c_void) {
         unsafe {
-            let _ = Box::from_raw(ptr as *mut crate::font::parsed::ParsedFont);
+            drop(Box::from_raw(ptr.cast::<ParsedFont>()));
         }
     }
 
@@ -376,10 +430,10 @@ pub fn parsed_font_to_font_ref(
 /// # Safety contract
 /// The `font_ref` must have been created by [`parsed_font_to_font_ref`],
 /// so that `font_ref.parsed` points to a valid `ParsedFont`.
-pub fn font_ref_to_parsed_font(
+#[must_use] pub const fn font_ref_to_parsed_font(
     font_ref: &azul_css::props::basic::FontRef,
-) -> &crate::font::parsed::ParsedFont {
+) -> &ParsedFont {
     // SAFETY: `font_ref.parsed` was created by `parsed_font_to_font_ref`
     // via `Box::into_raw`, so it points to a valid, aligned `ParsedFont`.
-    unsafe { &*(font_ref.parsed as *const crate::font::parsed::ParsedFont) }
+    unsafe { &*font_ref.parsed.cast::<ParsedFont>() }
 }

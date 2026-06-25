@@ -92,15 +92,15 @@ impl_vec_eq!(StyleBackgroundContent, StyleBackgroundContentVec);
 impl_vec_hash!(StyleBackgroundContent, StyleBackgroundContentVec);
 
 impl Default for StyleBackgroundContent {
-    fn default() -> StyleBackgroundContent {
-        StyleBackgroundContent::Color(ColorU::TRANSPARENT)
+    fn default() -> Self {
+        Self::Color(ColorU::TRANSPARENT)
     }
 }
 
 impl PrintAsCssValue for StyleBackgroundContent {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleBackgroundContent::LinearGradient(lg) => {
+            Self::LinearGradient(lg) => {
                 let prefix = if lg.extend_mode == ExtendMode::Repeat {
                     "repeating-linear-gradient"
                 } else {
@@ -108,7 +108,7 @@ impl PrintAsCssValue for StyleBackgroundContent {
                 };
                 format!("{}({})", prefix, lg.print_as_css_value())
             }
-            StyleBackgroundContent::RadialGradient(rg) => {
+            Self::RadialGradient(rg) => {
                 let prefix = if rg.extend_mode == ExtendMode::Repeat {
                     "repeating-radial-gradient"
                 } else {
@@ -116,7 +116,7 @@ impl PrintAsCssValue for StyleBackgroundContent {
                 };
                 format!("{}({})", prefix, rg.print_as_css_value())
             }
-            StyleBackgroundContent::ConicGradient(cg) => {
+            Self::ConicGradient(cg) => {
                 let prefix = if cg.extend_mode == ExtendMode::Repeat {
                     "repeating-conic-gradient"
                 } else {
@@ -124,9 +124,9 @@ impl PrintAsCssValue for StyleBackgroundContent {
                 };
                 format!("{}({})", prefix, cg.print_as_css_value())
             }
-            StyleBackgroundContent::Image(id) => format!("url(\"{}\")", id.as_str()),
-            StyleBackgroundContent::Color(c) => c.to_hash(),
-            StyleBackgroundContent::SystemColor(s) => s.as_css_str().to_string(),
+            Self::Image(id) => format!("url(\"{}\")", id.as_str()),
+            Self::Color(c) => c.to_hash(),
+            Self::SystemColor(s) => s.as_css_str().to_string(),
         }
     }
 }
@@ -171,7 +171,7 @@ impl PrintAsCssValue for StyleBackgroundContentVec {
     fn print_as_css_value(&self) -> String {
         self.as_ref()
             .iter()
-            .map(|f| f.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -202,13 +202,13 @@ impl PrintAsCssValue for LinearGradient {
         let stops_str = self
             .stops
             .iter()
-            .map(|s| s.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ");
         if stops_str.is_empty() {
             dir_str
         } else {
-            format!("{}, {}", dir_str, stops_str)
+            format!("{dir_str}, {stops_str}")
         }
     }
 }
@@ -239,7 +239,7 @@ impl PrintAsCssValue for RadialGradient {
         let stops_str = self
             .stops
             .iter()
-            .map(|s| s.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ");
         format!(
@@ -276,7 +276,7 @@ impl PrintAsCssValue for ConicGradient {
         let stops_str = self
             .stops
             .iter()
-            .map(|s| s.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ");
         format!(
@@ -300,20 +300,20 @@ pub enum Shape {
     Circle,
 }
 impl fmt::Display for Shape {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
             match self {
-                Shape::Ellipse => "ellipse",
-                Shape::Circle => "circle",
+                Self::Ellipse => "ellipse",
+                Self::Circle => "circle",
             }
         )
     }
 }
 
 /// The sizing keyword for a radial gradient (e.g. `closest-side`, `farthest-corner`).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
 pub enum RadialGradientSize {
@@ -324,7 +324,7 @@ pub enum RadialGradientSize {
     FarthestCorner,
 }
 impl fmt::Display for RadialGradientSize {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -338,7 +338,7 @@ impl fmt::Display for RadialGradientSize {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NormalizedLinearColorStop {
     pub offset: PercentageValue,
@@ -348,12 +348,12 @@ pub struct NormalizedLinearColorStop {
 
 impl NormalizedLinearColorStop {
     /// Create a new normalized linear color stop with a concrete color.
-    pub const fn new(offset: PercentageValue, color: ColorU) -> Self {
+    #[must_use] pub const fn new(offset: PercentageValue, color: ColorU) -> Self {
         Self { offset, color: ColorOrSystem::color(color) }
     }
 
     /// Resolve the color against system colors.
-    pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+    #[must_use] pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         self.color.resolve(system_colors, fallback)
     }
 }
@@ -385,7 +385,7 @@ impl PrintAsCssValue for NormalizedLinearColorStop {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NormalizedRadialColorStop {
     pub angle: AngleValue,
@@ -395,12 +395,12 @@ pub struct NormalizedRadialColorStop {
 
 impl NormalizedRadialColorStop {
     /// Create a new normalized radial color stop with a concrete color.
-    pub const fn new(angle: AngleValue, color: ColorU) -> Self {
+    #[must_use] pub const fn new(angle: AngleValue, color: ColorU) -> Self {
         Self { angle, color: ColorOrSystem::color(color) }
     }
 
     /// Resolve the color against system colors.
-    pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+    #[must_use] pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         self.color.resolve(system_colors, fallback)
     }
 }
@@ -523,7 +523,7 @@ impl PrintAsCssValue for StyleBackgroundPosition {
 impl PrintAsCssValue for StyleBackgroundPositionVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
-            .map(|v| v.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -538,7 +538,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundPositionVec {
         )
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Horizontal component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -551,7 +551,7 @@ pub enum BackgroundPositionHorizontal {
 
 impl BackgroundPositionHorizontal {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        if let BackgroundPositionHorizontal::Exact(s) = self {
+        if let Self::Exact(s) = self {
             s.scale_for_dpi(scale_factor);
         }
     }
@@ -567,7 +567,7 @@ impl PrintAsCssValue for BackgroundPositionHorizontal {
         }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Vertical component of `background-position`: a keyword or exact pixel value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -580,7 +580,7 @@ pub enum BackgroundPositionVertical {
 
 impl BackgroundPositionVertical {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        if let BackgroundPositionVertical::Exact(s) = self {
+        if let Self::Exact(s) = self {
             s.scale_for_dpi(scale_factor);
         }
     }
@@ -596,7 +596,7 @@ impl PrintAsCssValue for BackgroundPositionVertical {
         }
     }
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// The `background-size` property: `contain`, `cover`, or an exact size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -615,7 +615,7 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// Two-dimensional size in PixelValue units (width, height)
+/// Two-dimensional size in `PixelValue` units (width, height)
 /// Used for background-size and similar properties
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -639,7 +639,7 @@ impl_vec_hash!(StyleBackgroundSize, StyleBackgroundSizeVec);
 
 impl StyleBackgroundSize {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        if let StyleBackgroundSize::ExactSize(size) = self {
+        if let Self::ExactSize(size) = self {
             size.width.scale_for_dpi(scale_factor);
             size.height.scale_for_dpi(scale_factor);
         }
@@ -664,7 +664,7 @@ impl PrintAsCssValue for StyleBackgroundSize {
 impl PrintAsCssValue for StyleBackgroundSizeVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
-            .map(|v| v.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -712,7 +712,7 @@ impl PrintAsCssValue for StyleBackgroundRepeat {
 impl PrintAsCssValue for StyleBackgroundRepeatVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
-            .map(|v| v.print_as_css_value())
+            .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -802,19 +802,19 @@ pub enum CssBackgroundParseErrorOwned {
     ColorParseError(CssColorParseErrorOwned),
 }
 
-impl<'a> CssBackgroundParseError<'a> {
-    pub fn to_contained(&self) -> CssBackgroundParseErrorOwned {
+impl CssBackgroundParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssBackgroundParseErrorOwned {
         match self {
-            Self::Error(s) => CssBackgroundParseErrorOwned::Error(s.to_string().into()),
+            Self::Error(s) => CssBackgroundParseErrorOwned::Error((*s).to_string().into()),
             Self::InvalidBackground(e) => {
                 CssBackgroundParseErrorOwned::InvalidBackground(e.to_contained())
             }
             Self::UnclosedGradient(s) => {
-                CssBackgroundParseErrorOwned::UnclosedGradient(s.to_string().into())
+                CssBackgroundParseErrorOwned::UnclosedGradient((*s).to_string().into())
             }
-            Self::NoDirection(s) => CssBackgroundParseErrorOwned::NoDirection(s.to_string().into()),
+            Self::NoDirection(s) => CssBackgroundParseErrorOwned::NoDirection((*s).to_string().into()),
             Self::TooFewGradientStops(s) => {
-                CssBackgroundParseErrorOwned::TooFewGradientStops(s.to_string().into())
+                CssBackgroundParseErrorOwned::TooFewGradientStops((*s).to_string().into())
             }
             Self::DirectionParseError(e) => {
                 CssBackgroundParseErrorOwned::DirectionParseError(e.to_contained())
@@ -837,7 +837,7 @@ impl<'a> CssBackgroundParseError<'a> {
 }
 
 impl CssBackgroundParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssBackgroundParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssBackgroundParseError<'_> {
         match self {
             Self::Error(s) => CssBackgroundParseError::Error(s),
             Self::InvalidBackground(e) => CssBackgroundParseError::InvalidBackground(e.to_shared()),
@@ -888,10 +888,10 @@ pub enum CssGradientStopParseErrorOwned {
     ColorParseError(CssColorParseErrorOwned),
 }
 
-impl<'a> CssGradientStopParseError<'a> {
-    pub fn to_contained(&self) -> CssGradientStopParseErrorOwned {
+impl CssGradientStopParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssGradientStopParseErrorOwned {
         match self {
-            Self::Error(s) => CssGradientStopParseErrorOwned::Error(s.to_string().into()),
+            Self::Error(s) => CssGradientStopParseErrorOwned::Error((*s).to_string().into()),
             Self::Percentage(e) => CssGradientStopParseErrorOwned::Percentage(e.to_contained()),
             Self::Angle(e) => CssGradientStopParseErrorOwned::Angle(e.to_contained()),
             Self::ColorParseError(e) => {
@@ -902,7 +902,7 @@ impl<'a> CssGradientStopParseError<'a> {
 }
 
 impl CssGradientStopParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssGradientStopParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssGradientStopParseError<'_> {
         match self {
             Self::Error(s) => CssGradientStopParseError::Error(s),
             Self::Percentage(e) => CssGradientStopParseError::Percentage(e.to_shared()),
@@ -912,7 +912,7 @@ impl CssGradientStopParseErrorOwned {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssConicGradientParseError<'a> {
     Position(CssBackgroundPositionParseError<'a>),
     Angle(CssAngleValueParseError<'a>),
@@ -935,24 +935,24 @@ impl_from!(
     CssConicGradientParseError::Position
 );
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssConicGradientParseErrorOwned {
     Position(CssBackgroundPositionParseErrorOwned),
     Angle(CssAngleValueParseErrorOwned),
     NoAngle(AzString),
 }
-impl<'a> CssConicGradientParseError<'a> {
-    pub fn to_contained(&self) -> CssConicGradientParseErrorOwned {
+impl CssConicGradientParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssConicGradientParseErrorOwned {
         match self {
             Self::Position(e) => CssConicGradientParseErrorOwned::Position(e.to_contained()),
             Self::Angle(e) => CssConicGradientParseErrorOwned::Angle(e.to_contained()),
-            Self::NoAngle(s) => CssConicGradientParseErrorOwned::NoAngle(s.to_string().into()),
+            Self::NoAngle(s) => CssConicGradientParseErrorOwned::NoAngle((*s).to_string().into()),
         }
     }
 }
 impl CssConicGradientParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssConicGradientParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssConicGradientParseError<'_> {
         match self {
             Self::Position(e) => CssConicGradientParseError::Position(e.to_shared()),
             Self::Angle(e) => CssConicGradientParseError::Angle(e.to_shared()),
@@ -961,34 +961,34 @@ impl CssConicGradientParseErrorOwned {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CssShapeParseError<'a> {
     ShapeErr(InvalidValueErr<'a>),
 }
 impl_display! {CssShapeParseError<'a>, {
     ShapeErr(e) => format!("\"{}\"", e.0),
 }}
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssShapeParseErrorOwned {
     ShapeErr(InvalidValueErrOwned),
 }
-impl<'a> CssShapeParseError<'a> {
-    pub fn to_contained(&self) -> CssShapeParseErrorOwned {
+impl CssShapeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssShapeParseErrorOwned {
         match self {
             Self::ShapeErr(err) => CssShapeParseErrorOwned::ShapeErr(err.to_contained()),
         }
     }
 }
 impl CssShapeParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssShapeParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssShapeParseError<'_> {
         match self {
             Self::ShapeErr(err) => CssShapeParseError::ShapeErr(err.to_shared()),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssBackgroundPositionParseError<'a> {
     NoPosition(&'a str),
     TooManyComponents(&'a str),
@@ -1002,7 +1002,7 @@ impl_display! {CssBackgroundPositionParseError<'a>, {
     FirstComponentWrong(e) => format!("Failed to parse first component: \"{}\"", e),
     SecondComponentWrong(e) => format!("Failed to parse second component: \"{}\"", e),
 }}
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssBackgroundPositionParseErrorOwned {
     NoPosition(AzString),
@@ -1010,12 +1010,12 @@ pub enum CssBackgroundPositionParseErrorOwned {
     FirstComponentWrong(CssPixelValueParseErrorOwned),
     SecondComponentWrong(CssPixelValueParseErrorOwned),
 }
-impl<'a> CssBackgroundPositionParseError<'a> {
-    pub fn to_contained(&self) -> CssBackgroundPositionParseErrorOwned {
+impl CssBackgroundPositionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssBackgroundPositionParseErrorOwned {
         match self {
-            Self::NoPosition(s) => CssBackgroundPositionParseErrorOwned::NoPosition(s.to_string().into()),
+            Self::NoPosition(s) => CssBackgroundPositionParseErrorOwned::NoPosition((*s).to_string().into()),
             Self::TooManyComponents(s) => {
-                CssBackgroundPositionParseErrorOwned::TooManyComponents(s.to_string().into())
+                CssBackgroundPositionParseErrorOwned::TooManyComponents((*s).to_string().into())
             }
             Self::FirstComponentWrong(e) => {
                 CssBackgroundPositionParseErrorOwned::FirstComponentWrong(e.to_contained())
@@ -1027,7 +1027,7 @@ impl<'a> CssBackgroundPositionParseError<'a> {
     }
 }
 impl CssBackgroundPositionParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssBackgroundPositionParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssBackgroundPositionParseError<'_> {
         match self {
             Self::NoPosition(s) => CssBackgroundPositionParseError::NoPosition(s),
             Self::TooManyComponents(s) => CssBackgroundPositionParseError::TooManyComponents(s),
@@ -1045,8 +1045,12 @@ impl CssBackgroundPositionParseErrorOwned {
 
 #[cfg(feature = "parser")]
 pub mod parser {
+    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
     use super::*;
 
+    // the `*Gradient` suffix mirrors the CSS gradient function names this enum
+    // parses (linear-gradient, radial-gradient, conic-gradient, …).
+    #[allow(clippy::enum_variant_names)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     enum GradientType {
         LinearGradient,
@@ -1058,7 +1062,7 @@ pub mod parser {
     }
 
     impl GradientType {
-        pub const fn get_extend_mode(&self) -> ExtendMode {
+        pub(crate) const fn get_extend_mode(self) -> ExtendMode {
             match self {
                 Self::LinearGradient | Self::RadialGradient | Self::ConicGradient => {
                     ExtendMode::Clamp
@@ -1073,9 +1077,12 @@ pub mod parser {
     // -- Top-level Parsers for background-* properties --
 
     /// Parses multiple backgrounds, such as "linear-gradient(red, green), url(image.png)".
-    pub fn parse_style_background_content_multiple<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundContentVec, CssBackgroundParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-content-multiple` value.
+    pub fn parse_style_background_content_multiple(
+        input: &str,
+    ) -> Result<StyleBackgroundContentVec, CssBackgroundParseError<'_>> {
         Ok(split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_content(i))
@@ -1084,9 +1091,12 @@ pub mod parser {
     }
 
     /// Parses a single background value, which can be a color, image, or gradient.
-    pub fn parse_style_background_content<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundContent, CssBackgroundParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-content` value.
+    pub fn parse_style_background_content(
+        input: &str,
+    ) -> Result<StyleBackgroundContent, CssBackgroundParseError<'_>> {
         match parse_parentheses(
             input,
             &[
@@ -1130,9 +1140,12 @@ pub mod parser {
     }
 
     /// Parses multiple `background-position` values.
-    pub fn parse_style_background_position_multiple<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundPositionVec, CssBackgroundPositionParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-position-multiple` value.
+    pub fn parse_style_background_position_multiple(
+        input: &str,
+    ) -> Result<StyleBackgroundPositionVec, CssBackgroundPositionParseError<'_>> {
         Ok(split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_position(i))
@@ -1141,9 +1154,12 @@ pub mod parser {
     }
 
     /// Parses a single `background-position` value.
-    pub fn parse_style_background_position<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundPosition, CssBackgroundPositionParseError<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-position` value.
+    pub fn parse_style_background_position(
+        input: &str,
+    ) -> Result<StyleBackgroundPosition, CssBackgroundPositionParseError<'_>> {
         let input = input.trim();
         let mut whitespace_iter = input.split_whitespace();
 
@@ -1188,9 +1204,12 @@ pub mod parser {
     }
 
     /// Parses multiple `background-size` values.
-    pub fn parse_style_background_size_multiple<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundSizeVec, InvalidValueErr<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-size-multiple` value.
+    pub fn parse_style_background_size_multiple(
+        input: &str,
+    ) -> Result<StyleBackgroundSizeVec, InvalidValueErr<'_>> {
         Ok(split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_size(i))
@@ -1199,9 +1218,12 @@ pub mod parser {
     }
 
     /// Parses a single `background-size` value.
-    pub fn parse_style_background_size<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundSize, InvalidValueErr<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-size` value.
+    pub fn parse_style_background_size(
+        input: &str,
+    ) -> Result<StyleBackgroundSize, InvalidValueErr<'_>> {
         let input = input.trim();
         match input {
             "contain" => Ok(StyleBackgroundSize::Contain),
@@ -1223,9 +1245,12 @@ pub mod parser {
     }
 
     /// Parses multiple `background-repeat` values.
-    pub fn parse_style_background_repeat_multiple<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundRepeatVec, InvalidValueErr<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-repeat-multiple` value.
+    pub fn parse_style_background_repeat_multiple(
+        input: &str,
+    ) -> Result<StyleBackgroundRepeatVec, InvalidValueErr<'_>> {
         Ok(split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_repeat(i))
@@ -1234,9 +1259,12 @@ pub mod parser {
     }
 
     /// Parses a single `background-repeat` value.
-    pub fn parse_style_background_repeat<'a>(
-        input: &'a str,
-    ) -> Result<StyleBackgroundRepeat, InvalidValueErr<'a>> {
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-repeat` value.
+    pub fn parse_style_background_repeat(
+        input: &str,
+    ) -> Result<StyleBackgroundRepeat, InvalidValueErr<'_>> {
         match input.trim() {
             "no-repeat" => Ok(StyleBackgroundRepeat::NoRepeat),
             "repeat" => Ok(StyleBackgroundRepeat::PatternRepeat),
@@ -1249,10 +1277,10 @@ pub mod parser {
     // -- Gradient Parsing Logic --
 
     /// Parses the contents of a gradient function.
-    fn parse_gradient<'a>(
-        input: &'a str,
+    fn parse_gradient(
+        input: &str,
         gradient_type: GradientType,
-    ) -> Result<StyleBackgroundContent, CssBackgroundParseError<'a>> {
+    ) -> Result<StyleBackgroundContent, CssBackgroundParseError<'_>> {
         let input = input.trim();
         let comma_separated_items = split_string_respect_comma(input);
         let mut brace_iterator = comma_separated_items.iter();
@@ -1365,9 +1393,9 @@ pub mod parser {
     /// - "red 10% 30%" (two positions - creates a hard color band)
     /// 
     /// Also supports system colors like `system:accent 50%` for theme-aware gradients.
-    fn parse_linear_color_stop<'a>(
-        input: &'a str,
-    ) -> Result<LinearColorStop, CssGradientStopParseError<'a>> {
+    fn parse_linear_color_stop(
+        input: &str,
+    ) -> Result<LinearColorStop, CssGradientStopParseError<'_>> {
         let input = input.trim();
         let (color_str, offset1_str, offset2_str) = split_color_and_offsets(input);
 
@@ -1398,9 +1426,9 @@ pub mod parser {
     /// - "red 45deg 90deg" (two positions - creates a hard color band)
     /// 
     /// Also supports system colors like `system:accent 90deg` for theme-aware gradients.
-    fn parse_radial_color_stop<'a>(
-        input: &'a str,
-    ) -> Result<RadialColorStop, CssGradientStopParseError<'a>> {
+    fn parse_radial_color_stop(
+        input: &str,
+    ) -> Result<RadialColorStop, CssGradientStopParseError<'_>> {
         let input = input.trim();
         let (color_str, offset1_str, offset2_str) = split_color_and_offsets(input);
 
@@ -1426,7 +1454,7 @@ pub mod parser {
     }
 
     /// Helper to robustly split a string like "rgba(0,0,0,0.5) 10% 30%" into color and offset
-    /// parts. Returns (color_str, offset1, offset2) where offsets are optional.
+    /// parts. Returns (`color_str`, offset1, offset2) where offsets are optional.
     ///
     /// Per W3C CSS Images Level 3, a color stop can have 0, 1, or 2 positions:
     /// - "red" -> ("red", None, None)
@@ -1452,7 +1480,7 @@ pub mod parser {
     }
 
     /// Try to split off the last whitespace-separated token if it looks like a position value.
-    /// Returns (remaining, offset_str) if successful.
+    /// Returns (remaining, `offset_str`) if successful.
     fn try_split_last_offset(input: &str) -> Option<(&str, &str)> {
         let input = input.trim();
         if let Some(last_ws_idx) = input.rfind(char::is_whitespace) {
@@ -1483,9 +1511,9 @@ pub mod parser {
     }
 
     /// Parses the `from <angle> at <position>` part of a conic gradient.
-    fn parse_conic_first_item<'a>(
-        input: &'a str,
-    ) -> Result<Option<(AngleValue, StyleBackgroundPosition)>, CssConicGradientParseError<'a>> {
+    fn parse_conic_first_item(
+        input: &str,
+    ) -> Result<Option<(AngleValue, StyleBackgroundPosition)>, CssConicGradientParseError<'_>> {
         let input = input.trim();
         if !input.starts_with("from") {
             return Ok(None);
@@ -1518,6 +1546,7 @@ pub mod parser {
             pos_to_f32 = $pos_to_f32:expr,
             output_field = $out_field:ident,
         ) => {
+            #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
             fn $fn_name(stops: &[$input_stop]) -> Vec<$output_stop> {
                 if stops.is_empty() {
                     return Vec::new();
@@ -1589,11 +1618,11 @@ pub mod parser {
                         };
 
                         let run_len = run_end - run_start;
-                        let step = (next_pos - prev_pos) / (run_len + 1) as f32;
+                        let step = (next_pos - prev_pos) / crate::cast::usize_to_f32(run_len + 1);
 
                         for j in 0..run_len {
                             expanded[run_start + j].1 =
-                                Some(pos_ctor(prev_pos + step * (j + 1) as f32));
+                                Some(pos_ctor(prev_pos + step * crate::cast::usize_to_f32(j + 1)));
                         }
 
                         i = run_end;
@@ -1637,9 +1666,9 @@ pub mod parser {
 
     // -- Other Background Helpers --
 
-    fn parse_background_position_horizontal<'a>(
-        input: &'a str,
-    ) -> Result<BackgroundPositionHorizontal, CssPixelValueParseError<'a>> {
+    fn parse_background_position_horizontal(
+        input: &str,
+    ) -> Result<BackgroundPositionHorizontal, CssPixelValueParseError<'_>> {
         Ok(match input {
             "left" => BackgroundPositionHorizontal::Left,
             "center" => BackgroundPositionHorizontal::Center,
@@ -1648,9 +1677,9 @@ pub mod parser {
         })
     }
 
-    fn parse_background_position_vertical<'a>(
-        input: &'a str,
-    ) -> Result<BackgroundPositionVertical, CssPixelValueParseError<'a>> {
+    fn parse_background_position_vertical(
+        input: &str,
+    ) -> Result<BackgroundPositionVertical, CssPixelValueParseError<'_>> {
         Ok(match input {
             "top" => BackgroundPositionVertical::Top,
             "center" => BackgroundPositionVertical::Center,
@@ -1659,7 +1688,7 @@ pub mod parser {
         })
     }
 
-    fn parse_shape<'a>(input: &'a str) -> Result<Shape, CssShapeParseError<'a>> {
+    fn parse_shape(input: &str) -> Result<Shape, CssShapeParseError<'_>> {
         match input.trim() {
             "circle" => Ok(Shape::Circle),
             "ellipse" => Ok(Shape::Ellipse),
@@ -1667,9 +1696,9 @@ pub mod parser {
         }
     }
 
-    fn parse_radial_gradient_size<'a>(
-        input: &'a str,
-    ) -> Result<RadialGradientSize, InvalidValueErr<'a>> {
+    fn parse_radial_gradient_size(
+        input: &str,
+    ) -> Result<RadialGradientSize, InvalidValueErr<'_>> {
         match input.trim() {
             "closest-side" => Ok(RadialGradientSize::ClosestSide),
             "closest-corner" => Ok(RadialGradientSize::ClosestCorner),
@@ -2157,9 +2186,10 @@ mod tests {
         let accent_stop = &stops[1];
         assert!(matches!(accent_stop.color, ColorOrSystem::System(_)));
 
-        let mut populated = SystemColors::default();
-        populated.accent =
-            crate::props::basic::color::OptionColorU::Some(ColorU::new_rgb(0, 122, 255));
+        let populated = SystemColors {
+            accent: crate::props::basic::color::OptionColorU::Some(ColorU::new_rgb(0, 122, 255)),
+            ..SystemColors::default()
+        };
 
         let resolved = accent_stop.resolve(&populated, ColorU::TRANSPARENT);
         assert_eq!(resolved, ColorU::new_rgb(0, 122, 255));

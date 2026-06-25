@@ -79,12 +79,12 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     hyphenator: Option<&Standard>,
     fonts: &LoadedFonts<T>,
-) -> Result<UnifiedLayout, LayoutError> {
+) -> UnifiedLayout {
     if items.is_empty() {
-        return Ok(UnifiedLayout {
+        return UnifiedLayout {
             items: Vec::new(),
             overflow: OverflowInfo::default(),
-        });
+        };
     }
 
     // Convert ShapedItems into a sequence of Boxes, Glue, and Penalties
@@ -97,11 +97,12 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     let final_layout: UnifiedLayout =
         position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
 
-    Ok(final_layout)
+    final_layout
 }
 
-/// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
+/// Converts a slice of `ShapedItems` into the Box/Glue/Penalty model.
 // +spec:line-breaking:16e64c - soft wrap opportunity controls (word-break, overflow-wrap, line-break) threaded via UnifiedConstraints
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem],
     hyphenator: Option<&Standard>,
@@ -192,7 +193,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     let breaks = hyphenation_breaks.unwrap();
                     let mut current_item_cursor = 0;
 
-                    for b in breaks.iter() {
+                    for b in &breaks {
                         // Add the items that form the next syllable (the part between the last
                         // break and this one)
                         let num_items_in_syllable = b.line_part.len() - current_item_cursor;
@@ -271,6 +272,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 }
 
 /// Uses dynamic programming to find the optimal set of line breaks.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
     // For Knuth-Plass, we need a definite line width.
     //
@@ -290,10 +293,10 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
     // (and lines after forced breaks when each-line is set). The hanging keyword would
     // invert this, indenting all lines EXCEPT the first.
     let text_indent = constraints.text_indent;
-    let first_line_width = if !constraints.text_indent_hanging {
-        line_width - text_indent
-    } else {
+    let first_line_width = if constraints.text_indent_hanging {
         line_width
+    } else {
+        line_width - text_indent
     };
     let non_first_line_width = if constraints.text_indent_hanging {
         line_width - text_indent
@@ -425,6 +428,10 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 }
 
 /// Takes the optimal break points and performs the final positioning.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn position_lines_from_breaks(
     nodes: &[LayoutNode],
     breaks: &[usize],
@@ -537,11 +544,8 @@ fn position_lines_from_breaks(
         // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line as usual
         // +spec:line-breaking:bc389d - text-indent with each-line/hanging keywords
         if constraints.text_indent != 0.0 {
-            let is_indent_target = if constraints.text_indent_each_line {
-                line_index == 0 // TODO: also detect lines after forced breaks in KP path
-            } else {
-                line_index == 0
-            };
+            // TODO: with text-indent-each-line, also detect lines after forced breaks in the KP path
+            let is_indent_target = line_index == 0;
             let should_indent = if constraints.text_indent_hanging {
                 !is_indent_target
             } else {

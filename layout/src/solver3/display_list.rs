@@ -11,7 +11,7 @@
 //! - [`paginate_display_list_with_slicer_and_breaks`] — slices a display list into pages
 //!
 //! Coordinates are in **absolute window-logical pixels** ([`WindowLogicalRect`]).
-//! HiDPI scaling and scroll-offset conversion happen in the compositor.
+//! `HiDPI` scaling and scroll-offset conversion happen in the compositor.
 
 use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
@@ -135,19 +135,21 @@ pub struct StyleBorderStyles {
 
 /// A rectangle in border-box coordinates (includes padding and border).
 /// This is what layout calculates and stores in `used_size` and absolute positions.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BorderBoxRect(pub LogicalRect);
 
 /// A `LogicalRect` known to be in **absolute window coordinates** (as output
-/// by the layout engine).  All spatial bounds stored in [`DisplayListItem`] use
+/// by the layout engine).
+///
+/// All spatial bounds stored in [`DisplayListItem`] use
 /// this type so that the compositor is *forced* to convert them to
-/// frame-relative coordinates before passing them to WebRender.
+/// frame-relative coordinates before passing them to `WebRender`.
 ///
 /// ## Coordinate-space contract
 ///
 /// * **Layout engine** produces `WindowLogicalRect` values.
-/// * **Compositor** converts via `resolve_rect()` → WebRender `LayoutRect`.
-/// * Passing a `WindowLogicalRect` directly to a WebRender push function is a
+/// * **Compositor** converts via `resolve_rect()` → `WebRender` `LayoutRect`.
+/// * Passing a `WindowLogicalRect` directly to a `WebRender` push function is a
 ///   **type error** (it wraps `LogicalRect`, not `LayoutRect`).
 ///
 /// See `doc/SCROLL_COORDINATE_ARCHITECTURE.md` for background.
@@ -156,30 +158,30 @@ pub struct WindowLogicalRect(pub LogicalRect);
 
 impl WindowLogicalRect {
     #[inline]
-    pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
+    #[must_use] pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
         Self(LogicalRect::new(origin, size))
     }
 
     #[inline]
-    pub const fn zero() -> Self {
+    #[must_use] pub const fn zero() -> Self {
         Self(LogicalRect::zero())
     }
 
     /// Access the inner `LogicalRect` (still in window space – the caller is
     /// responsible for applying any offset conversion).
     #[inline]
-    pub const fn inner(&self) -> &LogicalRect {
+    #[must_use] pub const fn inner(&self) -> &LogicalRect {
         &self.0
     }
 
     #[inline]
-    pub const fn into_inner(self) -> LogicalRect {
+    #[must_use] pub const fn into_inner(self) -> LogicalRect {
         self.0
     }
 
     // Convenience accessors
-    #[inline] pub fn origin(&self) -> LogicalPosition { self.0.origin }
-    #[inline] pub fn size(&self)   -> LogicalSize     { self.0.size }
+    #[inline] #[must_use] pub const fn origin(&self) -> LogicalPosition { self.0.origin }
+    #[inline] #[must_use] pub const fn size(&self)   -> LogicalSize     { self.0.size }
 }
 
 impl From<LogicalRect> for WindowLogicalRect {
@@ -238,15 +240,15 @@ pub struct ScrollbarDrawInfo {
     /// Optional opacity key for GPU-side fading animation.
     pub opacity_key: Option<OpacityKey>,
     /// Optional transform key for GPU-side scrollbar thumb positioning.
-    /// When present, the compositor will wrap the thumb in a PushReferenceFrame
-    /// with PropertyBinding::Binding so WebRender can animate the thumb position
+    /// When present, the compositor will wrap the thumb in a `PushReferenceFrame`
+    /// with `PropertyBinding::Binding` so `WebRender` can animate the thumb position
     /// without rebuilding the display list.
     pub thumb_transform_key: Option<TransformKey>,
     /// Initial transform for the scrollbar thumb (current scroll position).
     /// This is the transform applied when the display list is first built.
-    /// During GPU-only scroll, synchronize_gpu_values updates this dynamically.
+    /// During GPU-only scroll, `synchronize_gpu_values` updates this dynamically.
     pub thumb_initial_transform: ComputedTransform3D,
-    /// Optional hit-test ID for WebRender hit-testing.
+    /// Optional hit-test ID for `WebRender` hit-testing.
     pub hit_id: Option<azul_core::hit_test::ScrollbarHitId>,
     /// Whether to clip scrollbar to container's border-radius
     pub clip_to_container_border: bool,
@@ -260,7 +262,7 @@ pub struct ScrollbarDrawInfo {
 impl BorderBoxRect {
     /// Convert border-box to content-box by subtracting padding and border.
     /// Content-box is where inline layout and text actually render.
-    pub fn to_content_box(
+    #[must_use] pub fn to_content_box(
         self,
         padding: &crate::solver3::geometry::EdgeSizes,
         border: &crate::solver3::geometry::EdgeSizes,
@@ -285,20 +287,20 @@ impl BorderBoxRect {
         })
     }
 
-    /// Get the inner LogicalRect
-    pub fn rect(&self) -> LogicalRect {
+    /// Get the inner `LogicalRect`
+    #[must_use] pub const fn rect(&self) -> LogicalRect {
         self.0
     }
 }
 
 /// A rectangle in content-box coordinates (excludes padding and border).
 /// This is where text and inline content is positioned by the inline formatter.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContentBoxRect(pub LogicalRect);
 
 impl ContentBoxRect {
-    /// Get the inner LogicalRect
-    pub fn rect(&self) -> LogicalRect {
+    /// Get the inner `LogicalRect`
+    #[must_use] pub const fn rect(&self) -> LogicalRect {
         self.0
     }
 }
@@ -310,7 +312,7 @@ impl ContentBoxRect {
 #[derive(Debug, Default, Clone)]
 pub struct DisplayList {
     pub items: Vec<DisplayListItem>,
-    /// Optional mapping from item index to the DOM NodeId that generated it.
+    /// Optional mapping from item index to the DOM `NodeId` that generated it.
     /// Used for pagination to look up CSS break properties.
     /// Not all items have a source node (e.g., synthesized decorations).
     pub node_mapping: Vec<Option<NodeId>>,
@@ -328,7 +330,7 @@ impl DisplayList {
     /// the entire display list. Returns the damage rect covering all
     /// affected text items, or None if no matching items found.
     ///
-    /// Used for GlyphSwap incremental relayout: glyphs changed but
+    /// Used for `GlyphSwap` incremental relayout: glyphs changed but
     /// positions are identical, so only the glyph IDs need updating.
     pub(crate) fn patch_text_glyphs(
         &mut self,
@@ -347,10 +349,9 @@ impl DisplayList {
             } = item {
                 if *src_idx == node_index
                     && run_idx < new_glyphs_by_run.len() {
-                        *glyphs = new_glyphs_by_run[run_idx].clone();
+                        glyphs.clone_from(&new_glyphs_by_run[run_idx]);
                         let bounds = *clip_rect.inner();
-                        damage = Some(match damage {
-                            Some(d) => {
+                        damage = Some(damage.map_or(bounds, |d| {
                                 // rect union (was crate::cpurender::union_rect, which
                                 // is gated behind the `cpurender` feature; inlined here
                                 // so display-list damage tracking works without it / on WASM)
@@ -364,9 +365,7 @@ impl DisplayList {
                                     origin: LogicalPosition { x, y },
                                     size: LogicalSize { width: right - x, height: bottom - y },
                                 }
-                            }
-                            None => bounds,
-                        });
+                            }));
                         run_idx += 1;
                     }
             }
@@ -377,13 +376,14 @@ impl DisplayList {
 
     /// Compute a damage rect from the difference between old and new text
     /// layout results, starting from a given line index.
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     pub(crate) fn compute_text_damage_rect(
-        old_items: &[super::super::text3::cache::PositionedItem],
-        new_items: &[super::super::text3::cache::PositionedItem],
+        old_items: &[PositionedItem],
+        new_items: &[PositionedItem],
         container_origin: LogicalPosition,
         affected_line: usize,
     ) -> LogicalRect {
-        let expand = |items: &[super::super::text3::cache::PositionedItem]| -> (f32, f32, f32, f32) {
+        let expand = |items: &[PositionedItem]| -> (f32, f32, f32, f32) {
             let mut lx = f32::MAX;
             let mut ly = f32::MAX;
             let mut rx = f32::MIN;
@@ -421,6 +421,7 @@ impl DisplayList {
 
     /// Generates a JSON representation of the display list for debugging.
     /// This includes clip chain analysis showing how clips are stacked.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub(crate) fn to_debug_json(&self) -> String {
         use std::fmt::Write;
         let mut json = String::new();
@@ -443,25 +444,25 @@ impl DisplayList {
                 } => {
                     clip_depth += 1;
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"PushClip\",").unwrap();
-                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
-                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
+                    writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},", 
                         bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
                     writeln!(json, "      \"border_radius\": {{ \"tl\": {:.1}, \"tr\": {:.1}, \"bl\": {:.1}, \"br\": {:.1} }},",
                         border_radius.top_left, border_radius.top_right,
                         border_radius.bottom_left, border_radius.bottom_right).unwrap();
-                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                 }
                 DisplayListItem::PopClip => {
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"PopClip\",").unwrap();
-                    writeln!(json, "      \"clip_depth_before\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"clip_depth_before\": {clip_depth},").unwrap();
                     writeln!(json, "      \"clip_depth_after\": {}", clip_depth - 1).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                     clip_depth -= 1;
                 }
                 DisplayListItem::PushScrollFrame {
@@ -471,10 +472,10 @@ impl DisplayList {
                 } => {
                     scroll_depth += 1;
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"PushScrollFrame\",").unwrap();
-                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
-                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
+                    writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"clip_bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
                         clip_bounds.0.origin.x, clip_bounds.0.origin.y,
                         clip_bounds.0.size.width, clip_bounds.0.size.height).unwrap();
@@ -484,42 +485,42 @@ impl DisplayList {
                         content_size.width, content_size.height
                     )
                     .unwrap();
-                    writeln!(json, "      \"scroll_id\": {},", scroll_id).unwrap();
-                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "      \"scroll_id\": {scroll_id},").unwrap();
+                    writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                 }
                 DisplayListItem::PopScrollFrame => {
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"PopScrollFrame\",").unwrap();
-                    writeln!(json, "      \"scroll_depth_before\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth_before\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"scroll_depth_after\": {}", scroll_depth - 1).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                     scroll_depth -= 1;
                 }
                 DisplayListItem::PushStackingContext { z_index, bounds } => {
                     stacking_depth += 1;
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"PushStackingContext\",").unwrap();
-                    writeln!(json, "      \"stacking_depth\": {},", stacking_depth).unwrap();
-                    writeln!(json, "      \"z_index\": {},", z_index).unwrap();
+                    writeln!(json, "      \"stacking_depth\": {stacking_depth},").unwrap();
+                    writeln!(json, "      \"z_index\": {z_index},").unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
                         bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                 }
                 DisplayListItem::PopStackingContext => {
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"PopStackingContext\",").unwrap();
-                    writeln!(json, "      \"stacking_depth_before\": {},", stacking_depth).unwrap();
+                    writeln!(json, "      \"stacking_depth_before\": {stacking_depth},").unwrap();
                     writeln!(
                         json,
                         "      \"stacking_depth_after\": {}",
                         stacking_depth - 1
                     )
                     .unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                     stacking_depth -= 1;
                 }
                 DisplayListItem::Rect {
@@ -528,10 +529,10 @@ impl DisplayList {
                     border_radius,
                 } => {
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"Rect\",").unwrap();
-                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
-                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
+                    writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
                         bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
                     writeln!(
@@ -540,53 +541,53 @@ impl DisplayList {
                         color.r, color.g, color.b, color.a
                     )
                     .unwrap();
-                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                 }
                 DisplayListItem::Border { bounds, .. } => {
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"Border\",").unwrap();
-                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
-                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
+                    writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
                         bounds.0.origin.x, bounds.0.origin.y, bounds.0.size.width, bounds.0.size.height).unwrap();
-                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                 }
                 DisplayListItem::ScrollBarStyled { info } => {
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(json, "      \"type\": \"ScrollBarStyled\",").unwrap();
-                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
-                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
+                    writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
                     writeln!(json, "      \"orientation\": \"{:?}\",", info.orientation).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
                         info.bounds.0.origin.x, info.bounds.0.origin.y,
                         info.bounds.0.size.width, info.bounds.0.size.height).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                 }
                 _ => {
                     writeln!(json, "    {{").unwrap();
-                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
                     writeln!(
                         json,
                         "      \"type\": \"{:?}\",",
                         std::mem::discriminant(item)
                     )
                     .unwrap();
-                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
-                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
-                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
-                    writeln!(json, "    }}{}", comma).unwrap();
+                    writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
+                    writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
+                    writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
                 }
             }
         }
 
         writeln!(json, "  ],").unwrap();
-        writeln!(json, "  \"final_clip_depth\": {},", clip_depth).unwrap();
-        writeln!(json, "  \"final_scroll_depth\": {},", scroll_depth).unwrap();
-        writeln!(json, "  \"final_stacking_depth\": {},", stacking_depth).unwrap();
+        writeln!(json, "  \"final_clip_depth\": {clip_depth},").unwrap();
+        writeln!(json, "  \"final_scroll_depth\": {scroll_depth},").unwrap();
+        writeln!(json, "  \"final_stacking_depth\": {stacking_depth},").unwrap();
         writeln!(
             json,
             "  \"balanced\": {}",
@@ -700,7 +701,7 @@ pub enum DisplayListItem {
         /// If present, the renderer will use this key to look up dynamic opacity.
         /// If None, the alpha channel of `color` is used directly.
         opacity_key: Option<OpacityKey>,
-        /// Optional hit-test ID for WebRender hit-testing.
+        /// Optional hit-test ID for `WebRender` hit-testing.
         /// If present, allows event handlers to identify which scrollbar component was clicked.
         hit_id: Option<azul_core::hit_test::ScrollbarHitId>,
     },
@@ -711,32 +712,32 @@ pub enum DisplayListItem {
         info: Box<ScrollbarDrawInfo>,
     },
 
-    /// An embedded VirtualView that references a child DOM with its own display list.
-    /// The renderer will look up the child display list by child_dom_id and
-    /// render it within the bounds. The VirtualView viewport is rendered in parent
+    /// An embedded `VirtualView` that references a child DOM with its own display list.
+    /// The renderer will look up the child display list by `child_dom_id` and
+    /// render it within the bounds. The `VirtualView` viewport is rendered in parent
     /// coordinate space (NOT inside a scroll frame) so it stays stationary.
-    /// Scroll offset is communicated to the VirtualView callback, not via WebRender.
+    /// Scroll offset is communicated to the `VirtualView` callback, not via `WebRender`.
     VirtualView {
-        /// The DomId of the child DOM (similar to webrender's pipeline_id)
+        /// The `DomId` of the child DOM (similar to webrender's `pipeline_id`)
         child_dom_id: DomId,
-        /// The bounds where the VirtualView should be rendered
+        /// The bounds where the `VirtualView` should be rendered
         bounds: WindowLogicalRect,
-        /// The clip rect for the VirtualView content
+        /// The clip rect for the `VirtualView` content
         clip_rect: WindowLogicalRect,
     },
 
-    /// Placeholder emitted during display list generation for VirtualView nodes.
+    /// Placeholder emitted during display list generation for `VirtualView` nodes.
     /// `window.rs` replaces this with a real `VirtualView` item after invoking
-    /// the VirtualView callback. This avoids the need for post-hoc scroll frame
+    /// the `VirtualView` callback. This avoids the need for post-hoc scroll frame
     /// scanning — `window.rs` simply finds the placeholder by `node_id`.
     ///
-    /// Unlike regular scrollable nodes, VirtualView nodes do NOT get a
+    /// Unlike regular scrollable nodes, `VirtualView` nodes do NOT get a
     /// PushScrollFrame/PopScrollFrame pair. Scroll state is managed by
-    /// `ScrollManager` and passed to the VirtualView callback as `scroll_offset`.
+    /// `ScrollManager` and passed to the `VirtualView` callback as `scroll_offset`.
     VirtualViewPlaceholder {
-        /// The DOM NodeId of the VirtualView element in the parent DOM
+        /// The DOM `NodeId` of the `VirtualView` element in the parent DOM
         node_id: NodeId,
-        /// The layout bounds of the VirtualView container
+        /// The layout bounds of the `VirtualView` container
         bounds: WindowLogicalRect,
         /// The clip rect (same as bounds initially, may be adjusted)
         clip_rect: WindowLogicalRect,
@@ -744,7 +745,7 @@ pub enum DisplayListItem {
 
     // --- State-Management Commands ---
     /// Pushes a new clipping rectangle onto the renderer's clip stack.
-    /// All subsequent primitives will be clipped by this rect until a PopClip.
+    /// All subsequent primitives will be clipped by this rect until a `PopClip`.
     PushClip {
         bounds: WindowLogicalRect,
         border_radius: BorderRadius,
@@ -754,7 +755,7 @@ pub enum DisplayListItem {
 
     /// Pushes an image-based clip mask onto the renderer's clip stack.
     /// The mask image should be R8 format: white (255) = visible, black (0) = clipped.
-    /// All subsequent primitives will be masked until PopImageMaskClip.
+    /// All subsequent primitives will be masked until `PopImageMaskClip`.
     PushImageMaskClip {
         /// The bounds of the element being clipped
         bounds: WindowLogicalRect,
@@ -780,7 +781,7 @@ pub enum DisplayListItem {
     PopScrollFrame,
 
     /// Pushes a new stacking context for proper z-index layering.
-    /// All subsequent primitives until PopStackingContext will be in this stacking context.
+    /// All subsequent primitives until `PopStackingContext` will be in this stacking context.
     PushStackingContext {
         /// The z-index for this stacking context (for debugging/validation)
         z_index: i32,
@@ -865,7 +866,7 @@ pub enum DisplayListItem {
 
     /// Push a text shadow that applies to subsequent text content.
     PushTextShadow {
-        shadow: azul_css::props::style::box_shadow::StyleBoxShadow,
+        shadow: StyleBoxShadow,
     },
     /// Pop all text shadows.
     PopTextShadow,
@@ -875,7 +876,13 @@ impl DisplayListItem {
     /// Compare two display list items for visual equality (same appearance when rendered).
     /// Used by damage computation to detect content changes within the same bounds.
     /// Conservative: returns `false` (assumes different) for complex types like Arc<dyn Any>.
-    pub fn is_visually_equal(&self, other: &Self) -> bool {
+    // Exact float equality is intentional: this is frame-to-frame damage detection,
+    // so any bit-level change in a coordinate/color/thickness SHOULD force a redraw.
+    // An epsilon comparison would wrongly skip sub-epsilon visual updates.
+    #[allow(clippy::float_cmp)]
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[must_use] pub fn is_visually_equal(&self, other: &Self) -> bool {
         if std::mem::discriminant(self) != std::mem::discriminant(other) {
             return false;
         }
@@ -980,7 +987,7 @@ impl DisplayListItem {
                     && fh1 == fh2
                     && fs1 == fs2
                     && c1 == c2
-                    && std::sync::Arc::ptr_eq(l1, l2)
+                    && Arc::ptr_eq(l1, l2)
             }
             // For other complex types (Image, gradients, etc.),
             // conservatively assume different
@@ -990,7 +997,7 @@ impl DisplayListItem {
 
     /// Returns true if this item is a state-management command (Push/Pop)
     /// that must always be processed to maintain correct stacks.
-    pub fn is_state_management(&self) -> bool {
+    #[must_use] pub const fn is_state_management(&self) -> bool {
         matches!(self,
             Self::PushClip { .. }
             | Self::PopClip
@@ -1016,7 +1023,8 @@ impl DisplayListItem {
     /// Return the visual bounding rect including effects that extend beyond
     /// content bounds (e.g. box-shadow spread/blur/offset). Used for damage
     /// rect computation where we need the full repaint area.
-    pub fn visual_bounds(&self) -> Option<LogicalRect> {
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[must_use] pub fn visual_bounds(&self) -> Option<LogicalRect> {
         match self {
             Self::BoxShadow { bounds, shadow, .. } => {
                 let b = *bounds.inner();
@@ -1055,7 +1063,8 @@ impl DisplayListItem {
 
     /// Return the bounding rect of this item, or None for push/pop commands
     /// that don't have their own visual bounds.
-    pub fn bounds(&self) -> Option<LogicalRect> {
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[must_use] pub fn bounds(&self) -> Option<LogicalRect> {
         match self {
             Self::Rect { bounds, .. }
             | Self::SelectionRect { bounds, .. }
@@ -1108,7 +1117,7 @@ pub struct BorderRadius {
 }
 
 impl BorderRadius {
-    pub fn is_zero(&self) -> bool {
+    #[must_use] pub fn is_zero(&self) -> bool {
         self.top_left == 0.0
             && self.top_right == 0.0
             && self.bottom_left == 0.0
@@ -1118,7 +1127,7 @@ impl BorderRadius {
 
 // Dummy types for compilation
 pub type LocalScrollId = u64;
-/// Display list tag ID as (payload, type_marker) tuple.
+/// Display list tag ID as (payload, `type_marker`) tuple.
 /// The u16 field is used as a namespace marker:
 /// - 0x0100 = DOM Node (regular interactive elements)
 /// - 0x0200 = Scrollbar component
@@ -1144,11 +1153,11 @@ struct DisplayListBuilder {
 }
 
 impl DisplayListBuilder {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn with_debug(debug_enabled: bool) -> Self {
+    pub(crate) const fn with_debug(debug_enabled: bool) -> Self {
         Self {
             items: Vec::new(),
             node_mapping: Vec::new(),
@@ -1169,7 +1178,7 @@ impl DisplayListBuilder {
     }
 
     /// Build the display list and transfer debug messages to the provided option
-    pub fn build_with_debug(
+    pub(crate) fn build_with_debug(
         mut self,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> DisplayList {
@@ -1186,18 +1195,18 @@ impl DisplayListBuilder {
     }
 
     /// Set the current node context for subsequent push operations
-    pub fn set_current_node(&mut self, node_id: Option<NodeId>) {
+    pub(crate) const fn set_current_node(&mut self, node_id: Option<NodeId>) {
         self.current_node = node_id;
     }
 
     /// Mark the start of a fixed-position element's display items.
-    pub fn begin_fixed_position_element(&mut self) {
+    pub(crate) const fn begin_fixed_position_element(&mut self) {
         self.fixed_position_start = Some(self.items.len());
     }
 
     /// Mark the end of a fixed-position element's display items.
     /// Records the (start, end) index range for paged media replication.
-    pub fn end_fixed_position_element(&mut self) {
+    pub(crate) fn end_fixed_position_element(&mut self) {
         if let Some(start) = self.fixed_position_start.take() {
             let end = self.items.len();
             if end > start {
@@ -1208,7 +1217,7 @@ impl DisplayListBuilder {
 
     /// Register a forced page break at the given Y position.
     /// This is used for CSS break-before: always and break-after: always.
-    pub fn add_forced_page_break(&mut self, y_position: f32) {
+    pub(crate) fn add_forced_page_break(&mut self, y_position: f32) {
         // Avoid duplicates and keep sorted
         if !self.forced_page_breaks.contains(&y_position) {
             self.forced_page_breaks.push(y_position);
@@ -1222,7 +1231,7 @@ impl DisplayListBuilder {
         self.node_mapping.push(self.current_node);
     }
 
-    pub fn build(self) -> DisplayList {
+    pub(crate) fn build(self) -> DisplayList {
         DisplayList {
             items: self.items,
             node_mapping: self.node_mapping,
@@ -1231,12 +1240,12 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: DisplayListTagId) {
+    pub(crate) fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: DisplayListTagId) {
         self.push_item(DisplayListItem::HitTestArea { bounds: bounds.into(), tag });
     }
 
     /// Push a simple single-color scrollbar (legacy method).
-    pub fn push_scrollbar(
+    pub(crate) fn push_scrollbar(
         &mut self,
         bounds: LogicalRect,
         color: ColorU,
@@ -1257,7 +1266,7 @@ impl DisplayListBuilder {
     }
 
     /// Push a fully styled scrollbar with track, thumb, and optional buttons.
-    pub fn push_scrollbar_styled(&mut self, info: ScrollbarDrawInfo) {
+    pub(crate) fn push_scrollbar_styled(&mut self, info: ScrollbarDrawInfo) {
         // Only push if at least the thumb or track is visible
         if info.thumb_color.a > 0 || info.track_color.a > 0 || info.opacity_key.is_some() {
             self.push_item(DisplayListItem::ScrollBarStyled {
@@ -1266,7 +1275,7 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_rect(&mut self, bounds: LogicalRect, color: ColorU, border_radius: BorderRadius) {
+    pub(crate) fn push_rect(&mut self, bounds: LogicalRect, color: ColorU, border_radius: BorderRadius) {
         if color.a > 0 {
             // Optimization: Don't draw fully transparent items.
             self.push_item(DisplayListItem::Rect {
@@ -1281,12 +1290,12 @@ impl DisplayListBuilder {
     ///
     /// This consolidates the background/border painting logic that was previously
     /// duplicated across:
-    /// - paint_node_background_and_border() for block elements
-    /// - paint_inline_shape() for inline-block elements
+    /// - `paint_node_background_and_border()` for block elements
+    /// - `paint_inline_shape()` for inline-block elements
     ///
     /// The backgrounds are painted in order (back to front per CSS spec), followed
     /// by the border.
-    pub fn push_backgrounds_and_border(
+    pub(crate) fn push_backgrounds_and_border(
         &mut self,
         bounds: LogicalRect,
         background_contents: &[azul_css::props::style::StyleBackgroundContent],
@@ -1338,11 +1347,11 @@ impl DisplayListBuilder {
 
     /// Paint backgrounds and border for inline text elements.
     ///
-    /// Similar to push_backgrounds_and_border but uses InlineBorderInfo which stores
+    /// Similar to `push_backgrounds_and_border` but uses `InlineBorderInfo` which stores
     /// pre-resolved pixel values instead of CSS property values. This is used for
     /// inline (display: inline) elements where the border info is computed during
     /// text layout and stored in the glyph runs.
-    pub fn push_inline_backgrounds_and_border(
+    pub(crate) fn push_inline_backgrounds_and_border(
         &mut self,
         bounds: LogicalRect,
         background_color: Option<ColorU>,
@@ -1454,7 +1463,7 @@ impl DisplayListBuilder {
     }
 
     /// Push a linear gradient background
-    pub fn push_linear_gradient(
+    pub(crate) fn push_linear_gradient(
         &mut self,
         bounds: LogicalRect,
         gradient: LinearGradient,
@@ -1468,7 +1477,7 @@ impl DisplayListBuilder {
     }
 
     /// Push a radial gradient background
-    pub fn push_radial_gradient(
+    pub(crate) fn push_radial_gradient(
         &mut self,
         bounds: LogicalRect,
         gradient: RadialGradient,
@@ -1482,7 +1491,7 @@ impl DisplayListBuilder {
     }
 
     /// Push a conic gradient background
-    pub fn push_conic_gradient(
+    pub(crate) fn push_conic_gradient(
         &mut self,
         bounds: LogicalRect,
         gradient: ConicGradient,
@@ -1495,7 +1504,7 @@ impl DisplayListBuilder {
         });
     }
 
-    pub fn push_selection_rect(
+    pub(crate) fn push_selection_rect(
         &mut self,
         bounds: LogicalRect,
         color: ColorU,
@@ -1510,33 +1519,33 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU) {
+    pub(crate) fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU) {
         // Always emit the caret item — even with alpha == 0 in the blink-off phase — so
         // the display-list item COUNT stays stable across blink phases. That lets
         // compute_display_list_damage diff it down to a caret-sized rect instead of
         // falling back to a full-window repaint every ~530ms.
         self.push_item(DisplayListItem::CursorRect { bounds: bounds.into(), color });
     }
-    pub fn push_clip(&mut self, bounds: LogicalRect, border_radius: BorderRadius) {
+    pub(crate) fn push_clip(&mut self, bounds: LogicalRect, border_radius: BorderRadius) {
         self.push_item(DisplayListItem::PushClip {
             bounds: bounds.into(),
             border_radius,
         });
     }
-    pub fn pop_clip(&mut self) {
+    pub(crate) fn pop_clip(&mut self) {
         self.push_item(DisplayListItem::PopClip);
     }
-    pub fn push_image_mask_clip(&mut self, bounds: LogicalRect, mask_image: ImageRef, mask_rect: LogicalRect) {
+    pub(crate) fn push_image_mask_clip(&mut self, bounds: LogicalRect, mask_image: ImageRef, mask_rect: LogicalRect) {
         self.push_item(DisplayListItem::PushImageMaskClip {
             bounds: bounds.into(),
             mask_image,
             mask_rect: mask_rect.into(),
         });
     }
-    pub fn pop_image_mask_clip(&mut self) {
+    pub(crate) fn pop_image_mask_clip(&mut self) {
         self.push_item(DisplayListItem::PopImageMaskClip);
     }
-    pub fn push_scroll_frame(
+    pub(crate) fn push_scroll_frame(
         &mut self,
         clip_bounds: LogicalRect,
         content_size: LogicalSize,
@@ -1548,10 +1557,10 @@ impl DisplayListBuilder {
             scroll_id,
         });
     }
-    pub fn pop_scroll_frame(&mut self) {
+    pub(crate) fn pop_scroll_frame(&mut self) {
         self.push_item(DisplayListItem::PopScrollFrame);
     }
-    pub fn push_virtual_view_placeholder(
+    pub(crate) fn push_virtual_view_placeholder(
         &mut self,
         node_id: NodeId,
         bounds: LogicalRect,
@@ -1563,7 +1572,7 @@ impl DisplayListBuilder {
             clip_rect: clip_rect.into(),
         });
     }
-    pub fn push_border(
+    pub(crate) fn push_border(
         &mut self,
         bounds: LogicalRect,
         widths: StyleBorderWidths,
@@ -1595,15 +1604,15 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_stacking_context(&mut self, z_index: i32, bounds: LogicalRect) {
+    pub(crate) fn push_stacking_context(&mut self, z_index: i32, bounds: LogicalRect) {
         self.push_item(DisplayListItem::PushStackingContext { z_index, bounds: bounds.into() });
     }
 
-    pub fn pop_stacking_context(&mut self) {
+    pub(crate) fn pop_stacking_context(&mut self) {
         self.push_item(DisplayListItem::PopStackingContext);
     }
 
-    pub fn push_reference_frame(
+    pub(crate) fn push_reference_frame(
         &mut self,
         transform_key: TransformKey,
         initial_transform: ComputedTransform3D,
@@ -1616,11 +1625,11 @@ impl DisplayListBuilder {
         });
     }
 
-    pub fn pop_reference_frame(&mut self) {
+    pub(crate) fn pop_reference_frame(&mut self) {
         self.push_item(DisplayListItem::PopReferenceFrame);
     }
 
-    pub fn push_text_run(
+    pub(crate) fn push_text_run(
         &mut self,
         glyphs: Vec<GlyphInstance>,
         font_hash: FontHash, // Just the hash, not the full FontRef
@@ -1658,7 +1667,7 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_text_layout(
+    pub(crate) fn push_text_layout(
         &mut self,
         layout: Arc<dyn std::any::Any + Send + Sync>,
         bounds: LogicalRect,
@@ -1677,7 +1686,7 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_underline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
+    pub(crate) fn push_underline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
             self.push_item(DisplayListItem::Underline {
                 bounds: bounds.into(),
@@ -1687,7 +1696,7 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_strikethrough(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
+    pub(crate) fn push_strikethrough(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
             self.push_item(DisplayListItem::Strikethrough {
                 bounds: bounds.into(),
@@ -1697,7 +1706,7 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_overline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
+    pub(crate) fn push_overline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
             self.push_item(DisplayListItem::Overline {
                 bounds: bounds.into(),
@@ -1707,14 +1716,18 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_image(&mut self, bounds: LogicalRect, image: ImageRef, border_radius: BorderRadius) {
+    pub(crate) fn push_image(&mut self, bounds: LogicalRect, image: ImageRef, border_radius: BorderRadius) {
         self.push_item(DisplayListItem::Image { bounds: bounds.into(), image, border_radius });
     }
 }
 
 /// Main entry point for generating the display list.
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+/// # Errors
+///
+/// Returns a `LayoutError` if display-list generation fails.
 pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
-    ctx: &mut LayoutContext<T>,
+    ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     calculated_positions: &super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
@@ -1840,7 +1853,7 @@ impl<'a, 'b, T> DisplayListGenerator<'a, 'b, T>
 where
     T: ParsedFontTrait + Sync + 'static,
 {
-    pub fn new(
+    pub(crate) const fn new(
         ctx: &'a mut LayoutContext<'b, T>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
         positioned_tree: &'a PositionedTree<'a>,
@@ -1878,24 +1891,24 @@ where
     // with visibility:visible inside a hidden parent must still be painted.
     fn is_node_hidden(&self, node_index: usize) -> bool {
         use azul_css::props::style::effects::StyleVisibility;
-        let node = match self.positioned_tree.tree.get(node_index) {
-            Some(n) => n,
-            None => return false,
+        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+            return false;
         };
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => return false,
+        let Some(dom_id) = node.dom_node_id else {
+            return false;
         };
         let node_state = self.get_styled_node_state(dom_id);
-        match get_visibility(self.ctx.styled_dom, dom_id, &node_state) {
-            crate::solver3::getters::MultiValue::Exact(StyleVisibility::Hidden)
-            | crate::solver3::getters::MultiValue::Exact(StyleVisibility::Collapse) => true,
-            _ => false,
-        }
+        matches!(
+            get_visibility(self.ctx.styled_dom, dom_id, &node_state),
+            crate::solver3::getters::MultiValue::Exact(
+                StyleVisibility::Hidden | StyleVisibility::Collapse
+            )
+        )
     }
 
     /// Gets the cursor type for a text node from its CSS properties.
     /// Defaults to Text (I-beam) cursor if no explicit cursor is set.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn get_cursor_type_for_text_node(&self, node_id: NodeId) -> CursorType {
         use azul_css::props::style::effects::StyleCursor;
         
@@ -1905,12 +1918,11 @@ where
         
         // Query the cursor CSS property for this text node
         if let Some(node_data) = node_data {
-            if let Some(cursor_value) = self.ctx.styled_dom.get_css_property_cache().get_cursor(
+            if let Some(CssPropertyValue::Exact(cursor)) = self.ctx.styled_dom.get_css_property_cache().get_cursor(
                 node_data,
                 &node_id,
                 &styled_node_state,
             ) {
-                if let CssPropertyValue::Exact(cursor) = cursor_value {
                     return match cursor {
                         StyleCursor::Default => CursorType::Default,
                         StyleCursor::Pointer => CursorType::Pointer,
@@ -1942,7 +1954,6 @@ where
                         StyleCursor::VerticalText => CursorType::Text,
                         StyleCursor::Unset => CursorType::Text, // Default to text for text nodes
                     };
-                }
             }
         }
         
@@ -1996,9 +2007,7 @@ where
         let anchor_bp = self
             .positioned_tree
             .tree
-            .get(ifc_root_index)
-            .map(|n| n.box_props.unpack())
-            .unwrap_or_else(|| node.box_props.unpack());
+            .get(ifc_root_index).map_or_else(|| node.box_props.unpack(), |n| n.box_props.unpack());
         let content_box_offset_x = anchor_pos.x + anchor_bp.padding.left + anchor_bp.border.left;
         let content_box_offset_y = anchor_pos.y + anchor_bp.padding.top + anchor_bp.border.top;
 
@@ -2042,6 +2051,7 @@ where
     /// Emits drawing commands for all text cursors (carets).
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
     /// Preedit underline is only rendered for the primary (last) cursor.
+    #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn paint_cursor(
         &self,
         builder: &mut DisplayListBuilder,
@@ -2108,8 +2118,7 @@ where
                 *cd == self.ctx.styled_dom.dom_id && (*cn == dom_id || self.positioned_tree.tree.children(node_index).iter().any(|&child_idx| {
                     self.positioned_tree.tree.get(child_idx)
                         .and_then(|c| c.dom_node_id)
-                        .map(|id| id == *cn)
-                        .unwrap_or(false)
+                        .is_some_and(|id| id == *cn)
                 }))
             })
             .map(|(i, _)| i);
@@ -2127,8 +2136,7 @@ where
                     .any(|&child_idx| {
                         self.positioned_tree.tree.get(child_idx)
                             .and_then(|c| c.dom_node_id)
-                            .map(|id| id == *cursor_node_id)
-                            .unwrap_or(false)
+                            .is_some_and(|id| id == *cursor_node_id)
                     });
                 if !is_ifc_root_of_cursor {
                     continue;
@@ -2161,12 +2169,12 @@ where
                         let char_count = preedit.chars().count() as f32;
                         let approx_char_width = style.width.max(8.0);
                         let preedit_width = char_count * approx_char_width;
-                        let underline_bounds = azul_core::geom::LogicalRect {
-                            origin: azul_core::geom::LogicalPosition {
+                        let underline_bounds = LogicalRect {
+                            origin: LogicalPosition {
                                 x: rect.origin.x + rect.size.width,
                                 y: rect.origin.y + rect.size.height - 2.0,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: preedit_width,
                                 height: 2.0,
                             },
@@ -2266,6 +2274,7 @@ where
     // +spec:display-property:de4c66 - CSS 2.2 E.2 stacking context paint order (canvas bg, negative z, in-flow, floats, inline, positive z)
     // +spec:overflow:6e48b4 - CSS 2.2 Appendix E painting order: bg/border, negative z-index, in-flow, floats, z-index 0/auto, positive z-index
     // +spec:stacking-contexts:55ca96 - CSS 2.2 E.2 painting order: backgrounds, negative z-index, in-flow, z-index 0/auto, positive z-index
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn generate_for_stacking_context(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -2299,8 +2308,7 @@ where
 
         // Track fixed-position elements for paged media replication (CSS Positioned Layout §2.1)
         let is_fixed_position = node.dom_node_id
-            .map(|dom_id| get_position_type(self.ctx.styled_dom, Some(dom_id)) == LayoutPosition::Fixed)
-            .unwrap_or(false);
+            .is_some_and(|dom_id| get_position_type(self.ctx.styled_dom, Some(dom_id)) == LayoutPosition::Fixed);
         if is_fixed_position {
             builder.begin_fixed_position_element();
         }
@@ -2430,7 +2438,7 @@ where
         // TODO: CSS Overflow 3 says overflow clips should NOT apply to abs-pos descendants
         // whose containing block is above this clipper. Currently all descendants are clipped.
         // The containing_block_index field on LayoutNode is set for this purpose.
-        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
+        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node);
 
         // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index 0/auto, positive z-index
         // 3. Paint child stacking contexts with negative z-indices.
@@ -2506,7 +2514,7 @@ where
                     builder.push_virtual_view_placeholder(dom_id, node_bounds, node_bounds);
                 }
             }
-            self.pop_node_clips(builder, node)?;
+            self.pop_node_clips(builder, node);
         } else {
             // Even without clips, emit VirtualViewPlaceholder for VirtualView nodes
             if let Some(dom_id) = node.dom_node_id {
@@ -2524,6 +2532,7 @@ where
     }
 
     /// Paints the content and non-stacking-context children.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_in_flow_descendants(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -2567,12 +2576,10 @@ where
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child is being dragged (paint last for z-order)
-            let is_dragging = if let Some(dom_id) = child_node.dom_node_id {
+            let is_dragging = child_node.dom_node_id.is_some_and(|dom_id| {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 styled_node_state.dragging
-            } else {
-                false
-            };
+            });
 
             if is_dragging {
                 dragging_children.push(child_index);
@@ -2645,7 +2652,7 @@ where
             self.paint_node_background_and_border(builder, child_index)?;
 
             // Push clips and scroll frames AFTER painting background
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
 
             // Paint descendants inside the clip/scroll frame
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
@@ -2660,7 +2667,7 @@ where
 
             // Pop the child's clips.
             if did_push_clip {
-                self.pop_node_clips(builder, child_node)?;
+                self.pop_node_clips(builder, child_node);
             }
 
             // Pop image mask clip
@@ -2718,7 +2725,7 @@ where
             // Same as above: push image mask, paint background, then clips
             let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
             self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
 
             // For VirtualView children: emit placeholder INSIDE the clip
@@ -2730,7 +2737,7 @@ where
             }
 
             if did_push_clip {
-                self.pop_node_clips(builder, child_node)?;
+                self.pop_node_clips(builder, child_node);
             }
             if did_push_child_image_mask {
                 builder.pop_image_mask_clip();
@@ -2785,7 +2792,7 @@ where
             // Same as above: push image mask, paint background, then clips
             let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
             self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
             self.paint_in_flow_descendants(builder, child_index, self.positioned_tree.tree.children(child_index))?;
 
             // For VirtualView children: emit placeholder INSIDE the clip
@@ -2797,7 +2804,7 @@ where
             }
 
             if did_push_clip {
-                self.pop_node_clips(builder, child_node)?;
+                self.pop_node_clips(builder, child_node);
             }
             if did_push_child_image_mask {
                 builder.pop_image_mask_clip();
@@ -2815,34 +2822,30 @@ where
         Ok(())
     }
 
-    /// Returns true if the given DOM node is a VirtualView node.
+    /// Returns true if the given DOM node is a `VirtualView` node.
     fn is_virtual_view_node(&self, dom_id: NodeId) -> bool {
         let node_data_container = self.ctx.styled_dom.node_data.as_container();
         node_data_container
             .get(dom_id)
-            .map(|nd| matches!(nd.get_node_type(), NodeType::VirtualView))
-            .unwrap_or(false)
+            .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::VirtualView))
     }
 
-    /// Checks if a node has an image mask clip and pushes PushImageMaskClip if so.
+    /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
     /// Returns true if a clip was pushed (caller must pop it).
     fn push_image_mask_clip(
         &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> bool {
-        let node = match self.positioned_tree.tree.get(node_index) {
-            Some(n) => n,
-            None => return false,
+        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+            return false;
         };
-        let dom_id = match node.dom_node_id {
-            Some(id) => id,
-            None => return false,
+        let Some(dom_id) = node.dom_node_id else {
+            return false;
         };
         let node_data_container = self.ctx.styled_dom.node_data.as_container();
-        let node_data = match node_data_container.get(dom_id) {
-            Some(nd) => nd,
-            None => return false,
+        let Some(node_data) = node_data_container.get(dom_id) else {
+            return false;
         };
         match node_data.get_svg_data() {
             Some(azul_core::dom::SvgNodeData::ImageClipMask(clip_mask)) => {
@@ -2865,12 +2868,10 @@ where
             #[cfg(feature = "cpurender")]
             Some(azul_core::dom::SvgNodeData::Path(svg_clip)) => {
                 let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
-                if let Some(mask_image) = rasterize_svg_clip_to_r8(svg_clip, &paint_rect) {
+                rasterize_svg_clip_to_r8(svg_clip, &paint_rect).is_some_and(|mask_image| {
                     builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
                     true
-                } else {
-                    false
-                }
+                })
             }
             #[cfg(not(feature = "cpurender"))]
             Some(azul_core::dom::SvgNodeData::Path(_)) => false,
@@ -2890,18 +2891,19 @@ where
     /// // (i.e. absolutely positioned elements that escape the overflow container).
     /// // TODO: exempt abs-pos descendants whose containing block is an ancestor of this node.
     ///
-    /// For VirtualView nodes with `overflow: scroll/auto`, we intentionally skip
-    /// `PushScrollFrame` / `PopScrollFrame`. VirtualView scroll state is managed by
-    /// `ScrollManager`, not WebRender's APZ. Instead we emit only a `PushClip`
+    /// For `VirtualView` nodes with `overflow: scroll/auto`, we intentionally skip
+    /// `PushScrollFrame` / `PopScrollFrame`. `VirtualView` scroll state is managed by
+    /// `ScrollManager`, not `WebRender`'s APZ. Instead we emit only a `PushClip`
     /// and later an `VirtualViewPlaceholder` (see `generate_for_stacking_context`).
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     fn push_node_clips(
         &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
         node: &LayoutNodeHot,
-    ) -> Result<bool> {
+    ) -> bool {
         let Some(dom_id) = node.dom_node_id else {
-            return Ok(false);
+            return false;
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
@@ -2930,10 +2932,9 @@ where
         // clip-path supersedes it and applies to all elements per CSS Masking Level 1.
         // If present, push a clip region derived from the clip-path shape.
         // This is evaluated before overflow clips; both can be active simultaneously.
-        let has_clip_path = if let Some(clip_path) = super::getters::get_clip_path(
+        let has_clip_path = super::getters::get_clip_path(
             self.ctx.styled_dom, dom_id, &styled_node_state,
-        ) {
-            if let Some((clip_rect, radius)) = resolve_clip_path(&clip_path, paint_rect) {
+        ).is_some_and(|clip_path| if let Some((clip_rect, radius)) = resolve_clip_path(&clip_path, paint_rect) {
                 let br = if radius > 0.0 {
                     BorderRadius {
                         top_left: radius,
@@ -2948,17 +2949,14 @@ where
                 true
             } else {
                 false
-            }
-        } else {
-            false
-        };
+            });
 
         // +spec:overflow:6890f2 - text-overflow: clip inline content at end line box edge when overflow != visible
         // +spec:overflow:77d7ce - clipping region defines visible portion of border box; default is not clipped
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
         if !needs_clip {
-            return Ok(has_clip_path);
+            return has_clip_path;
         }
 
         // +spec:overflow:c52f2a - clipping region is rounded to element's border-radius
@@ -2983,7 +2981,7 @@ where
 
         // Get scrollbar info to adjust clip rect for content area
         let scrollbar_info = self.positioned_tree.tree.warm(node_index)
-            .and_then(|w| w.scrollbar_info.clone())
+            .and_then(|w| w.scrollbar_info)
             .unwrap_or_default();
 
         // +spec:overflow:13cacb - clip rect clamped to 0 so zero-size clips hide all pixels
@@ -3029,34 +3027,27 @@ where
 
         // +spec:overflow:484889 - clip content in unreachable scrollable overflow region
         // +spec:overflow:917dae - scrollable overflow rect is a rectangle in box's own coordinate system
-        if overflow_x.is_scroll() || overflow_y.is_scroll() {
-            if is_virtual_view {
-                // VirtualView nodes: only push a clip, NO scroll frame.
-                // Scroll state is managed by ScrollManager and passed to the
-                // VirtualView callback as scroll_offset. The VirtualViewPlaceholder is
-                // emitted after pop_node_clips in generate_for_stacking_context.
-                builder.push_clip(clip_rect, border_radius);
-            } else {
-                // Regular scrollable nodes: push clip AND scroll frame.
-                // WebRender's APZ manages the scroll offset via define_scroll_frame.
-                // CPU renderers use scroll_offset to translate children.
-                builder.push_clip(clip_rect, border_radius);
-                let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
-                let content_size = get_scroll_content_size(node, self.positioned_tree.tree.warm(node_index));
-                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
-            }
-        } else {
-            // Simple clip for hidden/clip
-            builder.push_clip(clip_rect, border_radius);
+        // Every clipped node pushes a clip (scrollable, hidden, or clip alike).
+        builder.push_clip(clip_rect, border_radius);
+        // Regular scrollable nodes ALSO push a scroll frame: WebRender's APZ
+        // manages the offset via define_scroll_frame, CPU renderers translate
+        // children by scroll_offset. VirtualView scroll state is instead managed
+        // by ScrollManager and passed to the callback as scroll_offset, with the
+        // VirtualViewPlaceholder emitted after pop_node_clips in
+        // generate_for_stacking_context — so VirtualView nodes get only the clip.
+        if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
+            let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
+            let content_size = get_scroll_content_size(node, self.positioned_tree.tree.warm(node_index));
+            builder.push_scroll_frame(clip_rect, content_size, scroll_id);
         }
 
-        Ok(true)
+        true
     }
 
     /// Pops any clip/scroll commands associated with a node.
-    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) -> Result<()> {
+    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) {
         let Some(dom_id) = node.dom_node_id else {
-            return Ok(());
+            return;
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
@@ -3106,14 +3097,13 @@ where
         let is_virtual_view = self.is_virtual_view_node(dom_id);
 
         if needs_clip {
+            // Regular (non-VirtualView) scroll/auto also pushed a scroll frame;
+            // pop it first (LIFO) before the shared clip. Hidden/clip and
+            // VirtualView scroll only pushed a clip.
             if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
-                // For regular (non-VirtualView) scroll/auto, pop both scroll frame AND clip
                 builder.pop_scroll_frame();
-                builder.pop_clip();
-            } else {
-                // For hidden/clip, or VirtualView scroll (which only pushed a clip)
-                builder.pop_clip();
             }
+            builder.pop_clip();
         }
 
         // Pop the clip-path clip if one was pushed.
@@ -3128,7 +3118,6 @@ where
             }
         }
 
-        Ok(())
     }
 
     /// Calculates the final paint-time rectangle for a node.
@@ -3139,13 +3128,13 @@ where
     /// This is the coordinate space used throughout the display list:
     /// 
     /// - Origin: Top-left corner of the window
-    /// - Units: Logical pixels (HiDPI scaling happens in compositor2.rs)
-    /// - Scroll: NOT applied here - WebRender scroll frames handle scroll offset
+    /// - Units: Logical pixels (`HiDPI` scaling happens in compositor2.rs)
+    /// - Scroll: NOT applied here - `WebRender` scroll frames handle scroll offset
     ///   transformation internally via `define_scroll_frame()`
     /// 
     /// ## Important
     /// 
-    /// Do NOT manually subtract scroll offset here! WebRender's scroll spatial
+    /// Do NOT manually subtract scroll offset here! `WebRender`'s scroll spatial
     /// transforms handle this. Subtracting here would cause double-offset and
     /// parallax effects (backgrounds and text moving at different speeds).
     fn get_paint_rect(&self, node_index: usize) -> Option<LogicalRect> {
@@ -3166,6 +3155,7 @@ where
     }
 
     /// Emits drawing commands for the background and border of a single node.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_node_background_and_border(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -3387,7 +3377,7 @@ where
     /// Finally, cell content is painted on top of everything.
     ///
     /// This function generates simple display list items (Rect, Border) in the correct
-    /// CSS paint order, making WebRender integration trivial.
+    /// CSS paint order, making `WebRender` integration trivial.
     fn paint_table_items(
         &self,
         builder: &mut DisplayListBuilder,
@@ -3431,11 +3421,11 @@ where
             if let Some(node) = child_node {
                 if matches!(node.formatting_context, FormattingContext::TableColumnGroup) {
                     // Paint column group background
-                    self.paint_element_background(builder, child_idx)?;
+                    self.paint_element_background(builder, child_idx);
 
                     // Paint backgrounds of individual columns within this group
                     for &col_idx in self.positioned_tree.tree.children(child_idx) {
-                        self.paint_element_background(builder, col_idx)?;
+                        self.paint_element_background(builder, col_idx);
                     }
                 }
             }
@@ -3450,16 +3440,16 @@ where
                 match node.formatting_context {
                     FormattingContext::TableRowGroup => {
                         // Paint row group background
-                        self.paint_element_background(builder, child_idx)?;
+                        self.paint_element_background(builder, child_idx);
 
                         // Paint rows within this group
                         for &row_idx in self.positioned_tree.tree.children(child_idx) {
-                            self.paint_table_row_and_cells(builder, row_idx)?;
+                            self.paint_table_row_and_cells(builder, row_idx);
                         }
                     }
                     FormattingContext::TableRow => {
                         // Direct row child (no row group wrapper)
-                        self.paint_table_row_and_cells(builder, child_idx)?;
+                        self.paint_table_row_and_cells(builder, child_idx);
                     }
                     _ => {}
                 }
@@ -3482,7 +3472,7 @@ where
         &self,
         builder: &mut DisplayListBuilder,
         row_idx: usize,
-    ) -> Result<()> {
+    ) {
         // Layer 5: Paint row background.
         // Rows don't have entries in calculated_positions (adding them would
         // double-offset cells during position recursion). Compute the row rect
@@ -3519,29 +3509,28 @@ where
         // Layer 6: Paint cell backgrounds (topmost layer)
         if let Some(_node) = self.positioned_tree.tree.get(row_idx) {
             for &cell_idx in self.positioned_tree.tree.children(row_idx) {
-                self.paint_element_background(builder, cell_idx)?;
+                self.paint_element_background(builder, cell_idx);
             }
         }
 
-        Ok(())
     }
 
     /// Helper function to paint an element's background (used for all table elements)
-    /// Reads background-color and border-radius from CSS properties and emits push_rect()
+    /// Reads background-color and border-radius from CSS properties and emits `push_rect()`
     fn paint_element_background(
         &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
-    ) -> Result<()> {
+    ) {
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
-            return Ok(());
+            return;
         };
 
         let Some(node) = self.positioned_tree.tree.get(node_index) else {
-            return Ok(());
+            return;
         };
         let Some(dom_id) = node.dom_node_id else {
-            return Ok(());
+            return;
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
@@ -3549,7 +3538,7 @@ where
 
         // Only paint if background color has alpha > 0 (optimization)
         if bg_color.a == 0 {
-            return Ok(());
+            return;
         }
 
         let element_size = PhysicalSizeImport {
@@ -3566,10 +3555,10 @@ where
 
         builder.push_rect(paint_rect, bg_color, border_radius);
 
-        Ok(())
     }
 
     /// Emits drawing commands for the foreground content, including hit-test areas and scrollbars.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_node_content(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -3691,7 +3680,7 @@ where
                 }
             }
 
-            self.paint_inline_content(builder, content_box_rect, viewport_clip_rect, inline_layout, node_index)?;
+            self.paint_inline_content(builder, content_box_rect, viewport_clip_rect, inline_layout, node_index);
 
             if pushed_text_shadow {
                 builder.push_item(DisplayListItem::PopTextShadow);
@@ -3731,6 +3720,7 @@ where
 
     /// Emits drawing commands for scrollbars. This is called AFTER popping the scroll frame
     /// clip so scrollbars appear on top of content and are not clipped.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_scrollbars(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
         // CSS 2.2 §11.2: visibility:hidden scroll containers must not paint scrollbars,
         // but their layout space is preserved (already handled by layout).
@@ -3750,7 +3740,7 @@ where
 
         // Check if we need to draw scrollbars for this node.
         let scrollbar_info = self.positioned_tree.tree.warm(node_index)
-            .and_then(|w| w.scrollbar_info.clone())
+            .and_then(|w| w.scrollbar_info)
             .unwrap_or_default();
 
         // Get node_id for GPU cache lookup and CSS style lookup
@@ -3798,12 +3788,11 @@ where
             let gutter_width = scrollbar_style.visual_width_px;
             // Paint gutter as padding extension when scrollbar is absent
             let bg_color = node_id
-                .map(|nid| {
+                .map_or(ColorU::TRANSPARENT, |nid| {
                     let node_state =
                         &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
                     get_background_color(self.ctx.styled_dom, nid, node_state)
-                })
-                .unwrap_or(ColorU::TRANSPARENT);
+                });
 
             if !scrollbar_info.needs_vertical && gutter_width > 0.0 {
                 // Right-side gutter (inline-end)
@@ -3894,9 +3883,7 @@ where
         // For VirtualView nodes, the virtual_scroll_size (propagated through ScrollPosition.children_rect)
         // is more accurate than the layout-computed content size.
         let content_size = node_id
-            .and_then(|nid| self.scroll_offsets.get(&nid))
-            .map(|pos| pos.children_rect.size)
-            .unwrap_or_else(|| self.positioned_tree.tree.get_content_size(node_index));
+            .and_then(|nid| self.scroll_offsets.get(&nid)).map_or_else(|| self.positioned_tree.tree.get_content_size(node_index), |pos| pos.children_rect.size);
 
         // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
         let thumb_radius = scrollbar_style.visual_width_px / 2.0;
@@ -3994,8 +3981,8 @@ where
                 thumb_bounds: thumb_bounds.into(),
                 thumb_color: scrollbar_style.thumb_color,
                 thumb_border_radius,
-                button_decrement_bounds: button_decrement_bounds.map(|b| b.into()),
-                button_increment_bounds: button_increment_bounds.map(|b| b.into()),
+                button_decrement_bounds: button_decrement_bounds.map(Into::into),
+                button_increment_bounds: button_increment_bounds.map(Into::into),
                 button_color: scrollbar_style.button_color,
                 opacity_key,
                 thumb_transform_key,
@@ -4084,8 +4071,8 @@ where
                 thumb_bounds: thumb_bounds.into(),
                 thumb_color: scrollbar_style.thumb_color,
                 thumb_border_radius,
-                button_decrement_bounds: button_decrement_bounds.map(|b| b.into()),
-                button_increment_bounds: button_increment_bounds.map(|b| b.into()),
+                button_decrement_bounds: button_decrement_bounds.map(Into::into),
+                button_increment_bounds: button_increment_bounds.map(Into::into),
                 button_color: scrollbar_style.button_color,
                 opacity_key,
                 thumb_transform_key,
@@ -4101,6 +4088,8 @@ where
     }
 
     /// Converts the rich layout information from `text3` into drawing commands.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn paint_inline_content(
         &self,
         builder: &mut DisplayListBuilder,
@@ -4108,7 +4097,7 @@ where
         viewport_clip_rect: LogicalRect,
         layout: &UnifiedLayout,
         source_node_index: usize,
-    ) -> Result<()> {
+    ) {
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // NOTE: Text decorations (underline, strikethrough, overline) are handled in push_text_layout_to_display_list
@@ -4147,7 +4136,7 @@ where
         // from affecting pagination height calculations
         if layout_bounds.width > 0.0 || layout_bounds.height > 0.0 {
             builder.push_text_layout(
-                Arc::new(layout.clone()) as Arc<dyn std::any::Any + Send + Sync>,
+                Arc::new(layout.clone()),
                 actual_bounds,
                 FontHash::from_hash(0), // Will be updated per glyph run
                 12.0,                   // Default font size, will be updated per glyph run
@@ -4164,7 +4153,7 @@ where
 
         // FIRST PASS: Render backgrounds (solid colors, gradients) and borders for each glyph run
         // This must happen BEFORE rendering text so that backgrounds appear behind text.
-        for glyph_run in glyph_runs.iter() {
+        for glyph_run in &glyph_runs {
             // Calculate the bounding box for this glyph run
             if let (Some(first_glyph), Some(last_glyph)) =
                 (glyph_run.glyphs.first(), glyph_run.glyphs.last())
@@ -4214,7 +4203,7 @@ where
         }
 
         // SECOND PASS: Render text runs
-        for glyph_run in glyph_runs.iter() {
+        for glyph_run in &glyph_runs {
             // Clip text to the viewport-sized content box, not the full scroll
             // content area. This prevents text from overflowing outside the
             // container when overflow is hidden/scroll/auto.
@@ -4305,7 +4294,7 @@ where
 
         // THIRD PASS: Generate hit-test areas for text runs
         // This enables cursor resolution directly on text nodes instead of their containers
-        for glyph_run in glyph_runs.iter() {
+        for glyph_run in &glyph_runs {
             // Only generate hit-test areas for runs with a source node id
             let Some(source_node_id) = glyph_run.source_node_id else {
                 continue;
@@ -4353,9 +4342,8 @@ where
         // These are positioned by the text3 engine and need to be rendered at their calculated
         // positions
         for positioned_item in &layout.items {
-            self.paint_inline_object(builder, container_rect.origin, positioned_item)?;
+            self.paint_inline_object(builder, container_rect.origin, positioned_item);
         }
-        Ok(())
     }
 
     /// Paints a single inline object (image, shape, or inline-block)
@@ -4364,13 +4352,13 @@ where
         builder: &mut DisplayListBuilder,
         base_pos: LogicalPosition,
         positioned_item: &PositionedItem,
-    ) -> Result<()> {
+    ) {
         let ShapedItem::Object {
             content, bounds, ..
         } = &positioned_item.item
         else {
             // Other item types (e.g., breaks) don't produce painted output.
-            return Ok(());
+            return;
         };
 
         // Calculate the absolute position of this object
@@ -4394,11 +4382,10 @@ where
                 }
             }
             InlineContent::Shape(shape) => {
-                self.paint_inline_shape(builder, object_bounds, shape, bounds)?;
+                self.paint_inline_shape(builder, object_bounds, shape, bounds);
             }
             _ => {}
         }
-        Ok(())
     }
 
     // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per E.2
@@ -4409,11 +4396,11 @@ where
         object_bounds: LogicalRect,
         shape: &InlineShape,
         bounds: &crate::text3::cache::Rect,
-    ) -> Result<()> {
+    ) {
         // Render inline-block backgrounds and borders using their CSS styling
         // The text3 engine positions these correctly in the inline flow
         let Some(node_id) = shape.source_node_id else {
-            return Ok(());
+            return;
         };
 
         // If this inline-block establishes a stacking context, its background was
@@ -4423,7 +4410,7 @@ where
         if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
             if let Some(&idx) = indices.first() {
                 if self.establishes_stacking_context(idx) {
-                    return Ok(());
+                    return;
                 }
             }
         }
@@ -4440,15 +4427,13 @@ where
 
         // FIX: object_bounds is the margin-box position from text3.
         // We need to convert to border-box for painting backgrounds/borders.
-        let margins = if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
-            if let Some(&idx) = indices.first() {
-                self.positioned_tree.tree.nodes[idx].box_props.unpack().margin
-            } else {
-                Default::default()
-            }
-        } else {
-            Default::default()
-        };
+        let margins = self.positioned_tree.tree.dom_to_layout.get(&node_id).map_or_else(
+            crate::solver3::geometry::EdgeSizes::default,
+            |indices| indices.first().map_or_else(
+                crate::solver3::geometry::EdgeSizes::default,
+                |&idx| self.positioned_tree.tree.nodes[idx].box_props.unpack().margin,
+            ),
+        );
 
         // Convert margin-box bounds to border-box bounds
         let border_box_bounds = LogicalRect {
@@ -4497,7 +4482,6 @@ where
             builder.push_hit_test_area(border_box_bounds, tag_id);
         }
 
-        Ok(())
     }
 
     // +spec:overflow:d1d5f6 - CSS 2.2 §9.9.1 stacking context creation and 7-layer paint order
@@ -4564,6 +4548,7 @@ where
 /// Combines the layout tree with pre-calculated absolute positions for each node.
 /// The positions are stored separately because they are computed in a final
 /// positioning pass after layout is complete.
+#[derive(Debug)]
 pub struct PositionedTree<'a> {
     /// The layout tree containing all nodes with their computed sizes
     pub tree: &'a LayoutTree,
@@ -4575,6 +4560,7 @@ pub struct PositionedTree<'a> {
 ///
 /// Per CSS Overflow 3 §3.2, `overflow-clip-margin` only applies to `overflow: clip` —
 /// it has no effect on `overflow: hidden`, `scroll`, or `auto`.
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn apply_overflow_clip_margin(
     clip_rect: &mut LogicalRect,
     overflow_x: &super::getters::MultiValue<LayoutOverflow>,
@@ -4605,7 +4591,7 @@ fn apply_overflow_clip_margin(
 }
 
 fn get_scroll_id(id: Option<NodeId>) -> LocalScrollId {
-    id.map(|i| i.index() as u64).unwrap_or(0)
+    id.map_or(0, |i| i.index() as u64)
 }
 
 /// Calculates the actual content size of a node, including all children and text.
@@ -4658,6 +4644,7 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
 ///
 /// `target_size` is the object's logical box size, used only to size the raster
 /// when rasterizing an SVG source.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn get_image_ref_for_image_source(
     source: &ImageSource,
     image_cache: &azul_core::resources::ImageCache,
@@ -4722,6 +4709,8 @@ fn get_display_item_bounds(item: &DisplayListItem) -> Option<WindowLogicalRect> 
 
 /// Clip a display list item to page bounds and offset to page-relative coordinates.
 /// Returns None if the item is completely outside the page bounds.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn clip_and_offset_display_item(
     item: &DisplayListItem,
     page_top: f32,
@@ -5115,7 +5104,7 @@ fn clip_text_layout_item(
 
     // Try to downcast and filter UnifiedLayout items
     #[cfg(feature = "text_layout")]
-    if let Some(unified_layout) = layout.downcast_ref::<crate::text3::cache::UnifiedLayout>() {
+    if let Some(unified_layout) = layout.downcast_ref::<UnifiedLayout>() {
         return clip_unified_layout(
             unified_layout,
             bounds,
@@ -5137,10 +5126,10 @@ fn clip_text_layout_item(
     })
 }
 
-/// Clips a UnifiedLayout by filtering items to those on the current page.
+/// Clips a `UnifiedLayout` by filtering items to those on the current page.
 #[cfg(feature = "text_layout")]
 fn clip_unified_layout(
-    unified_layout: &crate::text3::cache::UnifiedLayout,
+    unified_layout: &UnifiedLayout,
     bounds: LogicalRect,
     font_hash: FontHash,
     font_size_px: f32,
@@ -5170,7 +5159,7 @@ fn clip_unified_layout(
     let (offset_items, min_y, max_y, max_width) =
         transform_items_to_page_coords(filtered_items, layout_origin_y, page_top, new_origin_y);
 
-    let new_layout = crate::text3::cache::UnifiedLayout {
+    let new_layout = UnifiedLayout {
         items: offset_items,
         overflow: unified_layout.overflow.clone(),
     };
@@ -5187,7 +5176,7 @@ fn clip_unified_layout(
     };
 
     Some(DisplayListItem::TextLayout {
-        layout: Arc::new(new_layout) as Arc<dyn std::any::Any + Send + Sync>,
+        layout: Arc::new(new_layout),
         bounds: new_bounds.into(),
         font_hash,
         font_size_px,
@@ -5198,7 +5187,7 @@ fn clip_unified_layout(
 /// Checks if an item's center point falls within the page bounds.
 #[cfg(feature = "text_layout")]
 fn item_center_on_page(
-    item: &crate::text3::cache::PositionedItem,
+    item: &PositionedItem,
     layout_origin_y: f32,
     page_top: f32,
     page_bottom: f32,
@@ -5210,14 +5199,14 @@ fn item_center_on_page(
 }
 
 /// Transforms filtered items to page-relative coordinates.
-/// Returns (items, min_y, max_y, max_width).
+/// Returns (items, `min_y`, `max_y`, `max_width`).
 #[cfg(feature = "text_layout")]
 fn transform_items_to_page_coords(
-    items: Vec<crate::text3::cache::PositionedItem>,
+    items: Vec<PositionedItem>,
     layout_origin_y: f32,
     page_top: f32,
     new_origin_y: f32,
-) -> (Vec<crate::text3::cache::PositionedItem>, f32, f32, f32) {
+) -> (Vec<PositionedItem>, f32, f32, f32) {
     let mut min_y = f32::MAX;
     let mut max_y = f32::MIN;
     let mut max_width = 0.0f32;
@@ -5442,7 +5431,7 @@ pub struct SlicerConfig {
 
 impl SlicerConfig {
     /// Create a simple slicer config with no gaps between pages.
-    pub fn simple(page_height: f32) -> Self {
+    #[must_use] pub fn simple(page_height: f32) -> Self {
         Self {
             page_content_height: page_height,
             page_gap: 0.0,
@@ -5454,7 +5443,7 @@ impl SlicerConfig {
     }
 
     /// Create a slicer config with margins/gaps between pages.
-    pub fn with_gap(page_height: f32, gap: f32) -> Self {
+    #[must_use] pub fn with_gap(page_height: f32, gap: f32) -> Self {
         Self {
             page_content_height: page_height,
             page_gap: gap,
@@ -5466,19 +5455,19 @@ impl SlicerConfig {
     }
 
     /// Add header/footer configuration.
-    pub fn with_header_footer(mut self, config: HeaderFooterConfig) -> Self {
+    #[must_use] pub fn with_header_footer(mut self, config: HeaderFooterConfig) -> Self {
         self.header_footer = config;
         self
     }
 
     /// Set the page width (for header/footer positioning).
-    pub fn with_page_width(mut self, width: f32) -> Self {
+    #[must_use] pub const fn with_page_width(mut self, width: f32) -> Self {
         self.page_width = width;
         self
     }
 
     /// Add table headers for repetition.
-    pub fn with_table_headers(mut self, tracker: TableHeaderTracker) -> Self {
+    #[must_use] pub fn with_table_headers(mut self, tracker: TableHeaderTracker) -> Self {
         self.table_headers = tracker;
         self
     }
@@ -5489,12 +5478,13 @@ impl SlicerConfig {
     }
 
     /// The total height of a page "slot" including the gap.
-    pub fn page_slot_height(&self) -> f32 {
+    #[must_use] pub fn page_slot_height(&self) -> f32 {
         self.page_content_height + self.page_gap
     }
 
     /// Calculate which page a Y coordinate falls on.
-    pub fn page_for_y(&self, y: f32) -> usize {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[must_use] pub fn page_for_y(&self, y: f32) -> usize {
         if self.page_slot_height() <= 0.0 {
             return 0;
         }
@@ -5502,7 +5492,8 @@ impl SlicerConfig {
     }
 
     /// Get the Y range for a specific page (in infinite canvas coordinates).
-    pub fn page_bounds(&self, page_index: usize) -> (f32, f32) {
+    #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[must_use] pub fn page_bounds(&self, page_index: usize) -> (f32, f32) {
         let start = page_index as f32 * self.page_slot_height();
         let end = start + self.page_content_height;
         (start, end)
@@ -5516,6 +5507,10 @@ impl SlicerConfig {
 ///
 /// **Key insight**: Items are NEVER shifted. Instead, page boundaries are adjusted
 /// to honor break properties.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if paginating the display list fails.
 pub fn paginate_display_list_with_slicer_and_breaks(
     full_display_list: DisplayList,
     config: &SlicerConfig,
@@ -5727,9 +5722,9 @@ pub fn paginate_display_list_with_slicer_and_breaks(
 
 /// Calculate page break positions respecting CSS forced page breaks.
 ///
-/// Returns a vector of (start_y, end_y) tuples representing each page's content bounds.
+/// Returns a vector of (`start_y`, `end_y`) tuples representing each page's content bounds.
 ///
-/// This function uses the `forced_page_breaks` from the DisplayList to insert
+/// This function uses the `forced_page_breaks` from the `DisplayList` to insert
 /// page breaks at positions specified by CSS `break-before: always` and `break-after: always`.
 /// Regular page breaks still occur at normal intervals when no forced break is present.
 fn calculate_page_break_positions(
@@ -5755,6 +5750,7 @@ fn calculate_page_break_positions(
 
     // Generate regular interval break points
     let mut y = first_page_height;
+    #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
     while y < total_height {
         break_points.push(y);
         y += normal_page_height;
@@ -5797,6 +5793,7 @@ enum TextAlignment {
 }
 
 /// Helper to offset all Y coordinates of a display item.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListItem {
     if y_offset == 0.0 {
         return item.clone();
@@ -6103,7 +6100,7 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
 ///      registered hash so the renderer can resolve and paint it.
 ///
 /// Until then this returns nothing rather than unresolvable glyph soup.
-fn generate_text_display_items(
+const fn generate_text_display_items(
     text: &str,
     bounds: LogicalRect,
     font_size: f32,
@@ -6137,6 +6134,8 @@ fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
 
 /// Break property information for pagination decisions.
 #[derive(Debug, Clone, Copy, Default)]
+// fields mirror the CSS break-before / break-after / break-inside properties
+#[allow(clippy::struct_field_names)]
 struct BreakProperties {
     break_before: PageBreak,
     break_after: PageBreak,
@@ -6156,7 +6155,7 @@ struct BreakProperties {
 ///
 /// This is a display-list post-processing step that modifies glyph runs
 /// to show an ellipsis when text overflows its container. It operates on
-/// the assumption that the container already has a PushClip that clips
+/// the assumption that the container already has a `PushClip` that clips
 /// the overflow -- this function additionally replaces the trailing glyphs
 /// with an ellipsis so the user gets a visual indicator of truncation.
 ///
@@ -6187,14 +6186,13 @@ pub(crate) fn apply_text_overflow_ellipsis(
 
     // Approximate ellipsis width as ~0.6 * font_size (typical for "..." in most fonts).
     // This is a heuristic; proper implementation requires font metric access.
-    for item in display_list.items.iter_mut() {
-        match item {
-            DisplayListItem::Text {
-                glyphs,
-                font_size_px,
-                clip_rect,
-                ..
-            } => {
+    for item in &mut display_list.items {
+        if let DisplayListItem::Text {
+            glyphs,
+            font_size_px,
+            clip_rect,
+            ..
+        } = item {
                 if glyphs.is_empty() {
                     continue;
                 }
@@ -6228,11 +6226,7 @@ pub(crate) fn apply_text_overflow_ellipsis(
                 // (HORIZONTAL ELLIPSIS) as the glyph index. This is a common
                 // convention; renderers that use proper glyph IDs will need to
                 // map this to the font's actual glyph index.
-                let ellipsis_x = if let Some(last) = glyphs.last() {
-                    last.point.x + last.size.width
-                } else {
-                    container_bounds.origin.x
-                };
+                let ellipsis_x = glyphs.last().map_or(container_bounds.origin.x, |last| last.point.x + last.size.width);
 
                 let ellipsis_glyph = GlyphInstance {
                     index: 0x2026, // U+2026 HORIZONTAL ELLIPSIS
@@ -6249,8 +6243,6 @@ pub(crate) fn apply_text_overflow_ellipsis(
                 // the ellipsis is visible but nothing past it is shown
                 *clip_rect = container_bounds.into();
             }
-            _ => {} // Only process Text items
-        }
     }
 }
 
@@ -6282,6 +6274,7 @@ pub(crate) fn apply_text_overflow_ellipsis(
 /// Note: Circle, ellipse, and polygon shapes are approximated as axis-aligned
 /// bounding boxes. A full implementation would use path-based clipping in the
 /// renderer, but rectangular clips work for the most common use cases.
+#[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
 pub(crate) fn resolve_clip_path(
     clip_path: &azul_css::props::layout::shape::ClipPath,
     node_bounds: LogicalRect,
@@ -6342,7 +6335,7 @@ pub(crate) fn resolve_clip_path(
                     let mut min_y = f32::INFINITY;
                     let mut max_x = f32::NEG_INFINITY;
                     let mut max_y = f32::NEG_INFINITY;
-                    for point in polygon.points.iter() {
+                    for point in &polygon.points {
                         // Polygon points are in absolute coordinates (pre-resolved)
                         let px = node_bounds.origin.x + point.x;
                         let py = node_bounds.origin.y + point.y;
@@ -6413,10 +6406,11 @@ pub(crate) fn apply_clip_path(
 ///
 /// Returns `None` if the rect has zero size.
 #[cfg(feature = "cpurender")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
-) -> Option<azul_core::resources::ImageRef> {
+) -> Option<ImageRef> {
     use agg_rust::{
         basics::FillingRule,
         color::Rgba8,
@@ -6438,53 +6432,53 @@ fn rasterize_svg_clip_to_r8(
 
     // Build agg PathStorage from SvgMultiPolygon
     let mut path = PathStorage::new();
-    for ring in svg_clip.rings.as_ref().iter() {
+    for ring in svg_clip.rings.as_ref() {
         let mut first = true;
-        for item in ring.items.as_ref().iter() {
+        for item in ring.items.as_ref() {
             match item {
                 azul_core::svg::SvgPathElement::Line(l) => {
                     if first {
                         path.move_to(
-                            (l.start.x - paint_rect.origin.x) as f64,
-                            (l.start.y - paint_rect.origin.y) as f64,
+                            f64::from(l.start.x - paint_rect.origin.x),
+                            f64::from(l.start.y - paint_rect.origin.y),
                         );
                         first = false;
                     }
                     path.line_to(
-                        (l.end.x - paint_rect.origin.x) as f64,
-                        (l.end.y - paint_rect.origin.y) as f64,
+                        f64::from(l.end.x - paint_rect.origin.x),
+                        f64::from(l.end.y - paint_rect.origin.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
                     if first {
                         path.move_to(
-                            (q.start.x - paint_rect.origin.x) as f64,
-                            (q.start.y - paint_rect.origin.y) as f64,
+                            f64::from(q.start.x - paint_rect.origin.x),
+                            f64::from(q.start.y - paint_rect.origin.y),
                         );
                         first = false;
                     }
                     path.curve3(
-                        (q.ctrl.x - paint_rect.origin.x) as f64,
-                        (q.ctrl.y - paint_rect.origin.y) as f64,
-                        (q.end.x - paint_rect.origin.x) as f64,
-                        (q.end.y - paint_rect.origin.y) as f64,
+                        f64::from(q.ctrl.x - paint_rect.origin.x),
+                        f64::from(q.ctrl.y - paint_rect.origin.y),
+                        f64::from(q.end.x - paint_rect.origin.x),
+                        f64::from(q.end.y - paint_rect.origin.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::CubicCurve(c) => {
                     if first {
                         path.move_to(
-                            (c.start.x - paint_rect.origin.x) as f64,
-                            (c.start.y - paint_rect.origin.y) as f64,
+                            f64::from(c.start.x - paint_rect.origin.x),
+                            f64::from(c.start.y - paint_rect.origin.y),
                         );
                         first = false;
                     }
                     path.curve4(
-                        (c.ctrl_1.x - paint_rect.origin.x) as f64,
-                        (c.ctrl_1.y - paint_rect.origin.y) as f64,
-                        (c.ctrl_2.x - paint_rect.origin.x) as f64,
-                        (c.ctrl_2.y - paint_rect.origin.y) as f64,
-                        (c.end.x - paint_rect.origin.x) as f64,
-                        (c.end.y - paint_rect.origin.y) as f64,
+                        f64::from(c.ctrl_1.x - paint_rect.origin.x),
+                        f64::from(c.ctrl_1.y - paint_rect.origin.y),
+                        f64::from(c.ctrl_2.x - paint_rect.origin.x),
+                        f64::from(c.ctrl_2.y - paint_rect.origin.y),
+                        f64::from(c.end.x - paint_rect.origin.x),
+                        f64::from(c.end.y - paint_rect.origin.y),
                     );
                 }
             }

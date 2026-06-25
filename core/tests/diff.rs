@@ -564,7 +564,7 @@ fn test_large_list_reorder() {
     // Create 100 unique nodes
     let nodes: Vec<NodeData> = (0..100).map(|i| {
         let mut node = NodeData::create_div();
-        node.add_class(AzString::from(format!("item-{}", i)));
+        node.add_class(AzString::from(format!("item-{i}")));
         node
     }).collect();
     
@@ -741,8 +741,6 @@ fn test_shuffle_three() {
 
 use azul_core::refany::{RefAny, OptionRefAny};
 use azul_core::dom::DatasetMergeCallbackType;
-use alloc::sync::Arc;
-use core::cell::RefCell;
 
 /// Test data simulating a video player with a heavy decoder handle
 struct VideoPlayerState {

@@ -61,24 +61,24 @@ pub enum StyleFontWeight {
 impl PrintAsCssValue for StyleFontWeight {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleFontWeight::Lighter => "lighter".to_string(),
-            StyleFontWeight::W100 => "100".to_string(),
-            StyleFontWeight::W200 => "200".to_string(),
-            StyleFontWeight::W300 => "300".to_string(),
-            StyleFontWeight::Normal => "normal".to_string(),
-            StyleFontWeight::W500 => "500".to_string(),
-            StyleFontWeight::W600 => "600".to_string(),
-            StyleFontWeight::Bold => "bold".to_string(),
-            StyleFontWeight::W800 => "800".to_string(),
-            StyleFontWeight::W900 => "900".to_string(),
-            StyleFontWeight::Bolder => "bolder".to_string(),
+            Self::Lighter => "lighter".to_string(),
+            Self::W100 => "100".to_string(),
+            Self::W200 => "200".to_string(),
+            Self::W300 => "300".to_string(),
+            Self::Normal => "normal".to_string(),
+            Self::W500 => "500".to_string(),
+            Self::W600 => "600".to_string(),
+            Self::Bold => "bold".to_string(),
+            Self::W800 => "800".to_string(),
+            Self::W900 => "900".to_string(),
+            Self::Bolder => "bolder".to_string(),
         }
     }
 }
 
 impl crate::codegen::format::FormatAsRustCode for StyleFontWeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use StyleFontWeight::*;
+        use StyleFontWeight::{Lighter, W100, W200, W300, Normal, W500, W600, Bold, W800, W900, Bolder};
         format!(
             "StyleFontWeight::{}",
             match self {
@@ -115,16 +115,16 @@ pub enum StyleFontStyle {
 impl PrintAsCssValue for StyleFontStyle {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleFontStyle::Normal => "normal".to_string(),
-            StyleFontStyle::Italic => "italic".to_string(),
-            StyleFontStyle::Oblique => "oblique".to_string(),
+            Self::Normal => "normal".to_string(),
+            Self::Italic => "italic".to_string(),
+            Self::Oblique => "oblique".to_string(),
         }
     }
 }
 
 impl crate::codegen::format::FormatAsRustCode for StyleFontStyle {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use StyleFontStyle::*;
+        use StyleFontStyle::{Normal, Italic, Oblique};
         format!(
             "StyleFontStyle::{}",
             match self {
@@ -163,18 +163,18 @@ impl PrintAsCssValue for StyleFontSize {
 
 // --- Font Resource Management ---
 
-/// Callback type for FontRef destructor - must be extern "C" for FFI safety
+/// Callback type for `FontRef` destructor - must be extern "C" for FFI safety
 pub type FontRefDestructorCallbackType = extern "C" fn(*mut c_void);
 
-/// FontRef is a reference-counted pointer to a parsed font.
-/// It holds a *const c_void that points to the actual parsed font data
-/// (typically a ParsedFont from the layout crate).
+/// `FontRef` is a reference-counted pointer to a parsed font.
+/// It holds a *const `c_void` that points to the actual parsed font data
+/// (typically a `ParsedFont` from the layout crate).
 ///
 /// The parsed data is managed via atomic reference counting, allowing
 /// safe sharing across threads without duplicating the font data.
 #[repr(C)]
 pub struct FontRef {
-    /// Pointer to the parsed font data (e.g., ParsedFont)
+    /// Pointer to the parsed font data (e.g., `ParsedFont`)
     pub parsed: *const c_void,
     /// Reference counter for memory management
     pub copies: *const AtomicUsize,
@@ -185,7 +185,7 @@ pub struct FontRef {
 }
 
 impl fmt::Debug for FontRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "FontRef(0x{:x}", self.parsed as usize)?;
         if let Some(c) = unsafe { self.copies.as_ref() } {
             write!(f, ", copies: {})", c.load(AtomicOrdering::SeqCst))?;
@@ -197,10 +197,10 @@ impl fmt::Debug for FontRef {
 }
 
 impl FontRef {
-    /// Create a new FontRef from parsed font data
+    /// Create a new `FontRef` from parsed font data
     ///
     /// # Arguments
-    /// * `parsed` - Pointer to parsed font data (e.g., Arc::into_raw(Arc::new(ParsedFont)))
+    /// * `parsed` - Pointer to parsed font data (e.g., `Arc::into_raw(Arc::new(ParsedFont))`)
     /// * `destructor` - Function to clean up the parsed data
     pub fn new(parsed: *const c_void, destructor: FontRefDestructorCallbackType) -> Self {
         Self {
@@ -213,7 +213,7 @@ impl FontRef {
 
     /// Get a raw pointer to the parsed font data
     #[inline]
-    pub fn get_parsed(&self) -> *const c_void {
+    #[must_use] pub const fn get_parsed(&self) -> *const c_void {
         self.parsed
     }
 }
@@ -266,8 +266,8 @@ impl Drop for FontRef {
         if self.run_destructor && !self.copies.is_null()
             && unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) } == 1 {
                 unsafe {
-                    (self.parsed_destructor)(self.parsed as *mut c_void);
-                    let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+                    (self.parsed_destructor)(self.parsed.cast_mut());
+                    drop(Box::from_raw(self.copies.cast_mut()));
                 }
             }
     }
@@ -306,17 +306,17 @@ impl_option!(
 impl StyleFontFamily {
     pub fn as_string(&self) -> String {
         match &self {
-            StyleFontFamily::System(s) => {
+            Self::System(s) => {
                 let owned = s.clone().into_library_owned_string();
                 if owned.contains(char::is_whitespace) {
-                    format!("\"{}\"", owned)
+                    format!("\"{owned}\"")
                 } else {
                     owned
                 }
             }
-            StyleFontFamily::SystemType(st) => st.as_css_str().to_string(),
-            StyleFontFamily::File(s) => format!("url({})", s.clone().into_library_owned_string()),
-            StyleFontFamily::Ref(s) => format!("font-ref(0x{:x})", s.parsed as usize),
+            Self::SystemType(st) => st.as_css_str().to_string(),
+            Self::File(s) => format!("url({})", s.clone().into_library_owned_string()),
+            Self::Ref(s) => format!("font-ref(0x{:x})", s.parsed as usize),
         }
     }
 }
@@ -337,7 +337,7 @@ impl_vec_partialord!(StyleFontFamily, StyleFontFamilyVec);
 impl PrintAsCssValue for StyleFontFamilyVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
-            .map(|f| f.as_string())
+            .map(StyleFontFamily::as_string)
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -357,7 +357,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleFontFamilyVec {
 
 // -- Font Weight Parser --
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssFontWeightParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
     InvalidNumber(ParseIntError),
@@ -367,16 +367,16 @@ pub enum CssFontWeightParseError<'a> {
 impl crate::codegen::format::FormatAsRustCode for StyleFontFamily {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            StyleFontFamily::System(id) => {
+            Self::System(id) => {
                 format!("StyleFontFamily::System(STRING_{})", id.get_hash())
             }
-            StyleFontFamily::SystemType(st) => {
-                format!("StyleFontFamily::SystemType(SystemFontType::{:?})", st)
+            Self::SystemType(st) => {
+                format!("StyleFontFamily::SystemType(SystemFontType::{st:?})")
             }
-            StyleFontFamily::File(path) => {
+            Self::File(path) => {
                 format!("StyleFontFamily::File(STRING_{})", path.get_hash())
             }
-            StyleFontFamily::Ref(font_ref) => {
+            Self::Ref(font_ref) => {
                 format!("StyleFontFamily::Ref({:0x})", font_ref.parsed as usize)
             }
         }
@@ -392,21 +392,21 @@ impl<'a> From<InvalidValueErr<'a>> for CssFontWeightParseError<'a> {
         CssFontWeightParseError::InvalidValue(e)
     }
 }
-impl<'a> From<ParseIntError> for CssFontWeightParseError<'a> {
+impl From<ParseIntError> for CssFontWeightParseError<'_> {
     fn from(e: ParseIntError) -> Self {
         CssFontWeightParseError::InvalidNumber(e)
     }
 }
-
-#[derive(Debug, Clone, PartialEq)]
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssFontWeightParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
     InvalidNumber(crate::props::basic::error::ParseIntError),
 }
 
-impl<'a> CssFontWeightParseError<'a> {
-    pub fn to_contained(&self) -> CssFontWeightParseErrorOwned {
+impl CssFontWeightParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssFontWeightParseErrorOwned {
         match self {
             Self::InvalidValue(e) => CssFontWeightParseErrorOwned::InvalidValue(e.to_contained()),
             Self::InvalidNumber(e) => CssFontWeightParseErrorOwned::InvalidNumber(e.clone().into()),
@@ -415,7 +415,7 @@ impl<'a> CssFontWeightParseError<'a> {
 }
 
 impl CssFontWeightParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssFontWeightParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssFontWeightParseError<'_> {
         match self {
             Self::InvalidValue(e) => CssFontWeightParseError::InvalidValue(e.to_shared()),
             Self::InvalidNumber(e) => CssFontWeightParseError::InvalidNumber(e.to_std()),
@@ -424,22 +424,23 @@ impl CssFontWeightParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_font_weight<'a>(
-    input: &'a str,
-) -> Result<StyleFontWeight, CssFontWeightParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-weight` value.
+pub fn parse_font_weight(
+    input: &str,
+) -> Result<StyleFontWeight, CssFontWeightParseError<'_>> {
     let input = input.trim();
     match input {
         "lighter" => Ok(StyleFontWeight::Lighter),
-        "normal" => Ok(StyleFontWeight::Normal),
-        "bold" => Ok(StyleFontWeight::Bold),
+        "normal" | "400" => Ok(StyleFontWeight::Normal),
+        "bold" | "700" => Ok(StyleFontWeight::Bold),
         "bolder" => Ok(StyleFontWeight::Bolder),
         "100" => Ok(StyleFontWeight::W100),
         "200" => Ok(StyleFontWeight::W200),
         "300" => Ok(StyleFontWeight::W300),
-        "400" => Ok(StyleFontWeight::Normal),
         "500" => Ok(StyleFontWeight::W500),
         "600" => Ok(StyleFontWeight::W600),
-        "700" => Ok(StyleFontWeight::Bold),
         "800" => Ok(StyleFontWeight::W800),
         "900" => Ok(StyleFontWeight::W900),
         _ => Err(InvalidValueErr(input).into()),
@@ -448,7 +449,7 @@ pub fn parse_font_weight<'a>(
 
 // -- Font Style Parser --
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssFontStyleParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -458,20 +459,20 @@ impl_display! { CssFontStyleParseError<'a>, {
 }}
 impl_from! { InvalidValueErr<'a>, CssFontStyleParseError::InvalidValue }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssFontStyleParseErrorOwned {
     InvalidValue(InvalidValueErrOwned),
 }
-impl<'a> CssFontStyleParseError<'a> {
-    pub fn to_contained(&self) -> CssFontStyleParseErrorOwned {
+impl CssFontStyleParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssFontStyleParseErrorOwned {
         match self {
             Self::InvalidValue(e) => CssFontStyleParseErrorOwned::InvalidValue(e.to_contained()),
         }
     }
 }
 impl CssFontStyleParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssFontStyleParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssFontStyleParseError<'_> {
         match self {
             Self::InvalidValue(e) => CssFontStyleParseError::InvalidValue(e.to_shared()),
         }
@@ -479,7 +480,10 @@ impl CssFontStyleParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_font_style<'a>(input: &'a str) -> Result<StyleFontStyle, CssFontStyleParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-style` value.
+pub fn parse_font_style(input: &str) -> Result<StyleFontStyle, CssFontStyleParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleFontStyle::Normal),
         "italic" => Ok(StyleFontStyle::Italic),
@@ -490,7 +494,7 @@ pub fn parse_font_style<'a>(input: &'a str) -> Result<StyleFontStyle, CssFontSty
 
 // -- Font Size Parser --
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssStyleFontSizeParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
@@ -500,20 +504,20 @@ impl_display! { CssStyleFontSizeParseError<'a>, {
 }}
 impl_from! { CssPixelValueParseError<'a>, CssStyleFontSizeParseError::PixelValue }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssStyleFontSizeParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
-impl<'a> CssStyleFontSizeParseError<'a> {
-    pub fn to_contained(&self) -> CssStyleFontSizeParseErrorOwned {
+impl CssStyleFontSizeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssStyleFontSizeParseErrorOwned {
         match self {
             Self::PixelValue(e) => CssStyleFontSizeParseErrorOwned::PixelValue(e.to_contained()),
         }
     }
 }
 impl CssStyleFontSizeParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssStyleFontSizeParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssStyleFontSizeParseError<'_> {
         match self {
             Self::PixelValue(e) => CssStyleFontSizeParseError::PixelValue(e.to_shared()),
         }
@@ -521,9 +525,12 @@ impl CssStyleFontSizeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_font_size<'a>(
-    input: &'a str,
-) -> Result<StyleFontSize, CssStyleFontSizeParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-size` value.
+pub fn parse_style_font_size(
+    input: &str,
+) -> Result<StyleFontSize, CssStyleFontSizeParseError<'_>> {
     Ok(StyleFontSize {
         inner: parse_pixel_value(input)?,
     })
@@ -531,7 +538,7 @@ pub fn parse_style_font_size<'a>(
 
 // -- Font Family Parser --
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum CssStyleFontFamilyParseError<'a> {
     InvalidStyleFontFamily(&'a str),
     UnclosedQuotes(UnclosedQuotesError<'a>),
@@ -547,17 +554,17 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssStyleFontFamilyParseErrorOwned {
     InvalidStyleFontFamily(AzString),
     UnclosedQuotes(AzString),
 }
-impl<'a> CssStyleFontFamilyParseError<'a> {
-    pub fn to_contained(&self) -> CssStyleFontFamilyParseErrorOwned {
+impl CssStyleFontFamilyParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssStyleFontFamilyParseErrorOwned {
         match self {
             CssStyleFontFamilyParseError::InvalidStyleFontFamily(s) => {
-                CssStyleFontFamilyParseErrorOwned::InvalidStyleFontFamily(s.to_string().into())
+                CssStyleFontFamilyParseErrorOwned::InvalidStyleFontFamily((*s).to_string().into())
             }
             CssStyleFontFamilyParseError::UnclosedQuotes(e) => {
                 CssStyleFontFamilyParseErrorOwned::UnclosedQuotes(e.0.to_string().into())
@@ -566,12 +573,12 @@ impl<'a> CssStyleFontFamilyParseError<'a> {
     }
 }
 impl CssStyleFontFamilyParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssStyleFontFamilyParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssStyleFontFamilyParseError<'_> {
         match self {
-            CssStyleFontFamilyParseErrorOwned::InvalidStyleFontFamily(s) => {
+            Self::InvalidStyleFontFamily(s) => {
                 CssStyleFontFamilyParseError::InvalidStyleFontFamily(s)
             }
-            CssStyleFontFamilyParseErrorOwned::UnclosedQuotes(s) => {
+            Self::UnclosedQuotes(s) => {
                 CssStyleFontFamilyParseError::UnclosedQuotes(UnclosedQuotesError(s))
             }
         }
@@ -579,9 +586,12 @@ impl CssStyleFontFamilyParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_font_family<'a>(
-    input: &'a str,
-) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-family` value.
+pub fn parse_style_font_family(
+    input: &str,
+) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'_>> {
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
 
@@ -613,7 +623,7 @@ pub fn parse_style_font_family<'a>(
 use crate::corety::{OptionI16, OptionU16, OptionU32};
 
 /// PANOSE classification values for font identification (10 bytes).
-/// See https://learn.microsoft.com/en-us/typography/opentype/spec/os2#panose
+/// See <https://learn.microsoft.com/en-us/typography/opentype/spec/os2#panose>
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -632,8 +642,8 @@ pub struct Panose {
 
 
 impl Panose {
-    pub const fn zero() -> Self {
-        Panose {
+    #[must_use] pub const fn zero() -> Self {
+        Self {
             family_type: 0,
             serif_style: 0,
             weight: 0,
@@ -650,7 +660,7 @@ impl Panose {
 
 /// Font metrics structure containing all font-related measurements from
 /// the font file tables (head, hhea, and os/2 tables).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FontMetrics {
     // os/2 version 1 table (u32 fields - align 4, placed first)
@@ -730,15 +740,15 @@ pub struct FontMetrics {
 
 impl Default for FontMetrics {
     fn default() -> Self {
-        FontMetrics::zero()
+        Self::zero()
     }
 }
 
 impl FontMetrics {
     /// Only for testing, zero-sized font, will always return 0 for every metric
     /// (`units_per_em = 1000`)
-    pub const fn zero() -> Self {
-        FontMetrics {
+    #[must_use] pub const fn zero() -> Self {
+        Self {
             ul_code_page_range1: OptionU32::None,
             ul_code_page_range2: OptionU32::None,
             ul_unicode_range1: 0,
@@ -798,117 +808,117 @@ impl FontMetrics {
     }
 
     /// Returns the ascender value from the hhea table
-    pub fn get_ascender(&self) -> i16 {
+    #[must_use] pub const fn get_ascender(&self) -> i16 {
         self.ascender
     }
 
     /// Returns the descender value from the hhea table
-    pub fn get_descender(&self) -> i16 {
+    #[must_use] pub const fn get_descender(&self) -> i16 {
         self.descender
     }
 
     /// Returns the line gap value from the hhea table
-    pub fn get_line_gap(&self) -> i16 {
+    #[must_use] pub const fn get_line_gap(&self) -> i16 {
         self.line_gap
     }
 
     /// Returns the maximum advance width from the hhea table
-    pub fn get_advance_width_max(&self) -> u16 {
+    #[must_use] pub const fn get_advance_width_max(&self) -> u16 {
         self.advance_width_max
     }
 
     /// Returns the minimum left side bearing from the hhea table
-    pub fn get_min_left_side_bearing(&self) -> i16 {
+    #[must_use] pub const fn get_min_left_side_bearing(&self) -> i16 {
         self.min_left_side_bearing
     }
 
     /// Returns the minimum right side bearing from the hhea table
-    pub fn get_min_right_side_bearing(&self) -> i16 {
+    #[must_use] pub const fn get_min_right_side_bearing(&self) -> i16 {
         self.min_right_side_bearing
     }
 
-    /// Returns the x_min value from the head table
-    pub fn get_x_min(&self) -> i16 {
+    /// Returns the `x_min` value from the head table
+    #[must_use] pub const fn get_x_min(&self) -> i16 {
         self.x_min
     }
 
-    /// Returns the y_min value from the head table
-    pub fn get_y_min(&self) -> i16 {
+    /// Returns the `y_min` value from the head table
+    #[must_use] pub const fn get_y_min(&self) -> i16 {
         self.y_min
     }
 
-    /// Returns the x_max value from the head table
-    pub fn get_x_max(&self) -> i16 {
+    /// Returns the `x_max` value from the head table
+    #[must_use] pub const fn get_x_max(&self) -> i16 {
         self.x_max
     }
 
-    /// Returns the y_max value from the head table
-    pub fn get_y_max(&self) -> i16 {
+    /// Returns the `y_max` value from the head table
+    #[must_use] pub const fn get_y_max(&self) -> i16 {
         self.y_max
     }
 
     /// Returns the maximum extent in the x direction from the hhea table
-    pub fn get_x_max_extent(&self) -> i16 {
+    #[must_use] pub const fn get_x_max_extent(&self) -> i16 {
         self.x_max_extent
     }
 
     /// Returns the average character width from the os/2 table
-    pub fn get_x_avg_char_width(&self) -> i16 {
+    #[must_use] pub const fn get_x_avg_char_width(&self) -> i16 {
         self.x_avg_char_width
     }
 
     /// Returns the subscript x size from the os/2 table
-    pub fn get_y_subscript_x_size(&self) -> i16 {
+    #[must_use] pub const fn get_y_subscript_x_size(&self) -> i16 {
         self.y_subscript_x_size
     }
 
     /// Returns the subscript y size from the os/2 table
-    pub fn get_y_subscript_y_size(&self) -> i16 {
+    #[must_use] pub const fn get_y_subscript_y_size(&self) -> i16 {
         self.y_subscript_y_size
     }
 
     /// Returns the subscript x offset from the os/2 table
-    pub fn get_y_subscript_x_offset(&self) -> i16 {
+    #[must_use] pub const fn get_y_subscript_x_offset(&self) -> i16 {
         self.y_subscript_x_offset
     }
 
     /// Returns the subscript y offset from the os/2 table
-    pub fn get_y_subscript_y_offset(&self) -> i16 {
+    #[must_use] pub const fn get_y_subscript_y_offset(&self) -> i16 {
         self.y_subscript_y_offset
     }
 
     /// Returns the superscript x size from the os/2 table
-    pub fn get_y_superscript_x_size(&self) -> i16 {
+    #[must_use] pub const fn get_y_superscript_x_size(&self) -> i16 {
         self.y_superscript_x_size
     }
 
     /// Returns the superscript y size from the os/2 table
-    pub fn get_y_superscript_y_size(&self) -> i16 {
+    #[must_use] pub const fn get_y_superscript_y_size(&self) -> i16 {
         self.y_superscript_y_size
     }
 
     /// Returns the superscript x offset from the os/2 table
-    pub fn get_y_superscript_x_offset(&self) -> i16 {
+    #[must_use] pub const fn get_y_superscript_x_offset(&self) -> i16 {
         self.y_superscript_x_offset
     }
 
     /// Returns the superscript y offset from the os/2 table
-    pub fn get_y_superscript_y_offset(&self) -> i16 {
+    #[must_use] pub const fn get_y_superscript_y_offset(&self) -> i16 {
         self.y_superscript_y_offset
     }
 
     /// Returns the strikeout size from the os/2 table
-    pub fn get_y_strikeout_size(&self) -> i16 {
+    #[must_use] pub const fn get_y_strikeout_size(&self) -> i16 {
         self.y_strikeout_size
     }
 
     /// Returns the strikeout position from the os/2 table
-    pub fn get_y_strikeout_position(&self) -> i16 {
+    #[must_use] pub const fn get_y_strikeout_position(&self) -> i16 {
         self.y_strikeout_position
     }
 
-    /// Returns whether typographic metrics should be used (from fs_selection flag)
-    pub fn use_typo_metrics(&self) -> bool {
+    /// Returns whether typographic metrics should be used (from `fs_selection` flag)
+    #[must_use] pub const fn use_typo_metrics(&self) -> bool {
         // Bit 7 of fs_selection indicates USE_TYPO_METRICS
         (self.fs_selection & 0x0080) != 0
     }
@@ -1097,7 +1107,7 @@ mod tests {
         for ft in &types {
             let css = ft.as_css_str();
             let parsed = SystemFontType::from_css_str(css).unwrap();
-            assert_eq!(*ft, parsed, "Roundtrip failed for {:?}", ft);
+            assert_eq!(*ft, parsed, "Roundtrip failed for {ft:?}");
         }
     }
 }

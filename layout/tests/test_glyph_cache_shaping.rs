@@ -88,7 +88,7 @@ fn test_shaping_vs_hbshape_test() {
     let hb = hb_test();
     assert_eq!(glyphs.len(), hb.len(), "glyph count mismatch");
 
-    println!("\n=== Shaping comparison: \"Test\" (units_per_em={}) ===", upem);
+    println!("\n=== Shaping comparison: \"Test\" (units_per_em={upem}) ===");
     println!("{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12} {:>10}",
         "char", "gid_as", "gid_hb", "raw_adv", "eff_adv", "hb_ax", "off_x", "hb_dx", "advance", "kerning");
 
@@ -114,7 +114,7 @@ fn test_shaping_vs_hbshape_test() {
     // Verify total width matches hb-shape
     let allsorts_total: f32 = glyphs.iter().map(|g| g.advance + g.kerning).sum();
     let hb_total: u32 = hb.iter().map(|h| h.ax as u32).sum();
-    println!("\nTotal width: allsorts={:.0} hb-shape={}", allsorts_total, hb_total);
+    println!("\nTotal width: allsorts={allsorts_total:.0} hb-shape={hb_total}");
 
     // Check kerning on 'e' after 'T'
     let e_glyph = &glyphs[1];
@@ -134,11 +134,11 @@ fn test_shaping_vs_hbshape_test() {
     let te_allsorts = (t_glyph.advance + t_glyph.kerning + e_glyph.advance + e_glyph.kerning).round() as i32;
     let te_hb = t_hb.ax as i32 + e_hb.ax as i32;
     assert_eq!(te_allsorts, te_hb,
-        "Total 'Te' width mismatch: allsorts={} vs hb-shape={}", te_allsorts, te_hb);
+        "Total 'Te' width mismatch: allsorts={te_allsorts} vs hb-shape={te_hb}");
 
     // Overall total width must match
     assert_eq!(allsorts_total.round() as i32, hb_total as i32,
-        "Total 'Test' width mismatch: allsorts={:.0} vs hb-shape={}", allsorts_total, hb_total);
+        "Total 'Test' width mismatch: allsorts={allsorts_total:.0} vs hb-shape={hb_total}");
     println!();
 }
 
@@ -172,7 +172,7 @@ fn test_shaping_vs_hbshape_upper_left() {
     let hb = hb_upper_left();
     assert_eq!(glyphs.len(), hb.len(), "glyph count mismatch");
 
-    println!("\n=== Shaping comparison: \"upper-left\" (units_per_em={}) ===", upem);
+    println!("\n=== Shaping comparison: \"upper-left\" (units_per_em={upem}) ===");
     println!("{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12} {:>10}",
         "char", "gid_as", "gid_hb", "raw_adv", "eff_adv", "hb_ax", "off_x", "hb_dx", "advance", "kerning");
 

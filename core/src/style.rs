@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use azul_css::css::{
     AttributeMatchOp, CssAttributeSelector, CssContentGroup, CssNthChildSelector,
-    CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
+    CssNthChildSelector::{Number, Even, Odd, Pattern}, CssPath, CssPathPseudoSelector, CssPathSelector,
 };
 
 use crate::{
@@ -39,7 +39,7 @@ impl_vec_clone!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor);
 impl_vec_partialeq!(CascadeInfo, CascadeInfoVec);
 
 impl CascadeInfoVec {
-    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CascadeInfo> {
+    #[must_use] pub fn as_container(&self) -> NodeDataContainerRef<'_, CascadeInfo> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
@@ -48,15 +48,16 @@ impl CascadeInfoVec {
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
 /// that element)
-pub fn matches_html_element(
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[must_use] pub fn matches_html_element(
     css_path: &CssPath,
     node_id: NodeId,
-    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
-    node_data: &NodeDataContainerRef<NodeData>,
-    html_node_tree: &NodeDataContainerRef<CascadeInfo>,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
+    html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
 ) -> bool {
-    use self::CssGroupSplitReason::*;
+    use self::CssGroupSplitReason::{DirectChildren, Children, AdjacentSibling, GeneralSibling};
 
     if css_path.selectors.is_empty() {
         return false;
@@ -81,10 +82,10 @@ pub fn matches_html_element(
     let is_last_content_group = groups.len() == 1;
     if !selector_group_matches(
         first_group,
-        &html_node_tree[node_id],
+        html_node_tree[node_id],
         &node_data[node_id],
         node_id,
-        &expected_path_ending,
+        expected_path_ending.as_ref(),
         is_last_content_group,
     ) {
         return false;
@@ -105,8 +106,8 @@ pub fn matches_html_element(
                 let parent = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
                 match parent {
                     Some(p) if selector_group_matches(
-                        content_group, &html_node_tree[p], &node_data[p], p,
-                        &expected_path_ending, is_last,
+                        content_group, html_node_tree[p], &node_data[p], p,
+                        expected_path_ending.as_ref(), is_last,
                     ) => { current_node = p; }
                     _ => return false,
                 }
@@ -117,8 +118,8 @@ pub fn matches_html_element(
                 let mut found = false;
                 while let Some(anc) = ancestor {
                     if selector_group_matches(
-                        content_group, &html_node_tree[anc], &node_data[anc], anc,
-                        &expected_path_ending, is_last,
+                        content_group, html_node_tree[anc], &node_data[anc], anc,
+                        expected_path_ending.as_ref(), is_last,
                     ) {
                         current_node = anc;
                         found = true;
@@ -135,8 +136,8 @@ pub fn matches_html_element(
                 let sibling = find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
                 match sibling {
                     Some(s) if selector_group_matches(
-                        content_group, &html_node_tree[s], &node_data[s], s,
-                        &expected_path_ending, is_last,
+                        content_group, html_node_tree[s], &node_data[s], s,
+                        expected_path_ending.as_ref(), is_last,
                     ) => { current_node = s; }
                     _ => return false,
                 }
@@ -147,8 +148,8 @@ pub fn matches_html_element(
                 let mut found = false;
                 while let Some(sib) = sibling {
                     if selector_group_matches(
-                        content_group, &html_node_tree[sib], &node_data[sib], sib,
-                        &expected_path_ending, is_last,
+                        content_group, html_node_tree[sib], &node_data[sib], sib,
+                        expected_path_ending.as_ref(), is_last,
                     ) {
                         current_node = sib;
                         found = true;
@@ -169,8 +170,8 @@ pub fn matches_html_element(
 /// Find the first non-anonymous parent of a node.
 fn find_non_anonymous_parent(
     node_id: NodeId,
-    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
-    node_data: &NodeDataContainerRef<NodeData>,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
 ) -> Option<NodeId> {
     let mut next = node_hierarchy[node_id].parent_id();
     while let Some(n) = next {
@@ -185,8 +186,8 @@ fn find_non_anonymous_parent(
 /// Find the first non-anonymous previous sibling of a node.
 fn find_non_anonymous_prev_sibling(
     node_id: NodeId,
-    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
-    node_data: &NodeDataContainerRef<NodeData>,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
 ) -> Option<NodeId> {
     let mut next = node_hierarchy[node_id].previous_sibling_id();
     while let Some(n) = next {
@@ -207,9 +208,10 @@ fn find_non_anonymous_prev_sibling(
 ///
 /// If any of these requirements are not met, the CSS block is discarded.
 ///
-/// The CssGroupIterator splits the CSS path into semantic blocks, i.e.:
+/// The `CssGroupIterator` splits the CSS path into semantic blocks, i.e.:
 ///
-/// "body > .foo.main > #baz" will be split into ["body", ".foo.main" and "#baz"]
+/// `"body > .foo.main > #baz"` will be split into `["body", ".foo.main", "#baz"]`
+#[derive(Debug)]
 pub struct CssGroupIterator<'a> {
     pub css_path: &'a [CssPathSelector],
     current_idx: usize,
@@ -229,7 +231,7 @@ pub enum CssGroupSplitReason {
 }
 
 impl<'a> CssGroupIterator<'a> {
-    pub fn new(css_path: &'a [CssPathSelector]) -> Self {
+    #[must_use] pub const fn new(css_path: &'a [CssPathSelector]) -> Self {
         let initial_len = css_path.len();
         Self {
             css_path,
@@ -243,7 +245,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     type Item = (CssContentGroup<'a>, CssGroupSplitReason);
 
     fn next(&mut self) -> Option<(CssContentGroup<'a>, CssGroupSplitReason)> {
-        use self::CssPathSelector::*;
+        use self::CssPathSelector::{Children, DirectChildren, AdjacentSibling, GeneralSibling};
 
         let mut new_idx = self.current_idx;
 
@@ -297,10 +299,10 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-pub fn construct_html_cascade_tree(
-    node_hierarchy: &NodeHierarchyRef,
+#[must_use] pub fn construct_html_cascade_tree(
+    node_hierarchy: &NodeHierarchyRef<'_>,
     node_depths_sorted: &[(usize, NodeId)],
-    node_data: &NodeDataContainerRef<NodeData>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
 ) -> NodeDataContainer<CascadeInfo> {
     let mut nodes = (0..node_hierarchy.len())
         .map(|_| CascadeInfo {
@@ -321,7 +323,8 @@ pub fn construct_html_cascade_tree(
             .count();
 
         let parent_html_matcher = CascadeInfo {
-            index_in_parent: (element_index_in_parent.saturating_sub(1)) as u32,
+            index_in_parent: u32::try_from(element_index_in_parent.saturating_sub(1))
+                .unwrap_or(u32::MAX),
             // Necessary for :last selectors — find last element sibling
             is_last_child: {
                 let mut is_last_element = true;
@@ -382,10 +385,10 @@ pub fn construct_html_cascade_tree(
 /// selectors like `div:hover:first-child` may not be filtered correctly when `target`
 /// is `None` — only the very last pseudo-selector is tested.
 #[inline]
-pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
+#[must_use] pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
     // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
     // vs "structural" (based on DOM structure only)
-    fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
+    const fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
         matches!(
             p,
             CssPathPseudoSelector::Hover
@@ -397,24 +400,18 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
         )
     }
 
-    match target {
-        None => match path.selectors.as_ref().last() {
-            None => false,
-            Some(q) => match q {
-                // Only reject interactive pseudo-selectors (hover, active, focus)
-                // Structural pseudo-selectors (nth-child, first, last) should be allowed
-                CssPathSelector::PseudoSelector(p) => !is_interactive_pseudo(p),
-                _ => true,
-            },
+    let Some(last) = path.selectors.as_ref().last() else {
+        return false;
+    };
+    target.map_or_else(
+        || match last {
+            // Only reject interactive pseudo-selectors (hover, active, focus).
+            // Structural pseudo-selectors (nth-child, first, last) should be allowed.
+            CssPathSelector::PseudoSelector(p) => !is_interactive_pseudo(p),
+            _ => true,
         },
-        Some(s) => match path.selectors.as_ref().last() {
-            None => false,
-            Some(q) => match q {
-                CssPathSelector::PseudoSelector(q) => *q == s,
-                _ => false,
-            },
-        },
-    }
+        |s| matches!(last, CssPathSelector::PseudoSelector(q) if *q == s),
+    )
 }
 
 /// Matches a single group of CSS selectors against a DOM node.
@@ -423,10 +420,10 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
 /// Combinator selectors (>, +, ~, space) should not appear in the group.
 fn selector_group_matches(
     selectors: &[&CssPathSelector],
-    html_node: &CascadeInfo,
+    html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     selectors.iter().all(|selector| {
@@ -444,13 +441,13 @@ fn selector_group_matches(
 /// Matches a single CSS selector against a DOM node.
 fn match_single_selector(
     selector: &CssPathSelector,
-    html_node: &CascadeInfo,
+    html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-    use self::CssPathSelector::*;
+    use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
 
     match selector {
         Global => true,
@@ -485,7 +482,7 @@ fn match_single_selector(
 /// so that `[class~="primary"]` matches a node with classes `foo primary bar`.
 fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) -> bool {
     let name = sel.name.as_str();
-    let target = sel.value.as_ref().map(|v| v.as_str());
+    let target = sel.value.as_ref().map(azul_css::AzString::as_str);
 
     let check = |actual: &str| -> bool {
         match (&sel.op, target) {
@@ -498,7 +495,7 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
                 actual.split_whitespace().any(|word| word == t)
             }
             (AttributeMatchOp::DashMatch, Some(t)) => {
-                actual == t || actual.starts_with(&alloc::format!("{}-", t))
+                actual == t || actual.starts_with(&alloc::format!("{t}-"))
             }
             (AttributeMatchOp::Prefix, Some(t)) => !t.is_empty() && actual.starts_with(t),
             (AttributeMatchOp::Suffix, Some(t)) => !t.is_empty() && actual.ends_with(t),
@@ -508,7 +505,7 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
         }
     };
 
-    for attr in node_data.attributes().iter() {
+    for attr in node_data.attributes() {
         if attr.name() != name {
             continue;
         }
@@ -523,8 +520,8 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
 /// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a node.
 fn match_pseudo_selector(
     pseudo: &CssPathPseudoSelector,
-    html_node: &CascadeInfo,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    html_node: CascadeInfo,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     match pseudo {
@@ -564,10 +561,8 @@ fn match_pseudo_selector(
         CssPathPseudoSelector::Lang(lang) => {
             // :lang() is matched via DynamicSelector at runtime, not during CSS cascade
             // During cascade, we just check if this is the expected ending
-            if let Some(expected) = expected_path_ending {
-                if let CssPathPseudoSelector::Lang(expected_lang) = expected {
-                    return lang == expected_lang;
-                }
+            if let Some(CssPathPseudoSelector::Lang(expected_lang)) = expected_path_ending {
+                return lang == expected_lang;
             }
             // If not specifically looking for :lang, it doesn't match structurally
             false
@@ -576,17 +571,17 @@ fn match_pseudo_selector(
 }
 
 /// Returns true if the node is the first child of its parent.
-fn match_first_child(html_node: &CascadeInfo) -> bool {
+const fn match_first_child(html_node: CascadeInfo) -> bool {
     html_node.index_in_parent == 0
 }
 
 /// Returns true if the node is the last child of its parent.
-fn match_last_child(html_node: &CascadeInfo) -> bool {
+const fn match_last_child(html_node: CascadeInfo) -> bool {
     html_node.is_last_child
 }
 
 /// Matches :nth-child(n), :nth-child(even), :nth-child(odd), or :nth-child(An+B) patterns.
-fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bool {
+fn match_nth_child(html_node: CascadeInfo, pattern: &CssNthChildSelector) -> bool {
     use azul_css::css::CssNthChildPattern;
 
     // nth-child is 1-indexed, index_in_parent is 0-indexed
@@ -613,8 +608,8 @@ fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bo
 /// These only apply if they appear in the last content group of the CSS path.
 fn match_interactive_pseudo(
     pseudo: &CssPathPseudoSelector,
-    expected_path_ending: &Option<CssPathPseudoSelector>,
+    expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-    is_last_content_group && expected_path_ending.as_ref() == Some(pseudo)
+    is_last_content_group && expected_path_ending == Some(pseudo)
 }

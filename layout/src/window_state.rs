@@ -29,7 +29,7 @@ pub struct WindowCreateOptions {
     pub window_state: FullWindowState,
     /// Optional callback invoked after the window is created
     pub create_callback: OptionCallback,
-    /// Optional renderer configuration (e.g., VSync, SRGB)
+    /// Optional renderer configuration (e.g., `VSync`, SRGB)
     pub renderer: azul_core::window::OptionRendererOptions,
     /// Optional window theme override (light/dark)
     pub theme: azul_core::window::OptionWindowTheme,
@@ -38,7 +38,7 @@ pub struct WindowCreateOptions {
     /// If true, enables hot-reloading of CSS and resources
     pub hot_reload: bool,
     /// Parent window's platform id (the window-registry key: X Window id on X11,
-    /// wl_surface ptr on Wayland, HWND on Windows, NSWindow ptr on macOS), or 0
+    /// `wl_surface` ptr on Wayland, HWND on Windows, `NSWindow` ptr on macOS), or 0
     /// for a top-level window with no parent. Child windows (menus, dropdowns,
     /// dialogs) set this so the backend can position them relative to the parent
     /// and, on X11, reuse the parent's display connection for the single shared
@@ -61,8 +61,8 @@ impl Default for WindowCreateOptions {
 }
 
 impl WindowCreateOptions {
-    /// Create a new WindowCreateOptions with a layout callback
-    pub fn create(layout_callback: impl Into<azul_core::callbacks::LayoutCallback>) -> Self {
+    /// Create a new `WindowCreateOptions` with a layout callback
+    pub fn create(layout_callback: impl Into<LayoutCallback>) -> Self {
         let mut options = Self::default();
         options.window_state.layout_callback = layout_callback.into();
         options
@@ -111,7 +111,7 @@ pub struct FullWindowState {
     pub theme: WindowTheme,
     /// Position of the IME candidate window
     pub ime_position: ImePosition,
-    /// GPU renderer options (VSync, SRGB, hardware acceleration)
+    /// GPU renderer options (`VSync`, SRGB, hardware acceleration)
     pub renderer_options: RendererOptions,
     /// Monitor ID (not the full Monitor struct - just the identifier)
     pub monitor_id: OptionU32,

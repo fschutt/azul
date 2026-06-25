@@ -24,6 +24,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
+use core::fmt::Write;
 use core::mem::ManuallyDrop;
 
 use crate::dom::NodeType;
@@ -39,7 +40,7 @@ pub enum CssPropertyOrigin {
 }
 
 /// A CSS property with its origin tracking.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CssPropertyWithOrigin {
     pub property: CssProperty,
     pub origin: CssPropertyOrigin,
@@ -134,12 +135,14 @@ std::thread_local! {
 
 /// Drain the per-thread CSS cascade-walk counter populated by
 /// [`CssPropertyCache::get_property`] when `AZ_PROP_COUNT=1` is set
-/// in the environment. Returns `(property_label, count)` pairs
+/// in the environment.
+///
+/// Returns `(property_label, count)` pairs
 /// sorted by count descending. Layout-side instrumentation calls
 /// this after each `layout_document` to print which properties
 /// drove the most cascade walks.
 #[cfg(feature = "std")]
-pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
+#[must_use] pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
     // try_with: no real TLS in the lifted-to-wasm web backend (see the
     // get_property recording site) — return empty rather than panic.
     PROP_COUNTS
@@ -153,12 +156,12 @@ pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
 }
 
 // Unit conversion constants (CSS absolute units → pixels)
-const PT_TO_PX: f32 = 1.333333;
+const PT_TO_PX: f32 = 1.333_333;
 const IN_TO_PX: f32 = 96.0;
 const CM_TO_PX: f32 = 37.795_277;
 const MM_TO_PX: f32 = 3.779_527_7;
 
-/// Match on any CssProperty variant and access the inner CssPropertyValue<T>.
+/// Match on any `CssProperty` variant and access the inner `CssPropertyValue`<T>.
 #[allow(unused_macros)]
 macro_rules! match_property_value {
     ($property:expr, $value:ident, $expr:expr) => {
@@ -328,10 +331,11 @@ macro_rules! match_property_value {
 }
 
 /// A CSS property tagged with its pseudo-state and property type.
-/// Replaces the per-pseudo-state BTreeMap approach: instead of 6 BTreeMaps
+///
+/// Replaces the per-pseudo-state `BTreeMap` approach: instead of 6 `BTreeMaps`
 /// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
 /// per node and tag each property with its state. Lookups use `.iter().find()`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
     pub prop_type: CssPropertyType,
@@ -397,11 +401,11 @@ impl<T> FlatVecVec<T> {
     /// flattened `data` + `offsets` tables and the per-node build
     /// Vecs (in case `sort_each_and_flatten` hasn't been called
     /// yet). `per_element_size` should be `size_of::<T>()`.
-    pub fn heap_bytes(&self, per_element_size: usize) -> usize {
+    #[must_use] pub fn heap_bytes(&self, per_element_size: usize) -> usize {
         let data_bytes = self.data.capacity() * per_element_size;
         let offsets_bytes =
-            self.offsets.capacity() * core::mem::size_of::<(u32, u32)>();
-        let mut build_bytes = self.build.capacity() * core::mem::size_of::<Vec<T>>();
+            self.offsets.capacity() * size_of::<(u32, u32)>();
+        let mut build_bytes = self.build.capacity() * size_of::<Vec<T>>();
         for v in &self.build {
             build_bytes += v.capacity() * per_element_size;
         }
@@ -409,7 +413,7 @@ impl<T> FlatVecVec<T> {
     }
 
     /// Create a new `FlatVecVec` with `node_count` empty slots (build phase).
-    pub fn new(node_count: usize) -> Self {
+    #[must_use] pub fn new(node_count: usize) -> Self {
         let mut build = Vec::with_capacity(node_count);
         for _ in 0..node_count {
             build.push(Vec::new());
@@ -445,23 +449,29 @@ impl<T> FlatVecVec<T> {
     /// Get a reference to the inner Vec at `node_index` during build phase.
     /// During read phase, returns None (use `get_slice` instead).
     #[inline]
-    pub fn build_get(&self, node_index: usize) -> Option<&Vec<T>> {
+    #[must_use] pub fn build_get(&self, node_index: usize) -> Option<&Vec<T>> {
         self.build.get(node_index)
     }
 
     /// Number of node slots.
     #[inline]
-    pub fn len(&self) -> usize {
-        if !self.offsets.is_empty() {
-            self.offsets.len()
-        } else {
+    #[must_use] pub const fn len(&self) -> usize {
+        if self.offsets.is_empty() {
             self.build.len()
+        } else {
+            self.offsets.len()
         }
+    }
+
+    /// Returns `true` if there are no node slots.
+    #[inline]
+    #[must_use] pub const fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Returns true if this is in read (flattened) mode.
     #[inline]
-    pub fn is_flattened(&self) -> bool {
+    #[must_use] pub const fn is_flattened(&self) -> bool {
         !self.offsets.is_empty() || self.build.is_empty()
     }
 
@@ -469,8 +479,11 @@ impl<T> FlatVecVec<T> {
     /// Returns empty slice if index is out of bounds or not yet flattened
     /// (falls back to build-phase data if not yet flattened).
     #[inline]
-    pub fn get_slice(&self, node_index: usize) -> &[T] {
-        if !self.offsets.is_empty() {
+    #[must_use] pub fn get_slice(&self, node_index: usize) -> &[T] {
+        if self.offsets.is_empty() {
+            // Build phase fallback: use inner Vecs
+            self.build.get(node_index).map_or(&[], std::vec::Vec::as_slice)
+        } else {
             // Read phase: use flat data
             if let Some(&(start, len)) = self.offsets.get(node_index) {
                 let s = start as usize;
@@ -479,9 +492,6 @@ impl<T> FlatVecVec<T> {
             } else {
                 &[]
             }
-        } else {
-            // Build phase fallback: use inner Vecs
-            self.build.get(node_index).map(|v| v.as_slice()).unwrap_or(&[])
         }
     }
 
@@ -491,12 +501,12 @@ impl<T> FlatVecVec<T> {
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K) {
         let node_count = self.build.len();
-        let total: usize = self.build.iter().map(|v| v.len()).sum();
+        let total: usize = self.build.iter().map(std::vec::Vec::len).sum();
 
         let mut flat_data = Vec::with_capacity(total);
         let mut offsets = Vec::with_capacity(node_count);
 
-        for inner in self.build.iter_mut() {
+        for inner in &mut self.build {
             inner.sort_by_key(|a| key_fn(a));
 
             // Deduplicate: keep last of each consecutive-key group (CSS cascade).
@@ -508,7 +518,7 @@ impl<T> FlatVecVec<T> {
                 }
             }
 
-            let start = flat_data.len() as u32;
+            let start = u32::try_from(flat_data.len()).unwrap_or(u32::MAX);
             // Drain inner and push only kept items
             for (i, item) in inner.drain(..).enumerate() {
                 if keep[i] {
@@ -516,7 +526,7 @@ impl<T> FlatVecVec<T> {
                 }
             }
 
-            let len = (flat_data.len() as u32) - start;
+            let len = u32::try_from(flat_data.len()).unwrap_or(u32::MAX) - start;
             offsets.push((start, len));
         }
 
@@ -529,14 +539,14 @@ impl<T> FlatVecVec<T> {
     /// Flatten without sorting (for data that's already sorted).
     pub fn flatten(&mut self) {
         let node_count = self.build.len();
-        let total: usize = self.build.iter().map(|v| v.len()).sum();
+        let total: usize = self.build.iter().map(std::vec::Vec::len).sum();
 
         let mut flat_data = Vec::with_capacity(total);
         let mut offsets = Vec::with_capacity(node_count);
 
-        for inner in self.build.iter_mut() {
-            let start = flat_data.len() as u32;
-            let len = inner.len() as u32;
+        for inner in &mut self.build {
+            let start = u32::try_from(flat_data.len()).unwrap_or(u32::MAX);
+            let len = u32::try_from(inner.len()).unwrap_or(u32::MAX);
             offsets.push((start, len));
             flat_data.append(inner);
         }
@@ -556,7 +566,7 @@ impl<T> FlatVecVec<T> {
         for &(start, len) in &self.offsets {
             let s = start as usize;
             let l = len as usize;
-            let new_start = new_data.len() as u32;
+            let new_start = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
             let slice = &self.data[s..s + l];
             let mut kept = 0u32;
             for item in slice {
@@ -585,7 +595,7 @@ impl<T> FlatVecVec<T> {
         for (node_idx, &(start, len)) in self.offsets.iter().enumerate() {
             let s = start as usize;
             let l = len as usize;
-            let new_start = new_data.len() as u32;
+            let new_start = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
             let slice = &self.data[s..s + l];
             let mut kept = 0u32;
             for item in slice {
@@ -601,9 +611,9 @@ impl<T> FlatVecVec<T> {
         self.offsets = new_offsets;
     }
 
-    /// Iterate over all nodes, yielding (node_index, &[T]) for each.
+    /// Iterate over all nodes, yielding (`node_index`, &[T]) for each.
     /// Works in both build and flattened phases.
-    pub(crate) fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
+    pub(crate) const fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
         FlatVecVecIter {
             fvv: self,
             idx: 0,
@@ -611,12 +621,12 @@ impl<T> FlatVecVec<T> {
         }
     }
 
-    /// Extend this FlatVecVec with all nodes from `other` (append for DOM merge).
+    /// Extend this `FlatVecVec` with all nodes from `other` (append for DOM merge).
     /// Both must be in build phase, or both must be flattened.
     pub fn extend_from(&mut self, other: &mut Self) {
         if !self.offsets.is_empty() && !other.offsets.is_empty() {
             // Both flattened: extend flat data with offset adjustment
-            let base = self.data.len() as u32;
+            let base = u32::try_from(self.data.len()).unwrap_or(u32::MAX);
             self.data.append(&mut other.data);
             self.offsets.extend(other.offsets.drain(..).map(|(s, l)| (s + base, l)));
         } else {
@@ -629,7 +639,7 @@ impl<T> FlatVecVec<T> {
     }
 }
 
-/// Iterator over (node_index, &[T]) pairs from a `FlatVecVec`.
+/// Iterator over (`node_index`, &[T]) pairs from a `FlatVecVec`.
 pub(crate) struct FlatVecVecIter<'a, T> {
     fvv: &'a FlatVecVec<T>,
     idx: usize,
@@ -655,7 +665,7 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for FlatVecVecIter<'a, T> {}
+impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
@@ -735,7 +745,7 @@ pub struct CssPropertyCacheBreakdown {
 
 impl CssPropertyCacheBreakdown {
     /// Sum of all subfields.
-    pub fn total_bytes(&self) -> usize {
+    #[must_use] pub const fn total_bytes(&self) -> usize {
         self.cascaded_props_bytes
             + self.css_props_bytes
             + self.computed_values_bytes
@@ -761,10 +771,10 @@ impl CssPropertyCache {
     /// numbers. Still useful for spotting gross duplication between
     /// the pre-compact and compact caches.
     pub fn memory_breakdown(&self) -> CssPropertyCacheBreakdown {
-        let stateful_sz = core::mem::size_of::<StatefulCssProperty>();
+        let stateful_sz = size_of::<StatefulCssProperty>();
         let computed_entry_sz =
-            core::mem::size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
-        let outer_vec_sz = core::mem::size_of::<Vec<(CssPropertyType, CssPropertyWithOrigin)>>();
+            size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
+        let outer_vec_sz = size_of::<Vec<(CssPropertyType, CssPropertyWithOrigin)>>();
 
         let cascaded_bytes = self.cascaded_props.heap_bytes(stateful_sz);
         let css_bytes = self.css_props.heap_bytes(stateful_sz);
@@ -778,32 +788,30 @@ impl CssPropertyCache {
             let mut b = self.user_overridden_properties.capacity() * outer_vec_sz;
             for v in &self.user_overridden_properties {
                 b += v.capacity()
-                    * core::mem::size_of::<(CssPropertyType, CssProperty)>();
+                    * size_of::<(CssPropertyType, CssProperty)>();
             }
             b
         };
 
         let global_bytes = self.global_css_props.capacity()
-            * core::mem::size_of::<CssProperty>();
+            * size_of::<CssProperty>();
 
         let compact_bytes = self
             .compact_cache
             .as_ref()
-            .map(|c| {
+            .map_or(0, |c| {
                 c.tier1_enums.capacity() * 8
                     + c.tier2_dims.capacity() * 68
                     + c.tier2_cold.capacity() * 28
                     + c.tier2b_text.capacity() * 24
                     + c.prev_font_hashes.capacity() * 8
                     + c.font_dirty_nodes.capacity() * 8
-            })
-            .unwrap_or(0);
+            });
 
         let resolved_font_sizes_bytes = self
             .resolved_font_sizes_px
             .get()
-            .map(|v| v.capacity() * core::mem::size_of::<f32>())
-            .unwrap_or(0);
+            .map_or(0, |v| v.capacity() * size_of::<f32>());
 
         CssPropertyCacheBreakdown {
             node_count: self.node_count,
@@ -844,7 +852,7 @@ impl CssPropertyCache {
                     }
                 }
             }
-            let ssp_sz = core::mem::size_of::<StatefulCssProperty>();
+            let ssp_sz = size_of::<StatefulCssProperty>();
             let mut casc_normal_compact = 0usize;
             let mut casc_total = 0usize;
             for i in 0..self.cascaded_props.len() {
@@ -855,8 +863,7 @@ impl CssPropertyCache {
                     }
                 }
             }
-            eprintln!("[PRUNE] css_props: norm+compact={} norm+other={} nonnorm={} SSP={}B | cascaded: total={} norm+compact={}",
-                normal_compact, normal_noncompact, nonnormal, ssp_sz, casc_total, casc_normal_compact);
+            eprintln!("[PRUNE] css_props: norm+compact={normal_compact} norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: total={casc_total} norm+compact={casc_normal_compact}");
         }
         }
 
@@ -899,8 +906,13 @@ impl CssPropertyCache {
     }
 
     /// Look up a CSS property for a specific pseudo-state in a stateful property vec.
-    /// Requires the vec to be sorted by (state, prop_type).
+    /// Requires the vec to be sorted by (state, `prop_type`).
     #[inline]
+    // prop_cache threads &NodeId/&CssPropertyType uniformly through its hot cascade
+    // lookup API (40+ such params); flipping only clippy's few flags to by-value
+    // would force ref/deref juggling at every boundary with the by-ref majority,
+    // for no measurable hot-path gain — keep the uniform by-ref convention.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn find_in_stateful<'a>(
         props: &'a [StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
@@ -913,7 +925,7 @@ impl CssPropertyCache {
     }
 
     /// Check if any properties exist for a specific pseudo-state in a stateful property vec.
-    /// Requires the vec to be sorted by (state, prop_type).
+    /// Requires the vec to be sorted by (state, `prop_type`).
     #[inline]
     fn has_state_props(
         props: &[StatefulCssProperty],
@@ -926,10 +938,10 @@ impl CssPropertyCache {
     }
 
     /// Collect all property types for a specific pseudo-state.
-    pub(crate) fn prop_types_for_state<'a>(
-        props: &'a [StatefulCssProperty],
+    pub(crate) fn prop_types_for_state(
+        props: &[StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
-    ) -> impl Iterator<Item = &'a CssPropertyType> + 'a {
+    ) -> impl Iterator<Item = &CssPropertyType> + '_ {
         props.iter().filter(move |p| p.state == state).map(|p| &p.prop_type)
     }
 }
@@ -1035,8 +1047,8 @@ fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
 /// `CaretColor`, a `Copy` value with no heap pointer to deref). On native this function
 /// is byte-for-byte equivalent to `p.clone()`.
 fn clone_inheritable_property(
-    p: &azul_css::props::property::CssProperty,
-) -> azul_css::props::property::CssProperty {
+    p: &CssProperty,
+) -> CssProperty {
     use azul_css::props::property::CssProperty;
     if let CssProperty::FontFamily(v) = p { return CssProperty::FontFamily(v.clone()); }
     if let CssProperty::BackgroundContent(v) = p { return CssProperty::BackgroundContent(v.clone()); }
@@ -1063,20 +1075,22 @@ fn clone_inheritable_property(
 }
 
 impl CssPropertyCache {
-    /// Match CSS selectors to nodes and populate css_props.
-    /// Returns tag IDs for hit-testing. If compact_cache is available,
+    /// Match CSS selectors to nodes and populate `css_props`.
+    /// Returns tag IDs for hit-testing. If `compact_cache` is available,
     /// uses it for fast display/overflow checks; otherwise falls back to slow path.
     #[must_use]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn restyle(
         &mut self,
         css: &mut Css,
-        node_data: &NodeDataContainerRef<NodeData>,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
-        html_tree: &NodeDataContainerRef<CascadeInfo>,
+        html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
-            css::{CssDeclaration, CssPathPseudoSelector::*},
+            css::{CssDeclaration, CssPathPseudoSelector::{Hover, Active, Focus, Dragging, DragOver}, CssPathSelector, CssRuleBlock},
+            dynamic_selector::{DynamicSelector, PseudoStateType},
             props::layout::LayoutDisplay,
         };
 
@@ -1089,8 +1103,6 @@ impl CssPropertyCache {
             // Global-only rules apply to ALL nodes — push directly into css_props
             // without per-node selector matching (avoids m×n for these rules).
             // Specific rules still go through matches_html_element per-node.
-            use azul_css::css::{CssPathSelector, CssRuleBlock};
-
             let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
             let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
 
@@ -1108,8 +1120,6 @@ impl CssPropertyCache {
             // Clear all css_props before assigning
             for entry in self.css_props.build_iter_mut() { entry.clear(); }
 
-            use azul_css::dynamic_selector::PseudoStateType;
-
             // Collect global-only rule declarations ONCE (not per-node).
             // These are stored in self.global_css_props and applied during
             // build_compact_cache_with_inheritance for each node, avoiding
@@ -1117,7 +1127,7 @@ impl CssPropertyCache {
             self.global_css_props.clear();
             for rule in &global_only_rules {
                 if crate::style::rule_ends_with(&rule.path, None) {
-                    for d in rule.declarations.iter() {
+                    for d in &rule.declarations {
                         if let CssDeclaration::Static(s) = d {
                             self.global_css_props.push(s.clone());
                         }
@@ -1155,7 +1165,7 @@ impl CssPropertyCache {
                     }
                     for (decl_idx, decl) in rule_block.declarations.as_slice().iter().enumerate() {
                         if matches!(decl, CssDeclaration::Static(_)) {
-                            out.push((rule_idx as u16, decl_idx as u16));
+                            out.push((u16::try_from(rule_idx).unwrap_or(u16::MAX), u16::try_from(decl_idx).unwrap_or(u16::MAX)));
                         }
                     }
                 }
@@ -1210,13 +1220,10 @@ impl CssPropertyCache {
 
         // Inheritance: Inherit all values of the parent to the children, but
         // only if the property is inheritable and isn't yet set
-        for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes.iter() {
-            let parent_id = match node_id.into_crate_internal() {
-                Some(s) => s,
-                None => continue,
+        for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes {
+            let Some(parent_id) = node_id.into_crate_internal() else {
+                continue;
             };
-
-            use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
             let all_states = [
                 PseudoStateType::Normal,
@@ -1248,14 +1255,14 @@ impl CssPropertyCache {
                     .collect();
 
                 // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
-                let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if !css_is_empty {
+                let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
+                    Vec::new()
+                } else {
                     self.css_props.get_slice(parent_id.index())
                         .iter()
                         .filter(|p| p.state == state && p.prop_type.is_inheritable())
                         .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect()
-                } else {
-                    Vec::new()
                 };
 
                 // 3. Inherit cascaded properties from parent for this pseudo-state
@@ -1304,10 +1311,10 @@ impl CssPropertyCache {
 
     /// Generate hit-test tag IDs for nodes that need event handling.
     /// Uses compact cache (if available) for fast display/overflow reads.
-    /// Can be called separately after build_compact_cache_with_inheritance.
+    /// Can be called separately after `build_compact_cache_with_inheritance`.
     pub fn generate_tag_ids(
         &self,
-        node_data: &NodeDataContainerRef<NodeData>,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
 
@@ -1334,31 +1341,29 @@ impl CssPropertyCache {
                     .iter()
                     .any(|cb| cb.event.is_focus_callback());
 
-                let tab_index = match node_data.get_tab_index() {
-                    Some(s) => Some(s),
-                    None => {
-                        if should_auto_insert_tabindex {
+                let tab_index = node_data.get_tab_index().map_or(if should_auto_insert_tabindex {
                             Some(TabIndex::Auto)
                         } else {
                             None
-                        }
-                    }
-                };
+                        }, Some);
 
                 let mut need_tag = false;
 
-                loop {
+                // Single-pass guard block: each check `break`s out early once it
+                // decides `need_tag`. Labeled block (not `loop`) makes the
+                // never-iterating control flow explicit (clippy::never_loop).
+                'compute_need_tag: {
                     // display:none check — read directly from compact tier1 (fast u64 read)
                     if let Some(cc) = compact_cache.as_ref() {
                         let t1 = cc.tier1_enums[node_idx];
                         let display_val = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
-                        if display_val == 4 { break; } // 4 = LayoutDisplay::None (new encoding)
+                        if display_val == 4 { break 'compute_need_tag; } // 4 = LayoutDisplay::None (new encoding)
                     }
 
                     if node_data.has_context_menu() || node_data.get_context_menu().is_some() {
-                        need_tag = true; break;
+                        need_tag = true; break 'compute_need_tag;
                     }
-                    if tab_index.is_some() { need_tag = true; break; }
+                    if tab_index.is_some() { need_tag = true; break 'compute_need_tag; }
 
                     // Pseudo-state property checks (hover/active/focus/dragging/drag-over)
                     {
@@ -1377,23 +1382,23 @@ impl CssPropertyCache {
                             || has_pseudo(PseudoStateType::Dragging)
                             || has_pseudo(PseudoStateType::DragOver)
                         {
-                            need_tag = true; break;
+                            need_tag = true; break 'compute_need_tag;
                         }
                     }
 
                     // Non-window callbacks
                     let has_non_window_cb = !node_data.get_callbacks().is_empty()
                         && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
-                    if has_non_window_cb { need_tag = true; break; }
+                    if has_non_window_cb { need_tag = true; break 'compute_need_tag; }
 
                     // Cursor check — read from cached css_props or inline style.
                     if self.css_props.get_slice(node_idx).iter().any(|p|
                         p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                        && p.prop_type == azul_css::props::property::CssPropertyType::Cursor
+                        && p.prop_type == CssPropertyType::Cursor
                     ) || node_data.style.iter_inline_properties().any(|(p, _)|
-                        p.get_type() == azul_css::props::property::CssPropertyType::Cursor
+                        p.get_type() == CssPropertyType::Cursor
                     ) {
-                        need_tag = true; break;
+                        need_tag = true; break 'compute_need_tag;
                     }
 
                     // Overflow scroll check — read from compact tier1
@@ -1403,7 +1408,7 @@ impl CssPropertyCache {
                         let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
                         // 2 = Scroll, 3 = Auto in layout_overflow_to_u8 (new encoding)
                         if ox == 2 || ox == 3 || oy == 2 || oy == 3 {
-                            need_tag = true; break;
+                            need_tag = true; break 'compute_need_tag;
                         }
                     }
 
@@ -1421,20 +1426,20 @@ impl CssPropertyCache {
                                 child_id = node_hierarchy.as_container()[cid].next_sibling_id();
                             }
                         }
-                        if has_text { need_tag = true; break; }
+                        if has_text { need_tag = true; break 'compute_need_tag; }
                     }
 
-                    break;
+                    break 'compute_need_tag;
                 }
 
-                if !need_tag {
-                    None
-                } else {
+                if need_tag {
                     Some(TagIdToNodeIdMapping {
                         tag_id: TagId::from_crate_internal(TagId::unique()),
                         node_id: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                         tab_index: tab_index.into(),
                     })
+                } else {
+                    None
                 }
             })
             .collect::<Vec<_>>();
@@ -1442,6 +1447,7 @@ impl CssPropertyCache {
         tag_ids
     }
 
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn get_computed_css_style_string(
         &self,
         node_data: &NodeData,
@@ -1450,271 +1456,271 @@ impl CssPropertyCache {
     ) -> String {
         let mut s = String::new();
         if let Some(p) = self.get_background_content(node_data, node_id, node_state) {
-            s.push_str(&format!("background: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_position(node_data, node_id, node_state) {
-            s.push_str(&format!("background-position: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background-position: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_size(node_data, node_id, node_state) {
-            s.push_str(&format!("background-size: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_repeat(node_data, node_id, node_state) {
-            s.push_str(&format!("background-repeat: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"background-repeat: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_font_size(node_data, node_id, node_state) {
-            s.push_str(&format!("font-size: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"font-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_font_family(node_data, node_id, node_state) {
-            s.push_str(&format!("font-family: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"font-family: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_color(node_data, node_id, node_state) {
-            s.push_str(&format!("color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_align(node_data, node_id, node_state) {
-            s.push_str(&format!("text-align: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"text-align: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_line_height(node_data, node_id, node_state) {
-            s.push_str(&format!("line-height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"line-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_letter_spacing(node_data, node_id, node_state) {
-            s.push_str(&format!("letter-spacing: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"letter-spacing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_word_spacing(node_data, node_id, node_state) {
-            s.push_str(&format!("word-spacing: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"word-spacing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_tab_size(node_data, node_id, node_state) {
-            s.push_str(&format!("tab-size: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"tab-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_cursor(node_data, node_id, node_state) {
-            s.push_str(&format!("cursor: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"cursor: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_left(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "-azul-box-shadow-left: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_box_shadow_right(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "-azul-box-shadow-right: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_box_shadow_top(node_data, node_id, node_state) {
-            s.push_str(&format!("-azul-box-shadow-top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"-azul-box-shadow-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "-azul-box-shadow-bottom: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_top_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-top-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-top-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-left-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-left-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-right-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-right-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_color(node_data, node_id, node_state) {
-            s.push_str(&format!("border-bottom-color: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-bottom-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-top-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-top-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-left-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-left-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-right-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-right-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_style(node_data, node_id, node_state) {
-            s.push_str(&format!("border-bottom-style: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-bottom-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_left_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-top-left-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_top_right_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-top-right-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_bottom_left_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-bottom-left-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_border_bottom_right_radius(node_data, node_id, node_state) {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "border-bottom-right-radius: {};",
                 p.get_css_value_fmt()
-            ));
+            );
         }
         if let Some(p) = self.get_opacity(node_data, node_id, node_state) {
-            s.push_str(&format!("opacity: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"opacity: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_transform(node_data, node_id, node_state) {
-            s.push_str(&format!("transform: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"transform: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_transform_origin(node_data, node_id, node_state) {
-            s.push_str(&format!("transform-origin: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"transform-origin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_perspective_origin(node_data, node_id, node_state) {
-            s.push_str(&format!("perspective-origin: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"perspective-origin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_backface_visibility(node_data, node_id, node_state) {
-            s.push_str(&format!("backface-visibility: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"backface-visibility: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_hyphens(node_data, node_id, node_state) {
-            s.push_str(&format!("hyphens: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"hyphens: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_direction(node_data, node_id, node_state) {
-            s.push_str(&format!("direction: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"direction: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_unicode_bidi(node_data, node_id, node_state) {
-            s.push_str(&format!("unicode-bidi: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"unicode-bidi: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_box_trim(node_data, node_id, node_state) {
-            s.push_str(&format!("text-box-trim: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"text-box-trim: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_box_edge(node_data, node_id, node_state) {
-            s.push_str(&format!("text-box-edge: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"text-box-edge: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_dominant_baseline(node_data, node_id, node_state) {
-            s.push_str(&format!("dominant-baseline: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"dominant-baseline: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_alignment_baseline(node_data, node_id, node_state) {
-            s.push_str(&format!("alignment-baseline: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"alignment-baseline: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_initial_letter_align(node_data, node_id, node_state) {
-            s.push_str(&format!("initial-letter-align: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"initial-letter-align: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_initial_letter_wrap(node_data, node_id, node_state) {
-            s.push_str(&format!("initial-letter-wrap: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"initial-letter-wrap: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_scrollbar_gutter(node_data, node_id, node_state) {
-            s.push_str(&format!("scrollbar-gutter: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"scrollbar-gutter: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_clip_margin(node_data, node_id, node_state) {
-            s.push_str(&format!("overflow-clip-margin: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"overflow-clip-margin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_clip(node_data, node_id, node_state) {
-            s.push_str(&format!("clip: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"clip: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_white_space(node_data, node_id, node_state) {
-            s.push_str(&format!("white-space: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"white-space: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_display(node_data, node_id, node_state) {
-            s.push_str(&format!("display: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"display: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_float(node_data, node_id, node_state) {
-            s.push_str(&format!("float: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"float: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_sizing(node_data, node_id, node_state) {
-            s.push_str(&format!("box-sizing: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"box-sizing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_width(node_data, node_id, node_state) {
-            s.push_str(&format!("width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_height(node_data, node_id, node_state) {
-            s.push_str(&format!("height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_min_width(node_data, node_id, node_state) {
-            s.push_str(&format!("min-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"min-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_min_height(node_data, node_id, node_state) {
-            s.push_str(&format!("min-height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"min-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_max_width(node_data, node_id, node_state) {
-            s.push_str(&format!("max-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"max-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_max_height(node_data, node_id, node_state) {
-            s.push_str(&format!("max-height: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"max-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_position(node_data, node_id, node_state) {
-            s.push_str(&format!("position: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"position: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_top(node_data, node_id, node_state) {
-            s.push_str(&format!("top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!("bottom: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_right(node_data, node_id, node_state) {
-            s.push_str(&format!("right: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_left(node_data, node_id, node_state) {
-            s.push_str(&format!("left: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_top(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-bottom: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_left(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-left: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_right(node_data, node_id, node_state) {
-            s.push_str(&format!("padding-right: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"padding-right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_top(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-top: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_bottom(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-bottom: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_left(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-left: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_right(node_data, node_id, node_state) {
-            s.push_str(&format!("margin-right: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"margin-right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-top-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-top-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-left-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-left-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-right-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-right-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_width(node_data, node_id, node_state) {
-            s.push_str(&format!("border-bottom-width: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"border-bottom-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_x(node_data, node_id, node_state) {
-            s.push_str(&format!("overflow-x: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"overflow-x: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_y(node_data, node_id, node_state) {
-            s.push_str(&format!("overflow-y: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"overflow-y: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_direction(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-direction: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-direction: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_wrap(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-wrap: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-wrap: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_grow(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-grow: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-grow: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_shrink(node_data, node_id, node_state) {
-            s.push_str(&format!("flex-shrink: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"flex-shrink: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_justify_content(node_data, node_id, node_state) {
-            s.push_str(&format!("justify-content: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"justify-content: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_align_items(node_data, node_id, node_state) {
-            s.push_str(&format!("align-items: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"align-items: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_align_content(node_data, node_id, node_state) {
-            s.push_str(&format!("align-content: {};", p.get_css_value_fmt()));
+            let _ = write!(s,"align-content: {};", p.get_css_value_fmt());
         }
         s
     }
@@ -1777,7 +1783,7 @@ macro_rules! impl_get_prop {
 }
 
 impl CssPropertyCache {
-    pub fn empty(node_count: usize) -> Self {
+    #[must_use] pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
             user_overridden_properties: Vec::new(),
@@ -1871,7 +1877,7 @@ impl CssPropertyCache {
     ) -> StyleTextColor {
         use azul_css::defaults::DEFAULT_TEXT_COLOR;
         self.get_text_color(node_data, node_id, node_state)
-            .and_then(|fs| fs.get_property().cloned())
+            .and_then(|fs| fs.get_property().copied())
             .unwrap_or(DEFAULT_TEXT_COLOR)
     }
 
@@ -1903,7 +1909,7 @@ impl CssPropertyCache {
     ) -> StyleFontSize {
         use azul_css::defaults::DEFAULT_FONT_SIZE;
         self.get_font_size(node_data, node_id, node_state)
-            .and_then(|fs| fs.get_property().cloned())
+            .and_then(|fs| fs.get_property().copied())
             .unwrap_or(DEFAULT_FONT_SIZE)
     }
 
@@ -1951,7 +1957,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
-    ) -> Option<&CssProperty> {
+    ) -> Option<&'a CssProperty> {
         // Thread-local counter of cascade walks, broken down by
         // property type. Drain with `drain_css_prop_counts` (free
         // fn below) when `AZ_PROP_COUNT=1` is set to see which
@@ -1994,6 +2000,7 @@ impl CssPropertyCache {
     }
 
     #[cfg(feature = "std")]
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
         // Intern Debug-format labels under a mutex-guarded map so
         // we leak at most one `&'static str` per distinct
@@ -2007,7 +2014,7 @@ impl CssPropertyCache {
         if let Some(s) = g.get(t) {
             return s;
         }
-        let s: String = std::format!("{:?}", t);
+        let s: String = std::format!("{t:?}");
         let leaked: &'static str = std::boxed::Box::leak(s.into_boxed_str());
         g.insert(*t, leaked);
         leaked
@@ -2016,22 +2023,17 @@ impl CssPropertyCache {
     /// Full cascade resolution for any CSS property type.
     /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
-    ) -> Option<&CssProperty> {
+    ) -> Option<&'a CssProperty> {
 
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-
-        // First test if there is some user-defined override for the property
-        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
-            if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
-                return Some(&v[idx].1);
-            }
-        }
 
         // Helper: do these conditions identify a rule that applies in `state`?
         // Empty conditions = Normal-only. Otherwise all conditions must be
@@ -2047,6 +2049,13 @@ impl CssPropertyCache {
                 conditions
                     .iter()
                     .all(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state))
+            }
+        }
+
+        // First test if there is some user-defined override for the property
+        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
+            if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
+                return Some(&v[idx].1);
             }
         }
 
@@ -2267,20 +2276,21 @@ impl CssPropertyCache {
         crate::ua_css::get_ua_property(&node_data.node_type, *css_property_type)
     }
 
-    /// Get a CSS property using DynamicSelectorContext for evaluation.
+    /// Get a CSS property using `DynamicSelectorContext` for evaluation.
     ///
     /// This is the new API that supports @media queries, @container queries,
     /// OS-specific styles, and all pseudo-states via `CssPropertyWithConditions`.
     ///
     /// The evaluation follows "last wins" semantics - properties are evaluated
     /// in reverse order and the first matching property wins.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     pub(crate) fn get_property_with_context<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
         context: &DynamicSelectorContext,
         css_property_type: &CssPropertyType,
-    ) -> Option<&CssProperty> {
+    ) -> Option<&'a CssProperty> {
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
             if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
@@ -2292,18 +2302,17 @@ impl CssPropertyCache {
         // Iterate in REVERSE order across the flat (prop, conds) view —
         // "last found wins" semantics, replacing the old Focus > Active >
         // Hover > Normal priority chain.
-        let inline_props_rev: Vec<_> = node_data
-            .style
-            .iter_inline_properties()
-            .collect::<Vec<_>>();
-        if let Some(prop) = inline_props_rev.into_iter().rev().find_map(|(prop, conds)| {
+        // "last found wins": scan the flat (prop, conds) view forward and keep the
+        // last match (iter_inline_properties is not DoubleEndedIterator, so this
+        // replaces an earlier collect-then-rev-find_map).
+        let mut last_inline = None;
+        for (prop, conds) in node_data.style.iter_inline_properties() {
             let conditions_match = conds.as_slice().iter().all(|c| c.matches(context));
             if prop.get_type() == *css_property_type && conditions_match {
-                Some(prop)
-            } else {
-                None
+                last_inline = Some(prop);
             }
-        }) {
+        }
+        if let Some(prop) = last_inline {
             return Some(prop);
         }
 
@@ -2456,6 +2465,7 @@ impl CssPropertyCache {
     impl_get_prop!(get_gap, LayoutGapValue, Gap, as_gap);
 
     /// Method for getting grid-gap property
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     pub(crate) fn get_grid_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -3065,10 +3075,14 @@ impl CssPropertyCache {
             .unwrap_or(0.0)
     }
 
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn resolve_property_dependency(
         target_property: &CssProperty,
         reference_property: &CssProperty,
     ) -> Option<CssProperty> {
+        // wildcard import: this big property-dispatch match references the full set
+        // of layout property types; enumerating them all is unmaintainable.
+        #[allow(clippy::wildcard_imports)]
         use azul_css::{
             css::CssPropertyValue,
             props::{
@@ -3111,11 +3125,14 @@ impl CssPropertyCache {
             SizeMetric::In => reference_pixel_value.number.get() * IN_TO_PX,
             SizeMetric::Cm => reference_pixel_value.number.get() * CM_TO_PX,
             SizeMetric::Mm => reference_pixel_value.number.get() * MM_TO_PX,
-            SizeMetric::Em => return None, // Reference can't be relative
-            SizeMetric::Rem => return None, // Reference can't be relative
-            SizeMetric::Percent => return None, // Reference can't be relative
-            // Reference can't be viewport-relative
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None,
+            // Reference can't be relative (em/rem/%) or viewport-relative.
+            SizeMetric::Em
+            | SizeMetric::Rem
+            | SizeMetric::Percent
+            | SizeMetric::Vw
+            | SizeMetric::Vh
+            | SizeMetric::Vmin
+            | SizeMetric::Vmax => return None,
         };
 
         // Resolve target based on reference
@@ -3125,9 +3142,8 @@ impl CssPropertyCache {
             SizeMetric::In => target_pixel_value.number.get() * IN_TO_PX,
             SizeMetric::Cm => target_pixel_value.number.get() * CM_TO_PX,
             SizeMetric::Mm => target_pixel_value.number.get() * MM_TO_PX,
-            SizeMetric::Em => target_pixel_value.number.get() * reference_px,
-            // Use reference as root font-size
-            SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
+            // em/rem both scale by reference (rem uses reference as root font-size).
+            SizeMetric::Em | SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
             // Need viewport context
             SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None,
@@ -3245,7 +3261,7 @@ impl CssPropertyCache {
 
         // Mark properties from css_props (author CSS, Normal state)
         for (node_idx, props) in self.css_props.iter_node_slices() {
-            for p in props.iter() {
+            for p in props {
                 if p.state == PseudoStateType::Normal {
                     let d = p.prop_type as u16 as usize;
                     if d < 128 {
@@ -3259,7 +3275,7 @@ impl CssPropertyCache {
 
         // Mark properties from cascaded_props (Normal state)
         for (node_idx, props) in self.cascaded_props.iter_node_slices() {
-            for p in props.iter() {
+            for p in props {
                 if p.state == PseudoStateType::Normal {
                     let d = p.prop_type as u16 as usize;
                     if d < 128 {
@@ -3351,8 +3367,8 @@ impl CssPropertyCache {
         }
     }
 
-    /// Sort cascaded_props by (state, prop_type) and flatten into contiguous memory.
-    /// Must be called after apply_ua_css() which adds entries to cascaded_props.
+    /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.
+    /// Must be called after `apply_ua_css()` which adds entries to `cascaded_props`.
     pub fn sort_cascaded_props(&mut self) {
         self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
     }
@@ -3387,14 +3403,14 @@ impl CssPropertyCache {
 
                 // Step 1: Inherit from parent
                 if let Some(ref parent_values) = parent_computed {
-                    self.inherit_from_parent(&mut ctx, parent_values);
+                    Self::inherit_from_parent(&mut ctx, parent_values);
                 }
 
                 // Steps 2-5: Apply cascade in priority order
                 self.apply_cascade_properties(
                     &mut ctx,
                     node_id,
-                    &parent_computed,
+                    parent_computed.as_ref(),
                     node_data,
                     node_index,
                 );
@@ -3408,7 +3424,6 @@ impl CssPropertyCache {
 
     /// Inherit inheritable properties from parent node
     fn inherit_from_parent(
-        &self,
         ctx: &mut InheritanceContext,
         parent_values: &[(CssPropertyType, CssPropertyWithOrigin)],
     ) {
@@ -3432,17 +3447,17 @@ impl CssPropertyCache {
         &self,
         ctx: &mut InheritanceContext,
         node_id: NodeId,
-        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
         node_data: &[NodeData],
         node_index: usize,
     ) {
         // Step 2: Cascaded properties (UA CSS)
         {
             let cascaded_slice = self.cascaded_props.get_slice(node_id.index());
-            for p in cascaded_slice.iter() {
+            for p in cascaded_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                    && self.should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property) {
-                        self.process_property(ctx, &p.property, parent_computed);
+                    && Self::should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property) {
+                        Self::process_property(ctx, &p.property, parent_computed);
                     }
             }
         }
@@ -3450,9 +3465,9 @@ impl CssPropertyCache {
         // Step 3: CSS properties (stylesheets)
         {
             let css_slice = self.css_props.get_slice(node_id.index());
-            for p in css_slice.iter() {
+            for p in css_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal {
-                    self.process_property(ctx, &p.property, parent_computed);
+                    Self::process_property(ctx, &p.property, parent_computed);
                 }
             }
         }
@@ -3461,21 +3476,20 @@ impl CssPropertyCache {
         for (prop, conds) in node_data[node_index].style.iter_inline_properties() {
             // Only apply unconditional (normal) properties
             if conds.as_slice().is_empty() {
-                self.process_property(ctx, prop, parent_computed);
+                Self::process_property(ctx, prop, parent_computed);
             }
         }
 
         // Step 5: User-overridden properties
         if let Some(user_props) = self.user_overridden_properties.get(node_id.index()) {
-            for (_, prop) in user_props.iter() {
-                self.process_property(ctx, prop, parent_computed);
+            for (_, prop) in user_props {
+                Self::process_property(ctx, prop, parent_computed);
             }
         }
     }
 
     /// Check if a cascaded property should be applied
     fn should_apply_cascaded(
-        &self,
         computed: &[(CssPropertyType, CssPropertyWithOrigin)],
         prop_type: CssPropertyType,
         prop: &CssProperty,
@@ -3491,25 +3505,21 @@ impl CssPropertyCache {
             }
         }
 
-        match computed.binary_search_by_key(&prop_type, |(k, _)| *k) {
-            Err(_) => true,
-            Ok(idx) => computed[idx].1.origin == CssPropertyOrigin::Inherited,
-        }
+        computed.binary_search_by_key(&prop_type, |(k, _)| *k).map_or(true, |idx| computed[idx].1.origin == CssPropertyOrigin::Inherited)
     }
 
     /// Process a single property: resolve and store
     fn process_property(
-        &self,
         ctx: &mut InheritanceContext,
         prop: &CssProperty,
-        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) {
         let prop_type = prop.get_type();
 
         let resolved = if prop_type == CssPropertyType::FontSize {
-            self.resolve_font_size_property(prop, parent_computed)
+            Self::resolve_font_size_property(prop, parent_computed)
         } else {
-            self.resolve_other_property(prop, &ctx.computed_values)
+            Self::resolve_other_property(prop, &ctx.computed_values)
         };
 
         let entry = (prop_type, CssPropertyWithOrigin {
@@ -3524,37 +3534,31 @@ impl CssPropertyCache {
 
     /// Resolve font-size property (uses parent's font-size as reference)
     fn resolve_font_size_property(
-        &self,
         prop: &CssProperty,
-        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) -> CssProperty {
         let parent_font_size = parent_computed
-            .as_ref()
             .and_then(|p| {
                 p.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
                     .ok()
                     .map(|idx| &p[idx].1)
             });
 
-        match parent_font_size {
-            Some(pfs) => Self::resolve_property_dependency(prop, &pfs.property).unwrap_or_else(
+        parent_font_size.map_or_else(|| Self::resolve_font_size_to_pixels(
+                prop,
+                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+            ), |pfs| Self::resolve_property_dependency(prop, &pfs.property).unwrap_or_else(
                 || {
                     Self::resolve_font_size_to_pixels(
                         prop,
                         azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     )
                 },
-            ),
-            None => Self::resolve_font_size_to_pixels(
-                prop,
-                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
-            ),
-        }
+            ))
     }
 
     /// Resolve other properties (uses current node's font-size as reference)
     fn resolve_other_property(
-        &self,
         prop: &CssProperty,
         computed: &[(CssPropertyType, CssPropertyWithOrigin)],
     ) -> CssProperty {
@@ -3611,24 +3615,21 @@ impl CssPropertyCache {
 
         css_val
             .get_property()
-            .map(|fs| {
+            .is_some_and(|fs| {
                 matches!(
                     fs.inner.metric,
                     SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent
                 )
             })
-            .unwrap_or(false)
     }
 
     /// Store computed values if changed, returns true if values were updated
     fn store_if_changed(&mut self, ctx: &InheritanceContext) -> bool {
         let values_changed = self
             .computed_values
-            .get(ctx.node_id.index())
-            .map(|old| old != &ctx.computed_values)
-            .unwrap_or(true);
+            .get(ctx.node_id.index()) != Some(&ctx.computed_values);
 
-        self.computed_values[ctx.node_id.index()] = ctx.computed_values.clone();
+        self.computed_values[ctx.node_id.index()].clone_from(&ctx.computed_values);
 
         values_changed
     }

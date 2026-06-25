@@ -1,3 +1,4 @@
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use super::*;
 
 use std::collections::HashMap;
@@ -49,6 +50,7 @@ const SYSTEM_COLOR_FALLBACK: ColorU = ColorU {
 /// Concrete colors are returned verbatim. `system:*` keywords are
 /// resolved against `system_colors` when available and fall back to
 /// `SYSTEM_COLOR_FALLBACK` otherwise.
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn resolve_color(
     color: &ColorOrSystem,
     system_colors: Option<&azul_css::system::SystemColors>,
@@ -60,7 +62,7 @@ fn resolve_color(
     }
 }
 
-/// Build a GradientLut from normalized linear color stops.
+/// Build a `GradientLut` from normalized linear color stops.
 fn build_gradient_lut_linear(
     stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
     system_colors: Option<&azul_css::system::SystemColors>,
@@ -75,18 +77,18 @@ fn build_gradient_lut_linear(
         return lut;
     }
     for stop in stops_slice {
-        let offset = stop.offset.normalized() as f64; // 0.0..1.0
+        let offset = f64::from(stop.offset.normalized()); // 0.0..1.0
         let c = resolve_color(&stop.color, system_colors);
         lut.add_color(
             offset,
-            Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32),
+            Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a)),
         );
     }
     lut.build_lut();
     lut
 }
 
-/// Build a GradientLut from normalized radial (conic) color stops.
+/// Build a `GradientLut` from normalized radial (conic) color stops.
 fn build_gradient_lut_radial(
     stops: &azul_css::props::style::background::NormalizedRadialColorStopVec,
     system_colors: Option<&azul_css::system::SystemColors>,
@@ -101,18 +103,18 @@ fn build_gradient_lut_radial(
     }
     for stop in stops_slice {
         // Conic stops use angle — normalize to 0..1 fraction of full circle
-        let offset = (stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0) as f64;
+        let offset = f64::from((stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0));
         let c = resolve_color(&stop.color, system_colors);
         lut.add_color(
             offset,
-            Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32),
+            Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a)),
         );
     }
     lut.build_lut();
     lut
 }
 
-/// Resolve a background position to (x_fraction, y_fraction) in 0..1 range.
+/// Resolve a background position to (`x_fraction`, `y_fraction`) in 0..1 range.
 fn resolve_background_position(
     pos: &azul_css::props::style::background::StyleBackgroundPosition,
     width: f32,
@@ -151,6 +153,7 @@ fn resolve_background_position(
     (x, y)
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_linear_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -159,17 +162,16 @@ fn render_linear_gradient(
     clip: Option<AzRect>,
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
-) -> Result<(), String> {
+) {
     use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return;
     };
 
     let stops = gradient.stops.as_ref();
     if stops.is_empty() {
-        return Ok(());
+        return;
     }
 
     let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
@@ -185,16 +187,16 @@ fn render_linear_gradient(
     let (from_pt, to_pt) = gradient.direction.to_points(&layout_rect);
 
     // Pixel-space start/end
-    let x1 = rect.x as f64 + from_pt.x as f64;
-    let y1 = rect.y as f64 + from_pt.y as f64;
-    let x2 = rect.x as f64 + to_pt.x as f64;
-    let y2 = rect.y as f64 + to_pt.y as f64;
+    let x1 = f64::from(rect.x) + from_pt.x as f64;
+    let y1 = f64::from(rect.y) + from_pt.y as f64;
+    let x2 = f64::from(rect.x) + to_pt.x as f64;
+    let y2 = f64::from(rect.y) + to_pt.y as f64;
 
     let dx = x2 - x1;
     let dy = y2 - y1;
-    let len = (dx * dx + dy * dy).sqrt();
+    let len = dx.hypot(dy);
     if len < 0.001 {
-        return Ok(());
+        return;
     }
 
     // gradient-space (0..100, 0) → pixel-space line (x1,y1)→(x2,y2). Use agg's
@@ -213,9 +215,11 @@ fn render_linear_gradient(
     agg_fill_gradient_clipped(
         pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0, clip,
     );
-    Ok(())
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn render_radial_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -224,62 +228,61 @@ fn render_radial_gradient(
     clip: Option<AzRect>,
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
-) -> Result<(), String> {
+) {
     use azul_css::props::style::background::{RadialGradientSize, Shape};
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return;
     };
 
     let stops = gradient.stops.as_ref();
     if stops.is_empty() {
-        return Ok(());
+        return;
     }
 
     let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
 
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
 
     // Compute center from position
     let (cx_frac, cy_frac) =
         resolve_background_position(&gradient.position, rect.width, rect.height);
-    let cx = rect.x as f64 + cx_frac as f64 * w;
-    let cy = rect.y as f64 + cy_frac as f64 * h;
+    let cx = f64::from(rect.x) + f64::from(cx_frac) * w;
+    let cy = f64::from(rect.y) + f64::from(cy_frac) * h;
 
     // Compute radius based on shape and size
     let radius = match gradient.size {
         RadialGradientSize::ClosestSide => {
-            let dx = (cx_frac as f64 * w).min((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).min((1.0 - cy_frac as f64) * h);
+            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
             match gradient.shape {
                 Shape::Circle => dx.min(dy),
                 Shape::Ellipse => dx.min(dy), // simplified
             }
         }
         RadialGradientSize::FarthestSide => {
-            let dx = (cx_frac as f64 * w).max((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).max((1.0 - cy_frac as f64) * h);
+            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
             match gradient.shape {
                 Shape::Circle => dx.max(dy),
                 Shape::Ellipse => dx.max(dy),
             }
         }
         RadialGradientSize::ClosestCorner => {
-            let dx = (cx_frac as f64 * w).min((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).min((1.0 - cy_frac as f64) * h);
-            (dx * dx + dy * dy).sqrt()
+            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
+            dx.hypot(dy)
         }
         RadialGradientSize::FarthestCorner => {
-            let dx = (cx_frac as f64 * w).max((1.0 - cx_frac as f64) * w);
-            let dy = (cy_frac as f64 * h).max((1.0 - cy_frac as f64) * h);
-            (dx * dx + dy * dy).sqrt()
+            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
+            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
+            dx.hypot(dy)
         }
     };
 
     if radius < 0.001 {
-        return Ok(());
+        return;
     }
 
     // Gradient-space (radius=100 at distance=100) → pixel-space around (cx, cy).
@@ -305,9 +308,10 @@ fn render_radial_gradient(
         100.0,
         clip,
     );
-    Ok(())
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn render_conic_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -316,30 +320,29 @@ fn render_conic_gradient(
     clip: Option<AzRect>,
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
-) -> Result<(), String> {
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+) {
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return;
     };
 
     let stops = gradient.stops.as_ref();
     if stops.is_empty() {
-        return Ok(());
+        return;
     }
 
     let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
 
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
 
     // Compute center
     let (cx_frac, cy_frac) = resolve_background_position(&gradient.center, rect.width, rect.height);
-    let cx = rect.x as f64 + cx_frac as f64 * w;
-    let cy = rect.y as f64 + cy_frac as f64 * h;
+    let cx = f64::from(rect.x) + f64::from(cx_frac) * w;
+    let cy = f64::from(rect.y) + f64::from(cy_frac) * h;
 
     // Start angle (CSS conic gradients start at 12 o'clock = -90deg in math coords)
     let start_angle_deg = gradient.angle.to_degrees();
-    let start_angle_rad = ((start_angle_deg - 90.0) as f64).to_radians();
+    let start_angle_rad = f64::from(start_angle_deg - 90.0).to_radians();
 
     // Forward: gradient angle θ → pixel rotated by start_angle around (cx, cy).
     // Build as T * R so rotation is applied before translation (rotate() pre-multiplies,
@@ -368,13 +371,14 @@ fn render_conic_gradient(
         d2,
         clip,
     );
-    Ok(())
 }
 
 // ============================================================================
 // Box shadow rendering
 // ============================================================================
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_box_shadow(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -384,9 +388,8 @@ fn render_box_shadow(
 ) -> Result<(), String> {
     use azul_css::props::style::box_shadow::BoxShadowClipMode;
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return Ok(());
     };
 
     let offset_x =
@@ -445,16 +448,15 @@ fn render_box_shadow(
     // The shape origin within the temp buffer
     let shape_x = padding + spread;
     let shape_y = padding + spread;
-    let shape_rect = match AzRect::from_xywh(shape_x, shape_y, rect.width, rect.height) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(shape_rect) = AzRect::from_xywh(shape_x, shape_y, rect.width, rect.height) else {
+        return Ok(());
     };
 
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
     if border_radius.is_zero() {
         let mut path = build_rect_path(&shape_rect);
@@ -481,7 +483,8 @@ fn render_box_shadow(
 }
 
 /// Entry on the mask/opacity stack.
-pub(crate) enum MaskEntry {
+#[derive(Debug)]
+pub enum MaskEntry {
     /// Image mask clip (R8 mask).
     ImageMask {
         snapshot: Vec<u8>,
@@ -500,6 +503,7 @@ pub(crate) enum MaskEntry {
 }
 
 /// Extract and scale mask image data (R8) to target dimensions.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Option<Vec<u8>> {
     let image_data = mask_image.get_data();
     let (mask_bytes, src_w, src_h) = match image_data {
@@ -511,7 +515,7 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
             }
             let bytes = match data {
                 azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
-                _ => return None,
+                azul_core::resources::ImageData::External(_) => return None,
             };
             match descriptor.format {
                 azul_core::resources::RawImageFormat::R8 => (bytes.to_vec(), w, h),
@@ -560,6 +564,7 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
 
 /// Apply a mask: for each pixel in the mask region, blend between the snapshot
 /// (pre-mask state) and the current pixmap state using the mask value.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
     let (snapshot, mask_data, origin_x, origin_y, width, height) = match entry {
         MaskEntry::ImageMask {
@@ -577,7 +582,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             *width,
             *height,
         ),
-        _ => return,
+        MaskEntry::Opacity{ .. } => return,
     };
 
     let pw = pixmap.width as i32;
@@ -595,7 +600,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             }
 
             let mi = (py as u32 * width + px as u32) as usize;
-            let mask_val = mask_data.get(mi).copied().unwrap_or(0) as u32;
+            let mask_val = u32::from(mask_data.get(mi).copied().unwrap_or(0));
 
             let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
             let si = ((py as u32 * width + px as u32) * 4) as usize;
@@ -608,8 +613,8 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             // mask_val 255 = fully visible (keep current), 0 = fully clipped (restore snapshot)
             let inv_mask = 255 - mask_val;
             for c in 0..4 {
-                let snap_c = snapshot[si + c] as u32;
-                let cur_c = pixmap.data[pi + c] as u32;
+                let snap_c = u32::from(snapshot[si + c]);
+                let cur_c = u32::from(pixmap.data[pi + c]);
                 pixmap.data[pi + c] = ((cur_c * mask_val + snap_c * inv_mask) / 255) as u8;
             }
         }
@@ -620,6 +625,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
 // Public API
 // ============================================================================
 
+#[derive(Debug, Clone, Copy)]
 pub struct RenderOptions {
     pub width: f32,
     pub height: f32,
@@ -636,6 +642,10 @@ fn acquire_pixmap(retained: Option<AzulPixmap>, w: u32, h: u32) -> Result<AzulPi
     AzulPixmap::new(w, h).ok_or_else(|| "cannot create pixmap".to_string())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render(
     dl: &DisplayList,
     res: &RendererResources,
@@ -660,8 +670,11 @@ pub fn render(
     Ok(pixmap)
 }
 
-/// Render a display list using fonts from FontManager directly.
-/// This is used in reftest scenarios where RendererResources doesn't have fonts registered.
+/// Render a display list using fonts from `FontManager` directly.
+/// This is used in reftest scenarios where `RendererResources` doesn't have fonts registered.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_with_font_manager(
     dl: &DisplayList,
     res: &RendererResources,
@@ -673,8 +686,11 @@ pub fn render_with_font_manager(
     render_with_font_manager_and_scroll(dl, res, font_manager, opts, glyph_cache, &empty_state)
 }
 
-/// Render with FontManager and explicit render state (scroll offsets + GPU values).
+/// Render with `FontManager` and explicit render state (scroll offsets + GPU values).
 /// Used by `take_screenshot` to render with the current scroll/transform/opacity state.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_with_font_manager_and_scroll(
     dl: &DisplayList,
     res: &RendererResources,
@@ -697,6 +713,10 @@ pub fn render_with_font_manager_and_scroll(
 /// Render with optional retained pixmap. If `retained` is Some and matches
 /// the target dimensions, it is reused (cleared to white) instead of
 /// allocating a fresh buffer. The pixmap is returned regardless.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_with_font_manager_and_scroll_retained(
     dl: &DisplayList,
     res: &RendererResources,
@@ -730,24 +750,25 @@ pub fn render_with_font_manager_and_scroll_retained(
     Ok(pixmap)
 }
 
-/// Scroll offsets keyed by scroll_id (LocalScrollId).
+/// Scroll offsets keyed by `scroll_id` (`LocalScrollId`).
 /// Passed to the renderer so it can look up the current scroll position
-/// for each PushScrollFrame without embedding it in the display list.
+/// for each `PushScrollFrame` without embedding it in the display list.
 pub type ScrollOffsetMap = HashMap<LocalScrollId, (f32, f32)>;
 
 /// Consolidated render-time state for CPU rendering.
 ///
 /// Bundles scroll offsets and GPU-animated values (transforms, opacities)
-/// that WebRender would normally manage internally. In cpurender these
+/// that `WebRender` would normally manage internally. In cpurender these
 /// are looked up from the `GpuValueCache` at screenshot time.
+#[derive(Debug)]
 pub struct CpuRenderState {
-    /// Scroll offsets by scroll_id
+    /// Scroll offsets by `scroll_id`
     pub scroll_offsets: ScrollOffsetMap,
     /// Transform values keyed by TransformKey.id — scrollbar thumb positions
-    /// and CSS transforms that are GPU-animated in WebRender.
+    /// and CSS transforms that are GPU-animated in `WebRender`.
     pub transforms: HashMap<usize, azul_core::transform::ComputedTransform3D>,
     /// Opacity values keyed by OpacityKey.id — scrollbar fade-in/out.
-    /// For WhenScrolling mode, opacity is 1.0 when recently scrolled,
+    /// For `WhenScrolling` mode, opacity is 1.0 when recently scrolled,
     /// fades to 0.0 after idle. For Always mode, opacity is always 1.0.
     pub opacities: HashMap<usize, f32>,
     /// System style for resolving system color references inside gradient
@@ -755,7 +776,7 @@ pub struct CpuRenderState {
     /// system color stops fall back to a transparent color.
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     /// Display lists of nested `VirtualView` child DOMs, keyed by their
-    /// `child_dom_id`. The WebRender path composites these via separate pipelines;
+    /// `child_dom_id`. The `WebRender` path composites these via separate pipelines;
     /// the CPU path has no pipelines, so the `DisplayListItem::VirtualView` arm
     /// recursively rasterises the child's display list from here (translated to the
     /// item's `bounds.origin`, clipped to `bounds`). Empty for non-window renders.
@@ -768,11 +789,11 @@ pub struct CpuRenderState {
     /// the produced images here, where the `DisplayListItem::Image` arm looks
     /// them up by hash. Empty when there are no callback images.
     pub image_callback_results:
-        std::collections::BTreeMap<azul_core::resources::ImageRefHash, azul_core::resources::ImageRef>,
+        std::collections::BTreeMap<azul_core::resources::ImageRefHash, ImageRef>,
 }
 
 impl CpuRenderState {
-    pub fn new(scroll_offsets: ScrollOffsetMap) -> Self {
+    #[must_use] pub fn new(scroll_offsets: ScrollOffsetMap) -> Self {
         Self {
             scroll_offsets,
             transforms: HashMap::new(),
@@ -784,11 +805,11 @@ impl CpuRenderState {
     }
 
     /// Provide the resolved `RenderImageCallback` images (see the field doc).
-    pub fn with_image_callback_results(
+    #[must_use] pub fn with_image_callback_results(
         mut self,
         results: std::collections::BTreeMap<
             azul_core::resources::ImageRefHash,
-            azul_core::resources::ImageRef,
+            ImageRef,
         >,
     ) -> Self {
         self.image_callback_results = results;
@@ -797,7 +818,7 @@ impl CpuRenderState {
 
     /// Provide the nested `VirtualView` child DOM display lists so the CPU
     /// renderer can composite them (see the field doc).
-    pub fn with_virtual_view_display_lists(
+    #[must_use] pub fn with_virtual_view_display_lists(
         mut self,
         lists: std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     ) -> Self {
@@ -807,7 +828,7 @@ impl CpuRenderState {
 
     /// Attach a `SystemStyle` so the renderer can resolve `system:*` color
     /// keywords (e.g. in gradient stops) against the live OS palette.
-    pub fn with_system_style(
+    #[must_use] pub fn with_system_style(
         mut self,
         system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     ) -> Self {
@@ -815,8 +836,8 @@ impl CpuRenderState {
         self
     }
 
-    /// Build from a GpuValueCache snapshot.
-    pub fn from_gpu_cache(
+    /// Build from a `GpuValueCache` snapshot.
+    #[must_use] pub fn from_gpu_cache(
         gpu_cache: Option<&azul_core::gpu::GpuValueCache>,
         dom_id: azul_core::dom::DomId,
         scroll_offsets: &ScrollOffsetMap,
@@ -941,7 +962,7 @@ fn render_display_list_with_state(
 /// strings (probe events store `&'static str` for cheap aggregation),
 /// hence the closed match instead of formatting `Debug`.
 #[inline]
-fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
+const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
     use crate::solver3::display_list::DisplayListItem as I;
     match item {
         I::Rect { .. } => "dl:rect",
@@ -992,6 +1013,14 @@ fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// 3. Render intersecting items clipped to the damage rect.
 ///
 /// Push/Pop state commands are always processed (they maintain clip/scroll stacks).
+#[allow(clippy::cast_possible_truncation)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+/// # Panics
+///
+/// Panics if the damage-rect iterator is unexpectedly empty.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1037,7 +1066,7 @@ pub fn render_display_list_damaged(
     let mut mask_stack: Vec<MaskEntry> = Vec::new();
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
-    for item in display_list.items.iter() {
+    for item in &display_list.items {
         // Always process state-management items (Push/Pop) regardless of bounds,
         // because skipping a Push while processing its matching Pop corrupts stacks.
         if !item.is_state_management() {
@@ -1088,7 +1117,18 @@ pub fn render_display_list_damaged(
     Ok(())
 }
 
-pub(crate) fn render_single_item(
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if the clip stack is empty when an item expects an active clip.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
+pub fn render_single_item(
     item: &DisplayListItem,
     pixmap: &mut AzulPixmap,
     dpi_factor: f32,
@@ -1101,6 +1141,7 @@ pub(crate) fn render_single_item(
     scroll_offset_stack: &mut Vec<(f32, f32)>,
     render_state: &CpuRenderState,
 ) -> Result<(), String> {
+    use azul_css::props::style::border::BorderStyle;
     // Current accumulated scroll offset — applied to all item bounds.
     // Negative because scrolling down (positive offset) moves content up.
     let (scroll_dx, scroll_dy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
@@ -1136,7 +1177,7 @@ pub(crate) fn render_single_item(
                 border_radius,
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::SelectionRect {
             bounds,
@@ -1151,7 +1192,7 @@ pub(crate) fn render_single_item(
                 border_radius,
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::CursorRect { bounds, color } => {
             let clip = *clip_stack.last().unwrap();
@@ -1162,7 +1203,7 @@ pub(crate) fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Border {
             bounds,
@@ -1180,79 +1221,66 @@ pub(crate) fn render_single_item(
 
             let w_top = widths
                 .top
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
             let w_right = widths
                 .right
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
             let w_bottom = widths
                 .bottom
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
             let w_left = widths
                 .left
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| {
+                .and_then(|w| w.get_property().copied())
+                .map_or(0.0, |w| {
                     w.inner
                         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                })
-                .unwrap_or(0.0);
+                });
 
             let c_top = colors
                 .top
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
             let c_right = colors
                 .right
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
             let c_bottom = colors
                 .bottom
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
             let c_left = colors
                 .left
-                .and_then(|c| c.get_property().cloned())
-                .map(|c| c.inner)
-                .unwrap_or(default_color);
+                .and_then(|c| c.get_property().copied())
+                .map_or(default_color, |c| c.inner);
 
-            use azul_css::props::style::border::BorderStyle;
             let s_top = styles
                 .top
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
             let s_right = styles
                 .right
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
             let s_bottom = styles
                 .bottom
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
             let s_left = styles
                 .left
-                .and_then(|s| s.get_property().cloned())
-                .map(|s| s.inner)
-                .unwrap_or(BorderStyle::Solid);
+                .and_then(|s| s.get_property().copied())
+                .map_or(BorderStyle::Solid, |s| s.inner);
 
             let simple_radius = BorderRadius {
                 top_left: border_radius.top_left.to_pixels_internal(
@@ -1301,7 +1329,7 @@ pub(crate) fn render_single_item(
                     &simple_radius,
                     clip,
                     dpi_factor,
-                )?;
+                );
             } else {
                 // Per-side rendering: render each side separately
                 render_border_sides(
@@ -1313,7 +1341,7 @@ pub(crate) fn render_single_item(
                     &simple_radius,
                     clip,
                     dpi_factor,
-                )?;
+                );
             }
         }
         DisplayListItem::Underline {
@@ -1329,7 +1357,7 @@ pub(crate) fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Strikethrough {
             bounds,
@@ -1344,7 +1372,7 @@ pub(crate) fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Overline {
             bounds,
@@ -1359,7 +1387,7 @@ pub(crate) fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::Text {
             glyphs,
@@ -1383,7 +1411,7 @@ pub(crate) fn render_single_item(
                 dpi_factor,
                 glyph_cache,
                 (scroll_dx, scroll_dy),
-            )?;
+            );
         }
         DisplayListItem::TextLayout {
             layout,
@@ -1408,7 +1436,7 @@ pub(crate) fn render_single_item(
                 resolved.unwrap_or(image),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::ScrollBar {
             bounds,
@@ -1425,7 +1453,7 @@ pub(crate) fn render_single_item(
                 &BorderRadius::default(),
                 clip,
                 dpi_factor,
-            )?;
+            );
         }
         DisplayListItem::ScrollBarStyled { info } => {
             let clip = *clip_stack.last().unwrap();
@@ -1450,7 +1478,7 @@ pub(crate) fn render_single_item(
                         &BorderRadius::default(),
                         clip,
                         dpi_factor,
-                    )?;
+                    );
                 }
 
                 // Render decrement button
@@ -1463,7 +1491,7 @@ pub(crate) fn render_single_item(
                             &BorderRadius::default(),
                             clip,
                             dpi_factor,
-                        )?;
+                        );
                     }
                 }
 
@@ -1477,7 +1505,7 @@ pub(crate) fn render_single_item(
                             &BorderRadius::default(),
                             clip,
                             dpi_factor,
-                        )?;
+                        );
                     }
                 }
 
@@ -1508,7 +1536,7 @@ pub(crate) fn render_single_item(
                         &info.thumb_border_radius,
                         clip,
                         dpi_factor,
-                    )?;
+                    );
                 }
             } // end scrollbar_opacity > 0
         }
@@ -1558,7 +1586,7 @@ pub(crate) fn render_single_item(
             transform_stack.push(
                 transform_stack
                     .last()
-                    .cloned()
+                    .copied()
                     .unwrap_or_else(TransAffine::new),
             );
             let frame_offset = render_state
@@ -1607,9 +1635,9 @@ pub(crate) fn render_single_item(
                     "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} avail_ids={:?}",
                     child_dom_id.inner,
                     child_dl.is_some(),
-                    child_dl.as_ref().map(|d| d.items.len()).unwrap_or(0),
+                    child_dl.as_ref().map_or(0, |d| d.items.len()),
                     bounds.inner(),
-                    render_state.virtual_view_display_lists.keys().map(|k| k.inner).collect::<alloc::vec::Vec<_>>(),
+                    render_state.virtual_view_display_lists.keys().map(|k| k.inner).collect::<Vec<_>>(),
                 );
             }
             if let Some(child_dl) = child_dl {
@@ -1622,7 +1650,7 @@ pub(crate) fn render_single_item(
                 );
                 clip_stack.push(vv_clip);
                 scroll_offset_stack.push((scroll_dx - vv_origin.x, scroll_dy - vv_origin.y));
-                for child_item in child_dl.items.iter() {
+                for child_item in &child_dl.items {
                     render_single_item(
                         child_item,
                         pixmap,
@@ -1663,7 +1691,7 @@ pub(crate) fn render_single_item(
                 clip,
                 dpi_factor,
                 render_state.system_style.as_deref().map(|s| &s.colors),
-            )?;
+            );
         }
         DisplayListItem::RadialGradient {
             bounds,
@@ -1679,7 +1707,7 @@ pub(crate) fn render_single_item(
                 clip,
                 dpi_factor,
                 render_state.system_style.as_deref().map(|s| &s.colors),
-            )?;
+            );
         }
         DisplayListItem::ConicGradient {
             bounds,
@@ -1695,7 +1723,7 @@ pub(crate) fn render_single_item(
                 clip,
                 dpi_factor,
                 render_state.system_style.as_deref().map(|s| &s.colors),
-            )?;
+            );
         }
 
         // BoxShadow
@@ -1763,8 +1791,8 @@ pub(crate) fn render_single_item(
                         let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
                         let inv_op = 255 - op;
                         for c in 0..4 {
-                            let snap_c = snapshot[si + c] as u32;
-                            let cur_c = pixmap.data[pi + c] as u32;
+                            let snap_c = u32::from(snapshot[si + c]);
+                            let cur_c = u32::from(pixmap.data[pi + c]);
                             pixmap.data[pi + c] = ((cur_c * op + snap_c * inv_op) / 255) as u8;
                         }
                     }
@@ -1783,21 +1811,18 @@ pub(crate) fn render_single_item(
             // thumb translation. For CSS transforms, it stores the computed
             // matrix. Falls back to the initial_transform baked in the DL.
             let live_transform = render_state.transforms.get(&transform_key.id);
-            let m = match live_transform {
-                Some(t) => &t.m,
-                None => &initial_transform.m,
-            };
+            let m = live_transform.map_or(&initial_transform.m, |t| &t.m);
             let tf = TransAffine::new_custom(
-                m[0][0] as f64,
-                m[0][1] as f64, // sx, shy
-                m[1][0] as f64,
-                m[1][1] as f64, // shx, sy
-                m[3][0] as f64,
-                m[3][1] as f64, // tx, ty
+                f64::from(m[0][0]),
+                f64::from(m[0][1]), // sx, shy
+                f64::from(m[1][0]),
+                f64::from(m[1][1]), // shx, sy
+                f64::from(m[3][0]),
+                f64::from(m[3][1]), // tx, ty
             );
             let current = transform_stack
                 .last()
-                .cloned()
+                .copied()
                 .unwrap_or_else(TransAffine::new);
             let mut composed = tf;
             composed.premultiply(&current);
@@ -1887,6 +1912,7 @@ pub(crate) fn render_single_item(
     Ok(())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_rect(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -1894,28 +1920,27 @@ fn render_rect(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
+) {
     if color.a == 0 {
-        return Ok(());
+        return;
     }
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return;
     };
 
     // Early-out if fully outside clip
     if let Some(ref c) = clip {
         if rect.clip(c).is_none() {
-            return Ok(());
+            return;
         }
     }
 
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
 
     if border_radius.is_zero() {
@@ -1950,9 +1975,9 @@ fn render_rect(
         agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
     }
 
-    Ok(())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_text(
     glyphs: &[GlyphInstance],
     font_hash: FontHash,
@@ -1966,71 +1991,60 @@ fn render_text(
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
-) -> Result<(), String> {
+) {
     if color.a == 0 || glyphs.is_empty() {
-        return Ok(());
+        return;
     }
 
     // Skip text entirely if its clip_rect is outside the active clip region
     if let Some(ref c) = clip {
-        let text_rect = match logical_rect_to_az_rect(clip_rect, dpi_factor) {
-            Some(r) => r,
-            None => return Ok(()),
+        let Some(text_rect) = logical_rect_to_az_rect(clip_rect, dpi_factor) else {
+            return;
         };
         if text_rect.clip(c).is_none() {
-            return Ok(()); // fully clipped
+            return; // fully clipped
         }
     }
 
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
 
     // Try to get the parsed font
     let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
-        match fm.get_font_by_hash(font_hash.font_hash) {
-            Some(font_ref) => unsafe { &*(font_ref.get_parsed() as *const ParsedFont) },
-            None => {
-                eprintln!(
-                    "[cpurender] Font hash {} not found in FontManager",
-                    font_hash.font_hash
-                );
-                return Ok(());
-            }
+        if let Some(font_ref) = fm.get_font_by_hash(font_hash.font_hash) { unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() } } else {
+            eprintln!(
+                "[cpurender] Font hash {} not found in FontManager",
+                font_hash.font_hash
+            );
+            return;
         }
     } else {
-        let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
-            Some(k) => k,
-            None => {
-                eprintln!(
-                    "[cpurender] Font hash {} not found in font_hash_map (available: {:?})",
-                    font_hash.font_hash,
-                    renderer_resources.font_hash_map.keys().collect::<Vec<_>>()
-                );
-                return Ok(());
-            }
+        let Some(font_key) = renderer_resources.font_hash_map.get(&font_hash.font_hash) else {
+            eprintln!(
+                "[cpurender] Font hash {} not found in font_hash_map (available: {:?})",
+                font_hash.font_hash,
+                renderer_resources.font_hash_map.keys().collect::<Vec<_>>()
+            );
+            return;
         };
 
-        let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
-            Some((font_ref, _instances)) => font_ref,
-            None => {
-                eprintln!(
-                    "[cpurender] FontKey {:?} not found in currently_registered_fonts",
-                    font_key
-                );
-                return Ok(());
-            }
+        let Some((font_ref, _instances)) = renderer_resources.currently_registered_fonts.get(font_key) else {
+            eprintln!(
+                "[cpurender] FontKey {font_key:?} not found in currently_registered_fonts"
+            );
+            return;
         };
 
-        unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
+        unsafe { &*font_ref.get_parsed().cast::<ParsedFont>() }
     };
 
-    let units_per_em = parsed_font.font_metrics.units_per_em as f32;
+    let units_per_em = f32::from(parsed_font.font_metrics.units_per_em);
     if units_per_em <= 0.0 {
-        return Ok(());
+        return;
     }
 
     let scale = (font_size_px * dpi_factor) / units_per_em;
@@ -2065,9 +2079,8 @@ fn render_text(
         // Lazy decode: first access to a given gid for this face does
         // the allsorts glyf walk + OwnedGlyph conversion; subsequent
         // accesses are an Arc bump + BTreeMap lookup.
-        let glyph_data = match parsed_font.get_or_decode_glyph(glyph_index) {
-            Some(d) => d,
-            None => continue,
+        let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
+            continue;
         };
 
         let is_hinted = glyph_cache
@@ -2078,13 +2091,12 @@ fn render_text(
                 parsed_font,
                 ppem,
             )
-            .map(|c| c.is_hinted)
-            .unwrap_or(false);
+            .is_some_and(|c| c.is_hinted);
 
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
-        let (cells, int_x, int_y) = match glyph_cache.get_or_build_cells(
+        let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells(
             font_hash.font_hash,
             glyph_index,
             ppem,
@@ -2092,9 +2104,8 @@ fn render_text(
             glyph_baseline_y,
             scale,
             is_hinted,
-        ) {
-            Some(c) => c,
-            None => continue,
+        ) else {
+            continue;
         };
 
         ras.add_cells_offset(cells, int_x, int_y);
@@ -2104,9 +2115,10 @@ fn render_text(
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
 
-    Ok(())
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
 fn render_border(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -2116,46 +2128,45 @@ fn render_border(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
+) {
     use azul_css::props::style::border::BorderStyle;
 
     if color.a == 0 || width <= 0.0 {
-        return Ok(());
+        return;
     }
 
     match border_style {
-        BorderStyle::None | BorderStyle::Hidden => return Ok(()),
+        BorderStyle::None | BorderStyle::Hidden => return,
         _ => {}
     }
 
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return;
     };
 
     // Skip if fully outside clip
     if let Some(ref c) = clip {
         if rect.clip(c).is_none() {
-            return Ok(());
+            return;
         }
     }
 
     let scaled_width = width * dpi_factor;
     let agg_color = Rgba8::new(
-        color.r as u32,
-        color.g as u32,
-        color.b as u32,
-        color.a as u32,
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
     );
 
     // 1. Build outer path (rounded rect at the nominal border radii)
     let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
 
-    let x = rect.x as f64;
-    let y = rect.y as f64;
-    let w = rect.width as f64;
-    let h = rect.height as f64;
-    let sw = scaled_width as f64;
+    let x = f64::from(rect.x);
+    let y = f64::from(rect.y);
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
+    let sw = f64::from(scaled_width);
 
     // 2. Add inner path with shrunk radii so EvenOdd fill carves the stroke
     let ir = AzRect::from_xywh(
@@ -2239,37 +2250,37 @@ fn render_border(
         }
     }
 
-    Ok(())
 }
 
 /// Render border with per-side colors/widths/styles using CSS trapezoid model.
 /// Each side is a trapezoid: outer edge → inner edge with 45° miters at corners.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_border_sides(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     colors: [ColorU; 4], // top, right, bottom, left
     widths: [f32; 4],    // top, right, bottom, left
     _styles: [azul_css::props::style::border::BorderStyle; 4],
-    _border_radius: &BorderRadius,
+    border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+) {
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return;
     };
 
     // Outer corners
-    let ox = rect.x as f64;
-    let oy = rect.y as f64;
-    let ow = rect.width as f64;
-    let oh = rect.height as f64;
+    let ox = f64::from(rect.x);
+    let oy = f64::from(rect.y);
+    let ow = f64::from(rect.width);
+    let oh = f64::from(rect.height);
 
     // Inner corners (inset by per-side widths)
-    let wt = (widths[0] * dpi_factor) as f64;
-    let wr = (widths[1] * dpi_factor) as f64;
-    let wb = (widths[2] * dpi_factor) as f64;
-    let wl = (widths[3] * dpi_factor) as f64;
+    let wt = f64::from(widths[0] * dpi_factor);
+    let wr = f64::from(widths[1] * dpi_factor);
+    let wb = f64::from(widths[2] * dpi_factor);
+    let wl = f64::from(widths[3] * dpi_factor);
 
     let ix = ox + wl;
     let iy = oy + wt;
@@ -2337,7 +2348,7 @@ fn render_border_sides(
         ),
     ];
 
-    if _border_radius.is_zero() {
+    if border_radius.is_zero() {
         // Fast path: axis-aligned border strips — no rasterizer needed
         let pw = pixmap.width;
         let ph = pixmap.height;
@@ -2356,7 +2367,7 @@ fn render_border_sides(
         // Top: full width, height = wt
         if widths[0] > 0.0 && colors[0].a > 0 {
             let c = colors[0];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 ox as i32,
                 oy as i32,
@@ -2369,7 +2380,7 @@ fn render_border_sides(
         // Bottom
         if widths[2] > 0.0 && colors[2].a > 0 {
             let c = colors[2];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 ox as i32,
                 (iy + ih) as i32,
@@ -2382,7 +2393,7 @@ fn render_border_sides(
         // Left: between top and bottom
         if widths[3] > 0.0 && colors[3].a > 0 {
             let c = colors[3];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 ox as i32,
                 iy as i32,
@@ -2395,7 +2406,7 @@ fn render_border_sides(
         // Right
         if widths[1] > 0.0 && colors[1].a > 0 {
             let c = colors[1];
-            let ac = Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32);
+            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
             rb.blend_bar(
                 (ix + iw) as i32,
                 iy as i32,
@@ -2420,34 +2431,35 @@ fn render_border_sides(
             path.close_polygon(PATH_FLAGS_NONE);
 
             let agg_color = Rgba8::new(
-                color.r as u32,
-                color.g as u32,
-                color.b as u32,
-                color.a as u32,
+                u32::from(color.r),
+                u32::from(color.g),
+                u32::from(color.b),
+                u32::from(color.a),
             );
             agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
         }
     }
 
-    Ok(())
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::many_single_char_names, clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_image(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     image: &ImageRef,
     clip: Option<AzRect>,
     dpi_factor: f32,
-) -> Result<(), String> {
-    let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
-        Some(r) => r,
-        None => return Ok(()),
+) {
+    let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
+        return;
     };
 
     // Skip if fully outside clip
     if let Some(ref c) = clip {
         if rect.clip(c).is_none() {
-            return Ok(());
+            return;
         }
     }
 
@@ -2457,11 +2469,11 @@ fn render_image(
             let w = descriptor.width as u32;
             let h = descriptor.height as u32;
             if w == 0 || h == 0 {
-                return Ok(());
+                return;
             }
             let bytes = match data {
                 azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
-                _ => return Ok(()),
+                azul_core::resources::ImageData::External(_) => return,
             };
 
             let rgba = match descriptor.format {
@@ -2494,7 +2506,7 @@ fn render_image(
                     let gray = Rgba8::new(200, 200, 200, 255);
                     let mut path = build_rect_path(&rect);
                     agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
-                    return Ok(());
+                    return;
                 }
             };
 
@@ -2504,9 +2516,9 @@ fn render_image(
             let gray = Rgba8::new(200, 200, 200, 255);
             let mut path = build_rect_path(&rect);
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
-            return Ok(());
+            return;
         }
-        _ => return Ok(()),
+        DecodedImage::Gl(_) => return,
     };
 
     // Simple nearest-neighbor blit with scaling
@@ -2521,16 +2533,12 @@ fn render_image(
     let sy = src_h as f32 / dst_h.max(1) as f32;
 
     // Compute pixel-level clip bounds for the blit loop
-    let (clip_x1, clip_y1, clip_x2, clip_y2) = if let Some(ref c) = clip {
-        (
+    let (clip_x1, clip_y1, clip_x2, clip_y2) = clip.as_ref().map_or((0, 0, pw as i32, ph as i32), |c| (
             c.x as i32,
             c.y as i32,
             (c.x + c.width) as i32,
             (c.y + c.height) as i32,
-        )
-    } else {
-        (0, 0, pw as i32, ph as i32)
-    };
+        ));
 
     for py in 0..dst_h {
         for px in 0..dst_w {
@@ -2550,7 +2558,7 @@ fn render_image(
             let di = ((ty as u32 * pw + tx as u32) * 4) as usize;
 
             if si + 3 < src_rgba.len() && di + 3 < pixmap.data.len() {
-                let sa = src_rgba[si + 3] as u32;
+                let sa = u32::from(src_rgba[si + 3]);
                 if sa == 255 {
                     pixmap.data[di] = src_rgba[si];
                     pixmap.data[di + 1] = src_rgba[si + 1];
@@ -2560,29 +2568,28 @@ fn render_image(
                     // Alpha blend: dst = src * sa + dst * (255 - sa)
                     let da = 255 - sa;
                     pixmap.data[di] =
-                        ((src_rgba[si] as u32 * sa + pixmap.data[di] as u32 * da) / 255) as u8;
-                    pixmap.data[di + 1] = ((src_rgba[si + 1] as u32 * sa
-                        + pixmap.data[di + 1] as u32 * da)
+                        ((u32::from(src_rgba[si]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                    pixmap.data[di + 1] = ((u32::from(src_rgba[si + 1]) * sa
+                        + u32::from(pixmap.data[di + 1]) * da)
                         / 255) as u8;
-                    pixmap.data[di + 2] = ((src_rgba[si + 2] as u32 * sa
-                        + pixmap.data[di + 2] as u32 * da)
+                    pixmap.data[di + 2] = ((u32::from(src_rgba[si + 2]) * sa
+                        + u32::from(pixmap.data[di + 2]) * da)
                         / 255) as u8;
                     pixmap.data[di + 3] =
-                        ((sa + pixmap.data[di + 3] as u32 * da / 255).min(255)) as u8;
+                        ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
                 }
             }
         }
     }
 
-    Ok(())
 }
 
 fn build_rect_path(rect: &AzRect) -> PathStorage {
     let mut path = PathStorage::new();
-    let x = rect.x as f64;
-    let y = rect.y as f64;
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let x = f64::from(rect.x);
+    let y = f64::from(rect.y);
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
     path.move_to(x, y);
     path.line_to(x + w, y);
     path.line_to(x + w, y + h);
@@ -2598,15 +2605,15 @@ fn build_rounded_rect_path(
 ) -> PathStorage {
     let mut path = PathStorage::new();
 
-    let x = rect.x as f64;
-    let y = rect.y as f64;
-    let w = rect.width as f64;
-    let h = rect.height as f64;
+    let x = f64::from(rect.x);
+    let y = f64::from(rect.y);
+    let w = f64::from(rect.width);
+    let h = f64::from(rect.height);
 
-    let tl = (border_radius.top_left * dpi_factor) as f64;
-    let tr = (border_radius.top_right * dpi_factor) as f64;
-    let br = (border_radius.bottom_right * dpi_factor) as f64;
-    let bl = (border_radius.bottom_left * dpi_factor) as f64;
+    let tl = f64::from(border_radius.top_left * dpi_factor);
+    let tr = f64::from(border_radius.top_right * dpi_factor);
+    let br = f64::from(border_radius.bottom_right * dpi_factor);
+    let bl = f64::from(border_radius.bottom_left * dpi_factor);
 
     if tl <= 0.0 && tr <= 0.0 && br <= 0.0 && bl <= 0.0 {
         path.move_to(x, y);
@@ -2632,7 +2639,7 @@ fn build_rounded_rect_path(
     rr.rect(x, y, x + w, y + h);
     rr.radius_all(tl, tl, tr, tr, br, br, bl, bl);
     rr.normalize_radius();
-    rr.set_approximation_scale(dpi_factor.max(1.0) as f64);
+    rr.set_approximation_scale(f64::from(dpi_factor.max(1.0)));
 
     path.concat_path(&mut rr, 0);
     path
@@ -2643,6 +2650,7 @@ fn build_rounded_rect_path(
 // ============================================================================
 
 /// Options for rendering a component preview.
+#[derive(Debug, Clone, Copy)]
 pub struct ComponentPreviewOptions {
     /// Optional width constraint. If None, size to content (uses 4096px max).
     pub width: Option<f32>,
@@ -2671,6 +2679,7 @@ impl Default for ComponentPreviewOptions {
 }
 
 /// Result of a component preview render.
+#[derive(Debug)]
 pub struct ComponentPreviewResult {
     /// PNG-encoded image data.
     pub png_data: Vec<u8>,
@@ -2681,6 +2690,7 @@ pub struct ComponentPreviewResult {
 }
 
 /// Compute the tight bounding box of all display list items.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
@@ -2722,9 +2732,17 @@ fn compute_content_bounds(dl: &DisplayList) -> Option<(f32, f32, f32, f32)> {
 
 /// Render a `StyledDom` to a PNG image for component preview.
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if `opts.width` or `opts.height` is None.
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_component_preview(
-    styled_dom: azul_core::styled_dom::StyledDom,
-    font_manager: &FontManager<azul_css::props::basic::FontRef>,
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    font_manager: &FontManager<FontRef>,
     opts: ComponentPreviewOptions,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> Result<ComponentPreviewResult, String> {
@@ -2757,7 +2775,7 @@ pub fn render_component_preview(
         font_manager.fc_cache.clone(),
         font_manager.parsed_fonts.clone(),
     )
-    .map_err(|e| format!("Failed to create preview font manager: {:?}", e))?;
+    .map_err(|e| format!("Failed to create preview font manager: {e:?}"))?;
 
     // --- Font resolution ---
     {
@@ -2767,7 +2785,7 @@ pub fn render_component_preview(
         let platform = azul_css::system::Platform::current();
 
         let chains = collect_and_resolve_font_chains_with_registration(
-            &styled_dom,
+            styled_dom,
             &preview_font_manager.fc_cache,
             &preview_font_manager,
             &platform,
@@ -2788,7 +2806,7 @@ pub fn render_component_preview(
         scroll_id_to_node_id: HashMap::new(),
         counters: HashMap::new(),
         float_cache: HashMap::new(),
-        cache_map: Default::default(),
+        cache_map: solver3::cache::LayoutCacheMap::default(),
         previous_positions: Vec::new(),
         cached_display_list: None,
         prev_dom_ptr: 0,
@@ -2808,7 +2826,7 @@ pub fn render_component_preview(
     let display_list = solver3::layout_document(
         &mut layout_cache,
         &mut text_cache,
-        &styled_dom,
+        styled_dom,
         viewport,
         &preview_font_manager,
         &empty_scroll_offsets,
@@ -2825,7 +2843,7 @@ pub fn render_component_preview(
         system_style.clone(),
         get_system_time_fn,
     )
-    .map_err(|e| format!("Layout failed: {:?}", e))?;
+    .map_err(|e| format!("Layout failed: {e:?}"))?;
 
     // --- Determine actual render size ---
     let (render_width, render_height) = if opts.width.is_some() && opts.height.is_some() {
@@ -2864,7 +2882,7 @@ pub fn render_component_preview(
     let pixel_h = ((render_height * dpi) as u32).max(1);
 
     let mut pixmap = AzulPixmap::new(pixel_w, pixel_h)
-        .ok_or_else(|| format!("Cannot create pixmap {}x{}", pixel_w, pixel_h))?;
+        .ok_or_else(|| format!("Cannot create pixmap {pixel_w}x{pixel_h}"))?;
 
     let bg = opts.background_color;
     pixmap.fill(bg.r, bg.g, bg.b, bg.a);
@@ -2884,7 +2902,7 @@ pub fn render_component_preview(
 
     let png_data = pixmap
         .encode_png()
-        .map_err(|e| format!("PNG encoding failed: {}", e))?;
+        .map_err(|e| format!("PNG encoding failed: {e}"))?;
 
     Ok(ComponentPreviewResult {
         png_data,
@@ -2898,6 +2916,9 @@ pub fn render_component_preview(
 /// This is a convenience API that creates a `StyledDom`, lays it out,
 /// and rasterizes via the CPU renderer.
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+/// # Errors
+///
+/// Returns an error string if rendering fails.
 pub fn render_dom_to_image(
     mut dom: azul_core::dom::Dom,
     css: azul_css::css::Css,
@@ -2912,13 +2933,13 @@ pub fn render_dom_to_image(
 
     let fc_cache = crate::font::loading::build_font_cache();
     let font_manager = FontManager::new(fc_cache)
-        .map_err(|e| format!("Failed to create font manager: {:?}", e))?;
+        .map_err(|e| format!("Failed to create font manager: {e:?}"))?;
 
     let opts = ComponentPreviewOptions {
         width: Some(width),
         height: Some(height),
         dpi_factor: dpi,
-        background_color: azul_css::props::basic::ColorU {
+        background_color: ColorU {
             r: 255,
             g: 255,
             b: 255,
@@ -2926,7 +2947,7 @@ pub fn render_dom_to_image(
         },
     };
 
-    let result = render_component_preview(styled_dom, &font_manager, opts, None)?;
+    let result = render_component_preview(&styled_dom, &font_manager, opts, None)?;
     Ok(result.png_data)
 }
 

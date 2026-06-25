@@ -16,7 +16,7 @@ pub struct ResolvedOffsets {
 }
 
 impl ResolvedOffsets {
-    pub const fn zero() -> Self {
+    #[must_use] pub const fn zero() -> Self {
         Self {
             top: 0.0,
             left: 0.0,
@@ -38,7 +38,7 @@ impl ResolvedOffsets {
 type GlyphIndex = u32;
 
 /// A single positioned glyph with its index, screen position, and size.
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub struct GlyphInstance {
     pub index: GlyphIndex,
     pub point: LogicalPosition,

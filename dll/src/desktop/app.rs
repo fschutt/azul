@@ -246,8 +246,8 @@ impl AppInternal {
 
         #[cfg(all(
             feature = "logging",
-            feature = "use_fern_logger",
-            not(feature = "use_pyo3_logger")
+            feature = "fern_logger",
+            not(feature = "pyo3_logger")
         ))]
         {
             crate::desktop::logging::set_up_logging(translate_log_level(app_config.log_level));
@@ -283,10 +283,10 @@ impl AppInternal {
     }
 }
 
-#[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
+#[cfg(all(feature = "fern_logger", not(feature = "pyo3_logger")))]
 use azul_core::resources::AppLogLevel;
 
-#[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
+#[cfg(all(feature = "fern_logger", not(feature = "pyo3_logger")))]
 const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
     match log_level {
         AppLogLevel::Off => log::LevelFilter::Off,

@@ -1,3 +1,4 @@
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use super::*;
 
 use azul_core::resources::ImageRef;
@@ -14,6 +15,9 @@ use agg_rust::trans_affine::TransAffine;
 /// fill/stroke attributes, and rasterizes via agg-rust directly (no CSS
 /// layout involved).
 #[cfg(all(feature = "std", feature = "xml"))]
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
 pub fn render_svg_to_png(
     svg_data: &[u8],
     target_width: u32,
@@ -46,10 +50,10 @@ pub fn render_svg_to_png(
     // Parse viewBox for coordinate mapping
     let vb = parse_viewbox(svg_node);
     let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or((0.0, 0.0, target_width as f64, target_height as f64));
+        vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
 
-    let sx = target_width as f64 / vb_w;
-    let sy = target_height as f64 / vb_h;
+    let sx = f64::from(target_width) / vb_w;
+    let sy = f64::from(target_height) / vb_h;
     let scale = sx.min(sy);
 
     let root_transform =
@@ -67,11 +71,16 @@ pub fn render_svg_to_png(
 }
 
 /// Like [`render_svg_to_png`] but returns the rendered pixmap as an [`ImageRef`]
-/// (RGBA8) directly — no PNG round-trip. The MapWidget uses this to render each
+/// (RGBA8) directly — no PNG round-trip.
+///
+/// The `MapWidget` uses this to render each
 /// decoded tile SVG to a colour image node: `SvgNodeData::Path` in the DOM only
 /// produces a clip mask (not a filled shape), so reuse the same `render_svg_group`
 /// rasteriser the tiger uses (which reads SVG fill/stroke attrs) and embed the
 /// result as an image.
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
 pub fn render_svg_to_imageref(
     svg_data: &[u8],
     target_width: u32,
@@ -99,8 +108,8 @@ pub fn render_svg_to_imageref(
 
     let vb = parse_viewbox(svg_node);
     let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or((0.0, 0.0, target_width as f64, target_height as f64));
-    let scale = (target_width as f64 / vb_w).min(target_height as f64 / vb_h);
+        vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
+    let scale = (f64::from(target_width) / vb_w).min(f64::from(target_height) / vb_h);
     let root_transform =
         TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
 
@@ -117,7 +126,7 @@ pub fn render_svg_to_imageref(
         height: target_height as usize,
         premultiplied_alpha: false,
         data_format: azul_core::resources::RawImageFormat::RGBA8,
-        tag: alloc::vec::Vec::new().into(),
+        tag: Vec::new().into(),
     };
     ImageRef::new_rawimage(raw).ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
 }
@@ -152,8 +161,6 @@ struct SvgInheritedStyle {
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
-
-#[cfg(all(feature = "std", feature = "xml"))]
 fn render_svg_group(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
@@ -168,6 +175,8 @@ fn render_svg_group(
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_svg_group_with_style(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
@@ -177,13 +186,11 @@ fn render_svg_group_with_style(
     use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::xml::{XmlNode, XmlNodeChild};
 
-    let group_transform = if let Some(t) = node.attributes.get_key("transform") {
+    let group_transform = node.attributes.get_key("transform").map_or(*parent_transform, |t| {
         let mut tf = parse_svg_transform(t.as_str());
         tf.premultiply(parent_transform);
         tf
-    } else {
-        *parent_transform
-    };
+    });
 
     // Inherit style from this group's attributes
     let group_style = SvgInheritedStyle {
@@ -204,10 +211,9 @@ fn render_svg_group_with_style(
             .or(parent_style.stroke_width),
     };
 
-    for child in node.children.as_ref().iter() {
-        let child_node = match child {
-            XmlNodeChild::Element(e) => e,
-            _ => continue,
+    for child in node.children.as_ref() {
+        let XmlNodeChild::Element(child_node) = child else {
+            continue;
         };
 
         let tag = child_node.node_type.as_str().to_lowercase();
@@ -217,22 +223,19 @@ fn render_svg_group_with_style(
                 render_svg_group_with_style(child_node, pixmap, &group_transform, &group_style);
             }
             "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
-                let path_storage = match build_agg_path(child_node) {
-                    Some(p) => p,
-                    None => continue,
+                let Some(path_storage) = build_agg_path(child_node) else {
+                    continue;
                 };
 
                 // Flatten bezier curves into line segments for the rasterizer
                 let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
 
                 // Per-element transform
-                let elem_transform = if let Some(t) = child_node.attributes.get_key("transform") {
+                let elem_transform = child_node.attributes.get_key("transform").map_or(group_transform, |t| {
                     let mut tf = parse_svg_transform(t.as_str());
                     tf.premultiply(&group_transform);
                     tf
-                } else {
-                    group_transform
-                };
+                });
 
                 // Fill: element overrides group
                 let fill_attr = child_node
@@ -264,7 +267,7 @@ fn render_svg_group_with_style(
                     .unwrap_or(1.0);
 
                 if let Some(mut color) = fill_color {
-                    color.a = ((color.a as f64) * fill_opacity * opacity).min(255.0) as u8;
+                    color.a = (f64::from(color.a) * fill_opacity * opacity).min(255.0) as u8;
 
                     let fill_rule_str = child_node
                         .attributes
@@ -296,7 +299,7 @@ fn render_svg_group_with_style(
                         .get_key("stroke-opacity")
                         .and_then(|s| s.as_str().parse::<f64>().ok())
                         .unwrap_or(1.0);
-                    color.a = ((color.a as f64) * stroke_opacity * opacity).min(255.0) as u8;
+                    color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
 
                     let stroke_width = child_node
                         .attributes
@@ -323,9 +326,11 @@ fn render_svg_group_with_style(
     }
 }
 
-/// Build an agg PathStorage from an SVG shape element's attributes.
+/// Build an agg `PathStorage` from an SVG shape element's attributes.
 #[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
+    const KAPPA: f64 = 0.552_284_749_8;
     let tag = node.node_type.as_str().to_lowercase();
     match tag.as_str() {
         "path" => {
@@ -352,11 +357,7 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let w = attr_f64(node, "width");
             let h = attr_f64(node, "height");
             let rx = attr_f64(node, "rx");
-            let ry = if let Some(v) = node.attributes.get_key("ry") {
-                v.as_str().parse().unwrap_or(rx)
-            } else {
-                rx
-            };
+            let ry = node.attributes.get_key("ry").map_or(rx, |v| v.as_str().parse().unwrap_or(rx));
             if w <= 0.0 || h <= 0.0 {
                 return None;
             }
@@ -384,7 +385,6 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let mut ps = svg_multi_polygon_to_path_storage(&multi);
             // Scale ellipse: we'll just build it directly instead
             let mut path = PathStorage::new();
-            const KAPPA: f64 = 0.5522847498;
             let kx = rx * KAPPA;
             let ky = ry * KAPPA;
             path.move_to(cx, cy - ry);
@@ -438,45 +438,45 @@ fn attr_f64(node: &azul_core::xml::XmlNode, key: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Convert SvgMultiPolygon to agg PathStorage.
+/// Convert `SvgMultiPolygon` to agg `PathStorage`.
 #[cfg(all(feature = "std", feature = "xml"))]
 fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> PathStorage {
     let mut path = PathStorage::new();
-    for ring in mp.rings.as_ref().iter() {
+    for ring in mp.rings.as_ref() {
         let mut first = true;
-        for item in ring.items.as_ref().iter() {
+        for item in ring.items.as_ref() {
             match item {
                 azul_core::svg::SvgPathElement::Line(l) => {
                     if first {
-                        path.move_to(l.start.x as f64, l.start.y as f64);
+                        path.move_to(f64::from(l.start.x), f64::from(l.start.y));
                         first = false;
                     }
-                    path.line_to(l.end.x as f64, l.end.y as f64);
+                    path.line_to(f64::from(l.end.x), f64::from(l.end.y));
                 }
                 azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
                     if first {
-                        path.move_to(q.start.x as f64, q.start.y as f64);
+                        path.move_to(f64::from(q.start.x), f64::from(q.start.y));
                         first = false;
                     }
                     path.curve3(
-                        q.ctrl.x as f64,
-                        q.ctrl.y as f64,
-                        q.end.x as f64,
-                        q.end.y as f64,
+                        f64::from(q.ctrl.x),
+                        f64::from(q.ctrl.y),
+                        f64::from(q.end.x),
+                        f64::from(q.end.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::CubicCurve(c) => {
                     if first {
-                        path.move_to(c.start.x as f64, c.start.y as f64);
+                        path.move_to(f64::from(c.start.x), f64::from(c.start.y));
                         first = false;
                     }
                     path.curve4(
-                        c.ctrl_1.x as f64,
-                        c.ctrl_1.y as f64,
-                        c.ctrl_2.x as f64,
-                        c.ctrl_2.y as f64,
-                        c.end.x as f64,
-                        c.end.y as f64,
+                        f64::from(c.ctrl_1.x),
+                        f64::from(c.ctrl_1.y),
+                        f64::from(c.ctrl_2.x),
+                        f64::from(c.ctrl_2.y),
+                        f64::from(c.end.x),
+                        f64::from(c.end.y),
                     );
                 }
             }

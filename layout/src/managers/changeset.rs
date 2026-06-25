@@ -78,7 +78,7 @@ pub struct TextOpReplaceText {
 }
 
 /// Set selection to new range
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpSetSelection {
     pub old_range: OptionSelectionRange,
@@ -86,7 +86,7 @@ pub struct TextOpSetSelection {
 }
 
 /// Extend selection in a direction
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpExtendSelection {
     pub old_range: SelectionRange,
@@ -95,14 +95,14 @@ pub struct TextOpExtendSelection {
 }
 
 /// Clear all selections
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpClearSelection {
     pub old_range: SelectionRange,
 }
 
 /// Move cursor to new position
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpMoveCursor {
     pub old_position: CursorPosition,
@@ -137,7 +137,7 @@ pub struct TextOpPaste {
 }
 
 /// Select all text in node
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct TextOpSelectAll {
     pub old_range: OptionSelectionRange,
@@ -218,7 +218,7 @@ impl TextChangeset {
     }
 
     /// Check if this changeset actually mutates text (vs just selection/cursor)
-    pub fn mutates_text(&self) -> bool {
+    #[must_use] pub const fn mutates_text(&self) -> bool {
         matches!(
             self.operation,
             TextOperation::InsertText { .. }
@@ -230,7 +230,7 @@ impl TextChangeset {
     }
 
     /// Check if this changeset changes selection (including cursor moves)
-    pub fn changes_selection(&self) -> bool {
+    #[must_use] pub const fn changes_selection(&self) -> bool {
         matches!(
             self.operation,
             TextOperation::SetSelection { .. }
@@ -242,7 +242,7 @@ impl TextChangeset {
     }
 
     /// Check if this changeset involves clipboard
-    pub fn uses_clipboard(&self) -> bool {
+    #[must_use] pub const fn uses_clipboard(&self) -> bool {
         matches!(
             self.operation,
             TextOperation::Copy { .. } | TextOperation::Cut { .. } | TextOperation::Paste { .. }
@@ -250,7 +250,7 @@ impl TextChangeset {
     }
 
     /// Get the target cursor position after this changeset is applied
-    pub fn resulting_cursor_position(&self) -> Option<CursorPosition> {
+    #[must_use] pub const fn resulting_cursor_position(&self) -> Option<CursorPosition> {
         match &self.operation {
             TextOperation::InsertText(op) => Some(op.new_cursor),
             TextOperation::DeleteText(op) => Some(op.new_cursor),
@@ -263,7 +263,7 @@ impl TextChangeset {
     }
 
     /// Get the target selection range after this changeset is applied
-    pub fn resulting_selection_range(&self) -> Option<SelectionRange> {
+    #[must_use] pub const fn resulting_selection_range(&self) -> Option<SelectionRange> {
         match &self.operation {
             TextOperation::SetSelection(op) => Some(op.new_range),
             TextOperation::ExtendSelection(op) => Some(op.new_range),

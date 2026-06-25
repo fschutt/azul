@@ -201,10 +201,8 @@ fn test_flex_child_fills_content_box_without_double_padding_subtraction() {
     let child_bottom = child_rect.origin.y + child_rect.size.height;
     assert!(
         child_bottom <= vh + 0.5,
-        "Child bottom ({}) must not extend past viewport height ({}) — \
+        "Child bottom ({child_bottom}) must not extend past viewport height ({vh}) — \
          this is the calc.c y-overflow symptom.",
-        child_bottom,
-        vh,
     );
 }
 
@@ -247,22 +245,16 @@ fn test_flex_child_has_symmetric_horizontal_padding_gutters() {
 
     assert!(
         (left_gutter - pad).abs() < 1.0,
-        "Left gutter should be padding ({}), got {}",
-        pad,
-        left_gutter,
+        "Left gutter should be padding ({pad}), got {left_gutter}",
     );
     assert!(
         (right_gutter - pad).abs() < 1.0,
-        "Right gutter should be padding ({}), got {}. \
+        "Right gutter should be padding ({pad}), got {right_gutter}. \
          Asymmetric right gutter (> left) is the calc.c symptom.",
-        pad,
-        right_gutter,
     );
     assert!(
         (left_gutter - right_gutter).abs() < 1.0,
-        "Left gutter ({}) and right gutter ({}) must be symmetric.",
-        left_gutter,
-        right_gutter,
+        "Left gutter ({left_gutter}) and right gutter ({right_gutter}) must be symmetric.",
     );
 }
 

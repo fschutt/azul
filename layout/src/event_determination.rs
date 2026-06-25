@@ -60,7 +60,9 @@ use crate::window_state::FullWindowState;
 ///
 /// ## Returns
 ///
-/// - Vector of SyntheticEvents, deduplicated and ready for dispatch.
+/// - Vector of `SyntheticEvents`, deduplicated and ready for dispatch.
+// Instant is a ref-counted FFI clock handle threaded through the event loop by value.
+#[allow(clippy::needless_pass_by_value)]
 pub fn determine_events_from_managers(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -96,6 +98,7 @@ pub fn determine_events_from_managers(
 /// - Window focus changed
 ///
 /// Node-level events (hover, focus, scroll, text) come from managers.
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn detect_window_state_events(
     current: &FullWindowState,
     previous: &FullWindowState,
@@ -197,7 +200,7 @@ fn detect_window_state_events(
                 dom: DomId { inner: 0 },
                 node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
             },
-            timestamp.clone(),
+            timestamp,
             EventData::None,
         ));
     }
@@ -207,8 +210,8 @@ fn detect_window_state_events(
 
 /// Get all hovered node IDs from the hover manager for a given frame.
 ///
-/// frame_index 0 = current frame, 1 = previous frame, etc.
-/// Returns a BTreeSet of all NodeIds that are hovered (the full hover chain).
+/// `frame_index` 0 = current frame, 1 = previous frame, etc.
+/// Returns a `BTreeSet` of all `NodeIds` that are hovered (the full hover chain).
 fn get_all_hovered_nodes(
     hover_manager: &crate::managers::hover::HoverManager,
     frame_index: usize,
@@ -225,14 +228,14 @@ fn get_all_hovered_nodes(
 /// Comprehensive event determination including mouse, keyboard, and gesture events.
 ///
 /// This is the primary event determination function.
-/// It generates SyntheticEvents for all event types including:
+/// It generates `SyntheticEvents` for all event types including:
 ///
 /// - Mouse button events (down/up for left/right/middle)
-/// - Mouse movement (MouseOver)
+/// - Mouse movement (`MouseOver`)
 /// - Keyboard events (VirtualKeyDown/Up)
 /// - Window state changes (resize, move, theme, focus)
-/// - Gesture events (DragStart, Drag, DragEnd, DoubleClick, LongPress, Swipe, Pinch, Rotate, Pen)
-/// - File drop events (HoveredFile, DroppedFile)
+/// - Gesture events (`DragStart`, Drag, `DragEnd`, `DoubleClick`, `LongPress`, Swipe, Pinch, Rotate, Pen)
+/// - File drop events (`HoveredFile`, `DroppedFile`)
 ///
 /// ## Arguments
 ///
@@ -242,12 +245,16 @@ fn get_all_hovered_nodes(
 /// * `focus_manager` - For focus event detection
 /// * `file_drop_manager` - For file drop detection
 /// * `gesture_manager` - Optional gesture detection
-/// * `managers` - Additional managers (scroll, text, etc.) that implement EventProvider
+/// * `managers` - Additional managers (scroll, text, etc.) that implement `EventProvider`
 /// * `timestamp` - Current time
 ///
 /// ## Returns
 ///
-/// - Deduplicated vector of SyntheticEvents ready for dispatch
+/// - Deduplicated vector of `SyntheticEvents` ready for dispatch
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+// Instant is a ref-counted FFI clock handle threaded through the event loop by value.
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -283,7 +290,7 @@ pub fn determine_all_events(
     };
 
     // Helper: compute mouse buttons bitmask
-    let buttons: u8 = (if current_state.mouse_state.left_down { 1 } else { 0 })
+    let buttons: u8 = u8::from(current_state.mouse_state.left_down)
         | (if current_state.mouse_state.right_down { 2 } else { 0 })
         | (if current_state.mouse_state.middle_down { 4 } else { 0 });
 
@@ -483,7 +490,7 @@ pub fn determine_all_events(
 
     let focus_target = focus_manager
         .get_focused_node()
-        .cloned()
+        .copied()
         .unwrap_or(root_node);
 
     let current_key = current_state
@@ -499,7 +506,7 @@ pub fn determine_all_events(
     // Case 1: New key pressed (current != previous)
     // Case 2: Same key pressed again after release (current.is_some() && previous.is_none())
     let keyboard_data = EventData::Keyboard(KeyboardEventData {
-        key_code: current_key.map(|k| k as u32).unwrap_or(0),
+        key_code: current_key.map_or(0, |k| k as u32),
         char_code: None, // Character is available from the keyboard state
         modifiers,
         repeat: false,
@@ -511,11 +518,11 @@ pub fn determine_all_events(
             EventSource::User,
             focus_target,
             timestamp.clone(),
-            keyboard_data.clone(),
+            keyboard_data,
         ));
     }
     let key_up_data = EventData::Keyboard(KeyboardEventData {
-        key_code: previous_key.map(|k| k as u32).unwrap_or(0),
+        key_code: previous_key.map_or(0, |k| k as u32),
         char_code: None,
         modifiers,
         repeat: false,
@@ -685,14 +692,14 @@ pub fn determine_all_events(
                     EventSource::User,
                     mouse_target,
                     timestamp.clone(),
-                    pen_data.clone(),
+                    pen_data,
                 )),
                 (Some(_), None) => events.push(SyntheticEvent::new(
                     EventType::PenLeave,
                     EventSource::User,
                     mouse_target,
                     timestamp.clone(),
-                    pen_data.clone(),
+                    pen_data,
                 )),
                 (Some(p), Some(c)) => {
                     if !p.in_contact && c.in_contact {
@@ -718,7 +725,7 @@ pub fn determine_all_events(
                             EventSource::User,
                             mouse_target,
                             timestamp.clone(),
-                            pen_data.clone(),
+                            pen_data,
                         ));
                     }
                 }
@@ -946,25 +953,25 @@ mod tests {
 
     fn ts() -> Instant { Instant::Tick(SystemTick::new(0)) }
 
-    fn default_state() -> crate::window_state::FullWindowState {
-        crate::window_state::FullWindowState::default()
+    fn default_state() -> FullWindowState {
+        FullWindowState::default()
     }
 
-    fn state_with_key(vk: VirtualKeyCode) -> crate::window_state::FullWindowState {
+    fn state_with_key(vk: VirtualKeyCode) -> FullWindowState {
         let mut s = default_state();
         s.keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
         s.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(vec![vk]);
         s
     }
 
-    fn state_with_left_down(x: f32, y: f32) -> crate::window_state::FullWindowState {
+    fn state_with_left_down(x: f32, y: f32) -> FullWindowState {
         let mut s = default_state();
         s.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(x, y));
         s.mouse_state.left_down = true;
         s
     }
 
-    fn state_with_cursor(x: f32, y: f32) -> crate::window_state::FullWindowState {
+    fn state_with_cursor(x: f32, y: f32) -> FullWindowState {
         let mut s = default_state();
         s.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(x, y));
         s
@@ -973,8 +980,8 @@ mod tests {
     fn empty_providers() -> Vec<&'static dyn EventProvider> { vec![] }
 
     fn run_determine(
-        current: &crate::window_state::FullWindowState,
-        previous: &crate::window_state::FullWindowState,
+        current: &FullWindowState,
+        previous: &FullWindowState,
     ) -> Vec<SyntheticEvent> {
         let focus = crate::managers::focus_cursor::FocusManager::new();
         let hover = crate::managers::hover::HoverManager::new();
@@ -997,8 +1004,8 @@ mod tests {
     fn keydown_skipped_when_same_key_held() {
         let s = state_with_key(VirtualKeyCode::A);
         let events = run_determine(&s, &s);
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 0, "KeyDown should not fire when same key held");
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 0, "KeyDown should not fire when same key held");
     }
 
     #[test]
@@ -1007,8 +1014,8 @@ mod tests {
             &state_with_key(VirtualKeyCode::B),
             &state_with_key(VirtualKeyCode::A),
         );
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 1);
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 1);
     }
 
     #[test]
@@ -1026,7 +1033,7 @@ mod tests {
         assert_eq!(kd.len(), 1);
         match &kd[0].data {
             EventData::Keyboard(kb) => assert_eq!(kb.key_code, VirtualKeyCode::Back as u32),
-            other => panic!("Expected Keyboard data, got {:?}", other),
+            other => panic!("Expected Keyboard data, got {other:?}"),
         }
     }
 
@@ -1038,8 +1045,8 @@ mod tests {
             &state_with_left_down(100.0, 200.0),
             &state_with_cursor(100.0, 200.0),
         );
-        let md: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseDown).collect();
-        assert_eq!(md.len(), 1);
+        let md = events.iter().filter(|e| e.event_type == EventType::MouseDown).count();
+        assert_eq!(md, 1);
     }
 
     #[test]
@@ -1048,8 +1055,8 @@ mod tests {
             &state_with_cursor(100.0, 200.0),
             &state_with_left_down(100.0, 200.0),
         );
-        let mu: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseUp).collect();
-        assert_eq!(mu.len(), 1);
+        let mu = events.iter().filter(|e| e.event_type == EventType::MouseUp).count();
+        assert_eq!(mu, 1);
     }
 
     #[test]
@@ -1065,8 +1072,8 @@ mod tests {
             &state_with_cursor(150.0, 250.0),
             &state_with_cursor(100.0, 200.0),
         );
-        let mo: Vec<_> = events.iter().filter(|e| e.event_type == EventType::MouseOver).collect();
-        assert_eq!(mo.len(), 1);
+        let mo = events.iter().filter(|e| e.event_type == EventType::MouseOver).count();
+        assert_eq!(mo, 1);
     }
 
     #[test]
@@ -1082,8 +1089,8 @@ mod tests {
         let current = state_with_key(VirtualKeyCode::Left);
 
         let events = run_determine(&current, &previous);
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 1, "Key repeat should fire KeyDown when previous is cleared");
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 1, "Key repeat should fire KeyDown when previous is cleared");
     }
 
     #[test]
@@ -1095,7 +1102,7 @@ mod tests {
         let current = state_with_key(VirtualKeyCode::Left);
 
         let events = run_determine(&current, &previous);
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
-        assert_eq!(kd.len(), 0, "Without platform clearing, repeat is not detected");
+        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        assert_eq!(kd, 0, "Without platform clearing, repeat is not detected");
     }
 }

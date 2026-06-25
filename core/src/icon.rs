@@ -123,26 +123,26 @@ const FONT_ICON_DATA_TYPE_NAME: &str = "FontIconData";
 
 // Icon Resolver Callback
 
-/// Callback type for resolving icon data to a StyledDom.
+/// Callback type for resolving icon data to a `StyledDom`.
 ///
 /// Parameters:
-/// - `icon_data`: The RefAny data from the icon pack (cloned, or None if not found)
-/// - `original_icon_dom`: The original icon node's StyledDom (contains inline styles, a11y info, icon_name)
+/// - `icon_data`: The `RefAny` data from the icon pack (cloned, or None if not found)
+/// - `original_icon_dom`: The original icon node's `StyledDom` (contains inline styles, a11y info, `icon_name`)
 /// - `system_style`: Current system style (theme, colors, etc.)
 ///
-/// Returns: A StyledDom that will replace the icon node.
-/// The resolver should copy relevant styles from original_icon_dom to the result.
-/// Return an empty StyledDom to show a placeholder or nothing.
+/// Returns: A `StyledDom` that will replace the icon node.
+/// The resolver should copy relevant styles from `original_icon_dom` to the result.
+/// Return an empty `StyledDom` to show a placeholder or nothing.
 ///
-/// Note: icon_name is accessible via `original_icon_dom.node_data[0].get_node_type()` → `NodeType::Icon(name)`
+/// Note: `icon_name` is accessible via `original_icon_dom.node_data[0].get_node_type()` → `NodeType::Icon(name)`
 pub type IconResolverCallbackType = extern "C" fn(
     icon_data: OptionRefAny,
     original_icon_dom: &StyledDom,
     system_style: &SystemStyle,
 ) -> StyledDom;
 
-/// Default resolver that returns an empty StyledDom (shows placeholder)
-pub extern "C" fn default_icon_resolver(
+/// Default resolver that returns an empty `StyledDom` (shows placeholder)
+#[must_use] pub extern "C" fn default_icon_resolver(
     _icon_data: OptionRefAny,
     _original_icon_dom: &StyledDom,
     _system_style: &SystemStyle,
@@ -153,11 +153,11 @@ pub extern "C" fn default_icon_resolver(
 
 // Icon Provider Inner (single mutex)
 
-/// Inner data for IconProviderHandle - all fields behind single mutex
-#[derive(Clone)]
+/// Inner data for `IconProviderHandle` - all fields behind single mutex
+#[derive(Debug, Clone)]
 pub struct IconProviderInner {
-    /// Nested map: pack_name → (icon_name → RefAny)
-    /// Differentiation between Image/Font/SVG is via RefAny::downcast
+    /// Nested map: `pack_name` → (`icon_name` → `RefAny`)
+    /// Differentiation between Image/Font/SVG is via `RefAny::downcast`
     pub icons: BTreeMap<String, BTreeMap<String, RefAny>>,
     /// The resolver callback
     pub resolver: IconResolverCallbackType,
@@ -174,13 +174,13 @@ impl Default for IconProviderInner {
 
 // Icon Provider Handle
 
-/// Icon provider stored in AppConfig.
+/// Icon provider stored in `AppConfig`.
 ///
 /// This is a Box<IconProviderInner> for C FFI compatibility.
-/// When App::run() is called, it gets converted to Arc<Mutex<IconProviderInner>>
+/// When `App::run()` is called, it gets converted to Arc<Mutex<IconProviderInner>>
 /// and cloned to each window.
 ///
-/// Icons are stored in a nested map: pack_name → (icon_name → RefAny)
+/// Icons are stored in a nested map: `pack_name` → (`icon_name` → `RefAny`)
 /// This allows:
 /// - Multiple packs with different sources (app-images, material-icons, etc.)
 /// - Easy unregistration of entire packs
@@ -193,7 +193,7 @@ pub struct IconProviderHandle {
     /// `AzIconProviderHandle` field (in `AzAppConfig`) whose own `Drop` re-runs
     /// `_delete` -> `drop_in_place::<IconProviderHandle>` on the SAME bytes; with
     /// a bare `Box` the glue freed it a second time -> double free. Same
-    /// convention as GlContextPtr / CssPropertyCachePtr.
+    /// convention as `GlContextPtr` / `CssPropertyCachePtr`.
     pub inner: ManuallyDrop<Box<IconProviderInner>>,
     pub run_destructor: bool,
 }
@@ -223,12 +223,12 @@ impl Drop for IconProviderHandle {
 impl fmt::Debug for IconProviderHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let pack_count = self.inner.icons.len();
-        let icon_count: usize = self.inner.icons.values().map(|p| p.len()).sum();
+        let icon_count: usize = self.inner.icons.values().map(BTreeMap::len).sum();
         
         f.debug_struct("IconProviderHandle")
             .field("pack_count", &pack_count)
             .field("icon_count", &icon_count)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -241,10 +241,10 @@ impl Default for IconProviderHandle {
 impl IconProviderHandle {
     /// Create a new empty icon provider with the default (no-op) resolver.
     /// 
-    /// Note: The default resolver in core crate returns an empty StyledDom.
+    /// Note: The default resolver in core crate returns an empty `StyledDom`.
     /// Use `set_resolver()` to set a proper resolver from the layout crate,
     /// or use `with_resolver()` to create with a custom resolver.
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             inner: ManuallyDrop::new(Box::new(IconProviderInner {
                 icons: BTreeMap::new(),
@@ -267,7 +267,7 @@ impl IconProviderHandle {
     
     /// Convert this handle into an Arc<Mutex<IconProviderInner>> for use in windows.
     ///
-    /// This consumes the Box and creates an Arc. Called by App::run() to create
+    /// This consumes the Box and creates an Arc. Called by `App::run()` to create
     /// the shared icon provider that gets cloned to each window.
     pub(crate) fn into_shared(mut self) -> Arc<Mutex<IconProviderInner>> {
         // Take the Box out and disarm our Drop so it doesn't free the moved-out
@@ -310,7 +310,7 @@ impl IconProviderHandle {
     /// Look up an icon across all packs, returning the pack name and data reference (first match wins)
     fn lookup_with_pack(&self, icon_name: &str) -> Option<(&str, &RefAny)> {
         let icon_name_lower = icon_name.to_lowercase();
-        for (pack_name, pack) in self.inner.icons.iter() {
+        for (pack_name, pack) in &self.inner.icons {
             if let Some(data) = pack.get(&icon_name_lower) {
                 return Some((pack_name.as_str(), data));
             }
@@ -319,52 +319,55 @@ impl IconProviderHandle {
     }
 
     /// Look up an icon across all packs (first match wins)
-    pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
+    #[must_use] pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
         self.lookup_with_pack(icon_name).map(|(_, data)| data.clone())
     }
 
     /// Check if an icon exists in any pack
-    pub fn has_icon(&self, icon_name: &str) -> bool {
+    #[must_use] pub fn has_icon(&self, icon_name: &str) -> bool {
         let icon_name_lower = icon_name.to_lowercase();
         self.inner.icons.values().any(|p| p.contains_key(&icon_name_lower))
     }
 
     /// List all pack names
-    pub fn list_packs(&self) -> Vec<String> {
+    #[must_use] pub fn list_packs(&self) -> Vec<String> {
         self.inner.icons.keys().cloned().collect()
     }
 
     /// List all icon names in a specific pack
-    pub fn list_icons_in_pack(&self, pack_name: &str) -> Vec<String> {
+    #[must_use] pub fn list_icons_in_pack(&self, pack_name: &str) -> Vec<String> {
         self.inner.icons.get(pack_name)
             .map(|pack| pack.keys().cloned().collect())
             .unwrap_or_default()
     }
 
-    /// Debug lookup: returns detailed info about an icon's RefAny contents
-    pub fn debug_lookup(&self, icon_name: &str) -> AzString {
+    /// Debug lookup: returns detailed info about an icon's `RefAny` contents
+    #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
+    #[must_use] pub fn debug_lookup(&self, icon_name: &str) -> AzString {
+        use core::fmt::Write;
+
         let icon_name_lower = icon_name.to_lowercase();
 
-        let mut result = format!("Debug lookup for icon '{}' (normalized: '{}'):\n", icon_name, icon_name_lower);
+        let mut result = format!("Debug lookup for icon '{icon_name}' (normalized: '{icon_name_lower}'):\n");
 
         // Report registered packs
-        result.push_str(&format!("  Total packs: {}\n", self.inner.icons.len()));
-        for (pack_name, pack) in self.inner.icons.iter() {
-            result.push_str(&format!("    Pack '{}': {} icons\n", pack_name, pack.len()));
-            for (name, _) in pack.iter() {
-                result.push_str(&format!("      - {}\n", name));
+        let _ = writeln!(result, "  Total packs: {}", self.inner.icons.len());
+        for (pack_name, pack) in &self.inner.icons {
+            let _ = writeln!(result, "    Pack '{}': {} icons", pack_name, pack.len());
+            for name in pack.keys() {
+                let _ = writeln!(result, "      - {name}");
             }
         }
 
         // Find the icon using shared lookup helper
         match self.lookup_with_pack(icon_name) {
             Some((pack, data)) => {
-                result.push_str(&format!("\n  FOUND in pack '{}'\n", pack));
+                let _ = writeln!(result, "\n  FOUND in pack '{pack}'");
                 let type_name = data.get_type_name();
-                result.push_str(&format!("  RefAny type_name: '{}'\n", type_name.as_str()));
+                let _ = writeln!(result, "  RefAny type_name: '{}'", type_name.as_str());
 
                 let debug_info = data.sharing_info.debug_get_refcount_copied();
-                result.push_str(&format!("  RefAny size: {} bytes\n", debug_info._internal_layout_size));
+                let _ = writeln!(result, "  RefAny size: {} bytes", debug_info._internal_layout_size);
 
                 let type_str = type_name.as_str();
                 if type_str.contains(IMAGE_ICON_DATA_TYPE_NAME) {
@@ -372,7 +375,7 @@ impl IconProviderHandle {
                 } else if type_str.contains(FONT_ICON_DATA_TYPE_NAME) {
                     result.push_str("  RefAny type: FontIconData (font-based icon)\n");
                 } else {
-                    result.push_str(&format!("  RefAny type: UNKNOWN ('{}')\n", type_str));
+                    let _ = writeln!(result, "  RefAny type: UNKNOWN ('{type_str}')");
                 }
             }
             None => {
@@ -386,30 +389,29 @@ impl IconProviderHandle {
 
 /// Thread-safe icon provider for use in windows.
 /// 
-/// This is created from IconProviderHandle::into_shared() in App::run()
+/// This is created from `IconProviderHandle::into_shared()` in `App::run()`
 /// and cloned to each window.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SharedIconProvider {
     inner: Arc<Mutex<IconProviderInner>>,
 }
 
 impl SharedIconProvider {
-    /// Create from an IconProviderHandle (consumes the handle)
-    pub fn from_handle(handle: IconProviderHandle) -> Self {
+    /// Create from an `IconProviderHandle` (consumes the handle)
+    #[must_use] pub fn from_handle(handle: IconProviderHandle) -> Self {
         Self { inner: handle.into_shared() }
     }
     
-    /// Resolve an icon to a StyledDom using the registered callback
-    pub fn resolve(
+    /// Resolve an icon to a `StyledDom` using the registered callback
+    #[must_use] pub fn resolve(
         &self, 
         original_icon_dom: &StyledDom,
         icon_name: &str,
         system_style: &SystemStyle,
     ) -> StyledDom {
         let (resolver, lookup_result) = {
-            let guard = match self.inner.lock() {
-                Ok(g) => g,
-                Err(_) => return StyledDom::default(),
+            let Ok(guard) = self.inner.lock() else {
+                return StyledDom::default();
             };
             
             let resolver = guard.resolver;
@@ -425,7 +427,7 @@ impl SharedIconProvider {
     }
     
     /// Look up an icon across all packs
-    pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
+    #[must_use] pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
         let icon_name_lower = icon_name.to_lowercase();
         self.inner.lock().ok().and_then(|guard| {
             for pack in guard.icons.values() {
@@ -438,7 +440,7 @@ impl SharedIconProvider {
     }
     
     /// Check if an icon exists
-    pub fn has_icon(&self, icon_name: &str) -> bool {
+    #[must_use] pub fn has_icon(&self, icon_name: &str) -> bool {
         let icon_name_lower = icon_name.to_lowercase();
         self.inner.lock()
             .map(|guard| guard.icons.values().any(|p| p.contains_key(&icon_name_lower)))
@@ -450,7 +452,7 @@ impl SharedIconProvider {
 
 /// Collected icon node info for replacement
 struct CollectedIcon {
-    /// Index in the node_data array
+    /// Index in the `node_data` array
     node_idx: usize,
     /// The icon name
     icon_name: AzString,
@@ -460,11 +462,11 @@ struct CollectedIcon {
 struct IconReplacement {
     /// Index of the icon node to replace
     node_idx: usize,
-    /// The resolved StyledDom (may be empty, single node, or multi-node tree)
+    /// The resolved `StyledDom` (may be empty, single node, or multi-node tree)
     replacement: StyledDom,
 }
 
-/// Collect all Icon nodes from the StyledDom
+/// Collect all Icon nodes from the `StyledDom`
 fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
     let mut icons = Vec::new();
     
@@ -481,8 +483,8 @@ fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
     icons
 }
 
-/// Extract a single-node StyledDom from a parent StyledDom at the given index.
-/// This creates a minimal StyledDom containing just that node for the resolver.
+/// Extract a single-node `StyledDom` from a parent `StyledDom` at the given index.
+/// This creates a minimal `StyledDom` containing just that node for the resolver.
 fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> StyledDom {
     use crate::dom::{NodeDataVec, DomId};
     use crate::id::NodeId;
@@ -529,7 +531,7 @@ fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> St
     }
 }
 
-/// Resolve all collected icons to their StyledDom representations
+/// Resolve all collected icons to their `StyledDom` representations
 fn resolve_collected_icons(
     icons: &[CollectedIcon],
     styled_dom: &StyledDom,
@@ -552,7 +554,7 @@ fn is_single_node_replacement(replacement: &StyledDom) -> bool {
     replacement.node_data.as_ref().len() == 1
 }
 
-/// Apply a single-node replacement (fast path: swap NodeType and copy properties)
+/// Apply a single-node replacement (fast path: swap `NodeType` and copy properties)
 fn apply_single_node_replacement(
     styled_dom: &mut StyledDom,
     node_idx: usize,
@@ -579,7 +581,7 @@ fn apply_single_node_replacement(
             
             // Copy accessibility info if present
             if let Some(a11y) = replacement_root.get_accessibility_info() {
-                node.set_accessibility_info(*a11y.clone());
+                node.set_accessibility_info(a11y.clone());
             }
         }
         
@@ -597,7 +599,7 @@ fn apply_single_node_replacement(
 fn apply_multi_node_replacement(
     styled_dom: &mut StyledDom,
     node_idx: usize,
-    replacement: StyledDom,
+    replacement: &StyledDom,
 ) {
     let replacement_len = replacement.node_data.as_ref().len();
     if replacement_len == 0 {
@@ -609,26 +611,25 @@ fn apply_multi_node_replacement(
     }
     
     // For now, just apply the root node (same as single-node)
-    apply_single_node_replacement(styled_dom, node_idx, &replacement);
+    apply_single_node_replacement(styled_dom, node_idx, replacement);
     
     if replacement_len > 1 {
         // TODO: Full subtree splicing requires inserting nodes into arrays
         #[cfg(all(debug_assertions, feature = "std"))]
         eprintln!(
-            "Warning: Icon replacement has {} nodes, only root node used.",
-            replacement_len
+            "Warning: Icon replacement has {replacement_len} nodes, only root node used."
         );
     }
 }
 
-/// Resolve all Icon nodes in a StyledDom to their actual content.
+/// Resolve all Icon nodes in a `StyledDom` to their actual content.
 ///
 /// This function:
-/// 1. Collects all Icon nodes from the StyledDom
+/// 1. Collects all Icon nodes from the `StyledDom`
 /// 2. Resolves each icon via the provider's callback (passing original icon DOM)
 /// 3. Applies replacements (single-node fast path or multi-node splicing)
 ///
-/// This should be called after StyledDom creation but before layout.
+/// This should be called after `StyledDom` creation but before layout.
 pub fn resolve_icons_in_styled_dom(
     styled_dom: &mut StyledDom,
     provider: &SharedIconProvider,
@@ -658,7 +659,7 @@ pub fn resolve_icons_in_styled_dom(
             apply_multi_node_replacement(
                 styled_dom,
                 replacement.node_idx,
-                replacement.replacement
+                &replacement.replacement
             );
         }
     }

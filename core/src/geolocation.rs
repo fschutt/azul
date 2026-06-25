@@ -47,7 +47,7 @@ pub struct LocationFix {
 impl_option!(LocationFix, OptionLocationFix, [Debug, Clone, Copy, PartialEq]);
 
 impl LocationFix {
-    pub fn altitude(&self) -> Option<f32> {
+    #[must_use] pub const fn altitude(&self) -> Option<f32> {
         if self.altitude_m.is_nan() {
             None
         } else {
@@ -55,7 +55,7 @@ impl LocationFix {
         }
     }
 
-    pub fn altitude_accuracy(&self) -> Option<f32> {
+    #[must_use] pub const fn altitude_accuracy(&self) -> Option<f32> {
         if self.altitude_accuracy_m.is_nan() {
             None
         } else {
@@ -63,7 +63,7 @@ impl LocationFix {
         }
     }
 
-    pub fn heading(&self) -> Option<f32> {
+    #[must_use] pub const fn heading(&self) -> Option<f32> {
         if self.heading_deg.is_nan() {
             None
         } else {
@@ -71,7 +71,7 @@ impl LocationFix {
         }
     }
 
-    pub fn speed(&self) -> Option<f32> {
+    #[must_use] pub const fn speed(&self) -> Option<f32> {
         if self.speed_mps.is_nan() {
             None
         } else {

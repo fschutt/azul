@@ -25,7 +25,7 @@ fn test_nested_pseudo_class_hover() {
     
     // Print warnings for debugging
     for w in &warnings {
-        eprintln!("Warning: {:?}", w);
+        eprintln!("Warning: {w:?}");
     }
     
     let rules: Vec<_> = result.rules().collect();
@@ -33,7 +33,7 @@ fn test_nested_pseudo_class_hover() {
     // We should have 2 rules:
     // 1. .button { color: blue; }
     // 2. .button:hover { color: red; }
-    assert!(rules.len() >= 1, "Expected at least 1 rule, got {}", rules.len());
+    assert!(!rules.is_empty(), "Expected at least 1 rule, got {}", rules.len());
     
     // Find the hover rule
     let hover_rule = rules.iter().find(|r| {
@@ -64,11 +64,11 @@ fn test_nested_class_selector() {
     let (result, warnings) = new_from_str(css);
     
     for w in &warnings {
-        eprintln!("Warning: {:?}", w);
+        eprintln!("Warning: {w:?}");
     }
     
     let rules: Vec<_> = result.rules().collect();
-    assert!(rules.len() >= 1, "Expected at least 1 rule");
+    assert!(!rules.is_empty(), "Expected at least 1 rule");
     
     // Should produce .outer .inner { color: red; }
     let inner_rule = rules.iter().find(|r| {
@@ -100,7 +100,7 @@ fn test_nested_at_os() {
     let (result, warnings) = new_from_str(css);
     
     for w in &warnings {
-        eprintln!("Warning: {:?}", w);
+        eprintln!("Warning: {w:?}");
     }
     
     let rules: Vec<_> = result.rules().collect();
@@ -136,7 +136,7 @@ fn test_deeply_nested_selectors() {
     let (result, warnings) = new_from_str(css);
     
     for w in &warnings {
-        eprintln!("Warning: {:?}", w);
+        eprintln!("Warning: {w:?}");
     }
     
     let rules: Vec<_> = result.rules().collect();
@@ -174,7 +174,7 @@ fn test_nested_comma_selectors() {
     let (result, warnings) = new_from_str(css);
     
     for w in &warnings {
-        eprintln!("Warning: {:?}", w);
+        eprintln!("Warning: {w:?}");
     }
     
     let rules: Vec<_> = result.rules().collect();
@@ -211,12 +211,12 @@ fn test_mixed_declarations_and_nested() {
     let (_result, warnings) = new_from_str(css);
     
     for w in &warnings {
-        eprintln!("Warning: {:?}", w);
+        eprintln!("Warning: {w:?}");
     }
     
     // This should work without errors
     // The declarations before and after the nested block should be combined
-    assert!(warnings.iter().all(|w| !format!("{:?}", w).contains("Error")));
+    assert!(warnings.iter().all(|w| !format!("{w:?}").contains("Error")));
 }
 
 /// Test @os at top level still works
@@ -233,7 +233,7 @@ fn test_at_os_top_level() {
     let (result, warnings) = new_from_str(css);
     
     for w in &warnings {
-        eprintln!("Warning: {:?}", w);
+        eprintln!("Warning: {w:?}");
     }
     
     let rules: Vec<_> = result.rules().collect();

@@ -43,8 +43,8 @@ pub enum BiometricKind {
 impl BiometricKind {
     /// `true` for any real sensor — i.e. anything except `NotAvailable`.
     /// Lets the demo gate decide whether to even offer a biometric unlock.
-    pub fn is_available(&self) -> bool {
-        !matches!(self, BiometricKind::NotAvailable)
+    #[must_use] pub const fn is_available(&self) -> bool {
+        !matches!(self, Self::NotAvailable)
     }
 }
 
@@ -83,10 +83,10 @@ impl BiometricResult {
     /// `true` when the user successfully unlocked — either by biometric
     /// match (`Authenticated`) or by the OS passcode fallback
     /// (`FellBackToPasscode`). The vault gate keys off this.
-    pub fn is_success(&self) -> bool {
+    #[must_use] pub const fn is_success(&self) -> bool {
         matches!(
             self,
-            BiometricResult::Authenticated | BiometricResult::FellBackToPasscode
+            Self::Authenticated | Self::FellBackToPasscode
         )
     }
 }
@@ -142,7 +142,7 @@ impl Default for BiometricPrompt {
 impl BiometricPrompt {
     /// Convenience constructor: a biometric-only prompt showing `reason`,
     /// with the platform-default cancel label and no passcode fallback.
-    pub fn new(reason: AzString) -> Self {
+    #[must_use] pub fn new(reason: AzString) -> Self {
         Self {
             reason,
             ..Self::default()

@@ -45,8 +45,17 @@ pub struct CachedGlyph<'a> {
     pub is_hinted: bool,
 }
 
+impl core::fmt::Debug for CachedGlyph<'_> {
+    // `path` is agg_rust's PathStorage (not Debug); show the rest.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CachedGlyph")
+            .field("is_hinted", &self.is_hinted)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Pre-rasterized glyph cells at a canonical position.
-/// Contains the rasterizer's cell output for a glyph at sub-pixel position (subpx_x, subpx_y).
+/// Contains the rasterizer's cell output for a glyph at sub-pixel position (`subpx_x`, `subpx_y`).
 /// To render at actual position (x, y), add integer pixel offset to each cell.
 struct CachedCells {
     cells: Vec<CellAa>,
@@ -65,8 +74,19 @@ pub struct GlyphCache {
     cells: HashMap<GlyphCellKey, Option<CachedCells>>,
 }
 
+impl core::fmt::Debug for GlyphCache {
+    // Values hold agg_rust PathStorage / CellAa (not Debug); show entry counts.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GlyphCache")
+            .field("paths", &self.paths.len())
+            .field("cells", &self.cells.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Quantize a fractional pixel position to 1/4 pixel (0..3).
 #[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn quantize_subpx(frac: f32) -> u8 {
     let f = frac - frac.floor();
     (f * 4.0).min(3.0) as u8
@@ -88,10 +108,10 @@ impl GlyphCache {
     }
 
     /// Entry count of the glyph-path cache (for leak probes).
-    pub fn paths_len(&self) -> usize { self.paths.len() }
+    #[must_use] pub fn paths_len(&self) -> usize { self.paths.len() }
 
     /// Entry count of the pre-rasterized cell cache (for leak probes).
-    pub fn cells_len(&self) -> usize { self.cells.len() }
+    #[must_use] pub fn cells_len(&self) -> usize { self.cells.len() }
 
     /// Get a cached path, or build it on cache miss.
     /// Returns `None` if the glyph has no outline (e.g. space character).
@@ -133,6 +153,7 @@ impl GlyphCache {
     /// - `is_hinted`: whether the path is in pixel coords (hinted) or font units
     ///
     /// Returns the cached cells and the integer pixel offset to apply.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     pub fn get_or_build_cells(
         &mut self,
         font_hash: u64,
@@ -148,7 +169,7 @@ impl GlyphCache {
         }
         let subpx_x = if is_hinted { 0 } else { quantize_subpx(glyph_x) };
         let subpx_y = if is_hinted { 0 } else { quantize_subpx(glyph_y) };
-        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {}", scale);
+        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {scale}");
         let scale_fixed = if is_hinted { 0 } else { (scale * 65536.0) as u32 };
 
         let cell_key = GlyphCellKey {
@@ -164,13 +185,12 @@ impl GlyphCache {
             let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
             let path_entry = self.paths.get(&path_key);
             let cached_cells = path_entry.and_then(|entry| {
-                let (path, _) = entry.as_ref()?;
-                let frac_x = (subpx_x as f64) * 0.25;
-                let frac_y = (subpx_y as f64) * 0.25;
-
                 use agg_rust::trans_affine::TransAffine;
                 use agg_rust::basics::FillingRule;
                 use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
+                let (path, _) = entry.as_ref()?;
+                let frac_x = f64::from(subpx_x) * 0.25;
+                let frac_y = f64::from(subpx_y) * 0.25;
 
                 let mut ras = RasterizerScanlineAa::new();
                 ras.filling_rule(FillingRule::NonZero);
@@ -178,7 +198,7 @@ impl GlyphCache {
                 let transform = if is_hinted {
                     TransAffine::new_translation(frac_x, frac_y)
                 } else {
-                    let mut t = TransAffine::new_scaling_uniform(scale as f64);
+                    let mut t = TransAffine::new_scaling_uniform(f64::from(scale));
                     t.multiply(&TransAffine::new_translation(frac_x, frac_y));
                     t
                 };
@@ -205,6 +225,7 @@ fn build_hinted_path(
     parsed_font: &ParsedFont,
     ppem: u16,
 ) -> Option<PathStorage> {
+    use allsorts::hinting::f26dot6::F26Dot6;
     let raw_points = glyph.raw_points.as_ref()?;
     let raw_on_curve = glyph.raw_on_curve.as_ref()?;
     let raw_contour_ends = glyph.raw_contour_ends.as_ref()?;
@@ -223,52 +244,51 @@ fn build_hinted_path(
     }
 
     // Set up hinting for this ppem (scales CVT, runs prep)
-    if hint.set_ppem(ppem, ppem as f64).is_err() {
+    if hint.set_ppem(ppem, f64::from(ppem)).is_err() {
         return None;
     }
 
     // Scale raw points from font units to F26Dot6
     let scale = allsorts::hinting::f26dot6::compute_scale(ppem, upem);
-    use allsorts::hinting::f26dot6::F26Dot6;
 
     let points_f26dot6: Vec<(i32, i32)> = raw_points
         .iter()
         .map(|&(x, y)| {
-            let sx = F26Dot6::from_funits(x as i32, scale);
-            let sy = F26Dot6::from_funits(y as i32, scale);
+            let sx = F26Dot6::from_funits(i32::from(x), scale);
+            let sy = F26Dot6::from_funits(i32::from(y), scale);
             (sx.to_bits(), sy.to_bits())
         })
         .collect();
 
     // Scale advance width to F26Dot6 for phantom points
-    let adv_f26dot6 = F26Dot6::from_funits(glyph.horz_advance as i32, scale).to_bits();
+    let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
 
     // Run hinting with unscaled orus for precise IUP interpolation
-    let hinted = match hint.hint_glyph_with_orus(
+    let Ok(hinted) = hint.hint_glyph_with_orus(
         &points_f26dot6,
         Some(raw_points.as_slice()),
         raw_on_curve,
         raw_contour_ends,
         instructions,
         adv_f26dot6,
-    ) {
-        Ok(h) => h,
-        Err(_) => return None,
+    ) else {
+        return None;
     };
+    drop(hint);
 
     // Build path from hinted points using TrueType quadratic contour conventions
     build_path_from_contours(&hinted, raw_on_curve, raw_contour_ends)
 }
 
-/// Build an agg PathStorage from TrueType contour data (points in F26Dot6).
+/// Build an agg `PathStorage` from TrueType contour data (points in `F26Dot6`).
 ///
 /// Matches allsorts' `visit_simple_glyph_outline` algorithm exactly:
 /// - On-curve points are endpoints of line/curve segments
 /// - Off-curve points are quadratic Bézier control points
 /// - Two consecutive off-curve points have an implicit on-curve midpoint
 /// - Y is negated for screen coordinates (font Y-up → screen Y-down)
-/// - The origin point is NOT revisited in the loop; close() handles the final segment
-pub fn build_path_from_contours(
+/// - The origin point is NOT revisited in the loop; `close()` handles the final segment
+#[must_use] pub fn build_path_from_contours(
     points: &[(i32, i32)],
     on_curve: &[bool],
     contour_ends: &[u16],
@@ -296,7 +316,7 @@ pub fn build_path_from_contours(
 
         // Helper: get point as (f64, f64) with Y negated
         let px = |i: usize| -> (f64, f64) {
-            (f26_to_px(pts[i].0) as f64, -f26_to_px(pts[i].1) as f64)
+            (f64::from(f26_to_px(pts[i].0)), f64::from(-f26_to_px(pts[i].1)))
         };
         let mid = |a: (f64, f64), b: (f64, f64)| -> (f64, f64) {
             ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
@@ -355,8 +375,9 @@ pub fn build_path_from_contours(
     Some(path)
 }
 
-/// Convert F26Dot6 value to pixel coordinate (f32).
+/// Convert `F26Dot6` value to pixel coordinate (f32).
 #[inline]
+#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn f26_to_px(v: i32) -> f32 {
     v as f32 / 64.0
 }

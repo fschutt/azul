@@ -39,8 +39,9 @@ use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFu
 /// CSS reference pixels per inch (96 dpi per CSS Values spec).
 const CSS_PX_PER_INCH: f32 = 96.0;
 
-/// Convert PixelValue to pixels, only for absolute units (no %, and em/rem use fallback)
+/// Convert `PixelValue` to pixels, only for absolute units (no %, and em/rem use fallback)
 /// Used where proper resolution context is not available (grid tracks, etc.)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
     match pv.metric {
         SizeMetric::Px => Some(pv.number.get()),
@@ -59,24 +60,24 @@ fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
 /// Converts an Azul `grid-template-rows` value into Taffy grid template components.
 fn grid_template_rows_to_taffy(
     val: LayoutGridTemplateRowsValue,
-) -> Vec<taffy::GridTemplateComponent<String>> {
+) -> Vec<GridTemplateComponent<String>> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
     auto_tracks
         .tracks
         .iter()
-        .map(|track| taffy::GridTemplateComponent::Single(translate_track(track)))
+        .map(|track| GridTemplateComponent::Single(translate_track(track)))
         .collect()
 }
 
 /// Converts an Azul `grid-template-columns` value into Taffy grid template components.
 fn grid_template_columns_to_taffy(
     val: LayoutGridTemplateColumnsValue,
-) -> Vec<taffy::GridTemplateComponent<String>> {
+) -> Vec<GridTemplateComponent<String>> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
     auto_tracks
         .tracks
         .iter()
-        .map(|track| taffy::GridTemplateComponent::Single(translate_track(track)))
+        .map(|track| GridTemplateComponent::Single(translate_track(track)))
         .collect()
 }
 
@@ -103,6 +104,7 @@ fn grid_auto_columns_to_taffy(
     auto_tracks.tracks.iter().map(translate_track).collect()
 }
 
+#[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
 fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
     // Helper to resolve PixelValue to absolute pixels (handles em, rem, but not %)
     // Grid track sizing in Taffy doesn't support % - only absolute values
@@ -156,68 +158,71 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
     }
 }
 
-fn minmax(min: MinTrackSizingFunction, max: MaxTrackSizingFunction) -> taffy::TrackSizingFunction {
+const fn minmax(min: MinTrackSizingFunction, max: MaxTrackSizingFunction) -> taffy::TrackSizingFunction {
     TrackSizingFunction { min, max }
 }
 
-fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
+fn layout_display_to_taffy(val: LayoutDisplayValue) -> Display {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutDisplay::None => taffy::Display::None,
-        LayoutDisplay::Flex | LayoutDisplay::InlineFlex => taffy::Display::Flex,
-        LayoutDisplay::Grid | LayoutDisplay::InlineGrid => taffy::Display::Grid,
-        _ => taffy::Display::Block,
+        LayoutDisplay::None => Display::None,
+        LayoutDisplay::Flex | LayoutDisplay::InlineFlex => Display::Flex,
+        LayoutDisplay::Grid | LayoutDisplay::InlineGrid => Display::Grid,
+        _ => Display::Block,
     }
 }
 
 // to determine their CB; Taffy's Position::Absolute handles this for both flex and grid
-fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+fn layout_position_to_taffy(val: LayoutPositionValue) -> Position {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutPosition::Absolute => taffy::Position::Absolute,
-        LayoutPosition::Fixed => taffy::Position::Absolute, // Taffy has no Fixed variant
-        LayoutPosition::Relative => taffy::Position::Relative,
-        LayoutPosition::Static => taffy::Position::Relative,
-        LayoutPosition::Sticky => taffy::Position::Relative, // Sticky treated as Relative
+        LayoutPosition::Absolute => Position::Absolute,
+        LayoutPosition::Fixed => Position::Absolute, // Taffy has no Fixed variant
+        LayoutPosition::Relative => Position::Relative,
+        LayoutPosition::Static => Position::Relative,
+        LayoutPosition::Sticky => Position::Relative, // Sticky treated as Relative
     }
 }
 
-fn decode_compact_grid_line(v: i16) -> taffy::style::GridPlacement<String> {
+#[allow(clippy::cast_sign_loss)] // bounded layout/render numeric cast
+fn decode_compact_grid_line(v: i16) -> GridPlacement<String> {
     if v == azul_css::compact_cache::I16_AUTO || v == azul_css::compact_cache::I16_SENTINEL {
-        taffy::style::GridPlacement::Auto
+        GridPlacement::Auto
     } else if v < 0 {
-        taffy::style::GridPlacement::<String>::from_span((-v) as u16)
+        GridPlacement::<String>::from_span((-v) as u16)
     } else {
-        taffy::style::GridPlacement::<String>::from_line_index(v)
+        GridPlacement::<String>::from_line_index(v)
     }
 }
 
-fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoFlow {
+fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> GridAutoFlow {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutGridAutoFlow::Row => taffy::GridAutoFlow::Row,
-        LayoutGridAutoFlow::Column => taffy::GridAutoFlow::Column,
-        LayoutGridAutoFlow::RowDense => taffy::GridAutoFlow::RowDense,
-        LayoutGridAutoFlow::ColumnDense => taffy::GridAutoFlow::ColumnDense,
+        LayoutGridAutoFlow::Row => GridAutoFlow::Row,
+        LayoutGridAutoFlow::Column => GridAutoFlow::Column,
+        LayoutGridAutoFlow::RowDense => GridAutoFlow::RowDense,
+        LayoutGridAutoFlow::ColumnDense => GridAutoFlow::ColumnDense,
     }
 }
 
 /// Convert an azul `GridLine` (single start or end) to a Taffy `GridPlacement`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn grid_line_to_taffy(
     line: &azul_css::props::layout::grid::GridLine,
-) -> taffy::style::GridPlacement<String> {
+) -> GridPlacement<String> {
     use azul_css::props::layout::grid::GridLine as AzGridLine;
     use taffy::style_helpers::{TaffyGridLine, TaffyGridSpan};
     match line {
-        AzGridLine::Auto => taffy::style::GridPlacement::Auto,
+        AzGridLine::Auto => GridPlacement::Auto,
         AzGridLine::Line(n) => {
-            taffy::style::GridPlacement::<String>::from_line_index(*n as i16)
+            GridPlacement::<String>::from_line_index(*n as i16)
         }
-        AzGridLine::Span(n) => taffy::style::GridPlacement::<String>::from_span(*n as u16),
+        AzGridLine::Span(n) => GridPlacement::<String>::from_span(*n as u16),
         AzGridLine::Named(named) => {
             // Named lines: use the name with optional span
             let name = named.grid_line_name.as_str().to_string();
             if named.span_count > 0 {
-                taffy::style::GridPlacement::NamedSpan(name, named.span_count as u16)
+                GridPlacement::NamedSpan(name, named.span_count as u16)
             } else {
-                taffy::style::GridPlacement::NamedLine(name, 0)
+                GridPlacement::NamedLine(name, 0)
             }
         }
     }
@@ -226,84 +231,84 @@ fn grid_line_to_taffy(
 /// Convert an azul `GridPlacement` (grid-column / grid-row) to a Taffy `Line<GridPlacement>`.
 fn grid_placement_to_taffy(
     placement: &azul_css::props::layout::grid::GridPlacement,
-) -> taffy::Line<taffy::style::GridPlacement<String>> {
-    taffy::Line {
+) -> Line<GridPlacement<String>> {
+    Line {
         start: grid_line_to_taffy(&placement.grid_start),
         end: grid_line_to_taffy(&placement.grid_end),
     }
 }
 
-fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> taffy::FlexDirection {
+fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> FlexDirection {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutFlexDirection::Row => taffy::FlexDirection::Row,
-        LayoutFlexDirection::RowReverse => taffy::FlexDirection::RowReverse,
-        LayoutFlexDirection::Column => taffy::FlexDirection::Column,
-        LayoutFlexDirection::ColumnReverse => taffy::FlexDirection::ColumnReverse,
+        LayoutFlexDirection::Row => FlexDirection::Row,
+        LayoutFlexDirection::RowReverse => FlexDirection::RowReverse,
+        LayoutFlexDirection::Column => FlexDirection::Column,
+        LayoutFlexDirection::ColumnReverse => FlexDirection::ColumnReverse,
     }
 }
 
-fn layout_flex_wrap_to_taffy(val: LayoutFlexWrapValue) -> taffy::FlexWrap {
+fn layout_flex_wrap_to_taffy(val: LayoutFlexWrapValue) -> FlexWrap {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutFlexWrap::NoWrap => taffy::FlexWrap::NoWrap,
-        LayoutFlexWrap::Wrap => taffy::FlexWrap::Wrap,
-        LayoutFlexWrap::WrapReverse => taffy::FlexWrap::WrapReverse,
+        LayoutFlexWrap::NoWrap => FlexWrap::NoWrap,
+        LayoutFlexWrap::Wrap => FlexWrap::Wrap,
+        LayoutFlexWrap::WrapReverse => FlexWrap::WrapReverse,
     }
 }
 
-fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignItems {
+fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> AlignItems {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutAlignItems::Stretch => taffy::AlignItems::Stretch,
-        LayoutAlignItems::Center => taffy::AlignItems::Center,
-        LayoutAlignItems::Start => taffy::AlignItems::FlexStart,
-        LayoutAlignItems::End => taffy::AlignItems::FlexEnd,
-        LayoutAlignItems::Baseline => taffy::AlignItems::Baseline,
+        LayoutAlignItems::Stretch => AlignItems::Stretch,
+        LayoutAlignItems::Center => AlignItems::Center,
+        LayoutAlignItems::Start => AlignItems::FlexStart,
+        LayoutAlignItems::End => AlignItems::FlexEnd,
+        LayoutAlignItems::Baseline => AlignItems::Baseline,
     }
 }
 
-fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::AlignSelf> {
+fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<AlignSelf> {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items (for non-abspos; abspos auto computes to itself per spec)
-        LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
-        LayoutAlignSelf::End => Some(taffy::AlignSelf::FlexEnd),
-        LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center),
-        LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline),
-        LayoutAlignSelf::Stretch => Some(taffy::AlignSelf::Stretch),
+        LayoutAlignSelf::Start => Some(AlignSelf::FlexStart),
+        LayoutAlignSelf::End => Some(AlignSelf::FlexEnd),
+        LayoutAlignSelf::Center => Some(AlignSelf::Center),
+        LayoutAlignSelf::Baseline => Some(AlignSelf::Baseline),
+        LayoutAlignSelf::Stretch => Some(AlignSelf::Stretch),
     }
 }
 
-fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> taffy::AlignContent {
+fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> AlignContent {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutAlignContent::Start => taffy::AlignContent::FlexStart,
-        LayoutAlignContent::End => taffy::AlignContent::FlexEnd,
-        LayoutAlignContent::Center => taffy::AlignContent::Center,
-        LayoutAlignContent::Stretch => taffy::AlignContent::Stretch,
-        LayoutAlignContent::SpaceBetween => taffy::AlignContent::SpaceBetween,
-        LayoutAlignContent::SpaceAround => taffy::AlignContent::SpaceAround,
+        LayoutAlignContent::Start => AlignContent::FlexStart,
+        LayoutAlignContent::End => AlignContent::FlexEnd,
+        LayoutAlignContent::Center => AlignContent::Center,
+        LayoutAlignContent::Stretch => AlignContent::Stretch,
+        LayoutAlignContent::SpaceBetween => AlignContent::SpaceBetween,
+        LayoutAlignContent::SpaceAround => AlignContent::SpaceAround,
     }
 }
 
-fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy::JustifyContent {
+fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> JustifyContent {
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutJustifyContent::FlexStart => taffy::JustifyContent::FlexStart,
-        LayoutJustifyContent::FlexEnd => taffy::JustifyContent::FlexEnd,
-        LayoutJustifyContent::Start => taffy::JustifyContent::Start,
-        LayoutJustifyContent::End => taffy::JustifyContent::End,
-        LayoutJustifyContent::Center => taffy::JustifyContent::Center,
-        LayoutJustifyContent::SpaceBetween => taffy::JustifyContent::SpaceBetween,
-        LayoutJustifyContent::SpaceAround => taffy::JustifyContent::SpaceAround,
-        LayoutJustifyContent::SpaceEvenly => taffy::JustifyContent::SpaceEvenly,
+        LayoutJustifyContent::FlexStart => JustifyContent::FlexStart,
+        LayoutJustifyContent::FlexEnd => JustifyContent::FlexEnd,
+        LayoutJustifyContent::Start => JustifyContent::Start,
+        LayoutJustifyContent::End => JustifyContent::End,
+        LayoutJustifyContent::Center => JustifyContent::Center,
+        LayoutJustifyContent::SpaceBetween => JustifyContent::SpaceBetween,
+        LayoutJustifyContent::SpaceAround => JustifyContent::SpaceAround,
+        LayoutJustifyContent::SpaceEvenly => JustifyContent::SpaceEvenly,
     }
 }
 
 fn layout_justify_items_to_taffy(
     val: azul_css::props::property::LayoutJustifyItemsValue,
-) -> taffy::AlignItems {
+) -> AlignItems {
     use azul_css::props::layout::grid::LayoutJustifyItems;
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutJustifyItems::Start => taffy::AlignItems::Start,
-        LayoutJustifyItems::End => taffy::AlignItems::End,
-        LayoutJustifyItems::Center => taffy::AlignItems::Center,
-        LayoutJustifyItems::Stretch => taffy::AlignItems::Stretch,
+        LayoutJustifyItems::Start => AlignItems::Start,
+        LayoutJustifyItems::End => AlignItems::End,
+        LayoutJustifyItems::Center => AlignItems::Center,
+        LayoutJustifyItems::Stretch => AlignItems::Stretch,
     }
 }
 
@@ -350,7 +355,7 @@ use crate::{
 /// When Taffy lays out a flex/grid container, it may expand the container
 /// beyond the CSS-specified size (Taffy doesn't know about `overflow`).
 /// This function resolves the CSS-constrained container size, computes
-/// content vs. container overflow, and returns the resulting ScrollbarRequirements
+/// content vs. container overflow, and returns the resulting `ScrollbarRequirements`
 /// plus the effective content size (for `overflow_content_size`).
 ///
 /// Returns `(scrollbar_info, effective_content_width, effective_content_height)`.
@@ -383,7 +388,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
     // Compute padding + border from the node's box_props
     let (padding_width, padding_height, border_width, border_height, border_left, border_top) = tree
         .get(node_idx)
-        .map(|node| {
+        .map_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0), |node| {
             let bp = node.box_props.unpack();
             (
                 bp.padding.left + bp.padding.right,
@@ -393,8 +398,7 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
                 bp.border.left,
                 bp.border.top,
             )
-        })
-        .unwrap_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+        });
 
     // Use CSS-specified dimensions as the container constraint.
     // Taffy may have expanded the box beyond these, but the CSS spec says
@@ -407,13 +411,13 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 
     let css_container_w = css_width
         .exact()
-        .and_then(css_width_to_px)
+        .and_then(|w| css_width_to_px(&w))
         .unwrap_or(result_content_w)
         .max(0.0);
 
     let css_container_h = css_height
         .exact()
-        .and_then(css_height_to_px)
+        .and_then(|h| css_height_to_px(&h))
         .unwrap_or(result_content_h)
         .max(0.0);
 
@@ -446,73 +450,73 @@ fn compute_taffy_scrollbar_info<T: ParsedFontTrait>(
 }
 
 /// Convert `LayoutWidth::Px(…)` to `f32`, returning None for non-px units.
-fn css_width_to_px(w: azul_css::props::layout::LayoutWidth) -> Option<f32> {
+fn css_width_to_px(w: &LayoutWidth) -> Option<f32> {
     match w {
-        azul_css::props::layout::LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(&px),
+        LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(px),
         _ => None,
     }
 }
 
 /// Convert `LayoutHeight::Px(…)` to `f32`, returning None for non-px units.
-fn css_height_to_px(h: azul_css::props::layout::LayoutHeight) -> Option<f32> {
+fn css_height_to_px(h: &LayoutHeight) -> Option<f32> {
     match h {
-        azul_css::props::layout::LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(&px),
+        LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(px),
         _ => None,
     }
 }
 
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto
-fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto {
+fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> LengthPercentageAuto {
     match mv {
         MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
-            taffy::LengthPercentageAuto::auto()
+            LengthPercentageAuto::auto()
         }
         MultiValue::Exact(pv) => pixel_value_to_pixels_fallback(&pv)
-            .map(taffy::LengthPercentageAuto::length)
+            .map(LengthPercentageAuto::length)
             .or_else(|| {
                 pv.to_percent()
-                    .map(|p| taffy::LengthPercentageAuto::percent(p.get()))
+                    .map(|p| LengthPercentageAuto::percent(p.get()))
             })
-            .unwrap_or_else(taffy::LengthPercentageAuto::auto),
+            .unwrap_or_else(LengthPercentageAuto::auto),
     }
 }
 
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto for margins
 // CSS spec: margin initial value is 0, but `auto` has special centering meaning in flexbox
-fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto {
+fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> LengthPercentageAuto {
     match mv {
         MultiValue::Auto => {
-            taffy::LengthPercentageAuto::auto() // Preserve auto for flexbox centering
+            LengthPercentageAuto::auto() // Preserve auto for flexbox centering
         }
         MultiValue::Initial | MultiValue::Inherit => {
-            taffy::LengthPercentageAuto::length(0.0) // Margins' initial value is 0
+            LengthPercentageAuto::length(0.0) // Margins' initial value is 0
         }
         MultiValue::Exact(pv) => {
             pixel_value_to_pixels_fallback(&pv)
-                .map(taffy::LengthPercentageAuto::length)
+                .map(LengthPercentageAuto::length)
                 .or_else(|| {
                     pv.to_percent()
-                        .map(|p| taffy::LengthPercentageAuto::percent(p.get()))
+                        .map(|p| LengthPercentageAuto::percent(p.get()))
                 })
-                .unwrap_or_else(|| taffy::LengthPercentageAuto::length(0.0)) // Fallback to 0 for
+                .unwrap_or_else(|| LengthPercentageAuto::length(0.0)) // Fallback to 0 for
                                                                              // margins
         }
     }
 }
 
 // Helper function to convert MultiValue<PixelValue> to LengthPercentage
-fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
+fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> LengthPercentage {
     match mv {
         MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
-            taffy::LengthPercentage::ZERO
+            LengthPercentage::ZERO
         }
         MultiValue::Exact(pv) => pixel_value_to_pixels_fallback(&pv)
-            .map(taffy::LengthPercentage::length)
+            .map(LengthPercentage::length)
             .or_else(|| {
                 pv.to_percent()
-                    .map(|p| taffy::LengthPercentage::percent(p.get()))
+                    .map(|p| LengthPercentage::percent(p.get()))
             })
-            .unwrap_or(taffy::LengthPercentage::ZERO),
+            .unwrap_or(LengthPercentage::ZERO),
     }
 }
 
@@ -522,7 +526,8 @@ fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
 /// Taffy only has Visible, Clip, Hidden, Scroll (no Auto).
 /// CSS `auto` behaves like `scroll` from a layout perspective —
 /// it constrains the container and enables scrolling.
-fn azul_overflow_to_taffy(ov: MultiValue<azul_css::props::layout::LayoutOverflow>) -> taffy::Overflow {
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn azul_overflow_to_taffy(ov: MultiValue<azul_css::props::layout::LayoutOverflow>) -> taffy::Overflow {
     use azul_css::props::layout::LayoutOverflow;
     match ov {
         MultiValue::Exact(LayoutOverflow::Visible) => taffy::Overflow::Visible,
@@ -534,47 +539,48 @@ fn azul_overflow_to_taffy(ov: MultiValue<azul_css::props::layout::LayoutOverflow
     }
 }
 
-fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
+fn pixel_to_lp(pv: PixelValue) -> LengthPercentage {
     pixel_value_to_pixels_fallback(&pv)
-        .map(taffy::LengthPercentage::length)
+        .map(LengthPercentage::length)
         .or_else(|| {
             pv.to_percent()
-                .map(|p| taffy::LengthPercentage::percent(p.get()))
+                .map(|p| LengthPercentage::percent(p.get()))
         })
-        .unwrap_or(taffy::LengthPercentage::ZERO)
+        .unwrap_or(LengthPercentage::ZERO)
 }
 
 /// Slow path for flex-basis: full property cache lookup + decode.
 /// Extracted to avoid duplicating the logic in the compact fast-path fallback.
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn flex_basis_slow_path(
     cache: &azul_core::prop_cache::CssPropertyCache,
     node_data: &azul_core::dom::NodeData,
     id: &NodeId,
     node_state: &azul_core::styled_dom::StyledNodeState,
     taffy_style: &mut Style,
-) -> taffy::Dimension {
+) -> Dimension {
     cache
         .get_property(node_data, id, node_state, &CssPropertyType::FlexBasis)
         .and_then(|p| {
             if let CssProperty::FlexBasis(v) = p {
                 let basis = match v.get_property_or_default().unwrap_or_default() {
-                    LayoutFlexBasis::Auto => taffy::Dimension::auto(),
+                    LayoutFlexBasis::Auto => Dimension::auto(),
                     LayoutFlexBasis::Exact(pv) => pixel_value_to_pixels_fallback(&pv)
-                        .map(taffy::Dimension::length)
-                        .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
-                        .unwrap_or_else(taffy::Dimension::auto),
+                        .map(Dimension::length)
+                        .or_else(|| pv.to_percent().map(|p| Dimension::percent(p.get())))
+                        .unwrap_or_else(Dimension::auto),
                 };
                 // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis
                 // take precedence. Workaround for Taffy not properly prioritizing flex-basis over width
-                if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
-                    taffy_style.size.width = taffy::Dimension::auto();
+                if !matches!(basis, auto if auto == Dimension::auto()) {
+                    taffy_style.size.width = Dimension::auto();
                 }
                 Some(basis)
             } else {
                 None
             }
         })
-        .unwrap_or_else(taffy::Dimension::auto)
+        .unwrap_or_else(Dimension::auto)
 }
 
 /// The bridge struct that implements Taffy's traits.
@@ -584,12 +590,15 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     tree: &'a mut LayoutTree,
     /// Raw pointer to text cache - needed because we can't have multiple &mut references
-    /// SAFETY: This pointer is only valid for the lifetime of the TaffyBridge
-    /// and must only be used within compute_child_layout callbacks
+    /// SAFETY: This pointer is only valid for the lifetime of the `TaffyBridge`
+    /// and must only be used within `compute_child_layout` callbacks
     text_cache: *mut crate::font_traits::TextLayoutCache,
     /// Heap-pinned `CalcResolveContext`s whose addresses are passed into taffy
     /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass.
     /// Uses `RefCell` because `get_core_container_style` takes `&self`.
+    // Box gives each CalcResolveContext a stable heap address for the `*const` handed to
+    // taffy `Dimension::calc()`; a plain Vec<T> would invalidate those pointers on realloc.
+    #[allow(clippy::vec_box)]
     calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
     /// Memoised `translate_style_to_taffy` results, keyed by DOM node id
     /// (`usize` = `NodeId::index`). Taffy calls
@@ -597,7 +606,7 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// many times per node during a single layout pass; each call
     /// triggers ~13 `cache.get_property` cascade walks for grid/flex
     /// props. Caching the built `Style` cuts this to one build per node.
-    style_memo: std::cell::RefCell<std::collections::HashMap<usize, Style>>,
+    style_memo: std::cell::RefCell<HashMap<usize, Style>>,
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
@@ -611,7 +620,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             tree,
             text_cache,
             calc_storage: std::cell::RefCell::new(Vec::new()),
-            style_memo: std::cell::RefCell::new(std::collections::HashMap::new()),
+            style_memo: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -635,6 +644,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
     /// This is the core of the integration, mapping one style system to another.
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn translate_style_to_taffy(&self, dom_id: Option<NodeId>) -> Style {
         let Some(id) = dom_id else {
             return Style::default();
@@ -647,8 +658,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
         // Box Sizing — CSS default is content-box, but Taffy defaults to border-box
         taffy_style.box_sizing = match get_css_box_sizing(styled_dom, id, node_state).unwrap_or_default() {
-            azul_css::props::layout::LayoutBoxSizing::BorderBox => taffy::BoxSizing::BorderBox,
-            azul_css::props::layout::LayoutBoxSizing::ContentBox => taffy::BoxSizing::ContentBox,
+            azul_css::props::layout::LayoutBoxSizing::BorderBox => BoxSizing::BorderBox,
+            azul_css::props::layout::LayoutBoxSizing::ContentBox => BoxSizing::ContentBox,
         };
 
         // Display Mode
@@ -660,7 +671,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             from_layout_position(get_position(styled_dom, id, node_state).unwrap_or_default());
 
         // Inset (top, left, bottom, right)
-        taffy_style.inset = taffy::Rect {
+        taffy_style.inset = Rect {
             left: multi_value_to_lpa(get_css_left(styled_dom, id, node_state)),
             right: multi_value_to_lpa(get_css_right(styled_dom, id, node_state)),
             top: multi_value_to_lpa(get_css_top(styled_dom, id, node_state)),
@@ -682,7 +693,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let taffy_width = from_layout_width(width.unwrap_or_default(), &self.calc_storage, em_size, rem_size);
         let taffy_height = from_layout_height(height.unwrap_or_default(), &self.calc_storage, em_size, rem_size);
 
-        taffy_style.size = taffy::Size {
+        taffy_style.size = Size {
             width: taffy_width,
             height: taffy_height,
         };
@@ -711,16 +722,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let min_width_css = get_css_min_width(styled_dom, id, node_state);
         let min_height_css = get_css_min_height(styled_dom, id, node_state);
 
-        taffy_style.min_size = taffy::Size {
+        taffy_style.min_size = Size {
             width: match min_width_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
-                    taffy::Dimension::auto()
+                    Dimension::auto()
                 }
                 MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
             },
             height: match min_height_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
-                    taffy::Dimension::auto()
+                    Dimension::auto()
                 }
                 MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
             },
@@ -732,16 +743,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let max_width_css = get_css_max_width(styled_dom, id, node_state);
         let max_height_css = get_css_max_height(styled_dom, id, node_state);
 
-        taffy_style.max_size = taffy::Size {
+        taffy_style.max_size = Size {
             width: match max_width_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
-                    taffy::Dimension::auto()
+                    Dimension::auto()
                 }
                 MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
             },
             height: match max_height_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
-                    taffy::Dimension::auto()
+                    Dimension::auto()
                 }
                 MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
             },
@@ -753,21 +764,21 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let margin_top_css = get_css_margin_top(styled_dom, id, node_state);
         let margin_bottom_css = get_css_margin_bottom(styled_dom, id, node_state);
 
-        taffy_style.margin = taffy::Rect {
+        taffy_style.margin = Rect {
             left: multi_value_to_lpa_margin(margin_left_css),
             right: multi_value_to_lpa_margin(margin_right_css),
             top: multi_value_to_lpa_margin(margin_top_css),
             bottom: multi_value_to_lpa_margin(margin_bottom_css),
         };
 
-        taffy_style.padding = taffy::Rect {
+        taffy_style.padding = Rect {
             left: multi_value_to_lp(get_css_padding_left(styled_dom, id, node_state)),
             right: multi_value_to_lp(get_css_padding_right(styled_dom, id, node_state)),
             top: multi_value_to_lp(get_css_padding_top(styled_dom, id, node_state)),
             bottom: multi_value_to_lp(get_css_padding_bottom(styled_dom, id, node_state)),
         };
 
-        taffy_style.border = taffy::Rect {
+        taffy_style.border = Rect {
             left: multi_value_to_lp(get_css_border_left_width(styled_dom, id, node_state)),
             right: multi_value_to_lp(get_css_border_right_width(styled_dom, id, node_state)),
             top: multi_value_to_lp(get_css_border_top_width(styled_dom, id, node_state)),
@@ -777,44 +788,42 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Grid & gap properties — COMPACT FAST PATH: row_gap/column_gap are
         // i16 px × 10 in tier2_dims. The slow-path lookup would walk the
         // cascade for every node even though the answer is already encoded.
-        taffy_style.gap = if let Some(ref cc) = cache.compact_cache {
+        taffy_style.gap = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
+                .and_then(|p| if let CssProperty::Gap(v) = p { Some(v) } else { None })
+                .map_or_else(Size::zero, |v| {
+                    let val = v.get_property_or_default().unwrap_or_default().inner;
+                    let gap_lp = pixel_to_lp(val);
+                    Size { width: gap_lp, height: gap_lp }
+                }), |cc| {
             let row = cc.tier2_dims[id.index()].row_gap;
             let col = cc.tier2_dims[id.index()].column_gap;
-            let decode = |raw: i16| -> taffy::LengthPercentage {
+            let decode = |raw: i16| -> LengthPercentage {
                 if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                    taffy::LengthPercentage::length(0.0)
+                    LengthPercentage::length(0.0)
                 } else {
-                    taffy::LengthPercentage::length(raw as f32 / 10.0)
+                    LengthPercentage::length(f32::from(raw) / 10.0)
                 }
             };
             Size {
                 width: decode(col),
                 height: decode(row),
             }
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
-                .and_then(|p| if let CssProperty::Gap(v) = p { Some(v) } else { None })
-                .map(|v| {
-                    let val = v.get_property_or_default().unwrap_or_default().inner;
-                    let gap_lp = pixel_to_lp(val);
-                    Size { width: gap_lp, height: gap_lp }
-                })
-                .unwrap_or_else(Size::zero)
-        };
+        });
 
         // Skip grid properties when not in a grid context.
         // Grid container props: only if this node has display:grid.
         // Grid item props: only if parent has display:grid.
         let (self_is_grid, parent_is_grid) = cache.compact_cache.as_ref().map_or((false, false), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             let self_t1 = cc.tier1_enums[id.index()];
             let self_display = ((self_t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
-            let grid_val = layout_display_to_u8(azul_css::props::layout::display::LayoutDisplay::Grid);
+            let grid_val = layout_display_to_u8(LayoutDisplay::Grid);
             let self_grid = self_display == grid_val;
 
             let parent_idx = styled_dom.node_hierarchy.as_ref()[id.index()].parent_id()
-                .map(|p| p.index()).unwrap_or(0);
+                .map_or(0, |p| p.index());
             let parent_t1 = cc.tier1_enums[parent_idx];
             let parent_display = ((parent_t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
             let parent_grid = parent_display == grid_val;
@@ -917,18 +926,17 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .map(grid_auto_columns_to_taffy)
             .unwrap_or_default();
 
-        taffy_style.grid_auto_flow = if let Some(cc) = cache.compact_cache.as_ref() {
+        taffy_style.grid_auto_flow = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
+                .and_then(|p| if let CssProperty::GridAutoFlow(v) = p { Some(*v) } else { None })
+                .map(grid_auto_flow_to_taffy)
+                .unwrap_or_default(), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             let bits = ((cc.tier1_enums[id.index()] >> GRID_AUTO_FLOW_SHIFT) & GRID_AUTO_FLOW_MASK) as u8;
             let val = layout_grid_auto_flow_from_u8(bits);
             grid_auto_flow_to_taffy(CssPropertyValue::Exact(val))
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
-                .and_then(|p| if let CssProperty::GridAutoFlow(v) = p { Some(*v) } else { None })
-                .map(grid_auto_flow_to_taffy)
-                .unwrap_or_default()
-        };
+        });
 
         } // end if self_is_grid
 
@@ -938,12 +946,12 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             let cs = cc.tier2_cold[id.index()].grid_col_start;
             let ce = cc.tier2_cold[id.index()].grid_col_end;
             if cs != azul_css::compact_cache::I16_AUTO || ce != azul_css::compact_cache::I16_AUTO {
-                taffy_style.grid_column = taffy::Line { start: decode_compact_grid_line(cs), end: decode_compact_grid_line(ce) };
+                taffy_style.grid_column = Line { start: decode_compact_grid_line(cs), end: decode_compact_grid_line(ce) };
             }
             let rs = cc.tier2_cold[id.index()].grid_row_start;
             let re = cc.tier2_cold[id.index()].grid_row_end;
             if rs != azul_css::compact_cache::I16_AUTO || re != azul_css::compact_cache::I16_AUTO {
-                taffy_style.grid_row = taffy::Line { start: decode_compact_grid_line(rs), end: decode_compact_grid_line(re) };
+                taffy_style.grid_row = Line { start: decode_compact_grid_line(rs), end: decode_compact_grid_line(re) };
             }
         } else {
             if let Some(grid_col) = cache
@@ -960,7 +968,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Flexbox
         taffy_style.flex_direction = match get_flex_direction(styled_dom, id, node_state) {
             MultiValue::Exact(v) => layout_flex_direction_to_taffy(CssPropertyValue::Exact(v)),
-            _ => taffy::FlexDirection::Row,
+            _ => FlexDirection::Row,
         };
         // COMPACT FAST PATH: flex_wrap is Tier 1 enum
         taffy_style.flex_wrap = {
@@ -975,8 +983,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 cache
                     .get_property(node_data, &id, node_state, &CssPropertyType::FlexWrap)
                     .and_then(|p| if let CssProperty::FlexWrap(v) = p { Some(*v) } else { None })
-                    .map(layout_flex_wrap_to_taffy)
-                    .unwrap_or(taffy::FlexWrap::NoWrap)
+                    .map_or(FlexWrap::NoWrap, layout_flex_wrap_to_taffy)
             })
         };
         taffy_style.align_items = match get_align_items(styled_dom, id, node_state) {
@@ -986,44 +993,42 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // CSS spec: default align-items is "normal" which acts like "stretch"
                 // for non-replaced grid/flex items. Taffy handles this internally when
                 // align_items is None, so we should NOT force a default here.
-        taffy_style.justify_items = if let Some(cc) = cache.compact_cache.as_ref() {
+        taffy_style.justify_items = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
+                .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
+                .map(layout_justify_items_to_taffy), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             use azul_css::props::layout::grid::LayoutJustifyItems;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_ITEMS_SHIFT) & JUSTIFY_ITEMS_MASK) as u8;
             let val = layout_justify_items_from_u8(bits);
             Some(match val {
-                LayoutJustifyItems::Start => taffy::AlignItems::Start,
-                LayoutJustifyItems::End => taffy::AlignItems::End,
-                LayoutJustifyItems::Center => taffy::AlignItems::Center,
-                LayoutJustifyItems::Stretch => taffy::AlignItems::Stretch,
+                LayoutJustifyItems::Start => AlignItems::Start,
+                LayoutJustifyItems::End => AlignItems::End,
+                LayoutJustifyItems::Center => AlignItems::Center,
+                LayoutJustifyItems::Stretch => AlignItems::Stretch,
             })
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
-                .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
-                .map(layout_justify_items_to_taffy)
-        };
+        });
         // COMPACT FAST PATH: justify-content is in tier1 bits 21-23.
-        taffy_style.justify_content = if let Some(ref cc) = cache.compact_cache {
+        taffy_style.justify_content = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
+                .and_then(|p| if let CssProperty::JustifyContent(v) = p { Some(v) } else { None })
+                .map(|v| layout_justify_content_to_taffy(*v)), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             use azul_css::props::layout::LayoutJustifyContent;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_CONTENT_SHIFT) & JUSTIFY_MASK) as u8;
             Some(match layout_justify_content_from_u8(bits) {
-                LayoutJustifyContent::FlexStart => taffy::JustifyContent::FlexStart,
-                LayoutJustifyContent::FlexEnd => taffy::JustifyContent::FlexEnd,
-                LayoutJustifyContent::Start => taffy::JustifyContent::Start,
-                LayoutJustifyContent::End => taffy::JustifyContent::End,
-                LayoutJustifyContent::Center => taffy::JustifyContent::Center,
-                LayoutJustifyContent::SpaceBetween => taffy::JustifyContent::SpaceBetween,
-                LayoutJustifyContent::SpaceAround => taffy::JustifyContent::SpaceAround,
-                LayoutJustifyContent::SpaceEvenly => taffy::JustifyContent::SpaceEvenly,
+                LayoutJustifyContent::FlexStart => JustifyContent::FlexStart,
+                LayoutJustifyContent::FlexEnd => JustifyContent::FlexEnd,
+                LayoutJustifyContent::Start => JustifyContent::Start,
+                LayoutJustifyContent::End => JustifyContent::End,
+                LayoutJustifyContent::Center => JustifyContent::Center,
+                LayoutJustifyContent::SpaceBetween => JustifyContent::SpaceBetween,
+                LayoutJustifyContent::SpaceAround => JustifyContent::SpaceAround,
+                LayoutJustifyContent::SpaceEvenly => JustifyContent::SpaceEvenly,
             })
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
-                .and_then(|p| if let CssProperty::JustifyContent(v) = p { Some(v) } else { None })
-                .map(|v| layout_justify_content_to_taffy(*v))
-        };
+        });
                 // CSS spec: default justify-content is "normal". Taffy handles
                 // this internally when justify_content is None.
         // COMPACT FAST PATH: flex_grow stored as u16 × 100
@@ -1067,21 +1072,21 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     match raw {
                         azul_css::compact_cache::U32_AUTO
                         | azul_css::compact_cache::U32_NONE
-                        | azul_css::compact_cache::U32_INITIAL => Some(taffy::Dimension::auto()),
+                        | azul_css::compact_cache::U32_INITIAL => Some(Dimension::auto()),
                         azul_css::compact_cache::U32_SENTINEL
                         | azul_css::compact_cache::U32_INHERIT => None,
                         _ => {
                             if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
                                 let basis = pixel_value_to_pixels_fallback(&pv)
-                                    .map(taffy::Dimension::length)
-                                    .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
-                                    .unwrap_or_else(taffy::Dimension::auto);
-                                if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
-                                    taffy_style.size.width = taffy::Dimension::auto();
+                                    .map(Dimension::length)
+                                    .or_else(|| pv.to_percent().map(|p| Dimension::percent(p.get())))
+                                    .unwrap_or_else(Dimension::auto);
+                                if !matches!(basis, auto if auto == Dimension::auto()) {
+                                    taffy_style.size.width = Dimension::auto();
                                 }
                                 Some(basis)
                             } else {
-                                Some(taffy::Dimension::auto())
+                                Some(Dimension::auto())
                             }
                         }
                     }
@@ -1093,50 +1098,47 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 flex_basis_slow_path(cache, node_data, &id, node_state, &mut taffy_style)
             })
         };
-        taffy_style.align_self = if let Some(cc) = cache.compact_cache.as_ref() {
+        taffy_style.align_self = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
+                .and_then(|p| if let CssProperty::AlignSelf(v) = p { layout_align_self_to_taffy(*v) } else { None }), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             let bits = ((cc.tier1_enums[id.index()] >> ALIGN_SELF_SHIFT) & ALIGN_SELF_MASK) as u8;
             let val = layout_align_self_from_u8(bits);
-            use azul_css::props::layout::flex::LayoutAlignSelf;
             match val {
                 LayoutAlignSelf::Auto => None,
-                LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
-                LayoutAlignSelf::End => Some(taffy::AlignSelf::FlexEnd),
-                LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center),
-                LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline),
-                LayoutAlignSelf::Stretch => Some(taffy::AlignSelf::Stretch),
+                LayoutAlignSelf::Start => Some(AlignSelf::FlexStart),
+                LayoutAlignSelf::End => Some(AlignSelf::FlexEnd),
+                LayoutAlignSelf::Center => Some(AlignSelf::Center),
+                LayoutAlignSelf::Baseline => Some(AlignSelf::Baseline),
+                LayoutAlignSelf::Stretch => Some(AlignSelf::Stretch),
             }
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
-                .and_then(|p| if let CssProperty::AlignSelf(v) = p { layout_align_self_to_taffy(*v) } else { None })
-        };
-        taffy_style.justify_self = if let Some(cc) = cache.compact_cache.as_ref() {
+        });
+        taffy_style.justify_self = cache.compact_cache.as_ref().map_or_else(|| cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
+                .and_then(|p| if let CssProperty::JustifySelf(v) = p {
+                    use azul_css::props::layout::grid::LayoutJustifySelf;
+                    match v.get_property_or_default().unwrap_or_default() {
+                        LayoutJustifySelf::Auto => None,
+                        LayoutJustifySelf::Start => Some(AlignSelf::Start),
+                        LayoutJustifySelf::End => Some(AlignSelf::End),
+                        LayoutJustifySelf::Center => Some(AlignSelf::Center),
+                        LayoutJustifySelf::Stretch => Some(AlignSelf::Stretch),
+                    }
+                } else { None }), |cc| {
+            #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
             use azul_css::compact_cache::*;
             use azul_css::props::layout::grid::LayoutJustifySelf;
             let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_SELF_SHIFT) & JUSTIFY_SELF_MASK) as u8;
             let val = layout_justify_self_from_u8(bits);
             match val {
                 LayoutJustifySelf::Auto => None,
-                LayoutJustifySelf::Start => Some(taffy::AlignSelf::Start),
-                LayoutJustifySelf::End => Some(taffy::AlignSelf::End),
-                LayoutJustifySelf::Center => Some(taffy::AlignSelf::Center),
-                LayoutJustifySelf::Stretch => Some(taffy::AlignSelf::Stretch),
+                LayoutJustifySelf::Start => Some(AlignSelf::Start),
+                LayoutJustifySelf::End => Some(AlignSelf::End),
+                LayoutJustifySelf::Center => Some(AlignSelf::Center),
+                LayoutJustifySelf::Stretch => Some(AlignSelf::Stretch),
             }
-        } else {
-            cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
-                .and_then(|p| if let CssProperty::JustifySelf(v) = p {
-                    use azul_css::props::layout::grid::LayoutJustifySelf;
-                    match v.get_property_or_default().unwrap_or_default() {
-                        LayoutJustifySelf::Auto => None,
-                        LayoutJustifySelf::Start => Some(taffy::AlignSelf::Start),
-                        LayoutJustifySelf::End => Some(taffy::AlignSelf::End),
-                        LayoutJustifySelf::Center => Some(taffy::AlignSelf::Center),
-                        LayoutJustifySelf::Stretch => Some(taffy::AlignSelf::Stretch),
-                    }
-                } else { None })
-        };
+        });
         taffy_style.align_content = match get_align_content(styled_dom, id, node_state) {
             MultiValue::Exact(v) => Some(layout_align_content_to_taffy(CssPropertyValue::Exact(v))),
             _ => None,
@@ -1167,9 +1169,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Zeroing the style margin for root nodes prevents this double-subtraction.
         // This is NOT a hack — it's the correct integration point between Azul's
         // BFC-level sizing and Taffy's Flex/Grid algorithm.
-        let is_root = self.tree.get(node_idx).map(|n| n.parent.is_none()).unwrap_or(false);
+        let is_root = self.tree.get(node_idx).is_some_and(|n| n.parent.is_none());
         if is_root {
-            style.margin = taffy::Rect::zero();
+            style.margin = Rect::zero();
         }
         
         // FIX: Apply cross-axis intrinsic size suppression for stretch alignment.
@@ -1180,13 +1182,13 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         if suppress_width {
             // Force width to Auto and set min-width to 0 to allow stretching.
             // Taffy treats Auto size + Stretch alignment as a signal to fill the container.
-            style.size.width = taffy::Dimension::auto(); 
-            style.min_size.width = taffy::Dimension::length(0.0);
+            style.size.width = Dimension::auto(); 
+            style.min_size.width = Dimension::length(0.0);
         }
 
         if suppress_height {
-            style.size.height = taffy::Dimension::auto();
-            style.min_size.height = taffy::Dimension::length(0.0);
+            style.size.height = Dimension::auto();
+            style.min_size.height = Dimension::length(0.0);
         }
 
         style
@@ -1197,16 +1199,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Per CSS Flexbox spec, align-items: stretch makes items fill the cross-axis
     /// ONLY if the item's cross-size is 'auto' AND the item has no intrinsic cross-size.
     ///
-    /// Returns (suppress_width, suppress_height) booleans.
+    /// Returns (`suppress_width`, `suppress_height`) booleans.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn should_suppress_cross_intrinsic(&self, node_idx: usize, style: &Style) -> (bool, bool) {
         let Some(node) = self.tree.get(node_idx) else {
             return (false, false);
         };
 
         // Check if parent is a flex or grid container
-        let parent_fc = match self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context.clone()) {
-            Some(fc) => fc,
-            None => return (false, false),
+        let Some(parent_fc) = self.tree.warm(node_idx).and_then(|w| w.parent_formatting_context) else {
+            return (false, false);
         };
 
         match parent_fc {
@@ -1221,7 +1223,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // Determine if flex container is row or column
                 let is_row = matches!(
                     parent_style.flex_direction,
-                    taffy::FlexDirection::Row | taffy::FlexDirection::RowReverse
+                    FlexDirection::Row | FlexDirection::RowReverse
                 );
 
                 // Get effective align value for this item
@@ -1229,9 +1231,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let align = style
                     .align_self
                     .or(parent_style.align_items)
-                    .unwrap_or(taffy::AlignSelf::Stretch);
+                    .unwrap_or(AlignSelf::Stretch);
 
-                let should_stretch = matches!(align, taffy::AlignSelf::Stretch);
+                let should_stretch = matches!(align, AlignSelf::Stretch);
 
                 if !should_stretch {
                     return (false, false);
@@ -1241,9 +1243,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // For row flex: cross-axis is height
                 // For column flex: cross-axis is width
                 let cross_size_is_auto = if is_row {
-                    style.size.height == taffy::Dimension::auto()
+                    style.size.height == Dimension::auto()
                 } else {
-                    style.size.width == taffy::Dimension::auto()
+                    style.size.width == Dimension::auto()
                 };
 
                 if !cross_size_is_auto {
@@ -1271,6 +1273,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
     /// Helper to get children that participate in layout (i.e., not `display: none`).
     fn get_layout_children(&self, node_idx: usize) -> Vec<usize> {
+        use crate::solver3::getters::{get_display_property, MultiValue};
         let Some(node) = self.tree.get(node_idx) else {
             return Vec::new();
         };
@@ -1286,7 +1289,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 };
 
                 // Check if child has display: none
-                use crate::solver3::getters::{get_display_property, MultiValue};
                 let display = get_display_property(self.ctx.styled_dom, Some(child_dom_id));
                 let is_display_none = matches!(display, MultiValue::Exact(LayoutDisplay::None));
 
@@ -1299,8 +1301,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
 /// Main entry point for laying out a Flexbox or Grid container using Taffy.
 ///
-/// This function now accepts a text_cache parameter so that IFC layout can be
+/// This function now accepts a `text_cache` parameter so that IFC layout can be
 /// performed inline during Taffy's measure callbacks, rather than as a post-processing step.
+/// # Panics
+///
+/// Panics if `node_idx` is not present in the layout tree.
 pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1336,7 +1341,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     // SAFETY: We pass text_cache as a raw pointer because TaffyBridge needs to call
     // layout_ifc from within compute_child_layout, but we already have &mut ctx and &mut tree.
     // The pointer is only valid for the duration of this function call.
-    let text_cache_ptr = text_cache as *mut crate::font_traits::TextLayoutCache;
+    let text_cache_ptr = core::ptr::from_mut::<crate::font_traits::TextLayoutCache>(text_cache);
 
     let mut bridge = TaffyBridge::new(ctx, tree, text_cache_ptr);
     let node = bridge.tree.get(node_idx).unwrap();
@@ -1370,7 +1375,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
 
 // --- Trait Implementations for the Bridge ---
 
-impl<'a, 'b, T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'a, 'b, T> {
+impl<T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'_, '_, T> {
     type ChildIter<'c>
         = std::vec::IntoIter<taffy::NodeId>
     where
@@ -1381,7 +1386,7 @@ impl<'a, 'b, T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'a, 'b, T> 
         let children = self.get_layout_children(node_idx);
         children
             .into_iter()
-            .map(|id| id.into())
+            .map(Into::into)
             .collect::<Vec<taffy::NodeId>>()
             .into_iter()
     }
@@ -1397,7 +1402,7 @@ impl<'a, 'b, T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'a, 'b, T> 
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
+impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
     type CoreContainerStyle<'c>
         = Style
     where
@@ -1421,7 +1426,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
         let (parent_border_left, parent_border_top, parent_padding_left, parent_padding_top) = {
             if let Some(child) = self.tree.get(node_idx) {
                 if let Some(parent_idx) = child.parent {
-                    if let Some(parent) = self.tree.get(parent_idx) {
+                    self.tree.get(parent_idx).map_or((0.0, 0.0, 0.0, 0.0), |parent| {
                         let pbp = parent.box_props.unpack();
                         (
                             pbp.border.left,
@@ -1429,9 +1434,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
                             pbp.padding.left,
                             pbp.padding.top,
                         )
-                    } else {
-                        (0.0, 0.0, 0.0, 0.0)
-                    }
+                    })
                 } else {
                     (0.0, 0.0, 0.0, 0.0)
                 }
@@ -1481,7 +1484,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
         // SAFETY: `val` came from `store_calc_and_make_dimension` which stored
         // a `Box<CalcResolveContext>` in `self.calc_storage`. The Box is alive for
         // the lifetime of this TaffyBridge, and taffy only clears the low 3 bits.
-        let ctx = unsafe { &*(val as *const CalcResolveContext) };
+        let ctx = unsafe { &*val.cast::<CalcResolveContext>() };
         crate::solver3::calc::evaluate_calc(ctx, basis)
     }
 
@@ -1513,7 +1516,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
         let fc = self
             .tree
             .get(node_idx)
-            .map(|s| s.formatting_context.clone())
+            .map(|s| s.formatting_context)
             .unwrap_or_default();
 
         let mut result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
@@ -1521,7 +1524,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
             let fc = tree
                 .tree
                 .get(node_idx)
-                .map(|s| s.formatting_context.clone())
+                .map(|s| s.formatting_context)
                 .unwrap_or_default();
 
             match fc {
@@ -1585,9 +1588,11 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
-    /// Compute layout for non-flex/grid nodes by delegating to layout_formatting_context.
-    /// This handles Block, Inline, Table, InlineBlock formatting contexts recursively.
+impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
+    /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
+    /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
         // Taffy's known_dimensions are BORDER-BOX sizes (the child's outer size
         // as determined by the parent flex/grid algorithm, e.g. via stretch alignment).
@@ -1599,7 +1604,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let (node_padding_width, node_padding_height, node_border_width, node_border_height) = self
             .tree
             .get(node_idx)
-            .map(|node| {
+            .map_or((0.0, 0.0, 0.0, 0.0), |node| {
                 let bp = node.box_props.unpack();
                 (
                     bp.padding.left + bp.padding.right,
@@ -1607,8 +1612,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     bp.border.left + bp.border.right,
                     bp.border.top + bp.border.bottom,
                 )
-            })
-            .unwrap_or((0.0, 0.0, 0.0, 0.0));
+            });
 
         // Determine available size from Taffy's inputs.
         // When known_dimensions is set (e.g. flex stretch), subtract the child's own
@@ -1748,7 +1752,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let fc = self
                     .tree
                     .get(node_idx)
-                    .map(|s| s.formatting_context.clone())
+                    .map(|s| s.formatting_context)
                     .unwrap_or_default();
                 
                 let is_shrink_to_fit = matches!(fc, FormattingContext::InlineBlock)
@@ -1790,29 +1794,25 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let (effective_content_width, content_height) = {
                     let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
                     let is_replaced = dom_id
-                        .map(|id| {
+                        .is_some_and(|id| {
                             let nd = &self.ctx.styled_dom.node_data.as_container()[id];
                             matches!(nd.get_node_type(), azul_core::dom::NodeType::Image(_))
                                 || nd.is_virtual_view_node()
-                        })
-                        .unwrap_or(false);
+                        });
                     match (is_replaced, dom_id) {
                         (true, Some(id)) => {
                             let bp = self.tree.get(node_idx).unwrap().box_props.unpack();
-                            match crate::solver3::sizing::calculate_used_size_for_node(
+                            crate::solver3::sizing::calculate_used_size_for_node(
                                 self.ctx.styled_dom,
                                 Some(id),
                                 &constraints.containing_block_size,
                                 intrinsic,
                                 &bp,
                                 &self.ctx.viewport_size,
-                            ) {
-                                Ok(sz) => (
+                            ).map_or((effective_content_width, content_height), |sz| (
                                     (sz.width - padding_width - border_width).max(0.0),
                                     (sz.height - padding_height - border_height).max(0.0),
-                                ),
-                                Err(_) => (effective_content_width, content_height),
-                            }
+                                ))
                         }
                         _ => (effective_content_width, content_height),
                     }
@@ -1829,46 +1829,39 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 //
                 // When known_dimensions is set: use it directly (it's already border-box).
                 // When it's None: add padding+border to our content-box result.
-                let final_width = match inputs.known_dimensions.width {
-                    Some(border_box_w) => border_box_w,
-                    None => border_box_width,
-                };
+                let final_width = inputs.known_dimensions.width.map_or(border_box_width, |border_box_w| border_box_w);
 
                 // For grid items: if known_dimensions.height is None but available_space.height
                 // is definite, use the available space. This ensures empty grid items stretch
                 // to fill their grid cell, per CSS Grid spec behavior.
-                let final_height = match inputs.known_dimensions.height {
-                    Some(border_box_h) => border_box_h,
-                    None => {
-                        // Check if parent is a grid container and available_space is definite
-                        let parent_is_grid = self
-                            .tree
-                            .get(node_idx)
-                            .and_then(|n| n.parent)
-                            .and_then(|p| self.tree.get(p))
-                            .map(|p| matches!(p.formatting_context, FormattingContext::Grid))
-                            .unwrap_or(false);
+                let final_height = if let Some(border_box_h) = inputs.known_dimensions.height { border_box_h } else {
+                    // Check if parent is a grid container and available_space is definite
+                    let parent_is_grid = self
+                        .tree
+                        .get(node_idx)
+                        .and_then(|n| n.parent)
+                        .and_then(|p| self.tree.get(p))
+                        .is_some_and(|p| matches!(p.formatting_context, FormattingContext::Grid));
 
-                        if parent_is_grid {
-                            // For grid items, use available space if content is smaller
-                            match inputs.available_space.height {
-                                AvailableSpace::Definite(h) => {
-                                    // Grid items stretch to fill their cell by default
-                                    // Use the larger of content size or available space
-                                    h.max(border_box_height)
-                                }
-                                _ => border_box_height,
+                    if parent_is_grid {
+                        // For grid items, use available space if content is smaller
+                        match inputs.available_space.height {
+                            AvailableSpace::Definite(h) => {
+                                // Grid items stretch to fill their cell by default
+                                // Use the larger of content size or available space
+                                h.max(border_box_height)
                             }
-                        } else {
-                            border_box_height
+                            _ => border_box_height,
                         }
+                    } else {
+                        border_box_height
                     }
                 };
 
                 // CRITICAL: Transfer positions from layout_formatting_context to child nodes.
                 // Without this, children of flex items won't have their relative_position set,
                 // causing them to all render at (0,0) relative to their parent.
-                for (child_idx, child_pos) in output.positions.iter() {
+                for (child_idx, child_pos) in &output.positions {
                     if let Some(child_warm) = self.tree.warm_mut(*child_idx) {
                         child_warm.relative_position = Some(*child_pos);
                     }
@@ -1948,7 +1941,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait> CacheTree for TaffyBridge<'a, 'b, T> {
+impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     fn cache_get(
         &self,
         node_id: taffy::NodeId,
@@ -1982,7 +1975,7 @@ impl<'a, 'b, T: ParsedFontTrait> CacheTree for TaffyBridge<'a, 'b, T> {
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait> LayoutFlexboxContainer for TaffyBridge<'a, 'b, T> {
+impl<T: ParsedFontTrait> LayoutFlexboxContainer for TaffyBridge<'_, '_, T> {
     type FlexboxContainerStyle<'c>
         = Style
     where
@@ -2004,7 +1997,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutFlexboxContainer for TaffyBridge<'a, 'b, 
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'a, 'b, T> {
+impl<T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'_, '_, T> {
     type GridContainerStyle<'c>
         = Style
     where
@@ -2025,6 +2018,8 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'a, 'b, T> 
 
 // --- Conversion Functions ---
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn from_layout_width(
     val: LayoutWidth,
     calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
@@ -2033,20 +2028,17 @@ fn from_layout_width(
 ) -> Dimension {
     match val {
         LayoutWidth::Auto => Dimension::auto(),
-        LayoutWidth::Px(px) => {
-            match pixel_value_to_pixels_fallback(&px) {
-                Some(pixels) => Dimension::length(pixels),
-                None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p.get()),
-                    None => Dimension::auto(),
-                },
-            }
-        }
+        LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+            || px.to_percent().map_or_else(Dimension::auto, |p| Dimension::percent(p.get())),
+            Dimension::length,
+        ),
         LayoutWidth::MinContent | LayoutWidth::MaxContent | LayoutWidth::FitContent(_) => Dimension::auto(),
         LayoutWidth::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn from_layout_height(
     val: LayoutHeight,
     calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
@@ -2055,15 +2047,10 @@ fn from_layout_height(
 ) -> Dimension {
     match val {
         LayoutHeight::Auto => Dimension::auto(),
-        LayoutHeight::Px(px) => {
-            match pixel_value_to_pixels_fallback(&px) {
-                Some(pixels) => Dimension::length(pixels),
-                None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p.get()),
-                    None => Dimension::auto(),
-                },
-            }
-        }
+        LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+            || px.to_percent().map_or_else(Dimension::auto, |p| Dimension::percent(p.get())),
+            Dimension::length,
+        ),
         LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => Dimension::auto(),
         LayoutHeight::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }
@@ -2074,6 +2061,7 @@ fn from_layout_height(
 ///
 /// The `Box` ensures the address doesn't move when the outer `Vec` reallocates.
 /// The `RefCell<Vec<…>>` keeps all boxes alive for the layout pass duration.
+#[allow(clippy::vec_box)] // calc_storage Box gives stable addresses for taffy calc() pointers
 fn store_calc_and_make_dimension(
     items: CalcAstItemVec,
     storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
@@ -2081,13 +2069,14 @@ fn store_calc_and_make_dimension(
     rem_size: f32,
 ) -> Dimension {
     let boxed = Box::new(CalcResolveContext { items, em_size, rem_size });
-    let ptr: *const CalcResolveContext = &*boxed;
+    let ptr: *const CalcResolveContext = &raw const *boxed;
     storage.borrow_mut().push(boxed);
     // SAFETY: Box gives ≥8-byte-aligned heap pointer; taffy masks low 3 bits.
-    Dimension::calc(ptr as *const ())
+    Dimension::calc(ptr.cast::<()>())
 }
 
-fn from_layout_position(val: LayoutPosition) -> Position {
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn from_layout_position(val: LayoutPosition) -> Position {
     match val {
         LayoutPosition::Static => Position::Relative, // Taffy treats Static as Relative
         LayoutPosition::Relative => Position::Relative,

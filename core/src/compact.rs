@@ -8,6 +8,9 @@ use crate::dom::{NodeData, NodeId};
 use crate::prop_cache::CssPropertyCache;
 
 use crate::styled_dom::StyledNodeState;
+// wildcard import: this module is the consumer of the whole compact_cache codec
+// (encode/decode helpers + sentinel consts); enumerating them is unmaintainable.
+#[allow(clippy::wildcard_imports)]
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
 use azul_css::props::property::CssProperty;
@@ -20,7 +23,7 @@ use alloc::vec::Vec;
 use crate::hash::DefaultHasher;
 
 impl CssPropertyCache {
-    /// Build a CompactLayoutCache from the current property cache state.
+    /// Build a `CompactLayoutCache` from the current property cache state.
     ///
     /// Must be called after `restyle()`, `apply_ua_css()`, and `compute_inherited_values()`.
     /// Resolves all layout-relevant properties for every node in the "normal" state
@@ -34,6 +37,11 @@ impl CssPropertyCache {
     /// When non-empty, each node's new `font_family_hash` is compared against the
     /// previous value, and differing nodes are recorded in `font_dirty_nodes`.
     /// On the first build (empty slice), ALL text nodes are marked dirty.
+    // fixed-point encoders: z-index and line-height (%×10) are range-checked
+    // against the i16 sentinel threshold before the deliberate narrowing cast.
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn build_compact_cache(
         &self,
         node_data: &[NodeData],
@@ -43,9 +51,8 @@ impl CssPropertyCache {
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
 
-        for i in 0..node_count {
+        for (i, nd) in node_data.iter().enumerate().take(node_count) {
             let node_id = NodeId::new(i);
-            let nd = &node_data[i];
 
             // =====================================================================
             // Tier 1: Encode all 20 enum properties into u64
@@ -275,7 +282,7 @@ impl CssPropertyCache {
                     match exact {
                         LayoutZIndex::Auto => result.tier2_cold[i].z_index = I16_AUTO,
                         LayoutZIndex::Integer(z) => {
-                            if *z >= I16_SENTINEL_THRESHOLD as i32 {
+                            if *z >= i32::from(I16_SENTINEL_THRESHOLD) {
                                 result.tier2_cold[i].z_index = I16_SENTINEL;
                             } else {
                                 result.tier2_cold[i].z_index = *z as i16;
@@ -355,7 +362,7 @@ impl CssPropertyCache {
                 if let Some(color) = val.get_property() {
                     let c = &color.inner;
                     result.tier2b_text[i].text_color =
-                        ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32);
+                        (u32::from(c.r) << 24) | (u32::from(c.g) << 16) | (u32::from(c.b) << 8) | u32::from(c.a);
                 }
             }
 
@@ -378,7 +385,7 @@ impl CssPropertyCache {
                     // Internal number = percentage × 1000 (e.g. 120% → 120_000).
                     // We store percentage × 10 as i16 (e.g. 120% → 1200).
                     let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                    if pct_x10 >= -32768 && pct_x10 < I16_SENTINEL_THRESHOLD as i32 {
+                    if pct_x10 >= -32768 && pct_x10 < i32::from(I16_SENTINEL_THRESHOLD) {
                         result.tier2b_text[i].line_height = pct_x10 as i16;
                     } else {
                         result.tier2b_text[i].line_height = I16_SENTINEL;
@@ -427,10 +434,10 @@ impl CssPropertyCache {
     /// Replaces the separate `compute_inherited_values()` + `build_compact_cache()` calls.
     /// For each node (in DOM index order, which is pre-order = parents before children):
     ///   1. Copy parent's compact values for INHERITABLE properties
-    ///   2. Apply this node's CSS properties on top (from css_props + inline + UA)
+    ///   2. Apply this node's CSS properties on top (from `css_props` + inline + UA)
     ///   3. Write directly to compact arrays
     ///
-    /// This eliminates 50K Vec clones from compute_inherited_values and
+    /// This eliminates 50K Vec clones from `compute_inherited_values` and
     /// avoids re-reading properties from 5 separate data structures.
     pub fn build_compact_cache_with_inheritance(
         &self,
@@ -442,6 +449,7 @@ impl CssPropertyCache {
     }
 
     /// Same as `build_compact_cache_with_inheritance` but with optional debug logging.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn build_compact_cache_with_inheritance_debug(
         &self,
         node_data: &[NodeData],
@@ -449,6 +457,17 @@ impl CssPropertyCache {
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
+        // Inheritable tier1 CSS fields (font-weight/style, text-align, visibility,
+        // white-space, direction, border-collapse). Copied from parent in Step 1.
+        const INHERITABLE_TIER1_MASK: u64 =
+            (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
+            | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
+            | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
+            | (VISIBILITY_MASK << VISIBILITY_SHIFT)
+            | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
+            | (DIRECTION_MASK << DIRECTION_SHIFT)
+            | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
+
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -470,7 +489,7 @@ impl CssPropertyCache {
                     ($variant:ident, $shift:ident, $mask:ident, $encoder:ident) => {
                         if let CssProperty::$variant(v) = prop {
                             if let Some(exact) = v.get_property() {
-                                let encoded = $encoder(*exact) as u64;
+                                let encoded = u64::from($encoder(*exact));
                                 let shifted_mask = $mask << $shift;
                                 global_tier1 = (global_tier1 & !shifted_mask) | ((encoded & $mask) << $shift);
                             }
@@ -552,15 +571,6 @@ impl CssPropertyCache {
             // Non-inheritable fields (display, position, float, overflow, box-sizing,
             // flex-*, clear, vertical-align, writing-mode) stay at 0 (CSS initial value).
             // They get set by UA CSS (Step 2) and author CSS (Step 3).
-            const INHERITABLE_TIER1_MASK: u64 =
-                (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
-                | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
-                | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
-                | (VISIBILITY_MASK << VISIBILITY_SHIFT)
-                | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
-                | (DIRECTION_MASK << DIRECTION_SHIFT)
-                | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
-
             let parent_id = node_hierarchy[i].parent_id();
             if let Some(pid) = parent_id {
                 let pi = pid.index();
@@ -614,7 +624,7 @@ impl CssPropertyCache {
             // would overwrite the inherited `color: red` on a Text child of `<p>`,
             // even though `<p>` correctly got red from `p { color: red }`.
             if !nd.is_text_node() {
-                for prop in self.global_css_props.iter() {
+                for prop in &self.global_css_props {
                     apply_css_property_to_compact(
                         prop,
                         &mut result.tier1_enums[i],
@@ -681,7 +691,7 @@ impl CssPropertyCache {
                 // to a jump table that remill mis-lifts (never reaches the right arm) — same class as the
                 // CssProperty::clone bug. With the conversion-clone fix the prop discriminant is now
                 // correct, so these compares match and apply the value; everything else falls back.
-                use azul_css::props::property::CssProperty;
+                // (CssProperty is imported at module top.)
                 if let CssProperty::Width(v) = prop {
                     result.tier2_dims[i].width = encode_layout_width(v);
                 } else if let CssProperty::Height(v) = prop {
@@ -692,9 +702,9 @@ impl CssPropertyCache {
                     }
                 } else if let CssProperty::Display(v) = prop {
                     if let Some(e) = v.get_property() {
-                        let enc = azul_css::compact_cache::layout_display_to_u8(*e) as u64;
-                        let m = azul_css::compact_cache::DISPLAY_MASK;
-                        let s = azul_css::compact_cache::DISPLAY_SHIFT;
+                        let enc = u64::from(layout_display_to_u8(*e));
+                        let m = DISPLAY_MASK;
+                        let s = DISPLAY_SHIFT;
                         result.tier1_enums[i] = (result.tier1_enums[i] & !(m << s)) | ((enc & m) << s);
                     }
                 } else {
@@ -791,7 +801,7 @@ fn apply_ua_css_to_compact(
 
 /// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
 /// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
-/// Pre-order traversal guarantees parent's font_size is already resolved.
+/// Pre-order traversal guarantees parent's `font_size` is already resolved.
 fn resolve_font_size_to_px(
     tier2_dims: &mut [CompactNodeProps],
     node_idx: usize,
@@ -807,20 +817,17 @@ fn resolve_font_size_to_px(
     };
 
     let parent_font_size_px = parent_id
-        .map(|pid| {
+        .map_or(16.0, |pid| {
             decode_pixel_value_u32(tier2_dims[pid.index()].font_size)
-                .map(|ppv| ppv.number.get())
-                .unwrap_or(16.0)
-        })
-        .unwrap_or(16.0);
+                .map_or(16.0, |ppv| ppv.number.get())
+        });
 
     let resolved_px = match pv.metric {
         SizeMetric::Em => pv.number.get() * parent_font_size_px,
         SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
         SizeMetric::Rem => {
             decode_pixel_value_u32(tier2_dims[0].font_size)
-                .map(|rpv| rpv.number.get())
-                .unwrap_or(16.0)
+                .map_or(16.0, |rpv| rpv.number.get())
                 * pv.number.get()
         }
         SizeMetric::Pt => pv.number.get() * 96.0 / 72.0,
@@ -834,9 +841,19 @@ fn resolve_font_size_to_px(
 // Direct CssProperty → compact field writer
 // =============================================================================
 
-/// Apply a single CssProperty directly to the compact representation.
+/// Apply a single `CssProperty` directly to the compact representation.
 /// Called once per property per node — replaces the old 56+ getter approach.
 #[inline]
+// The scrollbar-* and counter-* arms have identical bodies
+// (`if v.get_property().is_some() { flags |= … }`) but each variant wraps a
+// DIFFERENT value type (StyleBackgroundContentValue, LayoutScrollbarWidthValue,
+// StyleScrollbarColorValue, CounterResetValue, CounterIncrementValue, …), so an
+// or-pattern binding `v` cannot be expressed across them.
+#[allow(clippy::match_same_arms)]
+// fixed-point encoders: z-index / line-height are range-checked before the
+// narrowing cast, and opacity is clamped to [0,1] then scaled to [0,254] (u8).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn apply_css_property_to_compact(
     prop: &CssProperty,
     tier1: &mut u64,
@@ -848,7 +865,7 @@ fn apply_css_property_to_compact(
     macro_rules! set_tier1 {
         ($v:expr, $shift:expr, $mask:expr, $encoder:ident) => {
             if let Some(exact) = $v.get_property() {
-                let encoded = $encoder(*exact) as u64;
+                let encoded = u64::from($encoder(*exact));
                 let shifted_mask = $mask << $shift;
                 *tier1 = (*tier1 & !shifted_mask) | ((encoded & $mask) << $shift);
             }
@@ -963,32 +980,32 @@ fn apply_css_property_to_compact(
                 match exact {
                     LayoutZIndex::Auto => cold.z_index = I16_AUTO,
                     LayoutZIndex::Integer(z) => {
-                        cold.z_index = if *z >= I16_SENTINEL_THRESHOLD as i32 { I16_SENTINEL } else { *z as i16 };
+                        cold.z_index = if *z >= i32::from(I16_SENTINEL_THRESHOLD) { I16_SENTINEL } else { *z as i16 };
                     }
                 }
             }
         }
         CssProperty::BorderTopStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0x000F) | bs;
             }
         }
         CssProperty::BorderRightStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0x00F0) | (bs << 4);
             }
         }
         CssProperty::BorderBottomStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0x0F00) | (bs << 8);
             }
         }
         CssProperty::BorderLeftStyle(v) => {
             if let Some(exact) = v.get_property() {
-                let bs = border_style_to_u8(exact.inner) as u16;
+                let bs = u16::from(border_style_to_u8(exact.inner));
                 cold.border_styles_packed = (cold.border_styles_packed & !0xF000) | (bs << 12);
             }
         }
@@ -1020,7 +1037,7 @@ fn apply_css_property_to_compact(
         CssProperty::TextColor(v) => {
             if let Some(color) = v.get_property() {
                 let c = &color.inner;
-                text.text_color = ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32);
+                text.text_color = (u32::from(c.r) << 24) | (u32::from(c.g) << 16) | (u32::from(c.b) << 8) | u32::from(c.a);
             }
         }
         CssProperty::FontFamily(v) => {
@@ -1036,7 +1053,7 @@ fn apply_css_property_to_compact(
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
                 let pct_x10 = (lh.inner.normalized() * 1000.0).round() as i32;
-                if pct_x10 >= -32768 && pct_x10 < I16_SENTINEL_THRESHOLD as i32 {
+                if pct_x10 >= -32768 && pct_x10 < i32::from(I16_SENTINEL_THRESHOLD) {
                     text.line_height = pct_x10 as i16;
                 } else {
                     text.line_height = I16_SENTINEL;
@@ -1095,16 +1112,12 @@ fn apply_css_property_to_compact(
         CssProperty::TransformOrigin(v) => {
             if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_TRANSFORM_ORIGIN; }
         }
-        CssProperty::BoxShadowTop(v) => {
-            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
-        }
-        CssProperty::BoxShadowBottom(v) => {
-            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
-        }
-        CssProperty::BoxShadowLeft(v) => {
-            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
-        }
-        CssProperty::BoxShadowRight(v) => {
+        // All four shadow sides wrap the same StyleBoxShadowValue and set the
+        // single has-box-shadow bit.
+        CssProperty::BoxShadowTop(v)
+        | CssProperty::BoxShadowBottom(v)
+        | CssProperty::BoxShadowLeft(v)
+        | CssProperty::BoxShadowRight(v) => {
             if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
         }
         CssProperty::TextDecoration(v) => {
@@ -1167,10 +1180,8 @@ fn apply_css_property_to_compact(
         CssProperty::CounterIncrement(v) => {
             if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER; }
         }
-        CssProperty::BreakBefore(v) => {
-            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_BREAK; }
-        }
-        CssProperty::BreakAfter(v) => {
+        // Both break-before/after wrap PageBreakValue and set the has-break bit.
+        CssProperty::BreakBefore(v) | CssProperty::BreakAfter(v) => {
             if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_BREAK; }
         }
         CssProperty::TextOrientation(v) => {
@@ -1198,7 +1209,7 @@ fn apply_css_property_to_compact(
 /// per property per node so that when a flag bit is clear, callers
 /// (e.g. `translate_to_text3_constraints`) can skip the cascade walk and use
 /// the default value — the slow walk would never find a declaration anyway.
-fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
+const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
     // Only mark if the property value is actually "set" (not Auto/Initial/etc.).
     // Using `get_property().is_some()` mirrors the pattern used elsewhere in
     // this builder for has-X bits.
@@ -1234,9 +1245,11 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
 // Helper encoders for dimension properties
 // =============================================================================
 
-/// Encode a GridLine into i16: Auto=I16_AUTO, Line(n)=n, Span(n)=-(n).
-/// Named lines fall back to I16_SENTINEL (not compact-encodable).
-fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
+/// Encode a `GridLine` into i16: `Auto=I16_AUTO`, Line(n)=n, Span(n)=-(n).
+/// Named lines fall back to `I16_SENTINEL` (not compact-encodable).
+// const fn: the `n as i16` casts are guarded by explicit +/-32000 range checks.
+#[allow(clippy::cast_possible_truncation)]
+const fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
     use azul_css::props::layout::grid::GridLine;
     match line {
         GridLine::Auto => I16_AUTO,
@@ -1250,7 +1263,7 @@ fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
     }
 }
 
-/// Encode a CssPropertyValue<LayoutWidth> into u32 compact form.
+/// Encode a `CssPropertyValue`<LayoutWidth> into u32 compact form.
 fn encode_layout_width<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
     match val {
         CssPropertyValue::Exact(w) => w.encode_compact_u32(),
@@ -1262,13 +1275,13 @@ fn encode_layout_width<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
     }
 }
 
-/// Encode a CssPropertyValue<LayoutHeight> into u32 compact form.
+/// Encode a `CssPropertyValue`<LayoutHeight> into u32 compact form.
 fn encode_layout_height<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
     encode_layout_width(val)
 }
 
 /// Trait for types that can be encoded as compact u32 dimension values.
-/// Implemented for LayoutWidth, LayoutHeight (which are Auto|Px|MinContent|MaxContent|Calc enums).
+/// Implemented for `LayoutWidth`, `LayoutHeight` (which are Auto|Px|MinContent|MaxContent|Calc enums).
 trait LayoutWidthLike {
     fn encode_compact_u32(&self) -> u32;
 }
@@ -1276,12 +1289,12 @@ trait LayoutWidthLike {
 impl LayoutWidthLike for LayoutWidth {
     fn encode_compact_u32(&self) -> u32 {
         match self {
-            LayoutWidth::Auto => U32_AUTO,
-            LayoutWidth::Px(pv) => encode_pixel_value_u32(pv),
-            LayoutWidth::MinContent => U32_MIN_CONTENT,
-            LayoutWidth::MaxContent => U32_MAX_CONTENT,
-            LayoutWidth::FitContent(_) => U32_SENTINEL,
-            LayoutWidth::Calc(_) => U32_SENTINEL, // Calc → overflow to tier 3
+            Self::Auto => U32_AUTO,
+            Self::Px(pv) => encode_pixel_value_u32(pv),
+            Self::MinContent => U32_MIN_CONTENT,
+            Self::MaxContent => U32_MAX_CONTENT,
+            // FitContent/Calc are not compact-encodable → overflow to tier 3.
+            Self::FitContent(_) | Self::Calc(_) => U32_SENTINEL,
         }
     }
 }
@@ -1289,17 +1302,17 @@ impl LayoutWidthLike for LayoutWidth {
 impl LayoutWidthLike for LayoutHeight {
     fn encode_compact_u32(&self) -> u32 {
         match self {
-            LayoutHeight::Auto => U32_AUTO,
-            LayoutHeight::Px(pv) => encode_pixel_value_u32(pv),
-            LayoutHeight::MinContent => U32_MIN_CONTENT,
-            LayoutHeight::MaxContent => U32_MAX_CONTENT,
-            LayoutHeight::FitContent(_) => U32_SENTINEL,
-            LayoutHeight::Calc(_) => U32_SENTINEL,
+            Self::Auto => U32_AUTO,
+            Self::Px(pv) => encode_pixel_value_u32(pv),
+            Self::MinContent => U32_MIN_CONTENT,
+            Self::MaxContent => U32_MAX_CONTENT,
+            // FitContent/Calc are not compact-encodable → overflow to tier 3.
+            Self::FitContent(_) | Self::Calc(_) => U32_SENTINEL,
         }
     }
 }
 
-/// Encode a CssPropertyValue wrapping a simple PixelValue struct (LayoutMinWidth, etc.)
+/// Encode a `CssPropertyValue` wrapping a simple `PixelValue` struct (`LayoutMinWidth`, etc.)
 fn encode_pixel_prop<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> u32 {
     match val {
         CssPropertyValue::Exact(inner) => encode_pixel_value_u32(&inner.get_inner_pixel()),
@@ -1356,7 +1369,7 @@ impl_has_inner_pixel!(
     azul_css::props::style::text::StyleTabSize
 );
 
-/// Encode a CssPropertyValue<T> where T wraps a PixelValue, as i16 (×10 resolved px).
+/// Encode a `CssPropertyValue`<T> where T wraps a `PixelValue`, as i16 (×10 resolved px).
 /// Delegates to the canonical `azul_css::compact_cache::encode_css_pixel_as_i16`.
 fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     let mapped = match val {
@@ -1370,12 +1383,12 @@ fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> 
     azul_css::compact_cache::encode_css_pixel_as_i16(&mapped)
 }
 
-/// Encode margin: same as encode_css_pixel_as_i16 but Auto is a distinct value.
+/// Encode margin: same as `encode_css_pixel_as_i16` but Auto is a distinct value.
 fn encode_margin_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     encode_css_pixel_as_i16(val)
 }
 
-/// Encode CssPropertyValue<LayoutFlexBasis> — LayoutFlexBasis is Auto | Exact(PixelValue).
+/// Encode `CssPropertyValue`<LayoutFlexBasis> — `LayoutFlexBasis` is Auto | Exact(PixelValue).
 fn encode_flex_basis(val: &CssPropertyValue<LayoutFlexBasis>) -> u32 {
     match val {
         CssPropertyValue::Exact(fb) => match fb {

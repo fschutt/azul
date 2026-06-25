@@ -33,18 +33,19 @@ use crate::solver3::{getters::{get_overflow_x, get_overflow_y}, layout_tree::Lay
 /// far outside any realistic logical-pixel coordinate.
 const CLIP_UNBOUNDED: f32 = 1.0e7;
 
-/// CPU-based hit tester that works without WebRender.
+/// CPU-based hit tester that works without `WebRender`.
 ///
 /// In the GPU path, hit testing is done by `AsyncHitTester` which queries
-/// WebRender's spatial tree. In headless mode, we do hit testing directly
+/// `WebRender`'s spatial tree. In headless mode, we do hit testing directly
 /// against the layout results (positioned rectangles).
 ///
-/// This is actually simpler and faster than the WebRender path, since we
+/// This is actually simpler and faster than the `WebRender` path, since we
 /// don't need to go through the compositor's spatial tree — we just walk
 /// the layout result nodes and check point-in-rect.
+#[derive(Debug)]
 pub struct CpuHitTester {
     /// Cached hit test results from the last layout.
-    /// Maps DomId -> list of (NodeId, positioned rect) sorted by paint order.
+    /// Maps `DomId` -> list of (`NodeId`, positioned rect) sorted by paint order.
     node_rects: BTreeMap<DomId, Vec<HitTestEntry>>,
 }
 
@@ -69,15 +70,15 @@ impl Default for CpuHitTester {
 
 impl CpuHitTester {
     /// Create a new empty hit tester.
-    pub fn new() -> Self {
+    #[must_use] pub const fn new() -> Self {
         Self {
             node_rects: BTreeMap::new(),
         }
     }
 
-    /// Sum of HitTestEntry counts across all DomIds (for leak probes).
-    pub fn node_rects_total(&self) -> usize {
-        self.node_rects.values().map(|v| v.len()).sum()
+    /// Sum of `HitTestEntry` counts across all `DomIds` (for leak probes).
+    #[must_use] pub fn node_rects_total(&self) -> usize {
+        self.node_rects.values().map(Vec::len).sum()
     }
 
     /// Rebuild the hit test structure from layout results.
@@ -113,7 +114,7 @@ impl CpuHitTester {
                     placements.get(host_dom).map(|r| r.origin)
                 };
                 let Some(host_offset) = host_offset else { continue };
-                for item in lr.display_list.items.iter() {
+                for item in &lr.display_list.items {
                     if let crate::solver3::display_list::DisplayListItem::VirtualView {
                         child_dom_id,
                         bounds,
@@ -148,17 +149,13 @@ impl CpuHitTester {
             let styled_dom = &layout_result.styled_dom;
 
             // Child DOM: shift into window space + clip to the composite rect.
-            let (offset, dom_clip) = match placements.get(dom_id) {
-                Some(b) => (b.origin, Some(*b)),
-                None => (LogicalPosition::zero(), None),
-            };
+            let (offset, dom_clip) = placements.get(dom_id).map_or_else(|| (LogicalPosition::zero(), None), |b| (b.origin, Some(*b)));
 
             // Walk the layout nodes and their computed positions
             for (idx, node) in nodes.iter().enumerate() {
                 // Only include nodes that map to a real DOM node
-                let node_id = match node.dom_node_id {
-                    Some(id) => id,
-                    None => continue, // skip anonymous boxes
+                let Some(node_id) = node.dom_node_id else {
+                    continue; // skip anonymous boxes
                 };
 
                 // Get the position for this layout node
@@ -168,9 +165,8 @@ impl CpuHitTester {
                 };
 
                 // Get the computed size
-                let size = match node.used_size {
-                    Some(s) => s,
-                    None => continue,
+                let Some(size) = node.used_size else {
+                    continue;
                 };
 
                 let rect = LogicalRect {
@@ -205,7 +201,7 @@ impl CpuHitTester {
     /// Perform a hit test at the given position.
     ///
     /// Returns nodes hit at (x, y) in reverse paint order (topmost first).
-    pub fn hit_test(
+    #[must_use] pub fn hit_test(
         &self,
         position: LogicalPosition,
     ) -> Vec<(DomId, NodeId)> {
@@ -245,7 +241,7 @@ fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
 }
 
 /// Compute the hit-test clip rect for a layout node: the intersection of the
-/// host VirtualView composite bounds (`dom_clip`) and every clipping ancestor's
+/// host `VirtualView` composite bounds (`dom_clip`) and every clipping ancestor's
 /// border box (any `overflow` other than `visible`).
 ///
 /// Clipping is tracked per-axis because `overflow-x` / `overflow-y` are
@@ -254,6 +250,7 @@ fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
 /// ancestor box used is the border box (`used_size`); CSS clips at the padding
 /// edge, but the slightly larger border box is a safe over-inclusion for point
 /// hit-testing and avoids resolving padding/border here.
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 fn compute_node_clip(
     styled_dom: &StyledDom,
     nodes: &[LayoutNodeHot],

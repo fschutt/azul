@@ -24,12 +24,12 @@ fn test_grid_template_areas_parsing() {
     let (css, warnings) = Css::from_string_with_warnings(css_text.to_string().into());
 
     for w in &warnings {
-        eprintln!("WARNING: {:?}", w);
+        eprintln!("WARNING: {w:?}");
     }
 
-    let warning_strs: Vec<String> = warnings.iter().map(|w| format!("{:?}", w)).collect();
+    let warning_strs: Vec<String> = warnings.iter().map(|w| format!("{w:?}")).collect();
     for w in &warning_strs {
-        eprintln!("  WARNING: {}", w);
+        eprintln!("  WARNING: {w}");
     }
 
     let has_grid_area_warning = warning_strs.iter().any(|w| {
@@ -37,8 +37,7 @@ fn test_grid_template_areas_parsing() {
     });
     assert!(
         !has_grid_area_warning,
-        "grid-area or grid-template-areas should parse without warnings! Warnings: {:?}",
-        warning_strs
+        "grid-area or grid-template-areas should parse without warnings! Warnings: {warning_strs:?}"
     );
 
     // Check that grid-template-areas was actually parsed
@@ -47,7 +46,7 @@ fn test_grid_template_areas_parsing() {
     for rule in &rules {
         eprintln!("Rule: {:?}", rule.path);
         for decl in rule.declarations.as_ref() {
-            eprintln!("  Decl: {:?}", decl);
+            eprintln!("  Decl: {decl:?}");
         }
     }
 
@@ -143,11 +142,11 @@ fn test_exact_xhtml_style_content() {
                 background: #30cfd0;
             }"#;
 
-    let (css, warnings) = Css::from_string_with_warnings(css_text.to_string().into());
+    let (_css, warnings) = Css::from_string_with_warnings(css_text.to_string().into());
 
-    let warning_strs: Vec<String> = warnings.iter().map(|w| format!("{:?}", w)).collect();
+    let warning_strs: Vec<String> = warnings.iter().map(|w| format!("{w:?}")).collect();
     for w in &warning_strs {
-        eprintln!("  WARNING: {}", w);
+        eprintln!("  WARNING: {w}");
     }
 
     let has_grid_warning = warning_strs.iter().any(|w| {
@@ -155,7 +154,6 @@ fn test_exact_xhtml_style_content() {
     });
     assert!(
         !has_grid_warning,
-        "Should parse without grid warnings! Got: {:?}",
-        warning_strs
+        "Should parse without grid warnings! Got: {warning_strs:?}"
     );
 }

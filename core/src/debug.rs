@@ -46,7 +46,7 @@ pub enum DebugCategory {
     Text,
     /// Display list generation
     DisplayList,
-    /// WebRender scene building
+    /// `WebRender` scene building
     SceneBuilding,
     /// GPU rendering
     Rendering,

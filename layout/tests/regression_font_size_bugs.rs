@@ -374,8 +374,7 @@ fn test_h1_margin_uses_own_font_size() {
     let expected = 0.67 * 32.0; // 21.44px
     assert!(
         (resolved_margin - expected).abs() < 0.01,
-        "H1 margin: 0.67em * 32px (own) = 21.44px, got {}",
-        resolved_margin
+        "H1 margin: 0.67em * 32px (own) = 21.44px, got {resolved_margin}"
     );
 
     // Contrast with font-size resolution
@@ -440,12 +439,10 @@ fn test_regression_summary() {
     let wrong_inherit = em_factor * parent_font_size; // 64px
     let correct_inherit = parent_font_size; // 32px
     println!(
-        "  Wrong: Child inherits 2em chain, resolves to 2*32 = {}px",
-        wrong_inherit
+        "  Wrong: Child inherits 2em chain, resolves to 2*32 = {wrong_inherit}px"
     );
     println!(
-        "  Correct: Child inherits computed 32px value = {}px",
-        correct_inherit
+        "  Correct: Child inherits computed 32px value = {correct_inherit}px"
     );
     assert_eq!(wrong_inherit, 64.0);
     assert_eq!(correct_inherit, 32.0);

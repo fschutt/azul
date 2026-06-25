@@ -82,7 +82,7 @@ const THUMB_ACTIVE_DARKEN: u8 = 15;
 /// `compute_all_font_sizes_px` walker mirrors the original's
 /// `computed_values` → cascade → `DEFAULT_FONT_SIZE` ordering,
 /// so rendered pixels are byte-identical.
-pub fn get_element_font_size(
+#[must_use] pub fn get_element_font_size(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
@@ -111,7 +111,7 @@ pub fn get_element_font_size(
 ///
 /// Preserves the original resolution order exactly:
 ///
-/// 1. `computed_values` binary search → if FontSize is pre-
+/// 1. `computed_values` binary search → if `FontSize` is pre-
 ///    resolved to a px value, use that.
 /// 2. Full cascade via `cache.get_font_size(...)`; if an explicit
 ///    value is present, resolve with context.
@@ -119,7 +119,7 @@ pub fn get_element_font_size(
 ///    because the `computed_values` short-circuit at step 1 is
 ///    the cascade's inheritance channel (pre-populated for every
 ///    inheriting node).
-fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> alloc::vec::Vec<f32> {
+fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> Vec<f32> {
     use azul_css::props::{
         basic::length::SizeMetric,
         property::{CssProperty, CssPropertyType},
@@ -156,9 +156,8 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> alloc::vec::Vec<f32> {
         // Step 2: full cascade walk.
         let parent_font_size = hierarchy
             .get(dom_id)
-            .and_then(|node| node.parent_id())
-            .map(|p| sizes[p.index()])
-            .unwrap_or(DEFAULT_FONT_SIZE);
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .map_or(DEFAULT_FONT_SIZE, |p| sizes[p.index()]);
         let root_font_size = sizes[0];
 
         let Some(node_data) = data_container.internal.get(idx) else {
@@ -215,7 +214,7 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> alloc::vec::Vec<f32> {
 
         let resolved = cache
             .get_font_size(node_data, &dom_id, node_state)
-            .and_then(|v| v.get_property().cloned())
+            .and_then(|v| v.get_property().copied())
             .map(|v| {
                 let context = ResolutionContext {
                     element_font_size: DEFAULT_FONT_SIZE,
@@ -249,10 +248,10 @@ fn resolve_font_size_slow(
 
     if let Some(vec) = cache.computed_values.get(dom_id.index()) {
         if let Ok(idx) = vec.binary_search_by_key(
-            &azul_css::props::property::CssPropertyType::FontSize,
+            &CssPropertyType::FontSize,
             |(k, _)| *k,
         ) {
-            if let azul_css::props::property::CssProperty::FontSize(css_val) = &vec[idx].1.property
+            if let CssProperty::FontSize(css_val) = &vec[idx].1.property
             {
                 if let Some(fs) = css_val.get_property() {
                     if fs.inner.metric == azul_css::props::basic::length::SizeMetric::Px {
@@ -267,9 +266,8 @@ fn resolve_font_size_slow(
         .node_hierarchy
         .as_container()
         .get(dom_id)
-        .and_then(|node| node.parent_id())
-        .map(|parent_id| resolve_font_size_slow(styled_dom, parent_id, node_state))
-        .unwrap_or(DEFAULT_FONT_SIZE);
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        .map_or(DEFAULT_FONT_SIZE, |parent_id| resolve_font_size_slow(styled_dom, parent_id, node_state));
 
     let root_font_size = if dom_id == NodeId::new(0) {
         DEFAULT_FONT_SIZE
@@ -279,8 +277,8 @@ fn resolve_font_size_slow(
 
     cache
         .get_font_size(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| {
+        .and_then(|v| v.get_property().copied())
+        .map_or(DEFAULT_FONT_SIZE, |v| {
             let context = ResolutionContext {
                 element_font_size: DEFAULT_FONT_SIZE,
                 parent_font_size,
@@ -292,7 +290,6 @@ fn resolve_font_size_slow(
             v.inner
                 .resolve_with_context(&context, PropertyContext::FontSize)
         })
-        .unwrap_or(DEFAULT_FONT_SIZE)
 }
 
 /// Helper function to get parent's computed font-size.
@@ -300,7 +297,7 @@ fn resolve_font_size_slow(
 /// Retrieves the parent's own `StyledNodeState` so that pseudo-class-specific
 /// font-size rules (e.g. `div:hover { font-size: 32px }`) are resolved
 /// against the parent's actual state, not the child's.
-pub fn get_parent_font_size(
+#[must_use] pub fn get_parent_font_size(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     _node_state: &StyledNodeState, // child's state — intentionally unused
@@ -309,19 +306,18 @@ pub fn get_parent_font_size(
         .node_hierarchy
         .as_container()
         .get(dom_id)
-        .and_then(|node| node.parent_id())
-        .map(|parent_id| {
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        .map_or(DEFAULT_FONT_SIZE, |parent_id| {
             let parent_state = &styled_dom.styled_nodes.as_container()[parent_id].styled_node_state;
             get_element_font_size(styled_dom, parent_id, parent_state)
         })
-        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
 }
 
 /// Helper function to get root element's font-size.
 ///
 /// Uses the root element's own `StyledNodeState` so that pseudo-class-specific
 /// rules are resolved correctly regardless of which node triggered the call.
-pub fn get_root_font_size(styled_dom: &StyledDom, _node_state: &StyledNodeState) -> f32 {
+#[must_use] pub fn get_root_font_size(styled_dom: &StyledDom, _node_state: &StyledNodeState) -> f32 {
     let root_id = NodeId::new(0);
     let root_state = &styled_dom.styled_nodes.as_container()[root_id].styled_node_state;
     get_element_font_size(styled_dom, root_id, root_state)
@@ -329,7 +325,7 @@ pub fn get_root_font_size(styled_dom: &StyledDom, _node_state: &StyledNodeState)
 
 /// A value that can be Auto, Initial, Inherit, or an explicit value.
 /// This preserves CSS cascade semantics better than Option<T>.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[derive(Default)]
 pub enum MultiValue<T> {
     /// CSS 'auto' keyword
@@ -345,19 +341,19 @@ pub enum MultiValue<T> {
 
 impl<T> MultiValue<T> {
     /// Returns true if this is an Auto value
-    pub fn is_auto(&self) -> bool {
-        matches!(self, MultiValue::Auto)
+    pub const fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
     }
 
     /// Returns true if this is an explicit value
-    pub fn is_exact(&self) -> bool {
-        matches!(self, MultiValue::Exact(_))
+    pub const fn is_exact(&self) -> bool {
+        matches!(self, Self::Exact(_))
     }
 
     /// Gets the exact value if present
     pub fn exact(self) -> Option<T> {
         match self {
-            MultiValue::Exact(v) => Some(v),
+            Self::Exact(v) => Some(v),
             _ => None,
         }
     }
@@ -365,18 +361,18 @@ impl<T> MultiValue<T> {
     /// Gets the exact value or returns the provided default
     pub fn unwrap_or(self, default: T) -> T {
         match self {
-            MultiValue::Exact(v) => v,
+            Self::Exact(v) => v,
             _ => default,
         }
     }
 
-    /// Gets the exact value or returns T::default()
+    /// Gets the exact value or returns `T::default()`
     pub fn unwrap_or_default(self) -> T
     where
         T: Default,
     {
         match self {
-            MultiValue::Exact(v) => v,
+            Self::Exact(v) => v,
             _ => T::default(),
         }
     }
@@ -387,10 +383,10 @@ impl<T> MultiValue<T> {
         F: FnOnce(T) -> U,
     {
         match self {
-            MultiValue::Exact(v) => MultiValue::Exact(f(v)),
-            MultiValue::Auto => MultiValue::Auto,
-            MultiValue::Initial => MultiValue::Initial,
-            MultiValue::Inherit => MultiValue::Inherit,
+            Self::Exact(v) => MultiValue::Exact(f(v)),
+            Self::Auto => MultiValue::Auto,
+            Self::Initial => MultiValue::Initial,
+            Self::Inherit => MultiValue::Inherit,
         }
     }
 }
@@ -399,10 +395,10 @@ impl<T> MultiValue<T> {
 impl MultiValue<LayoutOverflow> {
     /// Returns true if this overflow value causes content to be clipped.
     /// This includes Hidden, Clip, Auto, and Scroll (all values except Visible).
-    pub fn is_clipped(&self) -> bool {
+    #[must_use] pub const fn is_clipped(&self) -> bool {
         matches!(
             self,
-            MultiValue::Exact(
+            Self::Exact(
                 LayoutOverflow::Hidden
                     | LayoutOverflow::Clip
                     | LayoutOverflow::Auto
@@ -411,40 +407,40 @@ impl MultiValue<LayoutOverflow> {
         )
     }
 
-    pub fn is_scroll(&self) -> bool {
+    #[must_use] pub const fn is_scroll(&self) -> bool {
         matches!(
             self,
-            MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
+            Self::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
         )
     }
 
-    pub fn is_auto_overflow(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Auto))
+    #[must_use] pub const fn is_auto_overflow(&self) -> bool {
+        matches!(self, Self::Exact(LayoutOverflow::Auto))
     }
 
-    pub fn is_hidden(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Hidden))
+    #[must_use] pub const fn is_hidden(&self) -> bool {
+        matches!(self, Self::Exact(LayoutOverflow::Hidden))
     }
 
-    pub fn is_hidden_or_clip(&self) -> bool {
+    #[must_use] pub const fn is_hidden_or_clip(&self) -> bool {
         matches!(
             self,
-            MultiValue::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip)
+            Self::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip)
         )
     }
 
-    pub fn is_scroll_explicit(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Scroll))
+    #[must_use] pub const fn is_scroll_explicit(&self) -> bool {
+        matches!(self, Self::Exact(LayoutOverflow::Scroll))
     }
 
-    pub fn is_clip(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Clip))
+    #[must_use] pub const fn is_clip(&self) -> bool {
+        matches!(self, Self::Exact(LayoutOverflow::Clip))
     }
 
-    pub fn is_visible_or_clip(&self) -> bool {
+    #[must_use] pub const fn is_visible_or_clip(&self) -> bool {
         matches!(
             self,
-            MultiValue::Exact(LayoutOverflow::Visible | LayoutOverflow::Clip)
+            Self::Exact(LayoutOverflow::Visible | LayoutOverflow::Clip)
         )
     }
 
@@ -452,13 +448,13 @@ impl MultiValue<LayoutOverflow> {
     /// Resolves the computed value per CSS Overflow 3 § 3.1:
     /// visible/clip values compute to auto/hidden (respectively)
     /// if the other axis is neither visible nor clip.
-    pub fn resolve_computed(
+    #[must_use] pub const fn resolve_computed(
         &self,
-        other_axis: &MultiValue<LayoutOverflow>,
-    ) -> MultiValue<LayoutOverflow> {
+        other_axis: &Self,
+    ) -> Self {
         match (self, other_axis) {
-            (MultiValue::Exact(val), MultiValue::Exact(other)) => {
-                MultiValue::Exact(val.resolve_computed(*other))
+            (Self::Exact(val), Self::Exact(other)) => {
+                Self::Exact(val.resolve_computed(*other))
             }
             _ => *self,
         }
@@ -467,34 +463,34 @@ impl MultiValue<LayoutOverflow> {
 
 // Implement helper methods for LayoutPosition
 impl MultiValue<LayoutPosition> {
-    pub fn is_absolute_or_fixed(&self) -> bool {
+    #[must_use] pub const fn is_absolute_or_fixed(&self) -> bool {
         matches!(
             self,
-            MultiValue::Exact(LayoutPosition::Absolute | LayoutPosition::Fixed)
+            Self::Exact(LayoutPosition::Absolute | LayoutPosition::Fixed)
         )
     }
 }
 
 // Implement helper methods for LayoutFloat
 impl MultiValue<LayoutFloat> {
-    pub fn is_none(&self) -> bool {
+    #[must_use] pub const fn is_none(&self) -> bool {
         matches!(
             self,
-            MultiValue::Auto
-                | MultiValue::Initial
-                | MultiValue::Inherit
-                | MultiValue::Exact(LayoutFloat::None)
+            Self::Auto
+                | Self::Initial
+                | Self::Inherit
+                | Self::Exact(LayoutFloat::None)
         )
     }
 }
 
 
 /// Helper macro to reduce boilerplate for simple CSS property getters
-/// Returns the inner PixelValue wrapped in MultiValue
+/// Returns the inner `PixelValue` wrapped in `MultiValue`
 macro_rules! get_css_property_pixel {
     // Variant WITH compact cache fast path for i16-encoded resolved px properties
     ($fn_name:ident, $cache_method:ident, $ua_property:expr, compact_i16 = $compact_method:ident) => {
-        pub fn $fn_name(
+        #[must_use] pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -511,7 +507,7 @@ macro_rules! get_css_property_pixel {
                     }
                     if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                         // Valid value: decode i16 ×10 → px
-                        return MultiValue::Exact(PixelValue::px(raw as f32 / 10.0));
+                        return MultiValue::Exact(PixelValue::px(f32::from(raw) / 10.0));
                     }
                     // I16_SENTINEL or I16_INHERIT → fall through to slow path
                 }
@@ -544,82 +540,38 @@ macro_rules! get_css_property_pixel {
             MultiValue::Initial
         }
     };
-    // Variant WITHOUT compact cache (original behavior)
-    ($fn_name:ident, $cache_method:ident, $ua_property:expr) => {
-        pub fn $fn_name(
-            styled_dom: &StyledDom,
-            node_id: NodeId,
-            node_state: &StyledNodeState,
-        ) -> MultiValue<PixelValue> {
-            let node_data = &styled_dom.node_data.as_container()[node_id];
-
-            // 1. Check author CSS first (includes inline styles - highest priority)
-            let author_css = styled_dom
-                .css_property_cache
-                .ptr
-                .$cache_method(node_data, &node_id, node_state);
-
-            // NOTE: Check for Auto FIRST — CssPropertyValue::Auto is a valid value
-            // that should NOT fall through to UA CSS. Previously, get_property()
-            // returned None for Auto, causing inline "margin: auto" to be ignored.
-            if let Some(ref val) = author_css {
-                if val.is_auto() {
-                    return MultiValue::Auto;
-                }
-                if let Some(exact) = val.get_property().copied() {
-                    return MultiValue::Exact(exact.inner);
-                }
-                // For Initial, Inherit, None, Revert, Unset - fall through to UA CSS
-            }
-
-            // 2. Check User Agent CSS (only if author CSS didn't set a value)
-            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
-
-            if let Some(ua_prop) = ua_css {
-                if let Some(inner) = ua_prop.get_pixel_inner() {
-                    return MultiValue::Exact(inner);
-                }
-            }
-
-            // 3. Fallback to Initial (not set)
-            // IMPORTANT: Use Initial, not Auto! In CSS, the initial value for
-            // margin is 0, not auto. Using Auto here caused margins to be treated
-            // as "margin: auto" which blocks align-self: stretch in flexbox.
-            MultiValue::Initial
-        }
-    };
 }
 
-/// Helper trait to extract PixelValue from any CssProperty variant
+/// Helper trait to extract `PixelValue` from any `CssProperty` variant
 trait CssPropertyPixelInner {
     fn get_pixel_inner(&self) -> Option<PixelValue>;
 }
 
-impl CssPropertyPixelInner for azul_css::props::property::CssProperty {
+impl CssPropertyPixelInner for CssProperty {
     fn get_pixel_inner(&self) -> Option<PixelValue> {
         match self {
-            CssProperty::Left(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::Right(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::Top(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::Bottom(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::MarginLeft(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::MarginRight(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::MarginTop(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::MarginBottom(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::PaddingLeft(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::PaddingRight(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::PaddingTop(CssPropertyValue::Exact(v)) => Some(v.inner),
-            CssProperty::PaddingBottom(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::Left(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::Right(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::Top(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::Bottom(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::MarginLeft(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::MarginRight(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::MarginTop(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::MarginBottom(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::PaddingLeft(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::PaddingRight(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::PaddingTop(CssPropertyValue::Exact(v)) => Some(v.inner),
+            Self::PaddingBottom(CssPropertyValue::Exact(v)) => Some(v.inner),
             _ => None,
         }
     }
 }
 
-/// Generic macro for CSS properties with UA CSS fallback - returns MultiValue<T>
+/// Generic macro for CSS properties with UA CSS fallback - returns `MultiValue`<T>
 macro_rules! get_css_property {
     // Variant WITH compact cache fast path (for enum properties in Tier 1)
     ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr, compact = $compact_method:ident) => {
-        pub fn $fn_name(
+        #[must_use] pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -664,7 +616,7 @@ macro_rules! get_css_property {
     // Variant WITH compact cache for u32-encoded dimension enums (LayoutWidth/LayoutHeight)
     // These types have Auto, Px(PixelValue), MinContent, MaxContent, Calc variants
     ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr, compact_u32_dim = $compact_raw_method:ident, $px_variant:path, $auto_variant:path, $min_content_variant:path, $max_content_variant:path) => {
-        pub fn $fn_name(
+        #[must_use] pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -719,7 +671,7 @@ macro_rules! get_css_property {
     // Variant WITH compact cache for u32-encoded dimension structs (LayoutMinWidth etc.)
     // These types are struct { inner: PixelValue }
     ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr, compact_u32_struct = $compact_raw_method:ident) => {
-        pub fn $fn_name(
+        #[must_use] pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -770,7 +722,7 @@ macro_rules! get_css_property {
     };
     // Variant WITHOUT compact cache (original behavior)
     ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr) => {
-        pub fn $fn_name(
+        #[must_use] pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -807,16 +759,16 @@ trait ExtractPropertyValue<T> {
     fn extract(&self) -> Option<T>;
 }
 
-fn extract_property_value<T>(prop: &azul_css::props::property::CssProperty) -> Option<T>
+fn extract_property_value<T>(prop: &CssProperty) -> Option<T>
 where
-    azul_css::props::property::CssProperty: ExtractPropertyValue<T>,
+    CssProperty: ExtractPropertyValue<T>,
 {
     prop.extract()
 }
 
 // Implement extraction for all layout types
 
-impl ExtractPropertyValue<LayoutWidth> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutWidth> for CssProperty {
     fn extract(&self) -> Option<LayoutWidth> {
         match self {
             Self::Width(CssPropertyValue::Exact(v)) => Some(v.clone()),
@@ -825,7 +777,7 @@ impl ExtractPropertyValue<LayoutWidth> for azul_css::props::property::CssPropert
     }
 }
 
-impl ExtractPropertyValue<LayoutHeight> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutHeight> for CssProperty {
     fn extract(&self) -> Option<LayoutHeight> {
         match self {
             Self::Height(CssPropertyValue::Exact(v)) => Some(v.clone()),
@@ -834,7 +786,7 @@ impl ExtractPropertyValue<LayoutHeight> for azul_css::props::property::CssProper
     }
 }
 
-impl ExtractPropertyValue<LayoutMinWidth> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutMinWidth> for CssProperty {
     fn extract(&self) -> Option<LayoutMinWidth> {
         match self {
             Self::MinWidth(CssPropertyValue::Exact(v)) => Some(*v),
@@ -843,7 +795,7 @@ impl ExtractPropertyValue<LayoutMinWidth> for azul_css::props::property::CssProp
     }
 }
 
-impl ExtractPropertyValue<LayoutMinHeight> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutMinHeight> for CssProperty {
     fn extract(&self) -> Option<LayoutMinHeight> {
         match self {
             Self::MinHeight(CssPropertyValue::Exact(v)) => Some(*v),
@@ -852,7 +804,7 @@ impl ExtractPropertyValue<LayoutMinHeight> for azul_css::props::property::CssPro
     }
 }
 
-impl ExtractPropertyValue<LayoutMaxWidth> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutMaxWidth> for CssProperty {
     fn extract(&self) -> Option<LayoutMaxWidth> {
         match self {
             Self::MaxWidth(CssPropertyValue::Exact(v)) => Some(*v),
@@ -861,7 +813,7 @@ impl ExtractPropertyValue<LayoutMaxWidth> for azul_css::props::property::CssProp
     }
 }
 
-impl ExtractPropertyValue<LayoutMaxHeight> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutMaxHeight> for CssProperty {
     fn extract(&self) -> Option<LayoutMaxHeight> {
         match self {
             Self::MaxHeight(CssPropertyValue::Exact(v)) => Some(*v),
@@ -870,7 +822,7 @@ impl ExtractPropertyValue<LayoutMaxHeight> for azul_css::props::property::CssPro
     }
 }
 
-impl ExtractPropertyValue<LayoutDisplay> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutDisplay> for CssProperty {
     fn extract(&self) -> Option<LayoutDisplay> {
         match self {
             Self::Display(CssPropertyValue::Exact(v)) => Some(*v),
@@ -879,7 +831,7 @@ impl ExtractPropertyValue<LayoutDisplay> for azul_css::props::property::CssPrope
     }
 }
 
-impl ExtractPropertyValue<LayoutWritingMode> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutWritingMode> for CssProperty {
     fn extract(&self) -> Option<LayoutWritingMode> {
         match self {
             Self::WritingMode(CssPropertyValue::Exact(v)) => Some(*v),
@@ -888,7 +840,7 @@ impl ExtractPropertyValue<LayoutWritingMode> for azul_css::props::property::CssP
     }
 }
 
-impl ExtractPropertyValue<LayoutFlexWrap> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutFlexWrap> for CssProperty {
     fn extract(&self) -> Option<LayoutFlexWrap> {
         match self {
             Self::FlexWrap(CssPropertyValue::Exact(v)) => Some(*v),
@@ -897,7 +849,7 @@ impl ExtractPropertyValue<LayoutFlexWrap> for azul_css::props::property::CssProp
     }
 }
 
-impl ExtractPropertyValue<LayoutJustifyContent> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutJustifyContent> for CssProperty {
     fn extract(&self) -> Option<LayoutJustifyContent> {
         match self {
             Self::JustifyContent(CssPropertyValue::Exact(v)) => Some(*v),
@@ -906,7 +858,7 @@ impl ExtractPropertyValue<LayoutJustifyContent> for azul_css::props::property::C
     }
 }
 
-impl ExtractPropertyValue<StyleTextAlign> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleTextAlign> for CssProperty {
     fn extract(&self) -> Option<StyleTextAlign> {
         match self {
             Self::TextAlign(CssPropertyValue::Exact(v)) => Some(*v),
@@ -915,7 +867,7 @@ impl ExtractPropertyValue<StyleTextAlign> for azul_css::props::property::CssProp
     }
 }
 
-impl ExtractPropertyValue<LayoutFloat> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutFloat> for CssProperty {
     fn extract(&self) -> Option<LayoutFloat> {
         match self {
             Self::Float(CssPropertyValue::Exact(v)) => Some(*v),
@@ -924,7 +876,7 @@ impl ExtractPropertyValue<LayoutFloat> for azul_css::props::property::CssPropert
     }
 }
 
-impl ExtractPropertyValue<LayoutClear> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutClear> for CssProperty {
     fn extract(&self) -> Option<LayoutClear> {
         match self {
             Self::Clear(CssPropertyValue::Exact(v)) => Some(*v),
@@ -933,19 +885,19 @@ impl ExtractPropertyValue<LayoutClear> for azul_css::props::property::CssPropert
     }
 }
 
-impl ExtractPropertyValue<LayoutOverflow> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutOverflow> for CssProperty {
     fn extract(&self) -> Option<LayoutOverflow> {
         match self {
-            Self::OverflowX(CssPropertyValue::Exact(v)) => Some(*v),
-            Self::OverflowY(CssPropertyValue::Exact(v)) => Some(*v),
-            Self::OverflowBlock(CssPropertyValue::Exact(v)) => Some(*v),
-            Self::OverflowInline(CssPropertyValue::Exact(v)) => Some(*v),
+            Self::OverflowX(CssPropertyValue::Exact(v))
+            | Self::OverflowY(CssPropertyValue::Exact(v))
+            | Self::OverflowBlock(CssPropertyValue::Exact(v))
+            | Self::OverflowInline(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }
 }
 
-impl ExtractPropertyValue<LayoutPosition> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutPosition> for CssProperty {
     fn extract(&self) -> Option<LayoutPosition> {
         match self {
             Self::Position(CssPropertyValue::Exact(v)) => Some(*v),
@@ -954,7 +906,7 @@ impl ExtractPropertyValue<LayoutPosition> for azul_css::props::property::CssProp
     }
 }
 
-impl ExtractPropertyValue<LayoutBoxSizing> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutBoxSizing> for CssProperty {
     fn extract(&self) -> Option<LayoutBoxSizing> {
         match self {
             Self::BoxSizing(CssPropertyValue::Exact(v)) => Some(*v),
@@ -963,13 +915,13 @@ impl ExtractPropertyValue<LayoutBoxSizing> for azul_css::props::property::CssPro
     }
 }
 
-impl ExtractPropertyValue<PixelValue> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<PixelValue> for CssProperty {
     fn extract(&self) -> Option<PixelValue> {
         self.get_pixel_inner()
     }
 }
 
-impl ExtractPropertyValue<LayoutFlexDirection> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutFlexDirection> for CssProperty {
     fn extract(&self) -> Option<LayoutFlexDirection> {
         match self {
             Self::FlexDirection(CssPropertyValue::Exact(v)) => Some(*v),
@@ -978,7 +930,7 @@ impl ExtractPropertyValue<LayoutFlexDirection> for azul_css::props::property::Cs
     }
 }
 
-impl ExtractPropertyValue<LayoutAlignItems> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutAlignItems> for CssProperty {
     fn extract(&self) -> Option<LayoutAlignItems> {
         match self {
             Self::AlignItems(CssPropertyValue::Exact(v)) => Some(*v),
@@ -987,7 +939,7 @@ impl ExtractPropertyValue<LayoutAlignItems> for azul_css::props::property::CssPr
     }
 }
 
-impl ExtractPropertyValue<LayoutAlignContent> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<LayoutAlignContent> for CssProperty {
     fn extract(&self) -> Option<LayoutAlignContent> {
         match self {
             Self::AlignContent(CssPropertyValue::Exact(v)) => Some(*v),
@@ -996,7 +948,7 @@ impl ExtractPropertyValue<LayoutAlignContent> for azul_css::props::property::Css
     }
 }
 
-impl ExtractPropertyValue<StyleFontWeight> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleFontWeight> for CssProperty {
     fn extract(&self) -> Option<StyleFontWeight> {
         match self {
             Self::FontWeight(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1005,7 +957,7 @@ impl ExtractPropertyValue<StyleFontWeight> for azul_css::props::property::CssPro
     }
 }
 
-impl ExtractPropertyValue<StyleFontStyle> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleFontStyle> for CssProperty {
     fn extract(&self) -> Option<StyleFontStyle> {
         match self {
             Self::FontStyle(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1014,7 +966,7 @@ impl ExtractPropertyValue<StyleFontStyle> for azul_css::props::property::CssProp
     }
 }
 
-impl ExtractPropertyValue<StyleVisibility> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleVisibility> for CssProperty {
     fn extract(&self) -> Option<StyleVisibility> {
         match self {
             Self::Visibility(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1023,7 +975,7 @@ impl ExtractPropertyValue<StyleVisibility> for azul_css::props::property::CssPro
     }
 }
 
-impl ExtractPropertyValue<StyleWhiteSpace> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleWhiteSpace> for CssProperty {
     fn extract(&self) -> Option<StyleWhiteSpace> {
         match self {
             Self::WhiteSpace(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1032,7 +984,7 @@ impl ExtractPropertyValue<StyleWhiteSpace> for azul_css::props::property::CssPro
     }
 }
 
-impl ExtractPropertyValue<StyleDirection> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleDirection> for CssProperty {
     fn extract(&self) -> Option<StyleDirection> {
         match self {
             Self::Direction(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1041,7 +993,7 @@ impl ExtractPropertyValue<StyleDirection> for azul_css::props::property::CssProp
     }
 }
 
-impl ExtractPropertyValue<StyleUnicodeBidi> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleUnicodeBidi> for CssProperty {
     fn extract(&self) -> Option<StyleUnicodeBidi> {
         match self {
             Self::UnicodeBidi(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1050,7 +1002,7 @@ impl ExtractPropertyValue<StyleUnicodeBidi> for azul_css::props::property::CssPr
     }
 }
 
-impl ExtractPropertyValue<StyleTextBoxTrim> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleTextBoxTrim> for CssProperty {
     fn extract(&self) -> Option<StyleTextBoxTrim> {
         match self {
             Self::TextBoxTrim(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1059,7 +1011,7 @@ impl ExtractPropertyValue<StyleTextBoxTrim> for azul_css::props::property::CssPr
     }
 }
 
-impl ExtractPropertyValue<StyleTextBoxEdge> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleTextBoxEdge> for CssProperty {
     fn extract(&self) -> Option<StyleTextBoxEdge> {
         match self {
             Self::TextBoxEdge(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1068,7 +1020,7 @@ impl ExtractPropertyValue<StyleTextBoxEdge> for azul_css::props::property::CssPr
     }
 }
 
-impl ExtractPropertyValue<StyleDominantBaseline> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleDominantBaseline> for CssProperty {
     fn extract(&self) -> Option<StyleDominantBaseline> {
         match self {
             Self::DominantBaseline(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1077,7 +1029,7 @@ impl ExtractPropertyValue<StyleDominantBaseline> for azul_css::props::property::
     }
 }
 
-impl ExtractPropertyValue<StyleAlignmentBaseline> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleAlignmentBaseline> for CssProperty {
     fn extract(&self) -> Option<StyleAlignmentBaseline> {
         match self {
             Self::AlignmentBaseline(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1086,7 +1038,7 @@ impl ExtractPropertyValue<StyleAlignmentBaseline> for azul_css::props::property:
     }
 }
 
-impl ExtractPropertyValue<StyleInitialLetterAlign> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleInitialLetterAlign> for CssProperty {
     fn extract(&self) -> Option<StyleInitialLetterAlign> {
         match self {
             Self::InitialLetterAlign(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1095,7 +1047,7 @@ impl ExtractPropertyValue<StyleInitialLetterAlign> for azul_css::props::property
     }
 }
 
-impl ExtractPropertyValue<StyleInitialLetterWrap> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleInitialLetterWrap> for CssProperty {
     fn extract(&self) -> Option<StyleInitialLetterWrap> {
         match self {
             Self::InitialLetterWrap(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1104,7 +1056,7 @@ impl ExtractPropertyValue<StyleInitialLetterWrap> for azul_css::props::property:
     }
 }
 
-impl ExtractPropertyValue<StyleScrollbarGutter> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleScrollbarGutter> for CssProperty {
     fn extract(&self) -> Option<StyleScrollbarGutter> {
         match self {
             Self::ScrollbarGutter(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1113,7 +1065,7 @@ impl ExtractPropertyValue<StyleScrollbarGutter> for azul_css::props::property::C
     }
 }
 
-impl ExtractPropertyValue<StyleOverflowClipMargin> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleOverflowClipMargin> for CssProperty {
     fn extract(&self) -> Option<StyleOverflowClipMargin> {
         match self {
             Self::OverflowClipMargin(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1122,7 +1074,7 @@ impl ExtractPropertyValue<StyleOverflowClipMargin> for azul_css::props::property
     }
 }
 
-impl ExtractPropertyValue<StyleVerticalAlign> for azul_css::props::property::CssProperty {
+impl ExtractPropertyValue<StyleVerticalAlign> for CssProperty {
     fn extract(&self) -> Option<StyleVerticalAlign> {
         match self {
             Self::VerticalAlign(CssPropertyValue::Exact(v)) => Some(*v),
@@ -1135,7 +1087,7 @@ get_css_property!(
     get_writing_mode,
     get_writing_mode,
     LayoutWritingMode,
-    azul_css::props::property::CssPropertyType::WritingMode,
+    CssPropertyType::WritingMode,
     compact = get_writing_mode
 );
 
@@ -1143,7 +1095,7 @@ get_css_property!(
     get_css_width,
     get_width,
     LayoutWidth,
-    azul_css::props::property::CssPropertyType::Width,
+    CssPropertyType::Width,
     compact_u32_dim = get_width_raw,
     LayoutWidth::Px,
     LayoutWidth::Auto,
@@ -1155,7 +1107,7 @@ get_css_property!(
     get_css_height,
     get_height,
     LayoutHeight,
-    azul_css::props::property::CssPropertyType::Height,
+    CssPropertyType::Height,
     compact_u32_dim = get_height_raw,
     LayoutHeight::Px,
     LayoutHeight::Auto,
@@ -1167,7 +1119,7 @@ get_css_property!(
     get_wrap,
     get_flex_wrap,
     LayoutFlexWrap,
-    azul_css::props::property::CssPropertyType::FlexWrap,
+    CssPropertyType::FlexWrap,
     compact = get_flex_wrap
 );
 
@@ -1175,7 +1127,7 @@ get_css_property!(
     get_justify_content,
     get_justify_content,
     LayoutJustifyContent,
-    azul_css::props::property::CssPropertyType::JustifyContent,
+    CssPropertyType::JustifyContent,
     compact = get_justify_content
 );
 
@@ -1183,7 +1135,7 @@ get_css_property!(
     get_text_align,
     get_text_align,
     StyleTextAlign,
-    azul_css::props::property::CssPropertyType::TextAlign,
+    CssPropertyType::TextAlign,
     compact = get_text_align
 );
 
@@ -1191,7 +1143,7 @@ get_css_property!(
     get_float,
     get_float,
     LayoutFloat,
-    azul_css::props::property::CssPropertyType::Float,
+    CssPropertyType::Float,
     compact = get_float
 );
 
@@ -1199,7 +1151,7 @@ get_css_property!(
     get_clear,
     get_clear,
     LayoutClear,
-    azul_css::props::property::CssPropertyType::Clear,
+    CssPropertyType::Clear,
     compact = get_clear
 );
 
@@ -1207,7 +1159,7 @@ get_css_property!(
     get_overflow_x,
     get_overflow_x,
     LayoutOverflow,
-    azul_css::props::property::CssPropertyType::OverflowX,
+    CssPropertyType::OverflowX,
     compact = get_overflow_x
 );
 
@@ -1215,7 +1167,7 @@ get_css_property!(
     get_overflow_y,
     get_overflow_y,
     LayoutOverflow,
-    azul_css::props::property::CssPropertyType::OverflowY,
+    CssPropertyType::OverflowY,
     compact = get_overflow_y
 );
 
@@ -1224,21 +1176,21 @@ get_css_property!(
     get_overflow_block,
     get_overflow_block,
     LayoutOverflow,
-    azul_css::props::property::CssPropertyType::OverflowBlock
+    CssPropertyType::OverflowBlock
 );
 
 get_css_property!(
     get_overflow_inline,
     get_overflow_inline,
     LayoutOverflow,
-    azul_css::props::property::CssPropertyType::OverflowInline
+    CssPropertyType::OverflowInline
 );
 
 get_css_property!(
     get_position,
     get_position,
     LayoutPosition,
-    azul_css::props::property::CssPropertyType::Position,
+    CssPropertyType::Position,
     compact = get_position
 );
 
@@ -1246,7 +1198,7 @@ get_css_property!(
     get_css_box_sizing,
     get_box_sizing,
     LayoutBoxSizing,
-    azul_css::props::property::CssPropertyType::BoxSizing,
+    CssPropertyType::BoxSizing,
     compact = get_box_sizing
 );
 
@@ -1254,7 +1206,7 @@ get_css_property!(
     get_flex_direction,
     get_flex_direction,
     LayoutFlexDirection,
-    azul_css::props::property::CssPropertyType::FlexDirection,
+    CssPropertyType::FlexDirection,
     compact = get_flex_direction
 );
 
@@ -1262,7 +1214,7 @@ get_css_property!(
     get_align_items,
     get_align_items,
     LayoutAlignItems,
-    azul_css::props::property::CssPropertyType::AlignItems,
+    CssPropertyType::AlignItems,
     compact = get_align_items
 );
 
@@ -1270,7 +1222,7 @@ get_css_property!(
     get_align_content,
     get_align_content,
     LayoutAlignContent,
-    azul_css::props::property::CssPropertyType::AlignContent,
+    CssPropertyType::AlignContent,
     compact = get_align_content
 );
 
@@ -1278,7 +1230,7 @@ get_css_property!(
     get_font_weight_property,
     get_font_weight,
     StyleFontWeight,
-    azul_css::props::property::CssPropertyType::FontWeight,
+    CssPropertyType::FontWeight,
     compact = get_font_weight
 );
 
@@ -1286,7 +1238,7 @@ get_css_property!(
     get_font_style_property,
     get_font_style,
     StyleFontStyle,
-    azul_css::props::property::CssPropertyType::FontStyle,
+    CssPropertyType::FontStyle,
     compact = get_font_style
 );
 
@@ -1294,7 +1246,7 @@ get_css_property!(
     get_visibility,
     get_visibility,
     StyleVisibility,
-    azul_css::props::property::CssPropertyType::Visibility,
+    CssPropertyType::Visibility,
     compact = get_visibility
 );
 
@@ -1302,7 +1254,7 @@ get_css_property!(
     get_white_space_property,
     get_white_space,
     StyleWhiteSpace,
-    azul_css::props::property::CssPropertyType::WhiteSpace,
+    CssPropertyType::WhiteSpace,
     compact = get_white_space
 );
 
@@ -1311,7 +1263,7 @@ get_css_property!(
     get_direction_property,
     get_direction,
     StyleDirection,
-    azul_css::props::property::CssPropertyType::Direction,
+    CssPropertyType::Direction,
     compact = get_direction
 );
 
@@ -1322,7 +1274,7 @@ get_css_property!(
     get_unicode_bidi_property,
     get_unicode_bidi,
     StyleUnicodeBidi,
-    azul_css::props::property::CssPropertyType::UnicodeBidi
+    CssPropertyType::UnicodeBidi
 );
 
 // +spec:display-property:db5125 - text-box-trim on inline boxes trims content box to text-box-edge metric
@@ -1331,42 +1283,42 @@ get_css_property!(
     get_text_box_trim_property,
     get_text_box_trim,
     StyleTextBoxTrim,
-    azul_css::props::property::CssPropertyType::TextBoxTrim
+    CssPropertyType::TextBoxTrim
 );
 
 get_css_property!(
     get_text_box_edge_property,
     get_text_box_edge,
     StyleTextBoxEdge,
-    azul_css::props::property::CssPropertyType::TextBoxEdge
+    CssPropertyType::TextBoxEdge
 );
 
 get_css_property!(
     get_dominant_baseline_property,
     get_dominant_baseline,
     StyleDominantBaseline,
-    azul_css::props::property::CssPropertyType::DominantBaseline
+    CssPropertyType::DominantBaseline
 );
 
 get_css_property!(
     get_alignment_baseline_property,
     get_alignment_baseline,
     StyleAlignmentBaseline,
-    azul_css::props::property::CssPropertyType::AlignmentBaseline
+    CssPropertyType::AlignmentBaseline
 );
 
 get_css_property!(
     get_initial_letter_align_property,
     get_initial_letter_align,
     StyleInitialLetterAlign,
-    azul_css::props::property::CssPropertyType::InitialLetterAlign
+    CssPropertyType::InitialLetterAlign
 );
 
 get_css_property!(
     get_initial_letter_wrap_property,
     get_initial_letter_wrap,
     StyleInitialLetterWrap,
-    azul_css::props::property::CssPropertyType::InitialLetterWrap
+    CssPropertyType::InitialLetterWrap
 );
 
 // +spec:overflow:5d15e2 - block-start/block-end scrollbar gutter follows same rules as inline gutters when auto
@@ -1374,7 +1326,8 @@ get_css_property!(
 // Hand-rolled fast path: 99% of nodes don't set scrollbar-gutter, and the
 // default is `auto`. The compact cache stores the enum in 2 bits of
 // tier2_cold.hot_flags, so we can return the answer without a cascade walk.
-pub fn get_scrollbar_gutter_property(
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use] pub fn get_scrollbar_gutter_property(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1401,7 +1354,7 @@ pub fn get_scrollbar_gutter_property(
         .css_property_cache
         .ptr
         .get_scrollbar_gutter(node_data, &node_id, node_state);
-    if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
+    if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
         return MultiValue::Exact(val);
     }
     MultiValue::Auto
@@ -1411,14 +1364,14 @@ get_css_property!(
     get_overflow_clip_margin_property,
     get_overflow_clip_margin,
     StyleOverflowClipMargin,
-    azul_css::props::property::CssPropertyType::OverflowClipMargin
+    CssPropertyType::OverflowClipMargin
 );
 
 get_css_property!(
     get_object_fit_property,
     get_object_fit,
     StyleObjectFit,
-    azul_css::props::property::CssPropertyType::ObjectFit
+    CssPropertyType::ObjectFit
 );
 
 // +spec:writing-modes:257296 - text-orientation getter for vertical typesetting (upright/sideways)
@@ -1426,7 +1379,7 @@ get_css_property!(
 // Hand-rolled (not macro-generated) to attach a negative fast-path: most
 // nodes have no text-orientation declared (default = Mixed), so we avoid a
 // cascade walk per fc.rs call (which is called ~2× per node).
-pub fn get_text_orientation_property(
+#[must_use] pub fn get_text_orientation_property(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1443,13 +1396,13 @@ pub fn get_text_orientation_property(
         .css_property_cache
         .ptr
         .get_text_orientation(node_data, &node_id, node_state)
-        .and_then(|v| v.get_property().cloned())
+        .and_then(|v| v.get_property().copied())
     {
         return MultiValue::Exact(val);
     }
     let ua = azul_core::ua_css::get_ua_property(
         &node_data.node_type,
-        azul_css::props::property::CssPropertyType::TextOrientation,
+        CssPropertyType::TextOrientation,
     );
     if let Some(ua_prop) = ua {
         if let Some(val) = extract_property_value::<StyleTextOrientation>(ua_prop) {
@@ -1463,20 +1416,20 @@ get_css_property!(
     get_object_position_property,
     get_object_position,
     StyleObjectPosition,
-    azul_css::props::property::CssPropertyType::ObjectPosition
+    CssPropertyType::ObjectPosition
 );
 
 get_css_property!(
     get_aspect_ratio_property,
     get_aspect_ratio,
     StyleAspectRatio,
-    azul_css::props::property::CssPropertyType::AspectRatio
+    CssPropertyType::AspectRatio
 );
 
 // NOTE: vertical-align does NOT use the compact cache because the compact cache
 // only stores keyword variants (3 bits = 8 values) and silently drops
 // Percentage/Length values by mapping them to Baseline. Always use the slow path.
-pub fn get_vertical_align_property(
+#[must_use] pub fn get_vertical_align_property(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1488,13 +1441,13 @@ pub fn get_vertical_align_property(
         .ptr
         .get_vertical_align(node_data, &node_id, node_state);
 
-    if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
+    if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
         return MultiValue::Exact(val);
     }
 
     let ua_css = azul_core::ua_css::get_ua_property(
         &node_data.node_type,
-        azul_css::props::property::CssPropertyType::VerticalAlign,
+        CssPropertyType::VerticalAlign,
     );
 
     if let Some(ua_prop) = ua_css {
@@ -1508,11 +1461,11 @@ pub fn get_vertical_align_property(
 // Complex Property Getters
 
 /// Get border radius for all four corners (raw CSS property values)
-pub fn get_style_border_radius(
+#[must_use] pub fn get_style_border_radius(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
-) -> azul_css::props::style::border_radius::StyleBorderRadius {
+) -> StyleBorderRadius {
     use azul_css::props::basic::pixel::PixelValue;
     // FAST PATH: all four corners live in tier2_cold as i16 px × 10. The
     // common case (no rounded corners anywhere) reads four bytes and bails.
@@ -1523,7 +1476,7 @@ pub fn get_style_border_radius(
                 if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     PixelValue::px(0.0)
                 } else {
-                    PixelValue::px(raw as f32 / 10.0)
+                    PixelValue::px(f32::from(raw) / 10.0)
                 }
             };
             return StyleBorderRadius {
@@ -1581,7 +1534,7 @@ pub fn get_style_border_radius(
 /// # Arguments
 /// * `element_size` - The element's own size (width × height) for % resolution. According to CSS
 ///   spec, border-radius % uses element's own dimensions.
-pub fn get_border_radius(
+#[must_use] pub fn get_border_radius(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1606,7 +1559,7 @@ pub fn get_border_radius(
                 if raw >= thresh {
                     0.0
                 } else {
-                    raw as f32 / 10.0
+                    f32::from(raw) / 10.0
                 }
             };
             return BorderRadius {
@@ -1626,9 +1579,8 @@ pub fn get_border_radius(
         .node_hierarchy
         .as_container()
         .get(node_id)
-        .and_then(|node| node.parent_id())
-        .map(|p| get_element_font_size(styled_dom, p, node_state))
-        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        .map_or(DEFAULT_FONT_SIZE, |p| get_element_font_size(styled_dom, p, node_state));
     let root_font_size = get_root_font_size(styled_dom, node_state);
 
     // Create resolution context
@@ -1645,28 +1597,28 @@ pub fn get_border_radius(
         .css_property_cache
         .ptr
         .get_border_top_left_radius(node_data, &node_id, node_state)
-        .and_then(|br| br.get_property().cloned())
+        .and_then(|br| br.get_property().copied())
         .unwrap_or_default();
 
     let top_right = styled_dom
         .css_property_cache
         .ptr
         .get_border_top_right_radius(node_data, &node_id, node_state)
-        .and_then(|br| br.get_property().cloned())
+        .and_then(|br| br.get_property().copied())
         .unwrap_or_default();
 
     let bottom_right = styled_dom
         .css_property_cache
         .ptr
         .get_border_bottom_right_radius(node_data, &node_id, node_state)
-        .and_then(|br| br.get_property().cloned())
+        .and_then(|br| br.get_property().copied())
         .unwrap_or_default();
 
     let bottom_left = styled_dom
         .css_property_cache
         .ptr
         .get_border_bottom_left_radius(node_data, &node_id, node_state)
-        .and_then(|br| br.get_property().cloned())
+        .and_then(|br| br.get_property().copied())
         .unwrap_or_default();
 
     BorderRadius {
@@ -1692,12 +1644,11 @@ pub fn get_border_radius(
 /// Returns the resolved integer z-index value:
 /// - `z-index: auto` → 0 (participates in parent's stacking context)
 /// - `z-index: <integer>` → that integer value
-pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
+#[must_use] pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
     use azul_css::props::layout::position::LayoutZIndex;
 
-    let node_id = match node_id {
-        Some(id) => id,
-        None => return 0,
+    let Some(node_id) = node_id else {
+        return 0;
     };
 
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
@@ -1710,7 +1661,7 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
                 return 0;
             }
             if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                return raw as i32;
+                return i32::from(raw);
             }
             // I16_SENTINEL → fall through to slow path
         }
@@ -1724,23 +1675,21 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
         .ptr
         .get_z_index(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|z| match z {
+        .map_or(0, |z| match z {
             LayoutZIndex::Auto => 0,
             LayoutZIndex::Integer(i) => *i,
         })
-        .unwrap_or(0)
 }
 
 // +spec:positioning:c041c4 - positioned elements with z-index != auto establish stacking contexts
 // z-index:<integer> ALWAYS establishes new stacking context on positioned elements
 /// Returns true if z-index is `auto` (the initial value), false if it's an explicit `<integer>`.
 /// This distinction matters for stacking context creation per §9.9.1.
-pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool {
+#[must_use] pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool {
     use azul_css::props::layout::position::LayoutZIndex;
 
-    let node_id = match node_id {
-        Some(id) => id,
-        None => return true,
+    let Some(node_id) = node_id else {
+        return true;
     };
 
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
@@ -1767,8 +1716,7 @@ pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool 
         .ptr
         .get_z_index(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|z| matches!(z, LayoutZIndex::Auto))
-        .unwrap_or(true) // no value = auto
+        .is_none_or(|z| matches!(z, LayoutZIndex::Auto)) // no value = auto
 }
 
 // Rendering Property Getters
@@ -1793,7 +1741,8 @@ pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool 
 /// Implementation: When requesting the background of an `<html>` node, we first check if it
 /// has a transparent background with no image. If so, we look for a `<body>` child and use
 /// its background instead.
-pub fn get_background_color(
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use] pub fn get_background_color(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1883,7 +1832,7 @@ pub fn get_background_color(
 /// CSS Background Propagation (CSS Backgrounds 3, Section 2.11.2):
 /// For HTML documents, if the root `<html>` element has no background (transparent with no image),
 /// propagate the background from the first `<body>` child element.
-pub fn get_background_contents(
+#[must_use] pub fn get_background_contents(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1947,13 +1896,15 @@ pub fn get_background_contents(
 }
 
 /// Information about border rendering
+#[derive(Copy, Clone, Debug)]
 pub struct BorderInfo {
     pub widths: crate::solver3::display_list::StyleBorderWidths,
     pub colors: crate::solver3::display_list::StyleBorderColors,
     pub styles: crate::solver3::display_list::StyleBorderStyles,
 }
 
-pub fn get_border_info(
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use] pub fn get_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1989,7 +1940,7 @@ pub fn get_border_info(
                 {
                     None
                 } else {
-                    Some(PixelValue::px(raw as f32 / 10.0))
+                    Some(PixelValue::px(f32::from(raw) / 10.0))
                 }
             };
             let widths = StyleBorderWidths {
@@ -2061,22 +2012,22 @@ pub fn get_border_info(
             .css_property_cache
             .ptr
             .get_border_top_width(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         right: styled_dom
             .css_property_cache
             .ptr
             .get_border_right_width(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         bottom: styled_dom
             .css_property_cache
             .ptr
             .get_border_bottom_width(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         left: styled_dom
             .css_property_cache
             .ptr
             .get_border_left_width(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
     };
 
     // Get all border colors
@@ -2085,22 +2036,22 @@ pub fn get_border_info(
             .css_property_cache
             .ptr
             .get_border_top_color(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         right: styled_dom
             .css_property_cache
             .ptr
             .get_border_right_color(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         bottom: styled_dom
             .css_property_cache
             .ptr
             .get_border_bottom_color(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         left: styled_dom
             .css_property_cache
             .ptr
             .get_border_left_color(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
     };
 
     // Get all border styles
@@ -2109,22 +2060,22 @@ pub fn get_border_info(
             .css_property_cache
             .ptr
             .get_border_top_style(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         right: styled_dom
             .css_property_cache
             .ptr
             .get_border_right_style(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         bottom: styled_dom
             .css_property_cache
             .ptr
             .get_border_bottom_style(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
         left: styled_dom
             .css_property_cache
             .ptr
             .get_border_left_style(node_data, &node_id, node_state)
-            .cloned(),
+            .copied(),
     };
 
     BorderInfo {
@@ -2134,18 +2085,38 @@ pub fn get_border_info(
     }
 }
 
-/// Convert BorderInfo to InlineBorderInfo for inline elements
+/// Convert `BorderInfo` to `InlineBorderInfo` for inline elements
 ///
 /// This resolves the CSS property values to concrete pixel values and colors
 /// that can be used during text rendering.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn get_inline_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
     border_info: &BorderInfo,
-    viewport: azul_css::props::basic::PhysicalSize,
+    viewport: PhysicalSize,
 ) -> Option<crate::text3::cache::InlineBorderInfo> {
     use crate::text3::cache::InlineBorderInfo;
+
+    // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
+    // against the real viewport instead of being treated as raw pixels.
+    fn resolve_padding(
+        mv: MultiValue<PixelValue>,
+        viewport: PhysicalSize,
+    ) -> f32 {
+        match mv {
+            MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
+                &pv,
+                0.0,
+                DEFAULT_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
+                viewport.width,
+                viewport.height,
+            ),
+            _ => 0.0,
+        }
+    }
 
     macro_rules! border_width_px {
         ($field:expr) => {
@@ -2179,28 +2150,28 @@ fn get_inline_border_info(
             .css_property_cache
             .ptr
             .get_border_top_left_radius(node_data, &node_id, node_state)
-            .and_then(|br| br.get_property().cloned())
+            .and_then(|br| br.get_property().copied())
             .map(|v| v.inner.number.get());
 
         let top_right = styled_dom
             .css_property_cache
             .ptr
             .get_border_top_right_radius(node_data, &node_id, node_state)
-            .and_then(|br| br.get_property().cloned())
+            .and_then(|br| br.get_property().copied())
             .map(|v| v.inner.number.get());
 
         let bottom_left = styled_dom
             .css_property_cache
             .ptr
             .get_border_bottom_left_radius(node_data, &node_id, node_state)
-            .and_then(|br| br.get_property().cloned())
+            .and_then(|br| br.get_property().copied())
             .map(|v| v.inner.number.get());
 
         let bottom_right = styled_dom
             .css_property_cache
             .ptr
             .get_border_bottom_right_radius(node_data, &node_id, node_state)
-            .and_then(|br| br.get_property().cloned())
+            .and_then(|br| br.get_property().copied())
             .map(|v| v.inner.number.get());
 
         // If any radius is defined, use the maximum (for inline, uniform radius is most common)
@@ -2212,7 +2183,7 @@ fn get_inline_border_info(
         if radii.is_empty() {
             None
         } else {
-            Some(radii.into_iter().fold(0.0f32, |a, b| a.max(b)))
+            Some(radii.into_iter().fold(0.0f32, f32::max))
         }
     }
 
@@ -2220,25 +2191,6 @@ fn get_inline_border_info(
     let right = border_width_px!(&border_info.widths.right);
     let bottom = border_width_px!(&border_info.widths.bottom);
     let left = border_width_px!(&border_info.widths.left);
-
-    // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
-    // against the real viewport instead of being treated as raw pixels.
-    fn resolve_padding(
-        mv: MultiValue<PixelValue>,
-        viewport: azul_css::props::basic::PhysicalSize,
-    ) -> f32 {
-        match mv {
-            MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
-                &pv,
-                0.0,
-                DEFAULT_FONT_SIZE,
-                DEFAULT_FONT_SIZE,
-                viewport.width,
-                viewport.height,
-            ),
-            _ => 0.0,
-        }
-    }
 
     let p_top = resolve_padding(get_css_padding_top(styled_dom, node_id, node_state), viewport);
     let p_right = resolve_padding(get_css_padding_right(styled_dom, node_id, node_state), viewport);
@@ -2292,7 +2244,7 @@ pub struct SelectionStyle {
 }
 
 /// Get selection style for a node
-pub fn get_selection_style(
+#[must_use] pub fn get_selection_style(
     styled_dom: &StyledDom,
     node_id: Option<NodeId>,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -2318,9 +2270,8 @@ pub fn get_selection_style(
         .css_property_cache
         .ptr
         .get_selection_background_color(node_data, &node_id, node_state)
-        .and_then(|c| c.get_property().cloned())
-        .map(|c| c.inner)
-        .unwrap_or(default_bg);
+        .and_then(|c| c.get_property().copied())
+        .map_or(default_bg, |c| c.inner);
 
     // Try to get selection text color from CSS, otherwise use system color
     let default_text = system_style.and_then(|ss| ss.colors.selection_text.as_option().copied());
@@ -2329,7 +2280,7 @@ pub fn get_selection_style(
         .css_property_cache
         .ptr
         .get_selection_color(node_data, &node_id, node_state)
-        .and_then(|c| c.get_property().cloned())
+        .and_then(|c| c.get_property().copied())
         .map(|c| c.inner)
         .or(default_text);
 
@@ -2337,9 +2288,8 @@ pub fn get_selection_style(
         .css_property_cache
         .ptr
         .get_selection_radius(node_data, &node_id, node_state)
-        .and_then(|r| r.get_property().cloned())
-        .map(|r| r.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE))
-        .unwrap_or(0.0);
+        .and_then(|r| r.get_property().copied())
+        .map_or(0.0, |r| r.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE));
 
     SelectionStyle {
         bg_color,
@@ -2370,7 +2320,7 @@ impl Default for CaretStyle {
 }
 
 /// Get caret style for a node
-pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> CaretStyle {
+#[must_use] pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> CaretStyle {
     let Some(node_id) = node_id else {
         return CaretStyle::default();
     };
@@ -2382,36 +2332,33 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
         .css_property_cache
         .ptr
         .get_caret_color(node_data, &node_id, node_state)
-        .and_then(|c| c.get_property().cloned())
-        .map(|c| c.inner)
+        .and_then(|c| c.get_property().copied())
         // CSS `caret-color: auto` (the initial value) resolves to currentColor — the
         // element's text color — which by construction contrasts with the background.
         // Falling back to BLACK made the caret invisible on dark backgrounds / dark
         // system themes (and `color` IS inherited while `caret-color` may not be, so a
         // child text node still gets the right colour here).
-        .unwrap_or_else(|| {
+        .map_or_else(|| {
             styled_dom
                 .css_property_cache
                 .ptr
                 .get_text_color_or_default(node_data, &node_id, node_state)
                 .inner
-        });
+        }, |c| c.inner);
 
     let width = styled_dom
         .css_property_cache
         .ptr
         .get_caret_width(node_data, &node_id, node_state)
-        .and_then(|w| w.get_property().cloned())
-        .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE))
-        .unwrap_or(DEFAULT_CARET_WIDTH_PX);
+        .and_then(|w| w.get_property().copied())
+        .map_or(DEFAULT_CARET_WIDTH_PX, |w| w.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE));
 
     let animation_duration = styled_dom
         .css_property_cache
         .ptr
         .get_caret_animation_duration(node_data, &node_id, node_state)
-        .and_then(|d| d.get_property().cloned())
-        .map(|d| d.inner.inner)
-        .unwrap_or(DEFAULT_CARET_BLINK_MS);
+        .and_then(|d| d.get_property().copied())
+        .map_or(DEFAULT_CARET_BLINK_MS, |d| d.inner.inner);
 
     CaretStyle {
         color,
@@ -2426,13 +2373,13 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 ///
 /// Scrollbar requirements are computed during the layout phase in two paths:
 /// - BFC layout: `compute_scrollbar_info()` in cache.rs
-/// - Taffy layout: set in the measure callback in taffy_bridge.rs
+/// - Taffy layout: set in the measure callback in `taffy_bridge.rs`
 ///
 /// If neither path set `scrollbar_info`, the node genuinely does not need
 /// scrollbars. The previous heuristic (>3 children = force overflow) caused
 /// false-positive scrollbars on normal containers.
-pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
-    node.scrollbar_info.clone().unwrap_or_default()
+#[must_use] pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
+    node.scrollbar_info.unwrap_or_default()
 }
 
 /// Resolve the **layout-effective** scrollbar width for a node, in pixels.
@@ -2449,7 +2396,7 @@ pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirement
 ///
 /// During display-list generation, use `get_scrollbar_style()` instead — that returns
 /// the full visual style including the *paint* width (which may be non-zero for overlay).
-pub fn get_layout_scrollbar_width_px<T: crate::font_traits::ParsedFontTrait>(
+pub fn get_layout_scrollbar_width_px<T: ParsedFontTrait>(
     ctx: &crate::solver3::LayoutContext<'_, T>,
     dom_id: NodeId,
     styled_node_state: &StyledNodeState,
@@ -2471,11 +2418,11 @@ get_css_property!(
     get_display_property_internal,
     get_display,
     LayoutDisplay,
-    azul_css::props::property::CssPropertyType::Display,
+    CssPropertyType::Display,
     compact = get_display
 );
 
-pub fn get_display_property(
+#[must_use] pub fn get_display_property(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
 ) -> MultiValue<LayoutDisplay> {
@@ -2491,7 +2438,8 @@ pub fn get_display_property(
 /// When an element is floated, absolutely positioned, or is the root element,
 /// its computed display value may be "blockified" per the table in CSS Display 3 §2.7.
 /// This function returns the blockified display value without mutating any state.
-pub fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use] pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
         // Inline-level display types become their block-level equivalents
         LayoutDisplay::Inline => LayoutDisplay::Block,
@@ -2516,16 +2464,19 @@ pub fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     }
 }
 
-/// // +spec:positioning:c31c24 - blockification is a computed-value change for absolute/float/root elements
+// +spec:positioning:c31c24 - blockification is a computed-value change for absolute/float/root elements
 /// Resolves the computed display value for an element, applying blockification
 /// rules per CSS Display Module Level 3 §2.7.
 // +spec:display-property:641ac5 - computed display value applies blockification/inlinification (not "as specified")
 ///
 /// This centralizes the blockification decision so that all layout phases
-/// (layout_tree, sizing, positioning) use consistent display values.
+/// (`layout_tree`, sizing, positioning) use consistent display values.
 // +spec:floats:52aea6 - computed display blockified for floated/positioned/root elements
 // +spec:positioning:ce02a1 - out-of-flow boxes (floated or absolutely positioned) get blockified display
-pub fn get_computed_display(
+// four independent layout-state flags drive the blockification decision; bundling them
+// into a struct would add ceremony without clarifying this pure decision function.
+#[allow(clippy::fn_params_excessive_bools)]
+#[must_use] pub fn get_computed_display(
     raw_display: LayoutDisplay,
     is_absolute_or_fixed: bool,
     is_floated: bool,
@@ -2547,7 +2498,7 @@ pub fn get_computed_display(
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
 // +spec:display-property:24c160 - vertical-align aligns inline-level box within the line
-pub fn get_vertical_align_for_node(
+#[must_use] pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> crate::text3::cache::VerticalAlign {
@@ -2569,8 +2520,7 @@ pub fn get_vertical_align_for_node(
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
             let line_height = get_line_height_value(styled_dom, dom_id, node_state)
-                .map(|lh| lh.inner.normalized() * font_size)
-                .unwrap_or(font_size * 1.2);
+                .map_or(font_size * 1.2, |lh| lh.inner.normalized() * font_size);
             crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
         }
         // §10.8.1: <length> is absolute offset from baseline
@@ -2589,19 +2539,22 @@ pub fn get_vertical_align_for_node(
     }
 }
 
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family list).
 pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
-    viewport_size: azul_css::props::basic::PhysicalSize,
+    viewport_size: PhysicalSize,
 ) -> StyleProperties {
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
-
-    use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
 
     // Fast path: use compact cache reverse map (works for inherited values on text nodes).
     // Slow path: only for non-normal pseudo states (:hover, :focus, etc.)
@@ -2639,7 +2592,7 @@ pub fn get_style_properties(
 
     // Create resolution context for font-size (em refers to parent)
     let font_size_context = ResolutionContext {
-        element_font_size: azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, /* Not used for font-size property */
+        element_font_size: DEFAULT_FONT_SIZE, /* Not used for font-size property */
         parent_font_size,
         root_font_size,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
@@ -2672,20 +2625,19 @@ pub fn get_style_properties(
                 }
             }
         }
-        if let Some(fs) = fast_font_size {
-            fs
-        } else if compact_said_inherit {
-            parent_font_size
-        } else {
-            cache
-                .get_font_size(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().cloned())
-                .map(|v| {
-                    v.inner
-                        .resolve_with_context(&font_size_context, PropertyContext::FontSize)
-                })
-                .unwrap_or(parent_font_size)
-        }
+        fast_font_size.unwrap_or_else(|| {
+            if compact_said_inherit {
+                parent_font_size
+            } else {
+                cache
+                    .get_font_size(node_data, &dom_id, node_state)
+                    .and_then(|v| v.get_property().copied())
+                    .map_or(parent_font_size, |v| {
+                        v.inner
+                            .resolve_with_context(&font_size_context, PropertyContext::FontSize)
+                    })
+            }
+        })
     };
 
     let color_from_cache = {
@@ -2708,7 +2660,7 @@ pub fn get_style_properties(
         fast_color.or_else(|| {
             cache
                 .get_text_color(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().cloned())
+                .and_then(|v| v.get_property().copied())
                 .map(|v| v.inner)
         })
     };
@@ -2750,9 +2702,8 @@ pub fn get_style_properties(
             fast_lh.unwrap_or_else(|| {
                 cache
                     .get_line_height(node_data, &dom_id, node_state)
-                    .and_then(|v| v.get_property().cloned())
-                    .map(|v| crate::text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
-                    .unwrap_or(crate::text3::cache::LineHeight::Normal)
+                    .and_then(|v| v.get_property().copied())
+                    .map_or(crate::text3::cache::LineHeight::Normal, |v| crate::text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
             })
         }
     };
@@ -2767,7 +2718,6 @@ pub fn get_style_properties(
     // here called `cache.get_display(..)` (the 3-arg convenience method on
     // CssPropertyCache) which routes through `get_property_slow` — 1485 slow
     // walks per cold excel.html layout. Replaced 2026-04-17.
-    use azul_css::props::layout::LayoutDisplay;
     let display = match get_display_property(styled_dom, Some(dom_id)) {
         MultiValue::Exact(v) => v,
         _ => LayoutDisplay::Inline,
@@ -2815,25 +2765,26 @@ pub fn get_style_properties(
     // This allows embedded fonts (like Material Icons) to bypass fontconfig
     let font_stack = {
         let font_ref = (0..font_families.len()).find_map(|i| match font_families.get(i).unwrap() {
-            azul_css::props::basic::font::StyleFontFamily::Ref(r) => Some(r.clone()),
+            StyleFontFamily::Ref(r) => Some(r.clone()),
             _ => None,
         });
 
-        if let Some(font_ref) = font_ref {
-            FontStack::Ref(font_ref)
-        } else {
-            // Get platform for resolving system font types. None on the paged /
-            // PDF layout path (system_style is hard-coded None there);
-            // build_font_selector_stack then resolves via Platform::current() so
-            // the names stay in lock-step with the font-loading pass.
-            let platform = system_style.map(|ss| &ss.platform);
-            FontStack::Stack(build_font_selector_stack(
-                &font_families,
-                platform,
-                fc_weight,
-                fc_style,
-            ))
-        }
+        font_ref.map_or_else(
+            || {
+                // Get platform for resolving system font types. None on the paged /
+                // PDF layout path (system_style is hard-coded None there);
+                // build_font_selector_stack then resolves via Platform::current() so
+                // the names stay in lock-step with the font-loading pass.
+                let platform = system_style.map(|ss| &ss.platform);
+                FontStack::Stack(build_font_selector_stack(
+                    &font_families,
+                    platform,
+                    fc_weight,
+                    fc_style,
+                ))
+            },
+            FontStack::Ref,
+        )
     };
 
     // Get letter-spacing from CSS
@@ -2850,7 +2801,7 @@ pub fn get_style_properties(
         fast_ls.unwrap_or_else(|| {
             cache
                 .get_letter_spacing(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().cloned())
+                .and_then(|v| v.get_property().copied())
                 .map(|v| {
                     let px_value = v
                         .inner
@@ -2875,7 +2826,7 @@ pub fn get_style_properties(
         fast_ws.unwrap_or_else(|| {
             cache
                 .get_word_spacing(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().cloned())
+                .and_then(|v| v.get_property().copied())
                 .map(|v| {
                     let px_value = v
                         .inner
@@ -2906,7 +2857,7 @@ pub fn get_style_properties(
         } else {
             cache
                 .get_text_decoration(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().cloned())
+                .and_then(|v| v.get_property().copied())
                 .map(crate::text3::cache::TextDecoration::from_css)
                 .unwrap_or_default()
         }
@@ -2929,7 +2880,7 @@ pub fn get_style_properties(
             if let Some(ref cc) = cache.compact_cache {
                 let raw = cc.get_tab_size_raw(dom_id.index());
                 if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                    fast_tab = Some(raw as f32 / 10.0);
+                    fast_tab = Some(f32::from(raw) / 10.0);
                 } else {
                     // Sentinel / Inherit / Initial → spec default is 8.
                     fast_tab = Some(8.0);
@@ -2939,9 +2890,8 @@ pub fn get_style_properties(
         fast_tab.unwrap_or_else(|| {
             cache
                 .get_tab_size(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().cloned())
-                .map(|v| v.inner.number.get())
-                .unwrap_or(DEFAULT_TAB_SIZE)
+                .and_then(|v| v.get_property().copied())
+                .map_or(DEFAULT_TAB_SIZE, |v| v.inner.number.get())
         })
     };
 
@@ -2966,7 +2916,7 @@ pub fn get_style_properties(
     }
 }
 
-pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleListStyleType {
+#[must_use] pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleListStyleType {
     let Some(id) = dom_id else {
         return StyleListStyleType::default();
     };
@@ -2980,7 +2930,7 @@ pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> St
         .unwrap_or_default()
 }
 
-pub fn get_list_style_position(
+#[must_use] pub fn get_list_style_position(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
 ) -> StyleListStylePosition {
@@ -3010,25 +2960,25 @@ use azul_css::props::layout::{
 get_css_property_pixel!(
     get_css_left,
     get_left,
-    azul_css::props::property::CssPropertyType::Left,
+    CssPropertyType::Left,
     compact_i16 = get_left
 );
 get_css_property_pixel!(
     get_css_right,
     get_right,
-    azul_css::props::property::CssPropertyType::Right,
+    CssPropertyType::Right,
     compact_i16 = get_right
 );
 get_css_property_pixel!(
     get_css_top,
     get_top,
-    azul_css::props::property::CssPropertyType::Top,
+    CssPropertyType::Top,
     compact_i16 = get_top
 );
 get_css_property_pixel!(
     get_css_bottom,
     get_bottom,
-    azul_css::props::property::CssPropertyType::Bottom,
+    CssPropertyType::Bottom,
     compact_i16 = get_bottom
 );
 
@@ -3036,25 +2986,25 @@ get_css_property_pixel!(
 get_css_property_pixel!(
     get_css_margin_left,
     get_margin_left,
-    azul_css::props::property::CssPropertyType::MarginLeft,
+    CssPropertyType::MarginLeft,
     compact_i16 = get_margin_left_raw
 );
 get_css_property_pixel!(
     get_css_margin_right,
     get_margin_right,
-    azul_css::props::property::CssPropertyType::MarginRight,
+    CssPropertyType::MarginRight,
     compact_i16 = get_margin_right_raw
 );
 get_css_property_pixel!(
     get_css_margin_top,
     get_margin_top,
-    azul_css::props::property::CssPropertyType::MarginTop,
+    CssPropertyType::MarginTop,
     compact_i16 = get_margin_top_raw
 );
 get_css_property_pixel!(
     get_css_margin_bottom,
     get_margin_bottom,
-    azul_css::props::property::CssPropertyType::MarginBottom,
+    CssPropertyType::MarginBottom,
     compact_i16 = get_margin_bottom_raw
 );
 
@@ -3062,25 +3012,25 @@ get_css_property_pixel!(
 get_css_property_pixel!(
     get_css_padding_left,
     get_padding_left,
-    azul_css::props::property::CssPropertyType::PaddingLeft,
+    CssPropertyType::PaddingLeft,
     compact_i16 = get_padding_left_raw
 );
 get_css_property_pixel!(
     get_css_padding_right,
     get_padding_right,
-    azul_css::props::property::CssPropertyType::PaddingRight,
+    CssPropertyType::PaddingRight,
     compact_i16 = get_padding_right_raw
 );
 get_css_property_pixel!(
     get_css_padding_top,
     get_padding_top,
-    azul_css::props::property::CssPropertyType::PaddingTop,
+    CssPropertyType::PaddingTop,
     compact_i16 = get_padding_top_raw
 );
 get_css_property_pixel!(
     get_css_padding_bottom,
     get_padding_bottom,
-    azul_css::props::property::CssPropertyType::PaddingBottom,
+    CssPropertyType::PaddingBottom,
     compact_i16 = get_padding_bottom_raw
 );
 
@@ -3089,7 +3039,7 @@ get_css_property!(
     get_css_min_width,
     get_min_width,
     LayoutMinWidth,
-    azul_css::props::property::CssPropertyType::MinWidth,
+    CssPropertyType::MinWidth,
     compact_u32_struct = get_min_width_raw
 );
 
@@ -3097,7 +3047,7 @@ get_css_property!(
     get_css_min_height,
     get_min_height,
     LayoutMinHeight,
-    azul_css::props::property::CssPropertyType::MinHeight,
+    CssPropertyType::MinHeight,
     compact_u32_struct = get_min_height_raw
 );
 
@@ -3105,7 +3055,7 @@ get_css_property!(
     get_css_max_width,
     get_max_width,
     LayoutMaxWidth,
-    azul_css::props::property::CssPropertyType::MaxWidth,
+    CssPropertyType::MaxWidth,
     compact_u32_struct = get_max_width_raw
 );
 
@@ -3113,7 +3063,7 @@ get_css_property!(
     get_css_max_height,
     get_max_height,
     LayoutMaxHeight,
-    azul_css::props::property::CssPropertyType::MaxHeight,
+    CssPropertyType::MaxHeight,
     compact_u32_struct = get_max_height_raw
 );
 
@@ -3121,32 +3071,32 @@ get_css_property!(
 get_css_property_pixel!(
     get_css_border_left_width,
     get_border_left_width,
-    azul_css::props::property::CssPropertyType::BorderLeftWidth,
+    CssPropertyType::BorderLeftWidth,
     compact_i16 = get_border_left_width_raw
 );
 get_css_property_pixel!(
     get_css_border_right_width,
     get_border_right_width,
-    azul_css::props::property::CssPropertyType::BorderRightWidth,
+    CssPropertyType::BorderRightWidth,
     compact_i16 = get_border_right_width_raw
 );
 get_css_property_pixel!(
     get_css_border_top_width,
     get_border_top_width,
-    azul_css::props::property::CssPropertyType::BorderTopWidth,
+    CssPropertyType::BorderTopWidth,
     compact_i16 = get_border_top_width_raw
 );
 get_css_property_pixel!(
     get_css_border_bottom_width,
     get_border_bottom_width,
-    azul_css::props::property::CssPropertyType::BorderBottomWidth,
+    CssPropertyType::BorderBottomWidth,
     compact_i16 = get_border_bottom_width_raw
 );
 
 // Fragmentation (page breaking) properties
 
 /// Get break-before property for paged media
-pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
+#[must_use] pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
     let Some(id) = dom_id else {
         return PageBreak::Auto;
     };
@@ -3164,12 +3114,12 @@ pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageB
         .css_property_cache
         .ptr
         .get_break_before(node_data, &id, node_state)
-        .and_then(|v| v.get_property().cloned())
+        .and_then(|v| v.get_property().copied())
         .unwrap_or(PageBreak::Auto)
 }
 
 /// Get break-after property for paged media
-pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
+#[must_use] pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
     let Some(id) = dom_id else {
         return PageBreak::Auto;
     };
@@ -3186,12 +3136,12 @@ pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBr
         .css_property_cache
         .ptr
         .get_break_after(node_data, &id, node_state)
-        .and_then(|v| v.get_property().cloned())
+        .and_then(|v| v.get_property().copied())
         .unwrap_or(PageBreak::Auto)
 }
 
-/// Check if a PageBreak value forces a page break (always, page, left, right, etc.)
-pub fn is_forced_page_break(page_break: PageBreak) -> bool {
+/// Check if a `PageBreak` value forces a page break (always, page, left, right, etc.)
+#[must_use] pub const fn is_forced_page_break(page_break: PageBreak) -> bool {
     matches!(
         page_break,
         PageBreak::Always
@@ -3205,7 +3155,7 @@ pub fn is_forced_page_break(page_break: PageBreak) -> bool {
 }
 
 /// Get break-inside property for paged media
-pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BreakInside {
+#[must_use] pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BreakInside {
     let Some(id) = dom_id else {
         return BreakInside::Auto;
     };
@@ -3215,12 +3165,12 @@ pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Break
         .css_property_cache
         .ptr
         .get_break_inside(node_data, &id, node_state)
-        .and_then(|v| v.get_property().cloned())
+        .and_then(|v| v.get_property().copied())
         .unwrap_or(BreakInside::Auto)
 }
 
 /// Get orphans property (minimum lines at bottom of page)
-pub fn get_orphans(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
+#[must_use] pub fn get_orphans(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
     let Some(id) = dom_id else {
         return 2; // Default value
     };
@@ -3230,13 +3180,12 @@ pub fn get_orphans(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
         .css_property_cache
         .ptr
         .get_orphans(node_data, &id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|o| o.inner)
-        .unwrap_or(2)
+        .and_then(|v| v.get_property().copied())
+        .map_or(2, |o| o.inner)
 }
 
 /// Get widows property (minimum lines at top of page)
-pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
+#[must_use] pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
     let Some(id) = dom_id else {
         return 2; // Default value
     };
@@ -3246,13 +3195,12 @@ pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
         .css_property_cache
         .ptr
         .get_widows(node_data, &id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|w| w.inner)
-        .unwrap_or(2)
+        .and_then(|v| v.get_property().copied())
+        .map_or(2, |w| w.inner)
 }
 
 /// Get box-decoration-break property
-pub fn get_box_decoration_break(
+#[must_use] pub fn get_box_decoration_break(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
 ) -> BoxDecorationBreak {
@@ -3265,19 +3213,19 @@ pub fn get_box_decoration_break(
         .css_property_cache
         .ptr
         .get_box_decoration_break(node_data, &id, node_state)
-        .and_then(|v| v.get_property().cloned())
+        .and_then(|v| v.get_property().copied())
         .unwrap_or(BoxDecorationBreak::Slice)
 }
 
 // Helper functions for break properties
 
-/// Check if a PageBreak value is avoid
-pub fn is_avoid_page_break(page_break: &PageBreak) -> bool {
+/// Check if a `PageBreak` value is avoid
+#[must_use] pub const fn is_avoid_page_break(page_break: &PageBreak) -> bool {
     matches!(page_break, PageBreak::Avoid | PageBreak::AvoidPage)
 }
 
-/// Check if a BreakInside value prevents breaks
-pub fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
+/// Check if a `BreakInside` value prevents breaks
+#[must_use] pub const fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
     matches!(
         break_inside,
         BreakInside::Avoid | BreakInside::AvoidPage | BreakInside::AvoidColumn
@@ -3307,6 +3255,10 @@ use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontSta
 /// names stay in lock-step with the font-loading pass (which always uses
 /// `Platform::current()`); diverging to a bare "sans-serif" would not match the
 /// names the loader registered → zero glyphs → text collapses to 0 width.
+// The `platform` binding uses a pre-declared `let current;` so the else branch can
+// extend the lifetime of a freshly-computed Platform and hand back a reference to it;
+// map_or_else cannot express this (the closure would return a dangling local ref).
+#[allow(clippy::option_if_let_else)]
 fn build_font_selector_stack(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
@@ -3322,12 +3274,9 @@ fn build_font_selector_stack(
         }
         if let StyleFontFamily::SystemType(system_type) = family {
             let current;
-            let platform = match platform {
-                Some(p) => p,
-                None => {
-                    current = azul_css::system::Platform::current();
-                    &current
-                }
+            let platform = if let Some(p) = platform { p } else {
+                current = azul_css::system::Platform::current();
+                &current
             };
             let font_names = system_type.get_fallback_chain(platform);
             let system_weight = if system_type.is_bold() {
@@ -3364,7 +3313,7 @@ fn build_font_selector_stack(
             .any(|f| f.family.eq_ignore_ascii_case(fallback))
         {
             stack.push(FontSelector {
-                family: fallback.to_string(),
+                family: (*fallback).to_string(),
                 weight: FcWeight::Normal,
                 style: FontStyle::Normal,
                 unicode_ranges: Vec::new(),
@@ -3375,63 +3324,63 @@ fn build_font_selector_stack(
     stack
 }
 
-/// Result of collecting font stacks from a StyledDom
-/// Contains all unique font stacks and the mapping from StyleFontFamiliesHash to FontChainKey
+/// Result of collecting font stacks from a `StyledDom`
+/// Contains all unique font stacks and the mapping from `StyleFontFamiliesHash` to `FontChainKey`
 #[derive(Debug, Clone)]
 pub struct CollectedFontStacks {
     /// All unique font stacks found in the document (system/file fonts via fontconfig)
     pub font_stacks: Vec<Vec<FontSelector>>,
-    /// Map from the font stack hash to the index in font_stacks
+    /// Map from the font stack hash to the index in `font_stacks`
     pub hash_to_index: HashMap<u64, usize>,
-    /// Direct FontRefs that bypass fontconfig (e.g., embedded icon fonts)
+    /// Direct `FontRefs` that bypass fontconfig (e.g., embedded icon fonts)
     /// These are keyed by their pointer address for uniqueness
     pub font_refs: HashMap<usize, azul_css::props::basic::font::FontRef>,
 }
 
 /// Resolved font chains ready for use in layout
-/// This is the result of resolving font stacks against FcFontCache
+/// This is the result of resolving font stacks against `FcFontCache`
 #[derive(Debug, Clone)]
 pub struct ResolvedFontChains {
-    /// Map from FontChainKeyOrRef to the resolved FontFallbackChain
-    /// For FontChainKeyOrRef::Ref variants, the FontFallbackChain contains
+    /// Map from `FontChainKeyOrRef` to the resolved `FontFallbackChain`
+    /// For `FontChainKeyOrRef::Ref` variants, the `FontFallbackChain` contains
     /// a single-font chain that covers the entire Unicode range.
     pub chains: HashMap<FontChainKeyOrRef, FontFallbackChain>,
 }
 
 impl ResolvedFontChains {
     /// Get a font chain by its key
-    pub fn get(&self, key: &FontChainKeyOrRef) -> Option<&FontFallbackChain> {
+    #[must_use] pub fn get(&self, key: &FontChainKeyOrRef) -> Option<&FontFallbackChain> {
         self.chains.get(key)
     }
 
-    /// Get a font chain by FontChainKey (for system fonts)
-    pub fn get_by_chain_key(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
+    /// Get a font chain by `FontChainKey` (for system fonts)
+    #[must_use] pub fn get_by_chain_key(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
         self.chains.get(&FontChainKeyOrRef::Chain(key.clone()))
     }
 
     /// Get a font chain for a font stack (via fontconfig)
-    pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
+    #[must_use] pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
         let key = FontChainKeyOrRef::Chain(FontChainKey::from_selectors(font_stack));
         self.chains.get(&key)
     }
 
-    /// Get a font chain for a FontRef pointer
-    pub fn get_for_font_ref(&self, ptr: usize) -> Option<&FontFallbackChain> {
+    /// Get a font chain for a `FontRef` pointer
+    #[must_use] pub fn get_for_font_ref(&self, ptr: usize) -> Option<&FontFallbackChain> {
         self.chains.get(&FontChainKeyOrRef::Ref(ptr))
     }
 
-    /// Consume self and return the inner HashMap with FontChainKeyOrRef keys
+    /// Consume self and return the inner `HashMap` with `FontChainKeyOrRef` keys
     ///
     /// This is useful when you need access to both Chain and Ref variants.
-    pub fn into_inner(self) -> HashMap<FontChainKeyOrRef, FontFallbackChain> {
+    #[must_use] pub fn into_inner(self) -> HashMap<FontChainKeyOrRef, FontFallbackChain> {
         self.chains
     }
 
     /// Consume self and return only the fontconfig-resolved chains
     ///
-    /// This filters out FontRef entries and returns only the chains
-    /// resolved via fontconfig. This is what FontManager expects.
-    pub fn into_fontconfig_chains(self) -> HashMap<FontChainKey, FontFallbackChain> {
+    /// This filters out `FontRef` entries and returns only the chains
+    /// resolved via fontconfig. This is what `FontManager` expects.
+    #[must_use] pub fn into_fontconfig_chains(self) -> HashMap<FontChainKey, FontFallbackChain> {
         // (2026-06-10: reverted to HashMap end-to-end — the empty-hashbrown RawIter hang behind
         // the 2026-06-05 BTreeMap migration was the un-mirrored EMPTY_GROUP static, fixed
         // transpiler-side in symbol_table.rs::compute_hashbrown_empty_group_ranges.)
@@ -3448,22 +3397,22 @@ impl ResolvedFontChains {
     }
 
     /// Get the number of resolved chains
-    pub fn len(&self) -> usize {
+    #[must_use] pub fn len(&self) -> usize {
         self.chains.len()
     }
 
     /// Check if there are no resolved chains
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub fn is_empty(&self) -> bool {
         self.chains.is_empty()
     }
 
-    /// Get the number of direct FontRefs
-    pub fn font_refs_len(&self) -> usize {
+    /// Get the number of direct `FontRefs`
+    #[must_use] pub fn font_refs_len(&self) -> usize {
         self.chains.keys().filter(|k| k.is_ref()).count()
     }
 }
 
-/// Collect all unique font stacks from a StyledDom
+/// Collect all unique font stacks from a `StyledDom`
 ///
 /// This is a pure function that iterates over all nodes in the DOM and
 /// extracts the font-family property from each node that has text content.
@@ -3474,7 +3423,9 @@ impl ResolvedFontChains {
 ///
 /// # Returns
 /// A `CollectedFontStacks` containing all unique font stacks and a hash-to-index mapping
-pub fn collect_font_stacks_from_styled_dom(
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use] pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
@@ -3488,15 +3439,12 @@ pub fn collect_font_stacks_from_styled_dom(
 
     let node_data = styled_dom.node_data.as_container();
     let cache = &styled_dom.css_property_cache.ptr;
-    let compact = match cache.compact_cache.as_ref() {
-        Some(c) => c,
-        None => {
-            return CollectedFontStacks {
-                font_stacks,
-                hash_to_index,
-                font_refs,
-            }
-        }
+    let Some(compact) = cache.compact_cache.as_ref() else {
+        return CollectedFontStacks {
+            font_stacks,
+            hash_to_index,
+            font_refs,
+        };
     };
 
     // Phase 1: Scan compact cache arrays (just u64 reads) to find unique
@@ -3513,14 +3461,14 @@ pub fn collect_font_stacks_from_styled_dom(
     // WEB-LIFT: probe node_type bytes (NodeType #[repr(C,u8)], Text=177 per AzDom_createText).
     // 0x406D0..DC = n1.node_type bytes[0,1,2,4]; 0x406E0 = n0.node_type byte[0] (body disc).
     if node_count > 1 {
-        let p1 = (&node_data.internal[1].node_type) as *const _ as *const u8;
-        let p0 = (&node_data.internal[0].node_type) as *const _ as *const u8;
+        let p1 = (&raw const node_data.internal[1].node_type).cast::<u8>();
+        let p0 = (&raw const node_data.internal[0].node_type).cast::<u8>();
         unsafe {
-            crate::az_mark(0x606D0_u32, (core::ptr::read(p1) as u32) as u32);
-            crate::az_mark(0x606D4_u32, (core::ptr::read(p1.add(1)) as u32) as u32);
-            crate::az_mark(0x606D8_u32, (core::ptr::read(p1.add(2)) as u32) as u32);
-            crate::az_mark(0x606DC_u32, (core::ptr::read(p1.add(4)) as u32) as u32);
-            crate::az_mark(0x606E0_u32, (core::ptr::read(p0) as u32) as u32);
+            crate::az_mark(0x606D0_u32, u32::from(core::ptr::read(p1)));
+            crate::az_mark(0x606D4_u32, u32::from(core::ptr::read(p1.add(1))));
+            crate::az_mark(0x606D8_u32, u32::from(core::ptr::read(p1.add(2))));
+            crate::az_mark(0x606DC_u32, u32::from(core::ptr::read(p1.add(4))));
+            crate::az_mark(0x606E0_u32, u32::from(core::ptr::read(p0)));
         }
     }
     for i in 0..node_count {
@@ -3531,7 +3479,7 @@ pub fn collect_font_stacks_from_styled_dom(
         // (per AzDom_createText: `mov w8,#0xb1; strb w8,[x19]`). Compare the raw
         // discriminant to the literal 177 (a source literal lifts correctly).
         let nt_disc = unsafe {
-            core::ptr::read((&node_data.internal[i].node_type) as *const _ as *const u8)
+            core::ptr::read((&raw const node_data.internal[i].node_type).cast::<u8>())
         };
         let is_text = nt_disc == 177
             || matches!(node_data.internal[i].node_type, NodeType::Text(_));
@@ -3555,17 +3503,17 @@ pub fn collect_font_stacks_from_styled_dom(
         let mut raw_text = 0u32;
         for i in 0..node_count {
             // NodeType is repr(C,u8)-ish; read the leading discriminant byte directly.
-            let nt_ptr = (&node_data.internal[i].node_type) as *const _ as *const u8;
+            let nt_ptr = (&raw const node_data.internal[i].node_type).cast::<u8>();
             let disc = unsafe { core::ptr::read_volatile(nt_ptr) };
             // Text is one specific discriminant; count whatever the body node ISN'T.
-            if disc != unsafe { core::ptr::read_volatile((&node_data.internal[0].node_type) as *const _ as *const u8) } {
+            if disc != unsafe { core::ptr::read_volatile((&raw const node_data.internal[0].node_type).cast::<u8>()) } {
                 raw_text += 1;
             }
         }
         unsafe {
-            crate::az_mark(0x606C0_u32, (0x5E5E0003u32));
-            crate::az_mark(0x606C4_u32, ((node_count as u32)));
-            crate::az_mark(0x606C8_u32, ((unique_font_keys.len() as u32)));
+            crate::az_mark(0x606C0_u32, (0x5E5E_0003_u32));
+            crate::az_mark(0x606C4_u32, (node_count as u32));
+            crate::az_mark(0x606C8_u32, (unique_font_keys.len() as u32));
             crate::az_mark(0x606CC_u32, (raw_text));
         }
     }
@@ -3575,9 +3523,8 @@ pub fn collect_font_stacks_from_styled_dom(
     let styled_nodes = styled_dom.styled_nodes.as_container();
 
     for (&(fh, _wb, _sb), &repr_idx) in &unique_font_keys {
-        let dom_id = match NodeId::from_usize(repr_idx) {
-            Some(id) => id,
-            None => continue,
+        let Some(dom_id) = NodeId::from_usize(repr_idx) else {
+            continue;
         };
         let node_state = &styled_nodes[dom_id].styled_node_state;
 
@@ -3593,12 +3540,10 @@ pub fn collect_font_stacks_from_styled_dom(
             });
 
         // Check for embedded FontRef
-        if let Some(first_family) = font_families.get(0) {
-            if let StyleFontFamily::Ref(font_ref) = first_family {
-                let ptr = font_ref.parsed as usize;
-                font_refs.entry(ptr).or_insert_with(|| font_ref.clone());
-                continue;
-            }
+        if let Some(StyleFontFamily::Ref(font_ref)) = font_families.get(0) {
+            let ptr = font_ref.parsed as usize;
+            font_refs.entry(ptr).or_insert_with(|| font_ref.clone());
+            continue;
         }
 
         let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
@@ -3645,7 +3590,7 @@ pub fn collect_font_stacks_from_styled_dom(
 /// Resolve all font chains for the collected font stacks
 ///
 /// This is a pure function that takes the collected font stacks and resolves
-/// them against the FcFontCache to produce FontFallbackChains.
+/// them against the `FcFontCache` to produce `FontFallbackChains`.
 ///
 /// # Arguments
 /// * `collected` - The collected font stacks from `collect_font_stacks_from_styled_dom`
@@ -3664,11 +3609,11 @@ pub fn collect_font_stacks_from_styled_dom(
 /// returned set are deduped + sorted via `BTreeSet`.
 ///
 /// Cost: O(total text length). Cheap relative to layout itself.
-pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTreeSet<u32> {
+#[must_use] pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTreeSet<u32> {
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
-    for node in node_data.internal.iter() {
-        let azul_core::dom::NodeType::Text(s) = &node.node_type else {
+    for node in node_data.internal {
+        let NodeType::Text(s) = &node.node_type else {
             continue;
         };
         for c in s.as_str().chars() {
@@ -3681,7 +3626,9 @@ pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTre
     out
 }
 
-/// Like [`collect_used_codepoints`] but keeps ASCII. The fast-probe
+/// Like [`collect_used_codepoints`] but keeps ASCII.
+///
+/// The fast-probe
 /// path (`FcFontRegistry::request_fonts_fast`) *does* need ASCII:
 /// "the font has to cover every codepoint I will render" is only
 /// true if we tell it every codepoint, and "Segoe UI" not being
@@ -3692,11 +3639,11 @@ pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTre
 /// (`prune_chain_to_used_chars`) runs *after* resolution to trim an
 /// already-resolved chain and every Latin-covering font passes ASCII
 /// trivially. That assumption doesn't hold during probing.
-pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::BTreeSet<char> {
+#[must_use] pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::BTreeSet<char> {
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
-    for node in node_data.internal.iter() {
-        let azul_core::dom::NodeType::Text(s) = &node.node_type else {
+    for node in node_data.internal {
+        let NodeType::Text(s) = &node.node_type else {
             continue;
         };
         for c in s.as_str().chars() {
@@ -3728,7 +3675,7 @@ pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::
 /// the 26 fonts that would otherwise be parsed by
 /// `load_fonts_from_disk`.
 pub fn prune_chain_to_used_chars(
-    chain: &mut rust_fontconfig::FontFallbackChain,
+    chain: &mut FontFallbackChain,
     used_chars: &std::collections::BTreeSet<u32>,
 ) {
     fn fm_covers(fm: &rust_fontconfig::FontMatch, cp: u32) -> bool {
@@ -3763,7 +3710,9 @@ pub fn prune_chain_to_used_chars(
 
 /// Scan text-node content in `styled_dom` and return the subset of
 /// [`rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS`] whose code-point
-/// ranges actually appear in any text. Short-circuits once all seven
+/// ranges actually appear in any text.
+///
+/// Short-circuits once all seven
 /// ranges have been seen.
 ///
 /// Callers pass the result as `scripts_hint` to
@@ -3773,14 +3722,14 @@ pub fn prune_chain_to_used_chars(
 /// actually uses. An ASCII-only page returns an empty vector, which
 /// avoids dragging Arial Unicode MS, CJK fonts, etc. into the
 /// resolved chain and therefore into the eager-load step.
-pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange> {
+#[must_use] pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange> {
     let scripts = DEFAULT_UNICODE_FALLBACK_SCRIPTS;
     let mut seen = vec![false; scripts.len()];
     let mut hits = 0usize;
     let node_data = styled_dom.node_data.as_container();
-    'outer: for node in node_data.internal.iter() {
+    'outer: for node in node_data.internal {
         let text: &str = match &node.node_type {
-            azul_core::dom::NodeType::Text(s) => s.as_str(),
+            NodeType::Text(s) => s.as_str(),
             _ => continue,
         };
         for c in text.chars() {
@@ -3824,7 +3773,7 @@ pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange
 /// - `Some(ranges)` attaches fallbacks only for the listed scripts.
 ///   Production callers compute this via
 ///   [`scripts_present_in_styled_dom`].
-pub fn resolve_font_chains(
+#[must_use] pub fn resolve_font_chains(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
     scripts_hint: Option<&[UnicodeRange]>,
@@ -3832,7 +3781,9 @@ pub fn resolve_font_chains(
     resolve_font_chains_with_registry(collected, fc_cache, None, scripts_hint)
 }
 
-/// Registry-aware variant of [`resolve_font_chains`]. When `registry`
+/// Registry-aware variant of [`resolve_font_chains`].
+///
+/// When `registry`
 /// is `Some`, each chain resolution goes through
 /// [`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]
 /// which priority-bumps the builder for families not yet in the
@@ -3844,7 +3795,7 @@ pub fn resolve_font_chains(
 /// against the passed-in snapshot, which is what
 /// [`resolve_font_chains`] does and what every code path did before
 /// Phase 3.
-pub fn resolve_font_chains_with_registry(
+#[must_use] pub fn resolve_font_chains_with_registry(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
@@ -3862,7 +3813,7 @@ pub fn resolve_font_chains_with_registry(
         // (2026-06-10) Build the key through the ONE canonical constructor
         // (FontChainKey::from_selectors — first-wins dedup + the same empty-stack
         // fallback) so the stored key always matches the shaping-time lookup key.
-        let canonical_key = crate::text3::cache::FontChainKey::from_selectors(font_stack);
+        let canonical_key = FontChainKey::from_selectors(font_stack);
         let font_families = canonical_key.font_families.clone();
 
         let weight = font_stack[0].weight;
@@ -3898,25 +3849,28 @@ pub fn resolve_font_chains_with_registry(
 
         // Registry-aware resolve: scout-on-demand path when available.
         // See `resolve_font_chains_with_registry` doc for rationale.
-        let chain = if let Some(reg) = registry {
-            reg.request_and_resolve_with_scripts(
-                &font_families,
-                weight,
-                italic,
-                oblique,
-                scripts_hint,
-            )
-        } else {
-            let mut trace = Vec::new();
-            fc_cache.resolve_font_chain_with_scripts(
-                &font_families,
-                weight,
-                italic,
-                oblique,
-                scripts_hint,
-                &mut trace,
-            )
-        };
+        let chain = registry.map_or_else(
+            || {
+                let mut trace = Vec::new();
+                fc_cache.resolve_font_chain_with_scripts(
+                    &font_families,
+                    weight,
+                    italic,
+                    oblique,
+                    scripts_hint,
+                    &mut trace,
+                )
+            },
+            |reg| {
+                reg.request_and_resolve_with_scripts(
+                    &font_families,
+                    weight,
+                    italic,
+                    oblique,
+                    scripts_hint,
+                )
+            },
+        );
 
         // WEB-LIFT last resort (in azul-layout, NOT rust-fontconfig — so the fragile
         // `with_memory_fonts` isn't re-codegen'd into a trapping shape): the lifted
@@ -3997,7 +3951,7 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
 /// in a single pass over the DOM nodes. Replaces the old two-pass approach
 /// where `register_embedded_fonts_from_styled_dom` + `collect_and_resolve_font_chains`
 /// each independently scanned all nodes.
-pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::ParsedFontTrait>(
+pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
     font_manager: &crate::text3::cache::FontManager<T>,
@@ -4076,7 +4030,7 @@ pub fn resolve_font_chains_fast(
     static DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let dbg = *DBG.get_or_init(|| std::env::var_os("AZ_FAST_RESOLVE_DEBUG").is_some());
 
-    let mut chains: HashMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> = HashMap::new();
+    let mut chains: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
 
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {
@@ -4086,7 +4040,7 @@ pub fn resolve_font_chains_fast(
         // (2026-06-10) Build the key through the ONE canonical constructor
         // (FontChainKey::from_selectors — first-wins dedup + the same empty-stack
         // fallback) so the stored key always matches the shaping-time lookup key.
-        let canonical_key = crate::text3::cache::FontChainKey::from_selectors(font_stack);
+        let canonical_key = FontChainKey::from_selectors(font_stack);
         let font_families = canonical_key.font_families.clone();
 
         let weight = font_stack[0].weight;
@@ -4124,8 +4078,7 @@ pub fn resolve_font_chains_fast(
                 italic_match,
                 chains_out
                     .first()
-                    .map(|c| c.css_fallbacks.len())
-                    .unwrap_or(0),
+                    .map_or(0, |c| c.css_fallbacks.len()),
                 total_fonts,
             );
         }
@@ -4140,7 +4093,7 @@ pub fn resolve_font_chains_fast(
 /// Legacy wrapper: collect + resolve without registration. Kept for
 /// backward compatibility; defaults to the full 7-script unicode
 /// fallback set.
-pub fn collect_and_resolve_font_chains(
+#[must_use] pub fn collect_and_resolve_font_chains(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
     platform: &azul_css::system::Platform,
@@ -4150,7 +4103,7 @@ pub fn collect_and_resolve_font_chains(
 }
 
 /// Legacy wrapper: register only. Prefer `collect_and_resolve_font_chains_with_registration`.
-pub fn register_embedded_fonts_from_styled_dom<T: crate::font_traits::ParsedFontTrait>(
+pub fn register_embedded_fonts_from_styled_dom<T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     font_manager: &crate::text3::cache::FontManager<T>,
     platform: &azul_css::system::Platform,
@@ -4167,11 +4120,11 @@ use std::collections::HashSet;
 
 use rust_fontconfig::FontId;
 
-/// Extract all unique FontIds from resolved font chains
+/// Extract all unique `FontIds` from resolved font chains
 ///
-/// This function collects all FontIds that are referenced in the font chains,
+/// This function collects all `FontIds` that are referenced in the font chains,
 /// which represents the complete set of fonts that may be needed for rendering.
-pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<FontId> {
+#[must_use] pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<FontId> {
     let mut font_ids = HashSet::new();
 
     // M12.7: hashbrown's RawIterRange (the .values() iterator below) mis-lifts
@@ -4201,12 +4154,13 @@ pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<Font
 /// Compute which fonts need to be loaded (diff with already loaded fonts)
 ///
 /// # Arguments
-/// * `required_fonts` - Set of FontIds that are needed
-/// * `already_loaded` - Set of FontIds that are already loaded
+/// * `required_fonts` - Set of `FontIds` that are needed
+/// * `already_loaded` - Set of `FontIds` that are already loaded
 ///
 /// # Returns
-/// Set of FontIds that need to be loaded
-pub fn compute_fonts_to_load(
+/// Set of `FontIds` that need to be loaded
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+#[must_use] pub fn compute_fonts_to_load(
     required_fonts: &HashSet<FontId>,
     already_loaded: &HashSet<FontId>,
 ) -> HashSet<FontId> {
@@ -4215,7 +4169,7 @@ pub fn compute_fonts_to_load(
     if required_fonts.is_empty() {
         return HashSet::new();
     }
-    required_fonts.difference(already_loaded).cloned().collect()
+    required_fonts.difference(already_loaded).copied().collect()
 }
 
 /// Result of loading fonts
@@ -4223,7 +4177,7 @@ pub fn compute_fonts_to_load(
 pub struct FontLoadResult<T> {
     /// Successfully loaded fonts
     pub loaded: HashMap<FontId, T>,
-    /// FontIds that failed to load, with error messages
+    /// `FontIds` that failed to load, with error messages
     pub failed: Vec<(FontId, String)>,
 }
 
@@ -4234,12 +4188,13 @@ pub struct FontLoadResult<T> {
 /// and returns a parsed font or an error.
 ///
 /// # Arguments
-/// * `font_ids` - Set of FontIds to load
+/// * `font_ids` - Set of `FontIds` to load
 /// * `fc_cache` - The fontconfig cache to get font paths from
 /// * `load_fn` - Function to load and parse font bytes
 ///
 /// # Returns
 /// A `FontLoadResult` containing successfully loaded fonts and any failures
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn load_fonts_from_disk<T, F>(
     font_ids: &HashSet<FontId>,
     fc_cache: &FcFontCache,
@@ -4262,25 +4217,21 @@ where
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
         // rust_fontconfig's `shared_bytes` dedup.
-        let font_bytes = match fc_cache.get_font_bytes(font_id) {
-            Some(bytes) => bytes,
-            None => {
-                failed.push((
-                    *font_id,
-                    format!("Could not get font bytes for {:?}", font_id),
-                ));
-                continue;
-            }
+        let Some(font_bytes) = fc_cache.get_font_bytes(font_id) else {
+            failed.push((
+                *font_id,
+                format!("Could not get font bytes for {font_id:?}"),
+            ));
+            continue;
         };
 
         // Get font index (for font collections like .ttc files)
         let font_index = fc_cache
             .get_font_by_id(font_id)
-            .map(|source| match source {
+            .map_or(0, |source| match source {
                 rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
                 rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
-            })
-            .unwrap_or(0);
+            });
 
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {
@@ -4290,7 +4241,7 @@ where
             Err(e) => {
                 failed.push((
                     *font_id,
-                    format!("Failed to parse font {:?}: {:?}", font_id, e),
+                    format!("Failed to parse font {font_id:?}: {e:?}"),
                 ));
             }
         }
@@ -4304,19 +4255,20 @@ where
 /// This function:
 /// 1. Collects all font stacks from the DOM
 /// 2. Resolves them to font chains
-/// 3. Extracts all required FontIds
+/// 3. Extracts all required `FontIds`
 /// 4. Computes which fonts need to be loaded (diff with already loaded)
 /// 5. Loads the missing fonts
 ///
 /// # Arguments
 /// * `styled_dom` - The styled DOM to extract font requirements from
 /// * `fc_cache` - The fontconfig cache
-/// * `already_loaded` - Set of FontIds that are already loaded
+/// * `already_loaded` - Set of `FontIds` that are already loaded
 /// * `load_fn` - Function to load and parse font bytes
 /// * `platform` - The current platform for resolving system font types
 ///
 /// # Returns
-/// A tuple of (ResolvedFontChains, FontLoadResult)
+/// A tuple of (`ResolvedFontChains`, `FontLoadResult`)
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 pub fn resolve_and_load_fonts<T, F>(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
@@ -4369,7 +4321,7 @@ use azul_css::props::style::scrollbar::{
 ///   1. `-azul-scrollbar-style`  (full `ScrollbarInfo` override)
 ///   2. `scrollbar-width`        (overrides width + overlay mode)
 ///   3. `scrollbar-color`        (overrides thumb / track colours)
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct ComputedScrollbarStyle {
     /// The scrollbar width mode (auto/thin/none)
     pub width_mode: LayoutScrollbarWidth,
@@ -4403,15 +4355,15 @@ pub struct ComputedScrollbarStyle {
     pub scroll_button_size_px: f32,
     /// Whether to show the corner rect where V and H scrollbars meet.
     pub show_corner_rect: bool,
-    /// Thumb color when hovered (None = use thumb_color)
+    /// Thumb color when hovered (None = use `thumb_color`)
     pub thumb_color_hover: Option<ColorU>,
-    /// Thumb color when pressed/active (None = use thumb_color)
+    /// Thumb color when pressed/active (None = use `thumb_color`)
     pub thumb_color_active: Option<ColorU>,
-    /// Track color when hovered (None = use track_color)
+    /// Track color when hovered (None = use `track_color`)
     pub track_color_hover: Option<ColorU>,
-    /// Visual width when hovered (None = use visual_width_px)
+    /// Visual width when hovered (None = use `visual_width_px`)
     pub visual_width_px_hover: Option<f32>,
-    /// Visual width when pressed (None = use visual_width_px)
+    /// Visual width when pressed (None = use `visual_width_px`)
     pub visual_width_px_active: Option<f32>,
 }
 
@@ -4450,7 +4402,7 @@ impl ComputedScrollbarStyle {
 
         let (thumb_color, track_color) = match ua.color {
             StyleScrollbarColor::Custom(c) => (c.thumb, c.track),
-            _ => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
+            StyleScrollbarColor::Auto => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
         };
 
         // Compute hover / active variants:
@@ -4515,7 +4467,8 @@ impl ComputedScrollbarStyle {
 ///
 /// When `system_style` is `None`, falls back to the unconditional UA rule
 /// (classic light scrollbar).
-pub fn get_scrollbar_style(
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use] pub fn get_scrollbar_style(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -4524,10 +4477,10 @@ pub fn get_scrollbar_style(
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system.
-    let ctx = match system_style {
-        Some(sys) => azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(sys),
-        None => azul_css::dynamic_selector::DynamicSelectorContext::default(),
-    };
+    let ctx = system_style.map_or_else(
+        azul_css::dynamic_selector::DynamicSelectorContext::default,
+        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+    );
     let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
     let result = ComputedScrollbarStyle::from_ua_resolved(&ua);
 
@@ -4655,7 +4608,9 @@ pub fn get_scrollbar_style(
 }
 
 /// Cached wrapper for [`get_scrollbar_style`] that reuses the
-/// memo stored on `LayoutContext`. The underlying call performs
+/// memo stored on `LayoutContext`.
+///
+/// The underlying call performs
 /// 9 cascade walks per node (track/thumb/button/corner/width/
 /// color/visibility/fade-delay/fade-duration). The BFC, Taffy,
 /// and display-list callers all hit the same node many times
@@ -4664,13 +4619,13 @@ pub fn get_scrollbar_style(
 ///
 /// Falls back to the uncached `get_scrollbar_style` when no ctx
 /// is available (shouldn't happen in the current code paths).
-pub fn get_scrollbar_style_cached<T: crate::font_traits::ParsedFontTrait>(
+pub fn get_scrollbar_style_cached<T: ParsedFontTrait>(
     ctx: &crate::solver3::LayoutContext<'_, T>,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> ComputedScrollbarStyle {
     if let Some(s) = ctx.scrollbar_style_cache.borrow().get(&node_id) {
-        return s.clone();
+        return *s;
     }
     let style = get_scrollbar_style(
         ctx.styled_dom,
@@ -4680,12 +4635,12 @@ pub fn get_scrollbar_style_cached<T: crate::font_traits::ParsedFontTrait>(
     );
     ctx.scrollbar_style_cache
         .borrow_mut()
-        .insert(node_id, style.clone());
+        .insert(node_id, style);
     style
 }
 
-/// Helper to extract a solid color from a StyleBackgroundContent
-fn extract_color_from_background(
+/// Helper to extract a solid color from a `StyleBackgroundContent`
+const fn extract_color_from_background(
     bg: &azul_css::props::style::background::StyleBackgroundContent,
 ) -> ColorU {
     use azul_css::props::style::background::StyleBackgroundContent;
@@ -4696,7 +4651,7 @@ fn extract_color_from_background(
 }
 
 /// Check if a node should clip its scrollbar to the container's border-radius
-pub fn should_clip_scrollbar_to_border(
+#[must_use] pub fn should_clip_scrollbar_to_border(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -4706,7 +4661,7 @@ pub fn should_clip_scrollbar_to_border(
 }
 
 /// Get the scrollbar visual width in pixels for a node (used for rendering)
-pub fn get_scrollbar_width_px(
+#[must_use] pub fn get_scrollbar_width_px(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -4719,7 +4674,7 @@ pub fn get_scrollbar_width_px(
 ///
 /// Returns `true` if the text can be selected (default behavior),
 /// `false` if `user-select: none` is set.
-pub fn is_text_selectable(
+#[must_use] pub fn is_text_selectable(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -4731,8 +4686,7 @@ pub fn is_text_selectable(
         .ptr
         .get_user_select(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|us| *us != StyleUserSelect::None)
-        .unwrap_or(true) // Default: text is selectable
+        .is_none_or(|us| *us != StyleUserSelect::None) // Default: text is selectable
 }
 
 /// Checks if a node has the `contenteditable` attribute set directly.
@@ -4742,7 +4696,7 @@ pub fn is_text_selectable(
 /// - OR the node has `contenteditable` attribute set to `true`
 ///
 /// This does NOT check inheritance - use `is_node_contenteditable_inherited` for that.
-pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+#[must_use] pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::dom::AttributeType;
 
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -5001,7 +4955,7 @@ get_css_property!(
 // =============================================================================
 
 /// Get height property value for IFC text layout height reference.
-pub fn get_height_value(
+#[must_use] pub fn get_height_value(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5016,7 +4970,7 @@ pub fn get_height_value(
 }
 
 /// Get shape-inside property. Returns Option<ShapeInside> (cloned).
-pub fn get_shape_inside(
+#[must_use] pub fn get_shape_inside(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5031,7 +4985,7 @@ pub fn get_shape_inside(
 }
 
 /// Get shape-outside property. Returns Option<ShapeOutside> (cloned).
-pub fn get_shape_outside(
+#[must_use] pub fn get_shape_outside(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5045,8 +4999,8 @@ pub fn get_shape_outside(
         .cloned()
 }
 
-/// Get line-height as the full StyleLineHeight value for caller resolution.
-pub fn get_line_height_value(
+/// Get line-height as the full `StyleLineHeight` value for caller resolution.
+#[must_use] pub fn get_line_height_value(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5057,11 +5011,11 @@ pub fn get_line_height_value(
         .ptr
         .get_line_height(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
 }
 
-/// Get text-indent as the full StyleTextIndent value for caller resolution.
-pub fn get_text_indent_value(
+/// Get text-indent as the full `StyleTextIndent` value for caller resolution.
+#[must_use] pub fn get_text_indent_value(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5072,11 +5026,11 @@ pub fn get_text_indent_value(
         .ptr
         .get_text_indent(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
 }
 
 /// Get column-count property. Returns Option<ColumnCount>.
-pub fn get_column_count(
+#[must_use] pub fn get_column_count(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5087,11 +5041,11 @@ pub fn get_column_count(
         .ptr
         .get_column_count(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
 }
 
 /// Get initial-letter property. Returns Option<StyleInitialLetter>.
-pub fn get_initial_letter(
+#[must_use] pub fn get_initial_letter(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5102,11 +5056,11 @@ pub fn get_initial_letter(
         .ptr
         .get_initial_letter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
 }
 
 /// Get line-clamp property. Returns Option<StyleLineClamp>.
-pub fn get_line_clamp(
+#[must_use] pub fn get_line_clamp(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5117,11 +5071,11 @@ pub fn get_line_clamp(
         .ptr
         .get_line_clamp(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
 }
 
 /// Get hanging-punctuation property. Returns Option<StyleHangingPunctuation>.
-pub fn get_hanging_punctuation(
+#[must_use] pub fn get_hanging_punctuation(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5132,11 +5086,11 @@ pub fn get_hanging_punctuation(
         .ptr
         .get_hanging_punctuation(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
 }
 
 /// Get text-combine-upright property. Returns Option<StyleTextCombineUpright>.
-pub fn get_text_combine_upright(
+#[must_use] pub fn get_text_combine_upright(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5147,11 +5101,11 @@ pub fn get_text_combine_upright(
         .ptr
         .get_text_combine_upright(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
 }
 
 /// Get exclusion-margin value. Returns f32 (default 0.0).
-pub fn get_exclusion_margin(
+#[must_use] pub fn get_exclusion_margin(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5162,12 +5116,11 @@ pub fn get_exclusion_margin(
         .ptr
         .get_exclusion_margin(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| v.inner.get())
-        .unwrap_or(0.0)
+        .map_or(0.0, |v| v.inner.get())
 }
 
 /// Get hyphenation-language property. Returns Option<StyleHyphenationLanguage>.
-pub fn get_hyphenation_language(
+#[must_use] pub fn get_hyphenation_language(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5182,7 +5135,7 @@ pub fn get_hyphenation_language(
 }
 
 /// Get border-spacing property.
-pub fn get_border_spacing(
+#[must_use] pub fn get_border_spacing(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5200,8 +5153,8 @@ pub fn get_border_spacing(
                 && v_raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD
             {
                 return azul_css::props::layout::table::LayoutBorderSpacing {
-                    horizontal: PixelValue::px(h_raw as f32 / 10.0),
-                    vertical: PixelValue::px(v_raw as f32 / 10.0),
+                    horizontal: PixelValue::px(f32::from(h_raw) / 10.0),
+                    vertical: PixelValue::px(f32::from(v_raw) / 10.0),
                 };
             }
         }
@@ -5214,7 +5167,7 @@ pub fn get_border_spacing(
         .ptr
         .get_border_spacing(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .cloned()
+        .copied()
         .unwrap_or_default()
 }
 
@@ -5223,7 +5176,7 @@ pub fn get_border_spacing(
 /// GPU fast path: the compact cache encodes opacity as a u8 (0-254, 255 = unset).
 /// Avoids the 4-pseudo-state × 6-layer cascade walk for animations reading opacity
 /// across every node each frame.
-pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> f32 {
+#[must_use] pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> f32 {
     // FAST PATH: compact cache for normal state
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
@@ -5231,7 +5184,7 @@ pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledN
             if raw == azul_css::compact_cache::OPACITY_SENTINEL {
                 return 1.0;
             }
-            return (raw as f32) / 254.0;
+            return f32::from(raw) / 254.0;
         }
     }
     // SLOW PATH: fall back to cascade walk (state != normal, or no compact cache)
@@ -5241,12 +5194,11 @@ pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledN
         .ptr
         .get_opacity(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| v.inner.normalized())
-        .unwrap_or(1.0)
+        .map_or(1.0, |v| v.inner.normalized())
 }
 
 /// Get filter property. Returns Option with cloned filter list.
-pub fn get_filter(
+#[must_use] pub fn get_filter(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5268,7 +5220,7 @@ pub fn get_filter(
 }
 
 /// Get backdrop-filter property. Returns Option with cloned filter list.
-pub fn get_backdrop_filter(
+#[must_use] pub fn get_backdrop_filter(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5307,7 +5259,7 @@ fn box_shadow_fast_bail(
 }
 
 /// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned).
-pub fn get_box_shadow_left(
+#[must_use] pub fn get_box_shadow_left(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5325,7 +5277,7 @@ pub fn get_box_shadow_left(
 }
 
 /// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned).
-pub fn get_box_shadow_right(
+#[must_use] pub fn get_box_shadow_right(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5343,7 +5295,7 @@ pub fn get_box_shadow_right(
 }
 
 /// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned).
-pub fn get_box_shadow_top(
+#[must_use] pub fn get_box_shadow_top(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5361,7 +5313,7 @@ pub fn get_box_shadow_top(
 }
 
 /// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned).
-pub fn get_box_shadow_bottom(
+#[must_use] pub fn get_box_shadow_bottom(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5379,7 +5331,7 @@ pub fn get_box_shadow_bottom(
 }
 
 /// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned).
-pub fn get_text_shadow(
+#[must_use] pub fn get_text_shadow(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5406,7 +5358,7 @@ pub fn get_text_shadow(
 /// skips the cascade walk entirely — which is the overwhelming case since most
 /// nodes have no transform. Only nodes that actually have a transform pay the
 /// slow-walk cost to retrieve the parsed value.
-pub fn get_transform(
+#[must_use] pub fn get_transform(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5430,7 +5382,7 @@ pub fn get_transform(
 }
 
 /// Get counter-reset property. Returns Option<CounterReset> (cloned).
-pub fn get_counter_reset(
+#[must_use] pub fn get_counter_reset(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5445,7 +5397,7 @@ pub fn get_counter_reset(
 }
 
 /// Get counter-increment property. Returns Option<CounterIncrement> (cloned).
-pub fn get_counter_increment(
+#[must_use] pub fn get_counter_increment(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5484,7 +5436,7 @@ pub fn get_counter_increment(
 ///   C                              <!-- editable (inherited) -->
 /// </div>
 /// ```
-pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+#[must_use] pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::dom::AttributeType;
 
     let node_data_container = styled_dom.node_data.as_container();
@@ -5503,7 +5455,7 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
 
         // Then check for explicit contenteditable attribute on this node
         // This handles HTML-style contenteditable="true" or contenteditable="false"
-        for attr in node_data.attributes().as_ref().iter() {
+        for attr in node_data.attributes().as_ref() {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 // If explicitly set to true, node is editable
                 // If explicitly set to false, node is NOT editable (blocks inheritance)
@@ -5512,7 +5464,7 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
         }
 
         // No explicit setting on this node, check parent for inheritance
-        current_node_id = hierarchy.get(nid).and_then(|h| h.parent_id());
+        current_node_id = hierarchy.get(nid).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
 
     // Reached root without finding contenteditable - not editable
@@ -5528,7 +5480,7 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
 ///
 /// - `Some(node_id)` of the contenteditable ancestor (may be the node itself)
 /// - `None` if no contenteditable ancestor exists
-pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) -> Option<NodeId> {
+#[must_use] pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) -> Option<NodeId> {
     use azul_core::dom::AttributeType;
 
     let node_data_container = styled_dom.node_data.as_container();
@@ -5545,19 +5497,18 @@ pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) ->
         }
 
         // Then check for contenteditable attribute on this node
-        for attr in node_data.attributes().as_ref().iter() {
+        for attr in node_data.attributes().as_ref() {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 if *is_editable {
                     return Some(nid);
-                } else {
-                    // Explicitly not editable - stop search
-                    return None;
                 }
+                // Explicitly not editable - stop search
+                return None;
             }
         }
 
         // Check parent
-        current_node_id = hierarchy.get(nid).and_then(|h| h.parent_id());
+        current_node_id = hierarchy.get(nid).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
 
     None
@@ -5572,7 +5523,7 @@ pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) ->
 
 macro_rules! get_css_property_value {
     ($fn_name:ident, $cache_method:ident, $ret_type:ty) => {
-        pub fn $fn_name(
+        #[must_use] pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -5655,9 +5606,10 @@ get_css_property_value!(get_grid_column_prop, get_grid_column, LayoutGridColumnV
 get_css_property_value!(get_grid_row_prop, get_grid_row, LayoutGridRowValue);
 
 /// Get grid-template-areas property.
-/// Uses the generic `get_property()` since CssPropertyCache lacks a specific getter.
-/// Returns the inner `GridTemplateAreas` value (already unwrapped from CssPropertyValue).
-pub fn get_grid_template_areas_prop(
+///
+/// Uses the generic `get_property()` since `CssPropertyCache` lacks a specific getter.
+/// Returns the inner `GridTemplateAreas` value (already unwrapped from `CssPropertyValue`).
+#[must_use] pub fn get_grid_template_areas_prop(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5681,12 +5633,12 @@ pub fn get_grid_template_areas_prop(
         })
 }
 
-/// Get clip-path property. Returns the ClipPath value for the node.
+/// Get clip-path property. Returns the `ClipPath` value for the node.
 ///
 /// CSS Masking Module Level 1, section 3:
 /// The clip-path property creates a clipping region that determines which parts
 /// of an element are visible. Returns None for `clip-path: none` (default).
-pub fn get_clip_path(
+#[must_use] pub fn get_clip_path(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,

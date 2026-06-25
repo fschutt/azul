@@ -11,6 +11,7 @@ use azul_core::{
     },
     refany::RefAny,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -181,24 +182,24 @@ impl TreeViewNode {
     }
 
     /// Appends a child node.
-    pub fn add_child(&mut self, child: TreeViewNode) {
+    pub fn add_child(&mut self, child: Self) {
         self.children.push(child);
     }
 
     /// Builder method: appends a child node.
-    pub fn with_child(mut self, child: TreeViewNode) -> Self {
+    #[must_use] pub fn with_child(mut self, child: Self) -> Self {
         self.children.push(child);
         self
     }
 
     /// Builder method: sets the expanded state.
-    pub fn with_expanded(mut self, expanded: bool) -> Self {
+    #[must_use] pub const fn with_expanded(mut self, expanded: bool) -> Self {
         self.is_expanded = expanded;
         self
     }
 
     /// Builder method: sets the selected state.
-    pub fn with_selected(mut self, selected: bool) -> Self {
+    #[must_use] pub const fn with_selected(mut self, selected: bool) -> Self {
         self.is_selected = selected;
         self
     }
@@ -223,7 +224,7 @@ pub struct TreeView {
 
 impl TreeView {
     /// Creates a new tree view with the given root node and no click callback.
-    pub fn new(root: TreeViewNode) -> Self {
+    #[must_use] pub fn new(root: TreeViewNode) -> Self {
         Self {
             root,
             on_node_click: None.into(),
@@ -244,6 +245,7 @@ impl TreeView {
     }
 
     /// Builder method: sets the node-click callback.
+    #[must_use]
     pub fn with_on_node_click<C: Into<TreeViewOnNodeClickCallback>>(
         mut self,
         data: RefAny,
@@ -254,12 +256,12 @@ impl TreeView {
     }
 
     /// Renders the tree view into a [`Dom`] subtree.
-    pub fn dom(self) -> Dom {
-        let on_node_click = self.on_node_click;
-        let root = self.root;
-
+    #[must_use] pub fn dom(self) -> Dom {
         const TREE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-tree-view"))];
+
+        let on_node_click = self.on_node_click;
+        let root = self.root;
 
         let mut children = Vec::new();
         let mut index: usize = 0;
@@ -386,9 +388,8 @@ struct NodeClickData {
 // ============================================================================
 
 extern "C" fn on_tree_node_click(mut refany: RefAny, info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeClickData>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeClickData>() else {
+        return Update::DoNothing;
     };
 
     let node_index = refany.node_index;
@@ -406,7 +407,7 @@ extern "C" fn on_tree_node_click(mut refany: RefAny, info: CallbackInfo) -> Upda
 // ============================================================================
 
 impl From<TreeView> for Dom {
-    fn from(tv: TreeView) -> Dom {
+    fn from(tv: TreeView) -> Self {
         tv.dom()
     }
 }

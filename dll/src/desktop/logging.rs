@@ -17,7 +17,7 @@ fn escape_dialog_html(s: &str) -> String {
 }
 
 /// Configures the global logger using `fern` to write to stdout at the given level.
-#[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
+#[cfg(all(feature = "fern_logger", not(feature = "pyo3_logger")))]
 pub fn set_up_logging(log_level: LevelFilter) {
     use std::error::Error;
 
@@ -201,7 +201,7 @@ pub fn set_up_panic_hooks() {
 // ============================================================================
 // Built-in default logger (dependency-free; works in the lean `build-dll` DLL).
 //
-// The fern logger above is gated behind `use_fern_logger`, which the shipped
+// The fern logger above is gated behind `fern_logger`, which the shipped
 // `build-dll` library does NOT enable — so the released `.deb`/`.dylib`/`.dll`
 // installs no logger and every `plog_*!` / `log_*!` / `log::*!` call is silently
 // discarded. That is why a misbehaving app "just exits with no error".

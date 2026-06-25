@@ -1,4 +1,7 @@
 [package]
+readme = "../../README.md"
+keywords = ["webrender", "graphics", "gpu", "rendering"]
+categories = ["rendering"]
 name = "webrender"
 version = "0.62.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]

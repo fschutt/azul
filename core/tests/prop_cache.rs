@@ -12,7 +12,7 @@ use azul_css::{
     css::Css,
     css::CssPropertyValue,
     props::{
-        basic::{font::StyleFontSize, length::SizeMetric, pixel::PixelValue},
+        basic::{font::StyleFontSize, length::SizeMetric},
         property::{CssProperty, CssPropertyType},
     },
 };
@@ -464,7 +464,7 @@ fn test_non_inheritable_property_not_inherited() {
             if let Some(display) = val.get_property() {
                 // P's display should be block (UA CSS), not flex
                 assert_ne!(
-                    format!("{:?}", display).to_lowercase(),
+                    format!("{display:?}").to_lowercase(),
                     "flex".to_lowercase()
                 );
             }
@@ -538,7 +538,7 @@ fn test_ua_css_p_tag_properties() {
     let cache = CssPropertyCache::empty(1);
 
     // Create a minimal <p> tag NodeData using public API
-    let mut node_data = NodeData::create_node(NodeType::P);
+    let node_data = NodeData::create_node(NodeType::P);
 
     let node_id = NodeId::new(0);
     let node_state = StyledNodeState::default();
@@ -554,8 +554,7 @@ fn test_ua_css_p_tag_properties() {
             assert_eq!(
                 *display_value,
                 LayoutDisplay::Block,
-                "Expected <p> to have display: block, got {:?}",
-                display_value
+                "Expected <p> to have display: block, got {display_value:?}"
             );
         }
     }
@@ -567,20 +566,18 @@ fn test_ua_css_p_tag_properties() {
     // Width should be None because <p> should use auto width (no explicit width property)
     assert!(
         width.is_none(),
-        "Expected <p> to NOT have explicit width (should be auto), but got {:?}",
-        width
+        "Expected <p> to NOT have explicit width (should be auto), but got {width:?}"
     );
 
     // Test that <p> does NOT have a default height from UA CSS
     // (height should be auto, which means None)
     let height = cache.get_height(&node_data, &node_id, &node_state);
-    println!("Height for <p> tag: {:?}", height);
+    println!("Height for <p> tag: {height:?}");
 
     // Height should be None because <p> should use auto height
     assert!(
         height.is_none(),
-        "Expected <p> to NOT have explicit height (should be auto), but got {:?}",
-        height
+        "Expected <p> to NOT have explicit height (should be auto), but got {height:?}"
     );
 }
 
@@ -599,8 +596,7 @@ fn test_ua_css_body_tag_properties() {
     // Width should be None because <body> should use auto width (no explicit width property)
     assert!(
         width.is_none(),
-        "Expected <body> to NOT have explicit width (should be auto), but got {:?}",
-        width
+        "Expected <body> to NOT have explicit width (should be auto), but got {width:?}"
     );
 
     // Note: height: 100% was removed from UA CSS (ua_css.rs:506 commented out)
@@ -650,8 +646,7 @@ fn flatvecvec_flatten_frees_build_and_shrinks() {
     // Total: ~1600 bytes. Before: much more due to build Vecs.
     assert!(
         after_bytes < build_bytes_before,
-        "flatten should reduce memory: before={} after={}",
-        build_bytes_before, after_bytes
+        "flatten should reduce memory: before={build_bytes_before} after={after_bytes}"
     );
     // Verify data is accessible
     assert_eq!(fvv.get_slice(0), &[0, 1]);
@@ -679,8 +674,7 @@ fn flatvecvec_retain_shrinks_capacity() {
 
     assert!(
         after < before * 3 / 4,
-        "retain should significantly reduce memory: before={} after={}",
-        before, after
+        "retain should significantly reduce memory: before={before} after={after}"
     );
     // Verify filtered data
     for i in 0..10 {
@@ -757,8 +751,7 @@ fn has_compact_encoding_covers_all_compact_properties() {
     for pt in &compact_props {
         assert!(
             pt.has_compact_encoding(),
-            "{:?} should have compact encoding but has_compact_encoding() returns false",
-            pt
+            "{pt:?} should have compact encoding but has_compact_encoding() returns false"
         );
     }
 
@@ -771,8 +764,7 @@ fn has_compact_encoding_covers_all_compact_properties() {
     for pt in &non_compact {
         assert!(
             !pt.has_compact_encoding(),
-            "{:?} should NOT have compact encoding",
-            pt
+            "{pt:?} should NOT have compact encoding"
         );
     }
 }

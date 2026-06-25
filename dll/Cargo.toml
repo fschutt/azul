@@ -1,4 +1,5 @@
 [package]
+readme = "../README.md"
 name = "azul-dll"
 version = "0.0.8"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -604,7 +605,7 @@ _internal_deps = [
     # cleanly. Consumers that need HTTPS enable the `http` feature explicitly
     # (e.g. azul-doc).
     # ZIP file manipulation
-    "zip_support",
+    "zip",
     # JSON support
     "json",
     # Icon provider support
@@ -792,7 +793,7 @@ icons = ["azul-layout", "azul-layout/icons", "dep:brotli-decompressor"]
 http = ["azul-layout", "azul-layout/http"]
 
 # ZIP file manipulation support
-zip_support = ["azul-layout", "azul-layout/zip_support"]
+zip = ["azul-layout", "azul-layout/zip"]
 
 # JSON parsing and manipulation
 json = ["azul-layout", "azul-layout/json"]
@@ -812,8 +813,8 @@ serde-json = ["serde", "serde_json", "azul-core?/serde-json"]
 # Logging Backends
 # -----------------------------------------------------------------------------
 
-use_fern_logger = ["logging", "fern"]
-use_pyo3_logger = ["pyo3-log", "logging"]
+fern_logger = ["logging", "fern"]
+pyo3_logger = ["pyo3-log", "logging"]
 
 # -----------------------------------------------------------------------------
 # Predefined Configurations
@@ -826,7 +827,7 @@ use_pyo3_logger = ["pyo3-log", "logging"]
 # searched before libazul's own weak defs) AND C/C++ apps that link `-lazul`
 # (the weak stubs satisfy the linker; they are never called without a Python
 # interpreter). See dll/build.rs::compile_python_weak_stubs.
-python-extension = ["build-dll", "pyo3", "use_pyo3_logger", "link-static", "dep:cc"]
+python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static", "dep:cc"]
 
 # PHP extension module (Zend engine native extension via ext-php-rs).
 # Unlike the standard php-ffi path, this loads through the Zend engine
@@ -904,5 +905,5 @@ features = [
     "text_layout",
     "svg",
     "xml",
-    "use_fern_logger",
+    "fern_logger",
 ]

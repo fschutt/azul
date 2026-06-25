@@ -25,6 +25,7 @@ use azul_core::{
     svg::{SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
     window::CursorPosition::InWindow,
 };
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -80,8 +81,8 @@ impl Default for NodeGraph {
 }
 
 impl NodeGraph {
-    /// Generates a new NodeId that is unique in the graph
-    pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
+    /// Generates a new `NodeId` that is unique in the graph
+    #[must_use] pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
         NodeGraphNodeId {
             inner: self
                 .nodes
@@ -352,7 +353,7 @@ impl_vec_debug!(InputConnection, InputConnectionVec);
 impl_vec_mut!(InputConnection, InputConnectionVec);
 
 /// Reference to a specific output port on a node.
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 #[repr(C)]
 pub struct OutputNodeAndIndex {
     pub node_id: NodeGraphNodeId,
@@ -388,7 +389,7 @@ impl_vec_debug!(OutputConnection, OutputConnectionVec);
 impl_vec_mut!(OutputConnection, OutputConnectionVec);
 
 /// Reference to a specific input port on a node.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct InputNodeAndIndex {
     pub node_id: NodeGraphNodeId,
@@ -455,8 +456,8 @@ pub enum NodeGraphError {
 }
 
 impl fmt::Display for NodeGraphError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::NodeGraphError::*;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::NodeGraphError::{NodeMimeTypeMismatch, NodeInvalidIndex, NodeInvalidNode, NoRootNode};
         match self {
             NodeMimeTypeMismatch => write!(f, "MIME type mismatch"),
             NodeInvalidIndex => write!(f, "Invalid node index"),
@@ -483,6 +484,7 @@ pub struct NodeDragAmount {
 }
 
 impl NodeGraph {
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self::default();
         ::core::mem::swap(&mut default, self);
@@ -493,10 +495,10 @@ impl NodeGraph {
     ///
     /// ## Inputs
     ///
-    /// - `output_node_id`: The ID of the output node (index in the NodeGraphs internal BTree)
+    /// - `output_node_id`: The ID of the output node (index in the `NodeGraphs` internal `BTree`)
     /// - `output_index`: The index of the output *on the output node*
-    /// - `input_node_id`: Same as output_node_id, but for the input node
-    /// - `input_index`: Same as output_index, but for the input node
+    /// - `input_node_id`: Same as `output_node_id`, but for the input node
+    /// - `input_index`: Same as `output_index`, but for the input node
     ///
     /// ## Returns
     ///
@@ -545,7 +547,7 @@ impl NodeGraph {
                         output_index,
                     }]
                     .into(),
-                })
+                });
             }
         } else {
             return Err(NodeGraphError::NodeInvalidNode);
@@ -579,7 +581,7 @@ impl NodeGraph {
                         input_index,
                     }]
                     .into(),
-                })
+                });
             }
         } else {
             return Err(NodeGraphError::NodeInvalidNode);
@@ -592,7 +594,7 @@ impl NodeGraph {
     ///
     /// # Inputs
     ///
-    /// - `input_node_id`: The ID of the input node (index in the NodeGraphs internal BTree)
+    /// - `input_node_id`: The ID of the input node (index in the `NodeGraphs` internal `BTree`)
     /// - `input_index`: The index of the input *on the input node*
     ///
     /// # Returns
@@ -632,7 +634,7 @@ impl NodeGraph {
         for OutputNodeAndIndex {
             node_id,
             output_index,
-        } in output_connections.as_ref().iter()
+        } in output_connections.as_ref()
         {
             let output_node_id = *node_id;
             let output_index = *output_index;
@@ -691,7 +693,7 @@ impl NodeGraph {
     ///
     /// # Inputs
     ///
-    /// - `output_node_id`: The ID of the output node (index in the NodeGraphs internal BTree)
+    /// - `output_node_id`: The ID of the output node (index in the `NodeGraphs` internal `BTree`)
     /// - `output_index`: The index of the output *on the output node*
     ///
     /// # Returns
@@ -728,7 +730,7 @@ impl NodeGraph {
         for InputNodeAndIndex {
             node_id,
             input_index,
-        } in input_connections.iter()
+        } in &input_connections
         {
             let input_node_id = *node_id;
             let input_index = *input_index;
@@ -837,7 +839,8 @@ impl NodeGraph {
         Ok(())
     }
 
-    pub fn dom(self) -> Dom {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use] pub fn dom(self) -> Dom {
         static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
         static NODEGRAPH_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Image(
@@ -1042,6 +1045,8 @@ struct ConnectionLocalDataset {
     color: ColorU,
 }
 
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_node(
     node: &Node,
     graph_offset: (f32, f32),
@@ -1053,6 +1058,7 @@ fn render_node(
         CssPropertyWithConditions, CssPropertyWithConditionsVec, Dom, DomVec, IdOrClass,
         IdOrClass::Class, IdOrClassVec,
     };
+    #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
     use azul_css::*;
 
     const STRING_9416190750059025162: AzString = AzString::from_const_str("Material Icons");
@@ -2268,15 +2274,15 @@ fn render_node(
                }),
            )),
            CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
-               if scale_factor != 1.0 {
+               if scale_factor == 1.0 {
+                    vec![
+                         StyleTransform::Translate(node_transform)
+                    ]
+               } else {
                     vec![
                          StyleTransform::Translate(node_transform),
                          StyleTransform::ScaleX(PercentageValue::new(scale_factor * 100.0)),
                          StyleTransform::ScaleY(PercentageValue::new(scale_factor * 100.0)),
-                    ]
-               } else {
-                    vec![
-                         StyleTransform::Translate(node_transform)
                     ]
                }.into()
            ))),
@@ -2340,7 +2346,7 @@ fn render_node(
                                .into_iter()
                                .enumerate()
                                .map(|(io_id, (input_label, input_color))| {
-                                   use self::InputOrOutput::*;
+                                   use self::InputOrOutput::Input;
 
                                    Dom::create_div()
                                        .with_css_props(CSS_MATCH_9863994880298313101)
@@ -2369,7 +2375,7 @@ fn render_node(
                                                    )
                                                })
                                                .with_children(DomVec::from_vec(vec![Dom::create_text(
-                                                   input_label.clone(),
+                                                   input_label,
                                                )
                                                .with_css_props(
                                                    CSS_MATCH_11452431279102104133,
@@ -2477,24 +2483,28 @@ fn render_node(
 
                                    match &field.value {
                                        NodeTypeFieldValue::TextInput(initial_text) => {
+                                           let cb: TextInputOnFocusLostCallbackType = nodegraph_on_textinput_focus_lost;
                                            TextInput::create()
                                            .with_text(initial_text.clone())
-                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost as TextInputOnFocusLostCallbackType)
+                                           .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::NumberInput(initial_value) => {
+                                           let cb: NumberInputOnFocusLostCallbackType = nodegraph_on_numberinput_focus_lost;
                                            NumberInput::create(*initial_value)
-                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost as NumberInputOnFocusLostCallbackType)
+                                           .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::CheckBox(initial_checked) => {
+                                           let cb: CheckBoxOnToggleCallbackType = nodegraph_on_checkbox_value_changed;
                                            CheckBox::create(*initial_checked)
-                                           .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed as CheckBoxOnToggleCallbackType)
+                                           .with_on_toggle(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {
+                                           let cb: ColorInputOnValueChangeCallbackType = nodegraph_on_colorinput_value_changed;
                                            ColorInput::create(*initial_color)
-                                           .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed as ColorInputOnValueChangeCallbackType)
+                                           .with_on_value_change(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::FileInput(file_path) => {
@@ -2532,7 +2542,7 @@ fn render_node(
                                .into_iter()
                                .enumerate()
                                .map(|(io_id, (output_label, output_color))| {
-                                   use self::InputOrOutput::*;
+                                   use self::InputOrOutput::Output;
                                    Dom::create_div()
                                        .with_css_props(CSS_MATCH_12400244273289328300)
                                        .with_ids_and_classes({
@@ -2607,7 +2617,7 @@ fn render_node(
                                                    )
                                                })
                                                .with_children(DomVec::from_vec(vec![Dom::create_text(
-                                                   output_label.clone(),
+                                                   output_label,
                                                )
                                                .with_css_props(
                                                    CSS_MATCH_2008162367868363199,
@@ -2631,6 +2641,7 @@ fn render_node(
     ].into())
 }
 
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> Dom {
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
@@ -2652,7 +2663,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         .with_children({
             let mut children = Vec::new();
 
-            for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref().iter() {
+            for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref() {
                 let out_node_id = node_id;
                 let node_type_info = match node_graph
                     .node_types
@@ -2666,11 +2677,10 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                 for OutputConnection {
                     output_index,
                     connects_to,
-                } in node.connect_out.as_ref().iter()
+                } in node.connect_out.as_ref()
                 {
-                    let output_type_id = match node_type_info.outputs.get(*output_index) {
-                        Some(s) => s,
-                        None => continue,
+                    let Some(output_type_id) = node_type_info.outputs.get(*output_index) else {
+                        continue;
                     };
 
                     let output_color = match node_graph
@@ -2685,7 +2695,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                     for InputNodeAndIndex {
                         node_id,
                         input_index,
-                    } in connects_to.as_ref().iter()
+                    } in connects_to.as_ref()
                     {
                         let in_node_id = node_id;
 
@@ -2699,9 +2709,8 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                             color: output_color,
                         };
 
-                        let (rect, swap_vert, swap_horz) = match get_rect(node_graph, cld) {
-                            Some(s) => s,
-                            None => continue,
+                        let Some((rect, swap_vert, swap_horz)) = get_rect(node_graph, cld) else {
+                            continue;
                         };
 
                         cld.swap_vert = swap_vert;
@@ -2765,10 +2774,11 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         })
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
     // RenderImageCallbackInfo not available in memtest
     // let size = info.get_bounds().get_physical_size();
-    let size = azul_core::geom::LogicalSize {
+    let size = LogicalSize {
         width: 100.0,
         height: 100.0,
     };
@@ -2789,6 +2799,8 @@ const DIST_BETWEEN_NODES: f32 = 10.0;
 const CONNECTION_DOT_HEIGHT: f32 = 15.0;
 
 // calculates the rect on which the connection is drawn in the UI
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
 fn get_rect(
     node_graph: &NodeGraph,
     connection: ConnectionLocalDataset,
@@ -2851,16 +2863,17 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
 }
 
 // drag either the graph or the currently active nodes
+#[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::single_match_else)] // drag-node (Some) and drag-graph (None) are each ~135-line blocks; match labels the two modes far more clearly than if-let/else
 extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
     let refany = &mut *refany;
 
-    let prev = match info.get_previous_mouse_state() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(prev) = info.get_previous_mouse_state() else {
+        return Update::DoNothing;
     };
     let cur = info.get_current_mouse_state();
     if !(cur.left_down && prev.left_down) {
@@ -2868,10 +2881,10 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         return Update::DoNothing;
     }
 
-    let (current_mouse_pos, previous_mouse_pos) = match (cur.cursor_position, prev.cursor_position)
-    {
-        (InWindow(c), InWindow(p)) => (c, p),
-        _ => return Update::DoNothing,
+    let (InWindow(current_mouse_pos), InWindow(previous_mouse_pos)) =
+        (cur.cursor_position, prev.cursor_position)
+    else {
+        return Update::DoNothing;
     };
 
     let dx = (current_mouse_pos.x - previous_mouse_pos.x) * (1.0 / refany.node_graph.scale_factor);
@@ -2909,9 +2922,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 None => return Update::DoNothing,
             };
 
-            let visual_node_id = match info.get_node_id_of_root_dataset(data_marker) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(visual_node_id) = info.get_node_id_of_root_dataset(data_marker) else {
+                return Update::DoNothing;
             };
 
             let node_transform = StyleTransformTranslate2D {
@@ -2922,7 +2934,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             info.set_css_property(
                 visual_node_id,
                 CssProperty::transform(
-                    if refany.node_graph.scale_factor != 1.0 {
+                    if refany.node_graph.scale_factor == 1.0 {
+                        vec![StyleTransform::Translate(node_transform)]
+                    } else {
                         vec![
                             StyleTransform::Translate(node_transform),
                             StyleTransform::ScaleX(PercentageValue::new(
@@ -2932,19 +2946,17 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                                 refany.node_graph.scale_factor * 100.0,
                             )),
                         ]
-                    } else {
-                        vec![StyleTransform::Translate(node_transform)]
                     }
                     .into(),
                 ),
             );
 
             // get the NodeId of the node containing all the connection lines
-            let connection_container_nodeid =
-                match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-                    Some(s) => s,
-                    None => return result,
-                };
+            let Some(connection_container_nodeid) =
+                info.get_node_id_of_root_dataset(node_connection_marker.clone())
+            else {
+                return result;
+            };
 
             // animate all the connections
             let mut first_connection_child = info.get_first_child(connection_container_nodeid);
@@ -2952,19 +2964,16 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             while let Some(connection_nodeid) = first_connection_child {
                 first_connection_child = info.get_next_sibling(connection_nodeid);
 
-                let first_child = match info.get_first_child(connection_nodeid) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(first_child) = info.get_first_child(connection_nodeid) else {
+                    continue;
                 };
 
-                let mut dataset = match info.get_dataset(first_child) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(mut dataset) = info.get_dataset(first_child) else {
+                    continue;
                 };
 
-                let mut cld = match dataset.downcast_mut::<ConnectionLocalDataset>() {
-                    Some(s) => s,
-                    None => continue,
+                let Some(mut cld) = dataset.downcast_mut::<ConnectionLocalDataset>() else {
+                    continue;
                 };
 
                 if !(cld.out_node_id == node_graph_node_id || cld.in_node_id == node_graph_node_id)
@@ -2972,9 +2981,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     continue; // connection does not need to be modified
                 }
 
-                let (new_rect, swap_vert, swap_horz) = match get_rect(&refany.node_graph, *cld) {
-                    Some(s) => s,
-                    None => continue,
+                let Some((new_rect, swap_vert, swap_horz)) = get_rect(&refany.node_graph, *cld)
+                else {
+                    continue;
                 };
 
                 cld.swap_vert = swap_vert;
@@ -2988,7 +2997,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 info.set_css_property(
                     first_child,
                     CssProperty::transform(
-                        if refany.node_graph.scale_factor != 1.0 {
+                        if refany.node_graph.scale_factor == 1.0 {
+                            vec![StyleTransform::Translate(node_transform)]
+                        } else {
                             vec![
                                 StyleTransform::Translate(node_transform),
                                 StyleTransform::ScaleX(PercentageValue::new(
@@ -2998,8 +3009,6 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                                     refany.node_graph.scale_factor * 100.0,
                                 )),
                             ]
-                        } else {
-                            vec![StyleTransform::Translate(node_transform)]
                         }
                         .into(),
                     ),
@@ -3036,25 +3045,21 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             refany.node_graph.offset.y += dy;
 
             // Update the visual node positions
-            let node_container = match info.get_first_child(nodegraph_node) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(node_container) = info.get_first_child(nodegraph_node) else {
+                return Update::DoNothing;
             };
 
-            let node_container = match info.get_next_sibling(node_container) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(node_container) = info.get_next_sibling(node_container) else {
+                return Update::DoNothing;
             };
 
-            let mut node = match info.get_first_child(node_container) {
-                Some(s) => s,
-                None => return Update::DoNothing,
+            let Some(mut node) = info.get_first_child(node_container) else {
+                return Update::DoNothing;
             };
 
             loop {
-                let node_first_child = match info.get_first_child(node) {
-                    Some(s) => s,
-                    None => return Update::DoNothing,
+                let Some(node_first_child) = info.get_first_child(node) else {
+                    return Update::DoNothing;
                 };
 
                 let mut node_local_dataset = match info.get_dataset(node_first_child) {
@@ -3062,10 +3067,10 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     Some(s) => s,
                 };
 
-                let node_graph_node_id = match node_local_dataset.downcast_ref::<NodeLocalDataset>()
-                {
-                    Some(s) => s,
-                    None => continue,
+                let Some(node_graph_node_id) =
+                    node_local_dataset.downcast_ref::<NodeLocalDataset>()
+                else {
+                    continue;
                 };
 
                 let node_graph_node_id = node_graph_node_id.node_id;
@@ -3088,7 +3093,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 info.set_css_property(
                     node_first_child,
                     CssProperty::transform(
-                        if refany.node_graph.scale_factor != 1.0 {
+                        if refany.node_graph.scale_factor == 1.0 {
+                            vec![StyleTransform::Translate(node_transform)]
+                        } else {
                             vec![
                                 StyleTransform::Translate(node_transform),
                                 StyleTransform::ScaleX(PercentageValue::new(
@@ -3098,8 +3105,6 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                                     refany.node_graph.scale_factor * 100.0,
                                 )),
                             ]
-                        } else {
-                            vec![StyleTransform::Translate(node_transform)]
                         }
                         .into(),
                     ),
@@ -3114,35 +3119,31 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             let node_connection_marker = &mut refany.node_connection_marker;
 
             // Update the connection positions
-            let connection_container_nodeid =
-                match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-                    Some(s) => s,
-                    None => return result,
-                };
+            let Some(connection_container_nodeid) =
+                info.get_node_id_of_root_dataset(node_connection_marker.clone())
+            else {
+                return result;
+            };
 
             let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
             while let Some(connection_nodeid) = first_connection_child {
                 first_connection_child = info.get_next_sibling(connection_nodeid);
 
-                let first_child = match info.get_first_child(connection_nodeid) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(first_child) = info.get_first_child(connection_nodeid) else {
+                    continue;
                 };
 
-                let mut dataset = match info.get_dataset(first_child) {
-                    Some(s) => s,
-                    None => continue,
+                let Some(mut dataset) = info.get_dataset(first_child) else {
+                    continue;
                 };
 
-                let cld = match dataset.downcast_ref::<ConnectionLocalDataset>() {
-                    Some(s) => s,
-                    None => continue,
+                let Some(cld) = dataset.downcast_ref::<ConnectionLocalDataset>() else {
+                    continue;
                 };
 
-                let (new_rect, _, _) = match get_rect(&refany.node_graph, *cld) {
-                    Some(s) => s,
-                    None => continue,
+                let Some((new_rect, _, _)) = get_rect(&refany.node_graph, *cld) else {
+                    continue;
                 };
 
                 info.set_css_property(
@@ -3175,25 +3176,22 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
 }
 
 extern "C" fn nodegraph_duplicate_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
-    let _data = match refany.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(_data) = refany.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     Update::DoNothing // TODO
 }
 
 extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = refany.node_id;
 
-    let mut backref = match refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let result = match backref.callbacks.on_node_removed.as_ref() {
@@ -3204,35 +3202,34 @@ extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) 
     result
 }
 
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::CursorPosition;
 
-    let mut refany = match refany.downcast_mut::<ContextMenuEntryLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<ContextMenuEntryLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let new_node_type = refany.node_type;
 
-    let node_graph_wrapper_id = match info.get_node_id_of_root_dataset(refany.backref.clone()) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(node_graph_wrapper_id) = info.get_node_id_of_root_dataset(refany.backref.clone())
+    else {
+        return Update::DoNothing;
     };
 
-    let mut backref = match refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_wrapper_offset = info
         .get_node_position(node_graph_wrapper_id)
-        .map(|p| (p.x, p.y))
-        .unwrap_or((0.0, 0.0));
+        .map_or((0.0, 0.0), |p| (p.x, p.y));
 
     let cursor_in_viewport = match info.get_current_mouse_state().cursor_position {
-        CursorPosition::InWindow(i) => i,
+        InWindow(i) => i,
         CursorPosition::OutOfWindow(i) => i,
-        _ => LogicalPosition::zero(),
+        CursorPosition::Uninitialized => LogicalPosition::zero(),
     };
 
     let new_node_pos = NodeGraphNodePosition {
@@ -3259,25 +3256,22 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
 }
 
 extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    use self::InputOrOutput::*;
+    use self::InputOrOutput::{Input, Output};
 
-    let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeInputOutputLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let io_id = refany.io_id;
 
-    let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = backref.node_id;
 
-    let mut backref = match backref.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = backref.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let (input_node, input_index, output_node, output_index) =
@@ -3306,9 +3300,9 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
         output_node,
         output_index,
     ) {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(e) => {
-            eprintln!("{:?}", e);
+            eprintln!("{e:?}");
             backref.last_input_or_output_clicked = None;
             return Update::DoNothing;
         }
@@ -3334,25 +3328,22 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
 }
 
 extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: CallbackInfo) -> Update {
-    use self::InputOrOutput::*;
+    use self::InputOrOutput::{Input, Output};
 
-    let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeInputOutputLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let io_id = refany.io_id;
 
-    let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = backref.node_id;
 
-    let mut backref = match backref.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut backref) = backref.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let mut result = Update::DoNothing;
@@ -3377,7 +3368,7 @@ extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: Callba
                 },
             );
         }
-    };
+    }
 
     result
 }
@@ -3387,26 +3378,23 @@ extern "C" fn nodegraph_on_textinput_focus_lost(
     info: CallbackInfo,
     textinputstate: TextInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3439,26 +3427,23 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(
     info: CallbackInfo,
     numberinputstate: NumberInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3491,26 +3476,23 @@ extern "C" fn nodegraph_on_checkbox_value_changed(
     info: CallbackInfo,
     checkboxinputstate: CheckBoxState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3543,25 +3525,22 @@ extern "C" fn nodegraph_on_colorinput_value_changed(
     info: CallbackInfo,
     colorinputstate: ColorInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3594,25 +3573,22 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
     info: CallbackInfo,
     file: FileInputState,
 ) -> Update {
-    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut refany) = refany.downcast_mut::<NodeFieldLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    let Some(mut node_local_dataset) = refany.backref.downcast_mut::<NodeLocalDataset>() else {
+        return Update::DoNothing;
     };
 
     let node_id = node_local_dataset.node_id;
-    let mut node_graph = match node_local_dataset
+    let Some(mut node_graph) = node_local_dataset
         .backref
         .downcast_mut::<NodeGraphLocalDataset>()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    else {
+        return Update::DoNothing;
     };
 
     let node_type = match node_graph
@@ -3633,7 +3609,7 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
             node_id,
             field_idx,
             node_type,
-            NodeTypeFieldValue::FileInput(file.path.clone()),
+            NodeTypeFieldValue::FileInput(file.path),
         ),
         None => return Update::DoNothing,
     };

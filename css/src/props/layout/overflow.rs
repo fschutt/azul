@@ -37,11 +37,11 @@ impl LayoutOverflow {
     // +spec:overflow:2bf182 - overflow:scroll always shows scrollbar whether or not content is clipped
     // +spec:overflow:84cd40 - scroll value always displays scrollbar for accessing clipped content
     // +spec:overflow:8fcdd8 - auto causes scrolling mechanism for overflowing boxes (table exception is UA-level)
-    pub fn needs_scrollbar(&self, currently_overflowing: bool) -> bool {
+    #[must_use] pub const fn needs_scrollbar(&self, currently_overflowing: bool) -> bool {
         match self {
-            LayoutOverflow::Scroll => true,
-            LayoutOverflow::Auto => currently_overflowing,
-            LayoutOverflow::Hidden | LayoutOverflow::Visible | LayoutOverflow::Clip => false,
+            Self::Scroll => true,
+            Self::Auto => currently_overflowing,
+            Self::Hidden | Self::Visible | Self::Clip => false,
         }
     }
 
@@ -50,44 +50,44 @@ impl LayoutOverflow {
     // +spec:overflow:81e306 - clipping region clips all aspects outside it; clipped content does not cause overflow
     // +spec:overflow:fd38ce - overflow properties specify whether a box's content is clipped / scroll container
     /// Returns `true` if this overflow value clips content (everything except `visible`).
-    pub fn is_clipped(&self) -> bool {
+    #[must_use] pub const fn is_clipped(&self) -> bool {
         // All overflow values except 'visible' clip their content
         matches!(
             self,
-            LayoutOverflow::Hidden
-                | LayoutOverflow::Clip
-                | LayoutOverflow::Auto
-                | LayoutOverflow::Scroll
+            Self::Hidden
+                | Self::Clip
+                | Self::Auto
+                | Self::Scroll
         )
     }
 
     // +spec:overflow:3be57c - overflow:hidden disables user scrolling but programmatic scrolling still works
     /// Returns `true` if the overflow type is `scroll`.
-    pub fn is_scroll(&self) -> bool {
-        matches!(self, LayoutOverflow::Scroll)
+    #[must_use] pub const fn is_scroll(&self) -> bool {
+        matches!(self, Self::Scroll)
     }
 
     /// Returns `true` if the overflow type is `visible`, which is the only
     /// overflow type that doesn't clip its children.
-    pub fn is_overflow_visible(&self) -> bool {
-        *self == LayoutOverflow::Visible
+    #[must_use] pub fn is_overflow_visible(&self) -> bool {
+        *self == Self::Visible
     }
 
     /// Returns `true` if the overflow type is `hidden`.
-    pub fn is_overflow_hidden(&self) -> bool {
-        *self == LayoutOverflow::Hidden
+    #[must_use] pub fn is_overflow_hidden(&self) -> bool {
+        *self == Self::Hidden
     }
 
     // +spec:overflow:833078 - visible/clip compute to auto/hidden if other axis is scrollable
     /// Resolves the computed value per CSS Overflow 3 § 3.1:
     /// visible/clip values compute to auto/hidden (respectively)
     /// if the other axis is neither visible nor clip.
-    pub fn resolve_computed(self, other_axis: LayoutOverflow) -> LayoutOverflow {
-        let other_is_scrollable = !matches!(other_axis, LayoutOverflow::Visible | LayoutOverflow::Clip);
+    #[must_use] pub const fn resolve_computed(self, other_axis: Self) -> Self {
+        let other_is_scrollable = !matches!(other_axis, Self::Visible | Self::Clip);
         if other_is_scrollable {
             match self {
-                LayoutOverflow::Visible => LayoutOverflow::Auto,
-                LayoutOverflow::Clip => LayoutOverflow::Hidden,
+                Self::Visible => Self::Auto,
+                Self::Clip => Self::Hidden,
                 other => other,
             }
         } else {
@@ -99,11 +99,11 @@ impl LayoutOverflow {
 impl PrintAsCssValue for LayoutOverflow {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            LayoutOverflow::Scroll => "scroll",
-            LayoutOverflow::Auto => "auto",
-            LayoutOverflow::Hidden => "hidden",
-            LayoutOverflow::Visible => "visible",
-            LayoutOverflow::Clip => "clip",
+            Self::Scroll => "scroll",
+            Self::Auto => "auto",
+            Self::Hidden => "hidden",
+            Self::Visible => "visible",
+            Self::Clip => "clip",
         })
     }
 }
@@ -131,12 +131,12 @@ pub enum LayoutOverflowParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> LayoutOverflowParseError<'a> {
+impl LayoutOverflowParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    pub fn to_contained(&self) -> LayoutOverflowParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> LayoutOverflowParseErrorOwned {
         match self {
             LayoutOverflowParseError::InvalidValue(s) => {
-                LayoutOverflowParseErrorOwned::InvalidValue(s.to_string().into())
+                LayoutOverflowParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -144,9 +144,9 @@ impl<'a> LayoutOverflowParseError<'a> {
 
 impl LayoutOverflowParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    pub fn to_shared<'a>(&'a self) -> LayoutOverflowParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutOverflowParseError<'_> {
         match self {
-            LayoutOverflowParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 LayoutOverflowParseError::InvalidValue(s.as_str())
             }
         }
@@ -155,9 +155,12 @@ impl LayoutOverflowParseErrorOwned {
 
 #[cfg(feature = "parser")]
 /// Parses a `LayoutOverflow` from a string slice.
-pub fn parse_layout_overflow<'a>(
-    input: &'a str,
-) -> Result<LayoutOverflow, LayoutOverflowParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `overflow` value.
+pub fn parse_layout_overflow(
+    input: &str,
+) -> Result<LayoutOverflow, LayoutOverflowParseError<'_>> {
     let input_trimmed = input.trim();
     match input_trimmed {
         "scroll" => Ok(LayoutOverflow::Scroll),
@@ -192,9 +195,9 @@ pub enum StyleScrollbarGutter {
 impl PrintAsCssValue for StyleScrollbarGutter {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleScrollbarGutter::Auto => "auto",
-            StyleScrollbarGutter::Stable => "stable",
-            StyleScrollbarGutter::StableBothEdges => "stable both-edges",
+            Self::Auto => "auto",
+            Self::Stable => "stable",
+            Self::StableBothEdges => "stable both-edges",
         })
     }
 }
@@ -222,12 +225,12 @@ pub enum StyleScrollbarGutterParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> StyleScrollbarGutterParseError<'a> {
+impl StyleScrollbarGutterParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    pub fn to_contained(&self) -> StyleScrollbarGutterParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> StyleScrollbarGutterParseErrorOwned {
         match self {
             StyleScrollbarGutterParseError::InvalidValue(s) => {
-                StyleScrollbarGutterParseErrorOwned::InvalidValue(s.to_string().into())
+                StyleScrollbarGutterParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -235,9 +238,9 @@ impl<'a> StyleScrollbarGutterParseError<'a> {
 
 impl StyleScrollbarGutterParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    pub fn to_shared<'a>(&'a self) -> StyleScrollbarGutterParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleScrollbarGutterParseError<'_> {
         match self {
-            StyleScrollbarGutterParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 StyleScrollbarGutterParseError::InvalidValue(s.as_str())
             }
         }
@@ -246,9 +249,12 @@ impl StyleScrollbarGutterParseErrorOwned {
 
 #[cfg(feature = "parser")]
 /// Parses a `StyleScrollbarGutter` from a string slice.
-pub fn parse_style_scrollbar_gutter<'a>(
-    input: &'a str,
-) -> Result<StyleScrollbarGutter, StyleScrollbarGutterParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-gutter` value.
+pub fn parse_style_scrollbar_gutter(
+    input: &str,
+) -> Result<StyleScrollbarGutter, StyleScrollbarGutterParseError<'_>> {
     let input_trimmed = input.trim();
     match input_trimmed {
         "auto" => Ok(StyleScrollbarGutter::Auto),
@@ -280,9 +286,9 @@ pub enum VisualBox {
 impl PrintAsCssValue for VisualBox {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            VisualBox::ContentBox => "content-box",
-            VisualBox::PaddingBox => "padding-box",
-            VisualBox::BorderBox => "border-box",
+            Self::ContentBox => "content-box",
+            Self::PaddingBox => "padding-box",
+            Self::BorderBox => "border-box",
         })
     }
 }
@@ -314,7 +320,7 @@ impl PrintAsCssValue for StyleOverflowClipMargin {
         } else if self.clip_edge == VisualBox::PaddingBox {
             len
         } else {
-            format!("{} {}", edge, len)
+            format!("{edge} {len}")
         }
     }
 }
@@ -338,12 +344,12 @@ pub enum StyleOverflowClipMarginParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> StyleOverflowClipMarginParseError<'a> {
+impl StyleOverflowClipMarginParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    pub fn to_contained(&self) -> StyleOverflowClipMarginParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> StyleOverflowClipMarginParseErrorOwned {
         match self {
             StyleOverflowClipMarginParseError::InvalidValue(s) => {
-                StyleOverflowClipMarginParseErrorOwned::InvalidValue(s.to_string().into())
+                StyleOverflowClipMarginParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -351,9 +357,9 @@ impl<'a> StyleOverflowClipMarginParseError<'a> {
 
 impl StyleOverflowClipMarginParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    pub fn to_shared<'a>(&'a self) -> StyleOverflowClipMarginParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleOverflowClipMarginParseError<'_> {
         match self {
-            StyleOverflowClipMarginParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 StyleOverflowClipMarginParseError::InvalidValue(s.as_str())
             }
         }
@@ -366,9 +372,12 @@ impl StyleOverflowClipMarginParseErrorOwned {
 /// Syntax: `<visual-box> || <length [0,∞]>`
 /// The `<visual-box>` defaults to `padding-box` if omitted.
 /// The `<length>` defaults to `0px` if omitted.
-pub fn parse_style_overflow_clip_margin<'a>(
-    input: &'a str,
-) -> Result<StyleOverflowClipMargin, StyleOverflowClipMarginParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `overflow-clip-margin` value.
+pub fn parse_style_overflow_clip_margin(
+    input: &str,
+) -> Result<StyleOverflowClipMargin, StyleOverflowClipMarginParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
     let input_trimmed = input.trim();
@@ -430,7 +439,7 @@ impl StyleClipRect {
     /// used width/height and padding/border sizes.
     ///
     /// Returns `(top, right, bottom, left)` in pixels.
-    pub fn resolve(
+    #[must_use] pub fn resolve(
         &self,
         used_width: f32,
         used_height: f32,
@@ -459,18 +468,16 @@ impl StyleClipRect {
 
 impl PrintAsCssValue for StyleClipRect {
     fn print_as_css_value(&self) -> String {
-        fn fmt_edge(o: &OptionF32) -> String {
-            match o.into_option() {
-                Some(v) => format!("{}px", v),
-                None => String::from("auto"),
-            }
+        fn fmt_edge(o: OptionF32) -> String {
+            o.into_option()
+                .map_or_else(|| String::from("auto"), |v| format!("{v}px"))
         }
         format!(
             "rect({}, {}, {}, {})",
-            fmt_edge(&self.top),
-            fmt_edge(&self.right),
-            fmt_edge(&self.bottom),
-            fmt_edge(&self.left)
+            fmt_edge(self.top),
+            fmt_edge(self.right),
+            fmt_edge(self.bottom),
+            fmt_edge(self.left)
         )
     }
 }
@@ -498,12 +505,12 @@ pub enum StyleClipRectParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> StyleClipRectParseError<'a> {
+impl StyleClipRectParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    pub fn to_contained(&self) -> StyleClipRectParseErrorOwned {
+    #[must_use] pub fn to_contained(&self) -> StyleClipRectParseErrorOwned {
         match self {
             StyleClipRectParseError::InvalidValue(s) => {
-                StyleClipRectParseErrorOwned::InvalidValue(s.to_string().into())
+                StyleClipRectParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
@@ -511,9 +518,9 @@ impl<'a> StyleClipRectParseError<'a> {
 
 impl StyleClipRectParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    pub fn to_shared<'a>(&'a self) -> StyleClipRectParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleClipRectParseError<'_> {
         match self {
-            StyleClipRectParseErrorOwned::InvalidValue(s) => {
+            Self::InvalidValue(s) => {
                 StyleClipRectParseError::InvalidValue(s.as_str())
             }
         }
@@ -521,7 +528,7 @@ impl StyleClipRectParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-fn parse_clip_edge<'a>(token: &'a str) -> Result<OptionF32, StyleClipRectParseError<'a>> {
+fn parse_clip_edge(token: &str) -> Result<OptionF32, StyleClipRectParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
     let token = token.trim();
@@ -542,7 +549,10 @@ fn parse_clip_edge<'a>(token: &'a str) -> Result<OptionF32, StyleClipRectParseEr
 /// - `rect(<top> <right> <bottom> <left>)` — legacy space-separated form.
 ///
 /// Each edge is either `auto` or a `<length>`. Negative lengths are permitted.
-pub fn parse_clip_rect<'a>(input: &'a str) -> Result<StyleClipRect, StyleClipRectParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `clip-rect` value.
+pub fn parse_clip_rect(input: &str) -> Result<StyleClipRect, StyleClipRectParseError<'_>> {
     let trimmed = input.trim();
 
     if trimmed.eq_ignore_ascii_case("auto") {
@@ -556,8 +566,8 @@ pub fn parse_clip_rect<'a>(input: &'a str) -> Result<StyleClipRect, StyleClipRec
         .ok_or(StyleClipRectParseError::InvalidValue(input))?;
 
     let inner = inner.trim();
-    let parts: alloc::vec::Vec<&str> = if inner.contains(',') {
-        inner.split(',').map(|s| s.trim()).collect()
+    let parts: Vec<&str> = if inner.contains(',') {
+        inner.split(',').map(str::trim).collect()
     } else {
         inner.split_whitespace().collect()
     };

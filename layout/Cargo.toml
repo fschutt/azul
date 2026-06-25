@@ -6,6 +6,7 @@
 # those crate unnecessarily heavy
 
 [package]
+readme = "../README.md"
 name = "azul-layout"
 version = "0.0.9"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -253,19 +254,27 @@ icu_windows = []
 icu_chrono = ["icu", "dep:chrono"]
 
 # Fluent localization support (Project Fluent FTL files, language packs)
-fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip_support", "strfmt", "std"]
+fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip", "strfmt", "std"]
 
 # HTTP client support for downloading resources
 http = ["dep:ureq", "azul-core/url", "dep:rustls", "dep:rustls-rustcrypto", "dep:webpki-roots", "std"]
 
 # ZIP file manipulation (standalone, for C API)
-zip_support = ["dep:zip", "std"]
+zip = ["dep:zip", "std"]
 
 # JSON parsing support
 json = ["dep:serde_json", "std", "azul-core/serde-json"]
 
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
-icons = ["std", "zip_support", "dep:material-icons", "dep:brotli-decompressor"]
+icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
+
+# Opt-in gates for intentionally-disabled test files (kept in the tree, off by
+# default — their `#![cfg(feature = "DISABLED_*")]` never matches normal builds).
+# Declared here so the cfg is expected (silences unexpected_cfgs); enable with
+# --features <name> to compile/run the corresponding test.
+DISABLED_event_tests = []
+DISABLED_hint_vs_freetype = []
+DISABLED_selection_tests = []
 
 [[test]]
 name = "solver3_calc"

@@ -98,7 +98,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
     };
     let page_config = FakePageConfig::new();
 
-    let display_lists = layout_document_paged_with_config(
+    let _display_lists = layout_document_paged_with_config(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
@@ -135,7 +135,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
     let titlebar = tree.get(1).expect("Titlebar node should exist");
     let titlebar_size = titlebar.used_size.expect("Titlebar should have used_size");
     
-    println!("Titlebar size: {:?}", titlebar_size);
+    println!("Titlebar size: {titlebar_size:?}");
     
     // BUG: This currently fails because titlebar gets width=0
     // The titlebar should stretch to fill the body width (around 400px minus margins)
@@ -149,7 +149,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
     let title_container = tree.get(2).expect("Title container node should exist");
     let container_size = title_container.used_size.expect("Container should have used_size");
     
-    println!("Title container size: {:?}", container_size);
+    println!("Title container size: {container_size:?}");
     
     // BUG: This currently fails because the container gets width=0
     // With flex-grow: 1, it should expand to fill available space
@@ -275,7 +275,7 @@ fn test_flex_row_text_child_has_intrinsic_width() {
     let text_div = tree.get(text_div_idx).expect("Text div should exist");
     let text_div_size = text_div.used_size.expect("Text div should have used_size");
     
-    println!("Text div size: {:?}", text_div_size);
+    println!("Text div size: {text_div_size:?}");
     
     // The div should have width equal to the text's intrinsic width
     // "Hello World" in a typical font is around 60-80px wide

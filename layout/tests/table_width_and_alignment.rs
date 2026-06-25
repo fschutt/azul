@@ -53,9 +53,7 @@ mod table_width_distribution_tests {
         let total_computed: f32 = columns.iter().filter_map(|c| c.computed_width).sum();
         assert!(
             (total_computed - table_width).abs() < 0.01,
-            "Columns should sum to table width. Expected: {}, Got: {}",
-            table_width,
-            total_computed
+            "Columns should sum to table width. Expected: {table_width}, Got: {total_computed}"
         );
 
         // Each column should be approximately equal (same max-content width)
@@ -183,13 +181,11 @@ mod vertical_alignment_tests {
         // Verify correct calculation
         assert!(
             (content_box_height - 16.0).abs() < 0.01,
-            "Content-box height should be ~16px, got {}",
-            content_box_height
+            "Content-box height should be ~16px, got {content_box_height}"
         );
         assert!(
             y_offset.abs() < 2.0,
-            "y_offset should be near 0, got {}",
-            y_offset
+            "y_offset should be near 0, got {y_offset}"
         );
 
         // OLD WRONG calculation for comparison
@@ -249,8 +245,7 @@ mod cell_padding_tests {
         // Verify
         assert!(
             (content_box_width - 259.64).abs() < 0.01,
-            "Content-box width should be ~259.64px, got {}",
-            content_box_width
+            "Content-box width should be ~259.64px, got {content_box_width}"
         );
 
         // OLD WRONG: Would pass full border-box width

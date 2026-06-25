@@ -1,6 +1,6 @@
 extern crate azul_layout;
 
-use azul_layout::xml::{parse_xml_string, XmlNodeChild, XmlParseError};
+use azul_layout::xml::{parse_xml_string, XmlNodeChild};
 
 #[test]
 fn test_no_text_duplication_in_paragraph() {

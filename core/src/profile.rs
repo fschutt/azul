@@ -54,6 +54,9 @@
 use std::sync::OnceLock;
 
 /// Set of active `AZ_PROFILE` tokens. Parsed once from the env var.
+// independent profile toggles parsed from the env var; a bitflags type would
+// not improve this flat set of named booleans.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileFlags {
     pub memory: bool,
@@ -124,22 +127,22 @@ pub fn out_path() -> Option<&'static str> {
 }
 
 #[inline]
-pub fn memory_enabled() -> bool { flags().memory }
+#[must_use] pub fn memory_enabled() -> bool { flags().memory }
 
 #[inline]
-pub fn cpu_enabled() -> bool { flags().cpu }
+#[must_use] pub fn cpu_enabled() -> bool { flags().cpu }
 
 #[inline]
-pub fn cascade_enabled() -> bool { flags().cascade }
+#[must_use] pub fn cascade_enabled() -> bool { flags().cascade }
 
 #[inline]
-pub fn heap_enabled() -> bool { flags().heap }
+#[must_use] pub fn heap_enabled() -> bool { flags().heap }
 
 #[inline]
-pub fn jsonl_enabled() -> bool { flags().jsonl }
+#[must_use] pub fn jsonl_enabled() -> bool { flags().jsonl }
 
 #[inline]
-pub fn detail_enabled() -> bool { flags().detail }
+#[must_use] pub fn detail_enabled() -> bool { flags().detail }
 
 #[cfg(test)]
 mod tests {

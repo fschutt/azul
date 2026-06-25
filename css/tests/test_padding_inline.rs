@@ -3,7 +3,7 @@
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        basic::{pixel::PixelValue, SizeMetric},
+        basic::SizeMetric,
         layout::spacing::{LayoutPaddingInlineEnd, LayoutPaddingInlineStart},
         property::{CssProperty, CssPropertyType},
     },

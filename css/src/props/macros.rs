@@ -10,63 +10,63 @@ macro_rules! impl_pixel_value {
     ($struct:ident) => {
         impl $struct {
             #[inline]
-            pub const fn zero() -> Self {
+            #[must_use] pub const fn zero() -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::zero(),
                 }
             }
 
             #[inline]
-            pub const fn const_px(value: isize) -> Self {
+            #[must_use] pub const fn const_px(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_px(value),
                 }
             }
 
             #[inline]
-            pub const fn const_em(value: isize) -> Self {
+            #[must_use] pub const fn const_em(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_em(value),
                 }
             }
 
             #[inline]
-            pub const fn const_pt(value: isize) -> Self {
+            #[must_use] pub const fn const_pt(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_pt(value),
                 }
             }
 
             #[inline]
-            pub const fn const_percent(value: isize) -> Self {
+            #[must_use] pub const fn const_percent(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_percent(value),
                 }
             }
 
             #[inline]
-            pub const fn const_in(value: isize) -> Self {
+            #[must_use] pub const fn const_in(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_in(value),
                 }
             }
 
             #[inline]
-            pub const fn const_cm(value: isize) -> Self {
+            #[must_use] pub const fn const_cm(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_cm(value),
                 }
             }
 
             #[inline]
-            pub const fn const_mm(value: isize) -> Self {
+            #[must_use] pub const fn const_mm(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_mm(value),
                 }
             }
 
             #[inline]
-            pub const fn const_from_metric(
+            #[must_use] pub const fn const_from_metric(
                 metric: crate::props::basic::length::SizeMetric,
                 value: isize,
             ) -> Self {
@@ -76,35 +76,35 @@ macro_rules! impl_pixel_value {
             }
 
             #[inline]
-            pub fn px(value: f32) -> Self {
+            #[must_use] pub fn px(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::px(value),
                 }
             }
 
             #[inline]
-            pub fn em(value: f32) -> Self {
+            #[must_use] pub fn em(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::em(value),
                 }
             }
 
             #[inline]
-            pub fn pt(value: f32) -> Self {
+            #[must_use] pub fn pt(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::pt(value),
                 }
             }
 
             #[inline]
-            pub fn percent(value: f32) -> Self {
+            #[must_use] pub fn percent(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::percent(value),
                 }
             }
 
             #[inline]
-            pub fn from_metric(
+            #[must_use] pub fn from_metric(
                 metric: crate::props::basic::length::SizeMetric,
                 value: f32,
             ) -> Self {
@@ -114,7 +114,7 @@ macro_rules! impl_pixel_value {
             }
 
             #[inline]
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 $struct {
                     inner: self.inner.interpolate(&other.inner, t),
                 }
@@ -126,13 +126,13 @@ macro_rules! impl_pixel_value {
 macro_rules! impl_percentage_value {
     ($struct:ident) => {
         impl ::core::fmt::Display for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}%", self.inner.normalized() * 100.0)
             }
         }
 
         impl ::core::fmt::Debug for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}%", self.inner.normalized() * 100.0)
             }
         }
@@ -141,21 +141,21 @@ macro_rules! impl_percentage_value {
             /// Same as `PercentageValue::new()`, but only accepts whole numbers
             /// in order to be usable in `const` context.
             #[inline]
-            pub const fn const_new(value: isize) -> Self {
+            #[must_use] pub const fn const_new(value: isize) -> Self {
                 Self {
                     inner: PercentageValue::const_new(value),
                 }
             }
 
             #[inline]
-            pub fn new(value: f32) -> Self {
+            #[must_use] pub fn new(value: f32) -> Self {
                 Self {
                     inner: PercentageValue::new(value),
                 }
             }
 
             #[inline]
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 $struct {
                     inner: self.inner.interpolate(&other.inner, t),
                 }

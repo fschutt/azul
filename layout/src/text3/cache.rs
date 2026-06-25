@@ -5,7 +5,7 @@
 //! 5-stage inline layout pipeline:
 //!
 //! 1. **Logical Analysis** — `InlineContent` → `LogicalItem`
-//! 2. **BiDi Reordering** — `LogicalItem` → `VisualItem`
+//! 2. **`BiDi` Reordering** — `LogicalItem` → `VisualItem`
 //! 3. **Shaping** — `VisualItem` → `ShapedItem`
 //! 4. **Text Orientation** — vertical writing-mode transforms
 //! 5. **Flow / Positioning** — line breaking + final `PositionedItem` placement
@@ -55,9 +55,9 @@ const FALLBACK_DESCENT_RATIO: f32 = 1.0 - FALLBACK_ASCENT_RATIO;
 // Strut/metric fallbacks below assume the CSS-initial 16px font size when no
 // explicit size is set.
 
-/// Default strut ascent: FALLBACK_ASCENT_RATIO * (16px * DEFAULT_LINE_HEIGHT_FACTOR)
+/// Default strut ascent: `FALLBACK_ASCENT_RATIO` * (16px * `DEFAULT_LINE_HEIGHT_FACTOR`)
 const DEFAULT_STRUT_ASCENT: f32 = 12.8;
-/// Default strut descent: FALLBACK_DESCENT_RATIO * (16px * DEFAULT_LINE_HEIGHT_FACTOR)
+/// Default strut descent: `FALLBACK_DESCENT_RATIO` * (16px * `DEFAULT_LINE_HEIGHT_FACTOR`)
 const DEFAULT_STRUT_DESCENT: f32 = 3.2;
 
 /// Default x-height approximation: 0.5 * 16px (CSS spec fallback).
@@ -65,7 +65,7 @@ const DEFAULT_X_HEIGHT: f32 = 8.0;
 /// Default ch-width (advance of '0'): 0.5 * 16px.
 const DEFAULT_CH_WIDTH: f32 = 8.0;
 
-/// Approximate space character width as a fraction of font_size.
+/// Approximate space character width as a fraction of `font_size`.
 const SPACE_WIDTH_RATIO: f32 = 0.5;
 
 /// CSS subscript baseline offset as fraction of line ascent (CSS Inline §3).
@@ -74,7 +74,7 @@ const SUBSCRIPT_OFFSET_RATIO: f32 = 0.3;
 const SUPERSCRIPT_OFFSET_RATIO: f32 = 0.4;
 
 /// Approximate per-character advance for the (unshaped) ruby base placeholder,
-/// as a fraction of font_size. A coarse Latin-ish average; CJK bases (the common
+/// as a fraction of `font_size`. A coarse Latin-ish average; CJK bases (the common
 /// ruby case) are nearer 1.0em — see the TODO at the ruby shaping site.
 const RUBY_BASE_CHAR_WIDTH_RATIO: f32 = 0.6;
 /// Ruby annotation font size relative to the base, per the CSS UA stylesheet
@@ -82,7 +82,9 @@ const RUBY_BASE_CHAR_WIDTH_RATIO: f32 = 0.6;
 /// annotation so a long annotation is not clipped by a short base.
 const RUBY_ANNOTATION_FONT_SCALE: f32 = 0.5;
 
-/// Glyph storage for a single shaped cluster. Inline one glyph (the
+/// Glyph storage for a single shaped cluster.
+///
+/// Inline one glyph (the
 /// common case for Latin text), spill to heap for ligatures / combining
 /// marks / multi-glyph clusters. The `union` feature of smallvec packs
 /// the inline buffer and the heap pointer into the same bytes, so sizeof
@@ -111,21 +113,21 @@ impl LineHeight {
     ///
     /// `ascent`, `descent` (negative in OpenType convention), `line_gap` are in font units.
     /// `font_size_px` and `units_per_em` are used to scale.
-    pub fn resolve(&self, font_size_px: f32, ascent: f32, descent: f32, line_gap: f32, units_per_em: u16) -> f32 {
+    #[must_use] pub fn resolve(&self, font_size_px: f32, ascent: f32, descent: f32, line_gap: f32, units_per_em: u16) -> f32 {
         match self {
-            LineHeight::Px(px) => *px,
-            LineHeight::Normal => {
+            Self::Px(px) => *px,
+            Self::Normal => {
                 if units_per_em == 0 {
                     return font_size_px * 1.2; // fallback
                 }
-                let scale = font_size_px / units_per_em as f32;
+                let scale = font_size_px / f32::from(units_per_em);
                 (ascent - descent + line_gap) * scale
             }
         }
     }
 
     /// Resolve using a `LayoutFontMetrics` struct for convenience.
-    pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
+    #[must_use] pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
         self.resolve(font_size_px, metrics.ascent, metrics.descent, metrics.line_gap, metrics.units_per_em)
     }
 }
@@ -133,8 +135,8 @@ impl LineHeight {
 impl PartialEq for LineHeight {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (LineHeight::Normal, LineHeight::Normal) => true,
-            (LineHeight::Px(a), LineHeight::Px(b)) => a.to_bits() == b.to_bits(),
+            (Self::Normal, Self::Normal) => true,
+            (Self::Px(a), Self::Px(b)) => a.to_bits() == b.to_bits(),
             _ => false,
         }
     }
@@ -144,8 +146,8 @@ impl Eq for LineHeight {}
 
 impl Hash for LineHeight {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        if let LineHeight::Px(v) = self {
+        discriminant(self).hash(state);
+        if let Self::Px(v) = self {
             v.to_bits().hash(state);
         }
     }
@@ -172,7 +174,7 @@ pub struct StubHyphenationBreaks {
 // Always import Language from script module
 use crate::text3::script::{script_to_language, Language, Script};
 
-/// Available space for layout, similar to Taffy's AvailableSpace.
+/// Available space for layout, similar to Taffy's `AvailableSpace`.
 ///
 /// This type explicitly represents the three possible states for available space:
 ///
@@ -199,25 +201,25 @@ impl Default for AvailableSpace {
     /// Default is `MaxContent` — the absence of a width constraint.
     /// Never `Definite(0.0)`, which would make every word overflow.
     fn default() -> Self {
-        AvailableSpace::MaxContent
+        Self::MaxContent
     }
 }
 
 impl AvailableSpace {
     /// Returns true if this is a definite (finite, known) amount of space
-    pub fn is_definite(&self) -> bool {
-        matches!(self, AvailableSpace::Definite(_))
+    #[must_use] pub const fn is_definite(&self) -> bool {
+        matches!(self, Self::Definite(_))
     }
 
     /// Returns true if this is an indefinite (min-content or max-content) constraint
-    pub fn is_indefinite(&self) -> bool {
+    #[must_use] pub const fn is_indefinite(&self) -> bool {
         !self.is_definite()
     }
 
     /// Returns the definite value if available, or a fallback for indefinite constraints
-    pub fn unwrap_or(self, fallback: f32) -> f32 {
+    #[must_use] pub const fn unwrap_or(self, fallback: f32) -> f32 {
         match self {
-            AvailableSpace::Definite(v) => v,
+            Self::Definite(v) => v,
             _ => fallback,
         }
     }
@@ -227,11 +229,12 @@ impl AvailableSpace {
     /// For intrinsic sizing, we use a large value to let text lay out fully,
     /// then measure the result. The distinction between min/max-content is handled
     /// by the line breaking algorithm, not by constraining the available width.
-    pub fn to_f32_for_layout(self) -> f32 {
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[must_use] pub fn to_f32_for_layout(self) -> f32 {
         match self {
-            AvailableSpace::Definite(v) => v,
-            AvailableSpace::MinContent => f32::MAX / 2.0,
-            AvailableSpace::MaxContent => f32::MAX / 2.0,
+            Self::Definite(v) => v,
+            Self::MinContent => f32::MAX / 2.0,
+            Self::MaxContent => f32::MAX / 2.0,
         }
     }
 
@@ -242,25 +245,25 @@ impl AvailableSpace {
     /// - `0.0` → `MinContent` (maximum line wrapping, return longest word width)
     /// - Other values → `Definite(value)`
     ///
-    /// Note: Using sentinel values like 0.0 for MinContent is fragile. Prefer using
+    /// Note: Using sentinel values like 0.0 for `MinContent` is fragile. Prefer using
     /// `AvailableSpace::MinContent` directly when possible.
-    pub fn from_f32(value: f32) -> Self {
+    #[must_use] pub fn from_f32(value: f32) -> Self {
         if value.is_infinite() || value >= f32::MAX / 2.0 {
             // Treat very large values (including f32::MAX) as MaxContent
-            AvailableSpace::MaxContent
+            Self::MaxContent
         } else if value <= 0.0 {
             // Treat zero or negative as MinContent (shrink-wrap)
-            AvailableSpace::MinContent
+            Self::MinContent
         } else {
-            AvailableSpace::Definite(value)
+            Self::Definite(value)
         }
     }
 }
 
 impl Hash for AvailableSpace {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        if let AvailableSpace::Definite(v) = self {
+        discriminant(self).hash(state);
+        if let Self::Definite(v) = self {
             // Hash the full f32 bit pattern, NOT the integer-rounded value. The
             // derived `PartialEq` compares `Definite` widths exactly, so rounding
             // here both (a) broke sub-pixel precision — a 100.1px vs 100.4px
@@ -288,53 +291,53 @@ pub struct FontChainKey {
     pub oblique: bool,
 }
 
-/// Either a FontChainKey (resolved via fontconfig) or a direct FontRef hash.
+/// Either a `FontChainKey` (resolved via fontconfig) or a direct `FontRef` hash.
 /// 
 /// This enum cleanly separates:
 /// - `Chain`: Fonts resolved through fontconfig with fallback support
-/// - `Ref`: Direct FontRef that bypasses fontconfig entirely (e.g., embedded icon fonts)
+/// - `Ref`: Direct `FontRef` that bypasses fontconfig entirely (e.g., embedded icon fonts)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontChainKeyOrRef {
     /// Regular font chain resolved via fontconfig
     Chain(FontChainKey),
-    /// Direct FontRef identified by pointer address (covers entire Unicode range, no fallbacks)
+    /// Direct `FontRef` identified by pointer address (covers entire Unicode range, no fallbacks)
     Ref(usize),
 }
 
 impl FontChainKeyOrRef {
-    /// Create from a FontStack enum
-    pub fn from_font_stack(font_stack: &FontStack) -> Self {
+    /// Create from a `FontStack` enum
+    #[must_use] pub fn from_font_stack(font_stack: &FontStack) -> Self {
         match font_stack {
-            FontStack::Stack(selectors) => FontChainKeyOrRef::Chain(FontChainKey::from_selectors(selectors)),
-            FontStack::Ref(font_ref) => FontChainKeyOrRef::Ref(font_ref.parsed as usize),
+            FontStack::Stack(selectors) => Self::Chain(FontChainKey::from_selectors(selectors)),
+            FontStack::Ref(font_ref) => Self::Ref(font_ref.parsed as usize),
         }
     }
     
-    /// Returns true if this is a direct FontRef
-    pub fn is_ref(&self) -> bool {
-        matches!(self, FontChainKeyOrRef::Ref(_))
+    /// Returns true if this is a direct `FontRef`
+    #[must_use] pub const fn is_ref(&self) -> bool {
+        matches!(self, Self::Ref(_))
     }
     
-    /// Returns the FontRef pointer if this is a Ref variant
-    pub fn as_ref_ptr(&self) -> Option<usize> {
+    /// Returns the `FontRef` pointer if this is a Ref variant
+    #[must_use] pub const fn as_ref_ptr(&self) -> Option<usize> {
         match self {
-            FontChainKeyOrRef::Ref(ptr) => Some(*ptr),
-            _ => None,
+            Self::Ref(ptr) => Some(*ptr),
+            Self::Chain(_) => None,
         }
     }
     
-    /// Returns the FontChainKey if this is a Chain variant
-    pub fn as_chain(&self) -> Option<&FontChainKey> {
+    /// Returns the `FontChainKey` if this is a Chain variant
+    #[must_use] pub const fn as_chain(&self) -> Option<&FontChainKey> {
         match self {
-            FontChainKeyOrRef::Chain(key) => Some(key),
-            _ => None,
+            Self::Chain(key) => Some(key),
+            Self::Ref(_) => None,
         }
     }
 }
 
 impl FontChainKey {
-    /// Create a FontChainKey from a slice of font selectors
-    pub fn from_selectors(font_stack: &[FontSelector]) -> Self {
+    /// Create a `FontChainKey` from a slice of font selectors
+    #[must_use] pub fn from_selectors(font_stack: &[FontSelector]) -> Self {
         // (2026-06-10) FIRST-WINS DEDUP: cascaded font stacks can carry duplicate
         // families (e.g. [serif, sans-serif, serif, monospace] when the UA fallback
         // list is appended to a stack already naming serif). The pre-resolve
@@ -358,18 +361,15 @@ impl FontChainKey {
 
         let weight = font_stack
             .first()
-            .map(|s| s.weight)
-            .unwrap_or(FcWeight::Normal);
+            .map_or(FcWeight::Normal, |s| s.weight);
         let is_italic = font_stack
             .first()
-            .map(|s| s.style == FontStyle::Italic)
-            .unwrap_or(false);
+            .is_some_and(|s| s.style == FontStyle::Italic);
         let is_oblique = font_stack
             .first()
-            .map(|s| s.style == FontStyle::Oblique)
-            .unwrap_or(false);
+            .is_some_and(|s| s.style == FontStyle::Oblique);
 
-        FontChainKey {
+        Self {
             font_families,
             weight,
             italic: is_italic,
@@ -378,57 +378,57 @@ impl FontChainKey {
     }
 }
 
-/// A map of pre-loaded fonts, keyed by FontId (from rust-fontconfig)
+/// A map of pre-loaded fonts, keyed by `FontId` (from rust-fontconfig)
 ///
 /// This is passed to the shaper - no font loading happens during shaping
 /// The fonts are loaded BEFORE layout based on the font chains and text content.
 ///
-/// Provides both FontId and hash-based lookup for efficient glyph operations.
+/// Provides both `FontId` and hash-based lookup for efficient glyph operations.
 #[derive(Debug, Clone)]
 pub struct LoadedFonts<T> {
-    /// Primary storage: FontId -> Font
+    /// Primary storage: `FontId` -> Font
     pub fonts: HashMap<FontId, T>,
-    /// Reverse index: font_hash -> FontId for fast hash-based lookups
+    /// Reverse index: `font_hash` -> `FontId` for fast hash-based lookups
     hash_to_id: HashMap<u64, FontId>,
 }
 
 impl<T: ParsedFontTrait> LoadedFonts<T> {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             fonts: HashMap::new(),
             hash_to_id: HashMap::new(),
         }
     }
 
-    /// Insert a font with its FontId
+    /// Insert a font with its `FontId`
     pub fn insert(&mut self, font_id: FontId, font: T) {
         let hash = font.get_hash();
         self.hash_to_id.insert(hash, font_id);
         self.fonts.insert(font_id, font);
     }
 
-    /// Get a font by FontId
-    pub fn get(&self, font_id: &FontId) -> Option<&T> {
+    /// Get a font by `FontId`
+    #[must_use] pub fn get(&self, font_id: &FontId) -> Option<&T> {
         self.fonts.get(font_id)
     }
 
     /// Get a font by its hash
-    pub fn get_by_hash(&self, hash: u64) -> Option<&T> {
+    #[must_use] pub fn get_by_hash(&self, hash: u64) -> Option<&T> {
         self.hash_to_id.get(&hash).and_then(|id| self.fonts.get(id))
     }
 
-    /// Get the FontId for a hash
-    pub fn get_font_id_by_hash(&self, hash: u64) -> Option<&FontId> {
+    /// Get the `FontId` for a hash
+    #[must_use] pub fn get_font_id_by_hash(&self, hash: u64) -> Option<&FontId> {
         self.hash_to_id.get(&hash)
     }
 
-    /// Check if a FontId is present
-    pub fn contains_key(&self, font_id: &FontId) -> bool {
+    /// Check if a `FontId` is present
+    #[must_use] pub fn contains_key(&self, font_id: &FontId) -> bool {
         self.fonts.contains_key(font_id)
     }
 
     /// Check if a hash is present
-    pub fn contains_hash(&self, hash: u64) -> bool {
+    #[must_use] pub fn contains_hash(&self, hash: u64) -> bool {
         self.hash_to_id.contains_key(&hash)
     }
 
@@ -438,12 +438,12 @@ impl<T: ParsedFontTrait> LoadedFonts<T> {
     }
 
     /// Get the number of loaded fonts
-    pub fn len(&self) -> usize {
+    #[must_use] pub fn len(&self) -> usize {
         self.fonts.len()
     }
 
     /// Check if empty
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub fn is_empty(&self) -> bool {
         self.fonts.is_empty()
     }
 }
@@ -456,7 +456,7 @@ impl<T: ParsedFontTrait> Default for LoadedFonts<T> {
 
 impl<T: ParsedFontTrait> FromIterator<(FontId, T)> for LoadedFonts<T> {
     fn from_iter<I: IntoIterator<Item = (FontId, T)>>(iter: I) -> Self {
-        let mut loaded = LoadedFonts::new();
+        let mut loaded = Self::new();
         for (id, font) in iter {
             loaded.insert(id, font);
         }
@@ -464,23 +464,23 @@ impl<T: ParsedFontTrait> FromIterator<(FontId, T)> for LoadedFonts<T> {
     }
 }
 
-/// Enum that wraps either a fontconfig-resolved font (T) or a direct FontRef.
+/// Enum that wraps either a fontconfig-resolved font (T) or a direct `FontRef`.
 ///
 /// This allows the shaping code to handle both fontconfig-resolved fonts
-/// and embedded fonts (FontRef) uniformly through the ParsedFontTrait interface.
+/// and embedded fonts (`FontRef`) uniformly through the `ParsedFontTrait` interface.
 #[derive(Debug, Clone)]
 pub enum FontOrRef<T> {
     /// A font loaded via fontconfig
     Font(T),
-    /// A direct FontRef (embedded font, bypasses fontconfig)
+    /// A direct `FontRef` (embedded font, bypasses fontconfig)
     Ref(azul_css::props::basic::FontRef),
 }
 
 impl<T: ParsedFontTrait> ShallowClone for FontOrRef<T> {
     fn shallow_clone(&self) -> Self {
         match self {
-            FontOrRef::Font(f) => FontOrRef::Font(f.shallow_clone()),
-            FontOrRef::Ref(r) => FontOrRef::Ref(r.clone()),
+            Self::Font(f) => Self::Font(f.shallow_clone()),
+            Self::Ref(r) => Self::Ref(r.clone()),
         }
     }
 }
@@ -495,71 +495,71 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
         match self {
-            FontOrRef::Font(f) => f.shape_text(text, script, language, direction, style),
-            FontOrRef::Ref(r) => r.shape_text(text, script, language, direction, style),
+            Self::Font(f) => f.shape_text(text, script, language, direction, style),
+            Self::Ref(r) => r.shape_text(text, script, language, direction, style),
         }
     }
 
     fn get_hash(&self) -> u64 {
         match self {
-            FontOrRef::Font(f) => f.get_hash(),
-            FontOrRef::Ref(r) => r.get_hash(),
+            Self::Font(f) => f.get_hash(),
+            Self::Ref(r) => r.get_hash(),
         }
     }
 
     fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize> {
         match self {
-            FontOrRef::Font(f) => f.get_glyph_size(glyph_id, font_size),
-            FontOrRef::Ref(r) => r.get_glyph_size(glyph_id, font_size),
+            Self::Font(f) => f.get_glyph_size(glyph_id, font_size),
+            Self::Ref(r) => r.get_glyph_size(glyph_id, font_size),
         }
     }
 
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
         match self {
-            FontOrRef::Font(f) => f.get_hyphen_glyph_and_advance(font_size),
-            FontOrRef::Ref(r) => r.get_hyphen_glyph_and_advance(font_size),
+            Self::Font(f) => f.get_hyphen_glyph_and_advance(font_size),
+            Self::Ref(r) => r.get_hyphen_glyph_and_advance(font_size),
         }
     }
 
     fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
         match self {
-            FontOrRef::Font(f) => f.get_kashida_glyph_and_advance(font_size),
-            FontOrRef::Ref(r) => r.get_kashida_glyph_and_advance(font_size),
+            Self::Font(f) => f.get_kashida_glyph_and_advance(font_size),
+            Self::Ref(r) => r.get_kashida_glyph_and_advance(font_size),
         }
     }
 
     fn has_glyph(&self, codepoint: u32) -> bool {
         match self {
-            FontOrRef::Font(f) => f.has_glyph(codepoint),
-            FontOrRef::Ref(r) => r.has_glyph(codepoint),
+            Self::Font(f) => f.has_glyph(codepoint),
+            Self::Ref(r) => r.has_glyph(codepoint),
         }
     }
 
     fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics> {
         match self {
-            FontOrRef::Font(f) => f.get_vertical_metrics(glyph_id),
-            FontOrRef::Ref(r) => r.get_vertical_metrics(glyph_id),
+            Self::Font(f) => f.get_vertical_metrics(glyph_id),
+            Self::Ref(r) => r.get_vertical_metrics(glyph_id),
         }
     }
 
     fn get_font_metrics(&self) -> LayoutFontMetrics {
         match self {
-            FontOrRef::Font(f) => f.get_font_metrics(),
-            FontOrRef::Ref(r) => r.get_font_metrics(),
+            Self::Font(f) => f.get_font_metrics(),
+            Self::Ref(r) => r.get_font_metrics(),
         }
     }
 
     fn num_glyphs(&self) -> u16 {
         match self {
-            FontOrRef::Font(f) => f.num_glyphs(),
-            FontOrRef::Ref(r) => r.num_glyphs(),
+            Self::Font(f) => f.num_glyphs(),
+            Self::Ref(r) => r.num_glyphs(),
         }
     }
 
     fn get_space_width(&self) -> Option<usize> {
         match self {
-            FontOrRef::Font(f) => f.get_space_width(),
-            FontOrRef::Ref(r) => r.get_space_width(),
+            Self::Font(f) => f.get_space_width(),
+            Self::Ref(r) => r.get_space_width(),
         }
     }
 }
@@ -590,8 +590,8 @@ pub struct FontContext {
     pub parsed_fonts: Arc<Mutex<HashMap<FontId, azul_css::props::basic::FontRef>>>,
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     pub embedded_fonts: HashMap<u64, azul_css::props::basic::FontRef>,
-    /// Reverse map: font_family_hash → actual StyleFontFamilyVec.
-    /// Accumulated across DOMs for persistence. Copied to FontManager on LayoutWindow creation.
+    /// Reverse map: `font_family_hash` → actual `StyleFontFamilyVec`.
+    /// Accumulated across DOMs for persistence. Copied to `FontManager` on `LayoutWindow` creation.
     pub font_hash_to_families: HashMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
     /// Optional link back to the live `FcFontRegistry`. Present iff the
     /// caller wants the scout-on-demand path
@@ -610,7 +610,7 @@ impl FontContext {
     /// the scout-on-demand path, use [`FontContext::from_registry`]
     /// instead, which keeps a handle to the registry so that chain
     /// resolution can lazy-parse families the DOM needs.
-    pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
+    #[must_use] pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -646,7 +646,7 @@ impl FontContext {
         }
     }
 
-    /// Pre-resolve font chains for a StyledDom's CSS font stacks.
+    /// Pre-resolve font chains for a `StyledDom`'s CSS font stacks.
     /// Call this before layout so text rendering doesn't skip glyphs.
     ///
     /// Unicode-fallback fonts are limited to the scripts actually
@@ -715,12 +715,11 @@ impl FontContext {
         // Borrow our shared `parsed_fonts` Arc as a transient
         // FontManager so we can use the helper. `from_arc_shared`
         // returns a manager that mutates the same underlying pool.
-        let manager = match FontManager::<azul_css::props::basic::FontRef>::from_arc_shared(
+        let Ok(manager) = FontManager::<azul_css::props::basic::FontRef>::from_arc_shared(
             self.fc_cache.clone(),
             self.parsed_fonts.clone(),
-        ) {
-            Ok(m) => m,
-            Err(_) => return,
+        ) else {
+            return;
         };
         let loader = PathLoader::new();
         let _failed = manager
@@ -730,7 +729,7 @@ impl FontContext {
     /// Convert into a `FontManager` with all data populated.
     /// Carries the `registry` forward so the resulting manager also
     /// has the scout-on-demand path available.
-    pub fn to_font_manager(&self) -> FontManager<azul_css::props::basic::FontRef> {
+    #[must_use] pub fn to_font_manager(&self) -> FontManager<azul_css::props::basic::FontRef> {
         FontManager {
             fc_cache: self.fc_cache.clone(),
             parsed_fonts: self.parsed_fonts.clone(),
@@ -751,18 +750,18 @@ pub struct FontManager<T> {
     /// all clones see builder writes instantly.
     pub fc_cache: FcFontCache,
     /// Holds the actual parsed font (usually with the font bytes attached).
-    /// Wrapped in Arc so multiple FontManager instances can share the same
+    /// Wrapped in Arc so multiple `FontManager` instances can share the same
     /// pool of already-parsed fonts (avoids re-reading from disk).
     pub parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
     // Cache for font chains - populated by resolve_all_font_chains() before layout
     // This is read-only during layout - no locking needed for reads
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
-    /// Cache for direct FontRefs (embedded fonts like Material Icons)
-    /// These are fonts referenced via FontStack::Ref that bypass fontconfig
+    /// Cache for direct `FontRefs` (embedded fonts like Material Icons)
+    /// These are fonts referenced via `FontStack::Ref` that bypass fontconfig
     pub embedded_fonts: Mutex<HashMap<u64, azul_css::props::basic::FontRef>>,
-    /// Reverse map: font_family_hash → actual StyleFontFamilyVec.
+    /// Reverse map: `font_family_hash` → actual `StyleFontFamilyVec`.
     /// Accumulated across DOMs. Used by font collection and text shaping to
-    /// resolve compact cache hashes without get_property_slow.
+    /// resolve compact cache hashes without `get_property_slow`.
     pub font_hash_to_families: HashMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
     /// Optional link back to the live `FcFontRegistry`. When present,
     /// chain resolution uses
@@ -771,7 +770,7 @@ pub struct FontManager<T> {
     /// (scout-on-demand). `None` falls back to querying whatever is
     /// already in the shared cache.
     pub registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
-    /// FxHash of the `prev_font_hashes` slice at the moment the last
+    /// `FxHash` of the `prev_font_hashes` slice at the moment the last
     /// successful `collect_and_resolve_font_chains_with_registration`
     /// call populated `font_chain_cache`. Lets repeated layouts of the
     /// same DOM skip the ~1.5 ms (cold) / ~0.9 ms (warm) chain resolver
@@ -781,6 +780,9 @@ pub struct FontManager<T> {
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
@@ -793,12 +795,15 @@ impl<T: ParsedFontTrait> FontManager<T> {
         })
     }
 
-    /// Create a FontManager sharing the font-path cache handle.
+    /// Create a `FontManager` sharing the font-path cache handle.
     ///
-    /// The parsed_fonts pool starts empty. Fonts loaded during the first
+    /// The `parsed_fonts` pool starts empty. Fonts loaded during the first
     /// layout pass are cached and will be available on subsequent calls
     /// if you clone the `parsed_fonts` Arc before creating the next instance.
     /// For full sharing, prefer `from_arc_shared()`.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn from_shared(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
@@ -811,11 +816,14 @@ impl<T: ParsedFontTrait> FontManager<T> {
         })
     }
 
-    /// Create a FontManager sharing both the font-path cache and the
-    /// already-parsed font data with another FontManager.
+    /// Create a `FontManager` sharing both the font-path cache and the
+    /// already-parsed font data with another `FontManager`.
     ///
     /// This avoids re-reading and re-parsing font files from disk when
     /// rendering multiple documents that use the same fonts.
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn from_arc_shared(
         fc_cache: FcFontCache,
         parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
@@ -831,9 +839,10 @@ impl<T: ParsedFontTrait> FontManager<T> {
         })
     }
 
-    /// Attach a `FcFontRegistry` to this FontManager so subsequent
+    /// Attach a `FcFontRegistry` to this `FontManager` so subsequent
     /// chain-resolution calls use the on-demand path
     /// ([`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]).
+    #[must_use]
     pub fn with_registry(
         mut self,
         registry: Arc<rust_fontconfig::registry::FcFontRegistry>,
@@ -844,7 +853,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
 
     /// Get a shareable handle to the parsed-font pool.
     ///
-    /// Pass this to `from_arc_shared()` to create a new FontManager that
+    /// Pass this to `from_arc_shared()` to create a new `FontManager` that
     /// reuses already-parsed fonts.
     pub fn shared_parsed_fonts(&self) -> Arc<Mutex<HashMap<FontId, T>>> {
         Arc::clone(&self.parsed_fonts)
@@ -890,34 +899,43 @@ impl<T: ParsedFontTrait> FontManager<T> {
     }
 
     /// Get a reference to the font chain cache
-    pub fn get_font_chain_cache(
+    pub const fn get_font_chain_cache(
         &self,
     ) -> &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
         &self.font_chain_cache
     }
 
-    /// Get an embedded font by its hash (used for WebRender registration)
-    /// Returns the FontRef if it exists in the embedded_fonts cache.
+    /// Get an embedded font by its hash (used for `WebRender` registration)
+    /// Returns the `FontRef` if it exists in the `embedded_fonts` cache.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_embedded_font_by_hash(&self, font_hash: u64) -> Option<azul_css::props::basic::FontRef> {
         let embedded = self.embedded_fonts.lock().unwrap();
         embedded.get(&font_hash).cloned()
     }
 
-    /// Get a parsed font by its hash (used for WebRender registration)
-    /// Returns the parsed font if it exists in the parsed_fonts cache.
+    /// Get a parsed font by its hash (used for `WebRender` registration)
+    /// Returns the parsed font if it exists in the `parsed_fonts` cache.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // Linear search through all cached fonts to find one with matching hash
-        for (_, font) in parsed.iter() {
-            if font.get_hash() == font_hash {
-                return Some(font.clone());
-            }
-        }
-        None
+        let found = parsed
+            .iter()
+            .find(|(_, font)| font.get_hash() == font_hash)
+            .map(|(_, font)| font.clone());
+        drop(parsed);
+        found
     }
 
-    /// Register an embedded FontRef for later lookup by hash
-    /// This is called when using FontStack::Ref during shaping
+    /// Register an embedded `FontRef` for later lookup by hash
+    /// This is called when using `FontStack::Ref` during shaping
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn register_embedded_font(&self, font_ref: &azul_css::props::basic::FontRef) {
         let hash = font_ref.get_hash();
         let mut embedded = self.embedded_fonts.lock().unwrap();
@@ -927,9 +945,12 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Get a snapshot of all currently loaded fonts
     ///
     /// This returns a copy of all parsed fonts, which can be passed to the shaper.
-    /// No locking is required after this call - the returned HashMap is independent.
+    /// No locking is required after this call - the returned `HashMap` is independent.
     ///
     /// NOTE: This should be called AFTER loading all required fonts for a layout pass.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         parsed
@@ -938,28 +959,35 @@ impl<T: ParsedFontTrait> FontManager<T> {
             .collect()
     }
 
-    /// Get the set of FontIds that are currently loaded
+    /// Get the set of `FontIds` that are currently loaded
     ///
     /// This is useful for computing which fonts need to be loaded
     /// (diff with required fonts).
-    pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
+    pub fn get_loaded_font_ids(&self) -> HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // M12.7: skip hashbrown's RawIterRange on an empty map — its NEON
         // control-byte group-scan mis-lifts to wasm and iterates forever
         // (the headless web layout uses an empty font cache → parsed is
         // empty here). is_empty() is len-based (no iteration), so it is safe.
         if parsed.is_empty() {
-            return std::collections::HashSet::new();
+            return HashSet::new();
         }
         unsafe { crate::az_mark(0x60788, 0xA1) };
-        let out = parsed.keys().cloned().collect();
+        let out = parsed.keys().copied().collect();
+        drop(parsed);
         unsafe { crate::az_mark(0x6078C, 0xA2) };
         out
     }
 
     /// Insert a loaded font into the cache
     ///
-    /// Returns the old font if one was already present for this FontId.
+    /// Returns the old font if one was already present for this `FontId`.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn insert_font(&self, font_id: FontId, font: T) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.insert(font_id, font)
@@ -969,6 +997,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// This is more efficient than calling `insert_font` multiple times
     /// because it only acquires the lock once.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn insert_fonts(&self, fonts: impl IntoIterator<Item = (FontId, T)>) {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         for (font_id, font) in fonts {
@@ -993,7 +1024,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         load_fn: F,
     ) -> Vec<(FontId, String)>
     where
-        F: Fn(std::sync::Arc<rust_fontconfig::FontBytes>, usize) -> Result<T, LayoutError>,
+        F: Fn(Arc<rust_fontconfig::FontBytes>, usize) -> Result<T, LayoutError>,
     {
         use crate::solver3::getters::{
             collect_font_ids_from_chains, compute_fonts_to_load, load_fonts_from_disk,
@@ -1012,6 +1043,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Remove a font from the cache
     ///
     /// Returns the removed font if it was present.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
     pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.remove(font_id)
@@ -1082,7 +1116,7 @@ pub(crate) struct CursorBoundsError {
 /// ## \u00a7 3 Baselines and Alignment Metrics
 /// - `text_orientation`: \u2705 For vertical writing (sideways, upright)
 /// - `writing_mode`: \u2705 horizontal-tb, vertical-rl, vertical-lr
-/// - `direction`: \u2705 ltr, rtl for BiDi
+/// - `direction`: \u2705 ltr, rtl for `BiDi`
 ///
 /// ## \u00a7 4 Baseline Alignment (vertical-align property)
 /// \u26a0\ufe0f INCOMPLETE: Only basic baseline alignment implemented
@@ -1090,14 +1124,14 @@ pub(crate) struct CursorBoundsError {
 /// ## \u00a7 5 Line Spacing (line-height property)
 /// - `line_height`: \u2705 Implemented
 /// - \u274c MISSING: line-fit-edge for controlling which edges contribute to line height
-/// +spec:box-model:51342f - inline box margins/borders/padding do not affect line box height (default leading mode)
-/// +spec:font-metrics:618776 - line-fit-edge (cap, ex, ideographic, alphabetic edge selection) not yet implemented
+///   +spec:box-model:51342f - inline box margins/borders/padding do not affect line box height (default leading mode)
+///   +spec:font-metrics:618776 - line-fit-edge (cap, ex, ideographic, alphabetic edge selection) not yet implemented
 ///
 /// ## \u00a7 6 Trimming Leading (text-box-trim)
 /// - \u274c NOT IMPLEMENTED: text-box-trim property
 /// - \u274c NOT IMPLEMENTED: text-box-edge property
-/// +spec:box-model:c09331 - text-box-trim trims block container first/last line to font metrics
-/// // +spec:overflow:dc2196 - text-box-trim overflow handled as normal overflow (no special handling needed)
+///   +spec:box-model:c09331 - text-box-trim trims block container first/last line to font metrics
+///   // +spec:overflow:dc2196 - text-box-trim overflow handled as normal overflow (no special handling needed)
 ///
 /// ## CSS Text Module Level 3
 /// - `text_indent`: \u2705 First line indentation
@@ -1122,12 +1156,12 @@ pub(crate) struct CursorBoundsError {
 /// - `column_gap`: \u2705 Gap between columns
 ///
 /// # Known Issues:
-/// 1. [ISSUE] available_width defaults to Definite(0.0) instead of containing block width
-/// 2. [ISSUE] vertical_align only supports baseline
+/// 1. [ISSUE] `available_width` defaults to Definite(0.0) instead of containing block width
+/// 2. [ISSUE] `vertical_align` only supports baseline
 /// 3. [TODO] initial-letter (drop caps) not implemented
 // +spec:box-model:415ef3 - initial letters use standard margin/padding/border box model; exclusion area = margin box
 // +spec:box-model:d53ea3 - when block-start padding+border are zero, content edge coincides with over alignment point
-/// +spec:positioning:fb233a - initial letter block-axis: if size < sink, use over alignment
+///    +spec:positioning:fb233a - initial letter block-axis: if size < sink, use over alignment
 #[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
     // Shape definition
@@ -1241,6 +1275,7 @@ impl Default for UnifiedConstraints {
 
 // UnifiedConstraints
 impl Hash for UnifiedConstraints {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.shape_boundaries.hash(state);
         self.shape_exclusions.hash(state);
@@ -1331,20 +1366,17 @@ impl Eq for UnifiedConstraints {}
 impl UnifiedConstraints {
     /// Resolve `line_height` to a pixel value using the strut metrics as a font-size proxy.
     /// `strut_ascent + strut_descent` approximates `font_size` (the block container's font).
-    pub fn resolved_line_height(&self) -> f32 {
+    #[must_use] pub fn resolved_line_height(&self) -> f32 {
         let font_size_approx = self.strut_ascent + self.strut_descent;
         self.line_height.resolve(font_size_approx, 0.0, 0.0, 0.0, 0)
     }
     fn direction(&self, fallback: BidiDirection) -> BidiDirection {
-        match self.writing_mode {
-            Some(s) => s.get_direction().unwrap_or(fallback),
-            None => fallback,
-        }
+        self.writing_mode.map_or(fallback, |s| s.get_direction().unwrap_or(fallback))
     }
-    fn is_vertical(&self) -> bool {
+    const fn is_vertical(&self) -> bool {
         matches!(
             self.writing_mode,
-            Some(WritingMode::VerticalRl) | Some(WritingMode::VerticalLr)
+            Some(WritingMode::VerticalRl | WritingMode::VerticalLr)
         )
     }
 }
@@ -1357,14 +1389,16 @@ pub struct LineConstraints {
 }
 
 impl WritingMode {
-    fn get_direction(&self) -> Option<BidiDirection> {
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    const fn get_direction(&self) -> Option<BidiDirection> {
         match self {
             // determined by text content
-            WritingMode::HorizontalTb => None,
-            WritingMode::VerticalRl => Some(BidiDirection::Rtl),
-            WritingMode::VerticalLr => Some(BidiDirection::Ltr),
-            WritingMode::SidewaysRl => Some(BidiDirection::Rtl),
-            WritingMode::SidewaysLr => Some(BidiDirection::Ltr),
+            Self::HorizontalTb => None,
+            Self::VerticalRl => Some(BidiDirection::Rtl),
+            Self::VerticalLr => Some(BidiDirection::Ltr),
+            Self::SidewaysRl => Some(BidiDirection::Rtl),
+            Self::SidewaysLr => Some(BidiDirection::Ltr),
         }
     }
 }
@@ -1376,8 +1410,8 @@ pub struct StyledRun {
     pub style: Arc<StyleProperties>,
     /// Byte index in the original logical paragraph text
     pub logical_start_byte: usize,
-    /// The DOM NodeId of the Text node this run came from.
-    /// None for generated content (e.g., list markers, ::before/::after).
+    /// The DOM `NodeId` of the Text node this run came from.
+    /// None for generated content (e.g., list markers, `::before/::after`).
     pub source_node_id: Option<NodeId>,
 }
 
@@ -1395,7 +1429,7 @@ pub struct VisualRun<'a> {
 // Font and styling types
 
 /// A selector for loading fonts from the font cache.
-/// Used by FontManager to query fontconfig and load font files.
+/// Used by `FontManager` to query fontconfig and load font files.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontSelector {
     pub family: String,
@@ -1416,7 +1450,7 @@ impl Default for FontSelector {
 }
 
 /// Font stack that can be either a list of font selectors (resolved via fontconfig)
-/// or a direct FontRef (bypasses fontconfig entirely).
+/// or a direct `FontRef` (bypasses fontconfig entirely).
 ///
 /// When a `FontRef` is used, it bypasses fontconfig resolution entirely
 /// and uses the pre-parsed font data directly. This is used for embedded
@@ -1437,45 +1471,45 @@ pub enum FontStack {
 
 impl Default for FontStack {
     fn default() -> Self {
-        FontStack::Stack(vec![FontSelector::default()])
+        Self::Stack(vec![FontSelector::default()])
     }
 }
 
 impl FontStack {
-    /// Returns true if this is a direct FontRef
-    pub fn is_ref(&self) -> bool {
-        matches!(self, FontStack::Ref(_))
+    /// Returns true if this is a direct `FontRef`
+    #[must_use] pub const fn is_ref(&self) -> bool {
+        matches!(self, Self::Ref(_))
     }
 
-    /// Returns the FontRef if this is a Ref variant
-    pub fn as_ref(&self) -> Option<&azul_css::props::basic::font::FontRef> {
+    /// Returns the `FontRef` if this is a Ref variant
+    #[must_use] pub const fn as_ref(&self) -> Option<&azul_css::props::basic::font::FontRef> {
         match self {
-            FontStack::Ref(r) => Some(r),
-            _ => None,
+            Self::Ref(r) => Some(r),
+            Self::Stack(_) => None,
         }
     }
 
     /// Returns the font selectors if this is a Stack variant
-    pub fn as_stack(&self) -> Option<&[FontSelector]> {
+    #[must_use] pub fn as_stack(&self) -> Option<&[FontSelector]> {
         match self {
-            FontStack::Stack(s) => Some(s),
-            _ => None,
+            Self::Stack(s) => Some(s),
+            Self::Ref(_) => None,
         }
     }
 
-    /// Returns the first FontSelector if this is a Stack variant, None if Ref
-    pub fn first_selector(&self) -> Option<&FontSelector> {
+    /// Returns the first `FontSelector` if this is a Stack variant, None if Ref
+    #[must_use] pub fn first_selector(&self) -> Option<&FontSelector> {
         match self {
-            FontStack::Stack(s) => s.first(),
-            FontStack::Ref(_) => None,
+            Self::Stack(s) => s.first(),
+            Self::Ref(_) => None,
         }
     }
 
     /// Returns the first font family name (for Stack) or a placeholder (for Ref)
-    pub fn first_family(&self) -> &str {
+    #[must_use] pub fn first_family(&self) -> &str {
         match self {
-            FontStack::Stack(s) => s.first().map(|f| f.family.as_str()).unwrap_or("serif"),
-            FontStack::Ref(_) => "<embedded-font>",
+            Self::Stack(s) => s.first().map_or("serif", |f| f.family.as_str()),
+            Self::Ref(_) => "<embedded-font>",
         }
     }
 }
@@ -1483,8 +1517,8 @@ impl FontStack {
 impl PartialEq for FontStack {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (FontStack::Stack(a), FontStack::Stack(b)) => a == b,
-            (FontStack::Ref(a), FontStack::Ref(b)) => a.parsed == b.parsed,
+            (Self::Stack(a), Self::Stack(b)) => a == b,
+            (Self::Ref(a), Self::Ref(b)) => a.parsed == b.parsed,
             _ => false,
         }
     }
@@ -1494,29 +1528,29 @@ impl Eq for FontStack {}
 
 impl Hash for FontStack {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
+        discriminant(self).hash(state);
         match self {
-            FontStack::Stack(s) => s.hash(state),
-            FontStack::Ref(r) => (r.parsed as usize).hash(state),
+            Self::Stack(s) => s.hash(state),
+            Self::Ref(r) => (r.parsed as usize).hash(state),
         }
     }
 }
 
 /// A reference to a font for rendering, identified by its hash.
-/// This hash corresponds to ParsedFont::hash and is used to look up
+/// This hash corresponds to `ParsedFont::hash` and is used to look up
 /// the actual font data in the renderer's font cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontHash {
-    /// The hash of the ParsedFont. 0 means invalid/unknown font.
+    /// The hash of the `ParsedFont`. 0 means invalid/unknown font.
     pub font_hash: u64,
 }
 
 impl FontHash {
-    pub fn invalid() -> Self {
+    #[must_use] pub const fn invalid() -> Self {
         Self { font_hash: 0 }
     }
 
-    pub fn from_hash(font_hash: u64) -> Self {
+    #[must_use] pub const fn from_hash(font_hash: u64) -> Self {
         Self { font_hash }
     }
 }
@@ -1539,7 +1573,7 @@ pub enum SegmentAlignment {
     Total,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct VerticalMetrics {
     pub advance: f32,
     pub bearing_x: f32,
@@ -1548,7 +1582,7 @@ pub struct VerticalMetrics {
 }
 
 // +spec:font-metrics:df51b1 - font metrics (ascent, descent, line_gap) used as baselines for inline layout alignment and box sizing
-/// Layout-specific font metrics extracted from FontMetrics
+/// Layout-specific font metrics extracted from `FontMetrics`
 /// Contains only the metrics needed for text layout and rendering
 // +spec:box-model:a2f1c1 - inline box content area sized from first available font metrics (ascent/descent)
 // +spec:font-metrics:9c2ca5 - ascent and descent metrics per font for inline layout
@@ -1558,7 +1592,7 @@ pub struct VerticalMetrics {
 // +spec:font-metrics:f2cd75 - em-over/em-under baselines intentionally not included (not used by CSS per spec)
 // +spec:inline-formatting-context:76cd57 - ascent/descent font metrics for inline formatting context layout
 // +spec:font-metrics:207e6b - ascent/descent metrics used for baseline calculations
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct LayoutFontMetrics {
     pub ascent: f32,
     pub descent: f32,
@@ -1576,30 +1610,27 @@ impl LayoutFontMetrics {
     // +spec:font-metrics:006bd8 - baseline position from font design coordinates, scaled with font size
     // +spec:font-metrics:910c0a - dominant-baseline: auto resolves to alphabetic for horizontal text
     // +spec:writing-modes:098958 - baseline is along the inline axis, used to align glyphs
-    pub fn baseline_scaled(&self, font_size: f32) -> f32 {
-        let scale = font_size / self.units_per_em as f32;
+    #[must_use] pub fn baseline_scaled(&self, font_size: f32) -> f32 {
+        let scale = font_size / f32::from(self.units_per_em);
         self.ascent * scale
     }
 
     /// Returns the x-height scaled to the given font size in px.
     /// Falls back to 0.5em when the font doesn't provide sxHeight.
-    pub fn x_height_scaled(&self, font_size: f32) -> f32 {
-        let scale = font_size / self.units_per_em as f32;
-        match self.x_height {
-            Some(xh) => xh * scale,
-            None => font_size * 0.5,
-        }
+    #[must_use] pub fn x_height_scaled(&self, font_size: f32) -> f32 {
+        let scale = font_size / f32::from(self.units_per_em);
+        self.x_height.map_or(font_size * 0.5, |xh| xh * scale)
     }
 
     /// Returns the cap height scaled to the given font size in px.
     /// Falls back to ascent when the font doesn't provide sCapHeight.
-    pub fn cap_height_scaled(&self, font_size: f32) -> f32 {
-        let scale = font_size / self.units_per_em as f32;
+    #[must_use] pub fn cap_height_scaled(&self, font_size: f32) -> f32 {
+        let scale = font_size / f32::from(self.units_per_em);
         self.cap_height.unwrap_or(self.ascent) * scale
     }
 
     // +spec:line-height:471816 - line gap metric extracted from font for optional use when line-height is normal
-    /// Convert from full FontMetrics to layout-specific metrics.
+    /// Convert from full `FontMetrics` to layout-specific metrics.
     ///
     // +spec:font-metrics:05193a - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
     // +spec:font-metrics:17a71c - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
@@ -1617,28 +1648,25 @@ impl LayoutFontMetrics {
     // +spec:font-metrics:5346d2 - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
     // +spec:font-metrics:e16941 - line gap metric floored at zero per spec
     // +spec:font-metrics:a55c05 - metrics taken from font, synthesized if missing (prefers OS/2, falls back to HHEA)
-    pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
+    #[must_use] pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
         let ascent = metrics.s_typo_ascender
             .as_option()
-            .map(|v| *v as f32)
-            .unwrap_or(metrics.ascender as f32);
+            .map_or_else(|| f32::from(metrics.ascender), |v| f32::from(*v));
         let descent = metrics.s_typo_descender
             .as_option()
-            .map(|v| *v as f32)
-            .unwrap_or(metrics.descender as f32);
+            .map_or_else(|| f32::from(metrics.descender), |v| f32::from(*v));
         // UAs must floor the line gap metric at zero (css-inline-3 §3.2.2)
         // Spec: "UAs must floor the line gap metric at zero."
         let line_gap = metrics.s_typo_line_gap
             .as_option()
-            .map(|v| *v as f32)
-            .unwrap_or(metrics.line_gap as f32)
+            .map_or_else(|| f32::from(metrics.line_gap), |v| f32::from(*v))
             .max(0.0);
         let x_height = metrics.sx_height
             .as_option()
-            .map(|v| *v as f32);
+            .map(|v| f32::from(*v));
         let cap_height = metrics.s_cap_height
             .as_option()
-            .map(|v| *v as f32);
+            .map(|v| f32::from(*v));
         Self {
             ascent,
             descent,
@@ -1653,26 +1681,26 @@ impl LayoutFontMetrics {
     /// Synthesize em-over baseline offset (in font units).
     /// Per CSS Inline 3 Appendix A.1: em-over = central baseline + 0.5em.
     /// Central baseline is synthesized as midpoint of ascent and descent.
-    pub fn em_over(&self) -> f32 {
+    #[must_use] pub fn em_over(&self) -> f32 {
         let central = self.central_baseline();
-        central + (self.units_per_em as f32 / 2.0)
+        central + (f32::from(self.units_per_em) / 2.0)
     }
 
     /// Synthesize em-under baseline offset (in font units).
     /// Per CSS Inline 3 Appendix A.1: em-under = central baseline - 0.5em.
-    pub fn em_under(&self) -> f32 {
+    #[must_use] pub fn em_under(&self) -> f32 {
         let central = self.central_baseline();
-        central - (self.units_per_em as f32 / 2.0)
+        central - (f32::from(self.units_per_em) / 2.0)
     }
 
     /// Synthesize central baseline (in font units).
     /// Midpoint between ascent and descent when not provided by the font.
-    pub fn central_baseline(&self) -> f32 {
-        (self.ascent + self.descent) / 2.0
+    #[must_use] pub const fn central_baseline(&self) -> f32 {
+        f32::midpoint(self.ascent, self.descent)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct LineSegment {
     pub start_x: f32,
     pub width: f32,
@@ -1810,6 +1838,7 @@ pub enum InitialLetterAlign {
 impl Eq for InitialLetter {}
 
 impl Hash for InitialLetter {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Per the request, round the f32 to a usize for hashing.
         // This is a lossy conversion; values like 2.3 and 2.4 will produce
@@ -1823,7 +1852,7 @@ impl Hash for InitialLetter {
 }
 
 // Path and shape definitions
-#[derive(Debug, Clone, PartialOrd)]
+#[derive(Copy, Debug, Clone, PartialOrd)]
 pub enum PathSegment {
     MoveTo(Point),
     LineTo(Point),
@@ -1847,14 +1876,16 @@ pub enum PathSegment {
 
 // PathSegment
 impl Hash for PathSegment {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Hash the enum variant's discriminant first to distinguish them
         discriminant(self).hash(state);
 
         match self {
-            PathSegment::MoveTo(p) => p.hash(state),
-            PathSegment::LineTo(p) => p.hash(state),
-            PathSegment::CurveTo {
+            Self::MoveTo(p) => p.hash(state),
+            Self::LineTo(p) => p.hash(state),
+            Self::CurveTo {
                 control1,
                 control2,
                 end,
@@ -1863,11 +1894,11 @@ impl Hash for PathSegment {
                 control2.hash(state);
                 end.hash(state);
             }
-            PathSegment::QuadTo { control, end } => {
+            Self::QuadTo { control, end } => {
                 control.hash(state);
                 end.hash(state);
             }
-            PathSegment::Arc {
+            Self::Arc {
                 center,
                 radius,
                 start_angle,
@@ -1878,53 +1909,55 @@ impl Hash for PathSegment {
                 (start_angle.round() as isize).hash(state);
                 (end_angle.round() as isize).hash(state);
             }
-            PathSegment::Close => {} // No data to hash
+            Self::Close => {} // No data to hash
         }
     }
 }
 
 impl PartialEq for PathSegment {
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (PathSegment::MoveTo(a), PathSegment::MoveTo(b)) => a == b,
-            (PathSegment::LineTo(a), PathSegment::LineTo(b)) => a == b,
+            (Self::MoveTo(a), Self::MoveTo(b)) => a == b,
+            (Self::LineTo(a), Self::LineTo(b)) => a == b,
             (
-                PathSegment::CurveTo {
+                Self::CurveTo {
                     control1: c1a,
                     control2: c2a,
                     end: ea,
                 },
-                PathSegment::CurveTo {
+                Self::CurveTo {
                     control1: c1b,
                     control2: c2b,
                     end: eb,
                 },
             ) => c1a == c1b && c2a == c2b && ea == eb,
             (
-                PathSegment::QuadTo {
+                Self::QuadTo {
                     control: ca,
                     end: ea,
                 },
-                PathSegment::QuadTo {
+                Self::QuadTo {
                     control: cb,
                     end: eb,
                 },
             ) => ca == cb && ea == eb,
             (
-                PathSegment::Arc {
+                Self::Arc {
                     center: ca,
                     radius: ra,
                     start_angle: sa_a,
                     end_angle: ea_a,
                 },
-                PathSegment::Arc {
+                Self::Arc {
                     center: cb,
                     radius: rb,
                     start_angle: sa_b,
                     end_angle: ea_b,
                 },
             ) => ca == cb && round_eq(*ra, *rb) && round_eq(*sa_a, *sa_b) && round_eq(*ea_a, *ea_b),
-            (PathSegment::Close, PathSegment::Close) => true,
+            (Self::Close, Self::Close) => true,
             _ => false, // Variants are different
         }
     }
@@ -1952,7 +1985,7 @@ pub enum InlineContent {
     Tab {
         style: Arc<StyleProperties>,
     },
-    /// List marker (::marker pseudo-element)
+    /// List marker (`::marker` pseudo-element)
     /// Markers with list-style-position: outside are positioned
     /// in the padding gutter of the list container
     Marker {
@@ -2028,7 +2061,7 @@ pub struct Glyph {
     // Core glyph data
     pub glyph_id: u16,
     pub codepoint: char,
-    /// Hash of the font - use LoadedFonts to look up the actual font when needed
+    /// Hash of the font - use `LoadedFonts` to look up the actual font when needed
     pub font_hash: u64,
     /// Cached font metrics to avoid font lookup for common operations
     pub font_metrics: LayoutFontMetrics,
@@ -2069,7 +2102,7 @@ impl Glyph {
     }
 
     #[inline]
-    fn character_class(&self) -> CharacterClass {
+    const fn character_class(&self) -> CharacterClass {
         classify_character(self.codepoint as u32)
     }
 
@@ -2084,12 +2117,12 @@ impl Glyph {
     }
 
     #[inline]
-    fn justification_priority(&self) -> u8 {
+    const fn justification_priority(&self) -> u8 {
         get_justification_priority(self.character_class())
     }
 
     #[inline]
-    fn break_opportunity_after(&self) -> bool {
+    const fn break_opportunity_after(&self) -> bool {
         let is_whitespace = self.codepoint.is_whitespace();
         let is_soft_hyphen = self.codepoint == '\u{00AD}';
         let is_hyphen_minus = self.codepoint == '\u{002D}';
@@ -2109,9 +2142,9 @@ pub(crate) struct TextRunInfo<'a> {
 
 #[derive(Debug, Clone)]
 pub enum ImageSource {
-    /// Direct reference to decoded image (from DOM NodeType::Image)
+    /// Direct reference to decoded image (from DOM `NodeType::Image`)
     Ref(ImageRef),
-    /// CSS url reference (from background-image, needs ImageCache lookup)
+    /// CSS url reference (from background-image, needs `ImageCache` lookup)
     Url(String),
     /// Raw image data
     Data(Arc<[u8]>),
@@ -2124,11 +2157,11 @@ pub enum ImageSource {
 impl PartialEq for ImageSource {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (ImageSource::Ref(a), ImageSource::Ref(b)) => a.get_hash() == b.get_hash(),
-            (ImageSource::Url(a), ImageSource::Url(b)) => a == b,
-            (ImageSource::Data(a), ImageSource::Data(b)) => Arc::ptr_eq(a, b),
-            (ImageSource::Svg(a), ImageSource::Svg(b)) => Arc::ptr_eq(a, b),
-            (ImageSource::Placeholder(a), ImageSource::Placeholder(b)) => {
+            (Self::Ref(a), Self::Ref(b)) => a.get_hash() == b.get_hash(),
+            (Self::Url(a), Self::Url(b)) => a == b,
+            (Self::Data(a), Self::Data(b)) => Arc::ptr_eq(a, b),
+            (Self::Svg(a), Self::Svg(b)) => Arc::ptr_eq(a, b),
+            (Self::Placeholder(a), Self::Placeholder(b)) => {
                 a.width.to_bits() == b.width.to_bits() && a.height.to_bits() == b.height.to_bits()
             }
             _ => false,
@@ -2138,15 +2171,15 @@ impl PartialEq for ImageSource {
 
 impl Eq for ImageSource {}
 
-impl std::hash::Hash for ImageSource {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
+impl Hash for ImageSource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
         match self {
-            ImageSource::Ref(r) => r.get_hash().hash(state),
-            ImageSource::Url(s) => s.hash(state),
-            ImageSource::Data(d) => (Arc::as_ptr(d) as *const u8 as usize).hash(state),
-            ImageSource::Svg(s) => (Arc::as_ptr(s) as *const u8 as usize).hash(state),
-            ImageSource::Placeholder(sz) => {
+            Self::Ref(r) => r.get_hash().hash(state),
+            Self::Url(s) => s.hash(state),
+            Self::Data(d) => (Arc::as_ptr(d).cast::<u8>() as usize).hash(state),
+            Self::Svg(s) => (Arc::as_ptr(s).cast::<u8>() as usize).hash(state),
+            Self::Placeholder(sz) => {
                 sz.width.to_bits().hash(state);
                 sz.height.to_bits().hash(state);
             }
@@ -2155,14 +2188,14 @@ impl std::hash::Hash for ImageSource {
 }
 
 impl PartialOrd for ImageSource {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for ImageSource {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        fn variant_index(s: &ImageSource) -> u8 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        const fn variant_index(s: &ImageSource) -> u8 {
             match s {
                 ImageSource::Ref(_) => 0,
                 ImageSource::Url(_) => 1,
@@ -2172,15 +2205,15 @@ impl Ord for ImageSource {
             }
         }
         match (self, other) {
-            (ImageSource::Ref(a), ImageSource::Ref(b)) => a.get_hash().cmp(&b.get_hash()),
-            (ImageSource::Url(a), ImageSource::Url(b)) => a.cmp(b),
-            (ImageSource::Data(a), ImageSource::Data(b)) => {
-                (Arc::as_ptr(a) as *const u8 as usize).cmp(&(Arc::as_ptr(b) as *const u8 as usize))
+            (Self::Ref(a), Self::Ref(b)) => a.get_hash().cmp(&b.get_hash()),
+            (Self::Url(a), Self::Url(b)) => a.cmp(b),
+            (Self::Data(a), Self::Data(b)) => {
+                (Arc::as_ptr(a).cast::<u8>() as usize).cmp(&(Arc::as_ptr(b).cast::<u8>() as usize))
             }
-            (ImageSource::Svg(a), ImageSource::Svg(b)) => {
-                (Arc::as_ptr(a) as *const u8 as usize).cmp(&(Arc::as_ptr(b) as *const u8 as usize))
+            (Self::Svg(a), Self::Svg(b)) => {
+                (Arc::as_ptr(a).cast::<u8>() as usize).cmp(&(Arc::as_ptr(b).cast::<u8>() as usize))
             }
-            (ImageSource::Placeholder(a), ImageSource::Placeholder(b)) => {
+            (Self::Placeholder(a), Self::Placeholder(b)) => {
                 (a.width.to_bits(), a.height.to_bits())
                     .cmp(&(b.width.to_bits(), b.height.to_bits()))
             }
@@ -2218,10 +2251,10 @@ pub enum VerticalAlign {
     Offset(f32),
 }
 
-impl std::hash::Hash for VerticalAlign {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
-        if let VerticalAlign::Offset(f) = self {
+impl Hash for VerticalAlign {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
+        if let Self::Offset(f) = self {
             f.to_bits().hash(state);
         }
     }
@@ -2229,9 +2262,12 @@ impl std::hash::Hash for VerticalAlign {
 
 impl Eq for VerticalAlign {}
 
+// cmp delegates to the derived PartialOrd (unwrap_or(Equal)), so Ord and PartialOrd are
+// consistent; Ord can't be derived because of the f32 `Offset` variant.
+#[allow(clippy::derive_ord_xor_partial_ord)]
 impl Ord for VerticalAlign {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap_or(Ordering::Equal)
     }
 }
 
@@ -2252,9 +2288,9 @@ pub enum ObjectFit {
 /// Border information for inline elements (display: inline, inline-block)
 ///
 /// This stores the resolved border properties needed for rendering inline element borders.
-/// Unlike block elements which render borders via paint_node_background_and_border(),
+/// Unlike block elements which render borders via `paint_node_background_and_border()`,
 /// inline element borders must be rendered per glyph-run to handle line breaks correctly.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub struct InlineBorderInfo {
     /// Border widths in pixels for each side
     pub top: f32,
@@ -2311,12 +2347,12 @@ impl Default for InlineBorderInfo {
 
 impl InlineBorderInfo {
     /// Returns true if any border has a non-zero width
-    pub fn has_border(&self) -> bool {
+    #[must_use] pub fn has_border(&self) -> bool {
         self.top > 0.0 || self.right > 0.0 || self.bottom > 0.0 || self.left > 0.0
     }
 
     /// Returns true if any border or padding is present
-    pub fn has_chrome(&self) -> bool {
+    #[must_use] pub fn has_chrome(&self) -> bool {
         self.has_border()
             || self.padding_top > 0.0
             || self.padding_right > 0.0
@@ -2332,20 +2368,20 @@ impl InlineBorderInfo {
     /// Total left inset (border + padding), suppressed at split points per §8.6.
     /// In LTR: left edge drawn on first fragment. In RTL: left edge drawn on last fragment.
     // +spec:box-model:bae97f - visual-order margin/border/padding assignment for bidi inline fragments
-    pub fn left_inset(&self) -> f32 {
+    #[must_use] pub fn left_inset(&self) -> f32 {
         let show = if self.is_rtl { self.is_last_fragment } else { self.is_first_fragment };
         if show { self.left + self.padding_left } else { 0.0 }
     }
     /// Total right inset (border + padding), suppressed at split points per §8.6.
     /// In LTR: right edge drawn on last fragment. In RTL: right edge drawn on first fragment.
-    pub fn right_inset(&self) -> f32 {
+    #[must_use] pub fn right_inset(&self) -> f32 {
         let show = if self.is_rtl { self.is_first_fragment } else { self.is_last_fragment };
         if show { self.right + self.padding_right } else { 0.0 }
     }
     /// Total top inset (border + padding)
-    pub fn top_inset(&self) -> f32 { self.top + self.padding_top }
+    #[must_use] pub fn top_inset(&self) -> f32 { self.top + self.padding_top }
     /// Total bottom inset (border + padding)
-    pub fn bottom_inset(&self) -> f32 { self.bottom + self.padding_bottom }
+    #[must_use] pub fn bottom_inset(&self) -> f32 { self.bottom + self.padding_bottom }
 }
 
 #[derive(Debug, Clone)]
@@ -2357,10 +2393,10 @@ pub struct InlineShape {
     /// Per-item vertical alignment (CSS `vertical-align` on the inline-block element).
     /// This overrides the global `TextStyleOptions::vertical_align` for this shape.
     pub alignment: VerticalAlign,
-    /// The NodeId of the element that created this shape
+    /// The `NodeId` of the element that created this shape
     /// (e.g., inline-block) - this allows us to look up
     /// styling information (background, border) when rendering
-    pub source_node_id: Option<azul_core::dom::NodeId>,
+    pub source_node_id: Option<NodeId>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2396,7 +2432,7 @@ pub(crate) struct MeasuredShape {
     pub(crate) content_index: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct InlineSpace {
     pub width: f32,
     pub is_breaking: bool, // Can line break here
@@ -2497,6 +2533,7 @@ impl PartialEq for Rect {
 impl Eq for Rect {}
 
 impl Hash for Rect {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         // The order in which you hash the fields matters.
         // A consistent order is crucial.
@@ -2507,13 +2544,20 @@ impl Hash for Rect {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialOrd)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Size {
     pub width: f32,
     pub height: f32,
 }
 
+impl PartialOrd for Size {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for Size {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn cmp(&self, other: &Self) -> Ordering {
         (self.width.round() as isize)
             .cmp(&(other.width.round() as isize))
@@ -2523,6 +2567,7 @@ impl Ord for Size {
 
 // Size
 impl Hash for Size {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         (self.width.round() as isize).hash(state);
         (self.height.round() as isize).hash(state);
@@ -2536,10 +2581,10 @@ impl PartialEq for Size {
 impl Eq for Size {}
 
 impl Size {
-    pub const fn zero() -> Self {
+    #[must_use] pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
-    pub const fn new(width: f32, height: f32) -> Self {
+    #[must_use] pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
 }
@@ -2552,6 +2597,7 @@ pub struct Point {
 
 // Point
 impl Hash for Point {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         (self.x.round() as isize).hash(state);
         (self.y.round() as isize).hash(state);
@@ -2588,27 +2634,28 @@ pub enum ShapeDefinition {
 
 // ShapeDefinition
 impl Hash for ShapeDefinition {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         discriminant(self).hash(state);
         match self {
-            ShapeDefinition::Rectangle {
+            Self::Rectangle {
                 size,
                 corner_radius,
             } => {
                 size.hash(state);
                 corner_radius.map(|r| r.round() as isize).hash(state);
             }
-            ShapeDefinition::Circle { radius } => {
+            Self::Circle { radius } => {
                 (radius.round() as isize).hash(state);
             }
-            ShapeDefinition::Ellipse { radii } => {
+            Self::Ellipse { radii } => {
                 radii.hash(state);
             }
-            ShapeDefinition::Polygon { points } => {
+            Self::Polygon { points } => {
                 // Since Point implements Hash, we can hash the Vec directly.
                 points.hash(state);
             }
-            ShapeDefinition::Path { segments } => {
+            Self::Path { segments } => {
                 // Same for Vec<PathSegment>
                 segments.hash(state);
             }
@@ -2620,11 +2667,11 @@ impl PartialEq for ShapeDefinition {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                ShapeDefinition::Rectangle {
+                Self::Rectangle {
                     size: s1,
                     corner_radius: r1,
                 },
-                ShapeDefinition::Rectangle {
+                Self::Rectangle {
                     size: s2,
                     corner_radius: r2,
                 },
@@ -2636,16 +2683,16 @@ impl PartialEq for ShapeDefinition {
                         _ => false,
                     }
             }
-            (ShapeDefinition::Circle { radius: r1 }, ShapeDefinition::Circle { radius: r2 }) => {
+            (Self::Circle { radius: r1 }, Self::Circle { radius: r2 }) => {
                 round_eq(*r1, *r2)
             }
-            (ShapeDefinition::Ellipse { radii: r1 }, ShapeDefinition::Ellipse { radii: r2 }) => {
+            (Self::Ellipse { radii: r1 }, Self::Ellipse { radii: r2 }) => {
                 r1 == r2
             }
-            (ShapeDefinition::Polygon { points: p1 }, ShapeDefinition::Polygon { points: p2 }) => {
+            (Self::Polygon { points: p1 }, Self::Polygon { points: p2 }) => {
                 p1 == p2
             }
-            (ShapeDefinition::Path { segments: s1 }, ShapeDefinition::Path { segments: s2 }) => {
+            (Self::Path { segments: s1 }, Self::Path { segments: s2 }) => {
                 s1 == s2
             }
             _ => false,
@@ -2656,22 +2703,22 @@ impl Eq for ShapeDefinition {}
 
 impl ShapeDefinition {
     /// Calculates the bounding box size for the shape.
-    pub fn get_size(&self) -> Size {
+    #[must_use] pub fn get_size(&self) -> Size {
         match self {
             // The size is explicitly defined.
-            ShapeDefinition::Rectangle { size, .. } => *size,
+            Self::Rectangle { size, .. } => *size,
 
             // The bounding box of a circle is a square with sides equal to the diameter.
-            ShapeDefinition::Circle { radius } => {
+            Self::Circle { radius } => {
                 let diameter = radius * 2.0;
                 Size::new(diameter, diameter)
             }
 
             // The bounding box of an ellipse has width and height equal to twice its radii.
-            ShapeDefinition::Ellipse { radii } => Size::new(radii.width * 2.0, radii.height * 2.0),
+            Self::Ellipse { radii } => Size::new(radii.width * 2.0, radii.height * 2.0),
 
             // For a polygon, we must find the min/max coordinates to get the bounds.
-            ShapeDefinition::Polygon { points } => calculate_bounding_box_size(points),
+            Self::Polygon { points } => calculate_bounding_box_size(points),
 
             // For a path, we find the bounding box of all its anchor and control points.
             //
@@ -2679,7 +2726,7 @@ impl ShapeDefinition {
             // bezier curves can be slightly smaller than the box containing their control
             // points. For pixel-perfect results, one would need to calculate the
             // curve's extrema.
-            ShapeDefinition::Path { segments } => {
+            Self::Path { segments } => {
                 let mut points = Vec::new();
                 let mut current_pos = Point { x: 0.0, y: 0.0 };
 
@@ -2728,6 +2775,7 @@ impl ShapeDefinition {
                             //    0-radian line.
                             // This ensures we can iterate forward from a start to an end angle.
                             let mut normalized_end = *end_angle;
+                            #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
                             while normalized_end < *start_angle {
                                 normalized_end += 2.0 * std::f32::consts::PI;
                             }
@@ -2741,6 +2789,7 @@ impl ShapeDefinition {
                             // 4. Iterate through all cardinal points that fall within the arc's
                             //    sweep and add them.
                             // These points define the maximum extent of the arc's bounding box.
+                            #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
                             while check_angle < normalized_end {
                                 points.push(Point {
                                     x: center.x + radius * check_angle.cos(),
@@ -2822,6 +2871,7 @@ pub struct Stroke {
 
 // Stroke
 impl Hash for Stroke {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.color.hash(state);
         (self.width.round() as isize).hash(state);
@@ -2858,6 +2908,7 @@ impl PartialEq for Stroke {
 impl Eq for Stroke {}
 
 // Helper function to round f32 for comparison
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 fn round_eq(a: f32, b: f32) -> bool {
     (a.round() as isize) == (b.round() as isize)
 }
@@ -2872,7 +2923,8 @@ pub enum ShapeBoundary {
 }
 
 impl ShapeBoundary {
-    pub fn inflate(&self, margin: f32) -> Self {
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[must_use] pub fn inflate(&self, margin: f32) -> Self {
         if margin == 0.0 {
             return self.clone();
         }
@@ -2896,51 +2948,52 @@ impl ShapeBoundary {
 
 // ShapeBoundary
 impl Hash for ShapeBoundary {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         discriminant(self).hash(state);
         match self {
-            ShapeBoundary::Rectangle(rect) => rect.hash(state),
-            ShapeBoundary::Circle { center, radius } => {
+            Self::Rectangle(rect) => rect.hash(state),
+            Self::Circle { center, radius } => {
                 center.hash(state);
                 (radius.round() as isize).hash(state);
             }
-            ShapeBoundary::Ellipse { center, radii } => {
+            Self::Ellipse { center, radii } => {
                 center.hash(state);
                 radii.hash(state);
             }
-            ShapeBoundary::Polygon { points } => points.hash(state),
-            ShapeBoundary::Path { segments } => segments.hash(state),
+            Self::Polygon { points } => points.hash(state),
+            Self::Path { segments } => segments.hash(state),
         }
     }
 }
 impl PartialEq for ShapeBoundary {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (ShapeBoundary::Rectangle(r1), ShapeBoundary::Rectangle(r2)) => r1 == r2,
+            (Self::Rectangle(r1), Self::Rectangle(r2)) => r1 == r2,
             (
-                ShapeBoundary::Circle {
+                Self::Circle {
                     center: c1,
                     radius: r1,
                 },
-                ShapeBoundary::Circle {
+                Self::Circle {
                     center: c2,
                     radius: r2,
                 },
             ) => c1 == c2 && round_eq(*r1, *r2),
             (
-                ShapeBoundary::Ellipse {
+                Self::Ellipse {
                     center: c1,
                     radii: r1,
                 },
-                ShapeBoundary::Ellipse {
+                Self::Ellipse {
                     center: c2,
                     radii: r2,
                 },
             ) => c1 == c2 && r1 == r2,
-            (ShapeBoundary::Polygon { points: p1 }, ShapeBoundary::Polygon { points: p2 }) => {
+            (Self::Polygon { points: p1 }, Self::Polygon { points: p2 }) => {
                 p1 == p2
             }
-            (ShapeBoundary::Path { segments: s1 }, ShapeBoundary::Path { segments: s2 }) => {
+            (Self::Path { segments: s1 }, Self::Path { segments: s2 }) => {
                 s1 == s2
             }
             _ => false,
@@ -2950,14 +3003,15 @@ impl PartialEq for ShapeBoundary {
 impl Eq for ShapeBoundary {}
 
 impl ShapeBoundary {
-    /// Converts a CSS shape (from azul-css) to a layout engine ShapeBoundary
+    /// Converts a CSS shape (from azul-css) to a layout engine `ShapeBoundary`
     ///
     /// # Arguments
     /// * `css_shape` - The parsed CSS shape from azul-css
     /// * `reference_box` - The containing box for resolving coordinates (from layout solver)
     ///
     /// # Returns
-    /// A ShapeBoundary ready for use in the text layout engine
+    /// A `ShapeBoundary` ready for use in the text layout engine
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     pub fn from_css_shape(
         css_shape: &azul_css::shape::CssShape,
         reference_box: Rect,
@@ -2967,12 +3021,10 @@ impl ShapeBoundary {
 
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "[ShapeBoundary::from_css_shape] Input CSS shape: {:?}",
-                css_shape
+                "[ShapeBoundary::from_css_shape] Input CSS shape: {css_shape:?}"
             )));
             msgs.push(LayoutDebugMessage::info(format!(
-                "[ShapeBoundary::from_css_shape] Reference box: {:?}",
-                reference_box
+                "[ShapeBoundary::from_css_shape] Reference box: {reference_box:?}"
             )));
         }
 
@@ -2993,7 +3045,7 @@ impl ShapeBoundary {
                         center.x, center.y, circle.radius
                     )));
                 }
-                ShapeBoundary::Circle {
+                Self::Circle {
                     center,
                     radius: circle.radius,
                 }
@@ -3015,7 +3067,7 @@ impl ShapeBoundary {
                         center.x, center.y, radii.width, radii.height
                     )));
                 }
-                ShapeBoundary::Ellipse { center, radii }
+                Self::Ellipse { center, radii }
             }
 
             CssShape::Polygon(polygon) => {
@@ -3034,7 +3086,7 @@ impl ShapeBoundary {
                         polygon.points.as_ref().len()
                     )));
                 }
-                ShapeBoundary::Polygon { points }
+                Self::Polygon { points }
             }
 
             CssShape::Inset(inset) => {
@@ -3050,13 +3102,12 @@ impl ShapeBoundary {
                         inset.inset_top, inset.inset_right, inset.inset_bottom, inset.inset_left
                     )));
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "[ShapeBoundary::from_css_shape] Inset - resulting rect: x={}, y={}, \
-                         w={}, h={}",
-                        x, y, width, height
+                        "[ShapeBoundary::from_css_shape] Inset - resulting rect: x={x}, y={y}, \
+                         w={width}, h={height}"
                     )));
                 }
 
-                ShapeBoundary::Rectangle(Rect {
+                Self::Rectangle(Rect {
                     x,
                     y,
                     width: width.max(0.0),
@@ -3084,21 +3135,20 @@ impl ShapeBoundary {
                 // together: emitting a `Path` boundary whose scanline returns no
                 // segments would make a shape-inside container fit zero text.
                 let _ = path;
-                ShapeBoundary::Rectangle(reference_box)
+                Self::Rectangle(reference_box)
             }
         };
 
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "[ShapeBoundary::from_css_shape] Result: {:?}",
-                result
+                "[ShapeBoundary::from_css_shape] Result: {result:?}"
             )));
         }
         result
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InlineBreak {
     pub break_type: BreakType,
     pub clear: ClearType,
@@ -3144,10 +3194,10 @@ pub enum WritingMode {
 
 impl WritingMode {
     /// Necessary to determine if the glyphs are advancing in a horizontal direction
-    pub fn is_advance_horizontal(&self) -> bool {
+    #[must_use] pub const fn is_advance_horizontal(&self) -> bool {
         matches!(
             self,
-            WritingMode::HorizontalTb | WritingMode::SidewaysRl | WritingMode::SidewaysLr
+            Self::HorizontalTb | Self::SidewaysRl | Self::SidewaysLr
         )
     }
 }
@@ -3185,7 +3235,7 @@ pub enum TextOrientation {
     Sideways, // All characters rotated 90 degrees
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Default)]
 pub struct TextDecoration {
     pub underline: bool,
@@ -3195,12 +3245,12 @@ pub struct TextDecoration {
 
 
 impl TextDecoration {
-    /// Convert from CSS StyleTextDecoration enum to our internal representation.
+    /// Convert from CSS `StyleTextDecoration` enum to our internal representation.
     /// 
     /// Note: CSS text-decoration can have multiple values (underline line-through),
     /// but the current azul-css parser only supports single values. This can be
     /// extended in the future if CSS parsing is updated.
-    pub fn from_css(css: azul_css::props::style::text::StyleTextDecoration) -> Self {
+    #[must_use] pub fn from_css(css: azul_css::props::style::text::StyleTextDecoration) -> Self {
         use azul_css::props::style::text::StyleTextDecoration;
         match css {
             StyleTextDecoration::None => Self::default(),
@@ -3254,17 +3304,17 @@ impl Hash for Spacing {
         // First, hash the enum variant to distinguish between Px and Em.
         discriminant(self).hash(state);
         match self {
-            Spacing::Px(val) => val.hash(state),
+            Self::Px(val) => val.hash(state),
             // For hashing floats, convert them to their raw bit representation.
             // This ensures that identical float values produce identical hashes.
-            Spacing::Em(val) => val.to_bits().hash(state),
+            Self::Em(val) => val.to_bits().hash(state),
         }
     }
 }
 
 impl Default for Spacing {
     fn default() -> Self {
-        Spacing::Px(0)
+        Self::Px(0)
     }
 }
 
@@ -3278,8 +3328,8 @@ impl Default for FontHash {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
     /// Font stack for fallback support (priority order)
-    /// Can be either a list of FontSelectors (resolved via fontconfig)
-    /// or a direct FontRef (bypasses fontconfig entirely).
+    /// Can be either a list of `FontSelectors` (resolved via fontconfig)
+    /// or a direct `FontRef` (bypasses fontconfig entirely).
     pub font_stack: FontStack,
     pub font_size_px: f32,
     pub color: ColorU,
@@ -3295,7 +3345,7 @@ pub struct StyleProperties {
     /// See `PdfGlyphRun::background_color` for how this is used in PDF rendering.
     pub background_color: Option<ColorU>,
     /// Full background content layers (for gradients, images, etc.)
-    /// This extends background_color to support CSS gradients on inline elements.
+    /// This extends `background_color` to support CSS gradients on inline elements.
     pub background_content: Vec<StyleBackgroundContent>,
     /// Border information for inline elements
     pub border: Option<InlineBorderInfo>,
@@ -3359,6 +3409,7 @@ impl Default for StyleProperties {
 }
 
 impl Hash for StyleProperties {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.font_stack.hash(state);
         self.color.hash(state);
@@ -3381,24 +3432,25 @@ impl StyleProperties {
     /// Returns a hash that only includes properties that affect text layout.
     /// 
     /// Properties that DON'T affect layout (only rendering):
-    /// - color, background_color, background_content
-    /// - text_decoration (underline, etc.)
+    /// - color, `background_color`, `background_content`
+    /// - `text_decoration` (underline, etc.)
     /// - border (for inline elements)
     ///
     /// Properties that DO affect layout:
-    /// - font_stack, font_size_px, font_features, font_variations
-    /// - letter_spacing, word_spacing, line_height, tab_size
-    /// - writing_mode, text_orientation, text_combine_upright
-    /// - text_transform
-    /// - font_variant_* (affects glyph selection)
+    /// - `font_stack`, `font_size_px`, `font_features`, `font_variations`
+    /// - `letter_spacing`, `word_spacing`, `line_height`, `tab_size`
+    /// - `writing_mode`, `text_orientation`, `text_combine_upright`
+    /// - `text_transform`
+    /// - `font_variant`_* (affects glyph selection)
     ///
     /// This allows the layout cache to reuse layouts when only rendering
     /// properties change (e.g., color changes on hover).
     // (family, weight, style) so that shaping runs break at element boundaries where font
     // properties differ, preventing impossible cross-boundary ligatures (e.g. "and" → "&").
-    pub fn layout_hash(&self) -> u64 {
+    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+    #[must_use] pub fn layout_hash(&self) -> u64 {
         use std::hash::Hasher;
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = DefaultHasher::new();
 
         // Font selection (affects shaping and metrics)
         self.font_stack.hash(&mut hasher);
@@ -3433,7 +3485,7 @@ impl StyleProperties {
         hasher.finish()
     }
     
-    /// Check if two StyleProperties have the same layout-affecting properties.
+    /// Check if two `StyleProperties` have the same layout-affecting properties.
     ///
     /// Returns true if the layouts would be identical (only rendering differs).
     ///
@@ -3441,12 +3493,12 @@ impl StyleProperties {
     /// collisions are theoretically possible, which could cause the cache to
     /// serve a stale layout.  In practice the probability is negligible for
     /// the number of distinct `StyleProperties` values in a single document.
-    pub fn layout_eq(&self, other: &Self) -> bool {
+    #[must_use] pub fn layout_eq(&self, other: &Self) -> bool {
         self.layout_hash() == other.layout_hash()
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Copy, Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum TextCombineUpright {
     None,
     All,        // Combine all characters in horizontal layout
@@ -3461,7 +3513,7 @@ pub enum GlyphSource {
     Hyphen,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CharacterClass {
     Space,       // Regular spaces - highest justification priority
     Punctuation, // Can sometimes be adjusted
@@ -3471,7 +3523,7 @@ pub enum CharacterClass {
     Combining,   // Combining marks - never justified
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GlyphOrientation {
     Horizontal, // Keep horizontal (normal in horizontal text)
     Vertical,   // Rotate to vertical (normal in vertical text)
@@ -3487,12 +3539,13 @@ pub enum BidiDirection {
 }
 
 impl BidiDirection {
-    pub fn is_rtl(&self) -> bool {
-        matches!(self, BidiDirection::Rtl)
+    #[must_use] pub const fn is_rtl(&self) -> bool {
+        matches!(self, Self::Rtl)
     }
 }
 
 /// CSS `unicode-bidi` property values relevant to layout.
+///
 /// When `Plaintext`, the bidi algorithm uses P2/P3 heuristics to auto-detect
 /// paragraph direction from text content, instead of the HL1 override from
 /// the CSS `direction` property.
@@ -3569,13 +3622,13 @@ pub enum FontVariantEastAsian {
 pub struct BidiLevel(u8);
 
 impl BidiLevel {
-    pub fn new(level: u8) -> Self {
+    #[must_use] pub const fn new(level: u8) -> Self {
         Self(level)
     }
-    pub fn is_rtl(&self) -> bool {
+    #[must_use] pub const fn is_rtl(&self) -> bool {
         self.0 % 2 == 1
     }
-    pub fn level(&self) -> u8 {
+    #[must_use] pub const fn level(&self) -> u8 {
         self.0
     }
 }
@@ -3615,7 +3668,7 @@ pub struct PartialStyleProperties {
 impl Hash for PartialStyleProperties {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.font_stack.hash(state);
-        self.font_size_px.map(|f| f.to_bits()).hash(state);
+        self.font_size_px.map(f32::to_bits).hash(state);
         self.color.hash(state);
         self.letter_spacing.hash(state);
         self.word_spacing.hash(state);
@@ -3624,14 +3677,14 @@ impl Hash for PartialStyleProperties {
         self.font_features.hash(state);
 
         // Manual hashing for Vec<(FourCc, f32)>
-        self.font_variations.as_ref().map(|v| {
+        if let Some(v) = self.font_variations.as_ref() {
             for (tag, val) in v {
                 tag.hash(state);
                 val.to_bits().hash(state);
             }
-        });
+        }
 
-        self.tab_size.map(|f| f.to_bits()).hash(state);
+        self.tab_size.map(f32::to_bits).hash(state);
         self.text_transform.hash(state);
         self.writing_mode.hash(state);
         self.text_orientation.hash(state);
@@ -3646,7 +3699,7 @@ impl Hash for PartialStyleProperties {
 impl PartialEq for PartialStyleProperties {
     fn eq(&self, other: &Self) -> bool {
         self.font_stack == other.font_stack &&
-        self.font_size_px.map(|f| f.to_bits()) == other.font_size_px.map(|f| f.to_bits()) &&
+        self.font_size_px.map(f32::to_bits) == other.font_size_px.map(f32::to_bits) &&
         self.color == other.color &&
         self.letter_spacing == other.letter_spacing &&
         self.word_spacing == other.word_spacing &&
@@ -3654,7 +3707,7 @@ impl PartialEq for PartialStyleProperties {
         self.text_decoration == other.text_decoration &&
         self.font_features == other.font_features &&
         self.font_variations == other.font_variations && // Vec<(FourCc, f32)> is PartialEq
-        self.tab_size.map(|f| f.to_bits()) == other.tab_size.map(|f| f.to_bits()) &&
+        self.tab_size.map(f32::to_bits) == other.tab_size.map(f32::to_bits) &&
         self.text_transform == other.text_transform &&
         self.writing_mode == other.writing_mode &&
         self.text_orientation == other.text_orientation &&
@@ -3690,13 +3743,13 @@ impl StyleProperties {
             new_style.line_height = val;
         }
         if let Some(val) = &partial.text_decoration {
-            new_style.text_decoration = val.clone();
+            new_style.text_decoration = *val;
         }
         if let Some(val) = &partial.font_features {
-            new_style.font_features = val.clone();
+            new_style.font_features.clone_from(val);
         }
         if let Some(val) = &partial.font_variations {
-            new_style.font_variations = val.clone();
+            new_style.font_variations.clone_from(val);
         }
         if let Some(val) = partial.tab_size {
             new_style.tab_size = val;
@@ -3711,7 +3764,7 @@ impl StyleProperties {
             new_style.text_orientation = val;
         }
         if let Some(val) = &partial.text_combine_upright {
-            new_style.text_combine_upright = val.clone();
+            new_style.text_combine_upright.clone_from(val);
         }
         if let Some(val) = partial.font_variant_caps {
             new_style.font_variant_caps = val;
@@ -3764,8 +3817,8 @@ pub enum LogicalItem {
         /// (in the padding gutter) or inside (inline with content).
         /// None for non-marker content.
         marker_position_outside: Option<bool>,
-        /// The DOM NodeId of the Text node this item originated from.
-        /// None for generated content (list markers, ::before/::after, etc.)
+        /// The DOM `NodeId` of the Text node this item originated from.
+        /// None for generated content (list markers, `::before/::after`, etc.)
         source_node_id: Option<NodeId>,
     },
     // +spec:display-property:b1533f - text-combine-upright tate-chu-yoko horizontal-in-vertical composition
@@ -3800,10 +3853,10 @@ pub enum LogicalItem {
 }
 
 impl Hash for LogicalItem {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         discriminant(self).hash(state);
         match self {
-            LogicalItem::Text {
+            Self::Text {
                 source,
                 text,
                 style,
@@ -3816,7 +3869,7 @@ impl Hash for LogicalItem {
                 marker_position_outside.hash(state);
                 source_node_id.hash(state);
             }
-            LogicalItem::CombinedText {
+            Self::CombinedText {
                 source,
                 text,
                 style,
@@ -3825,7 +3878,7 @@ impl Hash for LogicalItem {
                 text.hash(state);
                 style.as_ref().hash(state);
             }
-            LogicalItem::Ruby {
+            Self::Ruby {
                 source,
                 base_text,
                 ruby_text,
@@ -3836,15 +3889,15 @@ impl Hash for LogicalItem {
                 ruby_text.hash(state);
                 style.as_ref().hash(state);
             }
-            LogicalItem::Object { source, content } => {
+            Self::Object { source, content } => {
                 source.hash(state);
                 content.hash(state);
             }
-            LogicalItem::Tab { source, style } => {
+            Self::Tab { source, style } => {
                 source.hash(state);
                 style.as_ref().hash(state);
             }
-            LogicalItem::Break { source, break_info } => {
+            Self::Break { source, break_info } => {
                 source.hash(state);
                 break_info.hash(state);
             }
@@ -3857,7 +3910,7 @@ impl Hash for LogicalItem {
 #[derive(Debug, Clone)]
 pub struct VisualItem {
     /// A reference to the logical item this visual item originated from.
-    /// A single LogicalItem can be split into multiple VisualItems.
+    /// A single `LogicalItem` can be split into multiple `VisualItems`.
     pub logical_source: LogicalItem,
     /// The Bidi embedding level for this item.
     pub bidi_level: BidiLevel,
@@ -3904,9 +3957,9 @@ pub enum ShapedItem {
 }
 
 impl ShapedItem {
-    pub fn as_cluster(&self) -> Option<&ShapedCluster> {
+    #[must_use] pub const fn as_cluster(&self) -> Option<&ShapedCluster> {
         match self {
-            ShapedItem::Cluster(c) => Some(c),
+            Self::Cluster(c) => Some(c),
             _ => None,
         }
     }
@@ -3915,9 +3968,10 @@ impl ShapedItem {
     /// The origin of the returned `Rect` is `(0,0)`, representing the top-left corner
     /// of the item's layout space before final positioning. The size represents the
     /// item's total advance (width in horizontal mode) and its line height (ascent + descent).
-    pub fn bounds(&self) -> Rect {
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[must_use] pub fn bounds(&self) -> Rect {
         match self {
-            ShapedItem::Cluster(cluster) => {
+            Self::Cluster(cluster) => {
                 // The width of a text cluster is its total advance.
                 let width = cluster.advance;
 
@@ -3936,12 +3990,12 @@ impl ShapedItem {
             }
             // For atomic inline items like objects, combined blocks, and tabs,
             // their bounds have already been calculated during the shaping or measurement phase.
-            ShapedItem::CombinedBlock { bounds, .. } => *bounds,
-            ShapedItem::Object { bounds, .. } => *bounds,
-            ShapedItem::Tab { bounds, .. } => *bounds,
+            Self::CombinedBlock { bounds, .. } => *bounds,
+            Self::Object { bounds, .. } => *bounds,
+            Self::Tab { bounds, .. } => *bounds,
 
             // Breaks are control characters and have no visual geometry.
-            ShapedItem::Break { .. } => Rect::default(), // A zero-sized rectangle.
+            Self::Break { .. } => Rect::default(), // A zero-sized rectangle.
         }
     }
 }
@@ -3956,8 +4010,8 @@ pub struct ShapedCluster {
     pub source_cluster_id: GraphemeClusterId,
     /// The source `ContentIndex` for mapping back to logical items.
     pub source_content_index: ContentIndex,
-    /// The DOM NodeId of the Text node this cluster originated from.
-    /// None for generated content (list markers, ::before/::after, etc.)
+    /// The DOM `NodeId` of the Text node this cluster originated from.
+    /// None for generated content (list markers, `::before/::after`, etc.)
     pub source_node_id: Option<NodeId>,
     /// The glyphs that make up this cluster. `SmallVec<[T; 1]>` — inline
     /// single-glyph clusters (the common case for Latin text), spill to
@@ -4006,14 +4060,14 @@ pub struct ShapedGlyph {
     pub vertical_offset: Point,
     pub script: Script,
     pub style: Arc<StyleProperties>,
-    /// Hash of the font - use LoadedFonts to look up the actual font when needed
+    /// Hash of the font - use `LoadedFonts` to look up the actual font when needed
     pub font_hash: u64,
     /// Cached font metrics to avoid font lookup for common operations
     pub font_metrics: LayoutFontMetrics,
 }
 
 impl ShapedGlyph {
-    pub fn into_glyph_instance<T: ParsedFontTrait>(
+    #[must_use] pub fn into_glyph_instance<T: ParsedFontTrait>(
         &self,
         writing_mode: WritingMode,
         loaded_fonts: &LoadedFonts<T>,
@@ -4036,15 +4090,15 @@ impl ShapedGlyph {
         };
 
         GlyphInstance {
-            index: self.glyph_id as u32,
+            index: u32::from(self.glyph_id),
             point: position,
             size,
         }
     }
 
-    /// Convert this ShapedGlyph into a GlyphInstance with an absolute position.
+    /// Convert this `ShapedGlyph` into a `GlyphInstance` with an absolute position.
     /// This is used for display list generation where glyphs need their final page coordinates.
-    pub fn into_glyph_instance_at<T: ParsedFontTrait>(
+    #[must_use] pub fn into_glyph_instance_at<T: ParsedFontTrait>(
         &self,
         writing_mode: WritingMode,
         absolute_position: LogicalPosition,
@@ -4056,16 +4110,16 @@ impl ShapedGlyph {
             .unwrap_or_default();
 
         GlyphInstance {
-            index: self.glyph_id as u32,
+            index: u32::from(self.glyph_id),
             point: absolute_position,
             size,
         }
     }
 
-    /// Convert this ShapedGlyph into a GlyphInstance with an absolute position.
+    /// Convert this `ShapedGlyph` into a `GlyphInstance` with an absolute position.
     /// This version doesn't require fonts - it uses a default size.
     /// Use this when you don't need precise glyph bounds (e.g., display list generation).
-    pub fn into_glyph_instance_at_simple(
+    #[must_use] pub fn into_glyph_instance_at_simple(
         &self,
         _writing_mode: WritingMode,
         absolute_position: LogicalPosition,
@@ -4073,7 +4127,7 @@ impl ShapedGlyph {
         // Use font metrics to estimate size, or default to zero
         // The actual rendering will use the font directly
         GlyphInstance {
-            index: self.glyph_id as u32,
+            index: u32::from(self.glyph_id),
             point: absolute_position,
             size: LogicalSize::default(),
         }
@@ -4099,7 +4153,7 @@ pub struct UnifiedLayout {
 impl UnifiedLayout {
     /// Calculate the bounding box of all positioned items.
     /// This is computed on-demand rather than cached.
-    pub fn bounds(&self) -> Rect {
+    #[must_use] pub fn bounds(&self) -> Rect {
         if self.items.is_empty() {
             return Rect::default();
         }
@@ -4132,16 +4186,16 @@ impl UnifiedLayout {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub const fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
-    pub fn first_baseline(&self) -> Option<f32> {
+    #[must_use] pub fn first_baseline(&self) -> Option<f32> {
         self.items
             .iter()
             .find_map(|item| get_baseline_for_item(&item.item))
     }
 
-    pub fn last_baseline(&self) -> Option<f32> {
+    #[must_use] pub fn last_baseline(&self) -> Option<f32> {
         self.items
             .iter()
             .rev()
@@ -4153,7 +4207,8 @@ impl UnifiedLayout {
     ///
     /// This is the unified hit-testing implementation. The old `hit_test_to_cursor`
     /// method is deprecated in favor of this one.
-    pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[must_use] pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
         if self.items.is_empty() {
             return None;
         }
@@ -4231,7 +4286,8 @@ impl UnifiedLayout {
 
     /// Given a logical selection range, returns a vector of visual rectangles
     /// that cover the selected text, in the layout's coordinate space.
-    pub fn get_selection_rects(&self, range: &SelectionRange) -> Vec<LogicalRect> {
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use] pub fn get_selection_rects(&self, range: &SelectionRange) -> Vec<LogicalRect> {
         // 1. Build a map from the logical cluster ID to the visual PositionedItem for fast lookups.
         let mut cluster_map: HashMap<GraphemeClusterId, &PositionedItem> = HashMap::new();
         for item in &self.items {
@@ -4373,7 +4429,7 @@ impl UnifiedLayout {
     }
 
     /// Calculates the visual rectangle for a cursor at a given logical position.
-    pub fn get_cursor_rect(&self, cursor: &TextCursor) -> Option<LogicalRect> {
+    #[must_use] pub fn get_cursor_rect(&self, cursor: &TextCursor) -> Option<LogicalRect> {
         // Find the item and glyph corresponding to the cursor's cluster ID.
         let mut last_cluster: Option<(&PositionedItem, &ShapedCluster)> = None;
         for item in &self.items {
@@ -4421,7 +4477,7 @@ impl UnifiedLayout {
     }
 
     /// Get a cursor at the first cluster (leading edge) in the layout.
-    pub fn get_first_cluster_cursor(&self) -> Option<TextCursor> {
+    #[must_use] pub fn get_first_cluster_cursor(&self) -> Option<TextCursor> {
         for item in &self.items {
             if let ShapedItem::Cluster(cluster) = &item.item {
                 return Some(TextCursor {
@@ -4434,7 +4490,7 @@ impl UnifiedLayout {
     }
 
     /// Get a cursor at the last cluster (trailing edge) in the layout.
-    pub fn get_last_cluster_cursor(&self) -> Option<TextCursor> {
+    #[must_use] pub fn get_last_cluster_cursor(&self) -> Option<TextCursor> {
         for item in self.items.iter().rev() {
             if let ShapedItem::Cluster(cluster) = &item.item {
                 return Some(TextCursor {
@@ -4485,8 +4541,7 @@ impl UnifiedLayout {
 
         if let Some(d) = debug {
             d.push(format!(
-                "[Cursor] move_cursor_left: at leading edge, current line {}",
-                current_line
+                "[Cursor] move_cursor_left: at leading edge, current line {current_line}"
             ));
         }
 
@@ -4514,8 +4569,7 @@ impl UnifiedLayout {
             let prev_line = current_line - 1;
             if let Some(d) = debug {
                 d.push(format!(
-                    "[Cursor] move_cursor_left: trying previous line {}",
-                    prev_line
+                    "[Cursor] move_cursor_left: trying previous line {prev_line}"
                 ));
             }
             for i in (0..current_pos).rev() {
@@ -4588,8 +4642,7 @@ impl UnifiedLayout {
 
         if let Some(d) = debug {
             d.push(format!(
-                "[Cursor] move_cursor_right: at trailing edge, current line {}",
-                current_line
+                "[Cursor] move_cursor_right: at trailing edge, current line {current_line}"
             ));
         }
 
@@ -4615,8 +4668,7 @@ impl UnifiedLayout {
         let next_line = current_line + 1;
         if let Some(d) = debug {
             d.push(format!(
-                "[Cursor] move_cursor_right: trying next line {}",
-                next_line
+                "[Cursor] move_cursor_right: trying next line {next_line}"
             ));
         }
         for i in (current_pos + 1)..self.items.len() {
@@ -4708,13 +4760,11 @@ impl UnifiedLayout {
             .items
             .iter()
             .find(|i| i.line_index == target_line_idx)
-            .map(|i| i.position.y + (i.item.bounds().height / 2.0))
-            .unwrap_or(current_item.position.y);
+            .map_or(current_item.position.y, |i| i.position.y + (i.item.bounds().height / 2.0));
 
         if let Some(d) = debug {
             d.push(format!(
-                "[Cursor] move_cursor_up: target line {}, hittesting at ({}, {})",
-                target_line_idx, current_x, target_y
+                "[Cursor] move_cursor_up: target line {target_line_idx}, hittesting at ({current_x}, {target_y})"
             ));
         }
 
@@ -4797,13 +4847,11 @@ impl UnifiedLayout {
             .items
             .iter()
             .find(|i| i.line_index == target_line_idx)
-            .map(|i| i.position.y + (i.item.bounds().height / 2.0))
-            .unwrap_or(current_item.position.y);
+            .map_or(current_item.position.y, |i| i.position.y + (i.item.bounds().height / 2.0));
 
         if let Some(d) = debug {
             d.push(format!(
-                "[Cursor] move_cursor_down: hit testing at ({}, {})",
-                current_x, target_y
+                "[Cursor] move_cursor_down: hit testing at ({current_x}, {target_y})"
             ));
         }
 
@@ -4983,13 +5031,12 @@ impl UnifiedLayout {
             ));
         }
 
-        let current_pos = match self.items.iter().position(|i| {
+        let Some(current_pos) = self.items.iter().position(|i| {
             i.item
                 .as_cluster()
                 .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
-        }) {
-            Some(pos) => pos,
-            None => return cursor,
+        }) else {
+            return cursor;
         };
 
         // Phase 1: Skip whitespace going left
@@ -5068,13 +5115,12 @@ impl UnifiedLayout {
             ));
         }
 
-        let current_pos = match self.items.iter().position(|i| {
+        let Some(current_pos) = self.items.iter().position(|i| {
             i.item
                 .as_cluster()
                 .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
-        }) {
-            Some(pos) => pos,
-            None => return cursor,
+        }) else {
+            return cursor;
         };
 
         let len = self.items.len();
@@ -5125,6 +5171,7 @@ impl UnifiedLayout {
     }
 }
 
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
     match item {
         ShapedItem::CombinedBlock {
@@ -5168,7 +5215,7 @@ pub struct OverflowInfo {
 }
 
 impl OverflowInfo {
-    pub fn has_overflow(&self) -> bool {
+    #[must_use] pub const fn has_overflow(&self) -> bool {
         !self.overflow_items.is_empty()
     }
 }
@@ -5216,7 +5263,7 @@ pub(crate) struct FlowLayout {
 /// latter runs the full flow loop — including `BreakCursor::peek_next_unit`,
 /// which clones every `ShapedCluster` it inspects — even though no constraint
 /// actually limits the line width.
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct IntrinsicTextSizes {
     /// CSS min-content = widest unbreakable unit (word) along the inline axis.
     pub min_content_width: f32,
@@ -5227,12 +5274,13 @@ pub struct IntrinsicTextSizes {
 }
 
 /// Cached line break boundaries from a previous layout pass.
+///
 /// Enables incremental relayout: when a word changes width,
 /// we can check if it still fits on the same line without
 /// re-running the full line-breaking algorithm.
 #[derive(Clone, Debug)]
 pub struct CachedLineBreaks {
-    /// Per-line: (first_item_idx, last_item_idx_exclusive) into positioned items.
+    /// Per-line: (`first_item_idx`, `last_item_idx_exclusive`) into positioned items.
     pub line_ranges: Vec<(usize, usize)>,
     /// Per-line total width (sum of item advances on that line).
     pub line_widths: Vec<f32>,
@@ -5241,15 +5289,15 @@ pub struct CachedLineBreaks {
 }
 
 /// Result of an incremental relayout attempt.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum IncrementalRelayoutResult {
     /// Glyphs changed but advance widths identical — swap in place, no repositioning.
     GlyphSwap,
-    /// Width changed but still fits on same line — shift x_offsets of subsequent items.
+    /// Width changed but still fits on same line — shift `x_offsets` of subsequent items.
     LineShift {
         /// Index of the first affected item.
         affected_item: usize,
-        /// Width delta (new_advance - old_advance).
+        /// Width delta (`new_advance` - `old_advance`).
         delta: f32,
     },
     /// Line breaks changed — need to reflow from this line onward.
@@ -5262,7 +5310,7 @@ pub enum IncrementalRelayoutResult {
 }
 
 /// Extract line break boundaries from a positioned items list.
-pub fn extract_line_breaks(
+#[must_use] pub fn extract_line_breaks(
     items: &[PositionedItem],
     available_width: f32,
 ) -> CachedLineBreaks {
@@ -5301,7 +5349,7 @@ pub fn extract_line_breaks(
 /// `old_advances`: per-item advance widths from the previous layout.
 /// `new_advances`: per-item advance widths after reshaping.
 /// `line_breaks`: cached line boundaries from previous layout.
-pub fn try_incremental_relayout(
+#[must_use] pub fn try_incremental_relayout(
     dirty_item_indices: &[usize],
     old_advances: &[f32],
     new_advances: &[f32],
@@ -5343,12 +5391,11 @@ pub fn try_incremental_relayout(
                 affected_item: dirty_idx,
                 delta,
             };
-        } else {
-            // Overflows line — need to reflow from this line
-            return IncrementalRelayoutResult::PartialReflow {
-                reflow_from_line: line_idx,
-            };
         }
+        // Overflows line — need to reflow from this line
+        return IncrementalRelayoutResult::PartialReflow {
+            reflow_from_line: line_idx,
+        };
     }
 
     // All dirty items had same width
@@ -5357,6 +5404,7 @@ pub fn try_incremental_relayout(
 
 /// Cached shaped result for a single visual item (or coalesced group).
 /// Enables per-item cache hits when only one word changes in a paragraph.
+#[derive(Debug)]
 pub(crate) struct PerItemShapedEntry {
     /// The shaped clusters for this single item/group.
     pub(crate) clusters: Vec<ShapedItem>,
@@ -5364,6 +5412,7 @@ pub(crate) struct PerItemShapedEntry {
     pub(crate) total_advance: f32,
 }
 
+#[derive(Debug)]
 pub struct TextShapingCache {
     // Stage 1 Cache: InlineContent -> LogicalItems
     logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
@@ -5374,14 +5423,14 @@ pub struct TextShapingCache {
     // Stage 3b Cache: Per-item/coalesce-group shaped results
     // Key: hash(text, bidi_level, script, style.layout_hash())
     per_item_shaped: HashMap<u64, Arc<PerItemShapedEntry>>,
-    /// Tracks which per_item_shaped keys were accessed in the current generation.
+    /// Tracks which `per_item_shaped` keys were accessed in the current generation.
     per_item_accessed: HashSet<u64>,
     /// Current generation counter, incremented each layout pass.
     generation: u64,
 }
 
 /// Approximate heap bytes retained by a [`TextShapingCache`].
-#[derive(Debug, Clone, Default)]
+#[derive(Copy, Debug, Clone, Default)]
 pub struct TextCacheMemoryReport {
     pub logical_items_entries: usize,
     pub logical_items_bytes: usize,
@@ -5396,7 +5445,7 @@ pub struct TextCacheMemoryReport {
 }
 
 impl TextCacheMemoryReport {
-    pub fn total_bytes(&self) -> usize {
+    #[must_use] pub const fn total_bytes(&self) -> usize {
         self.logical_items_bytes
             + self.visual_items_bytes
             + self.shaped_items_bytes
@@ -5407,7 +5456,7 @@ impl TextCacheMemoryReport {
 }
 
 impl TextShapingCache {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             logical_items: HashMap::new(),
             visual_items: HashMap::new(),
@@ -5419,32 +5468,33 @@ impl TextShapingCache {
     }
 
     /// Approximate per-stage heap-byte breakdown.
-    pub fn memory_report(&self) -> TextCacheMemoryReport {
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    #[must_use] pub fn memory_report(&self) -> TextCacheMemoryReport {
         let mut r = TextCacheMemoryReport::default();
         r.logical_items_entries = self.logical_items.len();
         for arc in self.logical_items.values() {
-            r.logical_items_bytes += arc.capacity() * core::mem::size_of::<LogicalItem>();
+            r.logical_items_bytes += arc.capacity() * size_of::<LogicalItem>();
         }
         r.visual_items_entries = self.visual_items.len();
         for arc in self.visual_items.values() {
-            r.visual_items_bytes += arc.capacity() * core::mem::size_of::<VisualItem>();
+            r.visual_items_bytes += arc.capacity() * size_of::<VisualItem>();
         }
         r.shaped_items_entries = self.shaped_items.len();
         for arc in self.shaped_items.values() {
-            r.shaped_items_bytes += arc.capacity() * core::mem::size_of::<ShapedItem>();
+            r.shaped_items_bytes += arc.capacity() * size_of::<ShapedItem>();
             for item in arc.iter() {
                 if let ShapedItem::Cluster(c) = item {
-                    r.shaped_glyph_bytes += c.glyphs.capacity() * core::mem::size_of::<ShapedGlyph>();
+                    r.shaped_glyph_bytes += c.glyphs.capacity() * size_of::<ShapedGlyph>();
                     r.shaped_cluster_text_bytes += c.text.capacity();
                 }
             }
         }
         r.per_item_shaped_entries = self.per_item_shaped.len();
         for arc in self.per_item_shaped.values() {
-            r.per_item_shaped_bytes += arc.clusters.capacity() * core::mem::size_of::<ShapedItem>();
-            for item in arc.clusters.iter() {
+            r.per_item_shaped_bytes += arc.clusters.capacity() * size_of::<ShapedItem>();
+            for item in &arc.clusters {
                 if let ShapedItem::Cluster(c) = item {
-                    r.per_item_shaped_bytes += c.glyphs.capacity() * core::mem::size_of::<ShapedGlyph>();
+                    r.per_item_shaped_bytes += c.glyphs.capacity() * size_of::<ShapedGlyph>();
                     r.per_item_shaped_bytes += c.text.capacity();
                 }
             }
@@ -5478,7 +5528,7 @@ impl TextShapingCache {
     /// # Returns
     /// - `true` if the old layout can be reused (only rendering changed)
     /// - `false` if a new layout is needed (layout-affecting params changed)
-    pub fn use_old_layout(
+    #[must_use] pub fn use_old_layout(
         old_constraints: &UnifiedConstraints,
         new_constraints: &UnifiedConstraints,
         old_content: &[InlineContent],
@@ -5504,11 +5554,11 @@ impl TextShapingCache {
         true
     }
     
-    /// Compare two InlineContent items for layout equality.
+    /// Compare two `InlineContent` items for layout equality.
     /// 
     /// Returns true if the layouts would be identical (only rendering differs).
     fn inline_content_layout_eq(old: &InlineContent, new: &InlineContent) -> bool {
-        use InlineContent::*;
+        use InlineContent::{Text, Image, Space, LineBreak, Tab, Marker, Shape, Ruby};
         match (old, new) {
             (Text(old_run), Text(new_run)) => {
                 // Text must match exactly, but style only needs layout_eq
@@ -5584,7 +5634,7 @@ impl ShapedItemsKey {
     pub(crate) fn new(visual_items_id: CacheId, visual_items: &[VisualItem]) -> Self {
         let style_hash = {
             let mut hasher = DefaultHasher::new();
-            for item in visual_items.iter() {
+            for item in visual_items {
                 // Hash the style from the logical source, as this is what determines the font.
                 match &item.logical_source {
                     LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
@@ -5630,21 +5680,21 @@ impl TextShapingCache {
     ///
     /// This implements the inline formatting context with 5 stages:
     ///
-    /// ## Stage 1: Logical Analysis (InlineContent -> LogicalItem)
+    /// ## Stage 1: Logical Analysis (`InlineContent` -> `LogicalItem`)
     /// \u2705 IMPLEMENTED: Parses raw content into logical units
     /// - Handles text runs, inline-blocks, replaced elements
     /// - Applies style overrides at character level
     /// - Implements \u00a7 2.2: Content size contribution calculation
     ///
-    /// ## Stage 2: BiDi Reordering (LogicalItem -> VisualItem)
+    /// ## Stage 2: `BiDi` Reordering (`LogicalItem` -> `VisualItem`)
     /// \u2705 IMPLEMENTED: Uses CSS 'direction' property per CSS Writing Modes
     /// - Reorders items for right-to-left text (Arabic, Hebrew)
     /// - Respects containing block direction (not auto-detection)
-    /// - Conforms to Unicode BiDi Algorithm (UAX #9)
+    /// - Conforms to Unicode `BiDi` Algorithm (UAX #9)
     ///
-    /// ## Stage 3: Shaping (VisualItem -> ShapedItem)
+    /// ## Stage 3: Shaping (`VisualItem` -> `ShapedItem`)
     /// \u2705 IMPLEMENTED: Converts text to glyphs
-    /// - Uses HarfBuzz for OpenType shaping
+    /// - Uses `HarfBuzz` for OpenType shaping
     /// - Handles ligatures, kerning, contextual forms
     /// - Caches shaped results for performance
     ///
@@ -5653,10 +5703,10 @@ impl TextShapingCache {
     /// - Uses constraints from *first* fragment only
     /// - \u274c TODO: Should re-orient if fragments have different writing modes
     ///
-    /// ## Stage 5: Flow Loop (ShapedItem -> PositionedItem)
+    /// ## Stage 5: Flow Loop (`ShapedItem` -> `PositionedItem`)
     /// \u2705 IMPLEMENTED: Breaks lines and positions content
-    /// - Calls perform_fragment_layout for each fragment
-    /// - Uses BreakCursor to flow content across fragments
+    /// - Calls `perform_fragment_layout` for each fragment
+    /// - Uses `BreakCursor` to flow content across fragments
     /// - Implements \u00a7 5: Line breaking and hyphenation
     ///
     /// # Missing Features from CSS Inline-3:
@@ -5670,13 +5720,20 @@ impl TextShapingCache {
     /// * `style_overrides` - Character-level style changes.
     /// * `flow_chain` - An ordered slice of `LayoutFragment` defining the regions (e.g., columns,
     ///   pages) that the content should flow through.
-    /// * `font_chain_cache` - Pre-resolved font chains (from FontManager.font_chain_cache)
+    /// * `font_chain_cache` - Pre-resolved font chains (from `FontManager.font_chain_cache`)
     /// * `fc_cache` - The fontconfig cache for font lookups
-    /// * `loaded_fonts` - Pre-loaded fonts, keyed by FontId
+    /// * `loaded_fonts` - Pre-loaded fonts, keyed by `FontId`
     ///
     /// # Returns
     /// A `FlowLayout` struct containing the positioned items for each fragment that
     /// was filled, and any content that did not fit in the final fragment.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if bidi reordering of the logical items fails (an internal invariant).
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if text flow layout fails.
     pub fn layout_flow<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -5733,8 +5790,7 @@ impl TextShapingCache {
         let default_constraints = UnifiedConstraints::default();
         let first_constraints = flow_chain
             .first()
-            .map(|f| &f.constraints)
-            .unwrap_or(&default_constraints);
+            .map_or(&default_constraints, |f| &f.constraints);
 
         // +spec:containing-block:e7a271 - paragraph embedding level set from containing block's 'direction' property
         // +spec:display-property:7665cb - inline boxes split into multiple visual runs due to bidi text processing
@@ -5790,26 +5846,23 @@ impl TextShapingCache {
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
         // [g213] web lift uses the real shaped_items HashMap cache (g180 bypass deleted).
-        let shaped_items = match self.shaped_items.get(&shaped_items_id) {
-            Some(cached) => {
-                // Monolithic cache hit — all visual items unchanged
-                cached.clone()
-            }
-            None => {
-                // Monolithic miss — use per-item cache for incremental reshaping.
-                // Items not in per-item cache are shaped; cached items are reused.
-                let items = Arc::new(shape_visual_items_with_per_item_cache(
-                    &visual_items,
-                    &mut self.per_item_shaped,
-                    &mut self.per_item_accessed,
-                    font_chain_cache,
-                    fc_cache,
-                    loaded_fonts,
-                    debug_messages,
-                )?);
-                self.shaped_items.insert(shaped_items_id, items.clone());
-                items
-            }
+        let shaped_items = if let Some(cached) = self.shaped_items.get(&shaped_items_id) {
+            // Monolithic cache hit — all visual items unchanged
+            cached.clone()
+        } else {
+            // Monolithic miss — use per-item cache for incremental reshaping.
+            // Items not in per-item cache are shaped; cached items are reused.
+            let items = Arc::new(shape_visual_items_with_per_item_cache(
+                &visual_items,
+                &mut self.per_item_shaped,
+                &mut self.per_item_accessed,
+                font_chain_cache,
+                fc_cache,
+                loaded_fonts,
+                debug_messages,
+            )?);
+            self.shaped_items.insert(shaped_items_id, items.clone());
+            items
         };
 
         // --- Stage 4: Apply Vertical Text Transformations ---
@@ -5818,7 +5871,7 @@ impl TextShapingCache {
         // This orients all text based on the constraints of the *first* fragment.
         // A more advanced system could defer orientation until inside the loop if
         // fragments can have different writing modes.
-        let oriented_items = apply_text_orientation(shaped_items, first_constraints)?;
+        let oriented_items = apply_text_orientation(shaped_items, first_constraints);
 
         // --- Stage 5: The Flow Loop ---
         let mut fragment_layouts = HashMap::new();
@@ -5833,6 +5886,7 @@ impl TextShapingCache {
         // and iterates without terminating → solveLayoutReal HANGS (fuel trap in layout_flow). The text
         // is fully laid out on the first iteration(s); cap the iterations so the loop always converges.
         // (native is unaffected — the cap is far above any real fragment count.)
+        #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_flow_iters: usize = 0;
         for fragment in flow_chain {
             #[cfg(feature = "web_lift")]
@@ -5864,7 +5918,7 @@ impl TextShapingCache {
         })
     }
 
-    /// Runs stages 1–4 of the layout pipeline (logical analysis, BiDi, shaping,
+    /// Runs stages 1–4 of the layout pipeline (logical analysis, `BiDi`, shaping,
     /// text orientation) and derives min/max-content widths by scanning the
     /// resulting `ShapedItem`s directly — without running stage 5's line-breaking
     /// `BreakCursor` loop.
@@ -5879,6 +5933,13 @@ impl TextShapingCache {
     /// `BreakCursor` would — min-content accumulates advances between break
     /// opportunities and tracks the maximum; max-content is the sum of all
     /// advances (as if the flow were laid out on a single infinitely-wide line).
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// # Panics
+    ///
+    /// Panics if bidi reordering of the logical items fails (an internal invariant).
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if measuring intrinsic widths fails.
     pub fn measure_intrinsic_widths<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
@@ -5943,25 +6004,22 @@ impl TextShapingCache {
         // Stage 3: Shaping (two-level cache, same as layout_flow)
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
-        let shaped_items = match self.shaped_items.get(&shaped_items_id) {
-            Some(cached) => cached.clone(),
-            None => {
-                let items = Arc::new(shape_visual_items_with_per_item_cache(
-                    &visual_items,
-                    &mut self.per_item_shaped,
-                    &mut self.per_item_accessed,
-                    font_chain_cache,
-                    fc_cache,
-                    loaded_fonts,
-                    debug_messages,
-                )?);
-                self.shaped_items.insert(shaped_items_id, items.clone());
-                items
-            }
+        let shaped_items = if let Some(cached) = self.shaped_items.get(&shaped_items_id) { cached.clone() } else {
+            let items = Arc::new(shape_visual_items_with_per_item_cache(
+                &visual_items,
+                &mut self.per_item_shaped,
+                &mut self.per_item_accessed,
+                font_chain_cache,
+                fc_cache,
+                loaded_fonts,
+                debug_messages,
+            )?);
+            self.shaped_items.insert(shaped_items_id, items.clone());
+            items
         };
 
         // Stage 4: Text orientation
-        let oriented_items = apply_text_orientation(shaped_items, constraints)?;
+        let oriented_items = apply_text_orientation(shaped_items, constraints);
 
         // Stage 5 bypass: scan items for min/max contributions.
         let word_break = constraints.word_break;
@@ -6022,6 +6080,11 @@ impl TextShapingCache {
 }
 
 // --- Stage 1 Implementation ---
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if the scan cursor advances past the end of `text` (an internal invariant).
 pub fn create_logical_items(
     content: &[InlineContent],
     style_overrides: &[StyleOverride],
@@ -6056,8 +6119,7 @@ pub fn create_logical_items(
     for (run_idx, inline_item) in content.iter().enumerate() {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "Processing content run #{}",
-                run_idx
+                "Processing content run #{run_idx}"
             )));
         }
 
@@ -6087,7 +6149,7 @@ pub fn create_logical_items(
                     continue;
                 }
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("  Run text: '{}'", text)));
+                    msgs.push(LayoutDebugMessage::info(format!("  Run text: '{text}'")));
                 }
 
                 let current_run_overrides = run_overrides.get(&(run_idx as u32));
@@ -6106,14 +6168,7 @@ pub fn create_logical_items(
                     || run.style.text_combine_upright.is_some();
                 let mut scan_cursor = 0;
                 while needs_scan && scan_cursor < text.len() {
-                    let style_at_cursor = if let Some(partial) =
-                        current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32)))
-                    {
-                        // Create a temporary, full style to check its properties
-                        run.style.apply_override(partial)
-                    } else {
-                        (*run.style).clone()
-                    };
+                    let style_at_cursor = current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32))).map_or_else(|| (*run.style).clone(), |partial| run.style.apply_override(partial));
 
                     let current_char = text[scan_cursor..].chars().next().unwrap();
 
@@ -6128,7 +6183,7 @@ pub fn create_logical_items(
                             let digit_chunk: String = text[scan_cursor..]
                                 .chars()
                                 .take(max_digits as usize)
-                                .take_while(|c| c.is_ascii_digit())
+                                .take_while(char::is_ascii_digit)
                                 .collect();
 
                             let end_of_chunk = scan_cursor + digit_chunk.len();
@@ -6163,8 +6218,7 @@ pub fn create_logical_items(
 
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "  Boundaries: {:?}",
-                        boundaries
+                        "  Boundaries: {boundaries:?}"
                     )));
                 }
 
@@ -6178,18 +6232,14 @@ pub fn create_logical_items(
                     let text_slice = &text[start..end];
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::info(format!(
-                            "  Processing chunk from {} to {}: '{}'",
-                            start, end, text_slice
+                            "  Processing chunk from {start} to {end}: '{text_slice}'"
                         )));
                     }
 
-                    let style_to_use = if let Some(partial_style) =
-                        current_run_overrides.and_then(|o| o.get(&(start as u32)))
-                    {
+                    let style_to_use = current_run_overrides.and_then(|o| o.get(&(start as u32))).map_or_else(|| run.style.clone(), |partial_style| {
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
-                                "  -> Applying override at byte {}",
-                                start
+                                "  -> Applying override at byte {start}"
                             )));
                         }
                         let mut hasher = DefaultHasher::new();
@@ -6199,9 +6249,7 @@ pub fn create_logical_items(
                             .entry(hasher.finish())
                             .or_insert_with(|| Arc::new(run.style.apply_override(partial_style)))
                             .clone()
-                    } else {
-                        run.style.clone()
-                    };
+                    });
 
                     // +spec:block-formatting-context:9e7c79 - text-combine-upright combines multiple characters into 1em in vertical writing
                     // +spec:containing-block:2b399b - text-combine-upright digits: combine ASCII digit sequences within max_digits limit; box boundaries implicitly prevent cross-box combination
@@ -6255,8 +6303,7 @@ pub fn create_logical_items(
             InlineContent::LineBreak(break_info) => {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "  LineBreak: {:?}",
-                        break_info
+                        "  LineBreak: {break_info:?}"
                     )));
                 }
                 items.push(LogicalItem::Break {
@@ -6264,7 +6311,7 @@ pub fn create_logical_items(
                         run_index: run_idx as u32,
                         item_index: 0,
                     },
-                    break_info: break_info.clone(),
+                    break_info: *break_info,
                 });
             }
             // Handle tab characters
@@ -6313,7 +6360,7 @@ pub fn create_logical_items(
 // +spec:inline-block:d47971 - unicode-bidi:plaintext uses P2/P3 heuristic for base direction (implemented via get_base_direction)
 // +spec:writing-modes:287491 - BiDi reordering and base direction detection (Appendix A text processing order)
 // when determining base direction, consistent with their neutral bidi treatment
-pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
+#[must_use] pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
     let first_strong = logical_items.iter().find_map(|item| {
         if let LogicalItem::Text { text, .. } = item {
             Some(unicode_bidi::get_base_direction(text.as_str()))
@@ -6339,6 +6386,11 @@ pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDir
 // +spec:writing-modes:330b8f - text ordered according to Unicode bidi algorithm after white-space processing
 // +spec:writing-modes:7a9e7d - bidi control translation: text passed to unicode_bidi for reordering
 // +spec:writing-modes:8e7281 - unicode-bidi property: bidi control codes inserted via BidiInfo
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if bidi reordering fails.
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
     base_direction: BidiDirection,
@@ -6354,8 +6406,7 @@ pub fn reorder_logical_items(
             logical_items.len()
         )));
         msgs.push(LayoutDebugMessage::info(format!(
-            "Base direction: {:?}",
-            base_direction
+            "Base direction: {base_direction:?}"
         )));
     }
 
@@ -6403,8 +6454,7 @@ pub fn reorder_logical_items(
     }
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Constructed bidi string: '{}'",
-            bidi_str
+            "Constructed bidi string: '{bidi_str}'"
         )));
     }
 
@@ -6432,8 +6482,7 @@ pub fn reorder_logical_items(
             let level = levels[run_range.start].number();
             let slice = &bidi_str[run_range.start..run_range.end];
             msgs.push(LayoutDebugMessage::info(format!(
-                "  Run {}: range={:?}, level={}, text='{}'",
-                i, run_range, level, slice
+                "  Run {i}: range={run_range:?}, level={level}, text='{slice}'"
             )));
         }
     }
@@ -6491,7 +6540,7 @@ pub fn reorder_logical_items(
 
 // --- Stage 3 Implementation ---
 
-/// Shape visual items into ShapedItems using pre-loaded fonts.
+/// Shape visual items into `ShapedItems` using pre-loaded fonts.
 ///
 /// This function does NOT load any fonts - all fonts must be pre-loaded and passed in.
 /// If a required font is not in `loaded_fonts`, the text will be skipped with a warning.
@@ -6508,11 +6557,15 @@ pub fn reorder_logical_items(
 /// different colors. After shaping, the original per-span styles are restored
 /// to each `ShapedCluster` based on byte-range mapping.
 /// Shape visual items with per-item caching. For each item (or coalesced group),
-/// compute a cache key from (text, bidi_level, script, style_layout_hash). On cache
+/// compute a cache key from (text, `bidi_level`, script, `style_layout_hash`). On cache
 /// hit, reuse the previously shaped clusters. On miss, shape and store.
 ///
 /// This is the incremental shaping path: when one word changes in a paragraph,
 /// only that word's item misses the per-item cache; all other items hit.
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+/// # Errors
+///
+/// Returns a `LayoutError` if shaping the visual items fails.
 pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
@@ -6522,6 +6575,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
+    use std::hash::{Hash, Hasher};
     // Delegate to the existing shaping logic, but for each coalesce group,
     // check the per-item cache first.
     //
@@ -6542,7 +6596,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             _ => {
                 // Non-text items: shape individually (no coalescing)
                 let single = shape_visual_items(
-                    &visual_items[idx..idx+1],
+                    &visual_items[idx..=idx],
                     font_chain_cache, fc_cache, loaded_fonts, debug_messages,
                 )?;
                 shaped.extend(single);
@@ -6575,10 +6629,9 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
         }
 
         // Compute per-group cache key
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        use std::hash::{Hash, Hasher};
-        for j in idx..coalesce_end {
-            visual_items[j].text.hash(&mut hasher);
+        let mut hasher = DefaultHasher::new();
+        for item in &visual_items[idx..coalesce_end] {
+            item.text.hash(&mut hasher);
         }
         layout_hash.hash(&mut hasher);
         bidi_level.hash(&mut hasher);
@@ -6615,7 +6668,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
 }
 
 /// Split text into segments where consecutive characters resolve to the same font
-/// in the fallback chain. Returns Vec<(byte_start, byte_end, FontId)>.
+/// in the fallback chain. Returns Vec<(`byte_start`, `byte_end`, `FontId`)>.
 ///
 /// Characters that can't be resolved to any font are skipped (gap in coverage).
 fn split_text_by_font_coverage<T: ParsedFontTrait>(
@@ -6668,10 +6721,11 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
 /// Splits the text into segments by font coverage, shapes each segment with
 /// its resolved font, and fixes byte offsets so they're relative to the
 /// original `text` (not the segment substring).
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 fn shape_with_font_fallback<T: ParsedFontTrait>(
     text: &str,
     script: Script,
-    language: crate::text3::script::Language,
+    language: Language,
     direction: BidiDirection,
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
@@ -6703,32 +6757,26 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         );
     }
 
-    unsafe { crate::az_mark(0x60850_u32, (segments.len() as u32) as u32); } // [g123] segments count (split_text_by_font_coverage)
+    unsafe { crate::az_mark(0x60850_u32, segments.len() as u32); } // [g123] segments count (split_text_by_font_coverage)
     if segments.len() <= 1 {
         // Fast path: all characters use the same font (common case)
-        let (seg_start, seg_end, font_id) = match segments.first() {
-            Some(s) => { unsafe { crate::az_mark(0x60854_u32, 0x00000001u32); } s }
-            None => {
-                unsafe { crate::az_mark(0x60854_u32, 0x000000EEu32); } // [g123] split→0 segments (resolve_char failed all)
-                if dbg {
-                    eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
-                }
-                return Ok(Vec::new());
+        let (seg_start, seg_end, font_id) = if let Some(s) = segments.first() { unsafe { crate::az_mark(0x60854_u32, 0x0000_0001_u32); } s } else {
+            unsafe { crate::az_mark(0x60854_u32, 0x0000_00EE_u32); } // [g123] split→0 segments (resolve_char failed all)
+            if dbg {
+                eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
             }
+            return Ok(Vec::new());
         };
-        let font = match loaded_fonts.get(font_id) {
-            Some(f) => { unsafe { crate::az_mark(0x60858_u32, 0x00000001u32); } f }
-            None => {
-                unsafe { crate::az_mark(0x60858_u32, 0x000000EEu32); } // [g123] loaded_fonts.get MISS
-                if dbg {
-                    eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
-                }
-                return Ok(Vec::new());
+        let font = if let Some(f) = loaded_fonts.get(font_id) { unsafe { crate::az_mark(0x60858_u32, 0x0000_0001_u32); } f } else {
+            unsafe { crate::az_mark(0x60858_u32, 0x0000_00EE_u32); } // [g123] loaded_fonts.get MISS
+            if dbg {
+                eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
             }
+            return Ok(Vec::new());
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
         if *seg_start == 0 && *seg_end == text.len() {
-            unsafe { crate::az_mark(0x60860_u32, 0xC0DE0860u32); } // [g123] reached shape_text_correctly (full-text)
+            unsafe { crate::az_mark(0x60860_u32, 0xC0DE_0860_u32); } // [g123] reached shape_text_correctly (full-text)
             return shape_text_correctly(
                 text, script, language, direction,
                 font, style, source_index, source_node_id,
@@ -6749,20 +6797,16 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     // Multiple fonts needed — shape each segment separately
     let mut all_clusters = Vec::new();
     for (seg_start, seg_end, font_id) in &segments {
-        let font = match loaded_fonts.get(font_id) {
-            Some(f) => f,
-            None => {
-                if dbg {
-                    eprintln!("[FONT FALLBACK] font {:?} NOT loaded, skipping segment bytes {}..{}", font_id, seg_start, seg_end);
-                }
-                continue;
+        let Some(font) = loaded_fonts.get(font_id) else {
+            if dbg {
+                eprintln!("[FONT FALLBACK] font {font_id:?} NOT loaded, skipping segment bytes {seg_start}..{seg_end}");
             }
+            continue;
         };
         let segment_text = &text[*seg_start..*seg_end];
         if dbg {
             eprintln!(
-                "[FONT FALLBACK] text='{}' uses font {:?} (bytes {}..{})",
-                segment_text, font_id, seg_start, seg_end
+                "[FONT FALLBACK] text='{segment_text}' uses font {font_id:?} (bytes {seg_start}..{seg_end})"
             );
         }
         let mut seg_clusters = shape_text_correctly(
@@ -6781,6 +6825,13 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     Ok(all_clusters)
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if shaping the visual items fails.
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -6856,14 +6907,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         Option<bool>,
                     )> = Vec::with_capacity(coalesce_count);
 
-                    for j in idx..coalesce_end {
+                    for item in &visual_items[idx..coalesce_end] {
                         let start = merged_text.len();
-                        merged_text.push_str(&visual_items[j].text);
+                        merged_text.push_str(&item.text);
                         let end = merged_text.len();
                         if let LogicalItem::Text {
                             style: s, source: src, source_node_id: nid,
                             marker_position_outside: mpo, ..
-                        } = &visual_items[j].logical_source {
+                        } = &item.logical_source {
                             byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo));
                         }
                     }
@@ -6893,10 +6944,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         }
                         FontStack::Stack(selectors) => {
                             let cache_key = FontChainKey::from_selectors(selectors);
-                            let font_chain = match font_chain_cache.get(&cache_key) {
-                                Some(chain) => chain,
-                                None => { idx = coalesce_end; continue; }
-                            };
+                            let Some(font_chain) = font_chain_cache.get(&cache_key) else { idx = coalesce_end; continue; };
                             // Per-character font fallback: split text by font coverage
                             shape_with_font_fallback(
                                 &merged_text, script, language, direction,
@@ -6956,7 +7004,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // Shape text using either FontRef directly or fontconfig-resolved font
                 let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
                     FontStack::Ref(font_ref) => {
-                        unsafe { crate::az_mark(0x60820_u32, 0x00000001u32); } // [g121] Ref arm
+                        unsafe { crate::az_mark(0x60820_u32, 0x0000_0001_u32); } // [g121] Ref arm
                         // For FontRef, use the font directly without fontconfig
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
@@ -6976,7 +7024,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         )
                     }
                     FontStack::Stack(selectors) => {
-                        unsafe { crate::az_mark(0x60820_u32, 0x00000002u32); } // [g121] Stack arm
+                        unsafe { crate::az_mark(0x60820_u32, 0x0000_0002_u32); } // [g121] Stack arm
                         // Build FontChainKey and resolve through fontconfig
                         let cache_key = FontChainKey::from_selectors(selectors);
                         unsafe { crate::az_mark(0x60824_u32, font_chain_cache.len() as u32); } // [g121] chain map len
@@ -6986,19 +7034,16 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         // KEY-CONSTRUCTION divergence (duplicated families on the query side,
                         // deduped on the store side), fixed by routing every key build through
                         // FontChainKey::from_selectors. Verified lifted: lookup path = get.)
-                        let font_chain = match font_chain_cache.get(&cache_key) {
-                            Some(chain) => chain,
-                            None => {
-                                if let Some(msgs) = debug_messages {
-                                    msgs.push(LayoutDebugMessage::warning(format!(
-                                        "[TextLayout] Font chain not pre-resolved for {:?} - text will \
-                                         not be rendered",
-                                        cache_key.font_families
-                                    )));
-                                }
-                                idx += 1;
-                                continue;
+                        let Some(font_chain) = font_chain_cache.get(&cache_key) else {
+                            if let Some(msgs) = debug_messages {
+                                msgs.push(LayoutDebugMessage::warning(format!(
+                                    "[TextLayout] Font chain not pre-resolved for {:?} - text will \
+                                     not be rendered",
+                                    cache_key.font_families
+                                )));
                             }
+                            idx += 1;
+                            continue;
                         };
 
                         // Per-character font fallback: split text by font coverage
@@ -7174,28 +7219,22 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         // Build FontChainKey and resolve through fontconfig
                         let cache_key = FontChainKey::from_selectors(selectors);
 
-                        let font_chain = match font_chain_cache.get(&cache_key) {
-                            Some(chain) => chain,
-                            None => {
-                                if let Some(msgs) = debug_messages {
-                                    msgs.push(LayoutDebugMessage::warning(format!(
-                                        "[TextLayout] Font chain not pre-resolved for CombinedText {:?}",
-                                        cache_key.font_families
-                                    )));
-                                }
-                                idx += 1;
-                                continue;
+                        let Some(font_chain) = font_chain_cache.get(&cache_key) else {
+                            if let Some(msgs) = debug_messages {
+                                msgs.push(LayoutDebugMessage::warning(format!(
+                                    "[TextLayout] Font chain not pre-resolved for CombinedText {:?}",
+                                    cache_key.font_families
+                                )));
                             }
+                            idx += 1;
+                            continue;
                         };
 
                         // Per-character font fallback for CombinedText
                         let segments = split_text_by_font_coverage(&text, font_chain, fc_cache, loaded_fonts);
                         let mut all_glyphs = Vec::new();
                         for (seg_start, seg_end, font_id) in &segments {
-                            let font = match loaded_fonts.get(font_id) {
-                                Some(f) => f,
-                                None => continue,
-                            };
+                            let Some(font) = loaded_fonts.get(font_id) else { continue; };
                             let segment_text = &text[*seg_start..*seg_end];
                             let mut seg_glyphs = font.shape_text(
                                 segment_text,
@@ -7247,8 +7286,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // baselines of the parent inline box. We approximate by using font_size
                 // as the square height and centering it (baseline_offset = em_size / 2).
                 let em_size = shaped_glyphs.first()
-                    .map(|g| g.style.font_size_px)
-                    .unwrap_or(style.font_size_px);
+                    .map_or(style.font_size_px, |g| g.style.font_size_px);
                 let bounds = Rect {
                     x: 0.0,
                     y: 0.0,
@@ -7277,7 +7315,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
             LogicalItem::Break { source, break_info } => {
                 shaped.push(ShapedItem::Break {
                     source: *source,
-                    break_info: break_info.clone(),
+                    break_info: *break_info,
                 });
             }
         }
@@ -7289,7 +7327,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
 /// Returns true if `c` is a hanging punctuation stop or comma per CSS Text 3 §8.2.1.
 // +spec:hanging-punctuation - full stop/comma character list per CSS Text 3 §8.2.1
-fn is_hanging_punctuation_char(c: char) -> bool {
+const fn is_hanging_punctuation_char(c: char) -> bool {
     matches!(c,
         ','      | // U+002C COMMA
         '.'      | // U+002E FULL STOP
@@ -7323,19 +7361,21 @@ fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,
-    language: crate::text3::script::Language,
+    language: Language,
     direction: BidiDirection,
     font: &T, // Changed from &Arc<T>
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    unsafe { crate::az_mark(0x60864_u32, 0xC0DE0864u32); } // [g123] shape_text_correctly ENTERED
+    unsafe { crate::az_mark(0x60864_u32, 0xC0DE_0864_u32); } // [g123] shape_text_correctly ENTERED
     let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
-    unsafe { crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x80000000u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
+    unsafe { crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x8000_0000_u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
 
     if glyphs.is_empty() {
         return Ok(Vec::new());
@@ -7391,7 +7431,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                             glyph_id: g.glyph_id,
                             script: g.script,
                             font_hash: g.font_hash,
-                            font_metrics: g.font_metrics.clone(),
+                            font_metrics: g.font_metrics,
                             style: g.style.clone(),
                             cluster_offset,
                             advance: g.advance,
@@ -7448,7 +7488,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                         },
                         glyph_id: g.glyph_id,
                         font_hash: g.font_hash,
-                        font_metrics: g.font_metrics.clone(),
+                        font_metrics: g.font_metrics,
                         style: g.style.clone(),
                         script: g.script,
                         vertical_advance: g.vertical_advance,
@@ -7526,9 +7566,9 @@ fn measure_inline_object(item: &InlineContent) -> Result<(Rect, f32), LayoutErro
 fn apply_text_orientation(
     items: Arc<Vec<ShapedItem>>,
     constraints: &UnifiedConstraints,
-) -> Result<Arc<Vec<ShapedItem>>, LayoutError> {
+) -> Arc<Vec<ShapedItem>> {
     if !constraints.is_vertical() {
-        return Ok(items);
+        return items;
     }
 
     let mut oriented_items = Vec::with_capacity(items.len());
@@ -7581,18 +7621,18 @@ fn apply_text_orientation(
         }
     }
 
-    Ok(Arc::new(oriented_items))
+    Arc::new(oriented_items)
 }
 
 // --- Stage 5 & 6 Implementation: Combined Layout Pass ---
 // This section replaces the previous simple line breaking and positioning logic.
 
-/// Extracts the per-item vertical-align from a ShapedItem.
+/// Extracts the per-item vertical-align from a `ShapedItem`.
 ///
 /// For `Object` items (inline-blocks, images), this returns the alignment stored
 /// in the original `InlineContent`. For text clusters and other items, returns `None`
 /// to indicate the global `constraints.vertical_align` should be used.
-fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
+const fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
     match item {
         ShapedItem::Object { content, .. } => match content {
             InlineContent::Image(img) => Some(img.alignment),
@@ -7603,9 +7643,10 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
     }
 }
 
-/// Approximate version of get_item_vertical_metrics for use without constraints (e.g. bounds()).
+/// Approximate version of `get_item_vertical_metrics` for use without constraints (e.g. `bounds()`).
 /// Uses 80/20 ascent/descent ratio as fallback for empty-glyph strut case.
-pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use] pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
     // For non-empty clusters, delegate to the font-metrics-based calculation
     if let ShapedItem::Cluster(c) = item {
         if !c.glyphs.is_empty() {
@@ -7617,7 +7658,7 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
                     if metrics.units_per_em == 0 {
                         return (max_asc, max_desc);
                     }
-                    let scale = glyph.style.font_size_px / metrics.units_per_em as f32;
+                    let scale = glyph.style.font_size_px / f32::from(metrics.units_per_em);
                     let font_ascent = metrics.ascent * scale;
                     let font_descent = (-metrics.descent * scale).max(0.0);
                     let ad = font_ascent + font_descent;
@@ -7647,6 +7688,7 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
 
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item, incorporating half-leading from line-height.
+///
 // +spec:box-model:37aeb2 - inline box margins/borders/padding do not affect line box height (leading model)
 // +spec:display-property:184f0d - Inline box baseline derives from first available font metrics
 // +spec:display-property:238bf5 - Inline box layout bounds from own text metrics, not child boxes
@@ -7657,7 +7699,7 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
 // +spec:font-metrics:773029 - ascent/descent font metrics used for baseline calculations (visual centering depends on these)
 // +spec:font-metrics:f42870 - half-leading model: leading = line-height - (ascent + descent), distributed equally above/below
 // +spec:writing-modes:531c2e - UAs should use vertical baseline tables in vertical typographic modes
-pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstraints) -> (f32, f32) {
+#[must_use] pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstraints) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
@@ -7691,7 +7733,7 @@ pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstra
                     if metrics.units_per_em == 0 {
                         return (max_asc, max_desc);
                     }
-                    let scale = glyph.style.font_size_px / metrics.units_per_em as f32;
+                    let scale = glyph.style.font_size_px / f32::from(metrics.units_per_em);
                     let a = metrics.ascent * scale;
                     // Descent in OpenType is typically negative, so we negate it to get a positive
                     // distance.
@@ -7809,7 +7851,7 @@ fn calculate_line_metrics(
 /// # CSS Inline Layout Module Level 3 Implementation
 ///
 /// This function implements the inline formatting context as described in:
-/// https://www.w3.org/TR/css-inline-3/#inline-formatting-context
+/// <https://www.w3.org/TR/css-inline-3/#inline-formatting-context>
 ///
 /// ## § 2.1 Layout of Line Boxes
 /// "In general, the line-left edge of a line box touches the line-left edge of its
@@ -7817,8 +7859,8 @@ fn calculate_line_metrics(
 /// containing block, and thus the logical width of a line box is equal to the inner
 /// logical width of its containing block."
 ///
-/// [ISSUE] available_width should be set to the containing block's inner width,
-/// but is currently defaulting to 0.0 in UnifiedConstraints::default().
+/// [ISSUE] `available_width` should be set to the containing block's inner width,
+/// but is currently defaulting to 0.0 in `UnifiedConstraints::default()`.
 /// This causes premature line breaking.
 ///
 /// ## § 2.2 Layout Within Line Boxes
@@ -7833,13 +7875,19 @@ fn calculate_line_metrics(
 /// - § 4 Baseline Alignment: vertical-align property not fully supported
 /// - § 5 Line Spacing: line-height implemented, but line-fit-edge missing
 /// - § 6 Trimming Leading: text-box-trim not implemented
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Errors
+///
+/// Returns a `LayoutError` if fragment layout fails.
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
-    cursor: &mut BreakCursor,
+    cursor: &mut BreakCursor<'_>,
     logical_items: &[LogicalItem],
     fragment_constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> Result<UnifiedLayout, LayoutError> {
+    const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(
             "\n--- Entering perform_fragment_layout ---".to_string(),
@@ -7875,13 +7923,13 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         };
 
         // Use the Knuth-Plass algorithm for optimal line breaking
-        return crate::text3::knuth_plass::kp_layout(
+        return Ok(crate::text3::knuth_plass::kp_layout(
             &shaped_items,
             logical_items,
             fragment_constraints,
             hyphenator.as_ref(),
             fonts,
-        );
+        ));
     }
 
     // +spec:intrinsic-sizing:57e02d - hyphenation opportunities considered in min-content sizing
@@ -7925,8 +7973,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     let mut current_column = 0;
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Column width calculated: {}",
-            column_width
+            "Column width calculated: {column_width}"
         )));
     }
 
@@ -7962,8 +8009,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     'column_loop: while current_column < num_columns {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "\n-- Starting Column {} --",
-                current_column
+                "\n-- Starting Column {current_column} --"
             )));
         }
         let column_start_x =
@@ -7972,7 +8018,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut line_index = 0;
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
         let mut is_after_forced_break = false;
-        const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
 
         // [g147 az-web-lift] Hard total-iteration cap on the line-build loop. On the remill lift,
         // `cursor.is_done()` (or the empty-segment failsafe) mis-lifts for the NESTED IFC (content.len
@@ -7980,6 +8025,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         // forever → solveLayoutReal HANGS inside perform_fragment_layout. Cap total iterations so the loop
         // always converges (the harness can then read the markers). native is unaffected (far above real
         // line counts). The 0x60BC4 marker exposes the iteration count.
+        #[allow(clippy::no_effect_underscore_binding)] // web_lift-gated debug iteration counter
         let mut _az_line_iters: usize = 0;
         while !cursor.is_done() {
             #[cfg(feature = "web_lift")]
@@ -7994,8 +8040,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 if line_top_y >= max_height {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::info(format!(
-                            "  Column full (pen {} >= height {}), breaking to next column.",
-                            line_top_y, max_height
+                            "  Column full (pen {line_top_y} >= height {max_height}), breaking to next column."
                         )));
                     }
                     break;
@@ -8030,9 +8075,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 empty_segment_count += 1;
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "  No available segments at y={}, skipping to next line. (empty count: \
-                         {}/{})",
-                        line_top_y, empty_segment_count, MAX_EMPTY_SEGMENTS
+                        "  No available segments at y={line_top_y}, skipping to next line. (empty count: \
+                         {empty_segment_count}/{MAX_EMPTY_SEGMENTS})"
                     )));
                 }
 
@@ -8040,9 +8084,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 if empty_segment_count >= MAX_EMPTY_SEGMENTS {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::warning(format!(
-                            "  [WARN] Reached maximum empty segment count ({}). Breaking to \
-                             prevent infinite loop.",
-                            MAX_EMPTY_SEGMENTS
+                            "  [WARN] Reached maximum empty segment count ({MAX_EMPTY_SEGMENTS}). Breaking to \
+                             prevent infinite loop."
                         )));
                         msgs.push(LayoutDebugMessage::warning(
                             "  This likely means the shape constraints are too restrictive or \
@@ -8050,8 +8093,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                                 .to_string(),
                         ));
                         msgs.push(LayoutDebugMessage::warning(format!(
-                            "  Current y={}, shape boundaries might be outside this range.",
-                            line_top_y
+                            "  Current y={line_top_y}, shape boundaries might be outside this range."
                         )));
                     }
                     break;
@@ -8080,9 +8122,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                     if line_top_y > max_shape_y + 100.0 {
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
-                                "  [INFO] Current y={} is far beyond maximum shape extent y={}. \
-                                 Breaking layout.",
-                                line_top_y, max_shape_y
+                                "  [INFO] Current y={line_top_y} is far beyond maximum shape extent y={max_shape_y}. \
+                                 Breaking layout."
                             )));
                             msgs.push(LayoutDebugMessage::info(
                                 "  Shape boundaries exist but no segments available - text cannot \
@@ -8138,8 +8179,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info(format!(
                     // FIX: The log message was misleading. Items are in visual order.
-                    "[PFLayout] Line items from breaker (visual order): [{}]",
-                    line_text_before_rev
+                    "[PFLayout] Line items from breaker (visual order): [{line_text_before_rev}]"
                 )));
             }
 
@@ -8155,7 +8195,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             );
 
             let (mut line_pos_items, line_height) = position_one_line(
-                line_items,
+                &line_items,
                 &line_constraints,
                 line_top_y,
                 line_index,
@@ -8220,7 +8260,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// Break a single line from the current cursor position.
 ///
 /// # CSS Text Module Level 3 \u00a7 5 Line Breaking and Word Boundaries
-/// https://www.w3.org/TR/css-text-3/#line-breaking
+/// <https://www.w3.org/TR/css-text-3/#line-breaking>
 ///
 /// Implements the line breaking algorithm:
 /// 1. "When an inline box exceeds the logical width of a line box, it is split into several
@@ -8245,9 +8285,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 ///
 /// ## \u00a7 5.3 Breaking Rules for Punctuation
 /// \u26a0\ufe0f PARTIAL: Basic punctuation handling
-/// - \u274c TODO: hanging-punctuation is declared in UnifiedConstraints but not used here
+/// - \u274c TODO: hanging-punctuation is declared in `UnifiedConstraints` but not used here
 /// - \u274c TODO: Should implement punctuation trimming at line edges
-/// // +spec:intrinsic-sizing:6085cf - hanging glyphs must be excluded from intrinsic size computation
+///   // +spec:intrinsic-sizing:6085cf - hanging glyphs must be excluded from intrinsic size computation
 ///
 /// ## \u00a7 5.4 Hyphenation
 /// \u2705 IMPLEMENTED: Automatic hyphenation with hyphenator library
@@ -8262,7 +8302,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// - This is "overflow-wrap: break-word" behavior
 ///
 /// # Missing Features:
-/// - word-break property (normal, break-all, keep-all) - IMPLEMENTED via BreakCursor.word_break
+/// - word-break property (normal, break-all, keep-all) - IMPLEMENTED via `BreakCursor.word_break`
 /// - \u26a0\ufe0f line-break property: anywhere implemented; loose/normal/strict CJK strictness
 ///   filtering added via `is_cjk_break_allowed_by_strictness` (§5.3)
 /// - \u274c overflow-wrap: anywhere vs break-word distinction
@@ -8270,8 +8310,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 // around every typographic character unit including preserved white spaces; with break-spaces
 // it allows breaking before the first space of a sequence
 // +spec:line-breaking:722f3b - wrapping only at soft wrap opportunities, minimizing overflow
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if a break unit is unexpectedly empty (an internal invariant).
 pub fn break_one_line<T: ParsedFontTrait>(
-    cursor: &mut BreakCursor,
+    cursor: &mut BreakCursor<'_>,
     line_constraints: &LineConstraints,
     is_vertical: bool,
     hyphenator: Option<&Standard>,
@@ -8395,7 +8439,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                         // of characters may be broken at an arbitrary point" when
                         // overflow-wrap is anywhere/break-word.
                         let avail = line_constraints.total_available;
-                        for item in next_unit.iter() {
+                        for item in &next_unit {
                             let item_w = get_item_measure(item, is_vertical);
                             // Break BEFORE this item if adding it would overflow,
                             // but only if we already have at least one item on the
@@ -8405,13 +8449,12 @@ pub fn break_one_line<T: ParsedFontTrait>(
                             }
                             line_items.push(item.clone());
                             current_width += item_w;
-                            // If container is zero-width (avail <= 0), place all
-                            // items on one line — there's nowhere to break TO,
-                            // content just overflows.  This matches browser
-                            // behavior for `width: 0` containers.
-                            if avail <= 0.0 {
-                                continue; // Keep adding — can't break into nothing
-                            }
+                            // When the container is zero-width (avail <= 0), the
+                            // break-before check above is skipped (it requires
+                            // avail > 0), so every item lands on this one line —
+                            // there's nowhere to break TO, content just overflows.
+                            // This matches browser behavior for `width: 0`
+                            // containers.
                         }
                         let consumed = line_items.len().max(1);
                         if line_items.is_empty() {
@@ -8448,7 +8491,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
 }
 
 /// Represents a single valid hyphenation point within a word.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct HyphenationBreak {
     /// The number of characters from the original word string included on the line.
     pub char_len_on_line: usize,
@@ -8459,12 +8502,16 @@ pub struct HyphenationBreak {
     /// The cluster that represents the hyphen character itself.
     pub hyphen_item: ShapedItem,
     /// The cluster(s) that will be carried over to the next line.
-    /// CRITICAL FIX: Changed from ShapedItem to Vec<ShapedItem>
+    /// CRITICAL FIX: Changed from `ShapedItem` to Vec<ShapedItem>
     pub remainder_part: Vec<ShapedItem>,
 }
 
-/// A "word" is defined as a sequence of one or more adjacent ShapedClusters.
-pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
+/// A "word" is defined as a sequence of one or more adjacent `ShapedClusters`.
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+/// # Panics
+///
+/// Panics if a word's cluster or glyph list is unexpectedly empty (an internal invariant).
+#[must_use] pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     word_clusters: &[ShapedCluster],
     hyphenator: &Standard,
     is_vertical: bool, // Pass this in to use correct metrics
@@ -8558,7 +8605,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
                 kind: GlyphKind::Hyphen,
                 glyph_id: hyphen_glyph_id,
                 font_hash: last_glyph.font_hash,
-                font_metrics: last_glyph.font_metrics.clone(),
+                font_metrics: last_glyph.font_metrics,
                 cluster_offset: 0,
                 script: Script::Latin,
                 advance: hyphen_advance,
@@ -8634,7 +8681,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// Position items on a single line after breaking.
 ///
 /// # CSS Inline Layout Module Level 3 \u00a7 2.2 Layout Within Line Boxes
-/// https://www.w3.org/TR/css-inline-3/#layout-within-line-boxes
+/// <https://www.w3.org/TR/css-inline-3/#layout-within-line-boxes>
 ///
 /// Implements the positioning algorithm:
 /// 1. "All inline-level boxes are aligned by their baselines"
@@ -8684,7 +8731,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - Applies alignment within each segment's bounds
 ///
 /// ## Known Issues:
-/// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets alignment_offset=0 to
+/// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets `alignment_offset=0` to
 ///   avoid infinite positioning. This is correct for measurement but documented for clarity.
 /// - The function assumes `line_index == 0` means first line for text-indent. A more robust system
 ///   would track paragraph boundaries.
@@ -8692,12 +8739,16 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// # Missing Features:
 /// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
 /// - \u274c \u00a7 3.3 Initial Letters (drop caps)
-/// // +spec:display-property:265c04 - initial letter exclusion area must continue into subsequent blocks when paragraph is shorter than drop cap
+///   // +spec:display-property:265c04 - initial letter exclusion area must continue into subsequent blocks when paragraph is shorter than drop cap
 /// - \u274c Full vertical-align support (sub, super, lengths, percentages)
 /// - \u274c white-space: break-spaces alignment behavior
 // +spec:text-alignment-spacing:c8a926 - order of operations: shaping → letter/word-spacing → justification → alignment
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn position_one_line<T: ParsedFontTrait>(
-    line_items: Vec<ShapedItem>,
+    line_items: &[ShapedItem],
     line_constraints: &LineConstraints,
     line_top_y: f32,
     line_index: usize,
@@ -8716,8 +8767,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         .collect();
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "\n--- Entering position_one_line for line: [{}] ---",
-            line_text
+            "\n--- Entering position_one_line for line: [{line_text}] ---"
         )));
     }
     // +spec:text-alignment-spacing:13b72d - line box start/end determined by inline base direction
@@ -8733,8 +8783,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     };
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[Pos1Line] Physical align: {:?}",
-            physical_align
+            "[Pos1Line] Physical align: {physical_align:?}"
         )));
     }
 
@@ -8751,7 +8800,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // The line box is calculated once for all items on the line, regardless of segment.
     // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
     // minimize line box height; baseline-aligned items determine the initial height.
-    let (content_ascent, content_descent) = calculate_line_metrics(&line_items, constraints.vertical_align, constraints);
+    let (content_ascent, content_descent) = calculate_line_metrics(line_items, constraints.vertical_align, constraints);
 
     // +spec:box-model:e99f7d - strut: each line box starts with zero-width inline box with block container's font/line-height
     // +spec:line-height:29c478 - strut: zero-width inline box with block container's font/line-height
@@ -8811,7 +8860,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             && constraints.text_justify != JustifyContent::Kashida
         {
             let segment_line_constraints = LineConstraints {
-                segments: vec![segment.clone()],
+                segments: vec![*segment],
                 total_available: segment.width,
             };
             calculate_justification_spacing(
@@ -8829,7 +8878,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
         {
             let segment_line_constraints = LineConstraints {
-                segments: vec![segment.clone()],
+                segments: vec![*segment],
                 total_available: segment.width,
             };
             justify_kashida_and_rebuild(
@@ -8868,8 +8917,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             // +spec:line-breaking:8aa426 - space before forced break does not hang if it doesn't overflow
             WhiteSpaceMode::PreWrap => {
                 let has_forced_break = justified_segment_items.last()
-                    .map(|item| matches!(item, ShapedItem::Break { .. }))
-                    .unwrap_or(false);
+                    .is_some_and(|item| matches!(item, ShapedItem::Break { .. }));
                 let ws_width = measure_trailing_whitespace(&justified_segment_items, is_vertical);
                 if has_forced_break {
                     // +spec:display-contents:2704a2 - conditionally hanging chars not considered when measuring line fit
@@ -9003,14 +9051,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
                             let style_ptr = Arc::as_ptr(&c.style);
                             let prev_same_span = idx > 0 && items_slice[idx - 1]
                                 .as_cluster()
-                                .map(|pc| Arc::as_ptr(&pc.style) == style_ptr)
-                                .unwrap_or(false);
+                                .is_some_and(|pc| Arc::as_ptr(&pc.style) == style_ptr);
                             let next_same_span = idx + 1 < items_slice.len() && items_slice[idx + 1]
                                 .as_cluster()
-                                .map(|nc| Arc::as_ptr(&nc.style) == style_ptr)
-                                .unwrap_or(false);
-                            let left = if !prev_same_span { border.left_inset() } else { 0.0 };
-                            let right = if !next_same_span { border.right_inset() } else { 0.0 };
+                                .is_some_and(|nc| Arc::as_ptr(&nc.style) == style_ptr);
+                            let left = if prev_same_span { 0.0 } else { border.left_inset() };
+                            let right = if next_same_span { 0.0 } else { border.right_inset() };
                             return (left, right);
                         }
                     }
@@ -9018,9 +9064,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 (0.0, 0.0)
             }).collect()
         };
-        let mut inline_offset_idx = 0;
-
-        for item in justified_segment_items {
+        for (inline_offset_idx, item) in justified_segment_items.into_iter().enumerate() {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
             let effective_align = get_item_vertical_align(&item)
@@ -9036,7 +9080,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // +spec:font-metrics:70000d - align vertical midpoint of box with baseline + half x-height of parent
                 VerticalAlign::Middle => {
                     let half_x_height = constraints.strut_x_height / 2.0;
-                    line_baseline_y + half_x_height - (item_ascent + item_descent) / 2.0 + item_ascent
+                    line_baseline_y + half_x_height - f32::midpoint(item_ascent, item_descent) + item_ascent
                 }
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
@@ -9068,7 +9112,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
             } else {
                 (0.0, 0.0)
             };
-            inline_offset_idx += 1;
             main_axis_pen += left_inset;
 
             let position = if is_vertical {
@@ -9079,9 +9122,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
             } else {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, \
-                         item_ascent={}",
-                        main_axis_pen, item_baseline_pos, item_ascent
+                        "[Pos1Line] is_vertical=false, main_axis_pen={main_axis_pen}, item_baseline_pos={item_baseline_pos}, \
+                         item_ascent={item_ascent}"
                     )));
                 }
 
@@ -9092,9 +9134,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
                         let marker_width = item_measure;
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
-                                "[Pos1Line] Outside marker detected! width={}, positioning at \
-                                 marker_pen={}",
-                                marker_width, marker_pen
+                                "[Pos1Line] Outside marker detected! width={marker_width}, positioning at \
+                                 marker_pen={marker_pen}"
                             )));
                         }
                         let pos = marker_pen;
@@ -9116,12 +9157,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
             // item_measure is calculated above for marker positioning
             let item_text = item
                 .as_cluster()
-                .map(|c| c.text.as_str())
-                .unwrap_or("[OBJ]");
+                .map_or("[OBJ]", |c| c.text.as_str());
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info(format!(
-                    "[Pos1Line] Positioning item '{}' at pen_x={}",
-                    item_text, main_axis_pen
+                    "[Pos1Line] Positioning item '{item_text}' at pen_x={main_axis_pen}"
                 )));
             }
             positioned.push(PositionedItem {
@@ -9240,6 +9279,7 @@ fn calculate_alignment_offset(
 // +spec:display-contents:654278 - distributes remaining space to fill line box when justifying
 // +spec:text-alignment-spacing:56c7f4 - equal distribution of justification space within priority level
 // +spec:text-alignment-spacing:f17bbc - justification opportunities controlled by text-justify value (inter-word = word separators, inter-character = character juxtaposition)
+#[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 fn calculate_justification_spacing(
     items: &[ShapedItem],
     line_constraints: &LineConstraints,
@@ -9293,6 +9333,8 @@ fn calculate_justification_spacing(
 /// This function is non-mutating with respect to its inputs. It takes ownership of the
 /// original items and returns a completely new `Vec`. This is necessary because Kashida
 /// justification changes the number of items on the line, and must not modify cached data.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
@@ -9312,8 +9354,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     let available_width = line_constraints.total_available;
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Total item width: {}, Available width: {}",
-            total_width, available_width
+            "Total item width: {total_width}, Available width: {available_width}"
         )));
     }
 
@@ -9329,8 +9370,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     let extra_space = available_width - total_width;
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Extra space to fill: {}",
-            extra_space
+            "Extra space to fill: {extra_space}"
         )));
     }
 
@@ -9343,7 +9383,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                         return Some((
                             font.clone(),
                             glyph.font_hash,
-                            glyph.font_metrics.clone(),
+                            glyph.font_metrics,
                             glyph.style.clone(),
                         ));
                     }
@@ -9353,23 +9393,20 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
         None
     });
 
-    let (font, font_hash, font_metrics, style) = match font_info {
-        Some(info) => {
-            if let Some(msgs) = debug_messages {
-                msgs.push(LayoutDebugMessage::info(
-                    "Found Arabic font for kashida.".to_string(),
-                ));
-            }
-            info
+    let (font, font_hash, font_metrics, style) = if let Some(info) = font_info {
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(
+                "Found Arabic font for kashida.".to_string(),
+            ));
         }
-        None => {
-            if let Some(msgs) = debug_messages {
-                msgs.push(LayoutDebugMessage::info(
-                    "No Arabic font found on line. Cannot insert kashidas.".to_string(),
-                ));
-            }
-            return items;
+        info
+    } else {
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(
+                "No Arabic font found on line. Cannot insert kashidas.".to_string(),
+            ));
         }
+        return items;
     };
 
     let (kashida_glyph_id, kashida_advance) =
@@ -9377,8 +9414,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             Some((id, adv)) if adv > 0.0 => {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "Font provides kashida glyph with advance {}",
-                        adv
+                        "Font provides kashida glyph with advance {adv}"
                     )));
                 }
                 (id, adv)
@@ -9430,8 +9466,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     let num_kashidas_to_insert = (extra_space / kashida_advance).floor() as usize;
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Calculated number of kashidas to insert: {}",
-            num_kashidas_to_insert
+            "Calculated number of kashidas to insert: {num_kashidas_to_insert}"
         )));
     }
 
@@ -9443,8 +9478,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     let mut remainder = num_kashidas_to_insert % opportunity_indices.len();
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Distributing kashidas: {} per point, with {} remainder.",
-            kashidas_per_point, remainder
+            "Distributing kashidas: {kashidas_per_point} per point, with {remainder} remainder."
         )));
     }
 
@@ -9456,7 +9490,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             },
             glyph_id: kashida_glyph_id,
             font_hash,
-            font_metrics: font_metrics.clone(),
+            font_metrics,
             style: style.clone(),
             script: Script::Arabic,
             advance: kashida_advance,
@@ -9533,9 +9567,10 @@ fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
 }
 
 /// Returns true if the item is collapsible whitespace per CSS Text 3 §4.1.2 Phase II.
+///
 /// This is used for stripping leading/trailing whitespace at line edges —
 /// distinct from `is_word_separator` which is for word-spacing per §7.1.
-pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
+#[must_use] pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.text.chars().all(|ch| matches!(ch,
             ' ' | '\t' | '\u{1680}' // Ogham space mark (collapsible per spec)
@@ -9548,7 +9583,9 @@ pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
 // +spec:text-alignment-spacing:456643 - cursive scripts do not admit letter-spacing gaps
 /// Returns true if the cluster's first character belongs to a cursive script
 /// (Arabic, Syriac, Mongolian, N'Ko, Mandaic, Phags Pa, Hanifi Rohingya)
-/// per CSS Text 3 Appendix D. These scripts should not have letter-spacing applied.
+/// per CSS Text 3 Appendix D.
+///
+/// These scripts should not have letter-spacing applied.
 pub fn is_cursive_script_cluster(c: &ShapedCluster) -> bool {
     c.text.chars().next().is_some_and(is_cursive_script_char)
 }
@@ -9609,7 +9646,8 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
 /// Punctuation and fixed-width spaces (U+3000, U+2000 through U+200A) are NOT
 /// word-separator characters even though they may visually separate words.
 // +spec:text-alignment-spacing:3e0655 - word-separator characters for word-spacing
-fn is_word_separator_char(c: char) -> bool {
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn is_word_separator_char(c: char) -> bool {
     match c {
         // Standard ASCII space
         '\u{0020}' => true,
@@ -9642,9 +9680,10 @@ fn is_word_separator_char(c: char) -> bool {
 
 /// Helper to identify if an item is a zero-width space (U+200B),
 /// which provides a soft wrap opportunity with no visible width.
+///
 /// Used in scripts like Thai, Lao, and Khmer that don't use spaces between words.
 // +spec:line-breaking:fd3164 - U+200B as explicit word delimiter for scripts without space-separated words
-pub fn is_zero_width_space(item: &ShapedItem) -> bool {
+#[must_use] pub fn is_zero_width_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.text.contains('\u{200B}')
     } else {
@@ -9669,7 +9708,8 @@ fn can_justify_after(item: &ShapedItem) -> bool {
 // +spec:font-metrics:b8eb97 - Script group classification for justification/letter-spacing behavior
 /// Classifies a character for layout purposes (e.g., justification behavior).
 /// Copied from `mod.rs`.
-fn classify_character(codepoint: u32) -> CharacterClass {
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn classify_character(codepoint: u32) -> CharacterClass {
     match codepoint {
         0x0020 | 0x00A0 | 0x3000 => CharacterClass::Space,
         0x0021..=0x002F | 0x003A..=0x0040 | 0x005B..=0x0060 | 0x007B..=0x007E => {
@@ -9684,7 +9724,7 @@ fn classify_character(codepoint: u32) -> CharacterClass {
 }
 
 /// Helper to get the primary measure (width or height) of a shaped item.
-pub fn get_item_measure(item: &ShapedItem, is_vertical: bool) -> f32 {
+#[must_use] pub fn get_item_measure(item: &ShapedItem, is_vertical: bool) -> f32 {
     match item {
         ShapedItem::Cluster(c) => {
             // Total width = base advance + kerning adjustments
@@ -9708,6 +9748,7 @@ pub fn get_item_measure(item: &ShapedItem, is_vertical: bool) -> f32 {
 
 /// Calculates the available horizontal segments for a line at a given vertical position,
 /// considering both shape boundaries and exclusions.
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn get_line_constraints(
     line_y: f32,
     line_height: f32,
@@ -9716,8 +9757,7 @@ fn get_line_constraints(
 ) -> LineConstraints {
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "\n--- Entering get_line_constraints for y={} ---",
-            line_y
+            "\n--- Entering get_line_constraints for y={line_y} ---"
         )));
     }
 
@@ -9751,24 +9791,21 @@ fn get_line_constraints(
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Initial available segments: {:?}",
-            available_segments
+            "Initial available segments: {available_segments:?}"
         )));
     }
 
     for (idx, exclusion) in constraints.shape_exclusions.iter().enumerate() {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "Applying exclusion #{}: {:?}",
-                idx, exclusion
+                "Applying exclusion #{idx}: {exclusion:?}"
             )));
         }
         let exclusion_spans =
-            get_shape_horizontal_spans(exclusion, line_y, line_height).unwrap_or_default();
+            get_shape_horizontal_spans(exclusion, line_y, line_height);
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "  Exclusion spans at y={}: {:?}",
-                line_y, exclusion_spans
+                "  Exclusion spans at y={line_y}: {exclusion_spans:?}"
             )));
         }
 
@@ -9801,7 +9838,7 @@ fn get_line_constraints(
                         });
                     }
                 } else {
-                    next_segments.push(segment.clone()); // No overlap
+                    next_segments.push(*segment); // No overlap
                 }
             }
             available_segments = merge_segments(next_segments);
@@ -9809,8 +9846,7 @@ fn get_line_constraints(
         }
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "  Segments after exclusion #{}: {:?}",
-                idx, available_segments
+                "  Segments after exclusion #{idx}: {available_segments:?}"
             )));
         }
     }
@@ -9818,8 +9854,7 @@ fn get_line_constraints(
     let total_width = available_segments.iter().map(|s| s.width).sum();
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "Final segments: {:?}, total available width: {}",
-            available_segments, total_width
+            "Final segments: {available_segments:?}, total available width: {total_width}"
         )));
         msgs.push(LayoutDebugMessage::info(
             "--- Exiting get_line_constraints ---".to_string(),
@@ -9833,12 +9868,13 @@ fn get_line_constraints(
 }
 
 /// Helper function to get the horizontal spans of any shape at a given y-coordinate.
-/// Returns a list of (start_x, end_x) tuples.
+/// Returns a list of (`start_x`, `end_x`) tuples.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn get_shape_horizontal_spans(
     shape: &ShapeBoundary,
     y: f32,
     line_height: f32,
-) -> Result<Vec<(f32, f32)>, LayoutError> {
+) -> Vec<(f32, f32)> {
     match shape {
         ShapeBoundary::Rectangle(rect) => {
             // Check for any overlap between the line box [y, y + line_height]
@@ -9849,9 +9885,9 @@ fn get_shape_horizontal_spans(
             let rect_end = rect.y + rect.height;
 
             if line_start < rect_end && line_end > rect_start {
-                Ok(vec![(rect.x, rect.x + rect.width)])
+                vec![(rect.x, rect.x + rect.width)]
             } else {
-                Ok(vec![])
+                vec![]
             }
         }
         ShapeBoundary::Circle { center, radius } => {
@@ -9859,9 +9895,9 @@ fn get_shape_horizontal_spans(
             let dy = (line_center_y - center.y).abs();
             if dy <= *radius {
                 let dx = (radius.powi(2) - dy.powi(2)).sqrt();
-                Ok(vec![(center.x - dx, center.x + dx)])
+                vec![(center.x - dx, center.x + dx)]
             } else {
-                Ok(vec![])
+                vec![]
             }
         }
         ShapeBoundary::Ellipse { center, radii } => {
@@ -9873,20 +9909,20 @@ fn get_shape_horizontal_spans(
                 let x_term_squared = 1.0 - y_term.powi(2);
                 if x_term_squared >= 0.0 {
                     let dx = radii.width * x_term_squared.sqrt();
-                    Ok(vec![(center.x - dx, center.x + dx)])
+                    vec![(center.x - dx, center.x + dx)]
                 } else {
-                    Ok(vec![])
+                    vec![]
                 }
             } else {
-                Ok(vec![])
+                vec![]
             }
         }
         ShapeBoundary::Polygon { points } => {
-            let segments = polygon_line_intersection(points, y, line_height)?;
-            Ok(segments
+            let segments = polygon_line_intersection(points, y, line_height);
+            segments
                 .iter()
                 .map(|s| (s.start_x, s.start_x + s.width))
-                .collect())
+                .collect()
         }
         // TODO(superplan): scanline intersection for `path()` shapes. When
         // `ShapeBoundary::Path { segments }` is actually produced (see the
@@ -9896,7 +9932,7 @@ fn get_shape_horizontal_spans(
         // a winding rule so holes carve out space (don't just concatenate points and
         // call `polygon_line_intersection`, which assumes a single ring). Today no
         // Path boundary is ever constructed, so this arm is unreachable.
-        ShapeBoundary::Path { .. } => Ok(vec![]),
+        ShapeBoundary::Path { .. } => vec![],
     }
 }
 
@@ -9906,27 +9942,28 @@ fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment> {
         return segments;
     }
     segments.sort_by(|a, b| a.start_x.partial_cmp(&b.start_x).unwrap());
-    let mut merged = vec![segments[0].clone()];
+    let mut merged = vec![segments[0]];
     for next_seg in segments.iter().skip(1) {
         let last = merged.last_mut().unwrap();
         if next_seg.start_x <= last.start_x + last.width {
             let new_width = (next_seg.start_x + next_seg.width) - last.start_x;
             last.width = last.width.max(new_width);
         } else {
-            merged.push(next_seg.clone());
+            merged.push(*next_seg);
         }
     }
     merged
 }
 
 /// Computes horizontal line segments where a polygon intersects a scanline at the given y range.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 fn polygon_line_intersection(
     points: &[Point],
     y: f32,
     line_height: f32,
-) -> Result<Vec<LineSegment>, LayoutError> {
+) -> Vec<LineSegment> {
     if points.len() < 3 {
-        return Ok(vec![]);
+        return vec![];
     }
 
     let line_center_y = y + line_height / 2.0;
@@ -9955,7 +9992,7 @@ fn polygon_line_intersection(
     }
 
     // Sort intersections by x-coordinate to form spans.
-    intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
     // Build segments from paired intersection points.
     let mut segments = Vec::new();
@@ -9971,7 +10008,7 @@ fn polygon_line_intersection(
         }
     }
 
-    Ok(segments)
+    segments
 }
 
 // ADDITION: A helper function to get a hyphenator.
@@ -9990,7 +10027,7 @@ fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
 
 // +spec:inline-block:6e7dd9 - Non-tailorable Unicode line breaking controls take precedence over atomic inline rules (CSS-TEXT-3 recent changes, issue 8972)
 
-fn is_break_suppressing_control(ch: char) -> bool {
+const fn is_break_suppressing_control(ch: char) -> bool {
     matches!(ch,
         '\u{200D}' | // ZERO WIDTH JOINER
         '\u{2060}' | // WORD JOINER
@@ -9998,7 +10035,7 @@ fn is_break_suppressing_control(ch: char) -> bool {
     )
 }
 
-fn is_break_forcing_control(ch: char) -> bool {
+const fn is_break_forcing_control(ch: char) -> bool {
     matches!(ch,
         '\u{200B}' | // ZERO WIDTH SPACE (already handled but included for completeness)
         '\u{2028}' | // LINE SEPARATOR
@@ -10008,7 +10045,7 @@ fn is_break_forcing_control(ch: char) -> bool {
 
 // +spec:line-breaking:495247 - CJK/syllabic writing systems allow breaks between typographic letter units with varying strictness
 // §5.2 word-break: determines if a character is CJK ideograph/kana
-fn is_cjk_character(ch: char) -> bool {
+const fn is_cjk_character(ch: char) -> bool {
     let cp = ch as u32;
     matches!(cp,
         // CJK Unified Ideographs
@@ -10111,7 +10148,8 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
 // - normal: allows breaks before small kana (CJ); allows CJK hyphen breaks for CJK writing systems
 // - loose: additionally allows breaks before hyphens U+2010/U+2013 after ID-class chars
 // - anywhere: allows soft wrap around every typographic character unit
-fn is_cjk_break_allowed_by_strictness(
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+const fn is_cjk_break_allowed_by_strictness(
     ch: char,
     _prev_ch: Option<char>,
     strictness: LineBreakStrictness,
@@ -10149,7 +10187,7 @@ fn is_cjk_break_allowed_by_strictness(
 
 /// Returns true if the character is a Japanese small kana or Katakana-Hiragana prolonged sound mark
 /// (Unicode line break class CJ). These are forbidden break points in strict line breaking.
-fn is_small_kana(ch: char) -> bool {
+const fn is_small_kana(ch: char) -> bool {
     matches!(ch,
         '\u{3041}' | // ぁ HIRAGANA LETTER SMALL A
         '\u{3043}' | // ぃ HIRAGANA LETTER SMALL I
@@ -10215,6 +10253,7 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
 
 // A cursor to manage the state of the line breaking process.
 // This allows us to handle items that are partially consumed by hyphenation.
+#[derive(Debug)]
 pub struct BreakCursor<'a> {
     /// A reference to the complete list of shaped items.
     pub items: &'a [ShapedItem],
@@ -10230,7 +10269,7 @@ pub struct BreakCursor<'a> {
 }
 
 impl<'a> BreakCursor<'a> {
-    pub fn new(items: &'a [ShapedItem]) -> Self {
+    #[must_use] pub fn new(items: &'a [ShapedItem]) -> Self {
         Self {
             items,
             next_item_index: 0,
@@ -10241,7 +10280,7 @@ impl<'a> BreakCursor<'a> {
         }
     }
 
-    pub fn with_word_break(items: &'a [ShapedItem], word_break: WordBreak) -> Self {
+    #[must_use] pub fn with_word_break(items: &'a [ShapedItem], word_break: WordBreak) -> Self {
         Self {
             items,
             next_item_index: 0,
@@ -10253,7 +10292,7 @@ impl<'a> BreakCursor<'a> {
     }
 
     /// Checks if the cursor is at the very beginning of the content stream.
-    pub fn is_at_start(&self) -> bool {
+    #[must_use] pub const fn is_at_start(&self) -> bool {
         self.next_item_index == 0 && self.partial_remainder.is_empty()
     }
 
@@ -10268,7 +10307,7 @@ impl<'a> BreakCursor<'a> {
     }
 
     /// Checks if all content, including any partial remainders, has been processed.
-    pub fn is_done(&self) -> bool {
+    #[must_use] pub const fn is_done(&self) -> bool {
         self.next_item_index >= self.items.len() && self.partial_remainder.is_empty()
     }
 
@@ -10359,7 +10398,7 @@ impl<'a> BreakCursor<'a> {
         unit
     }
 
-    pub fn peek_next_single_item(&self) -> Vec<ShapedItem> {
+    #[must_use] pub fn peek_next_single_item(&self) -> Vec<ShapedItem> {
         if !self.partial_remainder.is_empty() {
             return vec![self.partial_remainder[0].clone()];
         }
@@ -10378,13 +10417,13 @@ struct HyphenationResult {
     remainder_part: Vec<ShapedItem>,
 }
 
-fn perform_bidi_analysis<'a, 'b: 'a>(
-    styled_runs: &'a [TextRunInfo],
-    full_text: &'b str,
+fn perform_bidi_analysis<'a>(
+    styled_runs: &'a [TextRunInfo<'_>],
+    full_text: &'a str,
     force_lang: Option<Language>,
-) -> Result<(Vec<VisualRun<'a>>, BidiDirection), LayoutError> {
+) -> (Vec<VisualRun<'a>>, BidiDirection) {
     if full_text.is_empty() {
-        return Ok((Vec::new(), BidiDirection::Ltr));
+        return (Vec::new(), BidiDirection::Ltr);
     }
 
     let bidi_info = BidiInfo::new(full_text, None);
@@ -10400,8 +10439,8 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
     for (run_idx, run) in styled_runs.iter().enumerate() {
         let start = run.logical_start;
         let end = start + run.text.len();
-        for i in start..end {
-            byte_to_run_index[i] = run_idx;
+        for slot in &mut byte_to_run_index[start..end] {
+            *slot = run_idx;
         }
     }
 
@@ -10425,7 +10464,7 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
                     logical_start_byte: sub_run_start,
                     bidi_level: BidiLevel::new(bidi_level.number()),
                     language: force_lang.unwrap_or_else(|| {
-                        crate::text3::script::script_to_language(
+                        script_to_language(
                             script,
                             &full_text[sub_run_start..i],
                         )
@@ -10449,7 +10488,7 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
             bidi_level: BidiLevel::new(bidi_level.number()),
             script,
             language: force_lang.unwrap_or_else(|| {
-                crate::text3::script::script_to_language(
+                script_to_language(
                     script,
                     &full_text[sub_run_start..range.end],
                 )
@@ -10457,10 +10496,10 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
         });
     }
 
-    Ok((final_visual_runs, base_direction))
+    (final_visual_runs, base_direction)
 }
 
-fn get_justification_priority(class: CharacterClass) -> u8 {
+const fn get_justification_priority(class: CharacterClass) -> u8 {
     match class {
         CharacterClass::Space => 0,
         CharacterClass::Punctuation => 64,

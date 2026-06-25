@@ -23,8 +23,8 @@ pub enum AngleMetric {
 
 
 impl fmt::Display for AngleMetric {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::AngleMetric::*;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::AngleMetric::{Degree, Radians, Grad, Turn, Percent};
         match self {
             Degree => write!(f, "deg"),
             Radians => write!(f, "rad"),
@@ -35,7 +35,7 @@ impl fmt::Display for AngleMetric {
     }
 }
 
-/// FloatValue, but associated with a certain metric (i.e. deg, rad, etc.)
+/// `FloatValue`, but associated with a certain metric (i.e. deg, rad, etc.)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AngleValue {
@@ -50,64 +50,64 @@ impl_option!(
 );
 
 impl fmt::Debug for AngleValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
     }
 }
 
 impl fmt::Display for AngleValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }
 
 impl PrintAsCssValue for AngleValue {
     fn print_as_css_value(&self) -> String {
-        format!("{}", self)
+        format!("{self}")
     }
 }
 
 impl AngleValue {
     /// Returns an angle of zero degrees.
     #[inline]
-    pub const fn zero() -> Self {
+    #[must_use] pub const fn zero() -> Self {
         const ZERO_DEG: AngleValue = AngleValue::const_deg(0);
         ZERO_DEG
     }
 
     /// Creates a const angle value in degrees from an integer.
     #[inline]
-    pub const fn const_deg(value: isize) -> Self {
+    #[must_use] pub const fn const_deg(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Degree, value)
     }
 
     /// Creates a const angle value in radians from an integer.
     #[inline]
-    pub const fn const_rad(value: isize) -> Self {
+    #[must_use] pub const fn const_rad(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Radians, value)
     }
 
     /// Creates a const angle value in gradians from an integer.
     #[inline]
-    pub const fn const_grad(value: isize) -> Self {
+    #[must_use] pub const fn const_grad(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Grad, value)
     }
 
     /// Creates a const angle value in turns from an integer.
     #[inline]
-    pub const fn const_turn(value: isize) -> Self {
+    #[must_use] pub const fn const_turn(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Turn, value)
     }
 
     /// Creates a const angle value in percent from an integer.
     #[inline]
-    pub const fn const_percent(value: isize) -> Self {
+    #[must_use] pub const fn const_percent(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Percent, value)
     }
 
     /// Creates a const angle value with the given metric from an integer.
     #[inline]
-    pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
+    #[must_use] pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
         Self {
             metric,
             number: FloatValue::const_new(value),
@@ -121,7 +121,7 @@ impl AngleValue {
     /// * `pre_comma` - The integer part (e.g., 45 for 45.5deg)
     /// * `post_comma` - The fractional part as digits (e.g., 5 for 0.5deg)
     #[inline]
-    pub const fn const_from_metric_fractional(metric: AngleMetric, pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use] pub const fn const_from_metric_fractional(metric: AngleMetric, pre_comma: isize, post_comma: isize) -> Self {
         Self {
             metric,
             number: FloatValue::const_new_fractional(pre_comma, post_comma),
@@ -130,37 +130,37 @@ impl AngleValue {
 
     /// Creates an angle value in degrees.
     #[inline]
-    pub fn deg(value: f32) -> Self {
+    #[must_use] pub fn deg(value: f32) -> Self {
         Self::from_metric(AngleMetric::Degree, value)
     }
 
     /// Creates an angle value in radians.
     #[inline]
-    pub fn rad(value: f32) -> Self {
+    #[must_use] pub fn rad(value: f32) -> Self {
         Self::from_metric(AngleMetric::Radians, value)
     }
 
     /// Creates an angle value in gradians.
     #[inline]
-    pub fn grad(value: f32) -> Self {
+    #[must_use] pub fn grad(value: f32) -> Self {
         Self::from_metric(AngleMetric::Grad, value)
     }
 
     /// Creates an angle value in turns.
     #[inline]
-    pub fn turn(value: f32) -> Self {
+    #[must_use] pub fn turn(value: f32) -> Self {
         Self::from_metric(AngleMetric::Turn, value)
     }
 
     /// Creates an angle value in percent.
     #[inline]
-    pub fn percent(value: f32) -> Self {
+    #[must_use] pub fn percent(value: f32) -> Self {
         Self::from_metric(AngleMetric::Percent, value)
     }
 
     /// Creates an angle value with the given metric.
     #[inline]
-    pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
+    #[must_use] pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
         Self {
             metric,
             number: FloatValue::new(value),
@@ -171,7 +171,7 @@ impl AngleValue {
     /// Note: 360.0 becomes 0.0 due to modulo operation.
     /// For conic gradients where 360.0 is meaningful, use `to_degrees_raw()`.
     #[inline]
-    pub fn to_degrees(&self) -> f32 {
+    #[must_use] pub fn to_degrees(&self) -> f32 {
         let mut val = self.to_degrees_raw() % 360.0;
         if val < 0.0 {
             val += 360.0;
@@ -182,11 +182,11 @@ impl AngleValue {
     /// Convert to degrees without normalization (raw value).
     /// Use this for conic gradients where 360.0 is a meaningful distinct value from 0.0.
     #[inline]
-    pub fn to_degrees_raw(&self) -> f32 {
+    #[must_use] pub fn to_degrees_raw(&self) -> f32 {
         match self.metric {
             AngleMetric::Degree => self.number.get(),
             AngleMetric::Grad => self.number.get() / 400.0 * 360.0,
-            AngleMetric::Radians => self.number.get() * 180.0 / core::f32::consts::PI,
+            AngleMetric::Radians => self.number.get().to_degrees(),
             AngleMetric::Turn => self.number.get() * 360.0,
             AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
         }
@@ -196,7 +196,7 @@ impl AngleValue {
 // -- Parser
 
 /// Error returned when parsing a CSS angle value from a string.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CssAngleValueParseError<'a> {
     EmptyString,
     NoValueGiven(&'a str, AngleMetric),
@@ -212,8 +212,8 @@ impl_display! { CssAngleValueParseError<'a>, {
     InvalidAngle(s) => format!("Invalid angle value: \"{}\"", s),
 }}
 
-/// Wrapper for NoValueGiven error in angle parsing.
-#[derive(Debug, Clone, PartialEq)]
+/// Wrapper for `NoValueGiven` error in angle parsing.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct AngleNoValueGivenError {
     pub value: AzString,
@@ -221,7 +221,7 @@ pub struct AngleNoValueGivenError {
 }
 
 /// Owned version of [`CssAngleValueParseError`] for FFI and storage.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum CssAngleValueParseErrorOwned {
     EmptyString,
@@ -230,34 +230,34 @@ pub enum CssAngleValueParseErrorOwned {
     InvalidAngle(AzString),
 }
 
-impl<'a> CssAngleValueParseError<'a> {
-    pub fn to_contained(&self) -> CssAngleValueParseErrorOwned {
+impl CssAngleValueParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssAngleValueParseErrorOwned {
         match self {
             CssAngleValueParseError::EmptyString => CssAngleValueParseErrorOwned::EmptyString,
             CssAngleValueParseError::NoValueGiven(s, metric) => {
-                CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError { value: s.to_string().into(), metric: *metric })
+                CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError { value: (*s).to_string().into(), metric: *metric })
             }
             CssAngleValueParseError::ValueParseErr(err, s) => {
-                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: s.to_string().into() })
+                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: (*s).to_string().into() })
             }
             CssAngleValueParseError::InvalidAngle(s) => {
-                CssAngleValueParseErrorOwned::InvalidAngle(s.to_string().into())
+                CssAngleValueParseErrorOwned::InvalidAngle((*s).to_string().into())
             }
         }
     }
 }
 
 impl CssAngleValueParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssAngleValueParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> CssAngleValueParseError<'_> {
         match self {
-            CssAngleValueParseErrorOwned::EmptyString => CssAngleValueParseError::EmptyString,
-            CssAngleValueParseErrorOwned::NoValueGiven(e) => {
+            Self::EmptyString => CssAngleValueParseError::EmptyString,
+            Self::NoValueGiven(e) => {
                 CssAngleValueParseError::NoValueGiven(e.value.as_str(), e.metric)
             }
-            CssAngleValueParseErrorOwned::ValueParseErr(e) => {
+            Self::ValueParseErr(e) => {
                 CssAngleValueParseError::ValueParseErr(e.error.to_std(), e.input.as_str())
             }
-            CssAngleValueParseErrorOwned::InvalidAngle(s) => {
+            Self::InvalidAngle(s) => {
                 CssAngleValueParseError::InvalidAngle(s.as_str())
             }
         }
@@ -267,7 +267,10 @@ impl CssAngleValueParseErrorOwned {
 /// Parse a CSS angle value string (e.g. `"90deg"`, `"1.57rad"`, `"0.5turn"`, `"50%"`).
 /// A bare number without a unit suffix is interpreted as degrees.
 #[cfg(feature = "parser")]
-pub fn parse_angle_value<'a>(input: &'a str) -> Result<AngleValue, CssAngleValueParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `angle-value` value.
+pub fn parse_angle_value(input: &str) -> Result<AngleValue, CssAngleValueParseError<'_>> {
     let input = input.trim();
 
     if input.is_empty() {
@@ -283,8 +286,7 @@ pub fn parse_angle_value<'a>(input: &'a str) -> Result<AngleValue, CssAngleValue
     ];
 
     for (match_val, metric) in match_values {
-        if input.ends_with(match_val) {
-            let value = &input[..input.len() - match_val.len()];
+        if let Some(value) = input.strip_suffix(match_val) {
             let value = value.trim();
             if value.is_empty() {
                 return Err(CssAngleValueParseError::NoValueGiven(input, *metric));
@@ -296,14 +298,18 @@ pub fn parse_angle_value<'a>(input: &'a str) -> Result<AngleValue, CssAngleValue
         }
     }
 
-    match input.parse::<f32>() {
-        Ok(o) => Ok(AngleValue::from_metric(AngleMetric::Degree, o)), // bare number is degrees
-        Err(_) => Err(CssAngleValueParseError::InvalidAngle(input)),
-    }
+    // bare number is degrees
+    input.parse::<f32>().map_or_else(
+        |_| Err(CssAngleValueParseError::InvalidAngle(input)),
+        |o| Ok(AngleValue::from_metric(AngleMetric::Degree, o)),
+    )
 }
 
 #[cfg(all(test, feature = "parser"))]
 mod tests {
+    // Tests assert parsed values equal the exact source literals; the rad inputs
+    // (1.57, 3.14) are literal test data, not approximations of FRAC_PI_2/PI.
+    #![allow(clippy::float_cmp, clippy::approx_constant)]
     use super::*;
 
     #[test]

@@ -43,8 +43,8 @@ pub enum LayoutTableLayout {
 impl PrintAsCssValue for LayoutTableLayout {
     fn print_as_css_value(&self) -> String {
         match self {
-            LayoutTableLayout::Auto => "auto".to_string(),
-            LayoutTableLayout::Fixed => "fixed".to_string(),
+            Self::Auto => "auto".to_string(),
+            Self::Fixed => "fixed".to_string(),
         }
     }
 }
@@ -52,8 +52,8 @@ impl PrintAsCssValue for LayoutTableLayout {
 impl FormatAsRustCode for LayoutTableLayout {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            LayoutTableLayout::Auto => "LayoutTableLayout::Auto".to_string(),
-            LayoutTableLayout::Fixed => "LayoutTableLayout::Fixed".to_string(),
+            Self::Auto => "LayoutTableLayout::Auto".to_string(),
+            Self::Fixed => "LayoutTableLayout::Fixed".to_string(),
         }
     }
 }
@@ -82,8 +82,8 @@ pub enum StyleBorderCollapse {
 impl PrintAsCssValue for StyleBorderCollapse {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleBorderCollapse::Separate => "separate".to_string(),
-            StyleBorderCollapse::Collapse => "collapse".to_string(),
+            Self::Separate => "separate".to_string(),
+            Self::Collapse => "collapse".to_string(),
         }
     }
 }
@@ -91,8 +91,8 @@ impl PrintAsCssValue for StyleBorderCollapse {
 impl FormatAsRustCode for StyleBorderCollapse {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            StyleBorderCollapse::Separate => "StyleBorderCollapse::Separate".to_string(),
-            StyleBorderCollapse::Collapse => "StyleBorderCollapse::Collapse".to_string(),
+            Self::Separate => "StyleBorderCollapse::Separate".to_string(),
+            Self::Collapse => "StyleBorderCollapse::Collapse".to_string(),
         }
     }
 }
@@ -128,7 +128,7 @@ impl Default for LayoutBorderSpacing {
 
 impl LayoutBorderSpacing {
     /// Creates a new border spacing with the same value for horizontal and vertical
-    pub const fn new(spacing: PixelValue) -> Self {
+    #[must_use] pub const fn new(spacing: PixelValue) -> Self {
         Self {
             horizontal: spacing,
             vertical: spacing,
@@ -136,7 +136,7 @@ impl LayoutBorderSpacing {
     }
 
     /// Creates a new border spacing with different horizontal and vertical values
-    pub const fn new_separate(horizontal: PixelValue, vertical: PixelValue) -> Self {
+    #[must_use] pub const fn new_separate(horizontal: PixelValue, vertical: PixelValue) -> Self {
         Self {
             horizontal,
             vertical,
@@ -187,8 +187,8 @@ pub enum StyleCaptionSide {
 impl PrintAsCssValue for StyleCaptionSide {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleCaptionSide::Top => "top".to_string(),
-            StyleCaptionSide::Bottom => "bottom".to_string(),
+            Self::Top => "top".to_string(),
+            Self::Bottom => "bottom".to_string(),
         }
     }
 }
@@ -196,8 +196,8 @@ impl PrintAsCssValue for StyleCaptionSide {
 impl FormatAsRustCode for StyleCaptionSide {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            StyleCaptionSide::Top => "StyleCaptionSide::Top".to_string(),
-            StyleCaptionSide::Bottom => "StyleCaptionSide::Bottom".to_string(),
+            Self::Top => "StyleCaptionSide::Top".to_string(),
+            Self::Bottom => "StyleCaptionSide::Bottom".to_string(),
         }
     }
 }
@@ -223,8 +223,8 @@ pub enum StyleEmptyCells {
 impl PrintAsCssValue for StyleEmptyCells {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleEmptyCells::Show => "show".to_string(),
-            StyleEmptyCells::Hide => "hide".to_string(),
+            Self::Show => "show".to_string(),
+            Self::Hide => "hide".to_string(),
         }
     }
 }
@@ -232,8 +232,8 @@ impl PrintAsCssValue for StyleEmptyCells {
 impl FormatAsRustCode for StyleEmptyCells {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            StyleEmptyCells::Show => "StyleEmptyCells::Show".to_string(),
-            StyleEmptyCells::Hide => "StyleEmptyCells::Hide".to_string(),
+            Self::Show => "StyleEmptyCells::Show".to_string(),
+            Self::Hide => "StyleEmptyCells::Hide".to_string(),
         }
     }
 }
@@ -247,9 +247,9 @@ pub(crate) enum LayoutTableLayoutParseError<'a> {
 }
 
 /// Parse a table-layout value from a string
-pub(crate) fn parse_table_layout<'a>(
-    input: &'a str,
-) -> Result<LayoutTableLayout, LayoutTableLayoutParseError<'a>> {
+pub(crate) fn parse_table_layout(
+    input: &str,
+) -> Result<LayoutTableLayout, LayoutTableLayoutParseError<'_>> {
     match input.trim() {
         "auto" => Ok(LayoutTableLayout::Auto),
         "fixed" => Ok(LayoutTableLayout::Fixed),
@@ -264,9 +264,9 @@ pub(crate) enum StyleBorderCollapseParseError<'a> {
 }
 
 /// Parse a border-collapse value from a string
-pub(crate) fn parse_border_collapse<'a>(
-    input: &'a str,
-) -> Result<StyleBorderCollapse, StyleBorderCollapseParseError<'a>> {
+pub(crate) fn parse_border_collapse(
+    input: &str,
+) -> Result<StyleBorderCollapse, StyleBorderCollapseParseError<'_>> {
     match input.trim() {
         "separate" => Ok(StyleBorderCollapse::Separate),
         "collapse" => Ok(StyleBorderCollapse::Collapse),
@@ -283,9 +283,9 @@ pub(crate) enum LayoutBorderSpacingParseError<'a> {
 
 /// Parse a border-spacing value from a string
 /// Accepts: "5px" or "5px 10px"
-pub(crate) fn parse_border_spacing<'a>(
-    input: &'a str,
-) -> Result<LayoutBorderSpacing, LayoutBorderSpacingParseError<'a>> {
+pub(crate) fn parse_border_spacing(
+    input: &str,
+) -> Result<LayoutBorderSpacing, LayoutBorderSpacingParseError<'_>> {
     use crate::props::basic::parse_pixel_value;
 
     let parts: Vec<&str> = input.split_whitespace().collect();
@@ -316,9 +316,9 @@ pub(crate) enum StyleCaptionSideParseError<'a> {
 }
 
 /// Parse a caption-side value from a string
-pub(crate) fn parse_caption_side<'a>(
-    input: &'a str,
-) -> Result<StyleCaptionSide, StyleCaptionSideParseError<'a>> {
+pub(crate) fn parse_caption_side(
+    input: &str,
+) -> Result<StyleCaptionSide, StyleCaptionSideParseError<'_>> {
     match input.trim() {
         "top" => Ok(StyleCaptionSide::Top),
         "bottom" => Ok(StyleCaptionSide::Bottom),
@@ -333,9 +333,9 @@ pub(crate) enum StyleEmptyCellsParseError<'a> {
 }
 
 /// Parse an empty-cells value from a string
-pub(crate) fn parse_empty_cells<'a>(
-    input: &'a str,
-) -> Result<StyleEmptyCells, StyleEmptyCellsParseError<'a>> {
+pub(crate) fn parse_empty_cells(
+    input: &str,
+) -> Result<StyleEmptyCells, StyleEmptyCellsParseError<'_>> {
     match input.trim() {
         "show" => Ok(StyleEmptyCells::Show),
         "hide" => Ok(StyleEmptyCells::Hide),

@@ -20,7 +20,7 @@ use crate::props::{
 // ============================================================================
 
 /// CSS `scroll-behavior` property - controls smooth scrolling
-/// https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-behavior
+/// <https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-behavior>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum ScrollBehavior {
@@ -41,7 +41,7 @@ impl PrintAsCssValue for ScrollBehavior {
 }
 
 /// CSS `overscroll-behavior` property - controls overscroll effects
-/// https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior
+/// <https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum OverscrollBehavior {
@@ -72,7 +72,7 @@ impl PrintAsCssValue for OverscrollBehavior {
 ///
 /// This controls how scrolling feels - the "weight" and "friction" of the scroll.
 /// Different platforms have different scroll physics (iOS vs Android vs Windows).
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ScrollPhysics {
     /// Smooth scroll animation duration in milliseconds (default: 300ms)
@@ -135,7 +135,7 @@ impl Default for ScrollPhysics {
 
 impl ScrollPhysics {
     /// iOS-like scroll physics with momentum and bounce
-    pub const fn ios() -> Self {
+    #[must_use] pub const fn ios() -> Self {
         Self {
             smooth_scroll_duration_ms: 300,
             deceleration_rate: 0.998,
@@ -151,7 +151,7 @@ impl ScrollPhysics {
     }
 
     /// macOS-like scroll physics
-    pub const fn macos() -> Self {
+    #[must_use] pub const fn macos() -> Self {
         Self {
             smooth_scroll_duration_ms: 250,
             deceleration_rate: 0.997,
@@ -167,7 +167,7 @@ impl ScrollPhysics {
     }
 
     /// Windows-like scroll physics (no momentum, no bounce)
-    pub const fn windows() -> Self {
+    #[must_use] pub const fn windows() -> Self {
         Self {
             smooth_scroll_duration_ms: 200,
             deceleration_rate: 0.9,
@@ -183,7 +183,7 @@ impl ScrollPhysics {
     }
 
     /// Android-like scroll physics
-    pub const fn android() -> Self {
+    #[must_use] pub const fn android() -> Self {
         Self {
             smooth_scroll_duration_ms: 250,
             deceleration_rate: 0.996,
@@ -258,7 +258,7 @@ pub struct ScrollbarFadeDelay {
 }
 
 impl ScrollbarFadeDelay {
-    pub const fn new(ms: u32) -> Self { Self { ms } }
+    #[must_use] pub const fn new(ms: u32) -> Self { Self { ms } }
     pub const ZERO: Self = Self { ms: 0 };
 }
 
@@ -286,7 +286,7 @@ pub struct ScrollbarFadeDuration {
 }
 
 impl ScrollbarFadeDuration {
-    pub const fn new(ms: u32) -> Self { Self { ms } }
+    #[must_use] pub const fn new(ms: u32) -> Self { Self { ms } }
     pub const ZERO: Self = Self { ms: 0 };
 }
 
@@ -489,9 +489,9 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarStyle {
 impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            LayoutScrollbarWidth::Auto => String::from("LayoutScrollbarWidth::Auto"),
-            LayoutScrollbarWidth::Thin => String::from("LayoutScrollbarWidth::Thin"),
-            LayoutScrollbarWidth::None => String::from("LayoutScrollbarWidth::None"),
+            Self::Auto => String::from("LayoutScrollbarWidth::Auto"),
+            Self::Thin => String::from("LayoutScrollbarWidth::Thin"),
+            Self::None => String::from("LayoutScrollbarWidth::None"),
         }
     }
 }
@@ -499,8 +499,8 @@ impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
 impl crate::codegen::format::FormatAsRustCode for StyleScrollbarColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            StyleScrollbarColor::Auto => String::from("StyleScrollbarColor::Auto"),
-            StyleScrollbarColor::Custom(c) => format!(
+            Self::Auto => String::from("StyleScrollbarColor::Auto"),
+            Self::Custom(c) => format!(
                 "StyleScrollbarColor::Custom(ScrollbarColorCustom {{ thumb: {}, track: {} }})",
                 crate::codegen::format::format_color_value(&c.thumb),
                 crate::codegen::format::format_color_value(&c.track)
@@ -512,9 +512,9 @@ impl crate::codegen::format::FormatAsRustCode for StyleScrollbarColor {
 impl crate::codegen::format::FormatAsRustCode for ScrollbarVisibilityMode {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
-            ScrollbarVisibilityMode::Always => String::from("ScrollbarVisibilityMode::Always"),
-            ScrollbarVisibilityMode::WhenScrolling => String::from("ScrollbarVisibilityMode::WhenScrolling"),
-            ScrollbarVisibilityMode::Auto => String::from("ScrollbarVisibilityMode::Auto"),
+            Self::Always => String::from("ScrollbarVisibilityMode::Always"),
+            Self::WhenScrolling => String::from("ScrollbarVisibilityMode::WhenScrolling"),
+            Self::Auto => String::from("ScrollbarVisibilityMode::Auto"),
         }
     }
 }
@@ -535,7 +535,7 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDuration {
 
 /// The final, resolved style for a scrollbar, after considering both
 /// standard and -webkit- properties. This struct is intended for use by the layout engine.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComputedScrollbarStyle {
     /// The width of the scrollbar. `None` signifies `scrollbar-width: none`.
     pub width: Option<LayoutWidth>,
@@ -876,7 +876,7 @@ pub const SCROLLBAR_ANDROID_DARK: ScrollbarInfo = ScrollbarInfo {
 
 // --- PARSERS ---
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutScrollbarWidthParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -885,22 +885,22 @@ impl_display! { LayoutScrollbarWidthParseError<'a>, {
     InvalidValue(v) => format!("Invalid scrollbar-width value: \"{}\"", v),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum LayoutScrollbarWidthParseErrorOwned {
     InvalidValue(AzString),
 }
-impl<'a> LayoutScrollbarWidthParseError<'a> {
-    pub fn to_contained(&self) -> LayoutScrollbarWidthParseErrorOwned {
+impl LayoutScrollbarWidthParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> LayoutScrollbarWidthParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                LayoutScrollbarWidthParseErrorOwned::InvalidValue(s.to_string().into())
+                LayoutScrollbarWidthParseErrorOwned::InvalidValue((*s).to_string().into())
             }
         }
     }
 }
 impl LayoutScrollbarWidthParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutScrollbarWidthParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> LayoutScrollbarWidthParseError<'_> {
         match self {
             Self::InvalidValue(s) => LayoutScrollbarWidthParseError::InvalidValue(s.as_str()),
         }
@@ -908,9 +908,12 @@ impl LayoutScrollbarWidthParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_scrollbar_width<'a>(
-    input: &'a str,
-) -> Result<LayoutScrollbarWidth, LayoutScrollbarWidthParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-width` value.
+pub fn parse_layout_scrollbar_width(
+    input: &str,
+) -> Result<LayoutScrollbarWidth, LayoutScrollbarWidthParseError<'_>> {
     match input.trim() {
         "auto" => Ok(LayoutScrollbarWidth::Auto),
         "thin" => Ok(LayoutScrollbarWidth::Thin),
@@ -937,18 +940,18 @@ pub enum StyleScrollbarColorParseErrorOwned {
     InvalidValue(AzString),
     Color(CssColorParseErrorOwned),
 }
-impl<'a> StyleScrollbarColorParseError<'a> {
-    pub fn to_contained(&self) -> StyleScrollbarColorParseErrorOwned {
+impl StyleScrollbarColorParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleScrollbarColorParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
-                StyleScrollbarColorParseErrorOwned::InvalidValue(s.to_string().into())
+                StyleScrollbarColorParseErrorOwned::InvalidValue((*s).to_string().into())
             }
             Self::Color(e) => StyleScrollbarColorParseErrorOwned::Color(e.to_contained()),
         }
     }
 }
 impl StyleScrollbarColorParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleScrollbarColorParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> StyleScrollbarColorParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleScrollbarColorParseError::InvalidValue(s.as_str()),
             Self::Color(e) => StyleScrollbarColorParseError::Color(e.to_shared()),
@@ -957,9 +960,12 @@ impl StyleScrollbarColorParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_scrollbar_color<'a>(
-    input: &'a str,
-) -> Result<StyleScrollbarColor, StyleScrollbarColorParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-color` value.
+pub fn parse_style_scrollbar_color(
+    input: &str,
+) -> Result<StyleScrollbarColor, StyleScrollbarColorParseError<'_>> {
     let input = input.trim();
     if input == "auto" {
         return Ok(StyleScrollbarColor::Auto);
@@ -988,7 +994,7 @@ pub fn parse_style_scrollbar_color<'a>(
 
 // --- Scrollbar Visibility Mode Parser ---
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ScrollbarVisibilityModeParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -997,20 +1003,20 @@ impl_display! { ScrollbarVisibilityModeParseError<'a>, {
     InvalidValue(v) => format!("Invalid scrollbar-visibility value: \"{}\"", v),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ScrollbarVisibilityModeParseErrorOwned {
     InvalidValue(AzString),
 }
-impl<'a> ScrollbarVisibilityModeParseError<'a> {
-    pub fn to_contained(&self) -> ScrollbarVisibilityModeParseErrorOwned {
+impl ScrollbarVisibilityModeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> ScrollbarVisibilityModeParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => ScrollbarVisibilityModeParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => ScrollbarVisibilityModeParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 impl ScrollbarVisibilityModeParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> ScrollbarVisibilityModeParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> ScrollbarVisibilityModeParseError<'_> {
         match self {
             Self::InvalidValue(s) => ScrollbarVisibilityModeParseError::InvalidValue(s.as_str()),
         }
@@ -1018,9 +1024,12 @@ impl ScrollbarVisibilityModeParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_scrollbar_visibility_mode<'a>(
-    input: &'a str,
-) -> Result<ScrollbarVisibilityMode, ScrollbarVisibilityModeParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-visibility-mode` value.
+pub fn parse_scrollbar_visibility_mode(
+    input: &str,
+) -> Result<ScrollbarVisibilityMode, ScrollbarVisibilityModeParseError<'_>> {
     match input.trim() {
         "always" => Ok(ScrollbarVisibilityMode::Always),
         "when-scrolling" => Ok(ScrollbarVisibilityMode::WhenScrolling),
@@ -1031,7 +1040,7 @@ pub fn parse_scrollbar_visibility_mode<'a>(
 
 // --- Scrollbar Fade Delay Parser ---
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ScrollbarFadeDelayParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -1040,20 +1049,20 @@ impl_display! { ScrollbarFadeDelayParseError<'a>, {
     InvalidValue(v) => format!("Invalid scrollbar-fade-delay value: \"{}\"", v),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ScrollbarFadeDelayParseErrorOwned {
     InvalidValue(AzString),
 }
-impl<'a> ScrollbarFadeDelayParseError<'a> {
-    pub fn to_contained(&self) -> ScrollbarFadeDelayParseErrorOwned {
+impl ScrollbarFadeDelayParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> ScrollbarFadeDelayParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => ScrollbarFadeDelayParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => ScrollbarFadeDelayParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 impl ScrollbarFadeDelayParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> ScrollbarFadeDelayParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> ScrollbarFadeDelayParseError<'_> {
         match self {
             Self::InvalidValue(s) => ScrollbarFadeDelayParseError::InvalidValue(s.as_str()),
         }
@@ -1066,9 +1075,12 @@ fn parse_time_ms(input: &str) -> Option<u32> {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_scrollbar_fade_delay<'a>(
-    input: &'a str,
-) -> Result<ScrollbarFadeDelay, ScrollbarFadeDelayParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-fade-delay` value.
+pub fn parse_scrollbar_fade_delay(
+    input: &str,
+) -> Result<ScrollbarFadeDelay, ScrollbarFadeDelayParseError<'_>> {
     parse_time_ms(input)
         .map(ScrollbarFadeDelay::new)
         .ok_or(ScrollbarFadeDelayParseError::InvalidValue(input))
@@ -1076,7 +1088,7 @@ pub fn parse_scrollbar_fade_delay<'a>(
 
 // --- Scrollbar Fade Duration Parser ---
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ScrollbarFadeDurationParseError<'a> {
     InvalidValue(&'a str),
 }
@@ -1085,20 +1097,20 @@ impl_display! { ScrollbarFadeDurationParseError<'a>, {
     InvalidValue(v) => format!("Invalid scrollbar-fade-duration value: \"{}\"", v),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum ScrollbarFadeDurationParseErrorOwned {
     InvalidValue(AzString),
 }
-impl<'a> ScrollbarFadeDurationParseError<'a> {
-    pub fn to_contained(&self) -> ScrollbarFadeDurationParseErrorOwned {
+impl ScrollbarFadeDurationParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> ScrollbarFadeDurationParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => ScrollbarFadeDurationParseErrorOwned::InvalidValue(s.to_string().into()),
+            Self::InvalidValue(s) => ScrollbarFadeDurationParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
     }
 }
 impl ScrollbarFadeDurationParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> ScrollbarFadeDurationParseError<'a> {
+    #[must_use] pub fn to_shared(&self) -> ScrollbarFadeDurationParseError<'_> {
         match self {
             Self::InvalidValue(s) => ScrollbarFadeDurationParseError::InvalidValue(s.as_str()),
         }
@@ -1106,9 +1118,12 @@ impl ScrollbarFadeDurationParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_scrollbar_fade_duration<'a>(
-    input: &'a str,
-) -> Result<ScrollbarFadeDuration, ScrollbarFadeDurationParseError<'a>> {
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `scrollbar-fade-duration` value.
+pub fn parse_scrollbar_fade_duration(
+    input: &str,
+) -> Result<ScrollbarFadeDuration, ScrollbarFadeDurationParseError<'_>> {
     parse_time_ms(input)
         .map(ScrollbarFadeDuration::new)
         .ok_or(ScrollbarFadeDurationParseError::InvalidValue(input))
