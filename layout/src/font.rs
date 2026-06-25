@@ -648,7 +648,7 @@ pub mod parsed {
                 )
                 .field("space_width", &self.space_width)
                 .field("cmap_subtable", &self.cmap_subtable)
-                .finish()
+                .finish_non_exhaustive()
         }
     }
 

@@ -2516,6 +2516,9 @@ get_css_property!(
 /// (`layout_tree`, sizing, positioning) use consistent display values.
 // +spec:floats:52aea6 - computed display blockified for floated/positioned/root elements
 // +spec:positioning:ce02a1 - out-of-flow boxes (floated or absolutely positioned) get blockified display
+// four independent layout-state flags drive the blockification decision; bundling them
+// into a struct would add ceremony without clarifying this pure decision function.
+#[allow(clippy::fn_params_excessive_bools)]
 #[must_use] pub fn get_computed_display(
     raw_display: LayoutDisplay,
     is_absolute_or_fixed: bool,

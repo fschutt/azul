@@ -32,6 +32,9 @@ macro_rules! impl_callback_traits {
                 write!(f, concat!(stringify!($name), " {{ cb: {:p} }}"), self.cb as *const ())
             }
         }
+        // generated for both Copy and non-Copy callback structs; the explicit field
+        // copy works uniformly (a derive can't be emitted for an externally-defined struct).
+        #[allow(clippy::expl_impl_clone_on_copy, clippy::non_canonical_clone_impl)]
         impl Clone for $name {
             fn clone(&self) -> Self { Self { cb: self.cb } }
         }

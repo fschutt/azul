@@ -6141,6 +6141,8 @@ fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
 
 /// Break property information for pagination decisions.
 #[derive(Debug, Clone, Copy, Default)]
+// fields mirror the CSS break-before / break-after / break-inside properties
+#[allow(clippy::struct_field_names)]
 struct BreakProperties {
     break_before: PageBreak,
     break_after: PageBreak,
