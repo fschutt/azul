@@ -4136,7 +4136,7 @@ where
         // from affecting pagination height calculations
         if layout_bounds.width > 0.0 || layout_bounds.height > 0.0 {
             builder.push_text_layout(
-                Arc::new(layout.clone()) as Arc<dyn std::any::Any + Send + Sync>,
+                Arc::new(layout.clone()),
                 actual_bounds,
                 FontHash::from_hash(0), // Will be updated per glyph run
                 12.0,                   // Default font size, will be updated per glyph run
@@ -5176,7 +5176,7 @@ fn clip_unified_layout(
     };
 
     Some(DisplayListItem::TextLayout {
-        layout: Arc::new(new_layout) as Arc<dyn std::any::Any + Send + Sync>,
+        layout: Arc::new(new_layout),
         bounds: new_bounds.into(),
         font_hash,
         font_size_px,

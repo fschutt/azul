@@ -1341,7 +1341,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     // SAFETY: We pass text_cache as a raw pointer because TaffyBridge needs to call
     // layout_ifc from within compute_child_layout, but we already have &mut ctx and &mut tree.
     // The pointer is only valid for the duration of this function call.
-    let text_cache_ptr = text_cache as *mut crate::font_traits::TextLayoutCache;
+    let text_cache_ptr = core::ptr::from_mut::<crate::font_traits::TextLayoutCache>(text_cache);
 
     let mut bridge = TaffyBridge::new(ctx, tree, text_cache_ptr);
     let node = bridge.tree.get(node_idx).unwrap();

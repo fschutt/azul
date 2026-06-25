@@ -1878,6 +1878,16 @@ impl From<DatasetMergeCallbackType> for DatasetMergeCallback {
     }
 }
 
+impl DatasetMergeCallback {
+    /// Build from a raw `DatasetMergeCallbackType` function pointer (callable =
+    /// None). The concrete parameter is a coercion site, so callers can pass a
+    /// bare `extern "C" fn` item without an `as DatasetMergeCallbackType` cast.
+    #[must_use]
+    pub fn from_ptr(cb: DatasetMergeCallbackType) -> Self {
+        Self::from(cb)
+    }
+}
+
 impl_option!(
     DatasetMergeCallback,
     OptionDatasetMergeCallback,

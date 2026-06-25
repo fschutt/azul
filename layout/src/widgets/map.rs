@@ -333,7 +333,7 @@ impl MapWidget {
             // a non-empty `container_style` (via `with_container_style`) overrides.
             .with_css("position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;")
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_map_tile_cache as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_map_tile_cache))
             // AfterMount fires once when the widget first appears (and
             // again after a DOM-structure change re-mounts it). It's the
             // earliest point with a `CallbackInfo`, so we kick the
@@ -401,7 +401,7 @@ impl MapWidget {
             .with_child(
                 Dom::create_virtual_view(
                     virtual_view_data,
-                    map_widget_render as azul_core::callbacks::VirtualViewCallbackType,
+                    azul_core::callbacks::VirtualViewCallback::create(map_widget_render),
                 )
                 // Fill the widget div with a PERCENTAGE box (not absolute). The
                 // outer div above is absolutely sized, so its height IS definite —

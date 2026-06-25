@@ -155,7 +155,7 @@ impl VideoWidget {
         // sizes the outer node via `.with_css(...)` on the returned Dom.
         Dom::create_div()
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_video_state as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_video_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset.clone(),
@@ -171,7 +171,7 @@ impl VideoWidget {
             .with_child(
                 Dom::create_virtual_view(
                     vv_data,
-                    video_widget_render as azul_core::callbacks::VirtualViewCallbackType,
+                    azul_core::callbacks::VirtualViewCallback::create(video_widget_render),
                 )
                 .with_css("width: 100%; height: 100%; overflow: hidden;"),
             )

@@ -149,7 +149,7 @@ impl MicrophoneWidget {
 
         Dom::create_div()
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_microphone_state as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_microphone_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,

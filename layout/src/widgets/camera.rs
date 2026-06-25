@@ -119,7 +119,7 @@ impl CameraWidget {
 
         Dom::create_image(placeholder)
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(merge_camera_state as DatasetMergeCallbackType)
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_camera_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
