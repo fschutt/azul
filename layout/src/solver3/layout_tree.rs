@@ -634,6 +634,10 @@ pub enum AnonymousBoxType {
 ///
 /// Stored in a separate `Vec` for cache locality. At ~100 bytes per node,
 /// 1000 nodes fit in ~100 KB (L2 cache), vs ~550 KB with the monolithic struct.
+// ~100B per-node hot type stored/moved in Vecs across every layout pass; kept
+// non-Copy on purpose so it isn't silently bulk-copied (Copy would mask the
+// cost and churn the many `.clone()` call sites).
+#[allow(missing_copy_implementations)]
 #[derive(Debug, Clone)]
 pub struct LayoutNodeHot {
     /// The resolved box model properties (margin, border, padding)

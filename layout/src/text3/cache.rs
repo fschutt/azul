@@ -1700,7 +1700,7 @@ impl LayoutFontMetrics {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct LineSegment {
     pub start_x: f32,
     pub width: f32,
@@ -1852,7 +1852,7 @@ impl Hash for InitialLetter {
 }
 
 // Path and shape definitions
-#[derive(Debug, Clone, PartialOrd)]
+#[derive(Copy, Debug, Clone, PartialOrd)]
 pub enum PathSegment {
     MoveTo(Point),
     LineTo(Point),
@@ -2290,7 +2290,7 @@ pub enum ObjectFit {
 /// This stores the resolved border properties needed for rendering inline element borders.
 /// Unlike block elements which render borders via `paint_node_background_and_border()`,
 /// inline element borders must be rendered per glyph-run to handle line breaks correctly.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub struct InlineBorderInfo {
     /// Border widths in pixels for each side
     pub top: f32,
@@ -2432,7 +2432,7 @@ pub(crate) struct MeasuredShape {
     pub(crate) content_index: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub struct InlineSpace {
     pub width: f32,
     pub is_breaking: bool, // Can line break here
@@ -3148,7 +3148,7 @@ impl ShapeBoundary {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InlineBreak {
     pub break_type: BreakType,
     pub clear: ClearType,
@@ -3235,7 +3235,7 @@ pub enum TextOrientation {
     Sideways, // All characters rotated 90 degrees
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Default)]
 pub struct TextDecoration {
     pub underline: bool,
@@ -3743,7 +3743,7 @@ impl StyleProperties {
             new_style.line_height = val;
         }
         if let Some(val) = &partial.text_decoration {
-            new_style.text_decoration = val.clone();
+            new_style.text_decoration = *val;
         }
         if let Some(val) = &partial.font_features {
             new_style.font_features.clone_from(val);
@@ -6311,7 +6311,7 @@ pub fn create_logical_items(
                         run_index: run_idx as u32,
                         item_index: 0,
                     },
-                    break_info: break_info.clone(),
+                    break_info: *break_info,
                 });
             }
             // Handle tab characters
@@ -7315,7 +7315,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
             LogicalItem::Break { source, break_info } => {
                 shaped.push(ShapedItem::Break {
                     source: *source,
-                    break_info: break_info.clone(),
+                    break_info: *break_info,
                 });
             }
         }
@@ -8860,7 +8860,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             && constraints.text_justify != JustifyContent::Kashida
         {
             let segment_line_constraints = LineConstraints {
-                segments: vec![segment.clone()],
+                segments: vec![*segment],
                 total_available: segment.width,
             };
             calculate_justification_spacing(
@@ -8878,7 +8878,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
         {
             let segment_line_constraints = LineConstraints {
-                segments: vec![segment.clone()],
+                segments: vec![*segment],
                 total_available: segment.width,
             };
             justify_kashida_and_rebuild(
@@ -9838,7 +9838,7 @@ fn get_line_constraints(
                         });
                     }
                 } else {
-                    next_segments.push(segment.clone()); // No overlap
+                    next_segments.push(*segment); // No overlap
                 }
             }
             available_segments = merge_segments(next_segments);
@@ -9942,14 +9942,14 @@ fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment> {
         return segments;
     }
     segments.sort_by(|a, b| a.start_x.partial_cmp(&b.start_x).unwrap());
-    let mut merged = vec![segments[0].clone()];
+    let mut merged = vec![segments[0]];
     for next_seg in segments.iter().skip(1) {
         let last = merged.last_mut().unwrap();
         if next_seg.start_x <= last.start_x + last.width {
             let new_width = (next_seg.start_x + next_seg.width) - last.start_x;
             last.width = last.width.max(new_width);
         } else {
-            merged.push(next_seg.clone());
+            merged.push(*next_seg);
         }
     }
     merged

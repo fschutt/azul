@@ -73,10 +73,10 @@ pub struct SimpleGlyphRun {
                     let glyph_color = glyph.style.color;
                     let glyph_background = glyph.style.background_color;
                     let glyph_background_content = glyph.style.background_content.clone();
-                    let glyph_border = glyph.style.border.clone();
+                    let glyph_border = glyph.style.border;
                     let font_hash = glyph.font_hash;
                     let font_size_px = glyph.style.font_size_px;
-                    let text_decoration = glyph.style.text_decoration.clone();
+                    let text_decoration = glyph.style.text_decoration;
 
                     let absolute_position = LogicalPosition {
                         x: pen_x + glyph.offset.x,
@@ -108,10 +108,10 @@ pub struct SimpleGlyphRun {
                                 color: glyph_color,
                                 background_color: glyph_background,
                                 background_content: glyph_background_content.clone(),
-                                border: glyph_border.clone(),
+                                border: glyph_border,
                                 font_hash,
                                 font_size_px,
-                                text_decoration: text_decoration.clone(),
+                                text_decoration,
                                 is_ime_preview: false,
                                 source_node_id,
                             });
@@ -122,10 +122,10 @@ pub struct SimpleGlyphRun {
                             color: glyph_color,
                             background_color: glyph_background,
                             background_content: glyph_background_content.clone(),
-                            border: glyph_border.clone(),
+                            border: glyph_border,
                             font_hash,
                             font_size_px,
-                            text_decoration: text_decoration.clone(),
+                            text_decoration,
                             is_ime_preview: false,
                             source_node_id,
                         });
@@ -300,7 +300,7 @@ pub struct PdfPositionedGlyph {
             let glyph_background = glyph.style.background_color;
             let font_hash = glyph.font_hash;
             let font_size_px = glyph.style.font_size_px;
-            let text_decoration = glyph.style.text_decoration.clone();
+            let text_decoration = glyph.style.text_decoration;
             let line_index = positioned_item.line_index;
             let direction = cluster.direction;
             let writing_mode = cluster.style.writing_mode;
@@ -382,7 +382,7 @@ pub struct PdfPositionedGlyph {
                     font: font.clone(),
                     font_hash,
                     font_size_px,
-                    text_decoration: text_decoration.clone(),
+                    text_decoration,
                     line_index,
                     direction,
                     writing_mode,

@@ -14,7 +14,7 @@ use azul_css::props::{
     style::{StyleDirection, StyleTextOrientation},
 };
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Debug, Clone, PartialEq, PartialOrd)]
 pub struct PositionedRectangle {
     /// The outer bounds of the rectangle
     pub bounds: LogicalRect,

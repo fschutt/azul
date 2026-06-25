@@ -244,6 +244,7 @@ impl Drop for ThreadSenderInner {
 /// Callback for sending messages from thread to main thread
 pub type ThreadSendCallbackType = extern "C" fn(*const core::ffi::c_void, ThreadReceiveMsg) -> bool;
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadSendCallback {
     pub cb: ThreadSendCallbackType,
@@ -254,6 +255,7 @@ impl_callback_traits!(ThreadSendCallback);
 /// Destructor callback for `ThreadSender`
 pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInner);
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadSenderDestructorCallback {
     pub cb: ThreadSenderDestructorCallbackType,
@@ -457,6 +459,7 @@ azul_core::impl_managed_callback! {
 pub type LibraryReceiveThreadMsgCallbackType =
     extern "C" fn(*const core::ffi::c_void) -> OptionThreadReceiveMsg;
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct LibraryReceiveThreadMsgCallback {
     pub cb: LibraryReceiveThreadMsgCallbackType,
@@ -467,6 +470,7 @@ impl_callback_traits!(LibraryReceiveThreadMsgCallback);
 /// Callback type for the destructor that cleans up a `ThreadInner`
 pub type ThreadDestructorCallbackType = extern "C" fn(*mut ThreadInner);
 
+#[allow(missing_copy_implementations)] // C-ABI fn-ptr wrapper; Clone is macro-generated (impl_callback_traits!), so Copy would trip expl_impl_clone_on_copy
 #[repr(C)]
 pub struct ThreadDestructorCallback {
     pub cb: ThreadDestructorCallbackType,
