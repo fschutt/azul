@@ -327,6 +327,7 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 /// - `Leading`: Insert at the start of the referenced cluster (`start_byte_in_run`)
 /// - `Trailing`: Insert at the end of the referenced cluster (after the grapheme)
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
 pub fn insert_text(
     content: &[InlineContent],
     cursor: &TextCursor,
@@ -385,6 +386,7 @@ pub fn insert_text(
 /// - `Leading`: Cursor is at start of cluster, delete the previous grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the current grapheme
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
 pub fn delete_backward(
     content: &[InlineContent],
     cursor: &TextCursor,
@@ -462,6 +464,7 @@ pub fn delete_backward(
 /// - `Leading`: Cursor is at start of cluster, delete the current grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the next grapheme
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
 pub fn delete_forward(
     content: &[InlineContent],
     cursor: &TextCursor,
