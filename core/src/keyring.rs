@@ -43,7 +43,7 @@ pub enum KeyringRequest {
     /// Remove the item stored under `key` (no-op if absent).
     Delete { key: AzString },
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// The outcome of a [`KeyringRequest`], delivered to the result channel
 /// and read by callbacks via `CallbackInfo::get_keyring_result()`.
 #[repr(C, u8)]

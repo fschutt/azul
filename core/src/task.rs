@@ -743,7 +743,7 @@ impl_option!(
     OptionDuration,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Message that can be sent from the main thread to the Thread using the `ThreadId`.
 ///
 /// The thread can ignore the event.

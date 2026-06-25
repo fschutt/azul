@@ -1685,7 +1685,7 @@ pub enum ComponentFieldValueSource {
     /// Bound to an app state path (e.g. "`app_state.user.name`")
     Binding(AzString),
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Runtime value for a component field — the "instance" counterpart
 /// to `ComponentFieldType` (which is the "class" / type descriptor).
 #[derive(Debug, Clone, PartialEq)]

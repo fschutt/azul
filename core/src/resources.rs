@@ -189,7 +189,7 @@ impl_vec_partialord!(LoadedFont, LoadedFontVec);
 impl_vec_ord!(LoadedFont, LoadedFontVec);
 impl_vec_hash!(LoadedFont, LoadedFontVec);
 impl_vec_clone!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor);
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Configuration for how fonts should be loaded at app startup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]

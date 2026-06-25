@@ -134,7 +134,7 @@ pub enum MenuItemState {
     /// Menu item is disabled, but NOT greyed out
     Disabled,
 }
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents a single item in a menu.
 ///
 /// Menu items can be regular text items with labels and callbacks,

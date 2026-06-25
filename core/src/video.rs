@@ -14,7 +14,7 @@
 use crate::resources::RawImageFormat;
 use crate::url::Url;
 use azul_css::{AzString, U8Vec};
-
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Where a video widget pulls its H.264/MP4 data from — strongly typed so the
 /// decode worker matches on it directly (no `RefAny` downcast). Mirrors
 /// [`crate::screencap::ScreenCaptureSource`].
