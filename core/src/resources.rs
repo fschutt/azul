@@ -375,7 +375,7 @@ impl Clone for Route {
     }
 }
 impl fmt::Debug for Route {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Route")
             .field("pattern", &self.pattern)
             .field("layout_callback", &self.layout_callback)
@@ -736,13 +736,13 @@ pub struct ImageDescriptorFlags {
 pub struct IdNamespace(pub u32);
 
 impl ::core::fmt::Display for IdNamespace {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "IdNamespace({})", self.0)
     }
 }
 
 impl ::core::fmt::Debug for IdNamespace {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -1291,7 +1291,7 @@ pub struct RendererResources {
 }
 
 impl fmt::Debug for RendererResources {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "RendererResources {{
@@ -2728,7 +2728,7 @@ pub struct AddFont {
 }
 
 impl fmt::Debug for AddFont {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "AddFont {{ key: {:?}, font: {:?} }}",
@@ -2761,7 +2761,7 @@ pub struct Epoch {
 }
 
 impl fmt::Display for Epoch {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.inner)
     }
 }

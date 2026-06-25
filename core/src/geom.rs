@@ -16,13 +16,13 @@ pub struct LogicalRect {
 }
 
 impl core::fmt::Debug for LogicalRect {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{} @ {}", self.size, self.origin)
     }
 }
 
 impl core::fmt::Display for LogicalRect {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{} @ {}", self.size, self.origin)
     }
 }
@@ -157,13 +157,13 @@ impl AddAssign<Self> for LogicalPosition {
 }
 
 impl core::fmt::Debug for LogicalPosition {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
 
 impl core::fmt::Display for LogicalPosition {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
@@ -296,13 +296,13 @@ impl LogicalSize {
 }
 
 impl core::fmt::Debug for LogicalSize {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}x{}", self.width, self.height)
     }
 }
 
 impl core::fmt::Display for LogicalSize {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}x{}", self.width, self.height)
     }
 }
@@ -407,7 +407,7 @@ pub struct PhysicalPosition<T> {
 }
 
 impl<T: ::core::fmt::Display> ::core::fmt::Debug for PhysicalPosition<T> {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
@@ -428,7 +428,7 @@ pub struct PhysicalSize<T> {
 }
 
 impl<T: ::core::fmt::Display> ::core::fmt::Debug for PhysicalSize<T> {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "{}x{}", self.width, self.height)
     }
 }

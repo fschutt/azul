@@ -211,7 +211,7 @@ pub struct StyledNodeState {
 }
 
 impl fmt::Debug for StyledNodeState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut v = Vec::new();
         if self.hover {
             v.push("hover");
@@ -457,7 +457,7 @@ fn test_recompute_preserves_hot_flag_has_background() {
 pub struct StyleFontFamilyHash(pub u64);
 
 impl ::core::fmt::Debug for StyleFontFamilyHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StyleFontFamilyHash({})", self.0)
     }
 }
@@ -477,7 +477,7 @@ impl StyleFontFamilyHash {
 pub struct StyleFontFamiliesHash(pub u64);
 
 impl ::core::fmt::Debug for StyleFontFamiliesHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StyleFontFamiliesHash({})", self.0)
     }
 }
@@ -544,7 +544,7 @@ pub struct NodeHierarchyItemId {
 }
 
 impl fmt::Debug for NodeHierarchyItemId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.into_crate_internal() {
             Some(n) => write!(f, "Some(NodeId({n}))"),
             None => write!(f, "None"),
@@ -553,7 +553,7 @@ impl fmt::Debug for NodeHierarchyItemId {
 }
 
 impl fmt::Display for NodeHierarchyItemId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -741,7 +741,7 @@ impl_option!(
 );
 
 impl fmt::Debug for ParentWithNodeDepth {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{{ depth: {}, node: {:?} }}",
@@ -1948,8 +1948,8 @@ impl StyledDom {
     fn determine_rendering_order(
         non_leaf_nodes: &[ParentWithNodeDepth],
         node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
-        styled_nodes: &NodeDataContainerRef<StyledNode>,
-        node_data_container: &NodeDataContainerRef<NodeData>,
+        styled_nodes: &NodeDataContainerRef<'_, StyledNode>,
+        node_data_container: &NodeDataContainerRef<'_, NodeData>,
         css_property_cache: &CssPropertyCache,
     ) -> ContentGroup {
         let children_sorted = non_leaf_nodes
@@ -2204,8 +2204,8 @@ fn fill_content_group_children(
 fn sort_children_by_position(
     parent: NodeId,
     node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
-    rectangles: &NodeDataContainerRef<StyledNode>,
-    node_data_container: &NodeDataContainerRef<NodeData>,
+    rectangles: &NodeDataContainerRef<'_, StyledNode>,
+    node_data_container: &NodeDataContainerRef<'_, NodeData>,
     css_property_cache: &CssPropertyCache,
 ) -> Vec<NodeHierarchyItemId> {
     use azul_css::props::layout::LayoutPosition::Absolute;

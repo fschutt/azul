@@ -782,7 +782,7 @@ impl TessellatedSvgNodeVec {
 }
 
 impl fmt::Debug for TessellatedSvgNodeVecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -859,7 +859,7 @@ impl TessellatedColoredSvgNodeVec {
 }
 
 impl fmt::Debug for TessellatedColoredSvgNodeVecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -1414,7 +1414,7 @@ pub enum SvgParseError {
 }
 
 impl fmt::Display for SvgParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::SvgParseError::{NoParserAvailable, ElementsLimitReached, NotAnUtf8Str, MalformedGZip, InvalidSize, ParsingFailed};
         match self {
             NoParserAvailable => write!(

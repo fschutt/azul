@@ -1506,7 +1506,7 @@ pub enum UpdateFocusWarning {
 }
 
 impl ::core::fmt::Display for UpdateFocusWarning {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         use self::UpdateFocusWarning::{FocusInvalidDomId, FocusInvalidNodeId, CouldNotFindFocusNode};
         match self {
             FocusInvalidDomId(dom_id) => write!(f, "Focusing on DOM with invalid ID: {dom_id:?}"),

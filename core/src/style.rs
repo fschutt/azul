@@ -52,9 +52,9 @@ impl CascadeInfoVec {
 #[must_use] pub fn matches_html_element(
     css_path: &CssPath,
     node_id: NodeId,
-    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
-    node_data: &NodeDataContainerRef<NodeData>,
-    html_node_tree: &NodeDataContainerRef<CascadeInfo>,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
+    html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
 ) -> bool {
     use self::CssGroupSplitReason::{DirectChildren, Children, AdjacentSibling, GeneralSibling};
@@ -170,8 +170,8 @@ impl CascadeInfoVec {
 /// Find the first non-anonymous parent of a node.
 fn find_non_anonymous_parent(
     node_id: NodeId,
-    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
-    node_data: &NodeDataContainerRef<NodeData>,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
 ) -> Option<NodeId> {
     let mut next = node_hierarchy[node_id].parent_id();
     while let Some(n) = next {
@@ -186,8 +186,8 @@ fn find_non_anonymous_parent(
 /// Find the first non-anonymous previous sibling of a node.
 fn find_non_anonymous_prev_sibling(
     node_id: NodeId,
-    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
-    node_data: &NodeDataContainerRef<NodeData>,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
 ) -> Option<NodeId> {
     let mut next = node_hierarchy[node_id].previous_sibling_id();
     while let Some(n) = next {
@@ -299,9 +299,9 @@ impl<'a> Iterator for CssGroupIterator<'a> {
 }
 
 #[must_use] pub fn construct_html_cascade_tree(
-    node_hierarchy: &NodeHierarchyRef,
+    node_hierarchy: &NodeHierarchyRef<'_>,
     node_depths_sorted: &[(usize, NodeId)],
-    node_data: &NodeDataContainerRef<NodeData>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
 ) -> NodeDataContainer<CascadeInfo> {
     let mut nodes = (0..node_hierarchy.len())
         .map(|_| CascadeInfo {

@@ -111,7 +111,7 @@ impl Clone for Refstr {
 }
 
 impl fmt::Debug for Refstr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_str().fmt(f)
     }
 }
@@ -148,7 +148,7 @@ impl Clone for RefstrVecRef {
 }
 
 impl fmt::Debug for RefstrVecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -185,7 +185,7 @@ impl Clone for GLint64VecRefMut {
 }
 
 impl fmt::Debug for GLint64VecRefMut {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -225,7 +225,7 @@ impl Clone for GLfloatVecRefMut {
 }
 
 impl fmt::Debug for GLfloatVecRefMut {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -265,7 +265,7 @@ impl Clone for GLintVecRefMut {
 }
 
 impl fmt::Debug for GLintVecRefMut {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -305,7 +305,7 @@ impl Clone for GLuintVecRef {
 }
 
 impl fmt::Debug for GLuintVecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -342,7 +342,7 @@ impl Clone for GLenumVecRef {
 }
 
 impl fmt::Debug for GLenumVecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -394,7 +394,7 @@ impl U8VecRef {
 }
 
 impl fmt::Debug for U8VecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -445,7 +445,7 @@ impl Clone for F32VecRef {
 }
 
 impl fmt::Debug for F32VecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -482,7 +482,7 @@ impl Clone for I32VecRef {
 }
 
 impl fmt::Debug for I32VecRef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -519,7 +519,7 @@ impl Clone for GLbooleanVecRefMut {
 }
 
 impl fmt::Debug for GLbooleanVecRefMut {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -559,7 +559,7 @@ impl Clone for U8VecRefMut {
 }
 
 impl fmt::Debug for U8VecRefMut {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -697,7 +697,7 @@ impl Clone for GLsyncPtr {
 }
 
 impl fmt::Debug for GLsyncPtr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x{:0x}", self.ptr as usize)
     }
 }
@@ -971,7 +971,7 @@ impl_option!(
 );
 
 impl fmt::Debug for GlContextPtr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x{:0x}", self.as_usize())
     }
 }
@@ -2984,7 +2984,7 @@ pub struct TextureFlags {
 }
 
 impl ::core::fmt::Display for Texture {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(
             f,
             "Texture {{ id: {}, {}x{} }}",
@@ -2996,7 +2996,7 @@ impl ::core::fmt::Display for Texture {
 macro_rules! impl_traits_for_gl_object {
     ($struct_name:ident, $gl_id_field:ident) => {
         impl ::core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -3466,7 +3466,7 @@ pub struct VertexBuffer {
 }
 
 impl fmt::Display for VertexBuffer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "VertexBuffer {{ buffer: {} (length: {}) }})",
@@ -3737,7 +3737,7 @@ pub struct GlShader {
 }
 
 impl ::core::fmt::Display for GlShader {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "GlShader {{ program_id: {} }}", self.program_id)
     }
 }
@@ -3760,7 +3760,7 @@ pub struct VertexShaderCompileError {
 impl_traits_for_gl_object!(VertexShaderCompileError, error_id);
 
 impl ::core::fmt::Display for VertexShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -3775,7 +3775,7 @@ pub struct FragmentShaderCompileError {
 impl_traits_for_gl_object!(FragmentShaderCompileError, error_id);
 
 impl ::core::fmt::Display for FragmentShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -3787,7 +3787,7 @@ pub enum GlShaderCompileError {
 }
 
 impl ::core::fmt::Display for GlShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         use self::GlShaderCompileError::{Vertex, Fragment};
         match self {
             Vertex(vert_err) => write!(f, "Failed to compile vertex shader: {vert_err}"),
@@ -3797,7 +3797,7 @@ impl ::core::fmt::Display for GlShaderCompileError {
 }
 
 impl ::core::fmt::Debug for GlShaderCompileError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -3812,7 +3812,7 @@ pub struct GlShaderLinkError {
 impl_traits_for_gl_object!(GlShaderLinkError, error_id);
 
 impl ::core::fmt::Display for GlShaderLinkError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -3825,7 +3825,7 @@ pub enum GlShaderCreateError {
 }
 
 impl ::core::fmt::Display for GlShaderCreateError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         use self::GlShaderCreateError::{Compile, Link, NoShaderCompiler};
         match self {
             Compile(compile_err) => write!(f, "Shader compile error: {compile_err}"),
@@ -3838,7 +3838,7 @@ impl ::core::fmt::Display for GlShaderCreateError {
 }
 
 impl ::core::fmt::Debug for GlShaderCreateError {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "{self}")
     }
 }

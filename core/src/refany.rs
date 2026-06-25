@@ -157,7 +157,7 @@ pub struct RefCount {
 }
 
 impl fmt::Debug for RefCount {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.downcast().fmt(f)
     }
 }

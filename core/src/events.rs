@@ -2701,7 +2701,7 @@ impl Default for PostFilterCallback {
 
 // Keep simpler Rust fn pointer aliases for internal use
 pub type InputInterpreterFn = fn(
-    info: &InputInterpreterInfo,
+    info: &InputInterpreterInfo<'_>,
 ) -> PreCallbackFilterResult;
 
 pub type PostFilterFn = fn(
@@ -2908,7 +2908,7 @@ impl KeyboardShortcut {
 }
 
 #[must_use] pub fn default_input_interpreter(
-    info: &InputInterpreterInfo,
+    info: &InputInterpreterInfo<'_>,
 ) -> PreCallbackFilterResult {
     let ctx = FilterContext {
         hit_test: info.hit_test,

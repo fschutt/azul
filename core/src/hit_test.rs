@@ -81,13 +81,13 @@ pub struct ScrollbarHitTestItem {
 pub struct ExternalScrollId(pub u64, pub PipelineId);
 
 impl ::core::fmt::Display for ExternalScrollId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ExternalScrollId({})", self.0)
     }
 }
 
 impl ::core::fmt::Debug for ExternalScrollId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -143,7 +143,7 @@ pub struct DocumentId {
 }
 
 impl ::core::fmt::Display for DocumentId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "DocumentId {{ ns: {}, id: {} }}",
@@ -153,7 +153,7 @@ impl ::core::fmt::Display for DocumentId {
 }
 
 impl ::core::fmt::Debug for DocumentId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -163,13 +163,13 @@ impl ::core::fmt::Debug for DocumentId {
 pub struct PipelineId(pub PipelineSourceId, pub u32);
 
 impl ::core::fmt::Display for PipelineId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PipelineId({}, {})", self.0, self.1)
     }
 }
 
 impl ::core::fmt::Debug for PipelineId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }

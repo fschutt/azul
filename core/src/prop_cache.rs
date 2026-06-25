@@ -1083,10 +1083,10 @@ impl CssPropertyCache {
     pub fn restyle(
         &mut self,
         css: &mut Css,
-        node_data: &NodeDataContainerRef<NodeData>,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
-        html_tree: &NodeDataContainerRef<CascadeInfo>,
+        html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{CssDeclaration, CssPathPseudoSelector::{Hover, Active, Focus, Dragging, DragOver}, CssPathSelector, CssRuleBlock},
@@ -1314,7 +1314,7 @@ impl CssPropertyCache {
     /// Can be called separately after `build_compact_cache_with_inheritance`.
     pub fn generate_tag_ids(
         &self,
-        node_data: &NodeDataContainerRef<NodeData>,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
 

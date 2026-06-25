@@ -157,13 +157,13 @@ pub mod node_id {
     }
 
     impl fmt::Display for NodeId {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "{}", self.inner)
         }
     }
 
     impl fmt::Debug for NodeId {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "NodeId({})", self.inner)
         }
     }
@@ -448,7 +448,7 @@ impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
     }
 
     #[inline]
-    pub fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<'_, T> {
         self.internal.iter()
     }
 

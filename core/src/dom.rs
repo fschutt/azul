@@ -146,7 +146,7 @@ pub struct TagId {
 }
 
 impl ::core::fmt::Display for TagId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TagId").field("inner", &self.inner).finish()
     }
 }
@@ -187,7 +187,7 @@ pub struct ScrollTagId {
 }
 
 impl ::core::fmt::Display for ScrollTagId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ScrollTagId")
             .field("inner", &self.inner)
             .finish()
@@ -195,7 +195,7 @@ impl ::core::fmt::Display for ScrollTagId {
 }
 
 impl ::core::fmt::Debug for ScrollTagId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -227,7 +227,7 @@ pub struct DomNodeHash {
 }
 
 impl ::core::fmt::Debug for DomNodeHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "DomNodeHash({})", self.inner)
     }
 }
@@ -2093,7 +2093,7 @@ impl Default for NodeData {
 }
 
 impl fmt::Display for NodeData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(self);
 
@@ -3272,7 +3272,7 @@ pub struct DomId {
 }
 
 impl fmt::Display for DomId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
@@ -6012,8 +6012,8 @@ impl core::iter::FromIterator<Self> for Dom {
 }
 
 impl fmt::Debug for Dom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn print_dom(d: &Dom, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "Dom {{\r\n")?;
             write!(f, "\troot: {:#?}\r\n", d.root)?;
             write!(

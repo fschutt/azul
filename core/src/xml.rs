@@ -840,7 +840,7 @@ pub enum XmlStreamError {
 }
 
 impl fmt::Display for XmlStreamError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::XmlStreamError::{UnexpectedEndOfStream, InvalidName, NonXmlChar, InvalidChar, InvalidCharMultiple, InvalidQuote, InvalidSpace, InvalidString, InvalidReference, InvalidExternalID, InvalidCommentData, InvalidCommentEnd, InvalidCharacterData};
         match self {
             UnexpectedEndOfStream => write!(f, "Unexpected end of stream"),
@@ -888,7 +888,7 @@ pub struct XmlTextPos {
 }
 
 impl fmt::Display for XmlTextPos {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "line {}:{}", self.row, self.col)
     }
 }
@@ -916,7 +916,7 @@ pub enum XmlParseError {
 }
 
 impl fmt::Display for XmlParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::XmlParseError::{InvalidDeclaration, InvalidComment, InvalidPI, InvalidDoctype, InvalidEntity, InvalidElement, InvalidAttribute, InvalidCdata, InvalidCharData, UnknownToken};
         match self {
             InvalidDeclaration(e) => {
@@ -1034,7 +1034,7 @@ pub enum XmlError {
 }
 
 impl fmt::Display for XmlError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::XmlError::{NoParserAvailable, InvalidXmlPrefixUri, UnexpectedXmlUri, UnexpectedXmlnsUri, InvalidElementNamePrefix, DuplicatedNamespace, UnknownNamespace, UnexpectedCloseTag, UnexpectedEntityCloseTag, UnknownEntityReference, MalformedEntityReference, EntityReferenceLoop, InvalidAttributeValue, DuplicatedAttribute, NoRootNode, SizeLimit, DtdDetected, MalformedHierarchy, ParserError, UnclosedRootNode, UnexpectedDeclaration, NodesLimitReached, AttributesLimitReached, NamespacesLimitReached, InvalidName, NonXmlChar, InvalidChar, InvalidChar2, InvalidString, InvalidExternalID, InvalidComment, InvalidCharacterData, UnknownToken, UnexpectedEndOfStream};
         match self {
             NoParserAvailable => write!(
@@ -4619,7 +4619,7 @@ impl From<CssParseErrorOwned> for CompileError {
 }
 
 impl fmt::Display for CompileError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CompileError::{Dom, Xml, Css};
         match self {
             Dom(d) => write!(f, "{d}"),
@@ -4731,7 +4731,7 @@ pub enum ComponentParseError {
 }
 
 impl fmt::Display for DomXmlParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::DomXmlParseError::{NoHtmlNode, MultipleHtmlRootNodes, NoBodyInHtml, MultipleBodyNodes, Xml, MalformedHierarchy, RenderDom, Component, Css};
         match self {
             NoHtmlNode => write!(
@@ -4766,7 +4766,7 @@ impl fmt::Display for DomXmlParseError {
 }
 
 impl fmt::Display for ComponentParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::ComponentParseError::{NotAComponent, UnnamedComponent, MissingName, MissingType, WhiteSpaceInComponentName, WhiteSpaceInComponentType, CssError};
         match self {
             NotAComponent => write!(f, "Expected <component/> node, found no such node"),
@@ -4804,7 +4804,7 @@ impl fmt::Display for ComponentParseError {
 }
 
 impl fmt::Display for ComponentError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::ComponentError::{UselessFunctionArgument, UnknownComponent};
         match self {
             UselessFunctionArgument(e) => {
@@ -4820,7 +4820,7 @@ impl fmt::Display for ComponentError {
 }
 
 impl fmt::Display for RenderDomError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::RenderDomError::{Component, CssError};
         match self {
             Component(c) => write!(f, "{c}"),

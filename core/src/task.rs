@@ -348,7 +348,7 @@ impl_callback_simple!(InstantPtrDestructorCallback);
 // ----  LIBSTD implementation for InstantPtr BEGIN
 #[cfg(feature = "std")]
 impl fmt::Debug for InstantPtr {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         write!(f, "{:?}", self.get())
     }
 }
@@ -502,7 +502,7 @@ pub enum Duration {
 }
 
 impl fmt::Display for Duration {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(feature = "std")]
             Self::System(s) => {
