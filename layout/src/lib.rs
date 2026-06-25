@@ -67,6 +67,10 @@
     clippy::legacy_numeric_constants,
     unexpected_cfgs,                        // web-lift diagnostic cfgs
     deprecated,                             // image crate tiff encoder (only under `tiff`)
+    // transitive dependency-version dups not resolvable in azul's source —
+    // syn 1↔2 (proc-macro migration), heck/jni-sys/rustc-hash/rustls-webpki;
+    // re-audit when the dep tree aligns.
+    clippy::multiple_crate_versions,
 )]
 
 #[macro_use]

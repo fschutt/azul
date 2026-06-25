@@ -43,6 +43,11 @@
     unsafe_op_in_unsafe_fn,
     let_underscore_drop,
 )]
+// `multiple_crate_versions` (implied by clippy::cargo) flags transitive
+// dependency-version dups that cannot be resolved in azul's own source:
+// `syn` 1.0.x ↔ 2.0.x (the proc-macro ecosystem is mid-migration; both are
+// pulled in transitively). Documented allow — re-audit when the dep tree aligns.
+#![allow(clippy::multiple_crate_versions)]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,
