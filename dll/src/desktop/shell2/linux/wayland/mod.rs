@@ -1896,7 +1896,7 @@ impl WaylandWindow {
                             .as_container()
                             .get(azul_core::dom::NodeId::ZERO)
                             .and_then(|n| n.get_menu_bar())
-                            .map(|boxed_menu| (**boxed_menu).clone())
+                            .map(|boxed_menu| boxed_menu.clone())
                     })
             });
 
@@ -2676,7 +2676,7 @@ impl WaylandWindow {
         // Context menus are stored directly on NodeData
         // Clone to avoid borrow conflict (same pattern as macOS/X11)
         let context_menu = match node_data.get_context_menu() {
-            Some(menu) => (**menu).clone(),
+            Some(menu) => menu.clone(),
             None => return false,
         };
 

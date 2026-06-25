@@ -1758,7 +1758,7 @@ impl X11Window {
                             .as_container()
                             .get(azul_core::dom::NodeId::ZERO)
                             .and_then(|n| n.get_menu_bar())
-                            .map(|boxed_menu| (**boxed_menu).clone())
+                            .map(|boxed_menu| boxed_menu.clone())
                     })
             });
 

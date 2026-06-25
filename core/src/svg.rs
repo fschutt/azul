@@ -101,7 +101,7 @@ impl SvgLine {
 
     /// Reverses the direction of the line by swapping start and end points.
     pub const fn reverse(&mut self) {
-        std::mem::swap(&mut self.start, &mut self.end);
+        core::mem::swap(&mut self.start, &mut self.end);
     }
     /// Returns the start point of the line.
     #[must_use] pub const fn get_start(&self) -> SvgPoint {
