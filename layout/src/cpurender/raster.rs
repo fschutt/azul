@@ -2260,7 +2260,7 @@ fn render_border_sides(
     colors: [ColorU; 4], // top, right, bottom, left
     widths: [f32; 4],    // top, right, bottom, left
     _styles: [azul_css::props::style::border::BorderStyle; 4],
-    _border_radius: &BorderRadius,
+    border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) {
@@ -2346,7 +2346,7 @@ fn render_border_sides(
         ),
     ];
 
-    if _border_radius.is_zero() {
+    if border_radius.is_zero() {
         // Fast path: axis-aligned border strips — no rasterizer needed
         let pw = pixmap.width;
         let ph = pixmap.height;

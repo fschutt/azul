@@ -20,6 +20,7 @@ use tfd::{DefaultColorValue, MessageBoxIcon};
 /// Static-method namespace for `tfd`-backed message-box dialogs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
+#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder field
 pub struct MsgBox {
     pub _reserved: u8,
 }
@@ -27,6 +28,7 @@ pub struct MsgBox {
 /// Static-method namespace for `tfd`-backed file dialogs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
+#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder field
 pub struct FileDialog {
     pub _reserved: u8,
 }
@@ -34,6 +36,7 @@ pub struct FileDialog {
 /// Static-method namespace for the `tfd`-backed color picker.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
+#[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder field
 pub struct ColorPickerDialog {
     pub _reserved: u8,
 }

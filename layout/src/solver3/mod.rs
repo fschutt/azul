@@ -563,7 +563,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // without a matching DOM id (pure anonymous wrappers) fall
     // through to the default (empty, i.e. dirty) entry.
     let mut cache_map = std::mem::take(&mut cache.cache_map);
-    let _probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
+    let probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
     if let Some(old_tree) = cache.tree.as_ref() {
         let mut remapped = cache::LayoutCacheMap::default();
         remapped.entries.resize_with(new_tree.nodes.len(), Default::default);
@@ -635,7 +635,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     } else {
         cache_map.resize_to_tree(new_tree.nodes.len());
     }
-    drop(_probe_cache_remap);
+    drop(probe_cache_remap);
     crate::probe::sample_peak_rss("rss:after_cache_remap");
     for &node_idx in &recon_result.intrinsic_dirty {
         cache_map.mark_dirty(node_idx, &new_tree.nodes);
@@ -848,7 +848,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
             // see whether the geometry was computed regardless of a (possibly spurious,
             // niche-Result-mis-discriminated) Err.
-            let _clr = {
+            let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
                     &mut ctx,
@@ -863,7 +863,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     cache::ComputeMode::PerformLayout,
                 )
             };
-            { let _ = (if _clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
+            { let _ = (if clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
 

@@ -572,7 +572,7 @@ fn flex_basis_slow_path(
                 };
                 // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis
                 // take precedence. Workaround for Taffy not properly prioritizing flex-basis over width
-                if !matches!(basis, _auto if _auto == Dimension::auto()) {
+                if !matches!(basis, auto if auto == Dimension::auto()) {
                     taffy_style.size.width = Dimension::auto();
                 }
                 Some(basis)
@@ -1078,7 +1078,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                                     .map(Dimension::length)
                                     .or_else(|| pv.to_percent().map(|p| Dimension::percent(p.get())))
                                     .unwrap_or_else(Dimension::auto);
-                                if !matches!(basis, _auto if _auto == Dimension::auto()) {
+                                if !matches!(basis, auto if auto == Dimension::auto()) {
                                     taffy_style.size.width = Dimension::auto();
                                 }
                                 Some(basis)

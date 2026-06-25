@@ -1993,7 +1993,7 @@ pub mod parsed {
             }
 
             // Check if we even have a hint instance
-            let _hint_mutex = self.hint_instance.as_ref()?;
+            let hint_mutex = self.hint_instance.as_ref()?;
 
             let scale = compute_scale(ppem, upem);
             let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale);
@@ -2005,7 +2005,7 @@ pub mod parsed {
                 glyph.raw_contour_ends.as_ref(),
             ) {
                 let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
-                let mut hint = _hint_mutex.lock().ok()?;
+                let mut hint = hint_mutex.lock().ok()?;
                 hint.set_ppem(ppem, f64::from(ppem)).ok()?;
 
                 let points_f26dot6: Vec<(i32, i32)> = raw_points

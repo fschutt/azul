@@ -4655,6 +4655,8 @@ pub struct RenderImageCallbackInfo {
 }
 
 impl Clone for RenderImageCallbackInfo {
+    // `_abi_mut` is an intentional FFI/api.json ABI-stability placeholder field.
+    #[allow(clippy::used_underscore_binding)]
     fn clone(&self) -> Self {
         Self {
             callback_node_id: self.callback_node_id,

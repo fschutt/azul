@@ -272,6 +272,7 @@ impl Default for Timer {
 /// `CallbackInfo` methods are available via explicit delegation methods below.
 #[derive(Clone)]
 #[repr(C)]
+#[allow(clippy::pub_underscore_fields)] // _abi_ref/_abi_mut: intentional FFI/api.json ABI-stability placeholder fields
 pub struct TimerCallbackInfo {
     pub callback_info: CallbackInfo,
     pub node_id: OptionDomNodeId,
