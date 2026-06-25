@@ -58,7 +58,6 @@
     dead_code,
     unused_doc_comments,                   // doc comments before macro invocations
     ambiguous_glob_reexports,             // layout/style mod re-exports
-    mismatched_lifetime_syntaxes,         // macro-generated code
     unreachable_patterns,                  // exhaustive match in generated code
 )]
 

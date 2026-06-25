@@ -400,7 +400,13 @@ impl_display! { CssStyleTransformParseError<'a>, {
 impl_from! { ParenthesisParseError<'a>, CssStyleTransformParseError::InvalidParenthesis }
 impl_from! { CssPixelValueParseError<'a>, CssStyleTransformParseError::PixelValueParseError }
 impl_from! { CssAngleValueParseError<'a>, CssStyleTransformParseError::AngleValueParseError }
-impl_from! { ParseFloatError, CssStyleTransformParseError<'a>::NumberParseError }
+// Written out (not impl_from!): ParseFloatError carries no lifetime, so the
+// macro's `<'a>` would be used only by the target type (single_use_lifetimes).
+impl From<ParseFloatError> for CssStyleTransformParseError<'_> {
+    fn from(e: ParseFloatError) -> Self {
+        Self::NumberParseError(e)
+    }
+}
 
 impl From<PercentageParseError> for CssStyleTransformParseError<'_> {
     fn from(p: PercentageParseError) -> Self {

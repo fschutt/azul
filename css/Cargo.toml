@@ -25,3 +25,7 @@ default = ["parser"]
 
 # CSS parser support (azul-simplecss)
 parser = ["dep:azul-simplecss"]
+
+# Opt-in: integration tests that perform live system/theme IO
+# (tests/test_system_style.rs). Off by default so CI doesn't probe the host.
+io = []

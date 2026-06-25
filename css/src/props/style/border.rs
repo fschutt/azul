@@ -116,30 +116,10 @@ macro_rules! define_border_side_property {
             }
         }
     };
-    // Specialization for PixelValue (border-width)
-    ($struct_name:ident,PixelValue, $default:expr) => {
-        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        #[repr(C)]
-        pub struct $struct_name {
-            pub inner: PixelValue,
-        }
-        impl ::core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self.inner)
-            }
-        }
-        impl Default for $struct_name {
-            fn default() -> Self {
-                Self { inner: $default }
-            }
-        }
-        impl_pixel_value!($struct_name);
-        impl PixelValueTaker for $struct_name {
-            fn from_pixel_value(inner: PixelValue) -> Self {
-                Self { inner }
-            }
-        }
-    };
+    // NOTE: no separate `PixelValue` specialization arm — the generic
+    // `($struct_name, $inner_type:ty, $default)` arm above already matches
+    // `define_border_side_property!(.., PixelValue, ..)` (PixelValue is a `:ty`),
+    // so a 3-arg PixelValue arm here would be unreachable (unused_macro_rules).
 }
 
 // --- Individual Property Structs ---
