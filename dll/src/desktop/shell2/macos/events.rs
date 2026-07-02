@@ -113,6 +113,32 @@ impl MacOSWindow {
         }
     }
 
+    /// Convert a `ProcessEventResult`, fanning `ShouldRegenerateDomAllWindows`
+    /// out to every OTHER registered window first (mirrors the X11 fan-out).
+    /// The conversion to the macOS-local `EventProcessResult` erases the
+    /// all-windows information, so the fan-out must happen here — without it,
+    /// app-global changes (undo/redo, shared-state mutations from a second
+    /// window) refreshed only the window that received the event; every other
+    /// window kept rendering the stale DOM until its own next input.
+    fn convert_result_with_fanout(
+        &mut self,
+        result: azul_core::events::ProcessEventResult,
+    ) -> EventProcessResult {
+        use azul_core::events::ProcessEventResult as PER;
+        if result == PER::ShouldRegenerateDomAllWindows {
+            let self_ptr = self as *mut MacOSWindow;
+            for wptr in super::registry::get_all_window_ptrs() {
+                if wptr == self_ptr {
+                    continue; // self is handled by the returned result
+                }
+                let w = unsafe { &mut *wptr };
+                w.common.frame_needs_regeneration = true;
+                w.request_redraw();
+            }
+        }
+        Self::convert_process_result(result)
+    }
+
     // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
     // are now provided by the PlatformWindow trait as default methods.
     // The trait methods are cross-platform and work identically.
@@ -133,7 +159,7 @@ impl MacOSWindow {
         if let Some(scrollbar_hit_id) = PlatformWindow::perform_scrollbar_hit_test(self, position)
         {
             let result = PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
-            return Self::convert_process_result(result);
+            return self.convert_result_with_fanout(result);
         }
 
         // Save previous state BEFORE making changes
@@ -166,7 +192,7 @@ impl MacOSWindow {
         // - Process callback results recursively
         let result = self.process_window_events(0);
 
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a mouse button up event.
@@ -215,7 +241,7 @@ impl MacOSWindow {
 
         // Use V2 cross-platform event system - automatically detects MouseUp
         let result = self.process_window_events(0);
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Feed Wacom/pen pressure + tilt into the gesture manager's pen state if
@@ -264,7 +290,7 @@ impl MacOSWindow {
         // Use trait method from PlatformWindow
         if self.common.scrollbar_drag_state.is_some() {
             let result = PlatformWindow::handle_scrollbar_drag(self, position);
-            return Self::convert_process_result(result);
+            return self.convert_result_with_fanout(result);
         }
 
         // Save previous state BEFORE making changes
@@ -315,7 +341,7 @@ impl MacOSWindow {
 
         // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
         let result = self.process_window_events(0);
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process mouse entered window event.
@@ -335,7 +361,7 @@ impl MacOSWindow {
 
         // V2 system will detect MouseEnter events from state diff
         let result = self.process_window_events(0);
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process mouse exited window event.
@@ -360,7 +386,7 @@ impl MacOSWindow {
 
         // V2 system will detect MouseLeave events from state diff
         let result = self.process_window_events(0);
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a scroll wheel event.
@@ -479,7 +505,7 @@ impl MacOSWindow {
 
         // V2 system will detect Scroll event from ScrollManager state
         let result = self.process_window_events(0);
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a key down event.
@@ -553,7 +579,7 @@ impl MacOSWindow {
             crate::desktop::shell2::common::debug_server::LogCategory::Input,
             "[handle_key_down] process_window_events result={:?}", result
         );
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a key up event.
@@ -569,7 +595,7 @@ impl MacOSWindow {
 
         // V2 system will detect VirtualKeyUp from state diff
         let result = self.process_window_events(0);
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process text input from IME (called from insertText:replacementRange:)
@@ -661,7 +687,7 @@ impl MacOSWindow {
         // (display_list_dirty), NOT the full DOM rebuild path (frame_needs_regeneration).
         // The display list was already regenerated inside apply_text_changeset() →
         // update_text_cache_after_edit() → regenerate_display_list_for_dom().
-        let event_result = Self::convert_process_result(overall_result);
+        let event_result = self.convert_result_with_fanout(overall_result);
         match event_result {
             EventProcessResult::RegenerateDisplayList => {
                 self.common.frame_needs_regeneration = true;
@@ -715,7 +741,7 @@ impl MacOSWindow {
             || cmd_pressed != was_cmd_down
         {
             let result = self.process_window_events(0);
-            Self::convert_process_result(result)
+            self.convert_result_with_fanout(result)
         } else {
             EventProcessResult::DoNothing
         }
@@ -851,7 +877,7 @@ impl MacOSWindow {
             layout_window.file_drop_manager.set_dropped_file(None);
         }
 
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a file drag entering / moving over the window (emits
@@ -879,7 +905,7 @@ impl MacOSWindow {
 
         // V2 system detects FileHover from the file_drop_manager state.
         let result = self.process_window_events(0);
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a file drag leaving the window without a drop (emits
@@ -903,7 +929,7 @@ impl MacOSWindow {
             layout_window.file_drop_manager.clear_hover_cancelled();
         }
 
-        Self::convert_process_result(result)
+        self.convert_result_with_fanout(result)
     }
 
     /// Convert macOS keycode to VirtualKeyCode.

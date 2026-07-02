@@ -1828,7 +1828,23 @@ impl CPUView {
     ///
     /// Called by `MacOSWindow` after each layout pass in CPU mode.
     /// The next `drawRect` will blit this data to the screen.
-    pub fn update_framebuffer(&self, pixmap_data: &[u8], pixmap_w: usize, pixmap_h: usize) {
+    /// Copy the rendered pixmap into the view's retained framebuffer and mark
+    /// the view dirty.
+    ///
+    /// `damage`: present-damage rects `(x, y, w, h)` in PHYSICAL px. When
+    /// `Some` and the pixmap matches the view size, only those rows are copied
+    /// and only those rects are invalidated (`setNeedsDisplayInRect:` — AppKit
+    /// clips the drawRect blit to the accumulated dirty region, so the full
+    /// `drawInRect:` there only actually touches the dirty part). `None` =
+    /// full copy + full invalidate (first frame, full repaint, DPI-mismatch
+    /// rescale path).
+    pub fn update_framebuffer(
+        &self,
+        pixmap_data: &[u8],
+        pixmap_w: usize,
+        pixmap_h: usize,
+        damage: Option<&[(u32, u32, u32, u32)]>,
+    ) {
         let ivars = self.ivars();
         let mut view_w = ivars.width.get();
         let mut view_h = ivars.height.get();
@@ -1848,6 +1864,44 @@ impl CPUView {
         }
 
         fb.resize(view_w * view_h * 4, 255);
+
+        // Partial path: copy only the damaged rows, invalidate only the
+        // damaged rects (converted physical px → points, Y-flipped: the view
+        // is NOT `isFlipped`, so view coords are bottom-left-origin).
+        if let Some(rects) = damage {
+            if pixmap_w == view_w && pixmap_h == view_h && !rects.is_empty() {
+                let stride = view_w * 4;
+                for (rx, ry, rw, rh) in rects {
+                    for row in 0..*rh as usize {
+                        let y = *ry as usize + row;
+                        let off = y * stride + (*rx as usize) * 4;
+                        let n = (*rw as usize) * 4;
+                        if off + n <= pixmap_data.len() && off + n <= fb.len() {
+                            fb[off..off + n].copy_from_slice(&pixmap_data[off..off + n]);
+                        }
+                    }
+                }
+                drop(fb);
+                let bounds = self.bounds();
+                let scale_x = view_w as f64 / bounds.size.width.max(1.0);
+                let scale_y = view_h as f64 / bounds.size.height.max(1.0);
+                for (rx, ry, rw, rh) in rects {
+                    let x_pt = f64::from(*rx) / scale_x;
+                    let w_pt = f64::from(*rw) / scale_x;
+                    let h_pt = f64::from(*rh) / scale_y;
+                    // flip: physical top-left origin → view bottom-left origin
+                    let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
+                    let dirty = objc2_foundation::NSRect::new(
+                        objc2_foundation::NSPoint::new(x_pt, y_pt),
+                        objc2_foundation::NSSize::new(w_pt, h_pt),
+                    );
+                    unsafe {
+                        let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
+                    }
+                }
+                return;
+            }
+        }
 
         if pixmap_w == view_w && pixmap_h == view_h {
             let len = (view_w * view_h * 4).min(pixmap_data.len()).min(fb.len());
@@ -3975,6 +4029,14 @@ impl MacOSWindow {
         // Regenerate layout with new DPI
         self.regenerate_layout()?;
 
+        // Schedule the repaint. regenerate_layout() alone rebuilds the layout
+        // but neither dirty flag is set afterwards, so the GPU drawRect
+        // early-outs ("No visual changes") and the CPU drawRect gate skips —
+        // dragging an idle window between a Retina and a 1× display left the
+        // old-scale frame on screen until the next click/keystroke.
+        self.common.display_list_dirty = true;
+        self.request_redraw();
+
         Ok(())
     }
 
@@ -5700,14 +5762,49 @@ impl MacOSWindow {
                         dpi,
                     );
 
-                    // Blit the rendered pixmap to the CPUView.
+                    // Blit the rendered pixmap to the CPUView — damage-aware:
+                    // FrameDamage::None → the retained framebuffer is already
+                    // correct, copy NOTHING and invalidate NOTHING. This is
+                    // what stops the CVDisplayLink-driven 60 Hz full-frame
+                    // memcpy + full-window redraw of IDLE CPU windows.
+                    // Rects → copy + invalidate only the changed regions
+                    // (AppKit clips drawRect to the dirty region). Full → the
+                    // old full-copy + setNeedsDisplay path.
                     if let Some(ref pixmap) = self.cpu_backend.last_frame {
                         if let Some(ref cpu_view) = self.cpu_view {
-                            cpu_view.update_framebuffer(
-                                pixmap.data(),
-                                pixmap.width() as usize,
-                                pixmap.height() as usize,
-                            );
+                            match &self.cpu_backend.last_present_damage {
+                                crate::desktop::shell2::headless::FrameDamage::None => {}
+                                damage => {
+                                    let rects = damage.to_present_rects_physical(
+                                        dpi,
+                                        pixmap.width(),
+                                        pixmap.height(),
+                                        false,
+                                    );
+                                    match rects {
+                                        Some(rects)
+                                            if rects.len() != 1
+                                                || rects[0]
+                                                    != (0, 0, pixmap.width(), pixmap.height()) =>
+                                        {
+                                            cpu_view.update_framebuffer(
+                                                pixmap.data(),
+                                                pixmap.width() as usize,
+                                                pixmap.height() as usize,
+                                                Some(&rects),
+                                            );
+                                        }
+                                        _ => {
+                                            cpu_view.update_framebuffer(
+                                                pixmap.data(),
+                                                pixmap.width() as usize,
+                                                pixmap.height() as usize,
+                                                None,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     // (previous-display-list tracking now lives inside render_frame.)
