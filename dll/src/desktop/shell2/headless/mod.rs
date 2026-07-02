@@ -262,6 +262,15 @@ pub struct CpuBackend {
         azul_core::dom::DomId,
         std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
     >,
+    /// GPU-animated values of the previous frame (`key.id → value`), for the
+    /// frame-to-frame GPU-value diff. Scrollbar thumb position/fade opacity
+    /// and drag/CSS transforms live in the GPU value cache — display-list
+    /// items only carry the KEYS, so the item diff can't see them change.
+    #[cfg(feature = "cpurender")]
+    pub previous_gpu_transforms:
+        std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    #[cfg(feature = "cpurender")]
+    pub previous_gpu_opacities: std::collections::HashMap<usize, f32>,
 }
 
 impl Default for CpuBackend {
@@ -288,6 +297,10 @@ impl CpuBackend {
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
             previous_vview_dls: std::collections::BTreeMap::new(),
+            #[cfg(feature = "cpurender")]
+            previous_gpu_transforms: std::collections::HashMap::new(),
+            #[cfg(feature = "cpurender")]
+            previous_gpu_opacities: std::collections::HashMap::new(),
         }
     }
 
@@ -375,15 +388,39 @@ impl CpuBackend {
             .scroll_manager
             .build_scroll_offset_map(dom_id, &result.scroll_ids);
 
+        // GPU-value diff: thumb position / fade opacity / drag & CSS
+        // transforms change WITHOUT any display-list item changing (items
+        // only carry the keys). Diff the cache values against last frame's
+        // and damage the bound items — this is what lets ScrollBarStyled
+        // compare as visually-equal (skip path reachable for scrollbar'd
+        // windows) without freezing the thumb.
+        let gpu_cache_early = layout_window.gpu_state_manager.get_cache(dom_id);
+        let (gpu_transforms, gpu_opacities) =
+            cpurender::extract_gpu_values(gpu_cache_early, dom_id);
+        let gpu_damage = cpurender::gpu_value_damage(
+            display_list,
+            &self.previous_gpu_transforms,
+            &self.previous_gpu_opacities,
+            &gpu_transforms,
+            &gpu_opacities,
+        );
+        let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
+        // Values are painted this frame whichever path runs (incremental
+        // repaints read the CURRENT cache; skip only happens when unchanged).
+        self.previous_gpu_transforms = gpu_transforms;
+        self.previous_gpu_opacities = gpu_opacities;
+
         // Compute display list damage (incremental path)
         let dl_damage = match &self.previous_display_list {
-            Some(old_dl) if !needs_resize => cpurender::compute_display_list_damage(
-                old_dl,
-                display_list,
-                &self.previous_scroll_offsets,
-                &scroll_offsets,
-            ),
-            _ => None, // first frame or resize → full repaint
+            Some(old_dl) if !needs_resize && !gpu_damage.needs_full => {
+                cpurender::compute_display_list_damage(
+                    old_dl,
+                    display_list,
+                    &self.previous_scroll_offsets,
+                    &scroll_offsets,
+                )
+            }
+            _ => None, // first frame, resize or ref-frame transform → full repaint
         };
 
         // VirtualView child-DOM damage. A child DOM (e.g. the MapWidget tile
@@ -492,7 +529,8 @@ impl CpuBackend {
                 if rects.is_empty()
                     && resize_damage.is_empty()
                     && !has_scroll
-                    && !has_vview_damage =>
+                    && !has_vview_damage
+                    && !has_gpu_damage =>
             {
                 // Nothing changed — skip rendering entirely. (`!has_vview_damage`
                 // keeps us out of this branch when only a VirtualView child DOM
@@ -524,6 +562,11 @@ impl CpuBackend {
         // redraws everything anyway, so this only matters when incremental.
         if is_incremental && has_vview_damage {
             all_damage.extend(vview_damage);
+        }
+
+        // GPU-value changes (thumb move / fade tick) repaint their bound items.
+        if is_incremental && !gpu_damage.rects.is_empty() {
+            all_damage.extend(gpu_damage.rects.iter().copied());
         }
 
         // Acquire output pixmap — reuse buffer for both grow and shrink
@@ -2683,6 +2726,43 @@ mod tests {
              swallowed forever; got {:?}",
             d3
         );
+    }
+
+    /// REGRESSION (idle skip with scrollbars): a no-op relayout of a window
+    /// WITH a scrollbar must reach `FrameDamage::None`. ScrollBarStyled used
+    /// to fall into `is_visually_equal`'s `_ => false` catch-all, so every
+    /// scrollbar'd window re-damaged its bar every frame — the skip path was
+    /// unreachable and idle windows re-rendered + re-presented forever (the
+    /// thumb position now flows through the GPU-value damage channel instead).
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn damage_idle_scrollbar_window_skips() {
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 20 })));
+        let mut window = make_window_with(&state, harness_layout_scroll);
+        window.regenerate_layout().expect("initial layout");
+        // Second render, nothing changed at all.
+        window.regenerate_layout().expect("no-op relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        assert_eq!(
+            damage,
+            FrameDamage::None,
+            "an idle window with a scrollbar must skip (FrameDamage::None);              non-None means the scrollbar (or another item) produces false              per-frame damage and idle windows burn CPU forever"
+        );
+        // And scrolling must still damage the bar (thumb moved → GPU value
+        // diff) — the equality arm must not have frozen the thumb.
+        scroll_frame_to(&mut window, 30.0);
+        window.regenerate_layout().expect("scroll relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        match &damage {
+            FrameDamage::Rects(rs) => {
+                assert!(
+                    rs.iter().any(|r| r.origin.x >= 190.0),
+                    "scroll must damage the scrollbar region (thumb moved via                      GPU value cache); got {:?}",
+                    rs
+                );
+            }
+            other => panic!("scroll should be incremental, got {:?}", other),
+        }
     }
 
     /// Sample the RGBA of the last rendered frame at physical pixel (x, y).

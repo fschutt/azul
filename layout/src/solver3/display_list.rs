@@ -208,7 +208,7 @@ pub struct PhysicalSizeImport {
 /// - Thumb: The draggable indicator showing current scroll position
 /// - Buttons: Optional up/down or left/right arrow buttons
 /// - Corner: The area where horizontal and vertical scrollbars meet
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScrollbarDrawInfo {
     /// Overall bounds of the entire scrollbar (including track and buttons)
     pub bounds: WindowLogicalRect,
@@ -989,6 +989,41 @@ impl DisplayListItem {
                     && c1 == c2
                     && Arc::ptr_eq(l1, l2)
             }
+            // ScrollBarStyled: equal iff the STATIC drawing info matches. The
+            // LIVE thumb position/opacity are read from the GPU value cache at
+            // raster time (thumb_transform_key/opacity_key) — value changes are
+            // damaged by the render_frame GPU-value diff, NOT by this item
+            // comparison. Without this arm every scrollbar'd window re-damaged
+            // its bar every frame (`_ => false`), so `FrameDamage::None` was
+            // unreachable and idle windows re-rendered + re-presented forever.
+            (Self::ScrollBarStyled { info: i1 }, Self::ScrollBarStyled { info: i2 }) => i1 == i2,
+            // VirtualView: the item only carries WHERE the child renders; the
+            // child DOM's content changes are detected by
+            // compute_virtual_view_damage (child display-list diff).
+            (Self::VirtualView { child_dom_id: d1, bounds: b1, clip_rect: c1 },
+             Self::VirtualView { child_dom_id: d2, bounds: b2, clip_rect: c2 }) => {
+                d1 == d2 && b1 == b2 && c1 == c2
+            }
+            (Self::VirtualViewPlaceholder { bounds: b1, .. },
+             Self::VirtualViewPlaceholder { bounds: b2, .. }) => b1 == b2,
+            // PushReferenceFrame: the LIVE transform (drag, animation) is a GPU
+            // cache value keyed by transform_key — covered by the GPU-value
+            // diff, same as the scrollbar thumb.
+            (Self::PushReferenceFrame { transform_key: k1, initial_transform: t1, bounds: b1 },
+             Self::PushReferenceFrame { transform_key: k2, initial_transform: t2, bounds: b2 }) => {
+                k1 == k2 && t1 == t2 && b1 == b2
+            }
+            (Self::PushFilter { bounds: b1, filters: f1 },
+             Self::PushFilter { bounds: b2, filters: f2 }) => b1 == b2 && f1 == f2,
+            (Self::PushBackdropFilter { bounds: b1, filters: f1 },
+             Self::PushBackdropFilter { bounds: b2, filters: f2 }) => b1 == b2 && f1 == f2,
+            // PushImageMaskClip: ImageRef comparison is by underlying data hash
+            // (cheap identity), so a swapped mask image reports unequal.
+            (Self::PushImageMaskClip { bounds: b1, mask_image: m1, mask_rect: r1 },
+             Self::PushImageMaskClip { bounds: b2, mask_image: m2, mask_rect: r2 }) => {
+                b1 == b2 && r1 == r2 && m1.get_hash() == m2.get_hash()
+            }
+            (Self::PushTextShadow { shadow: s1 }, Self::PushTextShadow { shadow: s2 }) => s1 == s2,
             // For other complex types (Image, gradients, etc.),
             // conservatively assume different
             _ => false,
@@ -1108,7 +1143,7 @@ impl DisplayListItem {
 }
 
 // Helper structs for the DisplayList
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct BorderRadius {
     pub top_left: f32,
     pub top_right: f32,

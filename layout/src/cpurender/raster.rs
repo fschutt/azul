@@ -843,6 +843,32 @@ impl CpuRenderState {
         dom_id: azul_core::dom::DomId,
         scroll_offsets: &ScrollOffsetMap,
     ) -> Self {
+        let (transforms, opacities) = extract_gpu_values(gpu_cache, dom_id);
+        Self {
+            scroll_offsets: scroll_offsets.clone(),
+            transforms,
+            opacities,
+            system_style: None,
+            virtual_view_display_lists: std::collections::BTreeMap::new(),
+            image_callback_results: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+/// Flatten the GPU value cache into `key.id → value` maps — the SAME
+/// extraction `CpuRenderState::from_gpu_cache` feeds the renderer with.
+/// Exposed separately so the damage layer can diff the values frame-to-frame:
+/// scrollbar thumb position / fade opacity / drag & CSS transforms change
+/// WITHOUT any display-list item changing (items only carry the keys), so a
+/// pure item diff reports "visually equal" while the frame must repaint.
+#[must_use] pub fn extract_gpu_values(
+    gpu_cache: Option<&azul_core::gpu::GpuValueCache>,
+    dom_id: azul_core::dom::DomId,
+) -> (
+    HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    HashMap<usize, f32>,
+) {
+    {
         let mut transforms = HashMap::new();
         let mut opacities = HashMap::new();
 
@@ -889,14 +915,7 @@ impl CpuRenderState {
             }
         }
 
-        Self {
-            scroll_offsets: scroll_offsets.clone(),
-            transforms,
-            opacities,
-            system_style: None,
-            virtual_view_display_lists: std::collections::BTreeMap::new(),
-            image_callback_results: std::collections::BTreeMap::new(),
-        }
+        (transforms, opacities)
     }
 }
 

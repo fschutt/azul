@@ -1226,6 +1226,89 @@ pub fn scroll_fast_path_eligible(
     rect_covered_by(clip_bounds, &backdrop_fills)
 }
 
+/// Result of diffing the GPU-animated values between two frames.
+#[derive(Debug, Default)]
+pub struct GpuValueDamage {
+    /// Regions to repaint (scrollbar bounds whose thumb/opacity value changed).
+    pub rects: Vec<LogicalRect>,
+    /// A changed transform is bound to a `PushReferenceFrame` (drag / CSS
+    /// transform animation): the moved CONTENT's extent isn't derivable from
+    /// the item alone, so the caller must full-repaint.
+    pub needs_full: bool,
+}
+
+/// Diff the GPU value maps of two frames and damage the items BOUND to the
+/// changed keys.
+///
+/// Scrollbar thumb position, scrollbar fade opacity, and drag/CSS transforms
+/// live in the GPU value cache; display-list items only carry the KEYS, so
+/// they compare `is_visually_equal` while the pixels must change. Without
+/// this channel, the `ScrollBarStyled` equality arm would freeze the thumb
+/// (missed damage); with it, an idle window reaches `FrameDamage::None` even
+/// with scrollbars present.
+#[must_use] pub fn gpu_value_damage(
+    display_list: &DisplayList,
+    old_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    old_opacities: &HashMap<usize, f32>,
+    new_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    new_opacities: &HashMap<usize, f32>,
+) -> GpuValueDamage {
+    use std::collections::HashSet;
+
+    let mut changed_t: HashSet<usize> = HashSet::new();
+    for (k, v) in new_transforms {
+        if old_transforms.get(k) != Some(v) {
+            changed_t.insert(*k);
+        }
+    }
+    for k in old_transforms.keys() {
+        if !new_transforms.contains_key(k) {
+            changed_t.insert(*k);
+        }
+    }
+    let mut changed_o: HashSet<usize> = HashSet::new();
+    for (k, v) in new_opacities {
+        if old_opacities.get(k) != Some(v) {
+            changed_o.insert(*k);
+        }
+    }
+    for k in old_opacities.keys() {
+        if !new_opacities.contains_key(k) {
+            changed_o.insert(*k);
+        }
+    }
+
+    let mut out = GpuValueDamage::default();
+    if changed_t.is_empty() && changed_o.is_empty() {
+        return out;
+    }
+
+    for item in &display_list.items {
+        match item {
+            DisplayListItem::ScrollBarStyled { info } => {
+                let thumb_moved = info
+                    .thumb_transform_key
+                    .is_some_and(|k| changed_t.contains(&k.id));
+                let faded = info.opacity_key.is_some_and(|k| changed_o.contains(&k.id));
+                if thumb_moved || faded {
+                    // The whole bar bounds cover the thumb's old AND new
+                    // position — precise and cheap.
+                    out.rects.push(info.bounds.0);
+                }
+            }
+            DisplayListItem::PushReferenceFrame { transform_key, .. } => {
+                if changed_t.contains(&transform_key.id) {
+                    out.needs_full = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    // A changed key bound to nothing in THIS display list (another DOM's
+    // scrollbar, a stale key) is ignored — it cannot affect these pixels.
+    out
+}
+
 /// Clip-intersected bounds of every item painted AFTER scroll frame
 /// `scroll_id`'s `PopScrollFrame` that STRICTLY overlaps `clip_bounds`.
 ///
