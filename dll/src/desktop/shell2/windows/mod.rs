@@ -129,6 +129,11 @@ pub struct Win32Window {
     pub is_open: bool,
     /// Whether the first frame has been shown (for deferred window visibility)
     pub first_frame_shown: bool,
+    /// A redraw was explicitly requested (route_main_window_result invalidated
+    /// after ShouldReRender/ShouldUpdateDisplayList). Read by the GPU
+    /// skip-heuristic so explicitly requested presents are never skipped;
+    /// cleared when the GPU render proceeds.
+    pub needs_gpu_present: bool,
 
     // Menu and UI state
     /// Menu bar (if any)
@@ -554,6 +559,7 @@ impl Win32Window {
             win32, // Store Win32 libraries for later use
             is_open: true,
             first_frame_shown: false, // Window will be shown after first SwapBuffers
+            needs_gpu_present: false,
             menu_bar,
             context_menu: None,
             timers: HashMap::new(),
@@ -860,47 +866,97 @@ impl Win32Window {
                                 dpi,
                             );
 
-                            // Blit the rendered pixmap to the window via StretchDIBits.
+                            // Blit the rendered pixmap to the window via
+                            // StretchDIBits — PARTIALLY: only the present-damage
+                            // rects are swizzled + uploaded (each as its own
+                            // packed top-down DIB, sidestepping the top-down
+                            // sub-rect ySrc quirk). The old code converted +
+                            // blitted the FULL frame on every WM_PAINT.
+                            // FrameDamage::None → ONE full-window rect: WM_PAINT
+                            // can mean "uncovered, repaint everything", so an
+                            // unchanged frame still re-presents in full from the
+                            // retained pixmap (status-quo correctness).
                             if let Some(ref pixmap) = self.cpu_backend.last_frame {
                                 let pw = pixmap.width() as i32;
                                 let ph = pixmap.height() as i32;
                                 let data = pixmap.data();
 
-                                // Reuse BGRA conversion buffer
-                                self.bgra_buffer.resize(data.len(), 0);
-                                for (src, dst) in data.chunks_exact(4).zip(self.bgra_buffer.chunks_exact_mut(4)) {
-                                    dst[0] = src[2]; // B
-                                    dst[1] = src[1]; // G
-                                    dst[2] = src[0]; // R
-                                    dst[3] = src[3]; // A
-                                }
-
-                                let bmi = dlopen::BitmapInfoHeader {
-                                    biSize: core::mem::size_of::<dlopen::BitmapInfoHeader>() as u32,
-                                    biWidth: pw,
-                                    biHeight: -ph, // negative = top-down
-                                    biPlanes: 1,
-                                    biBitCount: 32,
-                                    biCompression: 0, // BI_RGB
-                                    biSizeImage: 0,
-                                    biXPelsPerMeter: 0,
-                                    biYPelsPerMeter: 0,
-                                    biClrUsed: 0,
-                                    biClrImportant: 0,
-                                };
+                                let rects = self
+                                    .cpu_backend
+                                    .last_present_damage
+                                    .to_present_rects_physical(
+                                        dpi,
+                                        pixmap.width(),
+                                        pixmap.height(),
+                                        false,
+                                    )
+                                    .unwrap_or_else(|| {
+                                        vec![(0, 0, pixmap.width(), pixmap.height())]
+                                    });
 
                                 unsafe {
                                     let hdc = (self.win32.user32.GetDC)(self.hwnd);
                                     if !hdc.is_null() {
-                                        (self.win32.gdi32.StretchDIBits)(
-                                            hdc,
-                                            0, 0, pw, ph, // dest rect
-                                            0, 0, pw, ph, // src rect
-                                            self.bgra_buffer.as_ptr() as *const c_void,
-                                            &bmi,
-                                            dlopen::DIB_RGB_COLORS,
-                                            dlopen::SRCCOPY,
-                                        );
+                                        let src_stride = (pw as usize) * 4;
+                                        for (rx, ry, rw, rh) in rects {
+                                            // Pack + swizzle ONLY this rect's rows
+                                            // (RGBA → BGRA) into the reused buffer.
+                                            let rect_bytes =
+                                                (rw as usize) * (rh as usize) * 4;
+                                            self.bgra_buffer.resize(rect_bytes, 0);
+                                            for row in 0..rh as usize {
+                                                let so = (ry as usize + row) * src_stride
+                                                    + (rx as usize) * 4;
+                                                let doff = row * (rw as usize) * 4;
+                                                let n = (rw as usize) * 4;
+                                                for (s, d) in data[so..so + n]
+                                                    .chunks_exact(4)
+                                                    .zip(
+                                                        self.bgra_buffer[doff..doff + n]
+                                                            .chunks_exact_mut(4),
+                                                    )
+                                                {
+                                                    d[0] = s[2]; // B
+                                                    d[1] = s[1]; // G
+                                                    d[2] = s[0]; // R
+                                                    d[3] = s[3]; // A
+                                                }
+                                            }
+
+                                            let bmi = dlopen::BitmapInfoHeader {
+                                                biSize: core::mem::size_of::<
+                                                    dlopen::BitmapInfoHeader,
+                                                >(
+                                                )
+                                                    as u32,
+                                                biWidth: rw as i32,
+                                                biHeight: -(rh as i32), // negative = top-down
+                                                biPlanes: 1,
+                                                biBitCount: 32,
+                                                biCompression: 0, // BI_RGB
+                                                biSizeImage: 0,
+                                                biXPelsPerMeter: 0,
+                                                biYPelsPerMeter: 0,
+                                                biClrUsed: 0,
+                                                biClrImportant: 0,
+                                            };
+
+                                            (self.win32.gdi32.StretchDIBits)(
+                                                hdc,
+                                                rx as i32,
+                                                ry as i32,
+                                                rw as i32,
+                                                rh as i32, // dest rect
+                                                0,
+                                                0,
+                                                rw as i32,
+                                                rh as i32, // src rect (packed DIB)
+                                                self.bgra_buffer.as_ptr() as *const c_void,
+                                                &bmi,
+                                                dlopen::DIB_RGB_COLORS,
+                                                dlopen::SRCCOPY,
+                                            );
+                                        }
                                         (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
                                     }
                                 }
@@ -1018,7 +1074,17 @@ impl Win32Window {
                     let virtual_view_pending = self.common.layout_window.as_ref()
                         .map(|lw| !lw.pending_virtual_view_updates.is_empty())
                         .unwrap_or(false);
-                    if !scroll_active && !scrollbar_fade && !virtual_view_pending {
+                    // want_redraw: this WM_PAINT was explicitly requested
+                    // (InvalidateRect from route_main_window_result — drag GPU
+                    // transforms, GPU-value updates, display-list rebuilds).
+                    // The skip-heuristic used to guess "did anything change?"
+                    // from scroll/fade/vview only, so those explicitly
+                    // requested redraws were SKIPPED — a dragged node's
+                    // transform froze on Windows GPU. X11 gained the same
+                    // `!want_redraw` guard earlier; this mirrors it.
+                    let want_redraw =
+                        self.needs_gpu_present || self.common.display_list_dirty;
+                    if !want_redraw && !scroll_active && !scrollbar_fade && !virtual_view_pending {
                         log_trace!(
                             LogCategory::Rendering,
                             "[Win32] No visual changes — skipping GPU render"
@@ -1029,6 +1095,8 @@ impl Win32Window {
                         return Ok(());
                     }
                 }
+                // A present is happening — the explicit request is satisfied.
+                self.needs_gpu_present = false;
 
                 if let (Some(layout_window), Some(render_api)) = (
                     self.common.layout_window.as_mut(),
@@ -1046,7 +1114,16 @@ impl Win32Window {
                     }
 
                     let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
-                    if has_virtual_view_updates {
+                    // display_list_dirty: the DL was regenerated internally
+                    // WITHOUT a relayout (caret blink, selection, text
+                    // undo/redo, ChangeNodeImage). The image-only transaction
+                    // below skip_scene_builder()s, so the new DL would never
+                    // reach WebRender — caret/selection/undo looked frozen in
+                    // GPU mode. Consume the flag and take the full-frame path
+                    // (mirrors the macOS + X11 consumers).
+                    let display_list_dirty = self.common.display_list_dirty;
+                    self.common.display_list_dirty = false;
+                    if has_virtual_view_updates || display_list_dirty {
                         if let Some(document_id) = self.common.document_id {
                             crate::desktop::shell2::common::layout::generate_frame(
                                 layout_window,
@@ -1415,6 +1492,25 @@ impl Win32Window {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
             | ProcessEventResult::ShouldRegenerateDomAllWindows
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                // RefreshDomAllWindows: ALSO mark every other registered
+                // window (mirrors the X11 fan-out). Without this, a
+                // popup/second-window callback mutating shared app data
+                // (app-global undo/redo) refreshed only itself; every other
+                // window kept showing the stale DOM until its own input.
+                if result == ProcessEventResult::ShouldRegenerateDomAllWindows {
+                    for other_hwnd in registry::get_all_window_handles() {
+                        if other_hwnd == hwnd {
+                            continue;
+                        }
+                        if let Some(wptr) = registry::get_window(other_hwnd) {
+                            let w = unsafe { &mut *wptr };
+                            w.common.frame_needs_regeneration = true;
+                            unsafe {
+                                (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                            }
+                        }
+                    }
+                }
                 self.common.frame_needs_regeneration = true;
                 unsafe {
                     (self.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -1425,6 +1521,8 @@ impl Win32Window {
             // the render path — no full layout regeneration needed.
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::ShouldReRenderCurrentWindow => {
+                // Mark the request so the GPU skip-heuristic can't drop it.
+                self.needs_gpu_present = true;
                 unsafe {
                     (self.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
@@ -2634,6 +2732,23 @@ unsafe extern "system" fn window_proc(
             let width = (lparam & 0xFFFF) as u32;
             let height = ((lparam >> 16) & 0xFFFF) as u32;
 
+            // SIZE_MINIMIZED delivers 0x0 and used to fall through the size
+            // gate without recording ANY state change: frame stayed Normal,
+            // timers kept invalidating, and WM_PAINT kept doing full CPU
+            // renders + blits of an invisible window. Record the minimize
+            // through the diff pipeline (Minimize callbacks fire, render
+            // paths see frame == Minimized) and skip the resize handling.
+            const SIZE_MINIMIZED: usize = 1;
+            if (wparam as usize) == SIZE_MINIMIZED {
+                use azul_core::window::WindowFrame;
+                window.common.previous_window_state =
+                    Some(window.common.current_window_state.clone());
+                window.common.current_window_state.flags.frame = WindowFrame::Minimized;
+                let r = window.process_window_events(0);
+                window.route_main_window_result(hwnd, r);
+                return 0;
+            }
+
             if width > 0 && height > 0 {
                 use azul_core::{geom::PhysicalSizeU32, window::WindowSize};
 
@@ -2821,7 +2936,12 @@ unsafe extern "system" fn window_proc(
 
             // Handle active scrollbar drag (special case - not part of normal event system)
             if window.common.scrollbar_drag_state.is_some() {
-                let _ = PlatformWindow::handle_scrollbar_drag(&mut *window, logical_pos);
+                // Route the result! handle_scrollbar_drag returns
+                // ShouldReRenderCurrentWindow after gpu_scroll — discarding it
+                // (`let _`) meant NO InvalidateRect: the content scrolled
+                // internally but the screen froze until an unrelated event.
+                let r = PlatformWindow::handle_scrollbar_drag(&mut *window, logical_pos);
+                window.route_main_window_result(hwnd, r);
                 return 0;
             }
 
@@ -2848,7 +2968,16 @@ unsafe extern "system" fn window_proc(
             };
             window.record_input_sample(logical_pos, button_state, false, false, Some(screen_pos));
 
-            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
+            // CPU mode (no WR hit_tester/document_id): resolve the hit test via
+            // the shared perform_hit_test → cpu_hit_tester path. Without this,
+            // events dispatched against a stale/empty hover state — hover CSS,
+            // clicks, wheel targeting and MouseEnter/Leave were all dead in the
+            // Windows CPU fallback (the GPU-gated block below has no CPU arm).
+            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
+                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            }
+
+            // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 if let (Some(hit_tester), Some(doc_id)) = (
                     window.common.hit_tester.as_mut(),
@@ -2961,11 +3090,21 @@ unsafe extern "system" fn window_proc(
             if let Some(scrollbar_hit_id) =
                 PlatformWindow::perform_scrollbar_hit_test(&*window, logical_pos)
             {
-                let _ = PlatformWindow::handle_scrollbar_click(
+                let r = PlatformWindow::handle_scrollbar_click(
                     &mut *window,
                     scrollbar_hit_id,
                     logical_pos,
                 );
+                // Capture the mouse so a fast thumb-drag leaving the client
+                // area keeps receiving WM_MOUSEMOVE (this early-return used to
+                // skip the SetCapture further down, so the drag died at the
+                // window edge — and WM_LBUTTONUP's ReleaseCapture released a
+                // capture that was never taken). Route the result so the
+                // track-click jump repaints immediately.
+                unsafe {
+                    (window.win32.user32.SetCapture)(hwnd);
+                }
+                window.route_main_window_result(hwnd, r);
                 return 0;
             }
 
@@ -2987,7 +3126,16 @@ unsafe extern "system" fn window_proc(
             };
             window.record_input_sample(logical_pos, BUTTON_STATE_LEFT, true, false, Some(screen_pos));
 
-            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
+            // CPU mode (no WR hit_tester/document_id): resolve the hit test via
+            // the shared perform_hit_test → cpu_hit_tester path. Without this,
+            // events dispatched against a stale/empty hover state — hover CSS,
+            // clicks, wheel targeting and MouseEnter/Leave were all dead in the
+            // Windows CPU fallback (the GPU-gated block below has no CPU arm).
+            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
+                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            }
+
+            // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 if let (Some(hit_tester), Some(doc_id)) = (
                     window.common.hit_tester.as_mut(),
@@ -3063,7 +3211,16 @@ unsafe extern "system" fn window_proc(
             };
             window.record_input_sample(logical_pos, BUTTON_STATE_NONE, false, true, Some(screen_pos));
 
-            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
+            // CPU mode (no WR hit_tester/document_id): resolve the hit test via
+            // the shared perform_hit_test → cpu_hit_tester path. Without this,
+            // events dispatched against a stale/empty hover state — hover CSS,
+            // clicks, wheel targeting and MouseEnter/Leave were all dead in the
+            // Windows CPU fallback (the GPU-gated block below has no CPU arm).
+            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
+                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            }
+
+            // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 if let (Some(hit_tester), Some(doc_id)) = (
                     window.common.hit_tester.as_mut(),
@@ -3120,7 +3277,16 @@ unsafe extern "system" fn window_proc(
                 CursorPosition::InWindow(logical_pos);
             window.common.current_window_state.mouse_state.right_down = true;
 
-            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
+            // CPU mode (no WR hit_tester/document_id): resolve the hit test via
+            // the shared perform_hit_test → cpu_hit_tester path. Without this,
+            // events dispatched against a stale/empty hover state — hover CSS,
+            // clicks, wheel targeting and MouseEnter/Leave were all dead in the
+            // Windows CPU fallback (the GPU-gated block below has no CPU arm).
+            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
+                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            }
+
+            // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 if let (Some(hit_tester), Some(doc_id)) = (
                     window.common.hit_tester.as_mut(),
@@ -3174,7 +3340,16 @@ unsafe extern "system" fn window_proc(
                 CursorPosition::InWindow(logical_pos);
             window.common.current_window_state.mouse_state.right_down = false;
 
-            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
+            // CPU mode (no WR hit_tester/document_id): resolve the hit test via
+            // the shared perform_hit_test → cpu_hit_tester path. Without this,
+            // events dispatched against a stale/empty hover state — hover CSS,
+            // clicks, wheel targeting and MouseEnter/Leave were all dead in the
+            // Windows CPU fallback (the GPU-gated block below has no CPU arm).
+            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
+                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            }
+
+            // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 if let (Some(hit_tester), Some(doc_id)) = (
                     window.common.hit_tester.as_mut(),
@@ -3349,7 +3524,16 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
+            // CPU mode (no WR hit_tester/document_id): resolve the hit test via
+            // the shared perform_hit_test → cpu_hit_tester path. Without this,
+            // events dispatched against a stale/empty hover state — hover CSS,
+            // clicks, wheel targeting and MouseEnter/Leave were all dead in the
+            // Windows CPU fallback (the GPU-gated block below has no CPU arm).
+            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
+                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            }
+
+            // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 if let (Some(hit_tester), Some(doc_id)) = (
                     window.common.hit_tester.as_mut(),
@@ -3660,6 +3844,14 @@ unsafe extern "system" fn window_proc(
             // Phase 2: OnFocus callback - sync IME position after focus
             window.sync_ime_position_to_os();
 
+            // Run the state-diff pass NOW: focus/blur callbacks fire off the
+            // window_focused transition, and focus-conditional styling needs a
+            // repaint. Returning without processing let the next input event
+            // overwrite previous_window_state, erasing the transition —
+            // focus/blur callbacks never fired on Windows.
+            let r = window.process_window_events(0);
+            window.route_main_window_result(hwnd, r);
+
             0
         }
 
@@ -3669,6 +3861,11 @@ unsafe extern "system" fn window_proc(
             window.common.current_window_state.flags.has_focus = false;
             window.common.current_window_state.window_focused = false;
             window.dynamic_selector_context.window_focused = false;
+
+            // Same as WM_SETFOCUS: process + route so blur callbacks fire and
+            // unfocused styling repaints.
+            let r = window.process_window_events(0);
+            window.route_main_window_result(hwnd, r);
 
             0
         }
