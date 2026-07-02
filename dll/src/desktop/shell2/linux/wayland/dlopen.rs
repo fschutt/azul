@@ -109,6 +109,14 @@ pub struct Wayland {
     pub wl_surface_attach:
         unsafe extern "C" fn(surface: *mut wl_surface, buffer: *mut wl_buffer, i32, i32),
     pub wl_surface_damage: unsafe extern "C" fn(surface: *mut wl_surface, i32, i32, i32, i32),
+    /// wl_surface.set_buffer_scale (opcode 8, requires surface version >= 3)
+    pub wl_surface_set_buffer_scale: unsafe extern "C" fn(surface: *mut wl_surface, i32),
+    /// wl_surface.damage_buffer (opcode 9, requires surface version >= 4):
+    /// damage in BUFFER (physical) coordinates.
+    pub wl_surface_damage_buffer:
+        unsafe extern "C" fn(surface: *mut wl_surface, i32, i32, i32, i32),
+    pub wl_buffer_add_listener:
+        unsafe extern "C" fn(*mut wl_buffer, *const wl_buffer_listener, *mut c_void) -> i32,
     pub wl_surface_frame: unsafe extern "C" fn(surface: *mut wl_surface) -> *mut wl_callback,
 
     pub wl_callback_add_listener:
@@ -402,6 +410,9 @@ impl Wayland {
             wl_surface_commit: wl_surface_commit_impl,
             wl_surface_attach: wl_surface_attach_impl,
             wl_surface_damage: wl_surface_damage_impl,
+            wl_surface_set_buffer_scale: wl_surface_set_buffer_scale_impl,
+            wl_surface_damage_buffer: wl_surface_damage_buffer_impl,
+            wl_buffer_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_surface_frame: wl_surface_frame_impl,
 
             wl_callback_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
@@ -791,6 +802,24 @@ unsafe extern "C" fn wl_surface_attach_impl(s: *mut wl_surface, buffer: *mut wl_
 unsafe extern "C" fn wl_surface_damage_impl(s: *mut wl_surface, x: i32, y: i32, w: i32, h: i32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 2, x, y, w, h);
+}
+unsafe extern "C" fn wl_surface_set_buffer_scale_impl(s: *mut wl_surface, scale: i32) {
+    // wl_surface request opcode 8 (since version 3). Callers must guard on
+    // wl_proxy_get_version(surface) >= 3.
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32) = std::mem::transmute(ctx().marshal);
+    f(s as *mut wl_proxy, 8, scale);
+}
+unsafe extern "C" fn wl_surface_damage_buffer_impl(
+    s: *mut wl_surface,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) {
+    // wl_surface request opcode 9 (since version 4). Callers must guard on
+    // wl_proxy_get_version(surface) >= 4.
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(s as *mut wl_proxy, 9, x, y, w, h);
 }
 unsafe extern "C" fn wl_surface_set_opaque_region_impl(s: *mut wl_surface, region: *mut wl_region) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) = std::mem::transmute(ctx().marshal);

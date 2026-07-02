@@ -220,6 +220,14 @@ pub(super) extern "C" fn wl_surface_enter_handler(
         );
         window.common.current_window_state.size.dpi = new_dpi;
         window.common.frame_needs_regeneration = true;
+        // Recreate the shm buffers at the new scale (physical = logical ×
+        // scale) — the old buffers are sized for the previous scale and the
+        // copy clamp would truncate every frame.
+        let (w, h) = {
+            let d = &window.common.current_window_state.size.dimensions;
+            (d.width as i32, d.height as i32)
+        };
+        window.resize_surface(w, h);
         // Schedule the frame NOW. Setting the flag alone renders nothing:
         // Wayland gets no spurious expose/configure events, so an idle window
         // dragged to another monitor kept its old-DPI frame until the next
@@ -253,8 +261,14 @@ pub(super) extern "C" fn wl_surface_leave_handler(
         );
         window.common.current_window_state.size.dpi = new_dpi;
         window.common.frame_needs_regeneration = true;
-        // Same as the enter handler: schedule the frame now (no spurious
-        // events on Wayland to mask a missing redraw request).
+        // Same as the enter handler: recreate buffers at the new scale +
+        // schedule the frame now (no spurious events on Wayland to mask a
+        // missing redraw request).
+        let (w, h) = {
+            let d = &window.common.current_window_state.size.dimensions;
+            (d.width as i32, d.height as i32)
+        };
+        window.resize_surface(w, h);
         window.request_redraw();
     }
 }

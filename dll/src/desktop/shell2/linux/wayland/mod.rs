@@ -83,23 +83,62 @@ enum RenderMode {
 }
 
 /// State for CPU fallback rendering.
+/// One of the two shm buffers backing a surface (double buffering).
+struct ShmSlot {
+    buffer: *mut defines::wl_buffer,
+    /// Byte offset of this slot inside the shared pool.
+    offset: usize,
+    /// Heap flag flipped to `false` by the `wl_buffer.release` listener.
+    /// While `true` the compositor may still be reading the buffer — writing
+    /// to it is a protocol violation (visible as tearing).
+    busy: *mut bool,
+    /// Buffer-px regions updated in the OTHER slot since this slot was last
+    /// presented — they must be copied forward before a partial update here.
+    stale: Vec<(i32, i32, i32, i32)>,
+    /// Too many stale rects accumulated → full copy on next use.
+    stale_overflow: bool,
+}
+
 struct CpuFallbackState {
     wayland: Rc<Wayland>,
     pool: *mut defines::wl_shm_pool,
-    buffer: *mut defines::wl_buffer,
+    /// Two buffers, alternated so the client never writes into a buffer the
+    /// compositor still holds (the old single-buffer path violated the
+    /// protocol on every frame after the first).
+    slots: [ShmSlot; 2],
+    /// Slot to draw into / attach next.
+    active: usize,
     data: *mut u8,
+    pool_size: usize,
+    /// Buffer dimensions in PHYSICAL px (logical × scale).
     width: i32,
     height: i32,
     stride: i32,
+    /// Integer buffer scale (`wl_surface.set_buffer_scale`); 1 on non-HiDPI.
+    scale: i32,
     fd: i32, // Keep fd open until drop
-    /// Damage rects (x, y, w, h) of the last render pass, in SURFACE-LOCAL
-    /// coordinates (== buffer px while `wl_surface_set_buffer_scale` is never
-    /// sent, i.e. scale 1). Filled by the CPU present path from
+    /// Damage rects (x, y, w, h) of the last render pass, in BUFFER (physical)
+    /// coordinates. Filled by the CPU present path from
     /// `CpuBackend::last_present_damage`; drained into per-rect
-    /// `wl_surface_damage` calls at commit. Empty = nothing changed on screen
-    /// (no damage posted, compositor recomposites nothing).
+    /// `wl_surface_damage_buffer` (or scale-divided `wl_surface_damage`) at
+    /// commit. Empty = nothing changed on screen.
     damage_rects: Vec<(i32, i32, i32, i32)>,
 }
+
+/// `wl_buffer.release`: compositor is done with the buffer — mark reusable.
+/// `data` is the slot's heap `busy` flag; events are dispatched on the
+/// window's own thread, so a plain bool is race-free.
+extern "C" fn wl_buffer_release_handler(data: *mut c_void, _buffer: *mut defines::wl_buffer) {
+    if !data.is_null() {
+        unsafe {
+            *(data as *mut bool) = false;
+        }
+    }
+}
+
+static WL_BUFFER_RELEASE_LISTENER: defines::wl_buffer_listener = defines::wl_buffer_listener {
+    release: wl_buffer_release_handler,
+};
 
 /// Monitor state tracking for multi-monitor support
 #[derive(Debug, Clone)]
@@ -613,11 +652,26 @@ impl WaylandWindow {
             RenderMode::Cpu(Some(cpu_state)) => {
                 // Buffer already rendered by render_frame_if_ready — just submit
                 unsafe {
-                    (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
-                    // Per-rect damage from the last render pass; empty = the
-                    // frame is unchanged (nothing to recomposite).
+                    (self.wayland.wl_surface_attach)(self.surface, cpu_state.active_buffer(), 0, 0);
+                    *cpu_state.slots[cpu_state.active].busy = true;
+                    // Per-rect damage from the last render pass (buffer px);
+                    // empty = the frame is unchanged (nothing to recomposite).
+                    let surface_version =
+                        (self.wayland.wl_proxy_get_version)(self.surface as *mut defines::wl_proxy);
+                    let scale = cpu_state.scale.max(1);
+                    if surface_version >= 3 && scale > 1 {
+                        (self.wayland.wl_surface_set_buffer_scale)(self.surface, scale);
+                    }
                     for (dx, dy, dw, dh) in cpu_state.damage_rects.drain(..) {
-                        (self.wayland.wl_surface_damage)(self.surface, dx, dy, dw, dh);
+                        if surface_version >= 4 {
+                            (self.wayland.wl_surface_damage_buffer)(self.surface, dx, dy, dw, dh);
+                        } else {
+                            let x0 = dx.div_euclid(scale);
+                            let y0 = dy.div_euclid(scale);
+                            let x1 = (dx + dw + scale - 1).div_euclid(scale);
+                            let y1 = (dy + dh + scale - 1).div_euclid(scale);
+                            (self.wayland.wl_surface_damage)(self.surface, x0, y0, x1 - x0, y1 - y0);
+                        }
                     }
                     (self.wayland.wl_surface_commit)(self.surface);
                 }
@@ -1421,7 +1475,7 @@ impl WaylandWindow {
                 "[Wayland] AZ_BACKEND=cpu -> CPU rendering (no GL context created)"
             );
             RenderMode::Cpu(Some(CpuFallbackState::new(
-                &wayland, window.shm, width, height,
+                &wayland, window.shm, width, height, 1,
             )?))
         } else {
             match gl::GlContext::new(&wayland, display, window.surface, width, height) {
@@ -1441,7 +1495,7 @@ impl WaylandWindow {
                             );
                             drop(gl_context);
                             break 'gpu RenderMode::Cpu(Some(CpuFallbackState::new(
-                                &wayland, window.shm, width, height,
+                                &wayland, window.shm, width, height, 1,
                             )?));
                         }
                     };
@@ -1461,7 +1515,7 @@ impl WaylandWindow {
                         );
                         drop(gl_context);
                         RenderMode::Cpu(Some(CpuFallbackState::new(
-                            &wayland, window.shm, width, height,
+                            &wayland, window.shm, width, height, 1,
                         )?))
                     } else {
                         RenderMode::Gpu(gl_context, gl_functions)
@@ -1474,7 +1528,7 @@ impl WaylandWindow {
                         e
                     );
                     RenderMode::Cpu(Some(CpuFallbackState::new(
-                        &wayland, window.shm, width, height,
+                        &wayland, window.shm, width, height, 1,
                     )?))
                 }
             }
@@ -1506,7 +1560,7 @@ impl WaylandWindow {
         };
         if webrender_failed {
             window.render_mode = RenderMode::Cpu(Some(CpuFallbackState::new(
-                &wayland, window.shm, width, height,
+                &wayland, window.shm, width, height, 1,
             )?));
         }
 
@@ -2717,6 +2771,14 @@ impl WaylandWindow {
         unsafe { (self.wayland.wl_display_get_fd)(self.display) }
     }
 
+    /// Integer buffer scale for this window (dpi is maintained by the
+    /// wl_output enter/leave handlers; 96 → 1, 192 → 2, …).
+    fn buffer_scale(&self) -> i32 {
+        (self.common.current_window_state.size.dpi as f32 / 96.0)
+            .round()
+            .max(1.0) as i32
+    }
+
     /// Arm the key-repeat timer for `keycode` (delay, then interval).
     fn arm_key_repeat(&mut self, keycode: u32) {
         if self.key_repeat_fd < 0 || self.key_repeat_rate_ms == 0 {
@@ -3882,40 +3944,99 @@ impl WaylandWindow {
                                             dpi, clamp_w, clamp_h, force_full,
                                         );
                                     if let Some(rects) = rects {
-                                        let dst_stride = (cpu_state.width.max(0) as usize) * 4;
-                                        let src_stride = (src_w as usize) * 4;
-                                        let src = pixmap.data();
-                                        let buf = cpu_state.pixel_buffer_mut();
-                                        for (rx, ry, rw, rh) in &rects {
-                                            for row in 0..*rh as usize {
-                                                let y = *ry as usize + row;
-                                                let so = y * src_stride + (*rx as usize) * 4;
-                                                let doff = y * dst_stride + (*rx as usize) * 4;
-                                                let n = (*rw as usize) * 4;
-                                                if so + n > src.len() || doff + n > buf.len() {
-                                                    continue;
-                                                }
-                                                // RGBA → ARGB8888 (BGRA in LE memory)
-                                                for (s, d) in src[so..so + n]
-                                                    .chunks_exact(4)
-                                                    .zip(buf[doff..doff + n].chunks_exact_mut(4))
-                                                {
-                                                    d[0] = s[2]; // B
-                                                    d[1] = s[1]; // G
-                                                    d[2] = s[0]; // R
-                                                    d[3] = s[3]; // A
+                                        // Double buffering: draw into a buffer
+                                        // the compositor does NOT hold. If both
+                                        // are held, skip this present and retry
+                                        // after the next frame callback /
+                                        // buffer release.
+                                        if let Some(slot) = cpu_state.acquire_slot() {
+                                            // Copy set = new damage ∪ what this
+                                            // slot missed while the other one
+                                            // was on screen.
+                                            let full = (0u32, 0u32, clamp_w, clamp_h);
+                                            let copy_rects: Vec<(u32, u32, u32, u32)> =
+                                                if cpu_state.slots[slot].stale_overflow {
+                                                    vec![full]
+                                                } else {
+                                                    rects
+                                                        .iter()
+                                                        .copied()
+                                                        .chain(
+                                                            cpu_state.slots[slot]
+                                                                .stale
+                                                                .iter()
+                                                                .map(|&(x, y, w, h)| {
+                                                                    (
+                                                                        x.max(0) as u32,
+                                                                        y.max(0) as u32,
+                                                                        w.max(0) as u32,
+                                                                        h.max(0) as u32,
+                                                                    )
+                                                                }),
+                                                        )
+                                                        .collect()
+                                                };
+                                            let dst_stride =
+                                                (cpu_state.width.max(0) as usize) * 4;
+                                            let src_stride = (src_w as usize) * 4;
+                                            let src = pixmap.data();
+                                            let buf = cpu_state.slot_buffer_mut(slot);
+                                            for (rx, ry, rw, rh) in &copy_rects {
+                                                for row in 0..*rh as usize {
+                                                    let y = *ry as usize + row;
+                                                    let so = y * src_stride + (*rx as usize) * 4;
+                                                    let doff = y * dst_stride + (*rx as usize) * 4;
+                                                    let n = (*rw as usize) * 4;
+                                                    if so + n > src.len() || doff + n > buf.len() {
+                                                        continue;
+                                                    }
+                                                    // RGBA → ARGB8888 (BGRA in LE memory)
+                                                    for (s, d) in src[so..so + n]
+                                                        .chunks_exact(4)
+                                                        .zip(
+                                                            buf[doff..doff + n]
+                                                                .chunks_exact_mut(4),
+                                                        )
+                                                    {
+                                                        d[0] = s[2]; // B
+                                                        d[1] = s[1]; // G
+                                                        d[2] = s[0]; // R
+                                                        d[3] = s[3]; // A
+                                                    }
                                                 }
                                             }
+                                            // Stale bookkeeping: this slot is
+                                            // now current; the OTHER slot missed
+                                            // this frame's rects.
+                                            cpu_state.slots[slot].stale.clear();
+                                            cpu_state.slots[slot].stale_overflow = false;
+                                            let other = 1 - slot;
+                                            for (x, y, w, h) in &rects {
+                                                cpu_state.slots[other]
+                                                    .stale
+                                                    .push((*x as i32, *y as i32, *w as i32, *h as i32));
+                                            }
+                                            if cpu_state.slots[other].stale.len() > 32 {
+                                                cpu_state.slots[other].stale.clear();
+                                                cpu_state.slots[other].stale_overflow = true;
+                                            }
+                                            // Damage = the NEW rects only, in
+                                            // BUFFER coordinates.
+                                            cpu_state.damage_rects.extend(rects.iter().map(
+                                                |(x, y, w, h)| {
+                                                    (*x as i32, *y as i32, *w as i32, *h as i32)
+                                                },
+                                            ));
+                                        } else {
+                                            // Both buffers held by the
+                                            // compositor — retry next cycle.
+                                            // The retry's render_frame will
+                                            // diff as "unchanged", so force a
+                                            // full copy+present then or this
+                                            // frame would never reach screen.
+                                            self.needs_redraw = true;
+                                            self.os_present_requested = true;
                                         }
-                                        // Surface-local coords == buffer px at
-                                        // buffer_scale 1 (never set). When a
-                                        // set_buffer_scale/HiDPI path lands,
-                                        // switch to wl_surface_damage_buffer.
-                                        cpu_state.damage_rects.extend(rects.iter().map(
-                                            |(x, y, w, h)| {
-                                                (*x as i32, *y as i32, *w as i32, *h as i32)
-                                            },
-                                        ));
                                     }
                                 }
                                 // (previous-display-list tracking now lives inside
@@ -3926,25 +4047,74 @@ impl WaylandWindow {
                     } else { false };
 
                     if !rendered {
-                        cpu_state.draw_blue();
-                        let (w, h) = (cpu_state.width, cpu_state.height);
-                        cpu_state.damage_rects.push((0, 0, w, h));
+                        if cpu_state.acquire_slot().is_some() {
+                            cpu_state.draw_blue();
+                            let (w, h) = (cpu_state.width, cpu_state.height);
+                            cpu_state.damage_rects.push((0, 0, w, h));
+                        } else {
+                            self.needs_redraw = true;
+                        }
                     }
                 }
 
                 #[cfg(not(feature = "cpurender"))]
                 {
-                    cpu_state.draw_blue();
-                    let (w, h) = (cpu_state.width, cpu_state.height);
-                    cpu_state.damage_rects.push((0, 0, w, h));
+                    if cpu_state.acquire_slot().is_some() {
+                        cpu_state.draw_blue();
+                        let (w, h) = (cpu_state.width, cpu_state.height);
+                        cpu_state.damage_rects.push((0, 0, w, h));
+                    } else {
+                        self.needs_redraw = true;
+                    }
                 }
 
                 unsafe {
-                    (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
-                    // Per-rect present damage (queued above). Empty = frame
-                    // unchanged → the compositor recomposites nothing.
+                    let surface_version =
+                        (self.wayland.wl_proxy_get_version)(self.surface as *mut defines::wl_proxy);
+                    // Attach only when something was drawn/damaged — attaching
+                    // is what marks the buffer busy.
+                    if !cpu_state.damage_rects.is_empty() {
+                        (self.wayland.wl_surface_attach)(
+                            self.surface,
+                            cpu_state.active_buffer(),
+                            0,
+                            0,
+                        );
+                        *cpu_state.slots[cpu_state.active].busy = true;
+                        // HiDPI: tell the compositor the buffer is scale× the
+                        // surface size (v3+). Without this a physical-sized
+                        // buffer displays scale× too large.
+                        if surface_version >= 3 && cpu_state.scale > 1 {
+                            (self.wayland.wl_surface_set_buffer_scale)(
+                                self.surface,
+                                cpu_state.scale,
+                            );
+                        }
+                    }
+                    // Per-rect present damage (queued above; BUFFER px). Empty
+                    // = frame unchanged → the compositor recomposites nothing.
+                    // damage_buffer (v4+) takes buffer px directly; older
+                    // surfaces get surface-local coords (buffer / scale,
+                    // rounded OUTWARD).
+                    let scale = cpu_state.scale.max(1);
                     for (dx, dy, dw, dh) in cpu_state.damage_rects.drain(..) {
-                        (self.wayland.wl_surface_damage)(self.surface, dx, dy, dw, dh);
+                        if surface_version >= 4 {
+                            (self.wayland.wl_surface_damage_buffer)(
+                                self.surface, dx, dy, dw, dh,
+                            );
+                        } else {
+                            let x0 = dx.div_euclid(scale);
+                            let y0 = dy.div_euclid(scale);
+                            let x1 = (dx + dw + scale - 1).div_euclid(scale);
+                            let y1 = (dy + dh + scale - 1).div_euclid(scale);
+                            (self.wayland.wl_surface_damage)(
+                                self.surface,
+                                x0,
+                                y0,
+                                x1 - x0,
+                                y1 - y0,
+                            );
+                        }
                     }
                 }
             }
@@ -3953,7 +4123,8 @@ impl WaylandWindow {
                 if !self.shm.is_null() {
                     let width = self.common.current_window_state.size.dimensions.width as i32;
                     let height = self.common.current_window_state.size.dimensions.height as i32;
-                    match CpuFallbackState::new(&self.wayland, self.shm, width, height) {
+                    let scale = self.buffer_scale();
+                    match CpuFallbackState::new(&self.wayland, self.shm, width, height, scale) {
                         Ok(cpu_state) => {
                             self.render_mode = RenderMode::Cpu(Some(cpu_state));
                             self.os_present_requested = true; // fresh buffer
@@ -4251,11 +4422,20 @@ impl CpuFallbackState {
     fn new(
         wayland: &Rc<Wayland>,
         shm: *mut wl_shm,
-        width: i32,
-        height: i32,
+        logical_width: i32,
+        logical_height: i32,
+        scale: i32,
     ) -> Result<Self, WindowError> {
+        let scale = scale.max(1);
+        // Buffers are allocated at PHYSICAL size; the surface gets
+        // set_buffer_scale(scale) at commit. The old code allocated at
+        // LOGICAL size while render_frame produced a physical-sized pixmap —
+        // on any scale>=2 output the linear copy sheared the image into
+        // garbage (and everything was blurry at best).
+        let width = logical_width.max(1) * scale;
+        let height = logical_height.max(1) * scale;
         let stride = width * 4;
-        let size = stride * height;
+        let size = stride * height * 2; // TWO buffers in one pool
 
         // Try memfd_create first (Linux 3.17+, glibc 2.27+)
         // Fall back to shm_open for older systems
@@ -4321,39 +4501,88 @@ impl CpuFallbackState {
 
         // Create the pool BEFORE closing the fd - Wayland needs it open
         let pool = unsafe { (wayland.wl_shm_create_pool)(shm, fd, size) };
-        let buffer = unsafe {
-            (wayland.wl_shm_pool_create_buffer)(
-                pool,
-                0,
-                width,
-                height,
-                stride,
-                WL_SHM_FORMAT_ARGB8888,
-            )
+        let buf_bytes = (stride * height) as usize;
+        let make_slot = |idx: usize| -> ShmSlot {
+            let offset = idx * buf_bytes;
+            let buffer = unsafe {
+                (wayland.wl_shm_pool_create_buffer)(
+                    pool,
+                    offset as i32,
+                    width,
+                    height,
+                    stride,
+                    WL_SHM_FORMAT_ARGB8888,
+                )
+            };
+            let busy = Box::into_raw(Box::new(false));
+            unsafe {
+                (wayland.wl_buffer_add_listener)(
+                    buffer,
+                    &WL_BUFFER_RELEASE_LISTENER,
+                    busy as *mut c_void,
+                );
+            }
+            ShmSlot {
+                buffer,
+                offset,
+                busy,
+                stale: Vec::new(),
+                // A fresh slot has undefined content: full copy on first use.
+                stale_overflow: true,
+            }
         };
 
         Ok(Self {
             wayland: wayland.clone(),
             pool,
-            buffer,
+            slots: [make_slot(0), make_slot(1)],
+            active: 0,
             data: data as *mut u8,
+            pool_size: size as usize,
             width,
             height,
             stride,
+            scale,
             fd, // Keep fd open - will be closed in Drop
             damage_rects: Vec::new(),
         })
     }
 
-    /// Get a mutable slice of the shared memory buffer as ARGB8888 pixels.
-    fn pixel_buffer_mut(&mut self) -> &mut [u8] {
-        let size = (self.stride * self.height) as usize;
-        unsafe { std::slice::from_raw_parts_mut(self.data, size) }
+    /// Pick a buffer the compositor is NOT holding. Prefers the current
+    /// `active` slot; returns None when both are busy (caller skips the
+    /// attach this cycle and retries after the next frame callback/release).
+    fn acquire_slot(&mut self) -> Option<usize> {
+        let a = self.active;
+        if unsafe { !*self.slots[a].busy } {
+            return Some(a);
+        }
+        let b = 1 - a;
+        if unsafe { !*self.slots[b].busy } {
+            self.active = b;
+            return Some(b);
+        }
+        None
     }
 
-    fn draw_blue(&self) {
-        let size = (self.stride * self.height) as usize;
-        let slice = unsafe { std::slice::from_raw_parts_mut(self.data, size) };
+    /// The buffer that will be (or was last) attached.
+    fn active_buffer(&self) -> *mut defines::wl_buffer {
+        self.slots[self.active].buffer
+    }
+
+    /// Mutable pixels of `slot` (ARGB8888, physical px).
+    fn slot_buffer_mut(&mut self, slot: usize) -> &mut [u8] {
+        let buf_bytes = (self.stride * self.height) as usize;
+        let off = self.slots[slot].offset;
+        unsafe { std::slice::from_raw_parts_mut(self.data.add(off), buf_bytes) }
+    }
+
+    /// Get a mutable slice of the ACTIVE buffer as ARGB8888 pixels.
+    fn pixel_buffer_mut(&mut self) -> &mut [u8] {
+        self.slot_buffer_mut(self.active)
+    }
+
+    fn draw_blue(&mut self) {
+        let slice = self.pixel_buffer_mut();
         for chunk in slice.chunks_exact_mut(4) {
             chunk[0] = 0xFF; // Blue
             chunk[1] = 0x00; // Green
@@ -4366,14 +4595,22 @@ impl CpuFallbackState {
 impl Drop for CpuFallbackState {
     fn drop(&mut self) {
         unsafe {
-            if !self.buffer.is_null() {
-                (self.wayland.wl_buffer_destroy)(self.buffer);
+            for slot in &mut self.slots {
+                if !slot.buffer.is_null() {
+                    (self.wayland.wl_buffer_destroy)(slot.buffer);
+                }
+                if !slot.busy.is_null() {
+                    // The proxy is destroyed above, so no release event can
+                    // fire into this flag afterwards.
+                    drop(Box::from_raw(slot.busy));
+                    slot.busy = std::ptr::null_mut();
+                }
             }
             if !self.pool.is_null() {
                 (self.wayland.wl_shm_pool_destroy)(self.pool);
             }
             if !self.data.is_null() {
-                libc::munmap(self.data as *mut _, (self.stride * self.height) as usize);
+                libc::munmap(self.data as *mut _, self.pool_size);
             }
             // Close fd AFTER destroying pool - Wayland protocol requires it to stay open
             if self.fd != -1 {
@@ -4394,7 +4631,10 @@ impl WaylandWindow {
             RenderMode::Cpu(cpu_opt) => {
                 if !self.shm.is_null() {
                     drop(cpu_opt.take());
-                    match CpuFallbackState::new(&self.wayland, self.shm, width, height) {
+                    let scale = (self.common.current_window_state.size.dpi as f32 / 96.0)
+                        .round()
+                        .max(1.0) as i32;
+                    match CpuFallbackState::new(&self.wayland, self.shm, width, height, scale) {
                         Ok(new_state) => {
                             *cpu_opt = Some(new_state);
                             // Fresh buffer = undefined content: the next
@@ -4834,7 +5074,17 @@ impl WaylandPopup {
 
         // Lazily create the CPU shm buffer (sized in physical pixels).
         if matches!(self.render_mode, RenderMode::Cpu(None)) {
-            match CpuFallbackState::new(&self.wayland, self.shm, buf_w, buf_h) {
+            // The popup renders at dpi_factor into a physical-sized pixmap;
+            // give the buffer the matching integer scale so the compositor
+            // doesn't display it dpi× oversized (set_buffer_scale at attach).
+            let scale = dpi_factor.round().max(1.0) as i32;
+            match CpuFallbackState::new(
+                &self.wayland,
+                self.shm,
+                (buf_w + scale - 1) / scale,
+                (buf_h + scale - 1) / scale,
+                scale,
+            ) {
                 Ok(state) => self.render_mode = RenderMode::Cpu(Some(state)),
                 Err(e) => {
                     log_error!(
@@ -4890,7 +5140,8 @@ impl WaylandPopup {
             }
 
             unsafe {
-                (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
+                (self.wayland.wl_surface_attach)(self.surface, cpu_state.active_buffer(), 0, 0);
+                unsafe { *cpu_state.slots[cpu_state.active].busy = true };
                 (self.wayland.wl_surface_damage)(
                     self.surface,
                     0,

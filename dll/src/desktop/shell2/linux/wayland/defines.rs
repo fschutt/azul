@@ -457,6 +457,16 @@ pub struct wl_callback_listener {
     pub done: extern "C" fn(data: *mut c_void, callback: *mut wl_callback, callback_data: u32),
 }
 
+/// Listener for `wl_buffer.release` — the compositor is done reading the
+/// buffer and the client may write to it again. Required for correct
+/// double-buffering (writing to an attached buffer before release is a
+/// protocol violation that shows as tearing).
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct wl_buffer_listener {
+    pub release: extern "C" fn(data: *mut c_void, buffer: *mut wl_buffer),
+}
+
 /// Listener for `wl_output` events (geometry, mode, done, scale).
 #[repr(C)]
 #[derive(Copy, Clone)]
