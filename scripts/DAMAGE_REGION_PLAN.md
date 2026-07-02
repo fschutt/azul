@@ -13,10 +13,16 @@ Status: **design** (2026-06-06). Scope: **X11 first** (CPU + GPU), then macOS/Wi
 > rects), viewport-space projection of diff damage through scroll offsets, paint-anchored
 > scroll baseline (sub-device-pixel deltas accumulate), drift-free shift rounding, clamped
 > exposed strips, overlay-after-shift repaint (scrollbar/dropdown drag). `display_list_dirty`
-> is now consumed on X11+Win32 GPU (caret/selection/undo). Still open from this plan: §4
-> layout-level damage source (DL diff remains), §5 css_property_damage, GPU partial present /
-> buffer-age (§12-P5), `is_visually_equal` coverage for ScrollBarStyled/VirtualView/filters
-> (needs a GPU-value damage channel — a naive equality arm would freeze the scrollbar thumb).
+> is now consumed on X11+Win32 GPU (caret/selection/undo). ROUND 2 (same day):
+> `is_visually_equal` covers ALL variants + a GPU-VALUE damage channel (extract_gpu_values →
+> frame diff → scrollbar-bounds damage / ref-frame full) makes FrameDamage::None reachable for
+> scrollbar'd windows (idle skip test green); Wayland gained double-buffered shm with
+> wl_buffer.release listeners + physical-size buffers + set_buffer_scale/damage_buffer
+> (HiDPI), and client-side key repeat; macOS key double-dispatch removed (responder chain is
+> the single path); the Linux multi-window wait polls every window's real connection fd.
+> Still open from this plan: §4 layout-level damage source (DL diff remains), §5
+> css_property_damage, GPU partial present / buffer-age (§12-P5), Wayland fractional-scale
+> (integer scales only), macOS CVDisplayLink lifecycle/off-main-thread + RunForever drains.
 
 This document is the plan for fixing the family of redraw bugs (cross-window stale
 header, cursor trails, brush-paint not showing, CPU scroll, GPU full-window flicker)
