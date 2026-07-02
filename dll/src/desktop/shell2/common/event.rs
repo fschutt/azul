@@ -1499,6 +1499,13 @@ pub trait PlatformWindow {
                                 .set_node_type(azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(image.clone())));
                         }
                     }
+                    // Rebuild the display list from the mutated styled DOM.
+                    // Without this the stored display list still carries the
+                    // OLD image item: the CPU diff sees "nothing changed" and
+                    // skips, and the GPU image-only txn re-sends the old
+                    // scene — a per-frame ChangeNodeImage (camera/capture
+                    // tile) stays frozen on its placeholder forever.
+                    lw.regenerate_display_list_for_dom(*dom_id);
                 }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
@@ -1538,6 +1545,10 @@ pub trait PlatformWindow {
                                 .set_clip_mask(mask.clone());
                         }
                     }
+                    // Same as ChangeNodeImage above: the display list must be
+                    // rebuilt from the mutated styled DOM or the change is
+                    // invisible to both CPU diff and GPU txn.
+                    lw.regenerate_display_list_for_dom(*dom_id);
                 }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
