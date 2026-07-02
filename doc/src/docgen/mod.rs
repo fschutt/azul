@@ -393,8 +393,7 @@ fn generate_index_html(
 
     let index_html_template = include_str!("../../templates/index.template.html")
         .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
-        .replace("<!-- HEAD -->", &get_common_head_tags(inline_css))
-        .replace("<!-- SIDEBAR -->", &get_sidebar())
+        .replace("<!-- HEAD -->", &get_landing_head_tags(inline_css))
         .replace(
             "<!-- PRISM_SCRIPT -->",
             &format!("{}\n{}", get_prism_script(), get_search_init(PageKind::Other)),
@@ -791,6 +790,58 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 </script>"##.to_string()
+}
+
+/// Head tags for the /ui landing page ONLY. The landing uses the azlin.io
+/// marketing design system (azlin.css: Playfair Display + Rubik, pill navbar,
+/// gradient hero) plus ui-landing.css for the docs-specific parts (release
+/// card, example sections, code panels) — NOT the docs-site main.css.
+///
+/// Production (`inline_css == true`) inlines both stylesheets to prevent FOUC;
+/// debug links them externally (azlin.css + ui-landing.css are copied to the
+/// deploy root by main.rs) so CSS edits don't need a docgen re-run.
+pub fn get_landing_head_tags(inline_css: bool) -> String {
+    // Search assets live under the docs sub-path, same rule as the docs head.
+    let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
+
+    let css_tag = if inline_css {
+        let azlin_css = include_str!("../../templates/azlin.css");
+        let landing_css = include_str!("../../templates/ui-landing.css");
+        format!("<style>\n{}\n{}\n</style>", azlin_css, landing_css)
+    } else {
+        // Both files are copied to the deploy root (next to /foam.svg).
+        "<link rel='stylesheet' type='text/css' href='/azlin.css'>\n      \
+         <link rel='stylesheet' type='text/css' href='/ui-landing.css'>"
+            .to_string()
+    };
+
+    format!("
+      <meta charset='utf-8'/>
+      <meta name='viewport' content='width=device-width, initial-scale=1'>
+      <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
+      <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
+      <meta name='keywords' content='gui, rust, user interface'>
+
+      <link rel='preconnect' href='https://fonts.googleapis.com'>
+      <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+      <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800;900&family=Rubik:wght@400;500;600;700&display=swap' rel='stylesheet'>
+      <link rel='preload' as='font' href='{base_url}/fonts/RedHatMono-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
+      <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
+      <link rel='stylesheet' href='{base_url}/azul-search.css'>
+      <style>
+      /* Red Hat Mono for the code panels (self-hosted, same file as the docs site). */
+      @font-face {{
+          font-family: \"Red Hat Mono\";
+          font-style: normal;
+          font-weight: 300 700;
+          src: url(\"{base_url}/fonts/RedHatMono-VariableFont_wght.ttf\") format(\"truetype-variations\");
+      }}
+      </style>
+      {css_tag}
+      <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
+      <script defer src='{base_url}/azul-review.js'></script>
+    ", base_url=base_url, css_tag=css_tag)
 }
 
 /// Generate common head tags for HTML pages.

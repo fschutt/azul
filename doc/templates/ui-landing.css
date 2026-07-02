@@ -1,0 +1,353 @@
+/* ===================================================================
+   /ui landing page — layered ON TOP of azlin.css (the marketing design
+   system). azlin.css brings the navbar pill, hero, buttons, fonts and
+   section primitives; this file styles the docs-landing-specific parts:
+   the release glass card, the example sections and the code panels.
+   The class hooks used by the index page JS (.lang-grid, .showcase,
+   .install-commands, #example-code-*, .feature-section) must not change.
+   =================================================================== */
+
+body.ui-landing {
+    background: var(--color-bg);
+}
+
+/* ---- Hero (navy gradient, same as the marketing frontpage) ---- */
+.ui-hero {
+    position: relative;
+    padding: 170px 0 100px;
+    color: white;
+    background: linear-gradient(135deg, #000428 0%, #004e92 50%, #0084ff 100%);
+    overflow: hidden;
+}
+.ui-hero .container {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 56px;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+}
+.ui-hero h1 {
+    font-family: var(--font-display);
+    font-size: 56px;
+    font-weight: 900;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    margin-bottom: 20px;
+    color: white;
+}
+.ui-hero .tagline {
+    font-family: var(--font-sans);
+    font-size: 17px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.88);
+    max-width: 540px;
+    margin-bottom: 32px;
+}
+.ui-hero .cta-buttons { margin-bottom: 0; }
+
+/* Release info: a glass card floating over the foam blob. */
+.ui-hero-side {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 340px;
+}
+.ui-hero-foam {
+    position: absolute;
+    inset: -18% -22%;
+    width: 144%;
+    max-width: none;
+    height: auto;
+    opacity: 0.95;
+    pointer-events: none;
+    filter: drop-shadow(0 12px 48px rgba(0, 4, 40, 0.45));
+}
+#latestrelease {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 420px;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(20px) saturate(80%);
+    -webkit-backdrop-filter: blur(20px) saturate(80%);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 12px;
+    box-shadow: 0 12px 48px rgba(0, 4, 40, 0.35);
+    padding: 24px 28px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px 16px;
+    color: var(--color-text);
+}
+#latestrelease p { margin: 0; }
+#latestrelease .release-version {
+    order: 2;
+    text-align: right;
+    font-weight: 700;
+}
+#latestrelease .release-version p:last-child {
+    font-weight: 400;
+    color: var(--color-text-light);
+    font-size: 14px;
+}
+#latestrelease .release-links { order: 1; }
+#latestrelease .release-links a {
+    display: block;
+    color: var(--color-accent);
+    font-weight: 600;
+    text-decoration: none;
+    line-height: 1.9;
+}
+#latestrelease .release-links a:hover { text-decoration: underline; }
+#latestrelease #azul-search-mount {
+    order: 3;
+    flex-basis: 100%;
+    margin-top: 14px;
+    font-size: 0.83rem;
+    line-height: 1.3;
+}
+
+/* ---- Example sections: light, airy, big serif headings ---- */
+.feature-section {
+    padding: 80px 0;
+    background: white;
+    border-bottom: 1px solid var(--color-border);
+}
+.feature-section:nth-of-type(even) { background: var(--color-bg); }
+.feature-section h2.feature-title {
+    font-family: var(--font-serif);
+    font-size: 56px;
+    font-weight: bold;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+    color: var(--color-text);
+}
+.feature-section .description {
+    font-family: var(--font-sans);
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.8;
+    color: var(--color-text-light);
+    max-width: 700px;
+    margin-bottom: 48px;
+    text-wrap: balance;
+}
+.feature-section .description p { margin-bottom: 16px; }
+.feature-section .description a { color: var(--color-accent); }
+
+.ui-example-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: start;
+}
+
+/* Screenshot column */
+.feature-image { min-width: 0; }
+.feature-image .screenshot-wrapper {
+    display: block;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 12px 48px rgba(0, 4, 40, 0.18);
+    background: white;
+    border: 1px solid var(--color-border);
+}
+.feature-image img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+img.showcase { display: none; }
+img.showcase.windows { display: initial; }
+
+/* Code column */
+.feature-code { min-width: 0; }
+
+.tab-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.lang-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: stretch;
+}
+.lang-grid button,
+.lang-tab-dropdown .dialect-select,
+.tab-bar select {
+    padding: 6px 14px;
+    border: 1px solid var(--color-border);
+    background: white;
+    color: var(--color-text-light);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 999px;
+    transition: all 0.2s ease;
+}
+.lang-grid button:hover:not(.active) {
+    color: var(--color-accent);
+    background: rgba(0, 4, 40, 0.05);
+}
+.lang-grid button.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+}
+.lang-tab-dropdown { display: inline-flex; align-items: center; position: relative; }
+.lang-tab-dropdown .dialect-select,
+.tab-bar select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 28px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234a4a4a'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px 6px;
+}
+.lang-tab-dropdown.active .dialect-select {
+    background-color: var(--color-accent);
+    color: white;
+    border-color: var(--color-accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='white'/%3E%3C/svg%3E");
+}
+
+/* "more languages…" overflow group (kept from the old design) */
+.lang-grid .lang-more { flex-basis: 100%; margin-top: 2px; }
+.lang-grid .lang-more > summary {
+    list-style: none;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-light);
+    padding: 4px 6px;
+    user-select: none;
+}
+.lang-grid .lang-more > summary::-webkit-details-marker { display: none; }
+.lang-grid .lang-more > summary::before {
+    content: "▸ ";
+    display: inline-block;
+}
+.lang-grid .lang-more[open] > summary::before { content: "▾ "; }
+.lang-grid .lang-more > summary:hover { color: var(--color-accent); }
+.lang-more-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+/* Install controls only on the first example */
+.install-controls {
+    display: none;
+    gap: 6px;
+    align-items: center;
+    margin-left: auto;
+}
+.feature-section[data-is-first="true"] .install-controls { display: flex; }
+
+/* Code panel: dark terminal for install commands, light card for code */
+.code-panel {
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0, 4, 40, 0.08);
+    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    background: white;
+}
+.install-commands {
+    background: #10131c;
+    color: #d4d4d4;
+    padding: 14px 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.install-commands::-webkit-scrollbar { display: none; }
+.install-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    white-space: nowrap;
+}
+.install-step:last-child { margin-bottom: 0; }
+.install-step .command { flex: 1; min-width: 0; }
+
+.copy-btn {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    position: relative;
+}
+.copy-btn:hover { opacity: 1; }
+.copy-btn::before,
+.copy-btn::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    opacity: 0.5;
+    border: 1.5px solid #888;
+}
+.copy-btn::before { top: 0; right: 0; background: transparent; }
+.copy-btn::after { bottom: 0; left: 0; background: #10131c; }
+
+.example-code {
+    position: relative;
+    min-height: 420px;
+    max-height: 500px;
+    overflow: auto;
+    background: white;
+    color: var(--color-text);
+    padding: 16px;
+}
+.example-code pre { margin: 0; white-space: pre; }
+.example-code code {
+    background: transparent;
+    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.example-code > .copy-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    opacity: 0.3;
+}
+.example-code > .copy-btn::after { background: white; }
+.example-code > .copy-btn:hover { opacity: 1; }
+
+/* ---- Footer ---- */
+.ui-footer a { color: var(--color-accent); }
+
+/* ---- Responsive ---- */
+@media (max-width: 1024px) {
+    .ui-hero .container { grid-template-columns: 1fr; gap: 48px; }
+    .ui-hero-side { min-height: 300px; }
+    .ui-example-grid { grid-template-columns: 1fr; gap: 32px; }
+}
+@media (max-width: 768px) {
+    .ui-hero { padding: 130px 0 70px; }
+    .ui-hero h1 { font-size: 42px; }
+    .feature-section { padding: 56px 0; }
+    .feature-section h2.feature-title { font-size: 34px; }
+    .feature-section .description { font-size: 16px; margin-bottom: 32px; }
+}
+@media (max-width: 480px) {
+    .ui-hero h1 { font-size: 34px; }
+    .feature-section h2.feature-title { font-size: 28px; }
+}

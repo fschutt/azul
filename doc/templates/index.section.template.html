@@ -1,35 +1,39 @@
-<section class="feature-section grid-row" data-example-id="$$EXAMPLE_ID$$" data-is-first="$$IS_FIRST$$">
-  <div class="feature-image">
-    <div class="screenshot-wrapper">
-      <img class="showcase linux" src="$$EXAMPLE_IMAGE_SOURCE_LINUX$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
-      <img class="showcase mac" src="$$EXAMPLE_IMAGE_SOURCE_MAC$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
-      <img class="showcase windows" src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
-      <h2 class="feature-title">$$EXAMPLE_TITLE$$</h2>
-    </div>
+<section class="feature-section" data-example-id="$$EXAMPLE_ID$$" data-is-first="$$IS_FIRST$$">
+  <div class="container">
+    <h2 class="feature-title">$$EXAMPLE_TITLE$$</h2>
     <div class="description">$$EXAMPLE_DESCRIPTION$$</div>
-  </div>
-  <div class="feature-code">
-    <div class="tab-bar">
-      <div class="lang-grid">
-        $$LANGUAGE_TABS$$
+    <div class="ui-example-grid">
+      <div class="feature-image">
+        <div class="screenshot-wrapper">
+          <img class="showcase linux" src="$$EXAMPLE_IMAGE_SOURCE_LINUX$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+          <img class="showcase mac" src="$$EXAMPLE_IMAGE_SOURCE_MAC$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+          <img class="showcase windows" src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+        </div>
       </div>
-      <div class="install-controls">
-        <select class="method-select" onchange="selectInstallMethod(this.value)">
-          <!-- Populated dynamically by JavaScript -->
-        </select>
-        <select class="os-select" onchange="selectOS(this.value)">
-          <option value="linux">Linux</option>
-          <option value="macos">macOS</option>
-          <option value="windows">Windows</option>
-        </select>
-      </div>
-    </div>
-    <div class="code-panel">
-      <div class="install-commands" style="$$INSTALL_DISPLAY$$">
-        <!-- Populated by JavaScript -->
-      </div>
-      <div class="example-code" id="example-code-$$EXAMPLE_ID$$">
-        <pre>$$EXAMPLE_CODE$$</pre>
+      <div class="feature-code">
+        <div class="tab-bar">
+          <div class="lang-grid">
+            $$LANGUAGE_TABS$$
+          </div>
+          <div class="install-controls">
+            <select class="method-select" onchange="selectInstallMethod(this.value)">
+              <!-- Populated dynamically by JavaScript -->
+            </select>
+            <select class="os-select" onchange="selectOS(this.value)">
+              <option value="linux">Linux</option>
+              <option value="macos">macOS</option>
+              <option value="windows">Windows</option>
+            </select>
+          </div>
+        </div>
+        <div class="code-panel">
+          <div class="install-commands" style="$$INSTALL_DISPLAY$$">
+            <!-- Populated by JavaScript -->
+          </div>
+          <div class="example-code" id="example-code-$$EXAMPLE_ID$$">
+            <pre>$$EXAMPLE_CODE$$</pre>
+          </div>
+        </div>
       </div>
     </div>
   </div>

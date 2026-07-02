@@ -1605,6 +1605,25 @@ fn main() -> anyhow::Result<()> {
                 templates_dir.join("foam.svg"),
                 root_dir.join("foam.svg"),
             )?;
+            // Native AzWidgets screenshot shown above the foam blob in the
+            // marketing hero (captured via the AZ_DEBUG screenshot API).
+            // Optional so a missing capture never breaks a deploy.
+            match fs::copy(
+                templates_dir.join("widgets-demo.png"),
+                root_dir.join("widgets-demo.png"),
+            ) {
+                Ok(_) => {}
+                Err(e) => eprintln!(
+                    "  [WARN] widgets-demo.png missing, hero shows foam only: {}",
+                    e
+                ),
+            }
+            // Landing-only stylesheet for the /ui docs index (debug mode links
+            // it externally; production inlines it — see get_landing_head_tags).
+            fs::copy(
+                templates_dir.join("ui-landing.css"),
+                root_dir.join("ui-landing.css"),
+            )?;
             fs::copy(
                 templates_dir.join("azlin-ws.html"),
                 root_dir.join("ws.html"),

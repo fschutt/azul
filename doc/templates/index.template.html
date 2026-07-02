@@ -5,72 +5,112 @@
   <!-- HEAD -->
 </head>
 
-<body>
-  <div class="center">
-  <aside>
-    <header>
-      <h1 style="display:none;">Azul GUI Framework</h1>
-      <img src="./logo.svg">
-    </header>
-    <!-- SIDEBAR -->
+<body class="ui-landing">
+  <a href="#main-content" class="skip-to-content">Skip to main content</a>
+  <nav class="navbar" role="navigation" aria-label="Main navigation">
+    <div class="container">
+      <a href="/" class="nav-brand-link" aria-label="Go to homepage">
+        <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
+      </a>
+      <div class="nav-right">
+        <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
+        <div class="nav-links" role="menu">
+          <a href="https://azul.rs/ui" role="menuitem" class="active">overview</a>
+          <a href="https://azul.rs/ui/releases" role="menuitem">releases</a>
+          <a href="https://github.com/fschutt/azul" role="menuitem">code</a>
+          <a href="https://azul.rs/ui/guide" role="menuitem">guide</a>
+          <a href="https://azul.rs/ui/api" role="menuitem">api</a>
+          <a href="https://azul.rs/ui/reftest" role="menuitem">reftests</a>
+          <a href="https://azul.rs/ui/blog" role="menuitem">blog</a>
+          <a href="https://azul.rs/ui/donate" role="menuitem">donate</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+  <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
+  <aside class="mobile-menu" aria-label="Mobile navigation">
+    <a href="https://azul.rs/ui">overview</a>
+    <a href="https://azul.rs/ui/releases">releases</a>
+    <a href="https://github.com/fschutt/azul">code</a>
+    <a href="https://azul.rs/ui/guide">guide</a>
+    <a href="https://azul.rs/ui/api">api</a>
+    <a href="https://azul.rs/ui/reftest">reftests</a>
+    <a href="https://azul.rs/ui/blog">blog</a>
+    <a href="https://azul.rs/ui/donate">donate</a>
   </aside>
-  <main>
-    <header class="grid-row">
-      <div>
-        <h1>Built for beauty and speed.</h1>
-        <p class="tagline">Cross-platform MIT-licensed Desktop GUI framework for C, C++, Python and Rust, using the Mozilla WebRender rendering engine</p>
-      </div>
-      <div id="latestrelease">
-        <div class="release-version">
-          <p><strong>v$$LATEST_VERSION$$</strong></p>
-          <p>$$LATEST_DATE$$</p>
+
+  <main id="main-content" role="main">
+
+    <section class="ui-hero" aria-labelledby="hero-heading">
+      <div class="container">
+        <div class="hero-content">
+          <h1 id="hero-heading">Built for beauty and speed.</h1>
+          <p class="tagline">Cross-platform MIT-licensed Desktop GUI framework for C, C++, Python and Rust, using the Mozilla WebRender rendering engine</p>
+          <div class="cta-buttons">
+            <a href="https://azul.rs/ui/guide" class="btn btn-primary btn-hero-primary">Get started</a><a href="https://azul.rs/ui/api" class="btn btn-secondary btn-hero-secondary">API docs →</a>
+          </div>
         </div>
-        <div class="release-links">
-          <a href="https://azul.rs/ui/release/$$LATEST_VERSION$$.html">release notes</a>
-          <a href="https://azul.rs/ui/api/$$LATEST_VERSION$$.html">api docs</a>
-          <a href="https://azul.rs/ui/guide.html">user guide</a>
+        <div class="ui-hero-side">
+          <img src="/foam.svg" alt="" aria-hidden="true" class="ui-hero-foam">
+          <div id="latestrelease">
+            <div class="release-version">
+              <p><strong>v$$LATEST_VERSION$$</strong></p>
+              <p>$$LATEST_DATE$$</p>
+            </div>
+            <div class="release-links">
+              <a href="https://azul.rs/ui/release/$$LATEST_VERSION$$.html">release notes</a>
+              <a href="https://azul.rs/ui/api/$$LATEST_VERSION$$.html">api docs</a>
+              <a href="https://azul.rs/ui/guide.html">user guide</a>
+            </div>
+            <div id="azul-search-mount" class="azs-mount-inline" data-azs-inline></div>
+          </div>
         </div>
-        <div id="azul-search-mount" class="azs-mount-inline" data-azs-inline></div>
       </div>
-    </header>
-    
+    </section>
+
     $$INDEX_SECTION_EXAMPLES$$
   </main>
-  </div>
-  
+
+  <footer role="contentinfo" class="ui-footer">
+    <div class="container">
+      <p>© 2026 Azul · MIT-licensed · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://azul.rs/ui/donate">Donate</a></p>
+    </div>
+  </footer>
+
+  <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
   <script type="text/javascript">
     var examples = $$JAVASCRIPT_EXAMPLES$$;
     var installationConfig = $$JAVASCRIPT_INSTALLATION$$;
-    
+
     var currentLang = 'rust';
     var currentOS = detectOS();
     var currentCppVersion = 'cpp23';
     var currentInstallMethod = {};
-    
+
     // Init from localStorage
     (function() {
       var savedLang = localStorage.getItem('azul-lang');
       var savedOS = localStorage.getItem('azul-os');
       var savedCpp = localStorage.getItem('azul-cpp-version');
       var savedMethods = localStorage.getItem('azul-install-methods');
-      
+
       if (savedLang) currentLang = savedLang;
       if (savedOS) currentOS = savedOS;
       if (savedCpp) currentCppVersion = savedCpp;
       if (savedMethods) {
         try { currentInstallMethod = JSON.parse(savedMethods); } catch(e) {}
       }
-      
+
       // Check if savedLang is a dialect variant (will be validated after functions load)
     })();
-    
+
     function detectOS() {
       var platform = (window.navigator?.userAgentData?.platform || window.navigator.platform || '').toLowerCase();
       if (platform.indexOf('mac') !== -1) return 'macos';
       if (platform.indexOf('win') !== -1) return 'windows';
       return 'linux';
     }
-    
+
     function selectLanguage(lang) {
       currentLang = lang;
       localStorage.setItem('azul-lang', lang);
@@ -82,20 +122,20 @@
       }
       updateAllUI();
     }
-    
+
     function selectOS(os) {
       currentOS = os;
       localStorage.setItem('azul-os', os);
       updateAllUI();
     }
-    
+
     function selectInstallMethod(method) {
       var baseLang = currentLang.startsWith('cpp') ? 'cpp' : currentLang;
       currentInstallMethod[baseLang] = method;
       localStorage.setItem('azul-install-methods', JSON.stringify(currentInstallMethod));
       updateAllUI();
     }
-    
+
     // Get the base language group (e.g., cpp23 -> cpp, rust -> rust)
     function getBaseLang(lang) {
       var langConfig = installationConfig.languages[lang];
@@ -104,40 +144,40 @@
       }
       return lang;
     }
-    
+
     // Check if a language is a dialect (variant) of another language group
     function isDialect(lang) {
       var langConfig = installationConfig.languages[lang];
       return langConfig && langConfig.dialectOf;
     }
-    
+
     // Get the current dialect variant for a dialect group
     function getCurrentDialectVariant(dialectGroup) {
       if (dialectGroup === 'cpp') return currentCppVersion;
       return dialectGroup; // fallback
     }
-    
+
     function getMethods(lang) {
       // For dialects, check the actual language key (e.g., cpp23) for methods
       var langConfig = installationConfig.languages[lang];
       if (!langConfig || !langConfig.methods) return [];
       return langConfig.methods;
     }
-    
+
     function getInstallMethod(lang) {
       var baseLang = getBaseLang(lang);
       var methods = getMethods(lang);
       if (methods.length === 0) return 'default';
       return currentInstallMethod[baseLang] || methods[0];
     }
-    
+
     // Get dialect variants for a dialect group (from dialects config)
     function getDialectVariants(dialectGroup) {
       var dialect = installationConfig.dialects[dialectGroup];
       if (!dialect) return {};
       return dialect.variants;
     }
-    
+
     function updateAllUI() {
       // Update language buttons and dialect dropdowns
       document.querySelectorAll('.lang-grid button').forEach(function(btn) {
@@ -150,7 +190,7 @@
           btn.classList.add('active');
         }
       });
-      
+
       // Update dialect dropdown tabs (e.g., C++ with version selector)
       document.querySelectorAll('.lang-tab-dropdown').forEach(function(dropdown) {
         var lang = dropdown.getAttribute('data-lang');
@@ -164,21 +204,21 @@
           sel.value = currentLang;
         }
       });
-      
+
       // Show/hide dialect version selects in install-controls (legacy, can be removed)
       var dialectGroup = getBaseLang(currentLang);
       var isCurrentDialect = isDialect(currentLang);
-      
+
       document.querySelectorAll('select.cpp-version').forEach(function(sel) {
         // Hide these - dialect is now selected via the tab dropdown
         sel.style.display = 'none';
       });
-      
+
       // Update OS selects
       document.querySelectorAll('select.os-select').forEach(function(sel) {
         sel.value = currentOS;
       });
-      
+
       // Update method selects - only show if > 1 method available for current language
       var methods = getMethods(currentLang);
       document.querySelectorAll('select.method-select').forEach(function(sel) {
@@ -193,26 +233,26 @@
           sel.value = getInstallMethod(currentLang);
         }
       });
-      
+
       // Update install commands (on all sections that have install-commands visible)
       document.querySelectorAll('.feature-section .install-commands').forEach(updateInstallCommands);
-      
+
       // Update example code
       Object.keys(examples).forEach(updateExampleCode);
-      
+
       // Update images
       updateImages();
     }
-    
+
     function updateInstallCommands(container) {
       // For installation, use the actual language key (e.g., cpp23 for specific install steps)
       var langConfig = installationConfig.languages[currentLang];
-      
+
       if (!langConfig) {
         container.innerHTML = '<div class="install-step"><span class="command">Select a language</span></div>';
         return;
       }
-      
+
       var steps = null;
       // Check for method-based installation (e.g., pip vs uv for Python)
       if (langConfig.methods && langConfig.methods.length > 0 && langConfig.methodSteps) {
@@ -223,12 +263,12 @@
       if (!steps) {
         steps = langConfig[currentOS];
       }
-      
+
       if (!steps || steps.length === 0) {
         container.innerHTML = '';
         return;
       }
-      
+
       var html = '';
       steps.forEach(function(step) {
         if (step.type === 'command') {
@@ -245,21 +285,21 @@
           html += '<div class="install-step"><span class="command" style="color:#888;">' + escHtml(step.content) + '</span></div>';
         }
       });
-      
+
       container.innerHTML = html;
     }
-    
+
     function updateExampleCode(id) {
       var ex = examples[id];
       if (!ex) return;
-      
+
       var code = ex['code_' + currentLang];
       // For dialect variants, try the specific variant first, then fallback
       if (!code && isDialect(currentLang)) {
         code = ex['code_' + currentCppVersion] || ex['code_cpp23'] || '';
       }
       if (!code) code = '';
-      
+
       // Map language to Prism language class
       var prismLang = currentLang;
       if (currentLang.startsWith('cpp')) prismLang = 'cpp';
@@ -267,37 +307,37 @@
       if (currentLang === 'python') prismLang = 'python';
       if (currentLang === 'rust') prismLang = 'rust';
       if (currentLang === 'node') prismLang = 'javascript';
-      
+
       var el = document.getElementById('example-code-' + id);
       if (el) {
         var codeEl = document.createElement('code');
         codeEl.className = 'language-' + prismLang;
         codeEl.textContent = code;
-        
+
         var preEl = document.createElement('pre');
         preEl.appendChild(codeEl);
-        
+
         el.innerHTML = '';
         el.appendChild(preEl);
         el.insertAdjacentHTML('beforeend', '<button class="copy-btn" onclick="copyExampleCode(\'' + id + '\')"></button>');
-        
+
         // Apply Prism highlighting
         if (typeof Prism !== 'undefined') {
           Prism.highlightElement(codeEl);
         }
       }
     }
-    
+
     function updateImages() {
       document.querySelectorAll('.showcase').forEach(function(img) { img.style.display = 'none'; });
       var cls = currentOS === 'macos' ? 'mac' : currentOS;
       document.querySelectorAll('.showcase.' + cls).forEach(function(img) { img.style.display = 'block'; });
     }
-    
+
     function copyText(t) {
       navigator.clipboard.writeText(t);
     }
-    
+
     function copyExampleCode(id) {
       var ex = examples[id];
       if (!ex) return;
@@ -307,15 +347,15 @@
       }
       if (code) navigator.clipboard.writeText(code);
     }
-    
+
     function escHtml(t) {
       return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
-    
+
     function escJs(t) {
       return t.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "");
     }
-    
+
     document.addEventListener("DOMContentLoaded", updateAllUI);
   </script>
   <!-- PRISM_SCRIPT -->

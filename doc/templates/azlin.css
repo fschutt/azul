@@ -1611,6 +1611,59 @@ footer {
     font-size: 1.05rem;
 }
 
+/* ===== Link colors =====
+   Default UA link colors (blue/purple-visited) are invisible on the navy
+   gradient hero/cards. Body links get the accent color; any link sitting on
+   a dark gradient surface (hero, gradient cards, gradient FAQ) is gold with
+   an underline so it stays legible. :visited mirrors each rule so links
+   never flip to UA purple. */
+a,
+a:visited {
+    color: var(--color-accent);
+}
+a:hover {
+    color: var(--color-accent-hover);
+}
+/* Buttons / nav / pills define their own colors — restore them. */
+.btn, .btn:visited,
+.nav-links a, .nav-links a:visited,
+.mobile-menu a, .mobile-menu a:visited,
+.skip-to-content, .skip-to-content:visited {
+    color: inherit;
+}
+.btn-primary, .btn-primary:visited,
+.btn-hero-primary, .btn-hero-primary:visited { color: var(--color-navy); }
+.btn-hero-secondary, .btn-hero-secondary:visited { color: white; }
+.btn-secondary, .btn-secondary:visited { color: var(--color-accent); }
+.nav-links a, .nav-links a:visited { color: var(--color-text-light); }
+.mobile-menu a, .mobile-menu a:visited { color: var(--color-text); }
+.skip-to-content, .skip-to-content:visited { color: white; }
+
+/* Links on dark gradient surfaces: gold + underline. */
+.hero a:not(.btn),
+.hero a:not(.btn):visited,
+.feature-card.has-gradient a,
+.feature-card.has-gradient a:visited,
+.feature-category.has-gradient a,
+.feature-category.has-gradient a:visited,
+.text-section.has-gradient a:not(.btn),
+.text-section.has-gradient a:not(.btn):visited,
+.faq-section.has-gradient .faq-answer a,
+.faq-section.has-gradient .faq-answer a:visited {
+    color: var(--color-gold);
+    text-decoration: underline;
+    text-decoration-color: rgba(250, 203, 38, 0.55);
+    text-underline-offset: 2px;
+}
+.hero a:not(.btn):hover,
+.feature-card.has-gradient a:hover,
+.feature-category.has-gradient a:hover,
+.text-section.has-gradient a:not(.btn):hover,
+.faq-section.has-gradient .faq-answer a:hover {
+    color: #ffe37a;
+    text-decoration-color: #ffe37a;
+}
+
 /* Brand logo in the nav (image, smaller than the docs header logo). */
 .nav-brand-logo {
     height: 30px;
@@ -1628,11 +1681,26 @@ footer {
     min-height: 320px;
 }
 .hero-foam {
-    width: 100%;
-    max-width: 460px;
+    position: absolute;
+    inset: -20% -24%;
+    width: 148%;
+    max-width: none;
     height: auto;
-    opacity: 0.9;
+    opacity: 0.95;
+    pointer-events: none;
     filter: drop-shadow(0 12px 48px rgba(0, 4, 40, 0.45));
+}
+/* Native app screenshot floating above the foam blob. */
+.hero-app-shot {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 440px;
+    height: auto;
+    border-radius: 10px;
+    box-shadow: 0 16px 56px rgba(0, 4, 40, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: white;
 }
 @media (max-width: 900px) {
     .hero-image-wrapper { display: none; }
