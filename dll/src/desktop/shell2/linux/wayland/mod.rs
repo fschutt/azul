@@ -225,6 +225,18 @@ pub struct WaylandWindow {
     /// the CPU present path in `generate_frame_if_needed`.
     os_present_requested: bool,
 
+    /// Client-side key repeat. Wayland compositors do NOT repeat keys for
+    /// clients (`wl_keyboard` delivers exactly one pressed/released pair) —
+    /// without this timer, holding Backspace deletes ONE character.
+    /// Interval in ms between repeats (0 = repeat disabled by compositor).
+    key_repeat_rate_ms: u32,
+    /// Delay in ms before the first repeat.
+    key_repeat_delay_ms: u32,
+    /// Dedicated timerfd driving the repeat (polled in wait_for_events).
+    key_repeat_fd: i32,
+    /// The evdev keycode currently held (armed for repeat).
+    key_repeat_keycode: Option<u32>,
+
     // Monitor tracking for multi-monitor support
     pub known_outputs: Vec<MonitorState>,
     pub current_outputs: Vec<*mut defines::wl_output>,
@@ -1202,6 +1214,17 @@ impl WaylandWindow {
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             os_present_requested: true, // first present must be full
+            // 25 chars/s after 400ms — the common compositor default; a
+            // wl_keyboard.repeat_info event (seat v4+) overrides both.
+            key_repeat_rate_ms: 40,
+            key_repeat_delay_ms: 400,
+            key_repeat_fd: unsafe {
+                libc::timerfd_create(
+                    libc::CLOCK_MONOTONIC,
+                    libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
+                )
+            },
+            key_repeat_keycode: None,
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
@@ -1811,6 +1834,16 @@ impl WaylandWindow {
                 }
             }
 
+            // Key-repeat timerfd (armed while a repeatable key is held)
+            let key_repeat_idx = pollfds.len();
+            if self.key_repeat_fd >= 0 {
+                pollfds.push(libc::pollfd {
+                    fd: self.key_repeat_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set, so their completion can't wake poll(). While any thread is
             // in flight, poll on a ~16ms tick and drain thread writebacks on every
@@ -1849,6 +1882,24 @@ impl WaylandWindow {
                             libc::read(fd, &mut expirations as *mut u64 as *mut libc::c_void, 8);
                             any_timer_fired = true;
                         }
+                    }
+                }
+
+                // Key repeat fired: replay the held key through the normal
+                // key path (state 1 = pressed). One replay per wake is enough
+                // (repeats coalesce under load instead of bursting).
+                if self.key_repeat_fd >= 0
+                    && key_repeat_idx < pollfds.len()
+                    && pollfds[key_repeat_idx].revents & libc::POLLIN != 0
+                {
+                    let mut expirations: u64 = 0;
+                    libc::read(
+                        self.key_repeat_fd,
+                        &mut expirations as *mut u64 as *mut libc::c_void,
+                        8,
+                    );
+                    if let Some(keycode) = self.key_repeat_keycode {
+                        self.handle_key(keycode, 1);
                     }
                 }
             }
@@ -2087,6 +2138,31 @@ impl WaylandWindow {
 
         // Translate keysym to VirtualKeyCode
         let virtual_keycode = translate_keysym_to_virtual_keycode(keysym);
+
+        // Client-side key repeat: arm on press of a repeatable key, disarm
+        // when THAT key is released. Modifiers don't repeat.
+        {
+            use azul_core::window::VirtualKeyCode as VK;
+            let is_modifier = matches!(
+                virtual_keycode,
+                VK::LShift
+                    | VK::RShift
+                    | VK::LControl
+                    | VK::RControl
+                    | VK::LAlt
+                    | VK::RAlt
+                    | VK::LWin
+                    | VK::RWin
+                    | VK::Capital
+                    | VK::Numlock
+                    | VK::Scroll
+            );
+            if is_pressed && !is_modifier {
+                self.arm_key_repeat(key);
+            } else if !is_pressed && self.key_repeat_keycode == Some(key) {
+                self.disarm_key_repeat();
+            }
+        }
 
         // While a menu popup is open, Escape closes it (consumed, not forwarded
         // to the app), matching the click-outside dismiss behaviour.
@@ -2622,6 +2698,8 @@ impl WaylandWindow {
 
     /// Handle keyboard leave event (window lost focus)
     pub fn handle_keyboard_leave(&mut self) {
+        // Focus is gone — the compositor will not send the key release.
+        self.disarm_key_repeat();
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = false;
         self.dynamic_selector_context.window_focused = false;
@@ -2637,6 +2715,41 @@ impl WaylandWindow {
     #[must_use]
     pub fn display_fd(&self) -> i32 {
         unsafe { (self.wayland.wl_display_get_fd)(self.display) }
+    }
+
+    /// Arm the key-repeat timer for `keycode` (delay, then interval).
+    fn arm_key_repeat(&mut self, keycode: u32) {
+        if self.key_repeat_fd < 0 || self.key_repeat_rate_ms == 0 {
+            return;
+        }
+        self.key_repeat_keycode = Some(keycode);
+        let delay = self.key_repeat_delay_ms.max(1) as i64;
+        let interval = self.key_repeat_rate_ms.max(1) as i64;
+        let spec = libc::itimerspec {
+            it_value: libc::timespec {
+                tv_sec: delay / 1000,
+                tv_nsec: (delay % 1000) * 1_000_000,
+            },
+            it_interval: libc::timespec {
+                tv_sec: interval / 1000,
+                tv_nsec: (interval % 1000) * 1_000_000,
+            },
+        };
+        unsafe {
+            libc::timerfd_settime(self.key_repeat_fd, 0, &spec, std::ptr::null_mut());
+        }
+    }
+
+    /// Stop key repeat (key released / keyboard focus lost).
+    fn disarm_key_repeat(&mut self) {
+        self.key_repeat_keycode = None;
+        if self.key_repeat_fd < 0 {
+            return;
+        }
+        let spec: libc::itimerspec = unsafe { std::mem::zeroed() };
+        unsafe {
+            libc::timerfd_settime(self.key_repeat_fd, 0, &spec, std::ptr::null_mut());
+        }
     }
 
     /// Handle `wl_keyboard.enter` — the compositor gave this surface keyboard
@@ -4069,6 +4182,11 @@ impl Drop for WaylandWindow {
         for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
             unsafe {
                 libc::close(fd);
+            }
+        }
+        if self.key_repeat_fd >= 0 {
+            unsafe {
+                libc::close(self.key_repeat_fd);
             }
         }
 

@@ -1460,11 +1460,16 @@ extern "C" fn keyboard_leave_handler(
     window.handle_keyboard_leave();
 }
 extern "C" fn keyboard_repeat_info_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _keyboard: *mut wl_keyboard,
-    _rate: i32,
-    _delay: i32,
+    rate: i32,
+    delay: i32,
 ) {
+    // rate = characters per second (0 = repeat disabled), delay = ms before
+    // the first repeat. Was an empty stub → no key repeat at all on Wayland.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.key_repeat_rate_ms = if rate > 0 { (1000 / rate.max(1)) as u32 } else { 0 };
+    window.key_repeat_delay_ms = delay.max(0) as u32;
 }
 
 /// Keycode translation from XKB keysym to Azul VirtualKeyCode
