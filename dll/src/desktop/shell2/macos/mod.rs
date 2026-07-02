@@ -960,9 +960,15 @@ define_class!(
             view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
         }
 
-        // NSTextInputClient Protocol
-        // IME support for Unicode composition (Japanese, Chinese, accented characters)
+    }
 
+    // NSTextInputClient Protocol
+    // IME support for Unicode composition (Japanese, Chinese, accented characters).
+    // The methods MUST live inside this protocol impl block: objc2 validates
+    // the required protocol methods against the block that declares the
+    // conformance and aborts class registration if any are missing — methods
+    // with matching selectors in the plain `impl` block above don't count.
+    unsafe impl NSTextInputClient for GLView {
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
             let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
@@ -1169,10 +1175,6 @@ define_class!(
             // still fall through to handle_key_down for processing.
         }
     }
-
-    // Register NSTextInputClient protocol conformance with the ObjC runtime.
-    // Must use concrete class name (not Self) so define_class! calls class_addProtocol.
-    unsafe impl NSTextInputClient for GLView {}
 );
 
 // CPUView - CPU rendering view
@@ -1576,9 +1578,11 @@ define_class!(
             view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
         }
 
-        // NSTextInputClient Protocol
-        // Same IME implementation as GLView
+    }
 
+    // NSTextInputClient Protocol — same IME implementation as GLView.
+    // Must be a protocol impl block, not plain methods (see GLView above).
+    unsafe impl NSTextInputClient for CPUView {
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
             let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
@@ -1777,8 +1781,6 @@ define_class!(
         fn do_command_by_selector(&self, _selector: objc2::runtime::Sel) {
         }
     }
-
-    unsafe impl NSTextInputClient for CPUView {}
 );
 
 // GLView Helper Methods (outside define_class!)

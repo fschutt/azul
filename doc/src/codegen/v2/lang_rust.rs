@@ -2917,7 +2917,14 @@ impl RustGenerator {
                 builder.blank();
             }
 
-            // Drop: Boxed → free, Static → no-op
+            // Drop: Boxed → free, Static → no-op.
+            //
+            // MUST mirror azul_css::css::BoxOrStatic::drop exactly: skip null and
+            // null-out after freeing. Container mirrors (e.g. AzNodeData) have a
+            // manual Drop that deletes through the core types (which frees and
+            // NULLS the pointer in place); Rust's drop glue then recursively
+            // drops the mirror fields, re-entering this Drop on the same memory.
+            // Without the null check that second pass is a double-free abort.
             if enum_def.traits.has_custom_drop || !enum_def.traits.is_copy {
                 builder.line(&format!("impl{} Drop for {} {{", generics, full_name));
                 builder.indent();
@@ -2925,7 +2932,7 @@ impl RustGenerator {
                 builder.indent();
                 builder.line("match self {");
                 builder.indent();
-                builder.line(&format!("{}::Boxed(ptr) => unsafe {{ let _ = Box::from_raw(*ptr); }},", name));
+                builder.line(&format!("{}::Boxed(ptr) => if !ptr.is_null() {{ unsafe {{ let _ = Box::from_raw(*ptr); }} *ptr = core::ptr::null_mut(); }},", name));
                 builder.line(&format!("{}::Static(_) => {{}},", name));
                 builder.dedent();
                 builder.line("}");
