@@ -2033,6 +2033,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.common.current_window_state.flags.frame = WindowFrame::Minimized;
+                    macos_window.set_display_link_paused(true);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
             }
@@ -2045,8 +2046,32 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.common.current_window_state.flags.frame = WindowFrame::Normal;
+                    macos_window.set_display_link_paused(false);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window deminiaturized");
+            }
+        }
+
+        /// Occlusion changed (window fully covered / on another Space /
+        /// uncovered). The CVDisplayLink used to run at full refresh rate
+        /// forever — 60 wakeups/s (+ full CPU re-blits before the damage
+        /// work) for a window nobody could see.
+        #[unsafe(method(windowDidChangeOcclusionState:))]
+        fn window_did_change_occlusion_state(&self, notification: &NSNotification) {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    use objc2::msg_send;
+                    let ns_window: *mut NSObject = msg_send![notification, object];
+                    let occlusion: usize = msg_send![&*ns_window, occlusionState];
+                    // NSWindowOcclusionStateVisible = 1 << 1
+                    let visible = occlusion & (1 << 1) != 0;
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.set_display_link_paused(!visible);
+                    if visible {
+                        // Content may be stale after a Space switch — repaint.
+                        macos_window.request_redraw();
+                    }
+                }
             }
         }
 
@@ -2828,6 +2853,34 @@ impl MacOSWindow {
 
         // Set output callback
         // For now, we'll use a simple callback that just marks the window for redraw
+        // libdispatch: hop from the CVDisplayLink thread to the main queue.
+        // AppKit is not thread-safe — the old callback called
+        // setViewsNeedDisplay: directly on the display-link thread (UB inside
+        // AppKit's view-dirty bookkeeping, and it could not wake a run loop
+        // blocked in runMode:beforeDate: either).
+        extern "C" {
+            static _dispatch_main_q: std::ffi::c_void;
+            fn dispatch_async_f(
+                queue: *const std::ffi::c_void,
+                context: *mut std::ffi::c_void,
+                work: extern "C" fn(*mut std::ffi::c_void),
+            );
+        }
+
+        extern "C" fn mark_views_dirty_on_main(context: *mut std::ffi::c_void) {
+            // Runs on the MAIN queue. `context` is an NSWindow retained at
+            // enqueue time (the window may have been dropped in between).
+            unsafe {
+                if !context.is_null() {
+                    use objc2::msg_send;
+                    let ns_window = context as *const NSWindow;
+                    let _: () = msg_send![ns_window, setViewsNeedDisplay: true];
+                    // Balance the retain taken in display_link_callback.
+                    objc2::ffi::objc_release(context.cast());
+                }
+            }
+        }
+
         extern "C" fn display_link_callback(
             _display_link: corevideo::CVDisplayLinkRef,
             _in_now: *const corevideo::CVTimeStamp,
@@ -2836,14 +2889,17 @@ impl MacOSWindow {
             _flags_out: *mut u64,
             display_link_context: *mut std::ffi::c_void,
         ) -> corevideo::CVReturn {
-            // SAFETY: display_link_context is a pointer to NSWindow
+            // SAFETY: display_link_context is a pointer to NSWindow. Retain it
+            // for the trip across threads so a window teardown between enqueue
+            // and main-queue drain can't leave the block a dangling pointer.
             unsafe {
                 if !display_link_context.is_null() {
-                    let ns_window = display_link_context as *const NSWindow;
-                    // Request display (setNeedsDisplay equivalent)
-                    // This will trigger drawRect on the next runloop iteration
-                    use objc2::msg_send;
-                    let _: () = msg_send![ns_window, setViewsNeedDisplay: true];
+                    objc2::ffi::objc_retain(display_link_context.cast());
+                    dispatch_async_f(
+                        std::ptr::addr_of!(_dispatch_main_q),
+                        display_link_context,
+                        mark_views_dirty_on_main,
+                    );
                 }
             }
             corevideo::K_CV_RETURN_SUCCESS
@@ -4760,6 +4816,20 @@ impl MacOSWindow {
     }
 
     /// Handle a menu action from a menu item click
+    /// Pause/resume the CVDisplayLink (window occluded / miniaturized —
+    /// no reason to tick vsync for an invisible window).
+    pub(super) fn set_display_link_paused(&mut self, paused: bool) {
+        if let Some(ref link) = self.display_link {
+            if paused {
+                if link.is_running() {
+                    let _ = link.stop();
+                }
+            } else if !link.is_running() {
+                let _ = link.start();
+            }
+        }
+    }
+
     fn handle_menu_action(&mut self, tag: isize) {
         log_trace!(
             LogCategory::Callbacks,
@@ -6059,7 +6129,14 @@ impl Drop for MacOSWindow {
 
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 impl MacOSWindow {
-    pub fn poll_event(&mut self) -> Option<MacOSEvent> {
+    /// Drain the per-window loop work that does NOT involve pumping NSEvents:
+    /// WebRender frame-ready → schedule the present, delegate close requests,
+    /// and this window's pending menu actions. Called from `poll_event` in the
+    /// manual loop AND from the RunForever drain timer — `NSApplication.run()`
+    /// owns the loop there, so `poll_event` never executes and every one of
+    /// these used to be dead in that mode (menu clicks silently did nothing,
+    /// programmatic close was ignored, async frames never presented).
+    pub(crate) fn drain_loop_work(&mut self) {
         // Check if a frame is ready without blocking
         let frame_ready = {
             let (lock, _) = &*self.new_frame_ready;
@@ -6075,7 +6152,7 @@ impl MacOSWindow {
         if frame_ready {
             log_trace!(
                 LogCategory::Rendering,
-                "[poll_event] Frame ready signal - requesting redraw"
+                "[drain_loop_work] Frame ready signal - requesting redraw"
             );
             // A frame is ready in WebRender's backbuffer.
             // Tell macOS to schedule a drawRect: call, which will display it.
@@ -6088,11 +6165,20 @@ impl MacOSWindow {
             self.handle_close_request();
         }
 
-        // Process pending menu actions
-        let pending_actions = menu::take_pending_menu_actions();
+        // Process pending menu actions — only the ones THIS window's menu
+        // state owns (tags are globally unique; a global drain used to hand
+        // another window's action to whichever window polled first).
+        let pending_actions = {
+            let ms = &self.menu_state;
+            menu::take_pending_menu_actions_matching(|t| ms.get_callback_for_tag(t).is_some())
+        };
         for tag in pending_actions {
             self.handle_menu_action(tag);
         }
+    }
+
+    pub fn poll_event(&mut self) -> Option<MacOSEvent> {
+        self.drain_loop_work();
 
         let app = NSApplication::sharedApplication(self.mtm);
 

@@ -17,6 +17,18 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 /// When a menu item is clicked, its tag is pushed here and can be retrieved by the event loop
 static PENDING_MENU_ACTIONS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 
+/// Process-global menu tag allocator. Tags used to be allocated from a
+/// PER-WINDOW counter starting at 1, so two windows assigned IDENTICAL tags
+/// to different callbacks — and since the pending-action queue is global,
+/// whichever window polled first could invoke the OTHER window's callback.
+/// Globally unique tags + per-window selective draining fix both halves.
+static NEXT_MENU_TAG: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(1);
+
+/// Allocate `count` globally-unique consecutive tags, returning the first.
+pub(super) fn alloc_menu_tags(count: isize) -> isize {
+    NEXT_MENU_TAG.fetch_add(count.max(1), std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Ivars type required by `define_class!` for `AzulMenuTarget`.
 ///
 /// No actual instance data is needed — the struct exists solely to satisfy
@@ -97,6 +109,33 @@ pub fn take_pending_menu_actions() -> Vec<isize> {
         .unwrap_or_default()
 }
 
+/// Take only the pending actions whose tag `owns` recognises, leaving the
+/// rest queued for the window that actually owns them. With globally-unique
+/// tags this routes every action to its owning window regardless of which
+/// window polls first (the global drain invoked callbacks on the WRONG
+/// window when tags collided). The queue is capped so tags whose window
+/// closed can't accumulate forever.
+pub fn take_pending_menu_actions_matching(owns: impl Fn(isize) -> bool) -> Vec<isize> {
+    PENDING_MENU_ACTIONS
+        .lock()
+        .map(|mut queue| {
+            let mut mine = Vec::new();
+            queue.retain(|t| {
+                if owns(*t) {
+                    mine.push(*t);
+                    false
+                } else {
+                    true
+                }
+            });
+            if queue.len() > 256 {
+                queue.clear(); // orphaned tags (owner window closed)
+            }
+            mine
+        })
+        .unwrap_or_default()
+}
+
 /// Menu state tracking for diff-based updates
 pub struct MenuState {
     /// Current menu hash
@@ -124,7 +163,9 @@ impl MenuState {
         let new_hash = menu.get_hash();
 
         if new_hash != self.current_hash {
-            // Menu changed, rebuild it
+            // Menu changed, rebuild it. Seed the tag cursor from the GLOBAL
+            // allocator so tags are unique across windows (blocks of 4096).
+            self.next_tag = alloc_menu_tags(4096);
             let (ns_menu, command_map) = create_nsmenu(menu, &mut self.next_tag, mtm);
             self.ns_menu = Some(ns_menu);
             self.command_map = command_map;
@@ -146,6 +187,7 @@ impl MenuState {
         let new_hash = menu.get_hash();
 
         if new_hash != self.current_hash {
+            self.next_tag = alloc_menu_tags(4096);
             let (ns_menu, command_map) = create_menubar_nsmenu(menu, &mut self.next_tag, mtm);
             self.ns_menu = Some(ns_menu);
             self.command_map = command_map;
@@ -169,8 +211,7 @@ impl MenuState {
     /// Register a callback and return a unique tag for it
     /// Used by context menus to register callbacks dynamically
     pub fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> isize {
-        let tag = self.next_tag;
-        self.next_tag += 1;
+        let tag = alloc_menu_tags(1);
         self.command_map.insert(tag, callback);
         tag
     }

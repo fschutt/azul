@@ -2534,6 +2534,12 @@ unsafe extern "system" fn window_proc(
     const WM_MBUTTONDOWN: u32 = 0x0207;
     const WM_MBUTTONUP: u32 = 0x0208;
     const WM_MOUSEWHEEL: u32 = 0x020A;
+    const WM_MOUSEHWHEEL: u32 = 0x020E;
+    const WM_GETMINMAXINFO: u32 = 0x0024;
+    const WM_SETTINGCHANGE: u32 = 0x001A;
+    const WM_THEMECHANGED: u32 = 0x031A;
+    const WM_SETCURSOR: u32 = 0x0020;
+    const HTCLIENT: isize = 1;
     const WM_KEYDOWN: u32 = 0x0100;
     const WM_KEYUP: u32 = 0x0101;
     const WM_CHAR: u32 = 0x0102;
@@ -3445,12 +3451,16 @@ unsafe extern "system" fn window_proc(
             0
         }
 
-        WM_MOUSEWHEEL => {
-            // Mouse wheel scrolled - similar to macOS handle_scroll_wheel
+        WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
+            // Mouse wheel scrolled - similar to macOS handle_scroll_wheel.
+            // WM_MOUSEHWHEEL (tilt wheel / trackpad horizontal) previously fell
+            // through to DefWindowProc — horizontal scroll containers were
+            // unusable via wheel.
             let delta = ((wparam >> 16) & 0xFFFF) as i16 as i32;
             // Raw amount; direction sign is applied centrally in ScrollManager
             // (natural-scroll flag), not hardcoded here.
             let scroll_amount = delta as f32 / WHEEL_DELTA as f32;
+            let horizontal = msg == WM_MOUSEHWHEEL;
 
             let x = (lparam & 0xFFFF) as i16 as i32;
             let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
@@ -3480,8 +3490,8 @@ unsafe extern "system" fn window_proc(
 
                     if let Some((_dom_id, _node_id, start_timer)) =
                         layout_window.scroll_manager.record_scroll_from_hit_test(
-                            0.0,                  // No horizontal scroll from mousewheel
-                            scroll_amount * 20.0, // Scale for pixel scrolling
+                            if horizontal { scroll_amount * 20.0 } else { 0.0 },
+                            if horizontal { 0.0 } else { scroll_amount * 20.0 },
                             ScrollInputSource::WheelDiscrete,
                             &layout_window.hover_manager,
                             &InputPointId::Mouse,
@@ -4083,6 +4093,117 @@ unsafe extern "system" fn window_proc(
                 }
             }
             0
+        }
+
+        WM_GETMINMAXINFO => {
+            // Enforce min/max size constraints from the window state. Without
+            // this handler users could drag-resize below min_dimensions /
+            // above max_dimensions (every other platform enforces them).
+            #[repr(C)]
+            struct MinMaxInfo {
+                pt_reserved: dlopen::POINT,
+                pt_max_size: dlopen::POINT,
+                pt_max_position: dlopen::POINT,
+                pt_min_track_size: dlopen::POINT,
+                pt_max_track_size: dlopen::POINT,
+            }
+            let mmi = lparam as *mut MinMaxInfo;
+            if !mmi.is_null() {
+                let hidpi = window.common.current_window_state.size.get_hidpi_factor();
+                let hf = hidpi.inner.get();
+                // Frame overhead: constraints are on the CLIENT area; the
+                // track size is the OUTER window. Derive the current frame
+                // delta from the actual window vs client rects.
+                let (frame_w, frame_h) = unsafe {
+                    let mut wr: dlopen::RECT = std::mem::zeroed();
+                    let mut cr: dlopen::RECT = std::mem::zeroed();
+                    (window.win32.user32.GetWindowRect)(hwnd, &mut wr);
+                    (window.win32.user32.GetClientRect)(hwnd, &mut cr);
+                    (
+                        (wr.right - wr.left) - (cr.right - cr.left),
+                        (wr.bottom - wr.top) - (cr.bottom - cr.top),
+                    )
+                };
+                if let Some(min) = window
+                    .common
+                    .current_window_state
+                    .size
+                    .min_dimensions
+                    .into_option()
+                {
+                    unsafe {
+                        (*mmi).pt_min_track_size.x =
+                            (min.width * hf).round() as i32 + frame_w;
+                        (*mmi).pt_min_track_size.y =
+                            (min.height * hf).round() as i32 + frame_h;
+                    }
+                }
+                if let Some(max) = window
+                    .common
+                    .current_window_state
+                    .size
+                    .max_dimensions
+                    .into_option()
+                {
+                    unsafe {
+                        (*mmi).pt_max_track_size.x =
+                            (max.width * hf).round() as i32 + frame_w;
+                        (*mmi).pt_max_track_size.y =
+                            (max.height * hf).round() as i32 + frame_h;
+                    }
+                }
+            }
+            0
+        }
+
+        WM_SETTINGCHANGE | WM_THEMECHANGED => {
+            // System theme / colors / metrics changed at runtime (dark-mode
+            // toggle). The style was captured once at creation, so apps kept
+            // the startup theme until restart. Re-discover the system style,
+            // update the window theme through the diff pipeline (ThemeChange
+            // events fire) and rebuild.
+            window.common.previous_window_state =
+                Some(window.common.current_window_state.clone());
+            let new_style =
+                std::sync::Arc::new(crate::desktop::app::discover_system_style());
+            window.common.current_window_state.theme = match new_style.theme {
+                azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
+                azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,
+            };
+            window.common.system_style = new_style;
+            let r = window.process_window_events(0);
+            window.route_main_window_result(hwnd, r);
+            window.common.frame_needs_regeneration = true;
+            unsafe {
+                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+            }
+            0
+        }
+
+        WM_SETCURSOR => {
+            // The window class registers hCursor = NULL, so DefWindowProc
+            // never resets the cursor — entering the client area from a
+            // resize border kept the sizing arrows. In the client area,
+            // re-assert the current CSS cursor (or the default arrow);
+            // elsewhere let DefWindowProc handle the frame cursors.
+            let hit = (lparam & 0xFFFF) as isize;
+            if hit == HTCLIENT {
+                let cursor_type = match window
+                    .common
+                    .current_window_state
+                    .mouse_state
+                    .mouse_cursor_type
+                {
+                    azul_core::window::OptionMouseCursorType::Some(t) => t,
+                    azul_core::window::OptionMouseCursorType::None => {
+                        azul_core::window::MouseCursorType::Default
+                    }
+                };
+                window.set_cursor(cursor_type);
+                1
+            } else {
+                (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+            }
         }
 
         _ => {

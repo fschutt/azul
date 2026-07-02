@@ -439,6 +439,91 @@ pub fn run(
                     "Using NSApplication.run() - app will stay in dock when windows close",
                     None,
                 );
+
+                // NSApplication.run() owns the loop, so the manual loop's
+                // per-iteration work (menu actions, close requests, WebRender
+                // frame-ready presents, callback-created windows) never runs —
+                // menu items silently did nothing and create_window() from a
+                // callback queued forever in RunForever mode. Drive that work
+                // from a repeating NSTimer instead, registered in COMMON run
+                // loop modes so it keeps firing during menu tracking and live
+                // resize.
+                {
+                    use block2::RcBlock;
+                    use objc2::{msg_send, msg_send_id, rc::Retained};
+                    use objc2_foundation::{NSObject, NSTimer};
+
+                    let app_data = app_data.clone();
+                    let undo_manager = undo_manager.clone();
+                    let config_c = config.clone();
+                    let shared_icon_provider = shared_icon_provider.clone();
+                    let fc_cache = fc_cache.clone();
+                    let font_registry = font_registry.clone();
+                    let drain = RcBlock::new(move || {
+                        for wptr in super::macos::registry::get_all_window_ptrs() {
+                            let window = unsafe { &mut *wptr };
+                            window.drain_loop_work();
+
+                            #[cfg(feature = "a11y")]
+                            window.process_accessibility_actions();
+
+                            while let Some(pending_create) =
+                                window.pending_window_creates.pop()
+                            {
+                                match super::macos::MacOSWindow::new_with_fc_cache(
+                                    pending_create,
+                                    app_data.clone(),
+                                    undo_manager.clone(),
+                                    config_c.clone(),
+                                    shared_icon_provider.clone(),
+                                    fc_cache.clone(),
+                                    font_registry.clone(),
+                                    mtm,
+                                ) {
+                                    Ok(new_window) => unsafe {
+                                        let new_window_ptr =
+                                            Box::into_raw(Box::new(new_window));
+                                        let new_ns_window =
+                                            (*new_window_ptr).get_ns_window_ptr();
+                                        (*new_window_ptr).setup_gl_view_back_pointer();
+                                        (*new_window_ptr).finalize_delegate_pointer();
+                                        super::macos::registry::register_window(
+                                            new_ns_window,
+                                            new_window_ptr,
+                                        );
+                                        (*new_window_ptr).request_redraw();
+                                    },
+                                    Err(e) => {
+                                        log_error!(
+                                            debug_server::LogCategory::Window,
+                                            "[macOS] Failed to create window: {:?}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        super::macos::drain_closed_windows();
+                    });
+                    let timer: Retained<NSTimer> = unsafe {
+                        msg_send_id![
+                            objc2::class!(NSTimer),
+                            scheduledTimerWithTimeInterval: 0.033f64,
+                            repeats: true,
+                            block: &*drain
+                        ]
+                    };
+                    unsafe {
+                        let run_loop: *mut NSObject =
+                            msg_send![objc2::class!(NSRunLoop), currentRunLoop];
+                        let mode = objc2_foundation::ns_string!("kCFRunLoopCommonModes");
+                        let _: () = msg_send![&*run_loop, addTimer: &*timer, forMode: mode];
+                    }
+                    // Intentionally leak the Retained<NSTimer>: it must live for
+                    // the whole app.run() (forever).
+                    std::mem::forget(timer);
+                }
+
                 unsafe {
                     app.run();
                 }
