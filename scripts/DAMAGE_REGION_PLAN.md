@@ -3,6 +3,21 @@
 Status: **design** (2026-06-06). Scope: **X11 first** (CPU + GPU), then macOS/Windows/Wayland
 (they share `cpurender` + the same `render_and_present` shape, so the model ports).
 
+> **STATUS UPDATE 2026-07-02 (branch fix/shell2-damage-present-wiring):** the CPU half of
+> §12-P2/P7 is DONE — all four backends now consume `CpuBackend.last_present_damage` via
+> `FrameDamage::to_present_rects_physical()` (outward-rounded physical rects; None = skip
+> present; force_full for OS exposes): X11 per-rect XPutImage, Wayland per-rect
+> `wl_surface_damage` + partial shm copy, Win32 per-rect StretchDIBits, macOS partial
+> `setNeedsDisplayInRect:` (+ None stops the CVDisplayLink 60 Hz idle re-blit). Damage-core
+> fixes shipped with tests: per-rect repaint (union-clip erased content between disjoint
+> rects), viewport-space projection of diff damage through scroll offsets, paint-anchored
+> scroll baseline (sub-device-pixel deltas accumulate), drift-free shift rounding, clamped
+> exposed strips, overlay-after-shift repaint (scrollbar/dropdown drag). `display_list_dirty`
+> is now consumed on X11+Win32 GPU (caret/selection/undo). Still open from this plan: §4
+> layout-level damage source (DL diff remains), §5 css_property_damage, GPU partial present /
+> buffer-age (§12-P5), `is_visually_equal` coverage for ScrollBarStyled/VirtualView/filters
+> (needs a GPU-value damage channel — a naive equality arm would freeze the scrollbar thumb).
+
 This document is the plan for fixing the family of redraw bugs (cross-window stale
 header, cursor trails, brush-paint not showing, CPU scroll, GPU full-window flicker)
 by replacing the current display-list-diff damage system with a **layout-level,
