@@ -1038,85 +1038,177 @@ pub fn render_display_list_damaged(
         return Ok(()); // nothing changed
     }
 
-    // Clear damaged regions to white
-    for dr in damage_rects {
-        let px = (dr.origin.x * dpi_factor) as i32;
-        let py = (dr.origin.y * dpi_factor) as i32;
-        let pw = (dr.size.width * dpi_factor) as i32;
-        let ph = (dr.size.height * dpi_factor) as i32;
-        pixmap.fill_rect(px, py, pw, ph, 255, 255, 255, 255);
+    // Snap every damage rect OUTWARD to physical-pixel boundaries (floor the
+    // origin, ceil the far edge). Truncating instead leaves a fractional
+    // right/bottom sliver that is neither cleared nor repainted — a 1-2px
+    // stale ghost line whenever bounds are fractional (text heights like
+    // 18.625, any dpi ≠ 1). The snapped rect is carried BOTH as physical ints
+    // (clear + clip) and as the equivalent logical rect (item filter), so the
+    // filter admits every item that touches a cleared pixel.
+    struct SnappedRect {
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        logical: LogicalRect,
     }
-
-    // Items are individually tested against each damage rect below
-    // (line-by-line). We iterate items ONCE (not per-rect) to avoid
-    // double-rendering items that span multiple rects (alpha-blending artifacts).
-    //
-    // The BASE CLIP is the union of the damage rects: an item that only
-    // PARTIALLY intersects the damage must not repaint its full bounds —
-    // otherwise it overpaints neighbours that don't intersect the damage and
-    // therefore never repaint. (Live bug: the maps header background TOUCHES
-    // the VirtualView damage band below it, so it repainted all 70px of
-    // header — wiping the toolbar buttons, which lie outside the damage and
-    // were skipped. The toolbar vanished on the first incremental frame.)
-    let union = {
-        let mut it = damage_rects.iter();
-        let first = *it.next().unwrap();
-        it.fold(first, |acc, r| union_rect(&acc, r))
+    let pw_i = pixmap.width() as i32;
+    let ph_i = pixmap.height() as i32;
+    let snap_out = |dr: &LogicalRect| -> Option<SnappedRect> {
+        let x0 = ((dr.origin.x * dpi_factor).floor() as i32).clamp(0, pw_i);
+        let y0 = ((dr.origin.y * dpi_factor).floor() as i32).clamp(0, ph_i);
+        let x1 = (((dr.origin.x + dr.size.width) * dpi_factor).ceil() as i32).clamp(0, pw_i);
+        let y1 = (((dr.origin.y + dr.size.height) * dpi_factor).ceil() as i32).clamp(0, ph_i);
+        if x1 <= x0 || y1 <= y0 {
+            return None;
+        }
+        Some(SnappedRect {
+            x0,
+            y0,
+            x1,
+            y1,
+            logical: LogicalRect {
+                origin: LogicalPosition {
+                    x: x0 as f32 / dpi_factor,
+                    y: y0 as f32 / dpi_factor,
+                },
+                size: LogicalSize {
+                    width: (x1 - x0) as f32 / dpi_factor,
+                    height: (y1 - y0) as f32 / dpi_factor,
+                },
+            },
+        })
     };
-    let base_clip = logical_rect_to_az_rect(&union, dpi_factor);
-    let mut transform_stack = vec![TransAffine::new()];
-    let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
-    let mut mask_stack: Vec<MaskEntry> = Vec::new();
-    let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
-    let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
+    let mut rects: Vec<SnappedRect> = damage_rects.iter().filter_map(snap_out).collect();
 
-    for item in &display_list.items {
-        // Always process state-management items (Push/Pop) regardless of bounds,
-        // because skipping a Push while processing its matching Pop corrupts stacks.
-        if !item.is_state_management() {
-            if let Some(item_bounds) = item.bounds() {
-                // Items inside a scroll frame are stored at CONTENT coords but
-                // RENDER at `pos - scroll_offset`. The damage rects are in viewport
-                // space, so we must apply the current scroll offset to the bounds
-                // before the intersection test — otherwise scrolled content is
-                // filtered against the wrong position and rows that actually fall
-                // in a damage strip get dropped (visible as a missing band).
-                let (sdx, sdy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
-                let test_bounds = if sdx == 0.0 && sdy == 0.0 {
-                    item_bounds
-                } else {
-                    LogicalRect {
+    // Merge OVERLAPPING rects (strictly overlapping in physical pixels; rects
+    // that merely touch stay separate). After this, the rects are pairwise
+    // disjoint, so the per-rect passes below clear + paint every damaged pixel
+    // EXACTLY once — no double alpha-blend where rects used to overlap, and no
+    // ballooned union.
+    let mut i = 0;
+    while i < rects.len() {
+        let mut j = i + 1;
+        let mut merged_any = false;
+        while j < rects.len() {
+            let (a, b) = (&rects[i], &rects[j]);
+            let overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+            if overlap {
+                let x0 = a.x0.min(b.x0);
+                let y0 = a.y0.min(b.y0);
+                let x1 = a.x1.max(b.x1);
+                let y1 = a.y1.max(b.y1);
+                rects[i] = SnappedRect {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    logical: LogicalRect {
                         origin: LogicalPosition {
-                            x: item_bounds.origin.x - sdx,
-                            y: item_bounds.origin.y - sdy,
+                            x: x0 as f32 / dpi_factor,
+                            y: y0 as f32 / dpi_factor,
                         },
-                        size: item_bounds.size,
-                    }
+                        size: LogicalSize {
+                            width: (x1 - x0) as f32 / dpi_factor,
+                            height: (y1 - y0) as f32 / dpi_factor,
+                        },
+                    },
                 };
-                // Check if item intersects ANY damage rect (not just the union)
-                let hits_damage = damage_rects
-                    .iter()
-                    .any(|dr| rects_overlap_or_adjacent(&test_bounds, dr, 0.0));
-                if !hits_damage {
-                    continue;
-                }
+                rects.swap_remove(j);
+                merged_any = true;
+                // rects[i] grew — restart its inner scan, it may now overlap
+                // rects it previously missed.
+            } else {
+                j += 1;
             }
         }
+        if merged_any {
+            // re-scan the same i (the union may reach earlier-skipped rects)
+            if rects.len() > 1 {
+                continue;
+            }
+        }
+        i += 1;
+    }
 
-        render_single_item(
-            item,
-            pixmap,
-            dpi_factor,
-            renderer_resources,
-            font_manager,
-            glyph_cache,
-            &mut transform_stack,
-            &mut clip_stack,
-            &mut mask_stack,
-            &mut scroll_offset_stack,
-            &mut text_shadow_stack,
-            render_state,
-        )?;
+    // One pass PER damage rect, each with its own clip seeded to exactly that
+    // rect. An item spanning several rects renders once per rect, but the
+    // rects are disjoint so no pixel is ever blended twice. Crucially, an item
+    // that intersects rect A but not rect B repaints ONLY inside A — the old
+    // union-clip approach let such an item paint across the whole union,
+    // overwriting neighbours between the rects that were themselves filtered
+    // out (skipped), which ERASED untouched content lying between two disjoint
+    // damage rects (e.g. window background + scroll strip + scrollbar column:
+    // the background repainted the entire union = whole window, while all the
+    // rows in the middle were skipped → visually wiped).
+    for sr in &rects {
+        pixmap.fill_rect(
+            sr.x0,
+            sr.y0,
+            sr.x1 - sr.x0,
+            sr.y1 - sr.y0,
+            255,
+            255,
+            255,
+            255,
+        );
+
+        let base_clip = AzRect::from_xywh(
+            sr.x0 as f32,
+            sr.y0 as f32,
+            (sr.x1 - sr.x0) as f32,
+            (sr.y1 - sr.y0) as f32,
+        );
+        let mut transform_stack = vec![TransAffine::new()];
+        let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
+        let mut mask_stack: Vec<MaskEntry> = Vec::new();
+        let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+        let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
+
+        for item in &display_list.items {
+            // Always process state-management items (Push/Pop) regardless of bounds,
+            // because skipping a Push while processing its matching Pop corrupts stacks.
+            if !item.is_state_management() {
+                if let Some(item_bounds) = item.bounds() {
+                    // Items inside a scroll frame are stored at CONTENT coords but
+                    // RENDER at `pos - scroll_offset`. The damage rects are in viewport
+                    // space, so we must apply the current scroll offset to the bounds
+                    // before the intersection test — otherwise scrolled content is
+                    // filtered against the wrong position and rows that actually fall
+                    // in a damage strip get dropped (visible as a missing band).
+                    let (sdx, sdy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
+                    let test_bounds = if sdx == 0.0 && sdy == 0.0 {
+                        item_bounds
+                    } else {
+                        LogicalRect {
+                            origin: LogicalPosition {
+                                x: item_bounds.origin.x - sdx,
+                                y: item_bounds.origin.y - sdy,
+                            },
+                            size: item_bounds.size,
+                        }
+                    };
+                    if !rects_overlap_or_adjacent(&test_bounds, &sr.logical, 0.0) {
+                        continue;
+                    }
+                }
+            }
+
+            render_single_item(
+                item,
+                pixmap,
+                dpi_factor,
+                renderer_resources,
+                font_manager,
+                glyph_cache,
+                &mut transform_stack,
+                &mut clip_stack,
+                &mut mask_stack,
+                &mut scroll_offset_stack,
+                &mut text_shadow_stack,
+                render_state,
+            )?;
+        }
     }
 
     Ok(())

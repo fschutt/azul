@@ -279,9 +279,15 @@ impl CpuBackend {
                         width: pixel_w as f32, height: pixel_h as f32,
                     };
                 }
+                // Damage rects are LOGICAL everywhere downstream (the renderer
+                // multiplies by dpi_factor) — convert the physical pixbuf dims
+                // back to logical, or at dpi≠1 the exposed strips land at
+                // dpi²-scaled positions (off the buffer entirely at dpi=2).
                 resize_damage = cpurender::compute_resize_damage(
-                    old_pw as f32, old_ph as f32,
-                    pixel_w as f32, pixel_h as f32,
+                    old_pw as f32 / dpi_factor,
+                    old_ph as f32 / dpi_factor,
+                    width,
+                    height,
                 );
             } else {
                 // Shrink or first allocation: full recreate
@@ -289,11 +295,24 @@ impl CpuBackend {
             }
         }
 
+        // Real scroll offsets for this frame — needed by the damage diff below
+        // (items inside scroll frames are stored at CONTENT coords; the diff
+        // projects a changed item's old bounds through the offsets its pixels
+        // were last painted at and its new bounds through the current offsets,
+        // yielding viewport-space damage) and by the scroll-shift machinery
+        // further down.
+        let scroll_offsets = layout_window
+            .scroll_manager
+            .build_scroll_offset_map(dom_id, &result.scroll_ids);
+
         // Compute display list damage (incremental path)
         let dl_damage = match &self.previous_display_list {
-            Some(old_dl) if !needs_resize => {
-                cpurender::compute_display_list_damage(old_dl, display_list)
-            }
+            Some(old_dl) if !needs_resize => cpurender::compute_display_list_damage(
+                old_dl,
+                display_list,
+                &self.previous_scroll_offsets,
+                &scroll_offsets,
+            ),
             _ => None, // first frame or resize → full repaint
         };
 
@@ -329,10 +348,9 @@ impl CpuBackend {
         // repaint only the strip that scrolled into view (#14 thin-strip paint).
         // The actual pixel move + exposed-strip damage happens after `output` is
         // acquired (see `scroll_shift_region` below); here we only collect the
-        // work, since the pixmap is not available yet.
-        let scroll_offsets = layout_window
-            .scroll_manager
-            .build_scroll_offset_map(dom_id, &result.scroll_ids);
+        // work, since the pixmap is not available yet. (`scroll_offsets` was
+        // built above, before the display-list diff.)
+        //
         // (scroll_id, clip, delta, new_offset) per frame whose offset changed.
         // LocalScrollId is a u64 alias.
         let mut scroll_shifts: Vec<(
@@ -348,7 +366,10 @@ impl CpuBackend {
                 .copied()
                 .unwrap_or((0.0, 0.0));
             let delta = (offset.0 - prev.0, offset.1 - prev.1);
-            if delta.0.abs() > 0.5 || delta.1.abs() > 0.5 {
+            // Threshold in PHYSICAL pixels: a delta that moves the content by
+            // at least half a device pixel must repaint (at dpi=2 a 0.3-logical
+            // wheel step is already a visible 0.6-device-px move).
+            if (delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5 {
                 for item in display_list.items.iter() {
                     if let azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame {
                         clip_bounds,
@@ -364,7 +385,31 @@ impl CpuBackend {
             }
         }
         let has_scroll = !scroll_shifts.is_empty();
-        self.previous_scroll_offsets = scroll_offsets.clone();
+        // Advance the scroll baseline ONLY for frames that actually get painted
+        // at their new offset this call (shifted frames now; ALL frames on the
+        // full-repaint path — finalised at the end of render_frame). Frames
+        // whose sub-half-pixel delta was dropped keep their previous baseline,
+        // so slow trackpad scrolling ACCUMULATES until it crosses a device
+        // pixel instead of being silently swallowed frame after frame (content
+        // frozen while the logical offset advances arbitrarily far).
+        let shifted_ids: BTreeSet<u64> =
+            scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
+        let next_scroll_baseline: azul_layout::cpurender::ScrollOffsetMap = scroll_offsets
+            .iter()
+            .map(|(id, off)| {
+                if shifted_ids.contains(id) {
+                    (*id, *off)
+                } else {
+                    (
+                        *id,
+                        self.previous_scroll_offsets
+                            .get(id)
+                            .copied()
+                            .unwrap_or(*off),
+                    )
+                }
+            })
+            .collect();
 
         // Determine render path. Scroll strips are added AFTER the output pixmap
         // is acquired (the pixel move needs the buffer), so the incremental arm
@@ -383,6 +428,9 @@ impl CpuBackend {
                 // keeps us out of this branch when only a VirtualView child DOM
                 // changed — that case must still re-composite, see below.)
                 self.previous_display_list = Some(display_list.clone());
+                // Nothing painted: baseline keeps accumulating dropped
+                // sub-pixel scroll deltas (see next_scroll_baseline above).
+                self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
                 return Vec::new();
@@ -437,9 +485,25 @@ impl CpuBackend {
         let mut present_extra: Vec<azul_core::geom::LogicalRect> = Vec::new();
         if is_incremental {
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
-                if cpurender::scroll_fast_path_eligible(display_list, *scroll_id, clip, *offset) {
-                    let strips =
-                        cpurender::scroll_shift_region(&mut output, clip, *delta, dpi_factor);
+                // The pixels being dragged were composited at the PREVIOUS
+                // offset — eligibility (opaque coverage) must hold there too,
+                // or a backdrop fragment visible through a gap at the old
+                // offset gets dragged into the kept region.
+                let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
+                if cpurender::scroll_fast_path_eligible(
+                    display_list,
+                    *scroll_id,
+                    clip,
+                    *offset,
+                    prev_offset,
+                ) {
+                    let strips = cpurender::scroll_shift_region(
+                        &mut output,
+                        clip,
+                        *delta,
+                        *offset,
+                        dpi_factor,
+                    );
                     all_damage.extend(strips);
                     // The shift moved the whole clip on screen → present it all.
                     present_extra.push(*clip);
@@ -512,8 +576,19 @@ impl CpuBackend {
                 }
             }
         }
+        // Incremental repaints must raster at the offsets the surrounding
+        // (un-repainted) pixels are ALREADY at — the baseline. For shifted
+        // frames baseline == current; for frames whose sub-pixel delta was
+        // dropped it is the last-painted offset, so a band repainted for
+        // unrelated damage stays aligned with the rest of the frame. The full
+        // path repaints everything and uses the current offsets.
+        let render_offsets = if is_incremental {
+            &next_scroll_baseline
+        } else {
+            &scroll_offsets
+        };
         let render_state =
-            cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, &scroll_offsets)
+            cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, render_offsets)
                 .with_system_style(layout_window.system_style.clone())
                 .with_virtual_view_display_lists(vview_dls)
                 .with_image_callback_results(layout_window.cpu_image_callback_results.clone());
@@ -563,6 +638,13 @@ impl CpuBackend {
         }
 
         self.previous_display_list = Some(display_list.clone());
+        // Full render paints EVERY frame at its current offset → baseline is
+        // the current offsets. Incremental: only shifted frames advanced.
+        self.previous_scroll_offsets = if is_incremental {
+            next_scroll_baseline
+        } else {
+            scroll_offsets.clone()
+        };
         self.last_frame = Some(output);
         self.last_frame_damage = if is_incremental {
             FrameDamage::Rects(all_damage.clone())

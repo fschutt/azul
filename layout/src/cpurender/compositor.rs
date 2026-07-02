@@ -862,10 +862,20 @@ pub fn scroll_shift_region(
     pixmap: &mut AzulPixmap,
     clip_bounds: &LogicalRect,
     delta: (f32, f32),
+    new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
-    let px_dx = (delta.0 * dpi_factor).round() as i32;
-    let px_dy = (delta.1 * dpi_factor).round() as i32;
+    // Physical shift = difference of the ROUNDED offsets, not the rounded
+    // difference. Rounding each frame's delta independently accumulates up to
+    // 0.5px of error per step at fractional dpi (the moved block drifts away
+    // from the freshly-rasterised strips, showing internal seams); anchoring
+    // both ends to the absolute offset keeps the cumulative error ≤ 1px
+    // forever: round(new·dpi) − round(prev·dpi) telescopes across frames.
+    let prev_offset = (new_offset.0 - delta.0, new_offset.1 - delta.1);
+    let px_dx =
+        (new_offset.0 * dpi_factor).round() as i32 - (prev_offset.0 * dpi_factor).round() as i32;
+    let px_dy =
+        (new_offset.1 * dpi_factor).round() as i32 - (prev_offset.1 * dpi_factor).round() as i32;
 
     // Nothing actually moved (sub-pixel jitter rounds to zero).
     if px_dx == 0 && px_dy == 0 {
@@ -911,36 +921,47 @@ pub fn scroll_shift_region(
     // physical pixel so dpi rounding never leaves a 1px white seam between the
     // moved block and the freshly-painted strip. One strip per moved axis, so
     // diagonal pan yields two (an L-shape, overlapping in one corner).
-    let cb = clip_bounds;
+    //
+    // Strips are derived from the CLAMPED region (`cx0..cx1`/`cy0..cy1`, the
+    // pixels the memmove actually touched), not the raw `clip_bounds`. When
+    // the clip extends past the pixmap (container taller than the window),
+    // the raw clip's trailing edge is off-screen — a strip placed there
+    // clamps to nothing, nothing repaints, and the rows at the WINDOW edge
+    // keep their pre-shift content: a stale duplicated band that gets
+    // re-dragged on every subsequent scroll.
+    let cbx = cx0 as f32 / dpi_factor;
+    let cby = cy0 as f32 / dpi_factor;
+    let cbw = (cx1 - cx0) as f32 / dpi_factor;
+    let cbh = (cy1 - cy0) as f32 / dpi_factor;
     let mut exposed = Vec::new();
     if px_dy != 0 {
         let h_logical = (px_dy.abs() as f32 + 1.0) / dpi_factor;
-        let h = h_logical.min(cb.size.height);
+        let h = h_logical.min(cbh);
         let y = if px_dy > 0 {
             // bottom strip exposed
-            cb.origin.y + cb.size.height - h
+            cby + cbh - h
         } else {
             // top strip exposed
-            cb.origin.y
+            cby
         };
         exposed.push(LogicalRect {
-            origin: LogicalPosition { x: cb.origin.x, y },
-            size: LogicalSize { width: cb.size.width, height: h },
+            origin: LogicalPosition { x: cbx, y },
+            size: LogicalSize { width: cbw, height: h },
         });
     }
     if px_dx != 0 {
         let w_logical = (px_dx.abs() as f32 + 1.0) / dpi_factor;
-        let w = w_logical.min(cb.size.width);
+        let w = w_logical.min(cbw);
         let x = if px_dx > 0 {
             // right strip exposed
-            cb.origin.x + cb.size.width - w
+            cbx + cbw - w
         } else {
             // left strip exposed
-            cb.origin.x
+            cbx
         };
         exposed.push(LogicalRect {
-            origin: LogicalPosition { x, y: cb.origin.y },
-            size: LogicalSize { width: w, height: cb.size.height },
+            origin: LogicalPosition { x, y: cby },
+            size: LogicalSize { width: w, height: cbh },
         });
     }
     exposed
@@ -1077,10 +1098,13 @@ fn shift_diagonal_2d(
 /// proven — i.e. fall back ONLY when (a) something is painted behind the frame
 /// within the clip AND (b) the scrolling content does not opaquely cover the clip.
 ///
-/// `scroll_offset` is the frame's current offset, used to project the content's
-/// opaque fills (stored at content coords) into viewport space for the coverage
-/// test. A scroll frame over nothing-but-the-clear-color is always eligible (no
-/// backdrop to drag). Returns `true` when there is no such frame (nothing to do).
+/// `scroll_offset` is the frame's current offset and `prev_offset` the offset
+/// the pixels being moved were rendered at; both are used to project the
+/// content's opaque fills (stored at content coords) into viewport space for
+/// the coverage test — coverage must hold at BOTH offsets, since the memmove
+/// drags pixels that were composited at the OLD offset. A scroll frame over
+/// nothing-but-the-clear-color is always eligible (no backdrop to drag).
+/// Returns `true` when there is no such frame (nothing to do).
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 pub fn scroll_fast_path_eligible(
@@ -1088,6 +1112,7 @@ pub fn scroll_fast_path_eligible(
     scroll_id: LocalScrollId,
     clip_bounds: &LogicalRect,
     scroll_offset: (f32, f32),
+    prev_offset: (f32, f32),
 ) -> bool {
     // Locate the frame's content range [start+1, end).
     let start = display_list.items.iter().position(|it| {
@@ -1099,21 +1124,57 @@ pub fn scroll_fast_path_eligible(
     let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
         .min(display_list.items.len());
 
+    // NESTED frame → ineligible. An inner frame's clip_bounds are the OUTER
+    // frame's content coords: with the outer frame scrolled, the memmove
+    // would shift a region displaced from the real on-screen clip by the
+    // outer offset. Conservative full-clip repaint instead.
+    let mut depth = 0i32;
+    for it in &display_list.items[..start] {
+        match it {
+            DisplayListItem::PushScrollFrame { .. } => depth += 1,
+            DisplayListItem::PopScrollFrame => depth -= 1,
+            _ => {}
+        }
+    }
+    if depth > 0 {
+        return false;
+    }
+
+    // Anything painted AFTER the frame that overlaps the clip (open dropdown,
+    // context menu, tooltip, sticky overlay, a sibling's box-shadow) is
+    // composited ON TOP of the frame inside the clip region — the memmove
+    // would drag those pixels and only the thin strip repaints, leaving a
+    // smeared copy. Ineligible; the full-clip repaint redraws the overlay.
+    for it in &display_list.items[end.min(display_list.items.len())..] {
+        if it.is_state_management() {
+            continue;
+        }
+        if let Some(b) = it.bounds() {
+            if rects_overlap_or_adjacent(&b, clip_bounds, 0.0) {
+                return false;
+            }
+        }
+    }
+
     // (a) Best case: the SCROLLING content opaquely covers the clip (projected
-    // into viewport space by the scroll offset). Then nothing behind can ever
-    // show through, so the shift is always safe.
-    let content_opaque: Vec<LogicalRect> = display_list.items[start + 1..end]
-        .iter()
-        .filter_map(opaque_fill_rect)
-        .map(|r| LogicalRect {
-            origin: LogicalPosition {
-                x: r.origin.x - scroll_offset.0,
-                y: r.origin.y - scroll_offset.1,
-            },
-            size: r.size,
-        })
-        .collect();
-    if rect_covered_by(clip_bounds, &content_opaque) {
+    // into viewport space by the scroll offset — at BOTH the old offset, where
+    // the dragged pixels were rendered, and the new one). Then nothing behind
+    // can ever show through, so the shift is always safe.
+    let covered_at = |off: (f32, f32)| {
+        let fills: Vec<LogicalRect> = display_list.items[start + 1..end]
+            .iter()
+            .filter_map(opaque_fill_rect)
+            .map(|r| LogicalRect {
+                origin: LogicalPosition {
+                    x: r.origin.x - off.0,
+                    y: r.origin.y - off.1,
+                },
+                size: r.size,
+            })
+            .collect();
+        rect_covered_by(clip_bounds, &fills)
+    };
+    if covered_at(scroll_offset) && covered_at(prev_offset) {
         return true;
     }
 
@@ -1419,9 +1480,20 @@ fn render_display_list_range(
 ///
 /// The comparison is conservative: any item whose bounds or content changed
 /// produces a damage rect covering both the old and new bounds.
+///
+/// The returned rects are in VIEWPORT space. Items inside a scroll frame are
+/// stored at CONTENT coords but render at `pos - scroll_offset`, so a changed
+/// item's bounds are projected through the accumulated scroll offset of its
+/// enclosing frame(s) — the OLD item through `old_offsets` (where its pixels
+/// were on screen), the NEW item through `new_offsets` (where they will be).
+/// Without this projection, damage for items inside a scrolled frame lands at
+/// the content-space position (off by exactly the scroll offset), so the
+/// consumer repaints the wrong band and the changed item stays visually stale.
 #[must_use] pub fn compute_display_list_damage(
     old: &DisplayList,
     new: &DisplayList,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
 ) -> Option<Vec<LogicalRect>> {
     // Different item counts → structural change → full repaint
     if old.items.len() != new.items.len() {
@@ -1430,23 +1502,57 @@ fn render_display_list_range(
 
     let mut damage = Vec::new();
 
+    // Accumulated (old, new) scroll offsets of the enclosing frames. The two
+    // lists are structurally identical (discriminants checked below), so one
+    // stack driven by the new list tracks both.
+    let mut offset_stack: Vec<((f32, f32), (f32, f32))> = vec![((0.0, 0.0), (0.0, 0.0))];
+
     for (old_item, new_item) in old.items.iter().zip(new.items.iter()) {
         // Compare discriminant first (cheap)
         if std::mem::discriminant(old_item) != std::mem::discriminant(new_item) {
             return None; // structural change
         }
 
+        match new_item {
+            DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+                let o = old_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                let n = new_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                offset_stack.push((
+                    (acc_old.0 + o.0, acc_old.1 + o.1),
+                    (acc_new.0 + n.0, acc_new.1 + n.1),
+                ));
+            }
+            DisplayListItem::PopScrollFrame => {
+                if offset_stack.len() > 1 {
+                    offset_stack.pop();
+                }
+            }
+            _ => {}
+        }
+
         // Compare full visual content, not just bounds — a color or text
         // change within the same bounds must still produce a damage rect.
         // Use visual_bounds() to include effects like box-shadow extent.
         if !old_item.is_visually_equal(new_item) {
-            let old_bounds = old_item.visual_bounds();
-            let new_bounds = new_item.visual_bounds();
-            if let Some(ob) = old_bounds {
-                damage.push(ob);
+            let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+            if let Some(ob) = old_item.visual_bounds() {
+                damage.push(LogicalRect {
+                    origin: LogicalPosition {
+                        x: ob.origin.x - acc_old.0,
+                        y: ob.origin.y - acc_old.1,
+                    },
+                    size: ob.size,
+                });
             }
-            if let Some(nb) = new_bounds {
-                damage.push(nb);
+            if let Some(nb) = new_item.visual_bounds() {
+                damage.push(LogicalRect {
+                    origin: LogicalPosition {
+                        x: nb.origin.x - acc_new.0,
+                        y: nb.origin.y - acc_new.1,
+                    },
+                    size: nb.size,
+                });
             }
         }
     }
@@ -1673,7 +1779,7 @@ mod scroll_shift_tests {
     #[test]
     fn noop_when_delta_zero() {
         let mut p = xy_pixmap(64, 64);
-        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 64.0, 64.0), (0.0, 0.0), 1.0);
+        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 64.0, 64.0), (0.0, 0.0), (0.0, 0.0), 1.0);
         assert!(strips.is_empty(), "zero delta must not shift or expose anything");
         // Buffer untouched.
         assert_eq!(at(&p, 10, 20), [10, 20, 0, 255]);
@@ -1684,7 +1790,7 @@ mod scroll_shift_tests {
     fn vertical_scroll_one_strip_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Scroll DOWN by 30 → content moves UP → bottom strip exposed.
-        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (0.0, 30.0), 1.0);
+        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (0.0, 30.0), (0.0, 30.0), 1.0);
         assert_eq!(strips.len(), 1, "single-axis scroll = one strip, got {strips:?}");
         let s = &strips[0];
         assert!(
@@ -1702,7 +1808,7 @@ mod scroll_shift_tests {
         let mut p = xy_pixmap(200, 100);
         // Diagonal scroll down-right by (20, 30): content moves up-left.
         let strips =
-            scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (20.0, 30.0), 1.0);
+            scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (20.0, 30.0), (20.0, 30.0), 1.0);
         assert_eq!(
             strips.len(),
             2,
@@ -1727,7 +1833,7 @@ mod scroll_shift_tests {
         let mut p = xy_pixmap(200, 100);
         // Clip is a sub-region; everything OUTSIDE must be byte-identical after.
         let clip = rect(8.0, 16.0, 180.0, 60.0); // phys [8,188) x [16,76)
-        drop(scroll_shift_region(&mut p, &clip, (0.0, 10.0), 1.0));
+        drop(scroll_shift_region(&mut p, &clip, (0.0, 10.0), (0.0, 10.0), 1.0));
         for &(x, y) in &[(0u32, 0u32), (199, 99), (100, 5), (100, 90), (2, 50), (190, 50)] {
             assert_eq!(
                 at(&p, x, y),
@@ -1745,7 +1851,7 @@ mod scroll_shift_tests {
         let mut p = xy_pixmap(64, 64);
         let clip = rect(0.0, 0.0, 64.0, 64.0);
         // Shift exceeds the region height → whole clip exposed (no partial strip).
-        let strips = scroll_shift_region(&mut p, &clip, (0.0, 100.0), 1.0);
+        let strips = scroll_shift_region(&mut p, &clip, (0.0, 100.0), (0.0, 100.0), 1.0);
         assert_eq!(strips.len(), 1);
         assert_eq!(strips[0].size.width, 64.0);
         assert_eq!(strips[0].size.height, 64.0);
@@ -1792,7 +1898,7 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent row
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
     }
 
     #[test]
@@ -1806,7 +1912,7 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
     }
 
     #[test]
@@ -1828,7 +1934,7 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
     }
 
     #[test]
@@ -1841,7 +1947,7 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
     }
 
     #[test]
@@ -1854,7 +1960,7 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 1000.0, 255), // opaque full-content cover
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
     }
 
     #[test]
