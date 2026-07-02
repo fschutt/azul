@@ -2633,6 +2633,12 @@ impl WaylandWindow {
         self.request_redraw();
     }
 
+    /// Raw wayland connection fd (for the multi-window run-loop poll).
+    #[must_use]
+    pub fn display_fd(&self) -> i32 {
+        unsafe { (self.wayland.wl_display_get_fd)(self.display) }
+    }
+
     /// Handle `wl_keyboard.enter` — the compositor gave this surface keyboard
     /// focus. This was a stub: `window_focused` only ever became true after
     /// the first KEYPRESS (handle_key inferred it), so click-to-focus alone

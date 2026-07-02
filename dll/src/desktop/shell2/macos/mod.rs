@@ -5269,39 +5269,15 @@ impl MacOSWindow {
                 // These events are processed by the NSView responder chain
                 // via app.sendEvent() -> NSView.mouseDown:/mouseUp:/etc.
             }
-            NSEventType::KeyDown => {
-                use crate::desktop::shell2::macos::events::EventProcessResult;
-                let result = self.handle_key_down(event);
-                if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                    self.common.frame_needs_regeneration = true;
-                } else if matches!(result, EventProcessResult::RegenerateLayoutIncremental) {
-                    self.apply_incremental_relayout_result();
-                } else if matches!(result, EventProcessResult::RequestRedraw) {
-                    self.request_redraw();
-                }
-            }
-            NSEventType::KeyUp => {
-                use crate::desktop::shell2::macos::events::EventProcessResult;
-                let result = self.handle_key_up(event);
-                if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                    self.common.frame_needs_regeneration = true;
-                } else if matches!(result, EventProcessResult::RegenerateLayoutIncremental) {
-                    self.apply_incremental_relayout_result();
-                } else if matches!(result, EventProcessResult::RequestRedraw) {
-                    self.request_redraw();
-                }
-            }
-            NSEventType::FlagsChanged => {
-                use crate::desktop::shell2::macos::events::EventProcessResult;
-                let result = self.handle_flags_changed(event);
-                if matches!(result, EventProcessResult::RegenerateDisplayList) {
-                    self.common.frame_needs_regeneration = true;
-                } else if matches!(result, EventProcessResult::RegenerateLayoutIncremental) {
-                    self.apply_incremental_relayout_result();
-                } else if matches!(result, EventProcessResult::RequestRedraw) {
-                    self.request_redraw();
-                }
-            }
+            // Key events are handled by the responder chain exactly like mouse
+            // events: sendEvent() → key window → GLView/CPUView keyDown:/keyUp:/
+            // flagsChanged: (which also run the NSTextInputClient IME path).
+            // Processing them HERE as well double-dispatched every keystroke —
+            // handle_key_down synthesizes text input, so typing 'a' inserted
+            // "aa" — and because the run loop broadcasts to ALL registered
+            // windows, a second window with a focused text node received the
+            // same text too. The responder chain is the single dispatch path.
+            NSEventType::KeyDown | NSEventType::KeyUp | NSEventType::FlagsChanged => {}
             _ => {
                 // Other events not handled yet
             }

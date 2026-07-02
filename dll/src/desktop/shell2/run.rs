@@ -1116,7 +1116,7 @@ pub fn run(
     let window_ptr = Box::into_raw(Box::new(window));
 
     // Get window ID for registration
-    let (window_id, display_ptr) = unsafe {
+    let (window_id, _display_ptr) = unsafe {
         match &*window_ptr {
             LinuxWindow::X11(x11_window) => (x11_window.window as u64, x11_window.display),
             LinuxWindow::Wayland(wayland_window) => {
@@ -1354,9 +1354,13 @@ pub fn run(
                 window.wait_for_events()?;
             }
         } else {
-            // Multi-window: Use select() on X11 connection fd to wait efficiently
-            // This is much better than sleep() as it wakes immediately when events arrive
-            wait_for_x11_connection_activity(display_ptr)?;
+            // Multi-window: poll ALL registered windows' connection fds,
+            // backend-aware. The old code fed the ROOT window's display
+            // pointer to XConnectionNumber — reading an Xlib struct offset
+            // from a wl_display* on Wayland (garbage fd; select() errored and
+            // KILLED the whole run loop the moment a second window existed) —
+            // and never woke for the other windows' connections either way.
+            wait_for_linux_window_activity()?;
         }
     }
 
@@ -1407,38 +1411,38 @@ pub fn run(
 /// This is more efficient than sleeping as it wakes immediately when events arrive.
 /// Uses a 16ms timeout to ensure timers fire even without window events.
 #[cfg(target_os = "linux")]
-fn wait_for_x11_connection_activity(display: *mut std::ffi::c_void) -> Result<(), WindowError> {
-    use std::mem;
+fn wait_for_linux_window_activity() -> Result<(), WindowError> {
+    use super::linux::{registry, LinuxWindow};
 
-    use super::linux::x11::{defines::Display, dlopen::Xlib};
-
-    // Get the X11 library to access XConnectionNumber
-    let xlib = Xlib::new()
-        .map_err(|e| WindowError::PlatformError(format!("Failed to load Xlib: {:?}", e)))?;
-
-    // Get the file descriptor for the X11 connection
-    let connection_fd = unsafe { (xlib.XConnectionNumber)(display as *mut Display) };
-
-    // Use select() to wait for events on the X11 connection
-    unsafe {
-        let mut read_fds: libc::fd_set = mem::zeroed();
-        libc::FD_ZERO(&mut read_fds);
-        libc::FD_SET(connection_fd, &mut read_fds);
-
-        // Use 16ms timeout to ensure timers fire even without window events
-        // This allows ~60 timer checks per second while still being efficient
-        let mut timeout = libc::timeval {
-            tv_sec: 0,
-            tv_usec: 16_000, // 16ms = 16000 microseconds
+    // Collect the CORRECT connection fd for every registered window:
+    // X11 → XConnectionNumber(display), Wayland → wl_display_get_fd(display).
+    // Each window may own its own connection, so all of them must be polled —
+    // otherwise events on a second window's connection don't wake the loop.
+    let mut pollfds: Vec<libc::pollfd> = Vec::new();
+    for wid in registry::get_all_window_ids() {
+        let Some(wptr) = (unsafe { registry::get_window(wid) }) else {
+            continue;
         };
+        let fd = match unsafe { &*wptr } {
+            LinuxWindow::X11(w) => unsafe { (w.xlib.XConnectionNumber)(w.display) },
+            LinuxWindow::Wayland(w) => w.display_fd(),
+        };
+        if fd >= 0 {
+            pollfds.push(libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+    }
+    if pollfds.is_empty() {
+        return Ok(());
+    }
 
-        let result = libc::select(
-            connection_fd + 1,
-            &mut read_fds,
-            std::ptr::null_mut(), // No write fds
-            std::ptr::null_mut(), // No error fds
-            &mut timeout,         // 16ms timeout for timer polling
-        );
+    unsafe {
+        // 16ms cap so timers keep firing even without window events (~60 Hz),
+        // matching the previous select() behaviour.
+        let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, 16);
 
         if result < 0 {
             let err = std::io::Error::last_os_error();
@@ -1446,7 +1450,7 @@ fn wait_for_x11_connection_activity(display: *mut std::ffi::c_void) -> Result<()
             // EINTR is okay - just means a signal interrupted us
             if errno != libc::EINTR {
                 return Err(WindowError::PlatformError(format!(
-                    "select() failed while waiting for X11 events: {}",
+                    "poll() failed while waiting for window events: {}",
                     err
                 )));
             }
