@@ -220,6 +220,11 @@ pub(super) extern "C" fn wl_surface_enter_handler(
         );
         window.common.current_window_state.size.dpi = new_dpi;
         window.common.frame_needs_regeneration = true;
+        // Schedule the frame NOW. Setting the flag alone renders nothing:
+        // Wayland gets no spurious expose/configure events, so an idle window
+        // dragged to another monitor kept its old-DPI frame until the next
+        // input event.
+        window.request_redraw();
     }
 }
 
@@ -248,6 +253,9 @@ pub(super) extern "C" fn wl_surface_leave_handler(
         );
         window.common.current_window_state.size.dpi = new_dpi;
         window.common.frame_needs_regeneration = true;
+        // Same as the enter handler: schedule the frame now (no spurious
+        // events on Wayland to mask a missing redraw request).
+        window.request_redraw();
     }
 }
 
@@ -1432,14 +1440,15 @@ extern "C" fn pointer_axis_discrete_handler(
 ) {
 }
 
-// Stub handlers for unused keyboard events
 extern "C" fn keyboard_enter_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _keyboard: *mut wl_keyboard,
     _serial: u32,
     _surface: *mut wl_surface,
     _keys: *mut c_void,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_keyboard_enter();
 }
 extern "C" fn keyboard_leave_handler(
     data: *mut c_void,

@@ -92,9 +92,13 @@ struct CpuFallbackState {
     height: i32,
     stride: i32,
     fd: i32, // Keep fd open until drop
-    /// Damage rects from the last render pass. Used to call
-    /// wl_surface_damage per-rect instead of full surface.
-    damage_rects: Vec<azul_core::geom::LogicalRect>,
+    /// Damage rects (x, y, w, h) of the last render pass, in SURFACE-LOCAL
+    /// coordinates (== buffer px while `wl_surface_set_buffer_scale` is never
+    /// sent, i.e. scale 1). Filled by the CPU present path from
+    /// `CpuBackend::last_present_damage`; drained into per-rect
+    /// `wl_surface_damage` calls at commit. Empty = nothing changed on screen
+    /// (no damage posted, compositor recomposites nothing).
+    damage_rects: Vec<(i32, i32, i32, i32)>,
 }
 
 /// Monitor state tracking for multi-monitor support
@@ -214,6 +218,12 @@ pub struct WaylandWindow {
     /// per-backend glyph_cache / retained_pixmap / previous_display_list fields.
     #[cfg(feature = "cpurender")]
     cpu_backend: crate::desktop::shell2::headless::CpuBackend,
+
+    /// The shm buffer's on-screen content is stale/undefined (first frame,
+    /// buffer recreated on resize) — the next CPU present must copy + damage
+    /// the FULL frame even if `render_frame` reports no damage. Consumed by
+    /// the CPU present path in `generate_frame_if_needed`.
+    os_present_requested: bool,
 
     // Monitor tracking for multi-monitor support
     pub known_outputs: Vec<MonitorState>,
@@ -592,24 +602,10 @@ impl WaylandWindow {
                 // Buffer already rendered by render_frame_if_ready — just submit
                 unsafe {
                     (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
-                    // Use per-rect damage if available, otherwise full surface
-                    if cpu_state.damage_rects.is_empty() {
-                        (self.wayland.wl_surface_damage)(
-                            self.surface, 0, 0,
-                            cpu_state.width, cpu_state.height,
-                        );
-                    } else {
-                        for dr in &cpu_state.damage_rects {
-                            (self.wayland.wl_surface_damage)(
-                                self.surface,
-                                dr.origin.x as i32,
-                                dr.origin.y as i32,
-                                dr.size.width as i32,
-                                dr.size.height as i32,
-                            );
-                        }
-                        // Clear damage rects after submitting to compositor
-                        cpu_state.damage_rects.clear();
+                    // Per-rect damage from the last render pass; empty = the
+                    // frame is unchanged (nothing to recomposite).
+                    for (dx, dy, dw, dh) in cpu_state.damage_rects.drain(..) {
+                        (self.wayland.wl_surface_damage)(self.surface, dx, dy, dw, dh);
                     }
                     (self.wayland.wl_surface_commit)(self.surface);
                 }
@@ -1205,6 +1201,7 @@ impl WaylandWindow {
             render_mode: RenderMode::Cpu(None),
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            os_present_requested: true, // first present must be full
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
@@ -2233,6 +2230,25 @@ impl WaylandWindow {
                 // directly here does NOT build/send the transaction on Wayland, so the
                 // change never reached the screen until a later redraw — that was why
                 // typed text (a content change) only appeared on the next mouse click.
+                //
+                // RefreshDomAllWindows: ALSO mark every other registered
+                // Wayland window (mirrors the X11 fan-out). Without this, a
+                // popup/second-window callback mutating shared app data (e.g.
+                // app-global undo) refreshed only itself; other windows kept
+                // rendering the stale DOM until they got their own input.
+                if result == ProcessEventResult::ShouldRegenerateDomAllWindows {
+                    for wid in super::registry::get_all_window_ids() {
+                        if wid == self.surface as u64 {
+                            continue;
+                        }
+                        if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                            if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
+                                w.common.frame_needs_regeneration = true;
+                                w.request_redraw();
+                            }
+                        }
+                    }
+                }
                 self.common.frame_needs_regeneration = true;
                 self.request_redraw();
             }
@@ -2609,6 +2625,25 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = false;
         self.dynamic_selector_context.window_focused = false;
+        // Run the state-diff pass so WindowFocusLost callbacks fire and
+        // focus-conditional styling restyles (the bare snapshot alone was
+        // overwritten by the next event's snapshot before anything diffed it).
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+        self.request_redraw();
+    }
+
+    /// Handle `wl_keyboard.enter` — the compositor gave this surface keyboard
+    /// focus. This was a stub: `window_focused` only ever became true after
+    /// the first KEYPRESS (handle_key inferred it), so click-to-focus alone
+    /// left the window styled/behaving as unfocused, and WindowFocusReceived
+    /// callbacks never fired on Wayland.
+    pub fn handle_keyboard_enter(&mut self) {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.current_window_state.window_focused = true;
+        self.dynamic_selector_context.window_focused = true;
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
         self.request_redraw();
     }
 
@@ -3699,19 +3734,69 @@ impl WaylandWindow {
                                     dpi,
                                 );
 
-                                // Blit the rendered pixmap into the Wayland shm buffer.
+                                // Blit the rendered pixmap into the Wayland shm
+                                // buffer — PARTIALLY: only the present-damage
+                                // rows are converted and copied, and the same
+                                // rects are queued for per-rect
+                                // wl_surface_damage at the commit below. The
+                                // old code re-swizzled the WHOLE frame per
+                                // present and posted full-surface damage, so
+                                // the compositor recomposited everything on
+                                // every hover/caret tick. FrameDamage::None →
+                                // copy nothing, damage nothing (the retained
+                                // single shm buffer already holds the frame).
                                 if let Some(ref pixmap) = self.cpu_backend.last_frame {
-                                    let buf = cpu_state.pixel_buffer_mut();
-                                    let src = pixmap.data();
-                                    let copy_len = buf.len().min(src.len());
-                                    // RGBA → ARGB: swap R and B channels for Wayland's ARGB8888
-                                    for i in (0..copy_len).step_by(4) {
-                                        if i + 3 < copy_len {
-                                            buf[i]     = src[i + 2]; // B
-                                            buf[i + 1] = src[i + 1]; // G
-                                            buf[i + 2] = src[i];     // R
-                                            buf[i + 3] = src[i + 3]; // A
+                                    let force_full = self.os_present_requested
+                                        || !self.common.display_list_initialized;
+                                    self.os_present_requested = false;
+                                    let src_w = pixmap.width();
+                                    let src_h = pixmap.height();
+                                    // Clamp the presentable area to BOTH the
+                                    // pixmap and the shm buffer (they diverge
+                                    // when a resize configure races a render).
+                                    let clamp_w = src_w.min(cpu_state.width.max(0) as u32);
+                                    let clamp_h = src_h.min(cpu_state.height.max(0) as u32);
+                                    let rects = self
+                                        .cpu_backend
+                                        .last_present_damage
+                                        .to_present_rects_physical(
+                                            dpi, clamp_w, clamp_h, force_full,
+                                        );
+                                    if let Some(rects) = rects {
+                                        let dst_stride = (cpu_state.width.max(0) as usize) * 4;
+                                        let src_stride = (src_w as usize) * 4;
+                                        let src = pixmap.data();
+                                        let buf = cpu_state.pixel_buffer_mut();
+                                        for (rx, ry, rw, rh) in &rects {
+                                            for row in 0..*rh as usize {
+                                                let y = *ry as usize + row;
+                                                let so = y * src_stride + (*rx as usize) * 4;
+                                                let doff = y * dst_stride + (*rx as usize) * 4;
+                                                let n = (*rw as usize) * 4;
+                                                if so + n > src.len() || doff + n > buf.len() {
+                                                    continue;
+                                                }
+                                                // RGBA → ARGB8888 (BGRA in LE memory)
+                                                for (s, d) in src[so..so + n]
+                                                    .chunks_exact(4)
+                                                    .zip(buf[doff..doff + n].chunks_exact_mut(4))
+                                                {
+                                                    d[0] = s[2]; // B
+                                                    d[1] = s[1]; // G
+                                                    d[2] = s[0]; // R
+                                                    d[3] = s[3]; // A
+                                                }
+                                            }
                                         }
+                                        // Surface-local coords == buffer px at
+                                        // buffer_scale 1 (never set). When a
+                                        // set_buffer_scale/HiDPI path lands,
+                                        // switch to wl_surface_damage_buffer.
+                                        cpu_state.damage_rects.extend(rects.iter().map(
+                                            |(x, y, w, h)| {
+                                                (*x as i32, *y as i32, *w as i32, *h as i32)
+                                            },
+                                        ));
                                     }
                                 }
                                 // (previous-display-list tracking now lives inside
@@ -3723,21 +3808,25 @@ impl WaylandWindow {
 
                     if !rendered {
                         cpu_state.draw_blue();
+                        let (w, h) = (cpu_state.width, cpu_state.height);
+                        cpu_state.damage_rects.push((0, 0, w, h));
                     }
                 }
 
                 #[cfg(not(feature = "cpurender"))]
-                cpu_state.draw_blue();
+                {
+                    cpu_state.draw_blue();
+                    let (w, h) = (cpu_state.width, cpu_state.height);
+                    cpu_state.damage_rects.push((0, 0, w, h));
+                }
 
                 unsafe {
                     (self.wayland.wl_surface_attach)(self.surface, cpu_state.buffer, 0, 0);
-                    (self.wayland.wl_surface_damage)(
-                        self.surface,
-                        0,
-                        0,
-                        cpu_state.width,
-                        cpu_state.height,
-                    );
+                    // Per-rect present damage (queued above). Empty = frame
+                    // unchanged → the compositor recomposites nothing.
+                    for (dx, dy, dw, dh) in cpu_state.damage_rects.drain(..) {
+                        (self.wayland.wl_surface_damage)(self.surface, dx, dy, dw, dh);
+                    }
                 }
             }
             RenderMode::Cpu(None) => {
@@ -3748,6 +3837,7 @@ impl WaylandWindow {
                     match CpuFallbackState::new(&self.wayland, self.shm, width, height) {
                         Ok(cpu_state) => {
                             self.render_mode = RenderMode::Cpu(Some(cpu_state));
+                            self.os_present_requested = true; // fresh buffer
                             log_info!(
                                 LogCategory::Rendering,
                                 "[Wayland] CPU fallback initialized: {}x{}",
@@ -4183,6 +4273,9 @@ impl WaylandWindow {
                     match CpuFallbackState::new(&self.wayland, self.shm, width, height) {
                         Ok(new_state) => {
                             *cpu_opt = Some(new_state);
+                            // Fresh buffer = undefined content: the next
+                            // present must copy + damage the full frame.
+                            self.os_present_requested = true;
                         }
                         Err(e) => {
                             log_error!(
