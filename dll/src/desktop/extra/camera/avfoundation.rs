@@ -14,8 +14,9 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
 use objc2_av_foundation::{
-    AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceInput, AVCaptureOutput,
-    AVCaptureSession, AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate,
+    AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceDiscoverySession, AVCaptureDeviceInput,
+    AVCaptureDevicePosition, AVCaptureDeviceType, AVCaptureOutput, AVCaptureSession,
+    AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType,
     AVMediaTypeVideo,
 };
 use objc2_core_media::CMSampleBuffer;
@@ -24,7 +25,7 @@ use objc2_core_video::{
     CVPixelBufferGetHeight, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress,
     CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
 };
-use objc2_foundation::{NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
+use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
 
 /// kCVPixelFormatType_32BGRA ('BGRA').
 const PIXEL_FORMAT_32BGRA: u32 = 0x42475241;
@@ -116,15 +117,112 @@ struct AvfCam {
     last_seq: u64,
 }
 
-/// Open the default video device, request BGRA frames, start the session.
+/// Read a possibly-NULL `AVCaptureDeviceType` extern static. Device-type
+/// constants from newer SDKs (`External` is macOS 14+, `ContinuityCamera`
+/// macOS 13+) resolve to NULL at runtime on older systems, so every use goes
+/// through this null check instead of trusting the `&'static` type.
+unsafe fn devtype_opt(
+    s: *const &'static AVCaptureDeviceType,
+) -> Option<&'static AVCaptureDeviceType> {
+    let raw: *const *const AVCaptureDeviceType = s.cast();
+    let v = *raw;
+    if v.is_null() {
+        None
+    } else {
+        Some(&*v)
+    }
+}
+
+/// Pick the capture device for `index` via `AVCaptureDeviceDiscoverySession`
+/// (built-in wide angle + external + Continuity cameras — whichever device
+/// types this macOS knows about). Graceful fallback: `index` out of range →
+/// device 0 → `defaultDeviceWithMediaType`. Logs the enumerated device names
+/// (localizedName) once per process.
+unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCaptureDevice>> {
+    use objc2_av_foundation::{
+        AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeContinuityCamera,
+        AVCaptureDeviceTypeExternal,
+    };
+    #[allow(deprecated)] // pre-macOS-14 synonym for AVCaptureDeviceTypeExternal
+    use objc2_av_foundation::AVCaptureDeviceTypeExternalUnknown;
+
+    #[allow(deprecated)]
+    let external_unknown = core::ptr::addr_of!(AVCaptureDeviceTypeExternalUnknown);
+    let mut types: Vec<&'static AVCaptureDeviceType> = Vec::new();
+    for ptr in [
+        core::ptr::addr_of!(AVCaptureDeviceTypeBuiltInWideAngleCamera),
+        core::ptr::addr_of!(AVCaptureDeviceTypeExternal),
+        external_unknown,
+        core::ptr::addr_of!(AVCaptureDeviceTypeContinuityCamera),
+    ] {
+        if let Some(t) = devtype_opt(ptr) {
+            // Dedup External vs ExternalUnknown (same string on macOS 14+
+            // would double-count; the discovery session rejects dupes).
+            if !types.iter().any(|e| *e == t) {
+                types.push(t);
+            }
+        }
+    }
+
+    let devices = if types.is_empty() {
+        None
+    } else {
+        let type_array = NSArray::from_slice(&types);
+        let session = AVCaptureDeviceDiscoverySession::discoverySessionWithDeviceTypes_mediaType_position(
+            &type_array,
+            Some(media),
+            AVCaptureDevicePosition::Unspecified,
+        );
+        Some(session.devices())
+    };
+
+    if let Some(devices) = devices {
+        let count = devices.count();
+        // Log the device list once (open() re-runs on every capture start).
+        static LOGGED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        LOGGED.get_or_init(|| {
+            let names: Vec<String> = (0..count)
+                .map(|i| devices.objectAtIndex(i).localizedName().to_string())
+                .collect();
+            crate::plog_info!(
+                "[camera] avfoundation: {} device(s) discovered: [{}]",
+                count,
+                names.join(", ")
+            );
+        });
+        if count > 0 {
+            let picked = if (index as usize) < count {
+                index as usize
+            } else {
+                crate::plog_warn!(
+                    "[camera] avfoundation: device index {} out of range ({} device(s)) → \
+                     falling back to device 0",
+                    index,
+                    count
+                );
+                0
+            };
+            return Some(devices.objectAtIndex(picked));
+        }
+    }
+    // No discovery session types resolved / no devices found — last resort.
+    AVCaptureDevice::defaultDeviceWithMediaType(media)
+}
+
+/// Open the video device at `index`, request BGRA frames, start the session.
 /// Returns a boxed handle, or `0` on failure (worker uses the test pattern).
-pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
+pub fn open(index: u32, _width: u32, _height: u32) -> u64 {
+    // TCC gate first: without authorization the session runs but vends only
+    // black frames. Blocking (≤60 s prompt wait) is fine on this worker thread.
+    if !super::avf_auth::ensure_camera_access() {
+        return 0;
+    }
     unsafe {
         let media = match AVMediaTypeVideo {
             Some(m) => m,
             None => return 0,
         };
-        let device = match AVCaptureDevice::defaultDeviceWithMediaType(media) {
+        let device = match select_device(media, index) {
             Some(d) => d,
             None => return 0,
         };
@@ -167,7 +265,9 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
             last_seq: 0,
         };
         crate::plog_info!(
-            "[camera] avfoundation: opened default device, requested 32-BGRA → converting to RGBA8"
+            "[camera] avfoundation: opened device (index {}), requested 32-BGRA → converting to \
+             RGBA8",
+            index
         );
         Box::into_raw(Box::new(cam)) as u64
     }

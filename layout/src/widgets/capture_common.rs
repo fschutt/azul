@@ -83,15 +83,34 @@ pub fn invoke_on_frame(
 ///   (`update_all_image_callbacks` -> `ShouldReRenderCurrentWindow`) - no
 ///   relayout, no display-list rebuild, since the external texture's wr key
 ///   (= the `ImageRef` data pointer) stays stable. Returns `current_id`.
-/// - No GL context (cpurender): returns `current_id` unchanged (a CPU upload
-///   path is a follow-up).
+/// - No GL context (cpurender): installs the frame as a **raw RGBA
+///   `ImageRef`** on the node every frame (same per-frame `new_rawimage` the
+///   `VideoWidget` CPU path uses) - heavier than the GL re-upload (new image
+///   resource per frame) but the tile shows live frames on both renderers.
 pub fn present_frame(
     info: &mut CallbackInfo,
     dataset: RefAny,
     current_id: Option<u32>,
     frame: &VideoFrame,
 ) -> Option<u32> {
+    use azul_core::resources::{RawImage, RawImageData, RawImageFormat};
+
     let Some(gl) = info.get_gl_context().into_option() else {
+        // CPU renderer: swap the node's image content for this frame.
+        if let Some(img) = ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(frame.bytes.clone()),
+            width: frame.width as usize,
+            height: frame.height as usize,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::RGBA8,
+            tag: b"azul-capture-frame".to_vec().into(),
+        }) {
+            if let Some(node) = info.get_node_id_of_root_dataset(dataset) {
+                if let Some(nid) = node.node.into_crate_internal() {
+                    info.change_node_image(node.dom, nid, img, UpdateImageType::Content);
+                }
+            }
+        }
         return current_id;
     };
 

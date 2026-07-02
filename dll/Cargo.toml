@@ -229,6 +229,9 @@ objc2-av-foundation = { version = "0.3.0", default-features = false, optional = 
     "AVCaptureVideoDataOutput",
     "AVCaptureAudioDataOutput",
     "AVMediaFormat",
+    # requestAccessForMediaType:completionHandler: (TCC prompt) takes an
+    # ObjC completion block — gated behind objc2-av-foundation's block2 flag.
+    "block2",
 ] }
 objc2-core-media = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",
@@ -236,6 +239,8 @@ objc2-core-media = { version = "0.3.0", default-features = false, optional = tru
     "CMSampleBuffer",
     "CMBlockBuffer",
     "CMFormatDescription",
+    "CMTime",
+    "CMSync",
 ] }
 objc2-core-video = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",
@@ -416,6 +421,9 @@ objc2-av-foundation = { version = "0.3.0", default-features = false, optional = 
     "AVCaptureVideoDataOutput",
     "AVCaptureAudioDataOutput",
     "AVMediaFormat",
+    # requestAccessForMediaType:completionHandler: (TCC prompt) takes an
+    # ObjC completion block — gated behind objc2-av-foundation's block2 flag.
+    "block2",
 ] }
 objc2-core-media = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",
@@ -423,6 +431,8 @@ objc2-core-media = { version = "0.3.0", default-features = false, optional = tru
     "CMSampleBuffer",
     "CMBlockBuffer",
     "CMFormatDescription",
+    "CMTime",
+    "CMSync",
 ] }
 objc2-core-video = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",

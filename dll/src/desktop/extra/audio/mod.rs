@@ -259,8 +259,10 @@ pub struct AudioDeviceList {
 
 impl AudioDeviceList {
     /// Enumerate the machine's audio devices. Linux: PipeWire/PulseAudio via
-    /// `pactl list short sinks/sources`; empty on platforms without an enumeration
-    /// backend yet (and if `pactl` isn't installed).
+    /// `pactl list short sinks/sources`; macOS: the CoreAudio HAL
+    /// (`AudioObjectGetPropertyData` on the system object, dlopen'd at runtime —
+    /// no link-time dep); empty on platforms without an enumeration backend yet
+    /// (and if `pactl` isn't installed / CoreAudio can't be loaded).
     pub fn enumerate() -> AudioDeviceList {
         #[cfg(target_os = "linux")]
         {
@@ -269,7 +271,12 @@ impl AudioDeviceList {
                 inputs: pactl_device_names("sources"),
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        {
+            let (outputs, inputs) = coreaudio_device_names();
+            AudioDeviceList { outputs, inputs }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             AudioDeviceList {
                 outputs: StringVec::from_vec(Vec::new()),
@@ -298,6 +305,186 @@ fn pactl_device_names(kind: &str) -> StringVec {
         .map(AzString::from)
         .collect();
     StringVec::from_vec(names)
+}
+
+/// (Output-names, input-names) from the CoreAudio HAL. CoreAudio.framework is
+/// dlopen'd at runtime via `libloading` (same rule as `camera/v4l2.rs` — NO
+/// link-time dep, so cross-compiles stay clean and a missing framework only
+/// fails gracefully). Flow: kAudioHardwarePropertyDevices on the system object
+/// → AudioObjectID list; per device kAudioDevicePropertyDeviceNameCFString for
+/// the name (CFString via objc2-core-foundation) and
+/// kAudioDevicePropertyStreamConfiguration in the input/output scope — a
+/// non-empty AudioBufferList in a scope means the device plays (or captures)
+/// there. A duplex device lands in both lists (per the `enumerate` doc).
+#[cfg(target_os = "macos")]
+fn coreaudio_device_names() -> (StringVec, StringVec) {
+    use core::ptr::NonNull;
+    use std::sync::OnceLock;
+
+    use objc2_core_foundation::{CFRetained, CFString};
+
+    /// `AudioObjectPropertyAddress` (CoreAudio/AudioHardwareBase.h).
+    #[repr(C)]
+    struct PropAddr {
+        selector: u32,
+        scope: u32,
+        element: u32,
+    }
+
+    type GetSizeFn =
+        unsafe extern "C" fn(u32, *const PropAddr, u32, *const c_void, *mut u32) -> i32;
+    type GetDataFn = unsafe extern "C" fn(
+        u32,
+        *const PropAddr,
+        u32,
+        *const c_void,
+        *mut u32,
+        *mut c_void,
+    ) -> i32;
+
+    struct HalFns {
+        get_size: GetSizeFn,
+        get_data: GetDataFn,
+    }
+
+    static HAL: OnceLock<Option<(libloading::Library, HalFns)>> = OnceLock::new();
+    let fns = HAL
+        .get_or_init(|| unsafe {
+            let lib = crate::desktop::open_first_lib(&[
+                "/System/Library/Frameworks/CoreAudio.framework/CoreAudio",
+            ])?;
+            let fns = HalFns {
+                get_size: *lib.get(b"AudioObjectGetPropertyDataSize\0").ok()?,
+                get_data: *lib.get(b"AudioObjectGetPropertyData\0").ok()?,
+            };
+            Some((lib, fns))
+        })
+        .as_ref()
+        .map(|(_, f)| f);
+    let fns = match fns {
+        Some(f) => f,
+        None => {
+            crate::plog_warn!("[audio] CoreAudio.framework not loadable - no device names");
+            return (
+                StringVec::from_vec(Vec::new()),
+                StringVec::from_vec(Vec::new()),
+            );
+        }
+    };
+
+    // FourCC property selectors / scopes (CoreAudio/AudioHardware.h).
+    const SYSTEM_OBJECT: u32 = 1; // kAudioObjectSystemObject
+    const SEL_DEVICES: u32 = 0x6465_7623; // 'dev#' kAudioHardwarePropertyDevices
+    const SEL_NAME: u32 = 0x6C6E_616D; // 'lnam' kAudioDevicePropertyDeviceNameCFString
+    const SEL_STREAM_CFG: u32 = 0x736C_6179; // 'slay' kAudioDevicePropertyStreamConfiguration
+    const SCOPE_GLOBAL: u32 = 0x676C_6F62; // 'glob'
+    const SCOPE_INPUT: u32 = 0x696E_7074; // 'inpt'
+    const SCOPE_OUTPUT: u32 = 0x6F75_7470; // 'outp'
+
+    /// Whether the device has any stream buffers in `scope` (input/output):
+    /// fetch the scope's AudioBufferList and check `mNumberBuffers > 0`.
+    unsafe fn has_buffers(fns: &HalFns, device: u32, scope: u32) -> bool {
+        let addr = PropAddr {
+            selector: SEL_STREAM_CFG,
+            scope,
+            element: 0,
+        };
+        let mut size = 0u32;
+        if unsafe { (fns.get_size)(device, &addr, 0, core::ptr::null(), &mut size) } != 0
+            || size < 4
+        {
+            return false;
+        }
+        let mut buf = vec![0u8; size as usize];
+        if unsafe {
+            (fns.get_data)(
+                device,
+                &addr,
+                0,
+                core::ptr::null(),
+                &mut size,
+                buf.as_mut_ptr() as *mut c_void,
+            )
+        } != 0
+            || (size as usize) < 4
+        {
+            return false;
+        }
+        // AudioBufferList starts with `UInt32 mNumberBuffers`.
+        u32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]) > 0
+    }
+
+    let mut outputs: Vec<AzString> = Vec::new();
+    let mut inputs: Vec<AzString> = Vec::new();
+    unsafe {
+        // All device IDs on the system object.
+        let addr = PropAddr {
+            selector: SEL_DEVICES,
+            scope: SCOPE_GLOBAL,
+            element: 0,
+        };
+        let mut size = 0u32;
+        if (fns.get_size)(SYSTEM_OBJECT, &addr, 0, core::ptr::null(), &mut size) != 0 || size < 4 {
+            return (
+                StringVec::from_vec(Vec::new()),
+                StringVec::from_vec(Vec::new()),
+            );
+        }
+        let mut ids = vec![0u32; size as usize / 4];
+        if (fns.get_data)(
+            SYSTEM_OBJECT,
+            &addr,
+            0,
+            core::ptr::null(),
+            &mut size,
+            ids.as_mut_ptr() as *mut c_void,
+        ) != 0
+        {
+            return (
+                StringVec::from_vec(Vec::new()),
+                StringVec::from_vec(Vec::new()),
+            );
+        }
+        ids.truncate(size as usize / 4);
+
+        for id in ids {
+            // Device name: a +1-retained CFStringRef the caller must release —
+            // CFRetained::from_raw takes over exactly that reference.
+            let addr = PropAddr {
+                selector: SEL_NAME,
+                scope: SCOPE_GLOBAL,
+                element: 0,
+            };
+            let mut cf: *mut c_void = core::ptr::null_mut();
+            let mut size = size_of::<*mut c_void>() as u32;
+            let cf_out: *mut *mut c_void = &mut cf;
+            if (fns.get_data)(
+                id,
+                &addr,
+                0,
+                core::ptr::null(),
+                &mut size,
+                cf_out as *mut c_void,
+            ) != 0
+            {
+                continue;
+            }
+            let name = match NonNull::new(cf as *mut CFString) {
+                Some(p) => CFRetained::from_raw(p).to_string(),
+                None => continue,
+            };
+            if name.is_empty() {
+                continue;
+            }
+            if has_buffers(fns, id, SCOPE_OUTPUT) {
+                outputs.push(AzString::from(name.as_str()));
+            }
+            if has_buffers(fns, id, SCOPE_INPUT) {
+                inputs.push(AzString::from(name.as_str()));
+            }
+        }
+    }
+    (StringVec::from_vec(outputs), StringVec::from_vec(inputs))
 }
 
 #[cfg(test)]

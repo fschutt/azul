@@ -61,13 +61,36 @@ pub struct HwDecodeProbe {
 
 /// Probe whether this machine can hardware-decode H.264 video.
 pub fn probe_hw_decode() -> HwDecodeProbe {
-    // Apple + Android ship a system codec; no Vulkan, no install ever needed.
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    // Apple ships a system codec — but report what the dlopen'd backend
+    // actually resolved, not a hard-coded yes (a missing symbol = stub).
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    {
+        return if super::videotoolbox::is_available() {
+            HwDecodeProbe {
+                available: true,
+                backend: "VideoToolbox",
+                detail: String::from("Apple VideoToolbox (built into the OS, runtime-loaded)"),
+                can_remediate: false,
+            }
+        } else {
+            HwDecodeProbe {
+                available: false,
+                backend: "VideoToolbox",
+                detail: String::from(
+                    "VideoToolbox framework failed to load (see [video] log lines)",
+                ),
+                can_remediate: false,
+            }
+        };
+    }
+    // Apple build without `libloading`: the runtime-loaded backend is not
+    // compiled in — the codec is a stub and the probe must say so.
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), not(feature = "libloading")))]
     {
         return HwDecodeProbe {
-            available: true,
+            available: false,
             backend: "VideoToolbox",
-            detail: String::from("Apple VideoToolbox (built into the OS)"),
+            detail: String::from("built without `libloading` — VideoToolbox backend not compiled"),
             can_remediate: false,
         };
     }

@@ -5403,6 +5403,30 @@ impl MacOSWindow {
                 }
                 _ => {}
             }
+            // Honor the CallbackChanges' ProcessEventResult too — a thread
+            // writeback that calls e.g. `change_node_image` (camera/screencap
+            // frames) returns ShouldUpdateDisplayListCurrentWindow, which was
+            // previously DROPPED here: the styled_dom was mutated but no
+            // redraw/display-list rebuild ever ran, so capture tiles never
+            // updated. Mirror of the ProcessEventResult handler in the main
+            // event path (see handle_event ~4790).
+            {
+                use azul_core::events::ProcessEventResult;
+                match thread_changes_result {
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                    | ProcessEventResult::ShouldRegenerateDomAllWindows
+                    | ProcessEventResult::ShouldIncrementalRelayout
+                    | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                        self.common.frame_needs_regeneration = true;
+                        self.request_redraw();
+                    }
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                    | ProcessEventResult::ShouldReRenderCurrentWindow => {
+                        self.request_redraw();
+                    }
+                    ProcessEventResult::DoNothing => {}
+                }
+            }
             self.sync_window_state();
         }
 

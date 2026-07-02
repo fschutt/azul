@@ -48,6 +48,13 @@ pub mod pipeline;
 #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
 mod decode_vulkan;
 
+// Real VideoToolbox H.264 encoder + decoder (macOS/iOS). Every framework
+// symbol is dlopen'd at runtime (no build-time link — loads on any macOS
+// version), so this needs only `libloading` and is NOT behind `video-native`:
+// azul-meet's `link-static` build gets the real codec too.
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+mod videotoolbox;
+
 // Hardware-decode capability probe + driver-provisioning planner (always built;
 // no extra crate deps). Drives `capability::video_codec()` and the "install the
 // drivers for me?" flow.
@@ -82,6 +89,10 @@ struct EncoderInner {
     #[allow(dead_code)]
     bitrate_kbps: u32,
     frames_encoded: u64,
+    /// Real VideoToolbox H.264 encoder (macOS/iOS). `None` (H.265 or VT
+    /// unavailable) => behaves like the stub (returns empty chunks).
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    vt: Option<videotoolbox::VtEncoder>,
 }
 
 struct DecoderInner {
@@ -97,6 +108,13 @@ struct DecoderInner {
     /// `decode` / `next_frame` call.
     #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
     pending: std::collections::VecDeque<VideoFrame>,
+    /// Real VideoToolbox H.264 decoder (macOS/iOS, dlopen'd — not behind
+    /// `video-native`). `None` => stub.
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    vt: Option<videotoolbox::VtDecoder>,
+    /// Same pull-one-frame-per-call buffer as `pending`, for the VT backend.
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    vt_pending: std::collections::VecDeque<VideoFrame>,
 }
 
 /// A hardware video encoder handle. `open(...)` selects the native backend for
@@ -138,6 +156,14 @@ impl VideoEncoder {
             h265,
             bitrate_kbps,
             frames_encoded: 0,
+            // H.265 isn't wired for VT yet (demos are H.264, same scope as
+            // the Vulkan backend) — h265 keeps the stub.
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            vt: if h265 {
+                None
+            } else {
+                videotoolbox::VtEncoder::open(width, height, bitrate_kbps)
+            },
         });
         VideoEncoder {
             ptr: Box::into_raw(inner) as *mut c_void,
@@ -163,6 +189,14 @@ impl VideoEncoder {
     pub fn encode(&self, frame: VideoFrame, force_keyframe: bool) -> U8Vec {
         if let Some(inner) = unsafe { (self.ptr as *mut EncoderInner).as_mut() } {
             inner.frames_encoded = inner.frames_encoded.wrapping_add(1);
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            if let Some(vt) = inner.vt.as_mut() {
+                let chunk = vt.encode(frame.bytes.as_ref(), force_keyframe);
+                if !chunk.is_empty() {
+                    return U8Vec::from_vec(chunk);
+                }
+                return U8Vec::from_const_slice(&[]);
+            }
             let _ = (frame, force_keyframe);
         }
         U8Vec::from_const_slice(&[])
@@ -405,6 +439,15 @@ impl VideoDecoder {
             },
             #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
             pending: std::collections::VecDeque::new(),
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            vt: if h265 {
+                // H.265 decode isn't wired for VT yet (demos are H.264).
+                None
+            } else {
+                videotoolbox::VtDecoder::open_h264()
+            },
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            vt_pending: std::collections::VecDeque::new(),
         });
         VideoDecoder {
             ptr: Box::into_raw(inner) as *mut c_void,
@@ -439,6 +482,17 @@ impl VideoDecoder {
                 }
             }
         }
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        {
+            if let Some(vt) = inner.vt.as_mut() {
+                for f in vt.decode(data.as_ref()) {
+                    inner.vt_pending.push_back(f);
+                }
+                if let Some(f) = inner.vt_pending.pop_front() {
+                    return OptionVideoFrame::Some(f);
+                }
+            }
+        }
         let _ = data;
         OptionVideoFrame::None
     }
@@ -450,6 +504,12 @@ impl VideoDecoder {
         #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
         if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
             if let Some(f) = inner.pending.pop_front() {
+                return OptionVideoFrame::Some(f);
+            }
+        }
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
+            if let Some(f) = inner.vt_pending.pop_front() {
                 return OptionVideoFrame::Some(f);
             }
         }
@@ -468,6 +528,17 @@ impl VideoDecoder {
                 }
             }
             if let Some(f) = inner.pending.pop_front() {
+                return OptionVideoFrame::Some(f);
+            }
+        }
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
+            if let Some(vt) = inner.vt.as_mut() {
+                for f in vt.flush() {
+                    inner.vt_pending.push_back(f);
+                }
+            }
+            if let Some(f) = inner.vt_pending.pop_front() {
                 return OptionVideoFrame::Some(f);
             }
         }

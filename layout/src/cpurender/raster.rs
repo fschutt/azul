@@ -2607,6 +2607,19 @@ fn render_image(
             };
 
             let rgba = match descriptor.format {
+                // Already the target layout — plain copy. This is the format
+                // every live-frame producer (camera / screencap / video
+                // decoder) emits, so it must NOT fall into the gray-placeholder
+                // arm below (that bug made all capture tiles render flat gray
+                // on the CPU backend, on every OS).
+                azul_core::resources::RawImageFormat::RGBA8 => bytes.to_vec(),
+                azul_core::resources::RawImageFormat::RGB8 => {
+                    let mut out = Vec::with_capacity(bytes.len() / 3 * 4);
+                    for chunk in bytes.chunks_exact(3) {
+                        out.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+                    }
+                    out
+                }
                 azul_core::resources::RawImageFormat::BGRA8 => {
                     let mut out = Vec::with_capacity(bytes.len());
                     for chunk in bytes.chunks_exact(4) {

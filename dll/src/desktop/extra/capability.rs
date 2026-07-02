@@ -74,6 +74,40 @@ impl PlatformCapability {
         }
     }
 
+    /// Probe screen capture (`ScreenCaptureWidget`). Linux: xdg-desktop-portal
+    /// ScreenCast + PipeWire (the portal dialog grants access at `open()`).
+    /// macOS: ScreenCaptureKit, present iff the framework exists (12.3+);
+    /// needs the Screen-Recording TCC grant. Windows: not yet implemented.
+    pub fn screen_capture() -> PlatformCapability {
+        if cfg!(target_os = "linux") {
+            cap(
+                true,
+                "xdg-desktop-portal + PipeWire",
+                "the portal permission dialog is shown at open()",
+            )
+        } else if cfg!(target_os = "macos") {
+            let have_sck = std::path::Path::new(
+                "/System/Library/Frameworks/ScreenCaptureKit.framework",
+            )
+            .exists();
+            if have_sck {
+                cap(
+                    true,
+                    "ScreenCaptureKit",
+                    "needs the Screen-Recording TCC grant (System Settings → Privacy & Security)",
+                )
+            } else {
+                cap(false, "ScreenCaptureKit", "needs macOS 12.3+ (framework not present)")
+            }
+        } else if cfg!(target_os = "windows") {
+            cap(false, "DXGI duplication", "not yet implemented (stub)")
+        } else if cfg!(any(target_os = "ios", target_os = "android")) {
+            cap(false, "ReplayKit / MediaProjection", "not yet implemented (stub)")
+        } else {
+            cap(false, "none", "no screen-capture backend on this target")
+        }
+    }
+
     /// Probe microphone capture.
     pub fn microphone() -> PlatformCapability {
         if cfg!(target_os = "linux") {

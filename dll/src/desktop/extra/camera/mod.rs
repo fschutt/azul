@@ -13,6 +13,10 @@ mod v4l2;
 mod windows;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
 mod avfoundation;
+/// TCC authorization gate shared by the AVFoundation camera + mic backends
+/// and the macOS permission manager (`extra/permission/macos.rs`).
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
+pub mod avf_auth;
 #[cfg(all(target_os = "android", feature = "ndk-sys"))]
 mod android;
 
