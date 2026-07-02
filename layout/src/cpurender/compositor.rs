@@ -1140,21 +1140,12 @@ pub fn scroll_fast_path_eligible(
         return false;
     }
 
-    // Anything painted AFTER the frame that overlaps the clip (open dropdown,
-    // context menu, tooltip, sticky overlay, a sibling's box-shadow) is
-    // composited ON TOP of the frame inside the clip region — the memmove
-    // would drag those pixels and only the thin strip repaints, leaving a
-    // smeared copy. Ineligible; the full-clip repaint redraws the overlay.
-    for it in &display_list.items[end.min(display_list.items.len())..] {
-        if it.is_state_management() {
-            continue;
-        }
-        if let Some(b) = it.bounds() {
-            if rects_overlap_or_adjacent(&b, clip_bounds, 0.0) {
-                return false;
-            }
-        }
-    }
+    // NOTE on overlays: anything painted AFTER the frame that overlaps the
+    // clip (the frame's own scrollbar, an open dropdown, a tooltip) gets
+    // dragged by the memmove. That does NOT make the frame ineligible — the
+    // caller repaints those regions after the shift via
+    // [`overlay_rects_after_frame`] (a scrollbar would otherwise disable the
+    // fast path for every scroll container).
 
     // (a) Best case: the SCROLLING content opaquely covers the clip (projected
     // into viewport space by the scroll offset — at BOTH the old offset, where
@@ -1233,6 +1224,54 @@ pub fn scroll_fast_path_eligible(
     // Single flat colour: safe only if it fills the whole clip (else its edge
     // against the clear would drag visibly).
     rect_covered_by(clip_bounds, &backdrop_fills)
+}
+
+/// Clip-intersected bounds of every item painted AFTER scroll frame
+/// `scroll_id`'s `PopScrollFrame` that STRICTLY overlaps `clip_bounds`.
+///
+/// Anything composited over the frame inside its clip (the frame's own
+/// scrollbar, an open dropdown/context menu/tooltip, a sibling's box-shadow)
+/// gets DRAGGED by the `scroll_shift_region` memmove. Rather than making such
+/// frames ineligible for the fast path (a scrollbar would disable it for
+/// every scroll container), the caller adds these rects to the damage set so
+/// the dragged pixels are simply repainted after the shift.
+#[must_use] pub fn overlay_rects_after_frame(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    clip_bounds: &LogicalRect,
+) -> Vec<LogicalRect> {
+    let mut out = Vec::new();
+    let Some(start) = display_list.items.iter().position(|it| {
+        matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
+    }) else {
+        return out;
+    };
+    let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
+        .min(display_list.items.len());
+    let cx1 = clip_bounds.origin.x + clip_bounds.size.width;
+    let cy1 = clip_bounds.origin.y + clip_bounds.size.height;
+    for it in &display_list.items[end..] {
+        if it.is_state_management() {
+            continue;
+        }
+        let Some(b) = it.bounds() else { continue };
+        // STRICT overlap: merely touching shares no pixels with the clip and
+        // cannot be dragged.
+        let ix = b.origin.x.max(clip_bounds.origin.x);
+        let iy = b.origin.y.max(clip_bounds.origin.y);
+        let ix1 = (b.origin.x + b.size.width).min(cx1);
+        let iy1 = (b.origin.y + b.size.height).min(cy1);
+        if ix1 > ix && iy1 > iy {
+            out.push(LogicalRect {
+                origin: LogicalPosition { x: ix, y: iy },
+                size: LogicalSize {
+                    width: ix1 - ix,
+                    height: iy1 - iy,
+                },
+            });
+        }
+    }
+    out
 }
 
 /// If `it` is a fully-opaque, square-cornered rectangle fill, its bounds.
@@ -1617,7 +1656,7 @@ fn render_display_list_range(
 
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
+pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {
         return;
     }

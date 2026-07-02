@@ -499,7 +499,12 @@ fn contenteditable_text_input_changes_output() {
     // Note: damage may return None if DL structure changed (e.g. CursorRect added),
     // which is fine — it means a full repaint is needed.
     let dl_after = h.clone_display_list();
-    let damage = cpurender::compute_display_list_damage(&dl_before, &dl_after);
+    let damage = cpurender::compute_display_list_damage(
+        &dl_before,
+        &dl_after,
+        &cpurender::ScrollOffsetMap::new(),
+        &cpurender::ScrollOffsetMap::new(),
+    );
     if let Some(rects) = &damage {
         assert!(!rects.is_empty(), "Damage should produce at least one rect for text change");
         eprintln!("  [verify] {} damage rect(s)", rects.len());
@@ -599,7 +604,12 @@ fn contenteditable_damage_detection() {
     let dl_after = h.clone_display_list();
 
     // Compute damage
-    let damage = cpurender::compute_display_list_damage(&dl_before, &dl_after);
+    let damage = cpurender::compute_display_list_damage(
+        &dl_before,
+        &dl_after,
+        &cpurender::ScrollOffsetMap::new(),
+        &cpurender::ScrollOffsetMap::new(),
+    );
     eprintln!("  [verify] Damage rects: {damage:?}");
 
     // Check that ONLY the text region changed, not the entire window
@@ -705,7 +715,12 @@ fn contenteditable_incremental_render_matches_full() {
     save_screenshot(&full_render, "06a_full_render");
 
     // Verify: damage computation between old and new display lists works
-    let damage = cpurender::compute_display_list_damage(&dl_before, &dl_after);
+    let damage = cpurender::compute_display_list_damage(
+        &dl_before,
+        &dl_after,
+        &cpurender::ScrollOffsetMap::new(),
+        &cpurender::ScrollOffsetMap::new(),
+    );
     eprintln!("  [verify] Damage result: {:?}", damage.as_ref().map(|r| r.len()));
 
     // A second render of the same display list should be identical

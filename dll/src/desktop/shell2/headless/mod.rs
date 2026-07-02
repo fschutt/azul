@@ -123,6 +123,76 @@ pub enum FrameDamage {
     Full,
 }
 
+impl FrameDamage {
+    /// Convert this damage record into physical-pixel present rects for a
+    /// `buf_w`×`buf_h` buffer at `dpi_factor` — the ONE conversion every
+    /// platform presenter should use to hand damage to its compositor
+    /// (`XPutImage` sub-rects / `wl_surface_damage` / partial `StretchDIBits`
+    /// / `setNeedsDisplayInRect:`).
+    ///
+    /// - `None` → returns `None`: the previous frame is still on screen and
+    ///   valid — present nothing. Callers must STILL present in full when the
+    ///   OS asked for a re-present (Expose / WM_PAINT-from-uncover / drawRect)
+    ///   — pass `force_full = true` there.
+    /// - `Rects` → `Some(rects)` as `(x, y, w, h)` physical px, rounded
+    ///   OUTWARD (floor origin / ceil far edge — truncation would under-cover
+    ///   fractional edges and leave 1px stale seams), clamped to the buffer.
+    ///   More than 16 rects collapses to one full-buffer rect (bounded cost,
+    ///   per DAMAGE_REGION_PLAN §3).
+    /// - `Full` → one full-buffer rect.
+    ///
+    /// "Present must never silently be empty when a present is required" —
+    /// when in doubt, callers should treat errors/unknowns as `Full`.
+    #[must_use]
+    pub fn to_present_rects_physical(
+        &self,
+        dpi_factor: f32,
+        buf_w: u32,
+        buf_h: u32,
+        force_full: bool,
+    ) -> Option<Vec<(u32, u32, u32, u32)>> {
+        const MAX_PRESENT_RECTS: usize = 16;
+        if buf_w == 0 || buf_h == 0 {
+            return None;
+        }
+        let full = || Some(vec![(0u32, 0u32, buf_w, buf_h)]);
+        if force_full {
+            // OS-driven expose: the on-screen content may be stale/undefined
+            // regardless of what we last painted — push the whole retained
+            // frame.
+            return full();
+        }
+        match self {
+            FrameDamage::None => None,
+            FrameDamage::Full => full(),
+            FrameDamage::Rects(rects) => {
+                if rects.is_empty() {
+                    return None;
+                }
+                if rects.len() > MAX_PRESENT_RECTS {
+                    return full();
+                }
+                let mut out = Vec::with_capacity(rects.len());
+                for r in rects {
+                    let x0 =
+                        ((r.origin.x * dpi_factor).floor() as i64).clamp(0, i64::from(buf_w));
+                    let y0 =
+                        ((r.origin.y * dpi_factor).floor() as i64).clamp(0, i64::from(buf_h));
+                    let x1 = (((r.origin.x + r.size.width) * dpi_factor).ceil() as i64)
+                        .clamp(0, i64::from(buf_w));
+                    let y1 = (((r.origin.y + r.size.height) * dpi_factor).ceil() as i64)
+                        .clamp(0, i64::from(buf_h));
+                    if x1 > x0 && y1 > y0 {
+                        #[allow(clippy::cast_sign_loss)] // clamped to [0, buf] above
+                        out.push((x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32));
+                    }
+                }
+                if out.is_empty() { None } else { Some(out) }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CpuBackend — replaces WebRender in headless / CPU-only windows
 // ---------------------------------------------------------------------------
@@ -505,6 +575,15 @@ impl CpuBackend {
                         dpi_factor,
                     );
                     all_damage.extend(strips);
+                    // Items composited OVER the frame inside its clip (its own
+                    // scrollbar, an open dropdown/tooltip) were just dragged by
+                    // the memmove — repaint their clip intersection so no
+                    // smeared copy survives.
+                    all_damage.extend(cpurender::overlay_rects_after_frame(
+                        display_list,
+                        *scroll_id,
+                        clip,
+                    ));
                     // The shift moved the whole clip on screen → present it all.
                     present_extra.push(*clip);
                 } else {
@@ -512,6 +591,15 @@ impl CpuBackend {
                     all_damage.push(*clip);
                 }
             }
+        }
+
+        // Merge duplicates/overlaps accumulated from the independent damage
+        // sources (DL diff, vview, strips, overlay-after-shift): the renderer
+        // merges overlapping rects internally anyway, but the recorded
+        // paint/present damage (and the pixel-count metric built on it) must
+        // not double-count the same region.
+        if is_incremental {
+            cpurender::coalesce_damage_rects(&mut all_damage);
         }
 
         // Build render state from the GPU value cache (opacity/transform) + scroll
@@ -1191,15 +1279,38 @@ impl HeadlessWindow {
                             events_need_redraw = true;
                         }
                     }
-                    HeadlessEvent::TextInput { .. } => {
-                        // Text input requires IME / text composition pipeline;
-                        // state-diff picks up keyboard events automatically.
+                    HeadlessEvent::TextInput { text } => {
+                        // Drive the SAME canonical text pipeline the debug
+                        // server and platform IME paths use: record the input
+                        // against the focused/editable node, dispatch the
+                        // synthetic Input events, apply the changeset. This
+                        // arm used to be an empty stub, which silently
+                        // swallowed injected text (and made
+                        // `synthesize_character_input` a no-op end to end).
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        let r = self.apply_user_change(
+                            &azul_layout::callbacks::CallbackChange::CreateTextInput {
+                                text: text.clone().into(),
+                            },
+                        );
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
                     }
                     HeadlessEvent::Resize { width, height } => {
                         self.common.previous_window_state =
                             Some(self.common.current_window_state.clone());
                         self.common.current_window_state.size.dimensions.width = width;
                         self.common.current_window_state.size.dimensions.height = height;
+                        // Tag the upcoming regenerate_layout with the REAL
+                        // reason, same as `simulate_resize()` — the two
+                        // headless resize entry points used to disagree
+                        // (this one left the implicit RefreshDom), so the
+                        // user's LayoutCallback saw a phantom non-resize
+                        // relayout depending on which API drove the resize.
+                        self.common.next_relayout_reason =
+                            azul_core::callbacks::RelayoutReason::Resize;
                         events_need_redraw = true;
                     }
                     HeadlessEvent::Scroll { delta_x, delta_y } => {
@@ -2280,6 +2391,298 @@ mod tests {
             ));
         }
         Dom::create_body().with_child(container)
+    }
+
+    /// Grid harness variant with an opaque dark BODY BACKGROUND. The bg rect
+    /// spans the whole window, so it intersects every damage rect — exactly
+    /// the ingredient that triggered the union-clip overpaint bug (an item
+    /// intersecting several disjoint damage rects repainted across their
+    /// whole union, erasing the untouched content in between).
+    extern "C" fn harness_layout_grid_on_bg(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+
+        let (boxes, highlight) = data
+            .downcast_ref::<GridState>()
+            .map(|s| (s.boxes.clone(), s.highlight))
+            .unwrap_or_default();
+        let body_bg: StyleBackgroundContentVec =
+            vec![StyleBackgroundContent::Color(ColorU { r: 40, g: 40, b: 40, a: 255 })].into();
+        let mut body = Dom::create_body().with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::background_content(body_bg))]
+                .into(),
+        );
+        for (i, (w, h)) in boxes.iter().enumerate() {
+            let color = if Some(i) == highlight {
+                ColorU { r: 30, g: 220, b: 30, a: 255 }
+            } else if i % 2 == 0 {
+                ColorU { r: 220, g: 30, b: 30, a: 255 }
+            } else {
+                ColorU { r: 30, g: 30, b: 220, a: 255 }
+            };
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            body = body.with_child(Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(*w))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(*h))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                ]
+                .into(),
+            ));
+        }
+        body
+    }
+
+    /// REGRESSION (union-clip overpaint): two boxes far apart change color in
+    /// one frame → two DISJOINT damage rects. The full-window background
+    /// intersects BOTH. The old union-clip renderer repainted the background
+    /// across the whole union while the unchanged boxes in between were
+    /// filtered out → they were ERASED to background color on the first
+    /// incremental frame. Per-rect passes must leave them untouched.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn damage_disjoint_rects_do_not_erase_content_between() {
+        let state = Arc::new(RefCell::new(RefAny::new(GridState {
+            boxes: vec![(100.0, 20.0); 5],
+            highlight: Some(0),
+        })));
+        let mut window = make_window_with(&state, harness_layout_grid_on_bg);
+        window.regenerate_layout().expect("initial layout");
+
+        // Box centers: body content starts at (8, 8); box i spans y 8+i*20.
+        let box2_px = (58u32, 58u32); // center of box 2 (unchanged, red)
+        let before = sample_px(&window, box2_px.0, box2_px.1).expect("sample before");
+        assert_eq!(
+            before,
+            [220, 30, 30, 255],
+            "box2 should start red (harness sanity)"
+        );
+
+        // Flip the highlight from box0 to box4: box0 green→red AND box4
+        // blue→green — two changed items at opposite ends, disjoint rects.
+        set_highlight(&state, Some(4));
+        window.regenerate_layout().expect("incremental relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] disjoint-change damage = {:?}", damage);
+
+        let after = sample_px(&window, box2_px.0, box2_px.1).expect("sample after");
+        assert_eq!(
+            after,
+            [220, 30, 30, 255],
+            "box2 (unchanged, BETWEEN the two damage rects) was overwritten — \
+             an item intersecting several disjoint damage rects must not \
+             repaint across their union (it erases skipped neighbours); \
+             damage={:?}",
+            damage
+        );
+        // And the actually-changed boxes must have their new colors.
+        let box0 = sample_px(&window, 58, 18).expect("box0");
+        let box4 = sample_px(&window, 58, 98).expect("box4");
+        assert_eq!(box0, [220, 30, 30, 255], "box0 should now be red");
+        assert_eq!(box4, [30, 220, 30, 255], "box4 should now be green");
+    }
+
+    /// Scroll harness variant where one row's color is state-driven, so a test
+    /// can change content INSIDE an already-scrolled frame.
+    #[derive(Debug, Clone)]
+    struct ScrollHighlightState {
+        n_items: usize,
+        highlight: Option<usize>,
+    }
+
+    extern "C" fn harness_layout_scroll_highlight(
+        mut data: RefAny,
+        _info: LayoutCallbackInfo,
+    ) -> Dom {
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::layout::overflow::LayoutOverflow;
+        use azul_css::props::property::CssProperty;
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
+        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+
+        let (n, highlight) = data
+            .downcast_ref::<ScrollHighlightState>()
+            .map(|s| (s.n_items, s.highlight))
+            .unwrap_or((0, None));
+        let mut container = Dom::create_div().with_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(100.0))),
+                CssPropertyWithConditions::simple(CssProperty::overflow_y(LayoutOverflow::Scroll)),
+            ]
+            .into(),
+        );
+        for i in 0..n {
+            let color = if Some(i) == highlight {
+                ColorU { r: 30, g: 220, b: 30, a: 255 }
+            } else if i % 2 == 0 {
+                ColorU { r: 200, g: 60, b: 60, a: 255 }
+            } else {
+                ColorU { r: 60, g: 60, b: 200, a: 255 }
+            };
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            container = container.with_child(Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(180.0))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(30.0))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                ]
+                .into(),
+            ));
+        }
+        Dom::create_body().with_child(container)
+    }
+
+    fn set_scroll_highlight(state: &Arc<RefCell<RefAny>>, highlight: Option<usize>) {
+        let mut g = state.borrow_mut();
+        let r: &mut RefAny = &mut g;
+        let mut opt = r.downcast_mut::<ScrollHighlightState>();
+        if let Some(s) = opt.as_mut() {
+            s.highlight = highlight;
+        }
+    }
+
+    /// Scroll the (single) scroll frame of `window` to vertical offset `dy`.
+    #[cfg(feature = "cpurender")]
+    fn scroll_frame_to(window: &mut HeadlessWindow, dy: f32) {
+        use azul_core::dom::DomId;
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_core::hit_test::ScrollPosition;
+
+        let node_id = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .expect("no scroll frame registered");
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(0.0, dy),
+                size: LogicalSize::new(200.0, 600.0),
+            },
+        };
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node_id, sp);
+    }
+
+    /// REGRESSION (content-space damage in scrolled frames): change a row's
+    /// color while the frame is scrolled. The damage diff used to emit the
+    /// item's CONTENT-space bounds, so the repaint landed a scroll-offset too
+    /// low and the changed row stayed visually stale on screen.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn damage_change_inside_scrolled_frame_repaints_at_viewport_position() {
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollHighlightState {
+            n_items: 20,
+            highlight: None,
+        })));
+        let mut window = make_window_with(&state, harness_layout_scroll_highlight);
+        window.regenerate_layout().expect("initial layout");
+
+        // Scroll down 30px and render (row 1's content span y 30..60 is now
+        // on screen at viewport y 8..38; parent content starts at y=8).
+        scroll_frame_to(&mut window, 30.0);
+        window.regenerate_layout().expect("scroll relayout");
+        println!(
+            "[harness] post-scroll damage = {:?} px(50,20)={:?} px(50,75)={:?}",
+            window.cpu_backend.last_frame_damage,
+            sample_px(&window, 50, 20),
+            sample_px(&window, 50, 75),
+        );
+
+        let probe = (50u32, 20u32); // inside row 1's on-screen span (content y=42)
+        let before = sample_px(&window, probe.0, probe.1).expect("sample before");
+        assert_eq!(before, [60, 60, 200, 255], "row1 starts blue (sanity)");
+
+        // Change row 1 to green while scrolled.
+        set_scroll_highlight(&state, Some(1));
+        window.regenerate_layout().expect("highlight relayout");
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        println!("[harness] scrolled-change damage = {:?}", damage);
+
+        let after = sample_px(&window, probe.0, probe.1).expect("sample after");
+        assert_eq!(
+            after,
+            [30, 220, 30, 255],
+            "row 1 changed color while the frame was scrolled but its ON-SCREEN \
+             pixels did not update — the damage diff must project item bounds \
+             through the scroll offset (content-space damage repaints the wrong \
+             band); damage={:?}",
+            damage
+        );
+    }
+
+    /// REGRESSION (swallowed sub-pixel scrolling): high-resolution trackpads
+    /// deliver deltas well under a device pixel per frame. The scroll baseline
+    /// used to advance every frame even when the delta was dropped as
+    /// sub-threshold, so the deficit never accumulated — slow scrolling froze
+    /// the content entirely. The baseline must stay at the last PAINTED offset
+    /// so tiny deltas accumulate until they cross a device pixel.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn damage_subpixel_scroll_accumulates() {
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 20 })));
+        let mut window = make_window_with(&state, harness_layout_scroll);
+        window.regenerate_layout().expect("initial layout");
+
+        // Three 0.2px scroll steps. Each individual delta is sub-threshold;
+        // cumulatively they cross half a device pixel at 0.6.
+        scroll_frame_to(&mut window, 0.2);
+        window.regenerate_layout().expect("step 1");
+        let d1 = window.cpu_backend.last_frame_damage.clone();
+        scroll_frame_to(&mut window, 0.4);
+        window.regenerate_layout().expect("step 2");
+        let d2 = window.cpu_backend.last_frame_damage.clone();
+        scroll_frame_to(&mut window, 0.6);
+        window.regenerate_layout().expect("step 3");
+        let d3 = window.cpu_backend.last_frame_damage.clone();
+
+        println!("[harness] subpixel damage steps = {:?} / {:?} / {:?}", d1, d2, d3);
+        // The scrollbar redamages every frame (ScrollBarStyled has no
+        // is_visually_equal arm — known coarseness, tracked separately), so
+        // "no repaint" is asserted on the CONTENT area (x < 200) only.
+        let content_damage = |d: &FrameDamage| -> Vec<azul_core::geom::LogicalRect> {
+            match d {
+                FrameDamage::Rects(rs) => {
+                    rs.iter().filter(|r| r.origin.x < 200.0).copied().collect()
+                }
+                FrameDamage::Full => vec![azul_core::geom::LogicalRect {
+                    origin: azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 },
+                    size: azul_core::geom::LogicalSize { width: 1.0, height: 1.0 },
+                }],
+                FrameDamage::None => Vec::new(),
+            }
+        };
+        assert!(
+            content_damage(&d1).is_empty(),
+            "0.2px scroll must not repaint CONTENT (sub-device-pixel); got {:?}",
+            d1
+        );
+        assert!(
+            content_damage(&d2).is_empty(),
+            "0.4px cumulative must not repaint CONTENT yet; got {:?}",
+            d2
+        );
+        assert!(
+            !content_damage(&d3).is_empty(),
+            "0.6px CUMULATIVE scroll crossed half a device pixel and must \
+             repaint content — if the content damage is empty the baseline \
+             advanced on skipped frames and slow trackpad scrolling is \
+             swallowed forever; got {:?}",
+            d3
+        );
     }
 
     /// Sample the RGBA of the last rendered frame at physical pixel (x, y).
