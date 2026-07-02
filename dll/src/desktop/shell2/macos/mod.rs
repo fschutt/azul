@@ -3363,6 +3363,9 @@ impl MacOSWindow {
 
             let notifier = Notifier {
                 new_frame_ready: new_frame_ready.clone(),
+                // drawRect cycle + drain_loop_work + CVDisplayLink consume the
+                // flag on macOS; no extra wake needed.
+                wake: None,
             };
 
             let (mut renderer, sender) = match webrender::create_webrender_instance(

@@ -771,6 +771,11 @@ pub struct X11Window {
     /// damage. Consumed (reset) by `render_and_present`.
     os_present_requested: bool,
 
+    /// eventfd written by the WebRender Notifier (backend thread) when a
+    /// frame finishes building; polled in `wait_for_events` so the loop wakes
+    /// and presents immediately instead of on the next X event.
+    frame_ready_wake_fd: i32,
+
     /// Damage rects for incremental rendering (CPU and GPU)
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
 
@@ -1380,6 +1385,14 @@ impl X11Window {
             ),
             crate::desktop::shell2::common::compositor::AzBackend::Cpu
         );
+        // Shared frame-ready signal: ONE Arc for both the WR Notifier and the
+        // window field (they used to be two different Arcs — the notifier
+        // signalled into the void), plus an eventfd in the poll set so the
+        // backend thread can WAKE the blocked loop.
+        let new_frame_ready_shared = Arc::new((Mutex::new(false), Condvar::new()));
+        let frame_ready_wake_fd =
+            unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+
         let (
             render_mode,
             renderer,
@@ -1416,11 +1429,26 @@ impl X11Window {
                     }
                 };
 
-                let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
+                let new_frame_ready = new_frame_ready_shared.clone();
+                // Wake the poll() loop from WebRender's backend thread when a
+                // frame finishes building (frame_ready_wake_fd is in the poll
+                // set) — the condvar alone woke nobody, so the LAST frame of
+                // an interaction stayed unpresented until the next X event.
+                let wake_fd_for_notifier = frame_ready_wake_fd;
                 let (mut renderer, sender) = match webrender::create_webrender_instance(
                     gl_functions.functions.clone(),
                     Box::new(Notifier {
                         new_frame_ready: new_frame_ready.clone(),
+                        wake: Some(Arc::new(move || {
+                            let one: u64 = 1;
+                            unsafe {
+                                libc::write(
+                                    wake_fd_for_notifier,
+                                    std::ptr::addr_of!(one).cast(),
+                                    8,
+                                );
+                            }
+                        })),
                     }),
                     wr_translate2::default_renderer_options(
                         &options,
@@ -1610,7 +1638,7 @@ impl X11Window {
                 display_list_dirty: false,
                 a11y_dirty: true,
             },
-            new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
+            new_frame_ready: new_frame_ready_shared,
             xrandr_event_base: None,
             timer_fds: std::collections::BTreeMap::new(),
             pending_window_creates: Vec::new(),
@@ -1633,6 +1661,7 @@ impl X11Window {
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
             os_present_requested: true, // first present must be full
+            frame_ready_wake_fd,
             gpu_damage_rects: Vec::new(),
             needs_redraw: true,
             size_to_content_pending: options.size_to_content,
@@ -2123,6 +2152,16 @@ impl X11Window {
                 }
             }
 
+            // WebRender frame-ready wake (backend thread → eventfd)
+            let frame_ready_idx = pollfds.len();
+            if self.frame_ready_wake_fd >= 0 {
+                pollfds.push(libc::pollfd {
+                    fd: self.frame_ready_wake_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set — their completion can't wake poll(). So while any thread
             // is in flight, poll on a ~16ms tick and drain thread writebacks on
@@ -2166,6 +2205,37 @@ impl X11Window {
                             let mut expirations: u64 = 0;
                             libc::read(fd, &mut expirations as *mut u64 as *mut libc::c_void, 8);
                             any_timer_fired = true;
+                        }
+                    }
+                }
+
+                // WebRender finished building a frame: consume the wake +
+                // flag and PRESENT it now. Previously nothing consumed the
+                // signal on X11 — an async scene build completing while the
+                // loop was blocked stayed unpresented until the next event.
+                if self.frame_ready_wake_fd >= 0
+                    && frame_ready_idx < pollfds.len()
+                    && pollfds[frame_ready_idx].revents & libc::POLLIN != 0
+                {
+                    let mut n: u64 = 0;
+                    libc::read(
+                        self.frame_ready_wake_fd,
+                        &mut n as *mut u64 as *mut libc::c_void,
+                        8,
+                    );
+                    let ready = {
+                        let (lock, _) = &*self.new_frame_ready;
+                        let mut g = lock.lock().unwrap();
+                        std::mem::take(&mut *g)
+                    };
+                    if ready {
+                        self.needs_redraw = true;
+                        if let Err(e) = self.render_and_present() {
+                            log_warn!(
+                                LogCategory::Rendering,
+                                "[X11] frame-ready present failed: {:?}",
+                                e
+                            );
                         }
                     }
                 }
@@ -4240,6 +4310,11 @@ impl Drop for X11Window {
         for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
             unsafe {
                 libc::close(fd);
+            }
+        }
+        if self.frame_ready_wake_fd >= 0 {
+            unsafe {
+                libc::close(self.frame_ready_wake_fd);
             }
         }
 

@@ -86,12 +86,20 @@ impl AsyncHitTester {
 #[derive(Clone)]
 pub struct Notifier {
     pub new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
+    /// Platform wake hook, invoked from WebRender's backend thread whenever a
+    /// frame finishes building. Without it the condvar signalled NOBODY on
+    /// backends whose loop blocks in the OS wait (WaitMessage / poll):
+    /// the final frame of an interaction stayed unpresented until the next
+    /// input event. X11/Wayland write an eventfd in their poll set; Win32
+    /// posts a message; macOS's display cycle consumes the flag.
+    pub wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl WrRenderNotifier for Notifier {
     fn clone(&self) -> Box<dyn WrRenderNotifier> {
         Box::new(Notifier {
             new_frame_ready: self.new_frame_ready.clone(),
+            wake: self.wake.clone(),
         })
     }
 
@@ -121,6 +129,10 @@ impl WrRenderNotifier for Notifier {
         let mut new_frame_ready = lock.lock().unwrap();
         *new_frame_ready = true;
         cvar.notify_one();
+        drop(new_frame_ready);
+        if let Some(wake) = &self.wake {
+            wake();
+        }
     }
 }
 

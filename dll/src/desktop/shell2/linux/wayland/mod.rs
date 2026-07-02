@@ -1767,6 +1767,10 @@ impl WaylandWindow {
             gl_functions.functions.clone(),
             Box::new(Notifier {
                 new_frame_ready: new_frame_ready.clone(),
+                // The Wayland loop consumes the flag in its render path; frame
+                // callbacks provide the wake. (An eventfd wake like X11's can
+                // be added if idle-frame latency shows up here.)
+                wake: None,
             }),
             wr_translate2::default_renderer_options(
                 options,

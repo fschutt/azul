@@ -91,6 +91,10 @@ enum RenderMode {
 }
 
 /// Win32 window implementation using LayoutWindow API
+/// Posted by the WebRender Notifier (backend thread) when a frame finished
+/// building — the wndproc presents it.
+pub(crate) const WM_APP_FRAME_READY: u32 = 0x8000 + 0x0042; // WM_APP + 0x42
+
 pub struct Win32Window {
     /// Win32 window handle
     pub hwnd: HWND,
@@ -325,10 +329,26 @@ impl Win32Window {
                     }
                     let gl_context_ptr = OptionGlContextPtr::Some(gl_ctx_inner);
 
+                    // Wake the message loop from WebRender's backend thread:
+                    // PostMessageW is documented thread-safe, and WaitMessage
+                    // returns when a posted message arrives. Without this the
+                    // frame-ready condvar signalled nobody and the final frame
+                    // of an interaction stayed unpresented until the next
+                    // input event.
+                    let post_message = win32.user32.PostMessageW;
+                    let hwnd_for_notifier = hwnd as usize;
                     let (mut renderer, sender) = webrender::create_webrender_instance(
                         gl_functions.functions.clone(),
                         Box::new(Notifier {
                             new_frame_ready: new_frame_ready.clone(),
+                            wake: Some(std::sync::Arc::new(move || unsafe {
+                                (post_message)(
+                                    hwnd_for_notifier as HWND,
+                                    WM_APP_FRAME_READY,
+                                    0,
+                                    0,
+                                );
+                            })),
                         }),
                         default_renderer_options(&options, create_program_cache(&gl_functions.functions)),
                         None,
@@ -2534,6 +2554,7 @@ unsafe extern "system" fn window_proc(
     const WM_MBUTTONDOWN: u32 = 0x0207;
     const WM_MBUTTONUP: u32 = 0x0208;
     const WM_MOUSEWHEEL: u32 = 0x020A;
+    const WM_APP_FRAME_READY_LOCAL: u32 = WM_APP_FRAME_READY;
     const WM_MOUSEHWHEEL: u32 = 0x020E;
     const WM_GETMINMAXINFO: u32 = 0x0024;
     const WM_SETTINGCHANGE: u32 = 0x001A;
@@ -4090,6 +4111,24 @@ unsafe extern "system" fn window_proc(
             if let Some(ref lw) = window.common.layout_window {
                 if let Ok(mut guard) = lw.monitors.lock() {
                     *guard = crate::desktop::display::get_monitors();
+                }
+            }
+            0
+        }
+
+        WM_APP_FRAME_READY_LOCAL => {
+            // WebRender finished an async frame build — consume the signal
+            // and schedule the present (needs_gpu_present defeats the GPU
+            // skip-heuristic; WM_PAINT renders + swaps the built frame).
+            let ready = {
+                let (lock, _) = &*window.new_frame_ready;
+                let mut g = lock.lock().unwrap();
+                std::mem::take(&mut *g)
+            };
+            if ready {
+                window.needs_gpu_present = true;
+                unsafe {
+                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
             }
             0
