@@ -765,6 +765,12 @@ pub struct X11Window {
     #[cfg(feature = "cpurender")]
     bgra_buffer: Vec<u8>,
 
+    /// Set when the OS asked us to repaint (Expose / MapNotify): the window
+    /// content on screen may be stale or undefined, so the next CPU present
+    /// must push the FULL retained frame even if `render_frame` reports no
+    /// damage. Consumed (reset) by `render_and_present`.
+    os_present_requested: bool,
+
     /// Damage rects for incremental rendering (CPU and GPU)
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
 
@@ -1626,6 +1632,7 @@ impl X11Window {
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
+            os_present_requested: true, // first present must be full
             gpu_damage_rects: Vec::new(),
             needs_redraw: true,
             size_to_content_pending: options.size_to_content,
@@ -2030,6 +2037,13 @@ impl X11Window {
                             log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                         }
                     }
+                    // BOTH flags, like the main handle_event arm: without
+                    // frame_relayout_only, render_and_present takes the full
+                    // regenerate_layout() path — re-invoking the user's layout
+                    // callback and DISCARDING the incremental relayout just
+                    // performed (double layout + runtime styled-dom edits that
+                    // aren't reflected in app state get lost).
+                    self.common.frame_relayout_only = true;
                     self.common.frame_needs_regeneration = true;
                     self.request_redraw();
                 }
@@ -2181,6 +2195,7 @@ impl X11Window {
         if let Some(ime) = &self.ime_manager {
             let consumed = ime.filter_event(event);
             if let Some((preedit, caret)) = ime.drain_preedit() {
+                let mut editing_dom = None;
                 if let Some(ref mut lw) = self.common.layout_window {
                     match preedit {
                         Some(t) if !t.is_empty() => {
@@ -2188,6 +2203,21 @@ impl X11Window {
                         }
                         _ => lw.text_edit_manager.clear_preedit(),
                     }
+                    editing_dom = lw.text_edit_manager.get_editing_dom_id();
+                }
+                // The composition text just changed — rebuild the edited
+                // DOM's display list and schedule a repaint. Most
+                // composition keystrokes are CONSUMED by XFilterEvent (the
+                // early return below), so this is the ONLY delivery path:
+                // without the rebuild+redraw, CJK/dead-key preedit stayed
+                // invisible until an unrelated event happened to repaint.
+                // (macOS marks display_list_dirty the same way.)
+                if let Some(dom_id) = editing_dom {
+                    if let Some(ref mut lw) = self.common.layout_window {
+                        lw.regenerate_display_list_for_dom(dom_id);
+                    }
+                    self.common.display_list_dirty = true;
+                    self.request_redraw();
                 }
             }
             if consumed {
@@ -2212,6 +2242,9 @@ impl X11Window {
                 // (resize/timer/caret repaints appeared frozen). This now
                 // matches poll_event's Expose arm.
                 self.needs_redraw = true;
+                // OS-driven repaint: the exposed area's on-screen content is
+                // undefined — the next present must push the full frame.
+                self.os_present_requested = true;
                 if let Err(e) = self.render_and_present() {
                     log_warn!(LogCategory::Rendering, "[X11] handle_event Expose render failed: {:?}", e);
                 }
@@ -2262,18 +2295,29 @@ impl X11Window {
                 self.handle_mouse_crossing(unsafe { &event.crossing })
             }
             defines::FocusIn => {
+                // Route the transition through the state-diff pipeline:
+                // snapshot BEFORE mutating, then process. Mutating without a
+                // snapshot made the false→true diff invisible (the next
+                // event's snapshot cloned the already-mutated state), so
+                // WindowFocusReceived callbacks never fired and
+                // focus-conditional styling never repainted on X11.
+                self.common.previous_window_state =
+                    Some(self.common.current_window_state.clone());
                 self.common.current_window_state.window_focused = true;
                 self.dynamic_selector_context.window_focused = true;
                 self.sync_ime_position_to_os();
-                ProcessEventResult::DoNothing
+                self.process_window_events(0)
             }
             defines::FocusOut => {
+                self.common.previous_window_state =
+                    Some(self.common.current_window_state.clone());
                 self.common.current_window_state.window_focused = false;
                 self.dynamic_selector_context.window_focused = false;
-                ProcessEventResult::DoNothing
+                self.process_window_events(0)
             }
             defines::MapNotify => {
                 self.needs_redraw = true;
+                self.os_present_requested = true;
                 ProcessEventResult::DoNothing
             }
             defines::ConfigureNotify => {
@@ -2396,11 +2440,25 @@ impl X11Window {
             }
         };
 
-        // Fan out a cross-window refresh. process_window_events already marked
-        // SELF via mark_frame_needs_regeneration for RefreshDom/RefreshDomAllWindows;
-        // for RefreshDomAllWindows we must ALSO mark every OTHER registered window so
-        // a child popup's callback (e.g. a context-menu item mutating shared app data)
-        // re-lays-out its parent. Previously this result was discarded here except for
+        // Mark SELF for DOM regeneration. process_window_events marks
+        // frame_needs_regeneration only for callback returns of
+        // Update::RefreshDom* — producers that return the result directly
+        // through apply_user_change (SwitchRoute, UndoAppState/RedoAppState,
+        // CreateTextInput's Input handler) skip that mark. Without this,
+        // Ctrl+Z / a route switch requested a redraw of the OLD display list:
+        // visually a no-op until some unrelated event forced a regen.
+        if matches!(
+            result,
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                | ProcessEventResult::ShouldRegenerateDomAllWindows
+        ) {
+            self.common.frame_needs_regeneration = true;
+        }
+
+        // Fan out a cross-window refresh. For RefreshDomAllWindows we must
+        // ALSO mark every OTHER registered window so a child popup's callback
+        // (e.g. a context-menu item mutating shared app data) re-lays-out its
+        // parent. Previously this result was discarded here except for
         // a self request_redraw, so the software-menu/DOM path never refreshed the
         // parent (the native gnome-menu path handled it in process_pending_menu_callbacks).
         if result == ProcessEventResult::ShouldRegenerateDomAllWindows {
@@ -3205,7 +3263,19 @@ impl X11Window {
                                     dpi,
                                 );
 
-                                // Blit the rendered pixmap to the X11 window.
+                                // Blit the rendered pixmap to the X11 window —
+                                // PARTIALLY: only the present-damage rects are
+                                // swizzled and uploaded. `render_frame` records
+                                // paint damage (pixels re-rasterised) and PRESENT
+                                // damage (pixels that changed on screen, i.e.
+                                // paint ∪ pixel-shifted scroll clips); the old
+                                // code ignored both and swizzled + XPutImage'd
+                                // the FULL window on every present (≈8 MB
+                                // convert + 8 MB socket write per hover event at
+                                // 1080p). FrameDamage::None → skip the upload
+                                // entirely (the previous frame is on screen and
+                                // valid) UNLESS the OS asked for a re-present
+                                // (Expose/MapNotify → os_present_requested).
                                 if let Some(ref pixmap) = self.cpu_backend.last_frame {
                                     let pw = pixmap.width() as c_uint;
                                     let ph = pixmap.height() as c_uint;
@@ -3224,76 +3294,117 @@ impl X11Window {
                                         );
                                     }
 
-                                    // Reuse BGRA conversion buffer
-                                    self.bgra_buffer.resize(data.len(), 0);
-                                    for (src, dst) in data.chunks_exact(4).zip(self.bgra_buffer.chunks_exact_mut(4)) {
-                                        dst[0] = src[2]; // B
-                                        dst[1] = src[1]; // G
-                                        dst[2] = src[0]; // R
-                                        dst[3] = src[3]; // A
-                                    }
+                                    let force_full = self.os_present_requested
+                                        || !self.common.display_list_initialized;
+                                    self.os_present_requested = false;
+                                    let present_rects = self
+                                        .cpu_backend
+                                        .last_present_damage
+                                        .to_present_rects_physical(dpi, pw, ph, force_full);
 
-                                    unsafe {
-                                        let screen = (self.xlib.XDefaultScreen)(self.display);
-                                        // XCreateImage needs the visual and depth to be
-                                        // consistent. The window uses a 32-bit ARGB visual;
-                                        // pairing depth=32 (below) with the 24-bit DEFAULT
-                                        // visual makes XCreateImage return NULL → the blit is
-                                        // skipped → the window stays black. Re-find the
-                                        // matching 32-bit visual (XMatchVisualInfo is
-                                        // client-side — no server round-trip).
-                                        let visual = if self.has_argb_visual {
-                                            let mut vinfo: defines::XVisualInfo =
-                                                std::mem::zeroed();
-                                            if (self.xlib.XMatchVisualInfo)(
-                                                self.display,
-                                                screen,
-                                                32,
-                                                defines::TrueColor,
-                                                &mut vinfo,
-                                            ) != 0
-                                            {
-                                                vinfo.visual
+                                    if let Some(rects) = present_rects {
+                                        unsafe {
+                                            let screen = (self.xlib.XDefaultScreen)(self.display);
+                                            // XCreateImage needs the visual and depth to be
+                                            // consistent. The window uses a 32-bit ARGB visual;
+                                            // pairing depth=32 (below) with the 24-bit DEFAULT
+                                            // visual makes XCreateImage return NULL → the blit is
+                                            // skipped → the window stays black. Re-find the
+                                            // matching 32-bit visual (XMatchVisualInfo is
+                                            // client-side — no server round-trip).
+                                            let visual = if self.has_argb_visual {
+                                                let mut vinfo: defines::XVisualInfo =
+                                                    std::mem::zeroed();
+                                                if (self.xlib.XMatchVisualInfo)(
+                                                    self.display,
+                                                    screen,
+                                                    32,
+                                                    defines::TrueColor,
+                                                    &mut vinfo,
+                                                ) != 0
+                                                {
+                                                    vinfo.visual
+                                                } else {
+                                                    (self.xlib.XDefaultVisual)(self.display, screen)
+                                                }
                                             } else {
                                                 (self.xlib.XDefaultVisual)(self.display, screen)
+                                            };
+                                            // XPutImage requires the image depth to EQUAL the
+                                            // drawable (window) depth. The window uses a 32-bit
+                                            // ARGB visual (for transparency), not the screen
+                                            // default (usually 24) — so using XDefaultDepth here
+                                            // made XPutImage fail with BadMatch (opcode 72 /
+                                            // error code 8) and the window stayed black. Match
+                                            // the window's actual depth.
+                                            let depth: c_uint = if self.has_argb_visual {
+                                                32
+                                            } else {
+                                                (self.xlib.XDefaultDepth)(self.display, screen) as c_uint
+                                            };
+
+                                            for (rx, ry, rw, rh) in rects {
+                                                // Pack + swizzle ONLY this rect's rows
+                                                // (RGBA → BGRA) into the reused buffer;
+                                                // bytes_per_line = rw*4 for the packed rect.
+                                                let rect_bytes = (rw as usize) * (rh as usize) * 4;
+                                                self.bgra_buffer.resize(rect_bytes, 0);
+                                                let src_stride = (pw as usize) * 4;
+                                                for row in 0..rh as usize {
+                                                    let src_off = (ry as usize + row) * src_stride
+                                                        + (rx as usize) * 4;
+                                                    let dst_off = row * (rw as usize) * 4;
+                                                    let src_row =
+                                                        &data[src_off..src_off + (rw as usize) * 4];
+                                                    let dst_row = &mut self.bgra_buffer
+                                                        [dst_off..dst_off + (rw as usize) * 4];
+                                                    for (s, d) in src_row
+                                                        .chunks_exact(4)
+                                                        .zip(dst_row.chunks_exact_mut(4))
+                                                    {
+                                                        d[0] = s[2]; // B
+                                                        d[1] = s[1]; // G
+                                                        d[2] = s[0]; // R
+                                                        d[3] = s[3]; // A
+                                                    }
+                                                }
+
+                                                let ximage = (self.xlib.XCreateImage)(
+                                                    self.display,
+                                                    visual as *mut c_void,
+                                                    depth as c_uint,
+                                                    2, // ZPixmap
+                                                    0,
+                                                    self.bgra_buffer.as_mut_ptr() as *mut c_char,
+                                                    rw as c_uint,
+                                                    rh as c_uint,
+                                                    32, // bitmap_pad
+                                                    0,  // bytes_per_line (0 = auto: rw*4)
+                                                );
+
+                                                if !ximage.is_null() {
+                                                    (self.xlib.XPutImage)(
+                                                        self.display,
+                                                        self.window,
+                                                        *gc,
+                                                        ximage,
+                                                        0,
+                                                        0,
+                                                        rx as i32,
+                                                        ry as i32,
+                                                        rw as c_uint,
+                                                        rh as c_uint,
+                                                    );
+                                                    (*ximage).data = std::ptr::null_mut();
+                                                    (self.xlib.XDestroyImage)(ximage);
+                                                }
                                             }
-                                        } else {
-                                            (self.xlib.XDefaultVisual)(self.display, screen)
-                                        };
-                                        // XPutImage requires the image depth to EQUAL the
-                                        // drawable (window) depth. The window uses a 32-bit
-                                        // ARGB visual (for transparency), not the screen
-                                        // default (usually 24) — so using XDefaultDepth here
-                                        // made XPutImage fail with BadMatch (opcode 72 /
-                                        // error code 8) and the window stayed black. Match
-                                        // the window's actual depth.
-                                        let depth: c_uint = if self.has_argb_visual {
-                                            32
-                                        } else {
-                                            (self.xlib.XDefaultDepth)(self.display, screen) as c_uint
-                                        };
-
-                                        let ximage = (self.xlib.XCreateImage)(
-                                            self.display,
-                                            visual as *mut c_void,
-                                            depth as c_uint,
-                                            2, // ZPixmap
-                                            0,
-                                            self.bgra_buffer.as_mut_ptr() as *mut c_char,
-                                            pw, ph,
-                                            32, // bitmap_pad
-                                            0,  // bytes_per_line (0 = auto)
-                                        );
-
-                                        if !ximage.is_null() {
-                                            (self.xlib.XPutImage)(
-                                                self.display, self.window, *gc, ximage,
-                                                0, 0, 0, 0, pw, ph,
-                                            );
-                                            (*ximage).data = std::ptr::null_mut();
-                                            (self.xlib.XDestroyImage)(ximage);
                                         }
                                     }
+                                    // None → nothing changed on screen; the
+                                    // retained frame stays valid. Still counts
+                                    // as rendered (do NOT fall through to the
+                                    // solid-fill fallback, which would flash).
                                     rendered = true;
                                 }
                                 // (previous-display-list tracking now lives inside
@@ -3421,7 +3532,17 @@ impl X11Window {
                 // Process pending VirtualView updates (queued by ScrollTo -> check_and_queue_virtual_view_reinvoke).
                 // If present, we need a full display list rebuild rather than lightweight.
                 let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
-                if has_virtual_view_updates {
+                // display_list_dirty = the display list was regenerated
+                // internally WITHOUT a relayout (caret blink toggle, selection
+                // change, text undo/redo, IME preedit, ChangeNodeImage). The
+                // image-only transaction below `skip_scene_builder()`s, so the
+                // new display list would never reach WebRender — caret/
+                // selection/undo looked frozen in GPU mode until the next
+                // relayout. Consume the flag and take the full-frame path
+                // (same as macOS's display_list_dirty consumer).
+                let display_list_dirty = self.common.display_list_dirty;
+                self.common.display_list_dirty = false;
+                if has_virtual_view_updates || display_list_dirty {
                     if let Some(document_id) = self.common.document_id {
                         crate::desktop::shell2::common::layout::generate_frame(
                             layout_window,
