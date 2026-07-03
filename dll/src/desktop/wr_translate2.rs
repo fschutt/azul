@@ -3046,7 +3046,9 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
     let mut child_dom_ids = Vec::new();
 
     for (parent_dom_id, node_ids) in &layout_window.pending_virtual_view_updates {
-        for node_id in node_ids {
+        // MWA-C-virtual_view: the pending map now carries per-node reasons;
+        // this GPU display-list rebuild only needs the node ids.
+        for node_id in node_ids.keys() {
             if let Some(child_dom_id) = layout_window
                 .virtual_view_manager
                 .get_nested_dom_id(*parent_dom_id, *node_id)

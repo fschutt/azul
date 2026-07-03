@@ -1556,6 +1556,28 @@ impl HeadlessWindow {
                     }
                 }
             }
+            // MWA-C-virtual_view: drain queued VirtualView re-invocations
+            // FIRST so their queue-time reasons (EdgeScrolled/DomRecreated)
+            // reach the user callback — headless previously relied solely on
+            // the full regenerate below, which resets invocation flags and
+            // re-invokes everything as InitialRender (queue never drained,
+            // reasons untestable in E2E).
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                if !lw.pending_virtual_view_updates.is_empty() {
+                    let system_callbacks =
+                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+                    let current_window_state = lw.current_window_state.clone();
+                    let renderer_resources = std::mem::take(&mut lw.renderer_resources);
+                    let _ = lw.process_pending_virtual_view_updates(
+                        &current_window_state,
+                        &renderer_resources,
+                        &system_callbacks,
+                    );
+                    lw.renderer_resources = renderer_resources;
+                    events_need_redraw = true;
+                }
+            }
+
             if events_need_redraw {
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(

@@ -456,7 +456,10 @@ pub struct LayoutWindow {
     pub dirty_text_nodes: BTreeMap<(DomId, NodeId), DirtyTextNode>,
     /// Pending `VirtualView` updates from callbacks (processed in next frame)
     /// Map of `DomId` -> Set of `NodeIds` that need re-rendering
-    pub pending_virtual_view_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    /// MWA-C-virtual_view: pending re-invocations now carry the QUEUE-TIME
+    /// reason so the user callback receives EdgeScrolled/BoundsExpanded/
+    /// DomRecreated instead of everything collapsing to InitialRender.
+    pub pending_virtual_view_updates: BTreeMap<DomId, BTreeMap<NodeId, VirtualViewCallbackReason>>,
     /// Lifecycle events produced by DOM reconciliation, waiting to be dispatched.
     ///
     /// `regenerate_layout` appends `diff::reconcile_dom`'s `DiffResult.events` here
@@ -7397,12 +7400,13 @@ impl LayoutWindow {
             dom_id, node_id, &self.scroll_manager, bounds,
         );
 
-        if reason.is_some() {
-            // Queue the VirtualView for re-invocation in the next render pass
+        if let Some(reason) = reason {
+            // Queue the VirtualView for re-invocation in the next render
+            // pass, KEEPING the queue-time reason (MWA-C-virtual_view).
             self.pending_virtual_view_updates
                 .entry(dom_id)
                 .or_default()
-                .insert(node_id);
+                .insert(node_id, reason);
             true
         } else {
             false
@@ -7427,7 +7431,7 @@ impl LayoutWindow {
     /// Vector of (`DomId`, `NodeId`) tuples for `VirtualViews` that were successfully updated
     pub fn process_virtual_view_updates(
         &mut self,
-        vviews_to_update: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
+        vviews_to_update: &BTreeMap<DomId, BTreeMap<NodeId, VirtualViewCallbackReason>>,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -7435,7 +7439,7 @@ impl LayoutWindow {
         let mut updated_vviews = Vec::new();
 
         for (dom_id, node_ids) in vviews_to_update {
-            for node_id in node_ids {
+            for (node_id, reason) in node_ids {
                 // Extract virtualized view bounds from layout result
                 let Some(bounds) = Self::get_virtual_view_bounds_from_layout(
                     &self.layout_results,
@@ -7445,8 +7449,12 @@ impl LayoutWindow {
                     continue;
                 };
 
-                // Force re-invocation by clearing the "was_invoked" flag
-                self.virtual_view_manager.force_reinvoke(*dom_id, *node_id);
+                // MWA-C-virtual_view: stage the queue-time reason so the
+                // invoke delivers it to the user callback — the old
+                // force_reinvoke (clear was_invoked) collapsed everything to
+                // InitialRender at delivery.
+                self.virtual_view_manager
+                    .set_reason_override(*dom_id, *node_id, *reason);
 
                 // Invoke the VirtualView callback
                 if let Some(_child_dom_id) = self.invoke_virtual_view_callback(
@@ -7473,11 +7481,19 @@ impl LayoutWindow {
         &mut self,
         vviews_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     ) {
+        // MWA-C-virtual_view: programmatic re-renders
+        // (trigger_virtual_view_rerender / trigger_all_virtual_view_rerender,
+        // e.g. map-tile writebacks) deliver DomRecreated — the reason the
+        // docs always claimed but which previously had ZERO producers. A
+        // scroll-queued reason for the same node is not overwritten (it is
+        // more specific).
         for (dom_id, node_ids) in vviews_to_update {
-            self.pending_virtual_view_updates
-                .entry(dom_id)
-                .or_default()
-                .extend(node_ids);
+            let entry = self.pending_virtual_view_updates.entry(dom_id).or_default();
+            for node_id in node_ids {
+                entry
+                    .entry(node_id)
+                    .or_insert(VirtualViewCallbackReason::DomRecreated);
+            }
         }
     }
 

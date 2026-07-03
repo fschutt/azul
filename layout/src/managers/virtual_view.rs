@@ -28,6 +28,12 @@ pub struct VirtualViewManager {
     states: BTreeMap<(DomId, NodeId), VirtualViewState>,
     /// Counter for generating unique nested DOM IDs
     next_dom_id: usize,
+    /// MWA-C-virtual_view: queue-time callback reasons, consumed by the very
+    /// next `check_reinvoke` for the same view (set by
+    /// `process_virtual_view_updates` right before the invoke). Replaces the
+    /// `force_reinvoke` clear-flag trick that collapsed every delivered
+    /// reason to `InitialRender`.
+    reason_overrides: Vec<((DomId, NodeId), VirtualViewCallbackReason)>,
 }
 
 /// Internal state for a single `VirtualView` instance
@@ -88,6 +94,19 @@ impl VirtualViewManager {
     /// Number of tracked `VirtualView` states. Used by `AZ_E2E_TEST` to watch growth.
     #[must_use] pub fn debug_counts(&self) -> usize {
         self.states.len()
+    }
+
+    /// MWA-C-virtual_view: stage the reason the next invoke of this view
+    /// should deliver to the user callback (consumed by `check_reinvoke`).
+    pub fn set_reason_override(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        reason: VirtualViewCallbackReason,
+    ) {
+        self.reason_overrides
+            .retain(|((d, n), _)| !(*d == dom_id && *n == node_id));
+        self.reason_overrides.push(((dom_id, node_id), reason));
     }
 
     /// Gets or creates a unique nested DOM ID for a `VirtualView`
@@ -228,6 +247,21 @@ impl VirtualViewManager {
         scroll_manager: &ScrollManager,
         layout_bounds: LogicalRect,
     ) -> Option<VirtualViewCallbackReason> {
+        // MWA-C-virtual_view: a staged reason override wins (set by
+        // process_virtual_view_updates immediately before the invoke). The
+        // old force_reinvoke path cleared was_invoked instead, which
+        // collapsed EVERY queued re-invocation to InitialRender at delivery
+        // time — user callbacks could never see EdgeScrolled/BoundsExpanded/
+        // DomRecreated (the latter had zero producers at all).
+        if let Some(pos) = self
+            .reason_overrides
+            .iter()
+            .position(|((d, n), _)| *d == dom_id && *n == node_id)
+        {
+            let (_, reason) = self.reason_overrides.remove(pos);
+            return Some(reason);
+        }
+
         let state = self.states.entry((dom_id, node_id)).or_insert_with(|| {
             let nested_dom_id = DomId {
                 inner: self.next_dom_id,
