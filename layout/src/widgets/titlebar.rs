@@ -534,8 +534,15 @@ pub(crate) mod callbacks {
     ) -> Update {
         // On Wayland, window position is Uninitialized (compositor hides it).
         // We must use xdg_toplevel_move via begin_interactive_move().
+        // MWA-B9 (D2): macOS ALSO takes the native path — the backend maps
+        // begin_interactive_move to performWindowDragWithEvent:, which is
+        // OS-smooth / snap-aware / multi-monitor-correct; the manual
+        // per-event position loop below remains for X11/Windows and as the
+        // programmatic fallback.
         let ws = info.get_current_window_state();
-        if matches!(ws.position, azul_core::window::WindowPosition::Uninitialized) {
+        let native_move = matches!(ws.position, azul_core::window::WindowPosition::Uninitialized)
+            || cfg!(target_os = "macos");
+        if native_move {
             info.begin_interactive_move();
         }
         Update::DoNothing
@@ -562,9 +569,14 @@ pub(crate) mod callbacks {
         let current_pos = info.get_current_window_state().position;
 
         if let (azul_core::geom::OptionDragDelta::Some(d), WindowPosition::Initialized(pos)) = (delta, current_pos) {
+            // MWA-B9: round, don't truncate — `as i32` swallowed every
+            // sub-pixel delta toward zero, so slow Retina-trackpad drags
+            // stalled entirely. (Full fractional-residual carry is a
+            // MWA-C-gesture follow-up; on macOS interactive drags now take
+            // the native path anyway.)
             let new_pos = WindowPosition::Initialized(PhysicalPositionI32::new(
-                pos.x + d.dx as i32,
-                pos.y + d.dy as i32,
+                pos.x + d.dx.round() as i32,
+                pos.y + d.dy.round() as i32,
             ));
             let mut ws = info.get_current_window_state().clone();
             ws.position = new_pos;

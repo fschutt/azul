@@ -146,6 +146,19 @@ pub enum RenderBackend {
 /// shared — GL/CPU-specific methods (drawRect, prepareOpenGL/reshape/isOpaque,
 /// init, and the IME / tracking-area methods that touch view-local state or call
 /// `self` as an `NSView`) stay in each view.
+/// MWA-B9: height of the PRIMARY screen (Cocoa's global-coordinate anchor:
+/// its bottom-left is the origin for ALL window frame coordinates). Every
+/// top-down↔bottom-up flip must use this, never the current screen's height.
+fn primary_screen_height() -> Option<f64> {
+    let mtm = MainThreadMarker::new()?;
+    unsafe {
+        objc2_app_kit::NSScreen::screens(mtm)
+            .iter()
+            .next()
+            .map(|s| s.frame().size.height)
+    }
+}
+
 mod view_handlers {
     use super::*;
     // Same import the per-method bodies used inline; hoisted here so the shared
@@ -2327,10 +2340,15 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let frame = macos_window.window.frame();
-                    if let Some(screen) = macos_window.window.screen() {
-                        let screen_frame = screen.frame();
+                    // MWA-B9: same primary-screen flip as sync_window_state —
+                    // the per-screen height read-back produced coordinates in
+                    // a DIFFERENT convention on secondary monitors, so the
+                    // incremental titlebar-drag feedback loop turned the
+                    // mismatch into a visible teleport when crossing screens.
+                    if let Some(primary_height) = primary_screen_height() {
                         let top_left_x = frame.origin.x as i32;
-                        let top_left_y = (screen_frame.size.height - frame.origin.y - frame.size.height) as i32;
+                        let top_left_y =
+                            (primary_height - frame.origin.y - frame.size.height) as i32;
                         let pos = azul_core::window::WindowPosition::Initialized(
                             azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
                         );
@@ -2570,6 +2588,23 @@ impl event::PlatformWindow for MacOSWindow {
     }
 
     // Timer Management (macOS/NSTimer Implementation)
+
+    fn handle_begin_interactive_move(&mut self) {
+        // MWA-B9 (D2): hand the titlebar drag to AppKit. performWindowDrag
+        // runs the OS move loop — buttery-smooth, snap-aware, and correct
+        // across monitors with different scales — replacing the manual
+        // per-event setFrameTopLeftPoint feedback loop for interactive
+        // drags (which stays as the programmatic/fallback path).
+        // currentEvent is the mouse-down/drag NSEvent being dispatched now.
+        unsafe {
+            if let Some(mtm) = MainThreadMarker::new() {
+                let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+                if let Some(event) = app.currentEvent() {
+                    self.window.performWindowDragWithEvent(&event);
+                }
+            }
+        }
+    }
 
     fn flush_a11y_tree_update(&mut self) {
         // MWA-A3e: push incremental a11y updates (text edits / caret moves)
@@ -4284,9 +4319,15 @@ impl MacOSWindow {
         // Position (if explicitly set — overrides center())
         if let WindowPosition::Initialized(pos) = self.common.current_window_state.position {
             unsafe {
-                if let Some(screen) = self.window.screen() {
-                    let screen_height = screen.frame().size.height;
-                    let macos_y = screen_height - pos.y as f64;
+                // MWA-B9: flip against the PRIMARY screen height — Cocoa's
+                // global coordinate origin is the primary screen's
+                // bottom-left, so using the CURRENT screen's height was only
+                // correct on the primary monitor and teleported the window
+                // when a top-left position was applied on a secondary. Also
+                // no longer skips silently when window.screen() is None
+                // (mid-move between monitors).
+                if let Some(primary_height) = primary_screen_height() {
+                    let macos_y = primary_height - pos.y as f64;
                     let origin = NSPoint::new(pos.x as f64, macos_y);
                     self.window.setFrameTopLeftPoint(origin);
                 }
