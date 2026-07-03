@@ -1058,12 +1058,13 @@ impl HeadlessWindow {
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
-            // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache refresh
-            // (WR builders do this every frame; the CPU path refreshed only
-            // on full relayout).
-            if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
-            }
+            // MWA-C-gpu_state/MWA-D: deliberately NO per-frame scrollbar
+            // fade refresh here (unlike the interactive backends) — the
+            // audit rated the headless relayout-only cache update adequate
+            // for snapshot rendering, and the wall-clock fade advancing
+            // BETWEEN two renders broke the fast-scroll-vs-full-render
+            // pixel-identity golden tests (the two frames must share cache
+            // state to be comparable).
             if let Some(lw) = self.common.layout_window.as_ref() {
                 self.cpu_backend.render_frame(
                     lw,

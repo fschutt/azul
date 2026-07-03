@@ -1412,10 +1412,12 @@ mod tests {
                 VariantDef {
                     name: "Auto".to_string(),
                     variant_type: None,
+                    ref_kind: Default::default(),
                 },
                 VariantDef {
                     name: "Fixed".to_string(),
                     variant_type: Some("PixelValue".to_string()),
+                    ref_kind: Default::default(),
                 },
             ]),
             callback_typedef: None,

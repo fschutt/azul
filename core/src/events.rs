@@ -3559,6 +3559,16 @@ mod tests {
 
     #[test]
     fn ctrl_c_generates_copy() {
+        // MWA-A2/MWA-D: shortcuts key off the PRIMARY modifier — Cmd on
+        // macOS, Ctrl elsewhere — so this test presses the platform's
+        // primary key. (The old version hardcoded LControl and correctly
+        // started failing on macOS hosts once primary_down() landed:
+        // Ctrl+C must NOT copy on macOS, Cmd+C does.)
+        let primary_key = if cfg!(target_os = "macos") {
+            VirtualKeyCode::LWin
+        } else {
+            VirtualKeyCode::LControl
+        };
         let target = focused_node(2);
         let event = SyntheticEvent::new(
             EventType::KeyDown,
@@ -3568,13 +3578,18 @@ mod tests {
             EventData::Keyboard(KeyboardEventData {
                 key_code: VirtualKeyCode::C as u32,
                 char_code: Some('c'),
-                modifiers: KeyModifiers { ctrl: true, shift: false, alt: false, meta: false },
+                modifiers: KeyModifiers {
+                    ctrl: !cfg!(target_os = "macos"),
+                    shift: false,
+                    alt: false,
+                    meta: cfg!(target_os = "macos"),
+                },
                 repeat: false,
             }),
         );
         let mut kb = make_keyboard_state(VirtualKeyCode::C);
         kb.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(
-            vec![VirtualKeyCode::C, VirtualKeyCode::LControl]
+            vec![VirtualKeyCode::C, primary_key]
         );
         let mouse = MouseState::default();
         let sel = MockSelectionManager { click_count: 0, has_sel: false };
@@ -3588,7 +3603,7 @@ mod tests {
             .filter(|c| matches!(c, SystemChange::CopyToClipboard))
             .count();
 
-        assert_eq!(copy_changes, 1, "Ctrl+C should generate CopyToClipboard");
+        assert_eq!(copy_changes, 1, "primary+C should generate CopyToClipboard");
     }
 
     fn make_hit_test_with_node(node_idx: usize) -> FullHitTest {
