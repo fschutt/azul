@@ -5364,6 +5364,13 @@ impl LayoutWindow {
         // Clear the changeset now that it's been applied
         self.text_input_manager.clear_changeset();
 
+        // MWA-C-text_edit: typing resets the blink phase so the caret is
+        // solid while the user types (W3C/native behavior) — previously the
+        // caret kept blinking mid-keystroke because reset ran only on
+        // click/focus/user-API.
+        let now = Instant::now();
+        self.text_edit_manager.blink.reset_blink_on_input(now);
+
         // Check if any dirty text node needs ancestor relayout (text size changed)
         let needs_relayout = self.dirty_text_nodes.values()
             .any(|d| d.needs_ancestor_relayout);
@@ -6878,6 +6885,15 @@ impl LayoutWindow {
         self.text_edit_manager.initialize_editing(
             final_range.start, dom_id, ifc_root_node_id, ce_key,
         );
+        // MWA-C-text_edit: double/triple-click computed the word/paragraph
+        // range above but then threw it away — initialize_editing only
+        // places a collapsed caret at range.start, so word/paragraph select
+        // never actually selected anything. Apply the full range.
+        if click_count > 1 && final_range.start != final_range.end {
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                mc.set_single_range(final_range);
+            }
+        }
         let now = Instant::now();
         self.text_edit_manager.blink.reset_blink_on_input(now);
         self.text_edit_manager.blink.set_blink_timer_active(true);

@@ -2533,7 +2533,14 @@ pub trait PlatformWindow {
 
             SystemChange::CopyToClipboard => {
                 if let Some(layout_window) = self.get_layout_window() {
-                    let dom_id = azul_core::dom::DomId { inner: 0 };
+                    // MWA-C-text_edit: use the DOM that actually holds the
+                    // editing session — the DomId-0 hardcode copied nothing
+                    // when the contenteditable lived in a VirtualView /
+                    // iframe child DOM.
+                    let dom_id = layout_window
+                        .text_edit_manager
+                        .get_editing_dom_id()
+                        .unwrap_or(azul_core::dom::DomId { inner: 0 });
                     if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
                         set_system_clipboard(clipboard_content.plain_text.as_str().to_string());
                     }
@@ -2544,7 +2551,12 @@ pub trait PlatformWindow {
             SystemChange::CutToClipboard { target } => {
                 let mut affected = false;
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let dom_id = azul_core::dom::DomId { inner: 0 };
+                    // MWA-C-text_edit: editing DOM, not hardcoded DomId 0
+                    // (see CopyToClipboard above).
+                    let dom_id = layout_window
+                        .text_edit_manager
+                        .get_editing_dom_id()
+                        .unwrap_or(azul_core::dom::DomId { inner: 0 });
                     if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
                         if set_system_clipboard(clipboard_content.plain_text.as_str().to_string())
                             && layout_window.delete_selection(*target, false).is_some() {
