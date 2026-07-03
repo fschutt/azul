@@ -194,99 +194,123 @@ impl FocusManager {
     }
 }
 
-/// Direction for searching focusable nodes in the DOM tree.
+/// MWA-C-focus_cursor: W3C sequential focus order over all DOMs.
 ///
-/// Used by `search_focusable_node` to traverse nodes either forward
-/// (towards higher indices / next DOM) or backward (towards lower indices / previous DOM).
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum SearchDirection {
-    /// Search forward: increment node index, move to next DOM when at end
-    Forward,
-    /// Search backward: decrement node index, move to previous DOM when at start
-    Backward,
+/// Ordering: nodes with a positive `tabindex` (`TabIndex::OverrideInParent(n)`,
+/// n >= 1) come first, ascending by n (stable sort, so document order breaks
+/// ties); then all remaining keyboard-focusable nodes (`Auto`,
+/// `OverrideInParent(0)`, implicit focusables) in document order.
+/// `TabIndex::NoKeyboardFocus` (tabindex=-1) nodes stay focusable by click /
+/// API but are NEVER part of the Tab order. The previous linear NodeId walk
+/// both ignored positive-tabindex ordering and tabbed onto tabindex=-1 nodes.
+fn collect_tab_order(layout_results: &BTreeMap<DomId, DomLayoutResult>) -> Vec<DomNodeId> {
+    use azul_core::dom::TabIndex;
+    let mut positive: Vec<(u32, DomNodeId)> = Vec::new();
+    let mut auto: Vec<DomNodeId> = Vec::new();
+    for (dom_id, layout) in layout_results {
+        let node_data = layout.styled_dom.node_data.as_container();
+        for index in 0..node_data.len() {
+            let node_id = NodeId::new(index);
+            let Some(nd) = node_data.get(node_id) else {
+                continue;
+            };
+            if !nd.is_focusable() {
+                continue;
+            }
+            let dom_node = FocusSearchContext::make_dom_node_id(*dom_id, node_id);
+            match nd.get_tab_index() {
+                Some(TabIndex::NoKeyboardFocus) => {}
+                Some(TabIndex::OverrideInParent(n)) if n > 0 => positive.push((n, dom_node)),
+                _ => auto.push(dom_node),
+            }
+        }
+    }
+    order_tab_entries(positive, auto)
 }
 
-impl SearchDirection {
-    /// Compute the next node index in this direction.
-    ///
-    /// Uses saturating arithmetic to avoid overflow/underflow.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
-    const fn step_node(&self, index: usize) -> usize {
-        match self {
-            Self::Forward => index.saturating_add(1),
-            Self::Backward => index.saturating_sub(1),
-        }
-    }
-
-    /// Advance the DOM ID in this direction (mutates in place).
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
-    const fn step_dom(&self, dom_id: &mut DomId) {
-        match self {
-            Self::Forward => dom_id.inner += 1,
-            Self::Backward => dom_id.inner -= 1,
-        }
-    }
-
-    /// Check if we've hit a node boundary and need to switch DOMs.
-    ///
-    /// Returns `true` if:
-    ///
-    /// - Backward: at min node and current < start (wrapped around)
-    /// - Forward: at max node and current > start (wrapped around)
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
-    fn is_at_boundary(&self, current: NodeId, start: NodeId, min: NodeId, max: NodeId) -> bool {
-        match self {
-            Self::Backward => current == min && current < start,
-            Self::Forward => current == max && current > start,
-        }
-    }
-
-    /// Check if we've hit a DOM boundary (first or last DOM in the layout).
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
-    fn is_at_dom_boundary(&self, dom_id: DomId, min: DomId, max: DomId) -> bool {
-        match self {
-            Self::Backward => dom_id == min,
-            Self::Forward => dom_id == max,
-        }
-    }
-
-    /// Get the starting node ID when entering a new DOM.
-    ///
-    /// - Forward: start at first node (index 0)
-    /// - Backward: start at last node
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
-    const fn initial_node_for_next_dom(&self, layout: &DomLayoutResult) -> NodeId {
-        match self {
-            Self::Forward => NodeId::ZERO,
-            Self::Backward => NodeId::new(layout.styled_dom.node_data.len() - 1),
-        }
-    }
+/// Pure merge of the two tab-order sections (split out for unit testing).
+fn order_tab_entries(
+    mut positive: Vec<(u32, DomNodeId)>,
+    auto: Vec<DomNodeId>,
+) -> Vec<DomNodeId> {
+    positive.sort_by_key(|(n, _)| *n); // stable: document order within equal n
+    positive.into_iter().map(|(_, id)| id).chain(auto).collect()
 }
 
-/// Context for focusable node search operations.
+/// Document-order key for a node (DOM index, then arena index) — used to
+/// re-enter the tab order from a node that is not itself tab-focusable.
+fn doc_order_key(id: &DomNodeId) -> (usize, usize) {
+    (
+        id.dom.inner,
+        id.node.into_crate_internal().map_or(0, |n| n.index()),
+    )
+}
+
+/// Pick the next / previous entry in `order` relative to `current`.
 ///
-/// Holds shared state and provides helper methods for traversing
-/// the DOM tree to find focusable nodes. This avoids passing
-/// multiple parameters through the search functions.
+/// If `current` is a tab stop, steps with wrap-around. If it is not (no focus
+/// yet, or focus sits on a tabindex=-1 / removed node), forward picks the
+/// first tab stop after it in document order (wrapping to the first entry),
+/// backward symmetrically.
+fn next_in_tab_order(
+    order: &[DomNodeId],
+    current: Option<DomNodeId>,
+    forward: bool,
+) -> Option<DomNodeId> {
+    if order.is_empty() {
+        return None;
+    }
+    let Some(cur) = current else {
+        return if forward {
+            order.first().copied()
+        } else {
+            order.last().copied()
+        };
+    };
+    if let Some(pos) = order.iter().position(|x| *x == cur) {
+        let len = order.len();
+        let next = if forward {
+            (pos + 1) % len
+        } else {
+            (pos + len - 1) % len
+        };
+        return Some(order[next]);
+    }
+    let cur_key = doc_order_key(&cur);
+    let candidate = if forward {
+        order
+            .iter()
+            .filter(|x| doc_order_key(x) > cur_key)
+            .min_by_key(|x| doc_order_key(x))
+    } else {
+        order
+            .iter()
+            .filter(|x| doc_order_key(x) < cur_key)
+            .max_by_key(|x| doc_order_key(x))
+    };
+    candidate.copied().or_else(|| {
+        if forward {
+            order.first().copied()
+        } else {
+            order.last().copied()
+        }
+    })
+}
+
+/// Context for focus-target resolution (`Path` / `Id` lookups).
+///
+/// MWA-C-focus_cursor: the old linear-walk machinery (SearchDirection,
+/// search_focusable_node, get_*_start) was replaced by the W3C tab order
+/// built in `collect_tab_order`; only the layout lookup helpers remain.
 struct FocusSearchContext<'a> {
     /// Reference to all DOM layouts in the window
     layout_results: &'a BTreeMap<DomId, DomLayoutResult>,
-    /// First DOM ID (always `ROOT_ID`)
-    min_dom_id: DomId,
-    /// Last DOM ID in the layout results
-    max_dom_id: DomId,
 }
 
 impl<'a> FocusSearchContext<'a> {
     /// Create a new search context from layout results.
-    fn new(layout_results: &'a BTreeMap<DomId, DomLayoutResult>) -> Self {
-        Self {
-            layout_results,
-            min_dom_id: DomId::ROOT_ID,
-            max_dom_id: DomId {
-                inner: layout_results.len() - 1,
-            },
-        }
+    const fn new(layout_results: &'a BTreeMap<DomId, DomLayoutResult>) -> Self {
+        Self { layout_results }
     }
 
     /// Get the layout for a DOM ID, or return an error if invalid.
@@ -297,41 +321,6 @@ impl<'a> FocusSearchContext<'a> {
             .ok_or_else(|| UpdateFocusWarning::FocusInvalidDomId(*dom_id))
     }
 
-    /// Validate that a node exists in the given layout.
-    ///
-    /// Returns an error if the node ID is out of bounds.
-    fn validate_node(
-        layout: &DomLayoutResult,
-        node_id: NodeId,
-        _dom_id: DomId,
-    ) -> Result<(), UpdateFocusWarning> {
-        let is_valid = layout
-            .styled_dom
-            .node_data
-            .as_container()
-            .get(node_id)
-            .is_some();
-        if !is_valid {
-            return Err(UpdateFocusWarning::FocusInvalidNodeId(
-                NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-            ));
-        }
-        Ok(())
-    }
-
-    /// Get the valid node ID range for a layout: `(min, max)`.
-    const fn node_bounds(layout: &DomLayoutResult) -> (NodeId, NodeId) {
-        (
-            NodeId::ZERO,
-            NodeId::new(layout.styled_dom.node_data.len() - 1),
-        )
-    }
-
-    /// Check if a node can receive keyboard focus.
-    fn is_focusable(layout: &DomLayoutResult, node_id: NodeId) -> bool {
-        layout.styled_dom.node_data.as_container()[node_id].is_focusable()
-    }
-
     /// Construct a `DomNodeId` from DOM and node IDs.
     const fn make_dom_node_id(dom_id: DomId, node_id: NodeId) -> DomNodeId {
         DomNodeId {
@@ -339,150 +328,6 @@ impl<'a> FocusSearchContext<'a> {
             node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         }
     }
-}
-
-/// Search for the next focusable node in a given direction.
-///
-/// Traverses nodes within the current DOM, then moves to adjacent DOMs
-/// if no focusable node is found. Returns `Ok(None)` if no focusable
-/// node exists in the entire layout in the given direction.
-///
-/// # Termination guarantee
-///
-/// The function is guaranteed to terminate because:
-///
-/// - The inner loop advances `node_id` by 1 each iteration (via `step_node`)
-/// - When hitting a node boundary, we either return `None` (at DOM boundary) or move to the next
-///   DOM and break to the outer loop
-/// - The outer loop only continues when we switch DOMs, which is bounded by the finite number of
-///   DOMs in `layout_results`
-/// - Each DOM is visited at most once per search direction
-///
-/// # Returns
-///
-/// * `Ok(Some(node))` - Found a focusable node
-/// * `Ok(None)` - No focusable node exists in the search direction
-/// * `Err(_)` - Invalid DOM or node ID encountered
-fn search_focusable_node(
-    ctx: &FocusSearchContext<'_>,
-    mut dom_id: DomId,
-    mut node_id: NodeId,
-    direction: SearchDirection,
-) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
-    loop {
-        let layout = ctx.get_layout(&dom_id)?;
-        FocusSearchContext::validate_node(layout, node_id, dom_id)?;
-
-        let (min_node, max_node) = FocusSearchContext::node_bounds(layout);
-
-        loop {
-            let next_node = NodeId::new(direction.step_node(node_id.index()))
-                .max(min_node)
-                .min(max_node);
-
-            // If we couldn't make progress (next_node == node_id due to clamping),
-            // we've hit the boundary of this DOM
-            if next_node == node_id {
-                if direction.is_at_dom_boundary(dom_id, ctx.min_dom_id, ctx.max_dom_id) {
-                    return Ok(None); // Reached end of all DOMs
-                }
-                direction.step_dom(&mut dom_id);
-                let next_layout = ctx.get_layout(&dom_id)?;
-                node_id = direction.initial_node_for_next_dom(next_layout);
-                break; // Continue outer loop with new DOM
-            }
-
-            // Check for focusable node (we made progress, so this is a different node)
-            if FocusSearchContext::is_focusable(layout, next_node) {
-                return Ok(Some(FocusSearchContext::make_dom_node_id(dom_id, next_node)));
-            }
-
-            // Detect if we've hit the boundary (at min/max node)
-            let at_boundary = direction.is_at_boundary(next_node, node_id, min_node, max_node);
-
-            if at_boundary {
-                if direction.is_at_dom_boundary(dom_id, ctx.min_dom_id, ctx.max_dom_id) {
-                    return Ok(None); // Reached end of all DOMs
-                }
-                direction.step_dom(&mut dom_id);
-                let next_layout = ctx.get_layout(&dom_id)?;
-                node_id = direction.initial_node_for_next_dom(next_layout);
-                break; // Continue outer loop with new DOM
-            }
-
-            node_id = next_node;
-        }
-    }
-}
-
-/// Get starting position for Previous focus search
-fn get_previous_start(
-    layout_results: &BTreeMap<DomId, DomLayoutResult>,
-    current_focus: Option<DomNodeId>,
-) -> Result<(DomId, NodeId), UpdateFocusWarning> {
-    let last_dom_id = DomId {
-        inner: layout_results.len() - 1,
-    };
-
-    let Some(focus) = current_focus else {
-        let layout = layout_results
-            .get(&last_dom_id)
-            .ok_or(UpdateFocusWarning::FocusInvalidDomId(last_dom_id))?;
-        return Ok((
-            last_dom_id,
-            NodeId::new(layout.styled_dom.node_data.len() - 1),
-        ));
-    };
-
-    let Some(node) = focus.node.into_crate_internal() else {
-        if let Some(layout) = layout_results.get(&focus.dom) {
-            return Ok((
-                focus.dom,
-                NodeId::new(layout.styled_dom.node_data.len() - 1),
-            ));
-        }
-        let layout = layout_results
-            .get(&last_dom_id)
-            .ok_or(UpdateFocusWarning::FocusInvalidDomId(last_dom_id))?;
-        return Ok((
-            last_dom_id,
-            NodeId::new(layout.styled_dom.node_data.len() - 1),
-        ));
-    };
-
-    Ok((focus.dom, node))
-}
-
-/// Get starting position for Next focus search
-fn get_next_start(
-    layout_results: &BTreeMap<DomId, DomLayoutResult>,
-    current_focus: Option<DomNodeId>,
-) -> (DomId, NodeId) {
-    let Some(focus) = current_focus else {
-        return (DomId::ROOT_ID, NodeId::ZERO);
-    };
-
-    match focus.node.into_crate_internal() {
-        Some(node) => (focus.dom, node),
-        None if layout_results.contains_key(&focus.dom) => (focus.dom, NodeId::ZERO),
-        None => (DomId::ROOT_ID, NodeId::ZERO),
-    }
-}
-
-/// Get starting position for Last focus search
-fn get_last_start(
-    layout_results: &BTreeMap<DomId, DomLayoutResult>,
-) -> Result<(DomId, NodeId), UpdateFocusWarning> {
-    let last_dom_id = DomId {
-        inner: layout_results.len() - 1,
-    };
-    let layout = layout_results
-        .get(&last_dom_id)
-        .ok_or(UpdateFocusWarning::FocusInvalidDomId(last_dom_id))?;
-    Ok((
-        last_dom_id,
-        NodeId::new(layout.styled_dom.node_data.len() - 1),
-    ))
 }
 
 /// Find the first focusable node matching a CSS path selector.
@@ -573,62 +418,24 @@ pub fn resolve_focus_target(
             }
         }
 
-        Previous => {
-            let (dom_id, node_id) = get_previous_start(layout_results, current_focus)?;
-            let result = search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)?;
-            // Wrap around: if no previous focusable found, go to last focusable
-            if result.is_none() {
-                let (last_dom_id, last_node_id) = get_last_start(layout_results)?;
-                // First check if the last node itself is focusable
-                let last_layout = ctx.get_layout(&last_dom_id)?;
-                if FocusSearchContext::is_focusable(last_layout, last_node_id) {
-                    Ok(Some(FocusSearchContext::make_dom_node_id(last_dom_id, last_node_id)))
-                } else {
-                    // Otherwise search backward from last node
-                    search_focusable_node(&ctx, last_dom_id, last_node_id, SearchDirection::Backward)
-                }
-            } else {
-                Ok(result)
-            }
-        }
+        // MWA-C-focus_cursor: sequential navigation goes through the W3C tab
+        // order (positive tabindex ascending, then document order; -1
+        // excluded) instead of the old raw-NodeId walk.
+        Previous => Ok(next_in_tab_order(
+            &collect_tab_order(layout_results),
+            current_focus,
+            false,
+        )),
 
-        Next => {
-            let (dom_id, node_id) = get_next_start(layout_results, current_focus);
-            let result = search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Forward)?;
-            // Wrap around: if no next focusable found, go to first focusable
-            if result.is_none() {
-                // First check if the first node itself is focusable
-                let first_layout = ctx.get_layout(&DomId::ROOT_ID)?;
-                if FocusSearchContext::is_focusable(first_layout, NodeId::ZERO) {
-                    Ok(Some(FocusSearchContext::make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
-                } else {
-                    search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
-                }
-            } else {
-                Ok(result)
-            }
-        }
+        Next => Ok(next_in_tab_order(
+            &collect_tab_order(layout_results),
+            current_focus,
+            true,
+        )),
 
-        First => {
-            // First check if the first node itself is focusable
-            let first_layout = ctx.get_layout(&DomId::ROOT_ID)?;
-            if FocusSearchContext::is_focusable(first_layout, NodeId::ZERO) {
-                Ok(Some(FocusSearchContext::make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
-            } else {
-                search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
-            }
-        }
+        First => Ok(collect_tab_order(layout_results).first().copied()),
 
-        Last => {
-            let (dom_id, node_id) = get_last_start(layout_results)?;
-            // First check if the last node itself is focusable
-            let last_layout = ctx.get_layout(&dom_id)?;
-            if FocusSearchContext::is_focusable(last_layout, node_id) {
-                Ok(Some(FocusSearchContext::make_dom_node_id(dom_id, node_id)))
-            } else {
-                search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)
-            }
-        }
+        Last => Ok(collect_tab_order(layout_results).last().copied()),
 
         NoFocus => Ok(None),
     }
@@ -639,5 +446,63 @@ pub fn resolve_focus_target(
 impl azul_core::events::FocusManagerQuery for FocusManager {
     fn get_focused_node_id(&self) -> Option<DomNodeId> {
         self.focused_node
+    }
+}
+
+#[cfg(test)]
+mod tab_order_tests {
+    use super::*;
+
+    fn nid(dom: usize, node: usize) -> DomNodeId {
+        FocusSearchContext::make_dom_node_id(DomId { inner: dom }, NodeId::new(node))
+    }
+
+    #[test]
+    fn positive_tabindex_sorts_first_ascending_then_document_order() {
+        // Document order: n3 (tabindex=2), n5 (auto), n7 (tabindex=1), n9 (auto)
+        let order = order_tab_entries(
+            vec![(2, nid(0, 3)), (1, nid(0, 7))],
+            vec![nid(0, 5), nid(0, 9)],
+        );
+        assert_eq!(order, vec![nid(0, 7), nid(0, 3), nid(0, 5), nid(0, 9)]);
+    }
+
+    #[test]
+    fn equal_positive_tabindex_keeps_document_order() {
+        let order = order_tab_entries(vec![(1, nid(0, 2)), (1, nid(0, 8))], vec![]);
+        assert_eq!(order, vec![nid(0, 2), nid(0, 8)]);
+    }
+
+    #[test]
+    fn next_wraps_and_previous_wraps() {
+        let order = vec![nid(0, 1), nid(0, 4), nid(0, 6)];
+        assert_eq!(next_in_tab_order(&order, Some(nid(0, 6)), true), Some(nid(0, 1)));
+        assert_eq!(next_in_tab_order(&order, Some(nid(0, 1)), false), Some(nid(0, 6)));
+        assert_eq!(next_in_tab_order(&order, Some(nid(0, 4)), true), Some(nid(0, 6)));
+    }
+
+    #[test]
+    fn no_focus_starts_at_ends() {
+        let order = vec![nid(0, 1), nid(0, 4)];
+        assert_eq!(next_in_tab_order(&order, None, true), Some(nid(0, 1)));
+        assert_eq!(next_in_tab_order(&order, None, false), Some(nid(0, 4)));
+    }
+
+    #[test]
+    fn non_tab_stop_focus_reenters_in_document_order() {
+        // Focus sits on a tabindex=-1 node (0,5): Tab goes to the next tab
+        // stop in document order (0,6); Shift+Tab to the previous one (0,4).
+        let order = vec![nid(0, 1), nid(0, 4), nid(0, 6)];
+        assert_eq!(next_in_tab_order(&order, Some(nid(0, 5)), true), Some(nid(0, 6)));
+        assert_eq!(next_in_tab_order(&order, Some(nid(0, 5)), false), Some(nid(0, 4)));
+        // Past the last stop: wraps to first / last respectively.
+        assert_eq!(next_in_tab_order(&order, Some(nid(0, 9)), true), Some(nid(0, 1)));
+        assert_eq!(next_in_tab_order(&order, Some(nid(0, 0)), false), Some(nid(0, 6)));
+    }
+
+    #[test]
+    fn empty_order_yields_none() {
+        assert_eq!(next_in_tab_order(&[], Some(nid(0, 1)), true), None);
+        assert_eq!(next_in_tab_order(&[], None, false), None);
     }
 }

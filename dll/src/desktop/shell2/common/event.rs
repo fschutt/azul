@@ -4243,6 +4243,41 @@ pub trait PlatformWindow {
             }
         };
 
+        // MWA-C-focus_cursor: pause the caret blink while the window is
+        // unfocused — the timer kept background windows repainting every
+        // ~530ms and the caret blinked without key focus. On refocus,
+        // restart blinking if an editable node still holds focus (the caret
+        // stays drawn solid while blurred; only the blink pauses).
+        {
+            let focus_out = synthetic_events
+                .iter()
+                .any(|ev| ev.event_type == azul_core::events::EventType::WindowFocusOut);
+            let focus_in = synthetic_events
+                .iter()
+                .any(|ev| ev.event_type == azul_core::events::EventType::WindowFocusIn);
+            if focus_out && !focus_in {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.timers.remove(&azul_core::task::CURSOR_BLINK_TIMER_ID);
+                }
+                self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+            } else if focus_in {
+                let action = self.get_layout_window_mut().map(|lw| {
+                    let ws = lw.current_window_state.clone();
+                    let focus = lw.focus_manager.focused_node;
+                    lw.handle_focus_change_for_cursor_blink(focus, &ws)
+                });
+                match action {
+                    Some(azul_layout::CursorBlinkTimerAction::Start(timer)) => {
+                        self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                    }
+                    Some(azul_layout::CursorBlinkTimerAction::Stop) => {
+                        self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                    }
+                    Some(azul_layout::CursorBlinkTimerAction::NoChange) | None => {}
+                }
+            }
+        }
+
         // Update active drag position with current mouse position.
         // This must happen BEFORE callbacks so titlebar_drag (and other drag
         // callbacks) see the updated DragContext.current_position.
