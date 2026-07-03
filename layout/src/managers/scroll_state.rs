@@ -1440,7 +1440,7 @@ mod natural_scroll_tests {
     fn nested_setup() -> (ScrollManager, DomId, NodeId, NodeId) {
         use azul_core::geom::{LogicalRect, LogicalSize};
 
-        let now = Instant::from(std::time::Instant::now());
+        let now = Instant::now();
         let mut m = ScrollManager::new();
         let dom = DomId::ROOT_ID;
         // Ancestors have LOWER arena ids than descendants.
