@@ -3566,20 +3566,39 @@ impl CallbackInfo {
     /// Get the currently hovered file (if drag-drop is in progress)
     ///
     /// Returns None if no file is being hovered over the window.
-    #[must_use] pub const fn get_hovered_file(&self) -> Option<&AzString> {
+    /// (First file only — use [`get_hovered_files`](Self::get_hovered_files)
+    /// for multi-file drags; no longer `const` since MWA-B7 made the manager
+    /// store a Vec.)
+    #[must_use] pub fn get_hovered_file(&self) -> Option<&AzString> {
         self.get_layout_window()
             .file_drop_manager
             .get_hovered_file()
     }
 
+    /// ALL files of the current drag hover (MWA-B7 — multi-file drags were
+    /// previously truncated to the first path before they reached callbacks).
+    #[must_use] pub fn get_hovered_files(&self) -> &[AzString] {
+        self.get_layout_window()
+            .file_drop_manager
+            .get_hovered_files()
+    }
+
     /// Get the currently dropped file (if a file was just dropped)
     ///
     /// This is a one-shot value that is cleared after event processing.
-    /// Returns None if no file was dropped this frame.
-    #[must_use] pub const fn get_dropped_file(&self) -> Option<&AzString> {
+    /// Returns None if no file was dropped this frame. (First file only —
+    /// use [`get_dropped_files`](Self::get_dropped_files) for the full list.)
+    #[must_use] pub fn get_dropped_file(&self) -> Option<&AzString> {
         self.get_layout_window()
             .file_drop_manager
             .get_dropped_file()
+    }
+
+    /// ALL files of this frame's drop (MWA-B7; one-shot).
+    #[must_use] pub fn get_dropped_files(&self) -> &[AzString] {
+        self.get_layout_window()
+            .file_drop_manager
+            .get_dropped_files()
     }
 
     /// Check if a node or file drag is currently active

@@ -2503,9 +2503,16 @@ pub trait EventProvider {
         E::MonitorDisconnected => vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)],
 
         // File events
-        E::FileHover => vec![EF::Hover(H::HoveredFile)],
-        E::FileDrop => vec![EF::Hover(H::DroppedFile)],
-        E::FileHoverCancel => vec![EF::Hover(H::HoveredFileCancelled)],
+        // MWA-B7: node-level Hover mirror + the window-level filter. Without
+        // the Window mirrors, even WindowEventFilter::DroppedFile
+        // registrations were unreachable (file events dispatched to Hover
+        // filters only).
+        E::FileHover => vec![EF::Hover(H::HoveredFile), EF::Window(W::HoveredFile)],
+        E::FileDrop => vec![EF::Hover(H::DroppedFile), EF::Window(W::DroppedFile)],
+        E::FileHoverCancel => vec![
+            EF::Hover(H::HoveredFileCancelled),
+            EF::Window(W::HoveredFileCancelled),
+        ],
 
         // Lifecycle events — dispatched on the target node via EventFilter::Component.
         // Both Mount and Unmount map to their respective Component filters so that

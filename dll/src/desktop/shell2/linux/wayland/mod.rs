@@ -3224,11 +3224,13 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(position);
-        if let Some(first_path) = paths.first() {
+        if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
+                // MWA-B7: pass EVERY path — multi-file drops were silently
+                // truncated to the first file at this ingress.
                 layout_window
                     .file_drop_manager
-                    .set_hovered_file(Some(first_path.clone().into()));
+                    .set_hovered_files(paths.iter().map(|p| p.clone().into()).collect());
             }
         }
         self.update_hit_test(position);
@@ -3260,11 +3262,13 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(position);
-        if let Some(first_path) = paths.first() {
+        if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
+                // MWA-B7: pass EVERY path — multi-file drops were silently
+                // truncated to the first file at this ingress.
                 layout_window
                     .file_drop_manager
-                    .set_dropped_file(Some(first_path.clone().into()));
+                    .set_dropped_files(paths.iter().map(|p| p.clone().into()).collect());
             }
         }
         self.update_hit_test(position);

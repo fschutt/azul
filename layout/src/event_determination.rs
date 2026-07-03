@@ -651,11 +651,15 @@ pub fn determine_all_events(
     // their drag-enter / drag-leave handlers (macOS `draggingEntered` /
     // `draggingExited`, Windows OLE `IDropTarget::DragEnter` / `DragLeave`).
 
+    // MWA-B7: target the node UNDER the drag position (mouse_target already
+    // falls back to the root when nothing is hovered). Targeting the root
+    // unconditionally made per-node drop targets impossible — a DroppedFile
+    // callback registered on any non-root node could never fire.
     if file_drop_manager.get_hovered_file().is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileHover,
             EventSource::User,
-            root_node,
+            mouse_target,
             timestamp.clone(),
             EventData::None,
         ));
@@ -663,7 +667,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::FileHoverCancel,
             EventSource::User,
-            root_node,
+            mouse_target,
             timestamp.clone(),
             EventData::None,
         ));
@@ -673,7 +677,7 @@ pub fn determine_all_events(
         events.push(SyntheticEvent::new(
             EventType::FileDrop,
             EventSource::User,
-            root_node,
+            mouse_target,
             timestamp.clone(),
             EventData::None,
         ));

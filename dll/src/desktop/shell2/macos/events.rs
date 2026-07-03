@@ -855,11 +855,13 @@ impl MacOSWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Update cursor manager with dropped file
-        if let Some(first_path) = paths.first() {
+        if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
+                // MWA-B7: pass EVERY path — multi-file drops were silently
+                // truncated to the first file at this ingress.
                 layout_window
                     .file_drop_manager
-                    .set_dropped_file(Some(first_path.clone().into()));
+                    .set_dropped_files(paths.iter().map(|p| p.clone().into()).collect());
             }
         }
 
@@ -887,12 +889,14 @@ impl MacOSWindow {
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
-        // Mark the first file as hovered (FileDropManager tracks a single path).
-        if let Some(first_path) = paths.first() {
+        // Record ALL hovered files (MWA-B7).
+        if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
+                // MWA-B7: pass EVERY path — multi-file drops were silently
+                // truncated to the first file at this ingress.
                 layout_window
                     .file_drop_manager
-                    .set_hovered_file(Some(first_path.clone().into()));
+                    .set_hovered_files(paths.iter().map(|p| p.clone().into()).collect());
             }
         }
 
