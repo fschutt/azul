@@ -277,6 +277,46 @@ pub(crate) fn build_app_submenu(menubar: &NSMenu, mtm: MainThreadMarker) {
     menubar.addItem(&app_item);
 }
 
+/// MWA-B14: the standard Edit menu with Cmd key equivalents. Items use
+/// nil-target STANDARD selectors (cut:/copy:/paste:/selectAll:/undo:/redo:)
+/// so they travel the responder chain and land in the content view's
+/// selector implementations — the arrangement macOS Services, dictation and
+/// key-equivalent dispatch all expect. This is the belt-and-braces half of
+/// MWA-A2's primary-modifier fix (D4): Cmd shortcuts work even when the
+/// keyboard path is bypassed by the system.
+pub(crate) fn build_edit_submenu(menubar: &NSMenu, mtm: MainThreadMarker) {
+    let edit_item = NSMenuItem::new(mtm);
+    let edit_menu = NSMenu::new(mtm);
+    edit_menu.setTitle(&NSString::from_str("Edit"));
+
+    let add = |title: &str, sel: objc2::runtime::Sel, key: &str| {
+        let t = NSString::from_str(title);
+        let k = NSString::from_str(key);
+        let item = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(mtm),
+                &t,
+                Some(sel),
+                &k,
+            )
+        };
+        edit_menu.addItem(&item);
+    };
+
+    add("Undo", objc2::sel!(undo:), "z");
+    // Uppercase key equivalent = Shift+Cmd+Z per AppKit convention.
+    add("Redo", objc2::sel!(redo:), "Z");
+    edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
+    add("Cut", objc2::sel!(cut:), "x");
+    add("Copy", objc2::sel!(copy:), "c");
+    add("Paste", objc2::sel!(paste:), "v");
+    edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
+    add("Select All", objc2::sel!(selectAll:), "a");
+
+    edit_item.setSubmenu(Some(&edit_menu));
+    menubar.addItem(&edit_item);
+}
+
 /// Create a top-level menu bar NSMenu from an Azul Menu, with the standard
 /// application submenu prepended.
 fn create_menubar_nsmenu(
@@ -292,6 +332,8 @@ fn create_menubar_nsmenu(
 
     // First item MUST be the application menu on macOS.
     build_app_submenu(&menubar, mtm);
+    // MWA-B14: standard Edit menu always present (user menus follow it).
+    build_edit_submenu(&menubar, mtm);
 
     // Then the user's menu_bar items become the remaining top-level menus.
     build_menu_items(menu.items.as_slice(), &menubar, &mut command_map, next_tag, mtm);

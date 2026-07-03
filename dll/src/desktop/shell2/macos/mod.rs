@@ -317,6 +317,47 @@ mod view_handlers {
         }
     }
 
+    /// MWA-B14: which Edit-menu command a responder-chain selector carries.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum EditCommand {
+        Copy,
+        Cut,
+        Paste,
+        SelectAll,
+        Undo,
+        Redo,
+    }
+
+    /// MWA-B14: route an Edit-menu command into the SAME SystemChange path
+    /// the keyboard shortcuts use, then run an event pass.
+    pub(super) fn edit_command(window_ptr: Option<*mut std::ffi::c_void>, cmd: EditCommand) {
+        use azul_core::events::SystemChange;
+
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let focused = macos_window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+            let change = match cmd {
+                EditCommand::Copy => Some(SystemChange::CopyToClipboard),
+                EditCommand::Paste => Some(SystemChange::PasteFromClipboard),
+                EditCommand::SelectAll => Some(SystemChange::SelectAllText),
+                // Target-carrying commands need a focused node.
+                EditCommand::Cut => focused.map(|target| SystemChange::CutToClipboard { target }),
+                EditCommand::Undo => focused.map(|target| SystemChange::UndoTextEdit { target }),
+                EditCommand::Redo => focused.map(|target| SystemChange::RedoTextEdit { target }),
+            };
+            let Some(change) = change else { return };
+            macos_window.common.previous_window_state =
+                Some(macos_window.common.current_window_state.clone());
+            let result = macos_window.apply_system_change(&change);
+            macos_window.apply_activation_pass_result(result);
+        }
+    }
+
     /// MWA-B4: macOS native pinch (trackpad magnification). Injects into the
     /// gesture manager's native-override slot — which was designed for
     /// exactly this and never called from macOS — then runs an event pass so
@@ -823,6 +864,58 @@ define_class!(
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
             view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        // MWA-B14: standard Edit-menu selectors. The native Edit menu's
+        // items are nil-target actions that travel the responder chain and
+        // land here; each forwards into the SAME SystemChange path the
+        // Cmd/Ctrl keyboard shortcuts use.
+        #[unsafe(method(copy:))]
+        fn edit_copy(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Copy,
+            );
+        }
+
+        #[unsafe(method(cut:))]
+        fn edit_cut(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Cut,
+            );
+        }
+
+        #[unsafe(method(paste:))]
+        fn edit_paste(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Paste,
+            );
+        }
+
+        #[unsafe(method(selectAll:))]
+        fn edit_select_all(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::SelectAll,
+            );
+        }
+
+        #[unsafe(method(undo:))]
+        fn edit_undo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Undo,
+            );
+        }
+
+        #[unsafe(method(redo:))]
+        fn edit_redo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Redo,
+            );
         }
 
         // NSDraggingDestination — file drag-and-drop
@@ -1450,6 +1543,58 @@ define_class!(
             view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
         }
 
+        // MWA-B14: standard Edit-menu selectors. The native Edit menu's
+        // items are nil-target actions that travel the responder chain and
+        // land here; each forwards into the SAME SystemChange path the
+        // Cmd/Ctrl keyboard shortcuts use.
+        #[unsafe(method(copy:))]
+        fn edit_copy(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Copy,
+            );
+        }
+
+        #[unsafe(method(cut:))]
+        fn edit_cut(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Cut,
+            );
+        }
+
+        #[unsafe(method(paste:))]
+        fn edit_paste(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Paste,
+            );
+        }
+
+        #[unsafe(method(selectAll:))]
+        fn edit_select_all(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::SelectAll,
+            );
+        }
+
+        #[unsafe(method(undo:))]
+        fn edit_undo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Undo,
+            );
+        }
+
+        #[unsafe(method(redo:))]
+        fn edit_redo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            view_handlers::edit_command(
+                *self.ivars().window_ptr.borrow(),
+                view_handlers::EditCommand::Redo,
+            );
+        }
+
         // NSDraggingDestination — file drag-and-drop
 
         #[unsafe(method(draggingEntered:))]
@@ -2070,6 +2215,8 @@ pub fn setup_main_menu(app: &NSApplication, mtm: objc2::MainThreadMarker) {
     // app submenu is identical here and there).
     let menubar = NSMenu::new(mtm);
     menu::build_app_submenu(&menubar, mtm);
+    // MWA-B14: standard Edit menu with Cmd key equivalents from launch.
+    menu::build_edit_submenu(&menubar, mtm);
     app.setMainMenu(Some(&menubar));
 }
 
