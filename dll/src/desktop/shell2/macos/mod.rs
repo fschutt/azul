@@ -6764,7 +6764,8 @@ impl MacOSWindow {
         // had already drifted (no styled-snapshot restore, no selection
         // restore, redo re-entered the recording pipeline). One
         // implementation, zero drift.
-        use crate::desktop::shell2::common::event::{PlatformWindow, SystemChange};
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        use azul_core::events::SystemChange;
         let target = match self
             .common
             .layout_window
@@ -6784,7 +6785,8 @@ impl MacOSWindow {
     /// Perform redo operation (called by NSResponder redo: selector)
     pub fn perform_redo(&mut self) {
         // MWA-C-undo_redo: shared RedoTextEdit arm (see perform_undo).
-        use crate::desktop::shell2::common::event::{PlatformWindow, SystemChange};
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        use azul_core::events::SystemChange;
         let target = match self
             .common
             .layout_window
