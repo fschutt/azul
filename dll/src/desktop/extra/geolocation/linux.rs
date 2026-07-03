@@ -169,7 +169,10 @@ mod imp {
                 altitude_accuracy_m: f32::NAN,
                 heading_deg: if heading >= 0.0 { heading as f32 } else { f32::NAN },
                 speed_mps: if speed >= 0.0 { speed as f32 } else { f32::NAN },
-                timestamp_ms: 0,
+                timestamp_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0), // MWA-C-geolocation: was hardcoded 0,
             });
         }
         let _: Result<(), _> = client.call("Stop", &());

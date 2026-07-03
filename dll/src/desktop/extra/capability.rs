@@ -192,15 +192,16 @@ impl PlatformCapability {
     }
 
     /// Probe geolocation. Real backends: geoclue D-Bus loop (Linux),
-    /// CLLocationManager (macOS/iOS). Android's Rust/JNI path is wired but the
-    /// `AzulGeolocation.java` helper hasn't shipped; Windows is still a stub.
+    /// CLLocationManager (macOS/iOS), classic COM Location API (Windows,
+    /// MWA-C-geolocation). Android's Rust/JNI path is wired but the
+    /// `AzulGeolocation.java` helper hasn't shipped.
     pub fn geolocation() -> PlatformCapability {
         if cfg!(target_os = "linux") {
             cap(true, "geoclue (D-Bus)", "needs the GeoClue2 service; fix delivered async")
         } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
             cap(true, "CoreLocation", "needs location permission; fix delivered async")
         } else if cfg!(target_os = "windows") {
-            cap(false, "WinRT Geolocation", "not yet implemented (stub)")
+            cap(true, "Location API (COM)", "needs the location consent switch; fix delivered async")
         } else if cfg!(target_os = "android") {
             cap(false, "FusedLocationProvider (JNI)", "Rust path ready; AzulGeolocation.java helper pending")
         } else {

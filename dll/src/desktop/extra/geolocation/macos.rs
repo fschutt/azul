@@ -203,7 +203,10 @@ extern "C" fn location_manager_did_update(
             altitude_accuracy_m: if valid_alt { v_acc as f32 } else { f32::NAN },
             heading_deg: if course >= 0.0 { course as f32 } else { f32::NAN },
             speed_mps: if speed >= 0.0 { speed as f32 } else { f32::NAN },
-            timestamp_ms: 0,
+            timestamp_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0), // MWA-C-geolocation: was hardcoded 0,
         });
     }
 }
