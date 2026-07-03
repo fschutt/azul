@@ -1055,6 +1055,16 @@ impl GestureAndDragManager {
     ///
     /// Call this after invoking the long press callback to prevent
     /// repeated invocations.
+    /// MWA-B12: mark the CURRENT session's long-press as delivered. The
+    /// event pass calls this right after emitting `EventType::LongPress` —
+    /// nothing ever called `mark_long_press_callback_invoked`, so LongPress
+    /// re-fired on every subsequent pass of the same hold.
+    pub fn mark_current_long_press_invoked(&mut self) {
+        if let Some(id) = self.get_current_session().map(|s| s.session_id) {
+            self.mark_long_press_callback_invoked(id);
+        }
+    }
+
     pub fn mark_long_press_callback_invoked(&mut self, session_id: u64) {
         if !self.long_press_callbacks_invoked.contains(&session_id) {
             self.long_press_callbacks_invoked.push(session_id);

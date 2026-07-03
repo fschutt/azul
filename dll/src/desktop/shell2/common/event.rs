@@ -4073,6 +4073,14 @@ pub trait PlatformWindow {
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
+            // MWA-B12: a LongPress was just emitted for this hold — mark it
+            // so it doesn't re-fire on every later pass of the same session.
+            if synthetic_events
+                .iter()
+                .any(|e| e.event_type == azul_core::events::EventType::LongPress)
+            {
+                w.gesture_drag_manager.mark_current_long_press_invoked();
+            }
         }
 
         if synthetic_events.is_empty() {
@@ -4154,6 +4162,30 @@ pub trait PlatformWindow {
                     .map(|lw| apply_hover_restyle(lw, per_dom))
             }
         };
+
+        // MWA-B12: arm the one-shot long-press wake-up on every MouseDown —
+        // a motionless press generates no further events, so no pass would
+        // ever evaluate detect_long_press (the press only ever fired if the
+        // user happened to wiggle the mouse after the threshold).
+        {
+            let has_mouse_down = synthetic_events
+                .iter()
+                .any(|ev| ev.event_type == azul_core::events::EventType::MouseDown);
+            if has_mouse_down {
+                let threshold_ms = self
+                    .get_layout_window()
+                    .map(|lw| lw.gesture_drag_manager.config.long_press_time_threshold_ms);
+                if let Some(threshold_ms) = threshold_ms {
+                    // +15ms so the pass runs safely past the threshold.
+                    let timer =
+                        super::capability_pump::make_one_shot_pass_timer(threshold_ms + 15);
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        lw.add_timer(azul_core::task::LONG_PRESS_TIMER_ID, timer.clone());
+                    }
+                    self.start_timer(azul_core::task::LONG_PRESS_TIMER_ID.id, timer);
+                }
+            }
+        }
 
         // MWA-B8: keep the auto-scroll timer alive for NON-TEXT drags too —
         // node DnD and OS file hovers never auto-scrolled (TextSelectionDrag
@@ -5151,14 +5183,15 @@ pub trait PlatformWindow {
             return (ProcessEventResult::DoNothing, Vec::new());
         }
 
-        // MWA-A1: the capability-pump timer's callback is an inert marker —
-        // when it expires, the real work is a full event pass (whose
-        // top-of-pass pump drains the capability channels and whose
-        // providers dispatch any resulting events). Detect it here; the
-        // pass fires after the normal timer loop below.
-        let capability_pump_fired = expired_timer_ids
-            .iter()
-            .any(|t| *t == azul_core::task::CAPABILITY_PUMP_TIMER_ID);
+        // MWA-A1/B12: the capability-pump and long-press timers' callbacks
+        // are inert markers — when either expires, the real work is a full
+        // event pass (pump drains channels; detect_long_press finally gets
+        // evaluated for a motionless hold). Detect here; the pass fires
+        // after the normal timer loop below.
+        let capability_pump_fired = expired_timer_ids.iter().any(|t| {
+            *t == azul_core::task::CAPABILITY_PUMP_TIMER_ID
+                || *t == azul_core::task::LONG_PRESS_TIMER_ID
+        });
 
         let mut all_results = Vec::new();
         let mut changes_result = ProcessEventResult::DoNothing;

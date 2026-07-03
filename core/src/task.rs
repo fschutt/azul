@@ -92,6 +92,14 @@ pub const TOOLTIP_DELAY_TIMER_ID: TimerId = TimerId { id: 0x0004 };
 /// pump thread by design — a recurring shell timer is the only wake
 /// mechanism, so the identical code path works on WASM (no threads).
 pub const CAPABILITY_PUMP_TIMER_ID: TimerId = TimerId { id: 0x0005 };
+/// Timer ID for the one-shot long-press wake-up (MWA-B12).
+///
+/// Armed on every MouseDown for the long-press threshold: a motionless
+/// press generates no further events, so no pass would ever evaluate
+/// `detect_long_press` — this timer wakes the loop exactly once at the
+/// threshold, `invoke_expired_timers` runs an event pass, and the
+/// detection fires (or doesn't — moved/released holds are no-ops).
+pub const LONG_PRESS_TIMER_ID: TimerId = TimerId { id: 0x0006 };
 
 /// First available ID for user-defined timers
 pub const USER_TIMER_ID_START: usize = 0x0100;

@@ -197,6 +197,36 @@ pub fn timer_interval_ms(timer: &azul_layout::timer::Timer) -> Option<u64> {
     }
 }
 
+/// MWA-B12: one-shot wake-up timer — fires once after `delay_ms`, causing
+/// `invoke_expired_timers` to run an event pass (see LONG_PRESS_TIMER_ID),
+/// then self-terminates via its callback.
+#[must_use]
+pub fn make_one_shot_pass_timer(delay_ms: u64) -> azul_layout::timer::Timer {
+    use azul_core::refany::RefAny;
+    use azul_core::task::{Duration as AzulDuration, SystemTimeDiff};
+    use azul_layout::callbacks::ExternalSystemCallbacks;
+    use azul_layout::timer::{Timer, TimerCallbackType};
+
+    let external = ExternalSystemCallbacks::rust_internal();
+    Timer::create(
+        RefAny::new(()),
+        one_shot_pass_marker_callback as TimerCallbackType,
+        external.get_system_time_fn,
+    )
+    .with_interval(AzulDuration::System(SystemTimeDiff {
+        secs: delay_ms / 1000,
+        nanos: ((delay_ms % 1000) * 1_000_000) as u32,
+    }))
+}
+
+extern "C" fn one_shot_pass_marker_callback(
+    _data: azul_core::refany::RefAny,
+    _info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    // One firing is the whole job (invoke_expired_timers runs the pass).
+    azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+}
+
 extern "C" fn pump_timer_marker_callback(
     _data: azul_core::refany::RefAny,
     _info: azul_layout::timer::TimerCallbackInfo,
