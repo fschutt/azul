@@ -670,6 +670,16 @@ pub enum EventType {
     /// A gamepad's buttons / axes changed, or one was (dis)connected. Read it
     /// with `CallbackInfo::get_primary_gamepad` / `get_gamepad_state`.
     GamepadInput,
+
+    // Geolocation Events (MWA-A1 — synthesized by the capability pump's
+    // GeolocationManager EventProvider; both filter enums already carried
+    // the matching variants, only this dispatch type was missing them).
+    /// A new GPS / network location fix arrived. Read it with
+    /// `CallbackInfo::get_geolocation_fix`.
+    GeolocationFix,
+    /// The native geolocation subscription errored, timed out, or was
+    /// revoked.
+    GeolocationError,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1163,7 +1173,7 @@ fn matches_hover_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput};
+    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1209,6 +1219,8 @@ fn matches_hover_filter(
         (DoubleClick, EventType::DoubleClick) => true,
         (SensorChanged, EventType::SensorChanged) => true,
         (GamepadInput, EventType::GamepadInput) => true,
+        (GeolocationFix, EventType::GeolocationFix) => true,
+        (GeolocationError, EventType::GeolocationError) => true,
         _ => false,
     }
 }
@@ -1266,7 +1278,7 @@ fn matches_window_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
+    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1312,6 +1324,8 @@ fn matches_window_filter(
         (WindowFocusLost, EventType::WindowFocusOut) => true,
         (SensorChanged, EventType::SensorChanged) => true,
         (GamepadInput, EventType::GamepadInput) => true,
+        (GeolocationFix, EventType::GeolocationFix) => true,
+        (GeolocationError, EventType::GeolocationError) => true,
         (DragStart, EventType::DragStart) => true,
         (Drag, EventType::Drag) => true,
         (DragEnd, EventType::DragEnd) => true,
@@ -2460,6 +2474,12 @@ pub trait EventProvider {
         // window-level filter (the device isn't bound to a node).
         E::SensorChanged => vec![EF::Hover(H::SensorChanged), EF::Window(W::SensorChanged)],
         E::GamepadInput => vec![EF::Hover(H::GamepadInput), EF::Window(W::GamepadInput)],
+
+        // Geolocation (MWA-A1): node-level Hover mirror + the window-level
+        // filter (a fix isn't bound to a node). The fix itself is read via
+        // CallbackInfo::get_geolocation_fix.
+        E::GeolocationFix => vec![EF::Hover(H::GeolocationFix), EF::Window(W::GeolocationFix)],
+        E::GeolocationError => vec![EF::Hover(H::GeolocationError), EF::Window(W::GeolocationError)],
 
         // Unsupported events
         _ => vec![],

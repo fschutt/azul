@@ -18,6 +18,7 @@ pub mod error;
 pub mod gl_loader;
 
 // Unified cross-platform modules
+pub mod capability_pump;
 pub mod debug_server;
 #[cfg(feature = "e2e-test")]
 pub mod e2e_test;

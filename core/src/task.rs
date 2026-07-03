@@ -82,6 +82,16 @@ pub const DRAG_AUTOSCROLL_TIMER_ID: TimerId = TimerId { id: 0x0003 };
 /// now handled entirely by `GestureManager::detect_double_click`, so no
 /// equivalent `DOUBLE_CLICK_TIMER_ID` exists.
 pub const TOOLTIP_DELAY_TIMER_ID: TimerId = TimerId { id: 0x0004 };
+/// Timer ID for the single-threaded capability pump (MWA-A1).
+///
+/// Armed by `sync_capability_pump_timer` whenever a capability source needs
+/// polling or draining while the app is otherwise idle (gamepad listeners,
+/// sensor listeners, an active geolocation subscription). Each tick wakes the
+/// blocked platform loop; `invoke_expired_timers` then runs an event pass,
+/// whose top-of-pass pump drains the async capability channels. There is NO
+/// pump thread by design — a recurring shell timer is the only wake
+/// mechanism, so the identical code path works on WASM (no threads).
+pub const CAPABILITY_PUMP_TIMER_ID: TimerId = TimerId { id: 0x0005 };
 
 /// First available ID for user-defined timers
 pub const USER_TIMER_ID_START: usize = 0x0100;

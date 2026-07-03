@@ -23,6 +23,12 @@
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 
+use azul_core::dom::DomNodeId;
+use azul_core::events::{
+    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+};
+use azul_core::task::Instant;
+
 // `LocationFix` + `GeolocationProbeConfig` live in `azul-core` so
 // `NodeType::GeolocationProbe(GeolocationProbeConfig)` can reference
 // the config struct without a cyclic dep on `azul-layout`. We re-export
@@ -61,6 +67,12 @@ pub struct GeolocationManager {
     pending_events: Vec<GeolocationDiffEvent>,
     /// Refcount of `GeolocationProbe` nodes currently in the layout.
     refcount: u32,
+    /// `true` when a fix advanced since the last event-pass drain. Set by
+    /// [`set_latest_fix`](Self::set_latest_fix), read by the `EventProvider`
+    /// impl (yields `EventType::GeolocationFix`), cleared by
+    /// [`clear_pending_event`](Self::clear_pending_event) after dispatch
+    /// (MWA-A1 — this manager previously computed fixes nobody dispatched).
+    pending_event: bool,
 }
 
 impl GeolocationManager {
@@ -90,7 +102,24 @@ impl GeolocationManager {
             None => true,
         };
         self.latest_fix = Some(fix);
+        if changed {
+            self.pending_event = true;
+        }
         changed
+    }
+
+    /// Clear the pending-event flag. The dll calls this after the event pass
+    /// has collected the `GeolocationFix` event.
+    pub const fn clear_pending_event(&mut self) {
+        self.pending_event = false;
+    }
+
+    /// `true` while at least one `GeolocationProbe` is mounted — the
+    /// capability pump keeps its drain timer armed while this holds, so
+    /// fixes parked by the native backend reach callbacks without waiting
+    /// for unrelated input (MWA-A1 arming signal).
+    #[must_use] pub const fn has_active_subscription(&self) -> bool {
+        self.refcount > 0
     }
 
     const fn location_fix_bitwise_eq(a: &LocationFix, b: &LocationFix) -> bool {
@@ -160,6 +189,27 @@ impl GeolocationManager {
             _ => {
                 // 0 → 0 — nothing to do.
             }
+        }
+    }
+}
+
+impl EventProvider for GeolocationManager {
+    /// Yield a window-level `GeolocationFix` event when a fix advanced since
+    /// the last drain (target = root; read the value via
+    /// `CallbackInfo::get_geolocation_fix` inside the callback). Mirrors the
+    /// sensor / gamepad providers; before MWA-A1 nothing ever produced
+    /// `EventType::GeolocationFix`, so fix callbacks could never fire.
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        if self.pending_event {
+            alloc::vec![SyntheticEvent::new(
+                EventType::GeolocationFix,
+                CoreEventSource::User,
+                DomNodeId::ROOT,
+                timestamp,
+                EventData::None,
+            )]
+        } else {
+            Vec::new()
         }
     }
 }
@@ -291,6 +341,37 @@ mod tests {
         assert_eq!(f.altitude(), None);
         assert_eq!(f.heading(), None);
         assert_eq!(f.speed(), None);
+    }
+
+    #[test]
+    fn provider_yields_fix_event_then_clears() {
+        use azul_core::task::{Instant, SystemTick};
+
+        let ts = Instant::Tick(SystemTick::new(0));
+        let mut mgr = GeolocationManager::new();
+        assert!(mgr.get_pending_events(ts.clone()).is_empty(), "no fix yet");
+
+        mgr.set_latest_fix(fix(37.0, -122.0));
+        let events = mgr.get_pending_events(ts.clone());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, azul_core::events::EventType::GeolocationFix);
+
+        mgr.clear_pending_event();
+        assert!(mgr.get_pending_events(ts.clone()).is_empty(), "cleared after dispatch");
+
+        // An identical fix is not a change — no re-fire.
+        mgr.set_latest_fix(fix(37.0, -122.0));
+        assert!(mgr.get_pending_events(ts).is_empty());
+    }
+
+    #[test]
+    fn subscription_flag_follows_probe_refcount() {
+        let mut mgr = GeolocationManager::new();
+        assert!(!mgr.has_active_subscription());
+        mgr.diff_layout(|emit| emit(cfg()));
+        assert!(mgr.has_active_subscription());
+        mgr.diff_layout(|_emit| {});
+        assert!(!mgr.has_active_subscription());
     }
 
     #[test]

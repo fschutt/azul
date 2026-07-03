@@ -664,6 +664,8 @@ pub fn regenerate_layout(
     // turns it into the OS location prompt. Snapshot the (capability, node)
     // pairs first so we don't hold a borrow on `layout_results` while the
     // diff mutates `permission_manager`.
+    let mut wants_gamepad = false;
+    let mut wants_sensors = false;
     let permission_bearing: Vec<(
         azul_layout::managers::permission::Capability,
         azul_core::dom::DomNodeId,
@@ -680,10 +682,30 @@ pub fn regenerate_layout(
                         },
                     ));
                 }
+                // MWA-A1 arming signals: nodes listening for GamepadInput /
+                // SensorChanged tell the capability pump which hardware
+                // sources to poll — and whether its wake-up timer needs to
+                // run at all (no listeners → no polling → no timer).
+                for cb in nd.get_callbacks().as_ref().iter() {
+                    use azul_core::events::{EventFilter, HoverEventFilter, WindowEventFilter};
+                    match &cb.event {
+                        EventFilter::Hover(HoverEventFilter::GamepadInput)
+                        | EventFilter::Window(WindowEventFilter::GamepadInput) => {
+                            wants_gamepad = true;
+                        }
+                        EventFilter::Hover(HoverEventFilter::SensorChanged)
+                        | EventFilter::Window(WindowEventFilter::SensorChanged) => {
+                            wants_sensors = true;
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         pairs
     };
+    layout_window.gamepad_manager.set_has_listeners(wants_gamepad);
+    layout_window.sensor_manager.set_has_listeners(wants_sensors);
     layout_window.permission_manager.diff_layout(|emit| {
         for (capability, node_id) in &permission_bearing {
             emit(*capability, *node_id);
@@ -692,31 +714,6 @@ pub fn regenerate_layout(
     let permission_events = layout_window.permission_manager.take_pending_events();
     if !permission_events.is_empty() {
         crate::desktop::extra::permission::apply_diff_events(&permission_events);
-    }
-
-    // 7a. Drain async permission results parked by a platform backend (an
-    // OS prompt's completion handler / onRequestPermissionsResult) since
-    // the last pass, and fold them into the manager. The native callback
-    // runs on an arbitrary thread with no handle to this LayoutWindow, so
-    // it parks the result in azul-layout's process-global channel; here is
-    // where it lands in the live manager. (No producer fires yet — the
-    // async request path in `permission::handle_event` is a later tick —
-    // but the consumer is live and unit-tested in azul-layout.)
-    {
-        let async_results = azul_layout::managers::permission::drain_async_results();
-        let mut changed = false;
-        for (capability, state) in async_results {
-            changed |= layout_window.permission_manager.set_status(capability, state);
-        }
-        if changed {
-            // A permission flipped — permission-aware callbacks should get a
-            // chance to re-render. The next regenerate_layout picks up the
-            // new statuses; the relayout trigger lands with the producer.
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] applied async permission result(s)"
-            );
-        }
     }
 
     // 7b. Geolocation diff — symmetric to the permission pass. Walks
@@ -749,110 +746,22 @@ pub fn regenerate_layout(
         crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);
     }
 
-    // 7c. Drain location fixes a platform backend parked since the last
-    // pass (Android FusedLocationProvider onLocationResult / iOS
-    // CLLocationManagerDelegate run on arbitrary threads with no handle to
-    // this LayoutWindow, so they park fixes in azul-layout's process-global
-    // channel) and fold the latest into the manager. (No producer fires yet
-    // — the backend `handle_event` location subscription is a later tick —
-    // but the consumer is live and unit-tested in azul-layout.)
-    {
-        let fixes = azul_layout::managers::geolocation::drain_location_fixes();
-        let mut changed = false;
-        for fix in fixes {
-            changed |= layout_window.geolocation_manager.set_latest_fix(fix);
-        }
-        if changed {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] applied async location fix"
-            );
-        }
-    }
-
-    // 7d-pre (biometric availability): fold the device capability into the
-    // manager so CallbackInfo::get_biometric_kind() reports the real sensor
-    // (Face / Fingerprint / Iris) instead of the NotAvailable default.
-    // Cached behind a OnceLock — the underlying probe is a native call, so
-    // this is a cheap atomic read after the first frame.
-    layout_window
-        .biometric_manager
-        .set_availability(crate::desktop::extra::biometric::availability_cached());
-
-    // 7d. Dispatch biometric-auth requests a callback queued this frame.
-    // CallbackInfo::request_biometric_auth parks the prompt in
-    // azul-layout's process-global request channel; we drain it here and
-    // hand each to the native backend (dll::desktop::extra::biometric),
-    // which shows the OS prompt and asynchronously parks the outcome back
-    // through the result channel drained just below. The stub backend
-    // resolves every request to Unavailable for now.
-    {
-        let requests = azul_layout::managers::biometric::drain_biometric_requests();
-        for prompt in &requests {
-            crate::desktop::extra::biometric::request(prompt);
-        }
-    }
-
-    // 7e. Drain biometric-auth results a platform backend parked since
-    // the last pass. The OS prompt's reply (iOS/macOS LAContext reply
-    // block, Android BiometricPrompt.AuthenticationCallback, Windows
-    // UserConsentVerifier) fires on an arbitrary thread with no handle to
-    // this LayoutWindow, so it parks the result in azul-layout's
-    // process-global channel; we fold the latest into the manager here so
-    // a callback can read it via CallbackInfo::get_biometric_result(). (No
-    // producer fires yet — the native backend is a later tick — but the
-    // consumer is live and unit-tested in azul-layout.)
-    {
-        let results = azul_layout::managers::biometric::drain_biometric_results();
-        let mut changed = false;
-        for result in results {
-            changed |= layout_window.biometric_manager.set_last_result(result);
-        }
-        if changed {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] applied async biometric result"
-            );
-        }
-    }
-
-    // 7f. Dispatch keyring ops a callback queued this frame, then drain any
-    // results a backend parked. CallbackInfo::keyring_store/get/delete park
-    // a KeyringRequest in azul-layout's process-global channel; we hand each
-    // to the native keyring (Keychain / KeyStore / libsecret / locker), and
-    // a biometry-bound Get's outcome arrives asynchronously on the result
-    // channel. The stub backend resolves every op to Unavailable for now.
-    {
-        let requests = azul_layout::managers::keyring::drain_keyring_requests();
-        for req in &requests {
-            crate::desktop::extra::keyring::request(req);
-        }
-    }
-    {
-        let results = azul_layout::managers::keyring::drain_keyring_results();
-        let mut changed = false;
-        for result in results {
-            changed |= layout_window.keyring_manager.set_last_result(result);
-        }
-        if changed {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] applied async keyring result"
-            );
-        }
-    }
+    // 7a / 7c–7f (async drains: permission results, geolocation fixes,
+    // biometric availability + requests + results, keyring requests +
+    // results) MOVED to shell2::common::capability_pump::pump() (MWA-A1).
+    // They have nothing to do with layout — and living here meant an idle
+    // app (blocked in WaitMessage / select / the NSApp loop) never drained
+    // them at all. The pump runs at the top of every process_window_events
+    // pass and on CAPABILITY_PUMP_TIMER_ID ticks; this function keeps only
+    // the DOM-derived subscription diffs (steps 7 / 7b above + the
+    // listener-flag walk), because subscriptions ARE a function of layout.
 
     // 7g. (PDF export is now the standalone headless `Pdf::from_dom` API in
     // dll::desktop::extra::pdf — no window-coupled per-frame export drain.)
 
-    // 7h-pre (sensor subscription): kick the device's motion-sensor
-    // subscription. OnceLock-guarded inside, so only the first frame does
-    // the native registration (CoreMotion start / Android registerListener);
-    // every later frame is a cheap atomic read. Then pull the latest sample
-    // (CoreMotion's pull API needs a per-frame read; Android pushes from its
-    // JNI callback, so poll is a no-op there).
-    crate::desktop::extra::sensors::ensure_started();
-    crate::desktop::extra::sensors::poll();
+    // (7h-pre sensor ensure/poll and 7i-pre gamepad ensure/poll moved into
+    // capability_pump::pump(), gated on the listener flags computed above —
+    // no listeners, no native subscription, no polling.)
 
     // Register the platform microphone-capture backend once (ALSA on Linux) so
     // MicrophoneWidget captures real audio where available; OnceLock-guarded.
@@ -862,54 +771,6 @@ pub fn regenerate_layout(
     // Linux) so CameraWidget shows the real camera where available; guarded.
     crate::desktop::extra::camera::ensure_camera_backend();
     crate::desktop::extra::screencap::ensure_screen_backend();
-
-    // 7h. Drain motion-sensor readings the platform backend parked since the
-    // last pass (CoreMotion / Android SensorManager fire on arbitrary
-    // threads with no handle to this LayoutWindow, so they park readings in
-    // azul-layout's process-global channel) and fold the latest per kind
-    // into the manager. The Android JNI backend is live (samples flow once
-    // the AzulSensors.java shim ships); the Apple CoreMotion producer lands
-    // next tick. The consumer is unit-tested in azul-layout.
-    {
-        let readings = azul_layout::managers::sensors::drain_sensor_readings();
-        let mut changed = false;
-        for reading in readings {
-            changed |= layout_window.sensor_manager.set_reading(reading);
-        }
-        if changed {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] applied async sensor reading"
-            );
-        }
-    }
-
-    // 7i-pre (gamepad poll): one-time native subscription (OnceLock inside)
-    // + per-frame pull of each pad's current state. The desktop gilrs backend
-    // pumps its event queue and snapshots connected pads here; iOS GCController
-    // does likewise (pending); Android is push-based so poll is a no-op there.
-    crate::desktop::extra::gamepad::ensure_started();
-    crate::desktop::extra::gamepad::poll();
-
-    // 7i. Drain gamepad states the controller backend parked since the last
-    // pass (gilrs / iOS GCController / Android InputDevice run on their own
-    // thread/queue with no handle to this LayoutWindow, so they park states in
-    // azul-layout's process-global channel) and fold the latest per id into
-    // the manager. The desktop gilrs producer is live; the mobile backends are
-    // follow-ups. The consumer is unit-tested in azul-layout.
-    {
-        let states = azul_layout::managers::gamepad::drain_gamepad_states();
-        let mut changed = false;
-        for state in states {
-            changed |= layout_window.gamepad_manager.set_state(state);
-        }
-        if changed {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] applied async gamepad state"
-            );
-        }
-    }
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");

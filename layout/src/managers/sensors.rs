@@ -38,6 +38,12 @@ pub struct SensorManager {
     /// [`set_reading`](Self::set_reading), read by the `EventProvider` impl,
     /// cleared by [`clear_pending_event`](Self::clear_pending_event).
     pub pending_event: bool,
+    /// `true` while any node in the current layout registers a
+    /// `SensorChanged` callback (Hover or Window filter). Recomputed on every
+    /// relayout by the DOM walk in `shell2::common::layout`; the capability
+    /// pump polls the platform sensor backend only while this is set
+    /// (MWA-A1 arming signal — no listeners, no polling, no timer).
+    pub has_listeners: bool,
 }
 
 impl SensorManager {
@@ -75,6 +81,16 @@ impl SensorManager {
     /// has collected the `SensorChanged` event (mirrors `clear_changeset`).
     pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;
+    }
+
+    /// Relayout walk reports whether any node listens for `SensorChanged`.
+    pub const fn set_has_listeners(&mut self, has: bool) {
+        self.has_listeners = has;
+    }
+
+    /// `true` while the capability pump should poll the sensor backend.
+    #[must_use] pub const fn has_listeners(&self) -> bool {
+        self.has_listeners
     }
 }
 
@@ -134,6 +150,16 @@ pub fn drain_sensor_readings() -> Vec<SensorReading> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listener_flag_gates_polling_decision() {
+        let mut mgr = SensorManager::new();
+        assert!(!mgr.has_listeners(), "no listeners until the relayout walk reports some");
+        mgr.set_has_listeners(true);
+        assert!(mgr.has_listeners());
+        mgr.set_has_listeners(false);
+        assert!(!mgr.has_listeners());
+    }
 
     fn r(kind: SensorKind, x: f32, y: f32, z: f32) -> SensorReading {
         SensorReading {

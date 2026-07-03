@@ -180,9 +180,12 @@ impl PlatformCapability {
         if cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows")) {
             cap(true, "gilrs", "a controller is detected when polled (none may be connected)")
         } else if cfg!(target_os = "ios") {
-            cap(true, "GCController", "pending backend")
+            // MWA-A1 honesty: the GCController backend is an empty stub —
+            // reporting supported=true made apps show gamepad UI that could
+            // never receive input. Flips back with the real backend.
+            cap(false, "GCController", "backend not implemented yet")
         } else if cfg!(target_os = "android") {
-            cap(true, "InputDevice (JNI)", "pending backend")
+            cap(false, "InputDevice (JNI)", "backend not implemented yet")
         } else {
             cap(false, "none", "no gamepad backend on this target")
         }

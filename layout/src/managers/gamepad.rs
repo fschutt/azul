@@ -37,6 +37,12 @@ pub struct GamepadManager {
     /// `true` when a pad's state advanced since the last event-pass drain.
     /// Set by [`set_state`](Self::set_state); cleared by the dll after dispatch.
     pending_event: bool,
+    /// `true` while any node in the current layout registers a
+    /// `GamepadInput` callback (Hover or Window filter). Recomputed on every
+    /// relayout by the DOM walk in `shell2::common::layout`; the capability
+    /// pump polls gilrs/GCController only while this is set (MWA-A1 arming
+    /// signal — no listeners, no polling, no ~16ms timer).
+    has_listeners: bool,
 }
 
 impl GamepadManager {
@@ -82,6 +88,16 @@ impl GamepadManager {
     /// has collected the `GamepadInput` event.
     pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;
+    }
+
+    /// Relayout walk reports whether any node listens for `GamepadInput`.
+    pub const fn set_has_listeners(&mut self, has: bool) {
+        self.has_listeners = has;
+    }
+
+    /// `true` while the capability pump should poll the controller backend.
+    #[must_use] pub const fn has_listeners(&self) -> bool {
+        self.has_listeners
     }
 }
 
@@ -183,6 +199,16 @@ mod tests {
         assert!(s.is_pressed(GamepadButton::South));
         assert!(s.is_pressed(GamepadButton::Start));
         assert!(!s.is_pressed(GamepadButton::East));
+    }
+
+    #[test]
+    fn listener_flag_gates_polling_decision() {
+        let mut mgr = GamepadManager::new();
+        assert!(!mgr.has_listeners(), "no listeners until the relayout walk reports some");
+        mgr.set_has_listeners(true);
+        assert!(mgr.has_listeners());
+        mgr.set_has_listeners(false);
+        assert!(!mgr.has_listeners());
     }
 
     #[test]

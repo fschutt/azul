@@ -3820,6 +3820,21 @@ pub trait PlatformWindow {
             return ProcessEventResult::DoNothing;
         }
 
+        // MWA-A1: drain the async capability channels (gamepad / sensors /
+        // geolocation / permission / biometric / keyring) BEFORE event
+        // determination, so pending-event flags raised by the drain feed
+        // THIS pass — a pad press or GPS fix becomes its event with no
+        // +1-pass latency. Then re-sync the pump timer to the current
+        // subscription set (armed only while some source needs unsolicited
+        // wake-ups; see common/capability_pump.rs — timer-only by design,
+        // no pump thread exists).
+        if depth == 0 {
+            if let Some(lw) = self.get_layout_window_mut() {
+                super::capability_pump::pump(lw);
+            }
+            self.sync_capability_pump_timer();
+        }
+
         // Get previous state (or use current as fallback for first frame)
         let has_previous = self.get_previous_window_state().is_some();
         let previous_state = self
@@ -3842,17 +3857,25 @@ pub trait PlatformWindow {
         let file_drop_manager = self.get_layout_window().map(|w| &w.file_drop_manager);
         let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
 
-        // Get EventProvider managers (text input, sensors, gamepad).
-        let providers_ref = self
-            .get_layout_window()
-            .map(|w| (&w.text_input_manager, &w.sensor_manager, &w.gamepad_manager));
+        // Get EventProvider managers (text input, sensors, gamepad,
+        // geolocation — the last added by MWA-A1 so parked GPS fixes become
+        // GeolocationFix events instead of silently updating manager state).
+        let providers_ref = self.get_layout_window().map(|w| {
+            (
+                &w.text_input_manager,
+                &w.sensor_manager,
+                &w.gamepad_manager,
+                &w.geolocation_manager,
+            )
+        });
 
         // Build list of EventProvider managers
         let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
-        if let Some((tm, sm, gm)) = providers_ref {
+        if let Some((tm, sm, gm, geo)) = providers_ref {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
             event_providers.push(gm as &dyn azul_core::events::EventProvider);
+            event_providers.push(geo as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -3894,6 +3917,7 @@ pub trait PlatformWindow {
         if let Some(w) = self.get_layout_window_mut() {
             w.sensor_manager.clear_pending_event();
             w.gamepad_manager.clear_pending_event();
+            w.geolocation_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
         }
 
@@ -4596,6 +4620,15 @@ pub trait PlatformWindow {
         let r = self.apply_system_change(&SystemChange::FinalizePendingFocusChanges);
         result = result.max(r);
 
+        // MWA-A1: callbacks above may have added / removed the DOM's first
+        // gamepad or sensor listener or GeolocationProbe (the listener flags
+        // refresh during regenerate_layout's walk) — re-sync the pump timer
+        // so a newly-added listener gets wake-ups without waiting for
+        // further user input. No-op when nothing changed.
+        if depth == 0 {
+            self.sync_capability_pump_timer();
+        }
+
         result
     }
 
@@ -4889,6 +4922,15 @@ pub trait PlatformWindow {
             return (ProcessEventResult::DoNothing, Vec::new());
         }
 
+        // MWA-A1: the capability-pump timer's callback is an inert marker —
+        // when it expires, the real work is a full event pass (whose
+        // top-of-pass pump drains the capability channels and whose
+        // providers dispatch any resulting events). Detect it here; the
+        // pass fires after the normal timer loop below.
+        let capability_pump_fired = expired_timer_ids
+            .iter()
+            .any(|t| *t == azul_core::task::CAPABILITY_PUMP_TIMER_ID);
+
         let mut all_results = Vec::new();
         let mut changes_result = ProcessEventResult::DoNothing;
 
@@ -4928,7 +4970,51 @@ pub trait PlatformWindow {
             all_results.push(update);
         }
 
+        if capability_pump_fired {
+            let r = self.process_window_events(0);
+            changes_result = changes_result.max(r);
+        }
+
         (changes_result, all_results)
+    }
+
+    /// MWA-A1: arm / disarm / retune the recurring capability-pump timer
+    /// (`CAPABILITY_PUMP_TIMER_ID`) to match the current subscription set —
+    /// gamepad/sensor listener flags from the last relayout walk plus an
+    /// active geolocation subscription. Single-threaded by design: this
+    /// timer is the pump's ONLY wake mechanism (no thread exists), so the
+    /// identical code path runs on WASM. With no subscriptions the timer is
+    /// removed entirely and an idle app burns zero CPU.
+    fn sync_capability_pump_timer(&mut self) {
+        use azul_core::task::CAPABILITY_PUMP_TIMER_ID;
+
+        let desired_ms = self
+            .get_layout_window()
+            .and_then(super::capability_pump::desired_interval_ms);
+        let armed_ms = self.get_layout_window().and_then(|lw| {
+            lw.timers
+                .get(&CAPABILITY_PUMP_TIMER_ID)
+                .and_then(super::capability_pump::timer_interval_ms)
+        });
+
+        if desired_ms == armed_ms {
+            return;
+        }
+
+        if armed_ms.is_some() {
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.timers.remove(&CAPABILITY_PUMP_TIMER_ID);
+            }
+            self.stop_timer(CAPABILITY_PUMP_TIMER_ID.id);
+        }
+
+        if let Some(ms) = desired_ms {
+            let timer = super::capability_pump::make_pump_timer(ms);
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.add_timer(CAPABILITY_PUMP_TIMER_ID, timer.clone());
+            }
+            self.start_timer(CAPABILITY_PUMP_TIMER_ID.id, timer);
+        }
     }
 
     // PROVIDED: Thread Callback Invocation (Cross-Platform Implementation)
