@@ -2421,9 +2421,9 @@ mod tests {
             }
             HeadlessEvent::MouseUp { button } => {
                 // MWA-C-scroll: a release ends any scrollbar drag.
-                if window.common.scrollbar_drag_state.is_some() {
+                let ended_scrollbar_drag = window.common.scrollbar_drag_state.is_some();
+                if ended_scrollbar_drag {
                     window.common.scrollbar_drag_state = None;
-                    needs_redraw = true;
                 }
                 match button {
                     MouseButton::Left => window.common.current_window_state.mouse_state.left_down = false,
@@ -2432,10 +2432,11 @@ mod tests {
                     _ => {}
                 }
                 record_headless_input(window, false, true); // MWA-A4
-                needs_redraw = !matches!(
+                let pass_changed = !matches!(
                     window.process_window_events(0),
                     ProcessEventResult::DoNothing
                 );
+                needs_redraw = ended_scrollbar_drag || pass_changed;
             }
             HeadlessEvent::KeyDown { virtual_keycode } => {
                 window.common.current_window_state.keyboard_state.current_virtual_keycode =

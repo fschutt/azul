@@ -596,6 +596,27 @@ impl A11yManager {
             }
         }
 
+        // MWA-C-a11y: aria-live="polite|assertive" HTML attribute — arrives
+        // as AriaProperty/Custom (no parsing existed; live regions were only
+        // reachable through the explicit AccessibilityInfo.is_live_region
+        // flag, so HTML-defined live regions never announced).
+        for attr in node_data.attributes().iter() {
+            let (name, value) = match attr {
+                azul_core::dom::AttributeType::AriaProperty(nv)
+                | azul_core::dom::AttributeType::Custom(nv) => {
+                    (nv.attr_name.as_str(), nv.value.as_str())
+                }
+                _ => continue,
+            };
+            if name.eq_ignore_ascii_case("aria-live") {
+                match value.to_ascii_lowercase().as_str() {
+                    "polite" => builder.set_live(accesskit::Live::Polite),
+                    "assertive" => builder.set_live(accesskit::Live::Assertive),
+                    _ => builder.set_live(accesskit::Live::Off),
+                }
+            }
+        }
+
         builder
     }
 

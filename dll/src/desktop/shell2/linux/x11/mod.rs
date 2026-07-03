@@ -2667,6 +2667,22 @@ impl X11Window {
                     },
                 );
 
+                // MWA-C-a11y: keep AT-SPI's root window bounds in sync so
+                // screen-coordinate queries (magnifier tracking) resolve —
+                // set_root_window_bounds had zero callers, everything sat at
+                // (0,0). ConfigureNotify coords can be parent-relative for
+                // non-synthetic events on reparenting WMs; good enough as a
+                // best-effort update, and synthetic (WM-sent) events are
+                // root-absolute. NEEDS-RUNTIME-VERIFY under a reparenting WM.
+                if size_changed || position_changed {
+                    self.accessibility_adapter.set_root_window_bounds(
+                        f64::from(ev.x),
+                        f64::from(ev.y),
+                        f64::from(new_width),
+                        f64::from(new_height),
+                    );
+                }
+
                 if position_changed && !size_changed {
                     use azul_core::geom::LogicalPosition;
                     let window_center = LogicalPosition::new(

@@ -131,6 +131,31 @@ impl LinuxAccessibilityAdapter {
         }
     }
 
+    /// MWA-C-a11y: tell AT-SPI where the window sits on screen (physical
+    /// pixels, root coordinates). accesskit_unix composes node bounds with
+    /// these root bounds for screen-coordinate queries (magnifier tracking,
+    /// "where am I") — with no caller everything reported origin (0,0).
+    /// Called from X11 ConfigureNotify; Wayland has no global window
+    /// position by design, so this stays X11-only. Outer/inner are the same
+    /// rect (azul draws CSD inside the client area; there is no OS frame we
+    /// could measure portably).
+    pub fn set_root_window_bounds(&self, x: f64, y: f64, width: f64, height: f64) {
+        let rect = accesskit::Rect {
+            x0: x,
+            y0: y,
+            x1: x + width,
+            y1: y + height,
+        };
+        let Ok(mut guard) = self.adapter.try_lock() else {
+            return;
+        };
+        if let Some(adapter) = guard.as_mut() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                adapter.set_root_window_bounds(rect, rect);
+            }));
+        }
+    }
+
     /// Get pending actions from assistive technology
     ///
     /// Returns actions that screen readers or other AT requested,
@@ -230,6 +255,8 @@ impl LinuxAccessibilityAdapter {
     pub fn update_tree(&self, _tree_update: ()) {}
 
     pub fn set_focus(&self, _has_focus: bool) {}
+
+    pub fn set_root_window_bounds(&self, _x: f64, _y: f64, _width: f64, _height: f64) {}
 
     pub fn take_pending_actions(&self) -> Vec<()> {
         Vec::new()
