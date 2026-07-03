@@ -96,19 +96,60 @@ pub fn poll() {
                     buttons |= mine.bit();
                 }
             }
+            // MWA-C-gamepad: radial deadzone per stick (triggers axial).
+            // Raw pad.value() passthrough meant resting-stick jitter differed
+            // bitwise between polls, so state_bitwise_eq saw a "change" and
+            // the 16ms pump fired GamepadInput events continuously while a
+            // pad was merely plugged in.
+            let (lx, ly) = apply_radial_deadzone(
+                pad.value(Axis::LeftStickX),
+                pad.value(Axis::LeftStickY),
+            );
+            let (rx, ry) = apply_radial_deadzone(
+                pad.value(Axis::RightStickX),
+                pad.value(Axis::RightStickY),
+            );
             push_gamepad_state(GamepadState {
                 id: GamepadId {
                     id: usize::from(gid) as u32,
                 },
                 connected: true,
                 buttons,
-                left_stick_x: pad.value(Axis::LeftStickX),
-                left_stick_y: pad.value(Axis::LeftStickY),
-                right_stick_x: pad.value(Axis::RightStickX),
-                right_stick_y: pad.value(Axis::RightStickY),
-                left_z: pad.value(Axis::LeftZ),
-                right_z: pad.value(Axis::RightZ),
+                left_stick_x: lx,
+                left_stick_y: ly,
+                right_stick_x: rx,
+                right_stick_y: ry,
+                left_z: apply_axial_deadzone(pad.value(Axis::LeftZ)),
+                right_z: apply_axial_deadzone(pad.value(Axis::RightZ)),
             });
         }
     });
+}
+
+/// Stick deadzone radius (Xbox/DualShock resting jitter stays well below
+/// 0.15; SDL and XInput use comparable defaults).
+const STICK_DEADZONE: f32 = 0.15;
+/// Trigger deadzone (triggers rest at exactly 0.0 on most drivers; small
+/// guard for worn hardware).
+const TRIGGER_DEADZONE: f32 = 0.05;
+
+/// MWA-C-gamepad: radial deadzone with rescaling — inside the radius maps to
+/// exactly (0,0); outside, magnitude rescales to [0,1] so there is no jump
+/// at the deadzone edge and full deflection still reaches 1.0.
+fn apply_radial_deadzone(x: f32, y: f32) -> (f32, f32) {
+    let mag = (x * x + y * y).sqrt();
+    if mag <= STICK_DEADZONE {
+        return (0.0, 0.0);
+    }
+    let scale = ((mag - STICK_DEADZONE) / (1.0 - STICK_DEADZONE)).min(1.0) / mag;
+    (x * scale, y * scale)
+}
+
+/// Axial deadzone for triggers (1-D), with the same edge rescaling.
+fn apply_axial_deadzone(v: f32) -> f32 {
+    if v.abs() <= TRIGGER_DEADZONE {
+        return 0.0;
+    }
+    let sign = v.signum();
+    sign * ((v.abs() - TRIGGER_DEADZONE) / (1.0 - TRIGGER_DEADZONE)).min(1.0)
 }
