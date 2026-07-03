@@ -2669,19 +2669,36 @@ pub trait PlatformWindow {
                             use std::sync::Arc;
                             use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
 
-                            let new_content = vec![InlineContent::Text(StyledRun {
-                                text: operation.pre_state.text_content.as_str().to_string(),
-                                style: Arc::new(StyleProperties::default()),
-                                logical_start_byte: 0,
-                                source_node_id: None,
-                            })];
+                            // MWA-C-undo_redo: restore the STYLED pre-content
+                            // snapshot when available; the plain-text rebuild
+                            // (StyleProperties::default()) is only the
+                            // fallback for evicted snapshots — it used to be
+                            // the only path and stripped all styling.
+                            let new_content = layout_window
+                                .undo_redo_manager
+                                .get_content_snapshot(operation.changeset.id)
+                                .map(|snap| snap.pre.clone())
+                                .unwrap_or_else(|| {
+                                    vec![InlineContent::Text(StyledRun {
+                                        text: operation.pre_state.text_content.as_str().to_string(),
+                                        style: Arc::new(StyleProperties::default()),
+                                        logical_start_byte: 0,
+                                        source_node_id: None,
+                                    })]
+                                });
 
                             layout_window.update_text_cache_after_edit(
                                 target.dom, node_id_internal, new_content,
                             );
 
-                            if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
-                                if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                            // MWA-C-undo_redo: restore the pre-edit selection
+                            // too (a range beats the collapsed cursor);
+                            // pre_state.selection_range previously had no
+                            // consumer at all.
+                            if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                                if let Some(range) = operation.pre_state.selection_range.into_option() {
+                                    mc.set_single_range(range);
+                                } else if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
                                     mc.set_single_cursor(cursor);
                                 }
                             }
@@ -2695,62 +2712,63 @@ pub trait PlatformWindow {
             }
 
             SystemChange::RedoTextEdit { target } => {
-                let affected_nodes = if let Some(layout_window) = self.get_layout_window_mut() {
+                // MWA-C-undo_redo: redo now RE-APPLIES the post-state
+                // directly. The old path pushed InsertText redos back
+                // through process_text_input, which re-entered the recording
+                // pipeline: apply_text_changeset recorded a SECOND undo
+                // entry whose push_undo cleared the redo stack (one redo
+                // destroyed the rest), and non-InsertText ops were silently
+                // skipped while still being moved to the undo stack.
+                if let Some(layout_window) = self.get_layout_window_mut() {
                     let node_id = match target.node.into_crate_internal() {
                         Some(id) => id,
                         None => return ProcessEventResult::DoNothing,
                     };
 
                     if let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) {
-                        let affected = if let Some(_node_id_internal) = target.node.into_crate_internal() {
-                            use azul_layout::managers::changeset::TextOperation;
-                            if let TextOperation::InsertText(op) = &operation.changeset.operation {
-                                layout_window.process_text_input(&op.text)
-                            } else {
-                                BTreeMap::new()
-                            }
-                        } else {
-                            BTreeMap::new()
-                        };
-                        layout_window.undo_redo_manager.push_undo(operation);
-                        affected
-                    } else {
-                        return ProcessEventResult::DoNothing;
-                    }
-                } else {
-                    return ProcessEventResult::DoNothing;
-                };
+                        use std::sync::Arc;
+                        use azul_layout::managers::changeset::TextOperation;
+                        use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
 
-                let mut result = ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                        // Styled post-content snapshot; plain-text fallback
+                        // reconstructs pre_state + inserted text for evicted
+                        // InsertText snapshots.
+                        let new_content = layout_window
+                            .undo_redo_manager
+                            .get_content_snapshot(operation.changeset.id)
+                            .map(|snap| snap.post.clone())
+                            .or_else(|| {
+                                if let TextOperation::InsertText(op) = &operation.changeset.operation {
+                                    let mut text =
+                                        operation.pre_state.text_content.as_str().to_string();
+                                    text.push_str(op.text.as_str());
+                                    Some(vec![InlineContent::Text(StyledRun {
+                                        text,
+                                        style: Arc::new(StyleProperties::default()),
+                                        logical_start_byte: 0,
+                                        source_node_id: None,
+                                    })])
+                                } else {
+                                    None
+                                }
+                            });
 
-                if !affected_nodes.is_empty() {
-                    use azul_core::callbacks::Update;
-
-                    let now = {
-                        #[cfg(feature = "std")]
-                        { azul_core::task::Instant::from(std::time::Instant::now()) }
-                        #[cfg(not(feature = "std"))]
-                        { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
-                    };
-
-                    let text_events: Vec<_> = affected_nodes.keys().map(|dom_node_id| {
-                        azul_core::events::SyntheticEvent::new(
-                            azul_core::events::EventType::Input,
-                            azul_core::events::EventSource::User,
-                            *dom_node_id,
-                            now.clone(),
-                            azul_core::events::EventData::None,
-                        )
-                    }).collect();
-
-                    let (text_changes_result, text_update, _) = self.dispatch_events_propagated(&text_events);
-                    result = result.max(text_changes_result);
-                    if matches!(text_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                        if let Some(new_content) = new_content {
+                            layout_window.update_text_cache_after_edit(
+                                target.dom, node_id, new_content,
+                            );
+                            layout_window
+                                .undo_redo_manager
+                                .reinstate_undo(operation);
+                            return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                        }
+                        // No snapshot and no reconstructable content: put the
+                        // operation back on the redo stack unchanged instead
+                        // of losing it.
+                        layout_window.undo_redo_manager.push_redo(operation);
                     }
                 }
-
-                result
+                ProcessEventResult::DoNothing
             }
 
             // === Multi-Cursor ===

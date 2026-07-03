@@ -5321,6 +5321,12 @@ impl LayoutWindow {
         }
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
+        // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
+        // the REAL styled content instead of rebuilding with
+        // StyleProperties::default() (which stripped all styling).
+        let pre_content_snapshot = content.clone();
+        let post_content_snapshot = new_content.clone();
+
         // Update the text cache with the new inline content
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
 
@@ -5358,6 +5364,8 @@ impl LayoutWindow {
             #[cfg(not(feature = "std"))]
             timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
         };
+        self.undo_redo_manager
+            .store_content_snapshot(changeset_id, pre_content_snapshot, post_content_snapshot);
         self.undo_redo_manager
             .record_operation(undo_changeset, pre_state);
 
@@ -7017,6 +7025,79 @@ impl LayoutWindow {
         let (new_content, new_selections) = crate::text3::edit::edit_text(
             &content, &current_selections, &edit,
         );
+
+        // MWA-C-undo_redo: deletions (Backspace / Delete / Cut all route
+        // here) were never recorded — only insertions were undoable. Record
+        // a DeleteText operation with styled pre/post snapshots; the actual
+        // undo/redo restore uses the snapshots (keyed by changeset id),
+        // deleted_text/range are informational for the C-API inspect fns.
+        // Ids count DOWN from usize::MAX so they cannot collide with the
+        // insertion counter in apply_text_changeset (counts up from 0).
+        {
+            use crate::managers::changeset::{TextChangeset, TextOpDeleteText, TextOperation};
+            use crate::managers::undo_redo::NodeStateSnapshot;
+            static DELETE_CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+            let pre_text = self.extract_text_from_inline_content(&content);
+            let old_cursor = current_selections.first().and_then(|sel| match sel {
+                Selection::Cursor(c) => Some(*c),
+                Selection::Range(_) => None,
+            });
+            let old_range = current_selections.first().and_then(|sel| match sel {
+                Selection::Range(r) => Some(*r),
+                Selection::Cursor(_) => None,
+            });
+            let record_range = old_range.unwrap_or_else(|| {
+                let anchor = old_cursor.unwrap_or(TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: 0,
+                        start_byte_in_run: 0,
+                    },
+                    affinity: CursorAffinity::Leading,
+                });
+                azul_core::selection::SelectionRange {
+                    start: anchor,
+                    end: anchor,
+                }
+            });
+            let changeset_id =
+                usize::MAX - DELETE_CHANGESET_COUNTER.fetch_add(1, Ordering::SeqCst);
+            let timestamp = {
+                #[cfg(feature = "std")]
+                {
+                    Instant::System(std::time::Instant::now().into())
+                }
+                #[cfg(not(feature = "std"))]
+                {
+                    azul_core::task::Instant::Tick(azul_core::task::SystemTick {
+                        tick_counter: 0,
+                    })
+                }
+            };
+            let pre_state = NodeStateSnapshot {
+                node_id,
+                text_content: pre_text.into(),
+                cursor_position: old_cursor.into(),
+                selection_range: old_range.into(),
+                timestamp: timestamp.clone(),
+            };
+            let changeset = TextChangeset {
+                id: changeset_id,
+                target,
+                operation: TextOperation::DeleteText(TextOpDeleteText {
+                    range: record_range,
+                    deleted_text: "".into(),
+                    new_cursor: CursorPosition::Uninitialized,
+                }),
+                timestamp,
+            };
+            self.undo_redo_manager.store_content_snapshot(
+                changeset_id,
+                content.clone(),
+                new_content.clone(),
+            );
+            self.undo_redo_manager.record_operation(changeset, pre_state);
+        }
 
         // Update multi-cursor state
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {

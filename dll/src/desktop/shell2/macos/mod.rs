@@ -6759,124 +6759,45 @@ impl MacOSWindow {
 
     /// Perform undo operation (called by NSResponder undo: selector)
     pub fn perform_undo(&mut self) {
-        // Get focused node for undo context
-        let focused_node = if let Some(layout_window) = self.common.layout_window.as_ref() {
-            layout_window.focus_manager.get_focused_node().copied()
-        } else {
-            return;
-        };
-
-        let target = match focused_node {
-            Some(node) => node,
-            None => return, // No focused node
-        };
-
-        // Get layout window
-        let layout_window = match self.common.layout_window.as_mut() {
-            Some(lw) => lw,
+        // MWA-C-undo_redo: delegate to the SHARED UndoTextEdit arm — this fn
+        // previously carried a hand-copied variant of the apply logic that
+        // had already drifted (no styled-snapshot restore, no selection
+        // restore, redo re-entered the recording pipeline). One
+        // implementation, zero drift.
+        use crate::desktop::shell2::common::event::{PlatformWindow, SystemChange};
+        let target = match self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+        {
+            Some(t) => t,
             None => return,
         };
-
-        // Convert DomNodeId to NodeId using proper decoding
-        let node_id = match target.node.into_crate_internal() {
-            Some(id) => id,
-            None => return,
-        };
-
-        // Pop from undo stack
-        if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
-            // Apply the revert - restore pre-state text
-            if let Some(node_id_internal) = target.node.into_crate_internal() {
-                // Create InlineContent from pre-state text
-                use std::sync::Arc;
-
-                use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
-
-                let new_content = vec![InlineContent::Text(StyledRun {
-                    text: operation.pre_state.text_content.as_str().to_string(),
-                    style: Arc::new(StyleProperties::default()),
-                    logical_start_byte: 0,
-                    source_node_id: None, // Undo operation - node context not available
-                })];
-
-                // Update text cache with pre-state content
-                layout_window.update_text_cache_after_edit(
-                    target.dom,
-                    node_id_internal,
-                    new_content,
-                );
-
-                // Restore cursor position
-                if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
-                    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
-                        mc.set_single_cursor(cursor);
-                    }
-                }
-            }
-
-            // Push to redo stack after successful undo
-            layout_window.undo_redo_manager.push_redo(operation);
-
-            // Mark window for redraw
-            unsafe {
-                use objc2::msg_send;
-                let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
-            }
+        let _ = self.apply_system_change(&SystemChange::UndoTextEdit { target });
+        unsafe {
+            use objc2::msg_send;
+            let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
         }
     }
 
     /// Perform redo operation (called by NSResponder redo: selector)
     pub fn perform_redo(&mut self) {
-        // Get focused node for redo context
-        let focused_node = if let Some(layout_window) = self.common.layout_window.as_ref() {
-            layout_window.focus_manager.get_focused_node().copied()
-        } else {
-            return;
-        };
-
-        let target = match focused_node {
-            Some(node) => node,
-            None => return, // No focused node
-        };
-
-        // Get layout window
-        let layout_window = match self.common.layout_window.as_mut() {
-            Some(lw) => lw,
+        // MWA-C-undo_redo: shared RedoTextEdit arm (see perform_undo).
+        use crate::desktop::shell2::common::event::{PlatformWindow, SystemChange};
+        let target = match self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+        {
+            Some(t) => t,
             None => return,
         };
-
-        // Convert DomNodeId to NodeId using proper decoding
-        let node_id = match target.node.into_crate_internal() {
-            Some(id) => id,
-            None => return,
-        };
-
-        // Pop from redo stack
-        if let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) {
-            // Re-apply the original operation via text input
-            let node_id_internal = target.node.into_crate_internal();
-            if let Some(_node_id_internal) = node_id_internal {
-                use azul_layout::managers::changeset::TextOperation;
-
-                match &operation.changeset.operation {
-                    TextOperation::InsertText(op) => {
-                        // Re-insert the text
-                        let _ = layout_window.process_text_input(&op.text);
-                    }
-                    _ => {
-                        // Other operations not yet fully supported
-                    }
-                }
-            }
-
-            // Push to undo stack after successful redo
-            layout_window.undo_redo_manager.push_undo(operation);
-
-            // Mark window for redraw
-            unsafe {
-                use objc2::msg_send;
-                let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
-            }
+        let _ = self.apply_system_change(&SystemChange::RedoTextEdit { target });
+        unsafe {
+            use objc2::msg_send;
+            let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
         }
     }
 

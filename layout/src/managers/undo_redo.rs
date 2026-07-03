@@ -115,6 +115,17 @@ impl NodeUndoRedoStack {
         }
     }
 
+    /// MWA-C-undo_redo: move a REDONE operation back onto the undo stack
+    /// WITHOUT clearing the redo stack — `push_undo` clears it (correct for
+    /// fresh user edits), which made every redo destroy the remaining redo
+    /// history.
+    pub fn push_undo_preserving_redo(&mut self, operation: UndoableOperation) {
+        self.undo_stack.push_back(operation);
+        if self.undo_stack.len() > MAX_UNDO_HISTORY {
+            self.undo_stack.pop_front();
+        }
+    }
+
     /// Pop the most recent operation from undo stack
     pub fn pop_undo(&mut self) -> Option<UndoableOperation> {
         self.undo_stack.pop_back()
@@ -156,12 +167,34 @@ impl NodeUndoRedoStack {
     }
 }
 
+/// MWA-C-undo_redo: styled-content snapshots for an operation, kept OUT of
+/// the FFI-exposed `UndoableOperation` (which crosses the C API via
+/// `inspect_undo_operation`) and keyed by `TextChangeset.id`. Undo restores
+/// `pre`, redo restores `post` — previously both rebuilt the text with
+/// `StyleProperties::default()`, discarding all styling, and redo re-entered
+/// the recording pipeline (double-recording + clearing the redo stack).
+#[derive(Debug, Clone)]
+pub struct ContentSnapshot {
+    /// Full styled inline content BEFORE the operation
+    pub pre: Vec<crate::text3::cache::InlineContent>,
+    /// Full styled inline content AFTER the operation
+    pub post: Vec<crate::text3::cache::InlineContent>,
+}
+
+/// Bound on the styled-snapshot side table (undo+redo stacks hold at most
+/// 10+10 per node; 64 gives headroom across a handful of editable nodes —
+/// lookup misses fall back to the plain-text restore).
+const MAX_CONTENT_SNAPSHOTS: usize = 64;
+
 /// Manager for undo/redo operations across all text nodes
 #[derive(Debug, Clone, Default)]
 pub struct UndoRedoManager {
     /// Per-node undo/redo stacks
     /// Using Vec instead of `HashMap` for `no_std` compatibility
     pub node_stacks: Vec<NodeUndoRedoStack>,
+    /// Styled-content snapshots keyed by `TextChangeset.id` (see
+    /// [`ContentSnapshot`]); FIFO-capped at [`MAX_CONTENT_SNAPSHOTS`].
+    pub content_snapshots: Vec<(super::changeset::ChangesetId, ContentSnapshot)>,
 }
 
 impl UndoRedoManager {
@@ -169,7 +202,49 @@ impl UndoRedoManager {
     #[must_use] pub const fn new() -> Self {
         Self {
             node_stacks: Vec::new(),
+            content_snapshots: Vec::new(),
         }
+    }
+
+    /// Store the styled pre/post content for a changeset (see [`ContentSnapshot`]).
+    pub fn store_content_snapshot(
+        &mut self,
+        id: super::changeset::ChangesetId,
+        pre: Vec<crate::text3::cache::InlineContent>,
+        post: Vec<crate::text3::cache::InlineContent>,
+    ) {
+        self.content_snapshots.retain(|(existing, _)| *existing != id);
+        self.content_snapshots.push((id, ContentSnapshot { pre, post }));
+        if self.content_snapshots.len() > MAX_CONTENT_SNAPSHOTS {
+            self.content_snapshots.remove(0);
+        }
+    }
+
+    /// Look up the styled snapshot for a changeset id.
+    #[must_use] pub fn get_content_snapshot(
+        &self,
+        id: super::changeset::ChangesetId,
+    ) -> Option<&ContentSnapshot> {
+        self.content_snapshots
+            .iter()
+            .find(|(existing, _)| *existing == id)
+            .map(|(_, snap)| snap)
+    }
+
+    /// MWA-C-undo_redo: put a redone operation back on the undo stack
+    /// WITHOUT clearing the redo stack (see
+    /// [`NodeUndoRedoStack::push_undo_preserving_redo`]).
+    /// # Panics
+    /// Panics if the operation's changeset target node is None.
+    pub fn reinstate_undo(&mut self, operation: UndoableOperation) {
+        let node_id = operation
+            .changeset
+            .target
+            .node
+            .into_crate_internal()
+            .expect("TextChangeset target node should not be None");
+        let stack = self.get_or_create_stack_mut(node_id);
+        stack.push_undo_preserving_redo(operation);
     }
 
     /// Get or create a stack for a specific node
@@ -310,3 +385,97 @@ impl UndoRedoManager {
 
 }
 
+
+#[cfg(test)]
+mod undo_redo_tests {
+    use super::*;
+    use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
+    use azul_core::dom::{DomId, DomNodeId};
+    use azul_core::styled_dom::NodeHierarchyItemId;
+    use azul_core::task::SystemTick;
+    use azul_core::window::CursorPosition;
+
+    fn ts() -> Instant {
+        Instant::Tick(SystemTick { tick_counter: 0 })
+    }
+
+    fn op(id: usize, node: usize) -> UndoableOperation {
+        UndoableOperation {
+            changeset: TextChangeset {
+                id,
+                target: DomNodeId {
+                    dom: DomId { inner: 0 },
+                    node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+                },
+                operation: TextOperation::InsertText(TextOpInsertText {
+                    text: "x".into(),
+                    position: CursorPosition::Uninitialized,
+                    new_cursor: CursorPosition::Uninitialized,
+                }),
+                timestamp: ts(),
+            },
+            pre_state: NodeStateSnapshot {
+                node_id: NodeId::new(node),
+                text_content: "".into(),
+                cursor_position: None.into(),
+                selection_range: None.into(),
+                timestamp: ts(),
+            },
+        }
+    }
+
+    #[test]
+    fn push_undo_clears_redo_but_reinstate_preserves_it() {
+        let mut stack = NodeUndoRedoStack::new(NodeId::new(1));
+        stack.push_redo(op(1, 1));
+        stack.push_redo(op(2, 1));
+        assert_eq!(stack.redo_stack.len(), 2);
+
+        // Fresh user edit: redo history is invalidated.
+        stack.push_undo(op(3, 1));
+        assert_eq!(stack.redo_stack.len(), 0);
+
+        // Redone operation moving back to undo: remaining redos survive.
+        stack.push_redo(op(4, 1));
+        stack.push_redo(op(5, 1));
+        stack.push_undo_preserving_redo(op(6, 1));
+        assert_eq!(stack.redo_stack.len(), 2);
+        assert!(stack.can_undo());
+    }
+
+    #[test]
+    fn content_snapshots_replace_lookup_and_evict() {
+        let mut mgr = UndoRedoManager::new();
+        mgr.store_content_snapshot(7, Vec::new(), Vec::new());
+        assert!(mgr.get_content_snapshot(7).is_some());
+        assert!(mgr.get_content_snapshot(8).is_none());
+
+        // Same id replaces, no duplicate entries.
+        mgr.store_content_snapshot(7, Vec::new(), Vec::new());
+        assert_eq!(mgr.content_snapshots.len(), 1);
+
+        // FIFO cap: oldest evicted once over MAX_CONTENT_SNAPSHOTS.
+        for id in 100..(100 + MAX_CONTENT_SNAPSHOTS) {
+            mgr.store_content_snapshot(id, Vec::new(), Vec::new());
+        }
+        assert!(mgr.content_snapshots.len() <= MAX_CONTENT_SNAPSHOTS);
+        assert!(mgr.get_content_snapshot(7).is_none(), "oldest entry evicted");
+        assert!(mgr
+            .get_content_snapshot(100 + MAX_CONTENT_SNAPSHOTS - 1)
+            .is_some());
+    }
+
+    #[test]
+    fn reinstate_undo_keeps_manager_redo_stack() {
+        let mut mgr = UndoRedoManager::new();
+        mgr.record_operation(op(1, 3).changeset, op(1, 3).pre_state);
+        let popped = mgr.pop_undo(NodeId::new(3)).unwrap();
+        mgr.push_redo(popped);
+        let redone = mgr.pop_redo(NodeId::new(3)).unwrap();
+        // Second redo entry that must survive the reinstate:
+        mgr.push_redo(op(2, 3));
+        mgr.reinstate_undo(redone);
+        assert!(mgr.can_undo(NodeId::new(3)));
+        assert!(mgr.can_redo(NodeId::new(3)), "redo stack preserved");
+    }
+}
