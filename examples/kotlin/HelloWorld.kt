@@ -7,7 +7,7 @@ import com.sun.jna.Pointer
 class MyDataModel(var counter: Int)
 private val MODEL = MyDataModel(5)
 
-private val onClick = AzulNativeManaged.CallbackInvokerCallback { _, dataPtr, _, outPtr ->
+private val onClick = AzulNativeManaged.ButtonOnClickCallbackInvokerCallback { _, dataPtr, _, outPtr ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
     val result = if (m is MyDataModel) { m.counter += 1; AzUpdate.RefreshDom.value }
                  else AzUpdate.DoNothing.value

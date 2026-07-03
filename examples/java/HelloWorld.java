@@ -13,7 +13,7 @@ public final class HelloWorld {
 
     private static final MyDataModel MODEL = new MyDataModel(5);
 
-    private static final AzulNativeManaged.CallbackInvokerCallback ON_CLICK =
+    private static final AzulNativeManaged.ButtonOnClickCallbackInvokerCallback ON_CLICK =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object m = AzulHostInvoker.refanyGet(dataPtr);
             int result = AzUpdate.DoNothing.value;
