@@ -3,9 +3,13 @@
 //! of [`crate::widgets::frame::Frame`] (a container) but without the fieldset
 //! title/header — just a single styled box wrapping the body content.
 //!
-//! Key types: [`Card`].
+//! Key types: [`Card`], [`CardOnClick`].
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::{
+    callbacks::Update,
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    refany::RefAny,
+};
 use azul_css::css::BoxOrStatic;
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
@@ -15,8 +19,10 @@ use azul_css::{
         property::{CssProperty, StyleBoxShadowValue, LayoutFlexGrowValue},
         style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBoxShadow, BoxShadowClipMode, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius},
     },
-    AzString,
+    impl_option_inner, AzString,
 };
+
+use crate::callbacks::CallbackInfo;
 
 /// Card border colour (#dee2e6).
 const CARD_BORDER_COLOR: ColorU = ColorU {
@@ -163,6 +169,30 @@ pub struct Card {
     pub content: Dom,
     /// `flex-grow` factor applied to the card container.
     pub flex_grow: f32,
+    /// Optional: Function to call when the card is clicked
+    pub on_click: OptionCardOnClick,
+}
+
+/// Callback function type invoked when the card container is clicked.
+pub type CardOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
+impl_widget_callback!(
+    CardOnClick,
+    OptionCardOnClick,
+    CardOnClickCallback,
+    CardOnClickCallbackType
+);
+
+// Host-invoker plumbing for managed-FFI bindings — see core/src/host_invoker.rs.
+azul_core::impl_managed_callback! {
+    wrapper:        CardOnClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: CARD_ON_CLICK_INVOKER,
+    invoker_ty:     AzCardOnClickCallbackInvoker,
+    thunk_fn:       az_card_on_click_callback_thunk,
+    setter_fn:      AzApp_setCardOnClickCallbackInvoker,
+    from_handle_fn: AzCardOnClickCallback_createFromHostHandle,
 }
 
 impl Card {
@@ -171,6 +201,7 @@ impl Card {
         Self {
             content,
             flex_grow: 0.0,
+            on_click: OptionCardOnClick::None,
         }
     }
 
@@ -203,9 +234,50 @@ impl Card {
         self
     }
 
+    /// Sets the click callback, invoked when the card container is clicked.
+    pub fn set_on_click<C: Into<CardOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
+        self.on_click = Some(CardOnClick {
+            refany: data,
+            callback: on_click.into(),
+        })
+        .into();
+    }
+
+    /// Builder-style setter for the click callback.
+    #[must_use] pub fn with_on_click<C: Into<CardOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
+        self.set_on_click(data, on_click);
+        self
+    }
+
     #[must_use] pub fn dom(self) -> Dom {
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{EventFilter, HoverEventFilter},
+        };
+
         static CARD_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-card"))];
+
+        // Optional click callback on the card's root container (same wiring
+        // as button's on_click).
+        let callbacks = match self.on_click.into_option() {
+            Some(CardOnClick {
+                refany: data,
+                callback,
+            }) => vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                callback: CoreCallback {
+                    cb: callback.cb as *const () as usize,
+                    ctx: callback.ctx,
+                },
+                refany: data,
+            }],
+            None => Vec::new(),
+        };
 
         // Prepend the (param-dependent) flex-grow, then the static card style.
         let mut props = vec![CssPropertyWithConditions::simple(CssProperty::FlexGrow(
@@ -218,6 +290,7 @@ impl Card {
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CARD_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+            .with_callbacks(callbacks.into())
             .with_children(vec![self.content].into())
     }
 }

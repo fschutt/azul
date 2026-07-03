@@ -82,7 +82,7 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255
 ///    `WindowDecorations::None` + `has_decorations`):
 ///    The titlebar renders its own close / minimize / maximize buttons as
 ///    regular DOM nodes.  Each button carries a plain `MouseDown` callback
-///    that calls `CallbackInfo::modify_window_state()` — exactly the same
+///    that calls `CallbackInfo::modify_window_state()` - exactly the same
 ///    mechanism used for window dragging.  No special event-system hooks.
 ///
 /// Window-control buttons use `Dom::create_icon("close")` etc. so that
@@ -92,8 +92,8 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255
 /// # Button layout
 ///
 /// `button_side` controls where the buttons appear:
-/// - `Left` — macOS traffic-light style (buttons before title)
-/// - `Right` — Windows / Linux style (title then buttons)
+/// - `Left` - macOS traffic-light style (buttons before title)
+/// - `Right` - Windows / Linux style (title then buttons)
 ///
 /// # Styling
 ///
@@ -212,7 +212,7 @@ impl Titlebar {
         Self { title, height, font_size, padding_left, padding_right, title_color }
     }
 
-    /// Create from [`SystemStyle`] for **full CSD** mode (no padding — the
+    /// Create from [`SystemStyle`] for **full CSD** mode (no padding - the
     /// buttons are rendered as DOM children).
     #[must_use] pub fn from_system_style_csd(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
@@ -336,7 +336,7 @@ impl Titlebar {
     /// Full-CSD DOM with close / minimize / maximize buttons.
     ///
     /// Each button is a div with a `MouseDown` callback that calls
-    /// `modify_window_state()` — no special hooks needed.
+    /// `modify_window_state()` - no special hooks needed.
     #[must_use] pub fn dom_with_buttons(
         self,
         buttons: &TitlebarButtons,
@@ -527,7 +527,7 @@ pub(crate) mod callbacks {
     use azul_core::refany::RefAny;
     use crate::callbacks::CallbackInfo;
 
-    /// `DragStart` — on Wayland, initiate compositor-managed move immediately.
+    /// `DragStart` - on Wayland, initiate compositor-managed move immediately.
     /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
     pub(super) extern "C" fn titlebar_drag_start(
         _data: RefAny, mut info: CallbackInfo,
@@ -561,7 +561,7 @@ pub(crate) mod callbacks {
         Update::DoNothing
     }
 
-    /// MWA-C-csd: fractional-residual carry for the manual drag loop —
+    /// MWA-C-csd: fractional-residual carry for the manual drag loop -
     /// rounding alone still loses up to half a pixel per event in a
     /// consistent direction, so very slow trackpad drags crawled. Only one
     /// interactive drag exists at a time and callbacks run on the UI
@@ -571,7 +571,7 @@ pub(crate) mod callbacks {
     static RESIDUAL_Y_BITS: core::sync::atomic::AtomicU32 =
         core::sync::atomic::AtomicU32::new(0);
 
-    /// Drag — apply incremental screen-space delta to the CURRENT window position.
+    /// Drag - apply incremental screen-space delta to the CURRENT window position.
     ///
     /// Uses `get_drag_delta_screen_incremental()` (frame-to-frame delta) instead of
     /// `get_drag_delta_screen()` (total delta since drag start). Combined with
@@ -615,7 +615,7 @@ pub(crate) mod callbacks {
         Update::DoNothing
     }
 
-    /// `DoubleClick` — toggle Maximized ↔ Normal.
+    /// `DoubleClick` - toggle Maximized ↔ Normal.
     pub(super) extern "C" fn titlebar_double_click(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
@@ -627,7 +627,7 @@ pub(crate) mod callbacks {
         Update::DoNothing
     }
 
-    /// Close button — `close_requested = true`.
+    /// Close button - `close_requested = true`.
     pub(super) extern "C" fn csd_close(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
@@ -637,7 +637,7 @@ pub(crate) mod callbacks {
         Update::DoNothing
     }
 
-    /// Minimize button — `frame = Minimized`.
+    /// Minimize button - `frame = Minimized`.
     pub(super) extern "C" fn csd_minimize(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
@@ -648,7 +648,7 @@ pub(crate) mod callbacks {
         Update::DoNothing
     }
 
-    /// Maximize button — toggle Maximized ↔ Normal.
+    /// Maximize button - toggle Maximized ↔ Normal.
     pub(super) extern "C" fn csd_maximize(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {

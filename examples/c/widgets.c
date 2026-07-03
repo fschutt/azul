@@ -2,6 +2,7 @@
 
 #include "azul.h"
 #include <stdio.h>
+#include <string.h>
 
 typedef struct {
     bool enable_padding;
@@ -9,6 +10,7 @@ typedef struct {
     float progress_value;
     bool checkbox_checked;
     char text_input[256];
+    size_t selected_row;
 } WidgetShowcase;
 
 void WidgetShowcase_destructor(void* m) { }
@@ -16,6 +18,11 @@ AZ_REFLECT(WidgetShowcase, WidgetShowcase_destructor);
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 AzUpdate on_checkbox_toggle(AzRefAny data, AzCallbackInfo info);
+AzUpdate on_list_row_click(AzRefAny data, AzCallbackInfo info, AzListViewState state, size_t row_index);
+
+static AzString str(const char* s) {
+    return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
+}
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     WidgetShowcaseRef d = WidgetShowcaseRef_create(&data);
@@ -61,6 +68,28 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString num_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&number_input, num_style);
 
+    // Create list view with clickable rows (on_row_click gets the row index)
+    static const char* row_data[3][3] = {
+        { "report.pdf",  "120 KB", "PDF"   },
+        { "photo.png",   "2.4 MB", "Image" },
+        { "notes.txt",   "4 KB",   "Text"  },
+    };
+    AzString col_names[3] = { str("Name"), str("Size"), str("Type") };
+    AzListView lv = AzListView_create(AzStringVec_copyFromPtr(col_names, 3));
+    AzListViewRow rows[3];
+    for (size_t r = 0; r < 3; r++) {
+        AzDom cells[3];
+        for (size_t c = 0; c < 3; c++) {
+            cells[c] = AzDom_createText(str(row_data[r][c]));
+        }
+        rows[r].cells = AzDomVec_copyFromPtr(cells, 3);
+        rows[r].height.None.tag = AzOptionPixelValueNoPercent_Tag_None;
+    }
+    AzListView_setRows(&lv, AzListViewRowVec_copyFromPtr(rows, 3));
+    AzListView_setOnRowClick(&lv, AzRefAny_clone(&data), on_list_row_click);
+    AzDom list_view = AzListView_dom(lv);
+    AzDom_setCss(&list_view, str("height: 150px; margin-bottom: 10px;"));
+
     // Compose body
     AzDom body = AzDom_createBody();
     AzString body_style = AzString_copyFromBytes((const uint8_t*)"padding: 20px;", 0, 14);
@@ -74,6 +103,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, text_input);
     AzDom_addChild(&body, color_input);
     AzDom_addChild(&body, number_input);
+    AzDom_addChild(&body, list_view);
 
     WidgetShowcaseRef_delete(&d);
     return body;
@@ -88,6 +118,25 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
     if (d.ptr->progress_value > 100.0) {
         d.ptr->progress_value = 0.0;
     }
+    WidgetShowcaseRefMut_delete(&d);
+    return AzUpdate_RefreshDom;
+}
+
+AzUpdate on_list_row_click(AzRefAny data, AzCallbackInfo info, AzListViewState state, size_t row_index) {
+    WidgetShowcaseRefMut d = WidgetShowcaseRefMut_create(&data);
+    if (!WidgetShowcase_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    d.ptr->selected_row = row_index;
+    printf("row %zu clicked\n", row_index);
+
+    // Headless measure: lay out a DOM off-screen to get its natural size
+    // (the building block for virtual-list item sizing)
+    AzDom probe = AzDom_createText(str("How tall is this text at 200px width?"));
+    AzLogicalSize avail = { .width = 200.0f, .height = 1000000.0f };
+    AzLogicalSize measured = AzCallbackInfo_measureDom(&info, probe, avail);
+    printf("probe DOM measures %.1f x %.1f px\n", measured.width, measured.height);
+
     WidgetShowcaseRefMut_delete(&d);
     return AzUpdate_RefreshDom;
 }
@@ -108,7 +157,8 @@ int main() {
         .active_tab = 0,
         .progress_value = 25.0,
         .checkbox_checked = false,
-        .text_input = ""
+        .text_input = "",
+        .selected_row = 0
     };
     AzRefAny data = WidgetShowcase_upcast(model);
     

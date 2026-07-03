@@ -22,7 +22,7 @@
 //! layout honouring `white-space: pre-wrap`.
 //!
 //! Key types: [`TextArea`], [`TextAreaState`], [`TextAreaOnTextInput`],
-//! [`TextAreaOnFocusLost`].
+//! [`TextAreaOnVirtualKeyDown`], [`TextAreaOnFocusLost`].
 
 use alloc::{string::String, vec::Vec};
 
@@ -266,6 +266,8 @@ pub struct TextAreaStateWrapper {
     pub on_text_input: OptionTextAreaOnTextInput,
     pub on_focus_lost: OptionTextAreaOnFocusLost,
     pub update_text_area_before_calling_focus_lost_fn: bool,
+    // appended at the END of the repr(C) struct for ABI stability
+    pub on_virtual_key_down: OptionTextAreaOnVirtualKeyDown,
 }
 
 // -- callbacks --
@@ -291,6 +293,30 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_text_area_on_text_input_callback_thunk,
     setter_fn:      AzApp_setTextAreaOnTextInputCallbackInvoker,
     from_handle_fn: AzTextAreaOnTextInputCallback_createFromHostHandle,
+    extra_args:     [ state: TextAreaState ],
+}
+
+/// Invoked on every virtual-key press while the text area is focused (reusing
+/// [`TextInput`](crate::widgets::text_input::TextInput)'s [`OnTextInputReturn`]).
+pub type TextAreaOnVirtualKeyDownCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, TextAreaState) -> OnTextInputReturn;
+impl_widget_callback!(
+    TextAreaOnVirtualKeyDown,
+    OptionTextAreaOnVirtualKeyDown,
+    TextAreaOnVirtualKeyDownCallback,
+    TextAreaOnVirtualKeyDownCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        TextAreaOnVirtualKeyDownCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      OnTextInputReturn,
+    default_ret:    OnTextInputReturn { update: Update::DoNothing, valid: TextInputValid::Yes },
+    invoker_static: TEXT_AREA_ON_VIRTUAL_KEY_DOWN_INVOKER,
+    invoker_ty:     AzTextAreaOnVirtualKeyDownCallbackInvoker,
+    thunk_fn:       az_text_area_on_virtual_key_down_callback_thunk,
+    setter_fn:      AzApp_setTextAreaOnVirtualKeyDownCallbackInvoker,
+    from_handle_fn: AzTextAreaOnVirtualKeyDownCallback_createFromHostHandle,
     extra_args:     [ state: TextAreaState ],
 }
 
@@ -345,6 +371,7 @@ impl Default for TextAreaStateWrapper {
             on_text_input: None.into(),
             on_focus_lost: None.into(),
             update_text_area_before_calling_focus_lost_fn: true,
+            on_virtual_key_down: None.into(),
         }
     }
 }
@@ -412,6 +439,27 @@ impl TextArea {
         callback: C,
     ) -> Self {
         self.set_on_text_input(refany, callback);
+        self
+    }
+
+    pub fn set_on_virtual_key_down<C: Into<TextAreaOnVirtualKeyDownCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
+        self.text_area_state.on_virtual_key_down = Some(TextAreaOnVirtualKeyDown {
+            callback: callback.into(),
+            refany,
+        })
+        .into();
+    }
+
+    #[must_use] pub fn with_on_virtual_key_down<C: Into<TextAreaOnVirtualKeyDownCallback>>(
+        mut self,
+        refany: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_virtual_key_down(refany, callback);
         self
     }
 
@@ -679,6 +727,27 @@ fn default_on_virtual_key_down_inner(
     let label_node_id = info.get_next_sibling(placeholder_node_id)?;
     let _cursor_node_id = info.get_first_child(label_node_id)?;
 
+    // Dispatch to the user's on_virtual_key_down callback first; a
+    // TextInputValid::No return suppresses the built-in editing behavior.
+    let result = {
+        // rustc doesn't understand the borrowing lifetime here
+        let text_area = &mut *text_area;
+        let inner_clone = text_area.inner.clone();
+        match text_area.on_virtual_key_down.as_mut() {
+            Some(TextAreaOnVirtualKeyDown { callback, refany }) => {
+                (callback.cb)(refany.clone(), info, inner_clone)
+            }
+            None => OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            },
+        }
+    };
+
+    if result.valid == TextInputValid::No {
+        return Some(result.update);
+    }
+
     match c {
         VirtualKeyCode::Back => {
             text_area.inner.text = {
@@ -712,10 +781,10 @@ fn default_on_virtual_key_down_inner(
                 CssProperty::const_opacity(StyleOpacity::const_new(0)),
             );
         }
-        _ => return None,
+        _ => return Some(result.update),
     }
 
-    None
+    Some(result.update)
 }
 
 impl From<TextArea> for Dom {

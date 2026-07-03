@@ -1142,14 +1142,14 @@ impl CallbackInfo {
         self.push_change(CallbackChange::UpdateVirtualView { dom_id, node_id });
     }
 
-    /// Re-render EVERY `VirtualView` on the existing DOM — no node id required.
+    /// Re-render EVERY `VirtualView` on the existing DOM - no node id required.
     ///
     /// Use from a callback that mutated a dataset shared with a `VirtualView`'s
     /// `refany` (the two are clones of one `RefAny`, so they point at the same
     /// underlying data). The canonical case is a background thread writeback:
     /// e.g. the `MapWidget`'s tile-fetch worker decodes a tile, writes it into
     /// the shared `MapTileCache`, then calls this so the pure `VirtualView`
-    /// content callback re-reads the cache and rebuilds its child DOM in place —
+    /// content callback re-reads the cache and rebuilds its child DOM in place -
     /// WITHOUT a `RefreshDom` (which would rebuild the DOM and orphan the
     /// worker's clone of the cache).
     pub fn trigger_all_virtual_view_rerender(&mut self) {
@@ -3399,7 +3399,7 @@ impl CallbackInfo {
     }
 
     /// Read the most recently observed permission state for `capability`
-    /// (Camera / Microphone / Geolocation / Sensors / Notifications / …) — e.g.
+    /// (Camera / Microphone / Geolocation / Sensors / Notifications / …) - e.g.
     /// so a callback can check a capability is `Granted` before using it (show
     /// a camera preview only once granted). Kept live by the platform
     /// permission backend; a capability is subscribed by mounting its probe
@@ -3566,7 +3566,7 @@ impl CallbackInfo {
     /// Get the currently hovered file (if drag-drop is in progress)
     ///
     /// Returns None if no file is being hovered over the window.
-    /// (First file only — use [`get_hovered_files`](Self::get_hovered_files)
+    /// (First file only - use [`get_hovered_files`](Self::get_hovered_files)
     /// for multi-file drags; no longer `const` since MWA-B7 made the manager
     /// store a Vec.)
     #[must_use] pub fn get_hovered_file(&self) -> Option<&AzString> {
@@ -3575,7 +3575,7 @@ impl CallbackInfo {
             .get_hovered_file()
     }
 
-    /// ALL files of the current drag hover (MWA-B7 — multi-file drags were
+    /// ALL files of the current drag hover (MWA-B7 - multi-file drags were
     /// previously truncated to the first path before they reached callbacks).
     #[must_use] pub fn get_hovered_files(&self) -> &[AzString] {
         self.get_layout_window()
@@ -3586,7 +3586,7 @@ impl CallbackInfo {
     /// Get the currently dropped file (if a file was just dropped)
     ///
     /// This is a one-shot value that is cleared after event processing.
-    /// Returns None if no file was dropped this frame. (First file only —
+    /// Returns None if no file was dropped this frame. (First file only -
     /// use [`get_dropped_files`](Self::get_dropped_files) for the full list.)
     #[must_use] pub fn get_dropped_file(&self) -> Option<&AzString> {
         self.get_layout_window()
@@ -3601,8 +3601,24 @@ impl CallbackInfo {
             .get_dropped_files()
     }
 
+    /// Measure a DOM headlessly: style + lay it out against `available`
+    /// constraints (this window's fonts / system style) without touching the
+    /// live layout. Returns the union of all node bounds - use a very tall
+    /// `available.height` (e.g. `1_000_000.0`) to get a DOM's natural height
+    /// at a given width. Primary use: sizing `VirtualView` items to compute
+    /// the virtual scroll extent. A full cold layout pass per call - cache
+    /// per item template.
+    #[cfg(feature = "std")]
+    #[must_use] pub fn measure_dom(
+        &self,
+        dom: azul_core::dom::Dom,
+        available: azul_core::geom::LogicalSize,
+    ) -> azul_core::geom::LogicalSize {
+        self.get_layout_window().measure_dom(dom, available)
+    }
+
     /// Deepest node currently under the mouse pointer (MWA-B8). Anchor for
-    /// drag auto-scroll when there is no focused node — node drags and OS
+    /// drag auto-scroll when there is no focused node - node drags and OS
     /// file hovers scroll the container under the pointer, not the focused
     /// text field.
     #[must_use] pub fn get_deepest_hovered_node(&self) -> Option<DomNodeId> {
@@ -3875,7 +3891,7 @@ impl CallbackInfo {
     /// callback, or `None` outside a scroll dispatch. The value is the per-pass
     /// delta recorded by the platform scroll handler (see
     /// `ScrollManager::pending_wheel_event`); it is global to the pass, so the
-    /// `dom_id` / `node_id` arguments are advisory — a `Scroll` callback only
+    /// `dom_id` / `node_id` arguments are advisory - a `Scroll` callback only
     /// fires on the hovered node, which is what they identify. Wheel-as-zoom
     /// widgets (the map) read `.y` here instead of consuming the scroll-physics
     /// input queue (which only carries deltas for actual scroll containers).

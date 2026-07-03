@@ -247,9 +247,22 @@ pub struct VirtualViewCallbackInfo {
     /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
     /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
     callable_ptr: *const OptionRefAny,
+    /// Headless DOM measurement hook (see [`Self::measure_dom`]): a
+    /// layout-crate trampoline (a [`MeasureDomFn`] stored as an opaque
+    /// pointer, null = no hook) + its `LayoutWindow` context, injected at
+    /// invoke time. Null on paths that cannot measure (then `measure_dom`
+    /// returns zero).
+    measure_dom_fn: *const c_void,
+    measure_dom_ctx: *mut c_void,
     /// Extension for future ABI stability (mutable data)
     _abi_mut: *mut c_void,
 }
+
+/// Trampoline signature for [`VirtualViewCallbackInfo::measure_dom`]:
+/// `(layout_window_ctx, dom, available) -> content extent`. The `Dom` is
+/// passed by pointer and CONSUMED (moved out) by the trampoline.
+pub type MeasureDomFn =
+    extern "C" fn(*mut c_void, *mut crate::dom::Dom, LogicalSize) -> LogicalSize;
 
 impl Clone for VirtualViewCallbackInfo {
     #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
@@ -265,6 +278,8 @@ impl Clone for VirtualViewCallbackInfo {
             virtual_scroll_size: self.virtual_scroll_size,
             virtual_scroll_offset: self.virtual_scroll_offset,
             callable_ptr: self.callable_ptr,
+            measure_dom_fn: self.measure_dom_fn,
+            measure_dom_ctx: self.measure_dom_ctx,
             _abi_mut: self._abi_mut,
         }
     }
@@ -293,6 +308,8 @@ impl VirtualViewCallbackInfo {
             virtual_scroll_size,
             virtual_scroll_offset,
             callable_ptr: core::ptr::null(),
+            measure_dom_fn: core::ptr::null(),
+            measure_dom_ctx: core::ptr::null_mut(),
             _abi_mut: core::ptr::null_mut(),
         }
     }
@@ -300,6 +317,44 @@ impl VirtualViewCallbackInfo {
     /// Set the callable pointer for FFI language bindings
     pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
         self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
+    }
+
+    /// Inject the headless-measure trampoline (called by the layout crate
+    /// right before the user callback is invoked).
+    pub fn set_measure_dom_fn(&mut self, f: MeasureDomFn, ctx: *mut c_void) {
+        self.measure_dom_fn = f as *const c_void;
+        self.measure_dom_ctx = ctx;
+    }
+
+    /// Measure a DOM headlessly: style + lay it out against `available`
+    /// constraints using the host window's fonts and system style, without
+    /// touching the live layout. Returns the union of all node bounds.
+    ///
+    /// Use a very tall `available.height` (e.g. `1_000_000.0`) to obtain a
+    /// DOM's natural height at a fixed width - the building block for
+    /// virtual-scroll sizing: measure one (or a few) item template(s), then
+    /// `virtual_scroll_size.height = item_height * item_count` and render
+    /// only the visible window of items. Each call is a full cold layout
+    /// pass, so cache measured sizes per item template.
+    ///
+    /// Returns `LogicalSize::zero()` when no measure hook was injected.
+    #[must_use] pub fn measure_dom(
+        &self,
+        dom: crate::dom::Dom,
+        available: LogicalSize,
+    ) -> LogicalSize {
+        if self.measure_dom_fn.is_null() {
+            return LogicalSize::zero();
+        }
+        // SAFETY: measure_dom_fn is only ever set via set_measure_dom_fn,
+        // which stores a valid MeasureDomFn.
+        let f: MeasureDomFn = unsafe { core::mem::transmute(self.measure_dom_fn) };
+        let mut dom = core::mem::ManuallyDrop::new(dom);
+        f(
+            self.measure_dom_ctx,
+            core::ptr::from_mut::<crate::dom::Dom>(&mut dom),
+            available,
+        )
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
@@ -541,7 +596,7 @@ pub struct LayoutCallbackInfoRefData<'a> {
 /// produce a structurally different DOM (resize across a CSS breakpoint,
 /// theme toggle, route switch, callback returning `Update::RefreshDom`).
 /// `LayoutCallbackInfo::relayout_reason()` exposes which trigger this
-/// particular call corresponds to so the callback can branch — for
+/// particular call corresponds to so the callback can branch - for
 /// example, skip expensive analytics on `Resize` calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]

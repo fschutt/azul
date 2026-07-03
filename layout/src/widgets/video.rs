@@ -1,4 +1,4 @@
-//! Video-playback widget — a "dumb widget" identical in architecture to the
+//! Video-playback widget - a "dumb widget" identical in architecture to the
 //! [`CameraWidget`](super::camera) / [`ScreenCaptureWidget`](super::screencap),
 //! only the source differs (a video URL/file decoded via vk-video).
 //! SUPER_PLAN_2 §4 P6, widget pivot.
@@ -57,17 +57,17 @@ pub struct VideoWidgetState {
     /// The latest decoded frame to display, as a CPU `ImageRef` (RGBA8). The
     /// `VirtualView` render callback ([`video_widget_render`]) reads this on each
     /// re-render; [`video_writeback`] stores it and triggers an in-place
-    /// `VirtualView` re-render — so the frame renders on cpurender AND webrender,
+    /// `VirtualView` re-render - so the frame renders on cpurender AND webrender,
     /// exactly like the map widget's tile cache. (Replaces the GL `present_frame`
     /// path for video; camera/screencap still use `present_frame`.)
     pub current_frame: Option<ImageRef>,
     /// The decode worker's `ThreadId` (set by `AfterMount`). Lets the resize callback
     /// message the running worker (`info.get_thread(id).sender.send(..)`) so it can
-    /// re-target the decoder to the new physical-pixel size — a cheap image swap, no
+    /// re-target the decoder to the new physical-pixel size - a cheap image swap, no
     /// relayout. Carried across relayout by [`merge_video_state`].
     pub thread_id: Option<ThreadId>,
     /// Clone of the worker's main→worker `Sender` (set by `AfterMount`, carried by
-    /// merge). Lets [`merge_video_state`] — which has no `CallbackInfo` — push a
+    /// merge). Lets [`merge_video_state`] - which has no `CallbackInfo` - push a
     /// seek to the running worker when `config.timestamp` changes (scrubbing).
     pub seek_sender: Option<std::sync::mpsc::Sender<ThreadSendMsg>>,
 }
@@ -184,9 +184,9 @@ impl VideoWidget {
         self.build_dom(None)
     }
 
-    /// Build the widget's DOM and wire a background **streaming** decode worker —
+    /// Build the widget's DOM and wire a background **streaming** decode worker -
     /// mirrors `MapWidget::dom_with_fetch`. `cb` runs on a framework `Thread` OFF
-    /// the main thread: it reads the `VideoConfig` (its typed `VideoSource` —
+    /// the main thread: it reads the `VideoConfig` (its typed `VideoSource` -
     /// URL / file / bytes), runs the VK decode incrementally (no up-front decode),
     /// and `WriteBack`s frames to the `<img>` paced by wall-clock (dropping late
     /// frames). The standard worker is
@@ -292,7 +292,7 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
 
 /// `NodeResized`: the video box changed physical size (window resize / relayout). Tell
 /// the running decode worker the new target size via its `ThreadSender` so it scales
-/// frames to fit OFF the main thread — the UI then does a cheap image swap with no
+/// frames to fit OFF the main thread - the UI then does a cheap image swap with no
 /// interpolation. This is a message, NOT a relayout: returns `DoNothing`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -389,7 +389,7 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
 
 /// Writeback (main thread): store the decoded frame as the widget's
 /// `current_frame` (a CPU `ImageRef`) and re-render the `VirtualView` in place so it
-/// re-reads it — exactly like `map_tile_writeback`.
+/// re-reads it - exactly like `map_tile_writeback`.
 ///
 /// Renders on cpurender AND
 /// webrender (no GL `present_frame`, no DOM rebuild).

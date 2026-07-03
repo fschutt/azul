@@ -147,6 +147,26 @@ fn new_id_namespace() -> IdNamespace {
     IdNamespace(id)
 }
 
+/// Trampoline for `VirtualViewCallbackInfo::measure_dom` (headless item
+/// sizing): `ctx` is the invoking `LayoutWindow`, `dom` was `ManuallyDrop`'d
+/// by the caller and is moved out here exactly once.
+#[cfg(feature = "std")]
+extern "C" fn virtual_view_measure_dom_trampoline(
+    ctx: *mut core::ffi::c_void,
+    dom: *mut azul_core::dom::Dom,
+    available: LogicalSize,
+) -> LogicalSize {
+    if ctx.is_null() || dom.is_null() {
+        return LogicalSize::zero();
+    }
+    // SAFETY: ctx is the LayoutWindow that constructed the callback info
+    // (same liveness contract as CallbackInfo's internal window pointer);
+    // measure_dom only needs &self and works on scratch caches.
+    let lw = unsafe { &*(ctx as *const LayoutWindow) };
+    let dom = unsafe { core::ptr::read(dom) };
+    lw.measure_dom(dom, available)
+}
+
 // ============================================================================
 // Cursor Blink Timer Callback
 // ============================================================================
@@ -784,6 +804,90 @@ impl LayoutWindow {
     /// # Errors
     ///
     /// Returns a `LayoutError` if recursive layout fails.
+    /// Measure a DOM headlessly: style + lay it out against `available`
+    /// constraints using this window's fonts, images and system style,
+    /// WITHOUT touching the window's live layout state (fresh scratch
+    /// caches; nothing is written to `layout_results` / `layout_cache`).
+    /// Returns the union of all laid-out node bounds — the DOM's actual
+    /// content extent, even when the root is viewport-clamped.
+    ///
+    /// Primary use: `VirtualView` item sizing — lay out one item's DOM at
+    /// the target width with a very tall `available.height` (e.g.
+    /// `1_000_000.0`) and read back the height to derive per-item extents
+    /// and the virtual scroll size. Cost: a full cold style+layout pass per
+    /// call — cache results per item template where possible.
+    #[cfg(feature = "std")]
+    pub fn measure_dom(&self, dom: azul_core::dom::Dom, available: LogicalSize) -> LogicalSize {
+        let styled_dom = StyledDom::create_from_dom(dom);
+        self.measure_styled_dom(&styled_dom, available)
+    }
+
+    /// [`Self::measure_dom`] for an already-styled DOM.
+    #[cfg(feature = "std")]
+    pub fn measure_styled_dom(
+        &self,
+        styled_dom: &StyledDom,
+        available: LogicalSize,
+    ) -> LogicalSize {
+        let mut scratch_cache = Solver3LayoutCache {
+            tree: None,
+            calculated_positions: Vec::new(),
+            viewport: None,
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+            counters: HashMap::new(),
+            float_cache: HashMap::new(),
+            cache_map: solver3::cache::LayoutCacheMap::default(),
+            previous_positions: Vec::new(),
+            cached_display_list: None,
+            prev_dom_ptr: 0,
+            prev_viewport: LogicalRect::zero(),
+        };
+        let mut scratch_text = TextLayoutCache::new();
+        let viewport = LogicalRect::new(LogicalPosition::zero(), available);
+        let external = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+
+        let layout_result = solver3::layout_document(
+            &mut scratch_cache,
+            &mut scratch_text,
+            styled_dom,
+            viewport,
+            &self.font_manager,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &mut None,
+            None, // gpu cache: render-time only, geometry doesn't need it
+            &self.renderer_resources,
+            self.id_namespace,
+            styled_dom.dom_id,
+            false,
+            Vec::new(),
+            None,
+            &self.image_cache,
+            self.system_style.clone(),
+            external.get_system_time_fn,
+        );
+        if layout_result.is_err() {
+            return LogicalSize::zero();
+        }
+
+        // Union of every node's absolute bounds = true content extent
+        // (root.used_size alone can be clamped to the viewport).
+        let Some(tree) = scratch_cache.tree.as_ref() else {
+            return LogicalSize::zero();
+        };
+        let mut max_x = 0.0f32;
+        let mut max_y = 0.0f32;
+        for (idx, node) in tree.nodes.iter().enumerate() {
+            let Some(size) = node.used_size else { continue };
+            let pos = solver3::pos_get(&scratch_cache.calculated_positions, idx)
+                .unwrap_or(LogicalPosition::zero());
+            max_x = max_x.max(pos.x + size.width);
+            max_y = max_y.max(pos.y + size.height);
+        }
+        LogicalSize::new(max_x, max_y)
+    }
+
     pub fn layout_dom_recursive(
         &mut self,
         styled_dom: StyledDom,
@@ -1769,6 +1873,15 @@ impl LayoutWindow {
             scroll_offset,
             bounds.size,
             LogicalPosition::zero(),
+        );
+        // Inject the headless-measure hook so the VirtualView callback can
+        // size item DOMs (VirtualViewCallbackInfo::measure_dom → the
+        // trampoline below → LayoutWindow::measure_dom on scratch caches).
+        // Same raw-window-pointer liveness contract as CallbackInfo.
+        #[cfg(feature = "std")]
+        callback_info.set_measure_dom_fn(
+            virtual_view_measure_dom_trampoline,
+            core::ptr::from_mut::<Self>(self).cast(),
         );
 
         // Clone the user data for the callback

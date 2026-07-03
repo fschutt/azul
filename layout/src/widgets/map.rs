@@ -30,7 +30,7 @@
 //!   view wiring; tiles render as empty placeholders.
 //! - **Geolocation dot composes on top.** Users stack a normal child
 //!   `Dom` (with a `NodeType::GeolocationProbe` deeper in the
-//!   subtree) on top of the map widget — the widget doesn't bake in
+//!   subtree) on top of the map widget - the widget doesn't bake in
 //!   any geolocation feature itself.
 //!
 //! Compile gate: no new HTTP / MVT / proj4 dependencies in this tick.
@@ -63,7 +63,7 @@ pub struct MapTileId {
     pub y: u32,
 }
 
-/// Configuration of one map tile layer — usually the base raster /
+/// Configuration of one map tile layer - usually the base raster /
 /// vector layer. Additional layers (heatmaps, custom `GeoJSON`) compose
 /// as further `MapWidget` instances stacked atop.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,7 +293,7 @@ impl MapWidget {
     ///   doesn't have to wire anything).
     /// - Pinch callbacks that zoom in / out.
     ///
-    /// No tile-fetch worker is wired — tiles render as placeholders.
+    /// No tile-fetch worker is wired - tiles render as placeholders.
     /// Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one.
     #[must_use] pub fn dom(self) -> Dom {
         self.build_dom(None)
@@ -447,13 +447,13 @@ pub struct MapTileCache {
     /// mouse-move to derive the pixel delta, which then converts to a
     /// lat/lon delta via the Web Mercator inverse.
     pub drag_anchor: Option<azul_core::geom::LogicalPosition>,
-    /// Pinch reference distance (pixels) — the two-finger separation
+    /// Pinch reference distance (pixels) - the two-finger separation
     /// the last time a pinch event was observed for this widget.
     /// `Some` while a pinch is in flight, `None` between gestures.
     /// On each subsequent pinch update we compute
     /// `dz = log2(current_distance / pinch_anchor)` and add it to
     /// `viewport.zoom`, then reset the anchor to the current
-    /// distance — so the gesture stays continuous across many frames.
+    /// distance - so the gesture stays continuous across many frames.
     pub pinch_anchor: Option<f32>,
     /// The user's `on_viewport_changed` hook, copied here from the builder
     /// so the pan / pinch callbacks can fire it. Carried across relayout.
@@ -495,7 +495,7 @@ impl MapTileCache {
 
     /// Bound the tile cache by evicting tiles far from the current viewport.
     ///
-    /// Without this, `tiles` grows without limit — panning across the world or
+    /// Without this, `tiles` grows without limit - panning across the world or
     /// zooming in and out keeps every tile ever fetched (each decoded SVG is
     /// tens-to-hundreds of KB), so a long session leaks memory. Called after a
     /// viewport change once the new view's tiles are queued.
@@ -568,7 +568,7 @@ pub enum TileEntry {
     /// re-render.
     Ready { svg: AzString },
     /// Fetch failed. Held so the framework doesn't immediately
-    /// re-try the same URL — caller can choose to clear failed
+    /// re-try the same URL - caller can choose to clear failed
     /// entries on retry.
     Failed { error: AzString },
 }
@@ -730,7 +730,7 @@ fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon)
 }
 
 /// Pointer down → record the drag anchor. The widget knows nothing
-/// about the user's overall state `RefAny` — only its own dataset —
+/// about the user's overall state `RefAny` - only its own dataset -
 /// so the anchor lives in `MapTileCache::drag_anchor`.
 extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
@@ -754,7 +754,7 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 /// the next move computes a fresh delta.
 ///
 /// If a pinch gesture is in flight (two fingers on the widget), the
-/// pan branch is skipped and the move event drives zoom instead —
+/// pan branch is skipped and the move event drives zoom instead -
 /// `dz = log2(current_distance / pinch_anchor)`. The next move resets
 /// the anchor to the current distance so the gesture stays
 /// continuous across many frames.
@@ -873,7 +873,7 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
 
 /// Mouse-wheel / trackpad scroll over the map = ZOOM (Leaflet / Google-Maps
 /// convention), not content scroll. The map's `VirtualView` has no scroll overflow,
-/// so the framework's queued wheel deltas would otherwise be wasted — drain them
+/// so the framework's queued wheel deltas would otherwise be wasted - drain them
 /// and apply as a zoom step, then queue + spawn the tiles the new zoom needs and
 /// re-render in place.
 extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -997,7 +997,7 @@ fn pan_viewport(
 /// minimal `<html><body>` envelope because `str_to_dom_unstyled`
 /// expects a document root; the wrapper divs are zero-impact in
 /// layout. Returns `None` if the `xml` feature is off or parsing
-/// fails — the caller then falls back to the placeholder glyph.
+/// fails - the caller then falls back to the placeholder glyph.
 // Render the decoded tile SVG to a COLOUR image node, reusing the framework's
 // `render_svg_group` rasteriser (the one that renders the tiger), which honours
 // the SVG `fill`/`stroke` attrs that `features_to_svg` emits. The DOM SVG path
@@ -1139,13 +1139,13 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
 }
 
 /// Low-frequency timer that spawns fetches for any `Pending` tiles the
-/// `VirtualView` marked since the last spawn — the path that the
+/// `VirtualView` marked since the last spawn - the path that the
 /// `pointer/scroll/after_mount` handlers can't cover (a rebuild-driven viewport
 /// change marks tiles `Pending` in the `VirtualView` render, which has no
 /// `add_thread`). Installed once in `map_on_after_mount`. The `data` clone
 /// tracks the persistent dataset, so writebacks land in the rendered cache.
 /// Cheap no-op when nothing is `Pending`; never `RefreshDom`s (that would
-/// orphan the cache the workers write to — tile writebacks drive re-render).
+/// orphan the cache the workers write to - tile writebacks drive re-render).
 extern "C" fn map_fetch_sweep_tick(
     mut data: RefAny,
     mut info: TimerCallbackInfo,
@@ -1158,7 +1158,7 @@ extern "C" fn map_fetch_sweep_tick(
 }
 
 /// `{z}/{x}/{y}` substitution. Mirrors `azul_dll`'s `build_tile_url`
-/// (the widget can't reach the dll, so it's duplicated here — trivial).
+/// (the widget can't reach the dll, so it's duplicated here - trivial).
 fn build_tile_url(template: &str, tile: MapTileId) -> String {
     use alloc::string::ToString;
     template
@@ -1219,7 +1219,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 /// A one-tile margin (`+ 1.0`) is added each side so a tile scrolling into
 /// view is already requested; the result is clamped to the valid
 /// `0..=tile_count-1` grid. The pure core of `map_widget_render`'s grid
-/// loop — what decides which tiles get fetched.
+/// loop - what decides which tiles get fetched.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
 fn visible_tile_range(
@@ -1247,7 +1247,7 @@ fn visible_tile_range(
 }
 
 /// Wrap a (possibly negative or over-range) tile column into the valid
-/// `0..tile_count` band — the horizontal world-wrap. `rem_euclid` (not `%`)
+/// `0..tile_count` band - the horizontal world-wrap. `rem_euclid` (not `%`)
 /// so columns west of the antimeridian map to the east side: at `tile_count`
 /// = 4, column `-1` → `3`, column `4` → `0`.
 #[allow(clippy::cast_possible_wrap)] // bounded layout/render numeric cast
@@ -1255,7 +1255,7 @@ fn wrap_tile_x(x: i32, tile_count: u32) -> u32 {
     x.rem_euclid(tile_count.max(1) as i32) as u32
 }
 
-/// `f(view)` — the tile ids a `viewport` needs to fill a `bounds`-sized widget.
+/// `f(view)` - the tile ids a `viewport` needs to fill a `bounds`-sized widget.
 /// Shared by the `VirtualView` render and the pan/zoom handlers so a handler can
 /// mark + spawn the NEW viewport's tiles immediately, rather than waiting for the
 /// next render pass to discover them. Mirrors `map_widget_render`'s grid math.

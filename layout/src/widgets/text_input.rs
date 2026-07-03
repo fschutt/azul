@@ -1101,20 +1101,35 @@ fn default_on_virtual_key_down_inner(
     let label_node_id = info.get_next_sibling(placeholder_node_id)?;
     let _cursor_node_id = info.get_first_child(label_node_id)?;
 
-    if c != VirtualKeyCode::Back {
-        return None;
+    // Dispatch to the user's on_virtual_key_down callback first; a
+    // TextInputValid::No return suppresses the built-in editing behavior.
+    let result = {
+        // rustc doesn't understand the borrowing lifetime here
+        let text_input = &mut *text_input;
+        let inner_clone = text_input.inner.clone();
+        match text_input.on_virtual_key_down.as_mut() {
+            Some(TextInputOnVirtualKeyDown { callback, refany }) => {
+                (callback.cb)(refany.clone(), info, inner_clone)
+            }
+            None => OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            },
+        }
+    };
+
+    if result.valid == TextInputValid::Yes && c == VirtualKeyCode::Back {
+        text_input.inner.text = {
+            let mut internal = text_input.inner.text.clone().into_library_owned_vec();
+            internal.pop();
+            internal.into()
+        };
+        text_input.inner.cursor_pos = text_input.inner.cursor_pos.saturating_sub(1);
+
+        info.change_node_text(label_node_id, text_input.inner.get_text().into());
     }
 
-    text_input.inner.text = {
-        let mut internal = text_input.inner.text.clone().into_library_owned_vec();
-        internal.pop();
-        internal.into()
-    };
-    text_input.inner.cursor_pos = text_input.inner.cursor_pos.saturating_sub(1);
-
-    info.change_node_text(label_node_id, text_input.inner.get_text().into());
-
-    None
+    Some(result.update)
 }
 
 extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {

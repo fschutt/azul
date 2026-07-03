@@ -13,7 +13,8 @@
 //! non-removable chip renders no "x" and carries no live callback — it is then
 //! just a stateless styled pill (a near-clone of [`Badge`]).
 //!
-//! Key types: [`Chip`], [`ChipKind`], [`ChipState`], [`ChipOnRemove`].
+//! Key types: [`Chip`], [`ChipKind`], [`ChipState`], [`ChipOnRemove`],
+//! [`ChipOnClick`].
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
@@ -63,6 +64,28 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_chip_on_remove_callback_thunk,
     setter_fn:      AzApp_setChipOnRemoveCallbackInvoker,
     from_handle_fn: AzChipOnRemoveCallback_createFromHostHandle,
+    extra_args:     [ state: ChipState ],
+}
+
+/// Callback function type invoked when the chip's label area is clicked.
+pub type ChipOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo, ChipState) -> Update;
+impl_widget_callback!(
+    ChipOnClick,
+    OptionChipOnClick,
+    ChipOnClickCallback,
+    ChipOnClickCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        ChipOnClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: CHIP_ON_CLICK_INVOKER,
+    invoker_ty:     AzChipOnClickCallbackInvoker,
+    thunk_fn:       az_chip_on_click_callback_thunk,
+    setter_fn:      AzApp_setChipOnClickCallbackInvoker,
+    from_handle_fn: AzChipOnClickCallback_createFromHostHandle,
     extra_args:     [ state: ChipState ],
 }
 
@@ -139,6 +162,8 @@ pub struct ChipStateWrapper {
     pub inner: ChipState,
     /// Optional: function to call when the chip is removed.
     pub on_remove: OptionChipOnRemove,
+    /// Optional: function to call when the chip's label area is clicked.
+    pub on_click: OptionChipOnClick,
 }
 
 /// The visible/hidden state of a [`Chip`].
@@ -295,6 +320,27 @@ impl Chip {
         self
     }
 
+    /// Sets the click callback, invoked when the chip's label area is clicked.
+    #[inline]
+    pub fn set_on_click<C: Into<ChipOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
+        self.chip_state.on_click = Some(ChipOnClick {
+            callback: on_click.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// Builder-style setter for the click callback.
+    #[inline]
+    #[must_use] pub fn with_on_click<C: Into<ChipOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
+        self.set_on_click(data, on_click);
+        self
+    }
+
     /// Replaces `self` with an empty default chip and returns the original.
     #[inline]
     #[must_use] pub fn swap_with_default(&mut self) -> Self {
@@ -312,9 +358,35 @@ impl Chip {
             refany::OptionRefAny,
         };
 
-        let label = Dom::create_text(self.label)
+        let has_on_click = matches!(self.chip_state.on_click, OptionChipOnClick::Some(_));
+
+        // The remove ("x") and the label-click callbacks share the same state
+        // RefAny so both handlers observe the same ChipState.
+        let state_ref = RefAny::new(self.chip_state);
+
+        let mut label = Dom::create_text(self.label)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_LABEL_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_LABEL_STYLE));
+
+        // The click callback is attached to the LABEL node rather than the
+        // pill container: a container-level MouseUp would also fire when the
+        // remove "x" (a child of the container) is clicked, double-firing
+        // alongside on_remove. Attaching per-child sidesteps that (same
+        // wiring as list_view's row/column callbacks); clicks on the pill's
+        // padding therefore do not trigger on_click.
+        if has_on_click {
+            label = label.with_tab_index(TabIndex::Auto).with_callbacks(
+                alloc::vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    callback: CoreCallback {
+                        cb: default_on_chip_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: state_ref.clone(),
+                }]
+                .into(),
+            );
+        }
 
         let mut children = alloc::vec![label];
 
@@ -330,7 +402,7 @@ impl Chip {
                             cb: default_on_chip_remove as usize,
                             ctx: OptionRefAny::None,
                         },
-                        refany: RefAny::new(self.chip_state),
+                        refany: state_ref.clone(),
                     }]
                     .into(),
                 );
@@ -380,6 +452,20 @@ extern "C" fn default_on_chip_remove(mut data: RefAny, mut info: CallbackInfo) -
     info.set_css_property(container, CssProperty::const_display(LayoutDisplay::None));
 
     result
+}
+
+/// Label click handler. Invokes the optional user `on_click` with the current
+/// [`ChipState`] (mirrors `default_on_chip_remove`, minus the state flip/hide).
+extern "C" fn default_on_chip_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut chip) = data.downcast_mut::<ChipStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    let inner = chip.inner;
+    let chip = &mut *chip;
+    match chip.on_click.as_mut() {
+        Some(ChipOnClick { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+        None => Update::DoNothing,
+    }
 }
 
 impl From<Chip> for Dom {
