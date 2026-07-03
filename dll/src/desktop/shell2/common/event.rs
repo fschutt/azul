@@ -336,21 +336,39 @@ extern "C" fn auto_scroll_timer_callback(
     // Get current mouse position from window state
     let full_window_state = callback_info.get_current_window_state();
 
-    // Check if still dragging (left mouse button is down)
-    if !full_window_state.mouse_state.left_down {
+    // MWA-B8: the timer stays alive for ANY live drag — text selection
+    // (button held), node drag-and-drop, or an OS file hover (no button
+    // state exists from our side during an XDND/OLE drag).
+    let dragging = full_window_state.mouse_state.left_down
+        || callback_info.is_drag_active()
+        || callback_info.get_hovered_file().is_some();
+    if !dragging {
         return azul_core::callbacks::TimerCallbackReturn::terminate_unchanged();
     }
 
-    // Get mouse position - if mouse is outside window, terminate timer
-    let mouse_position = match full_window_state.mouse_state.cursor_position.get_position() {
-        Some(pos) => pos,
-        None => {
+    // MWA-B8: OutOfWindow coordinates are VALID input for auto-scroll —
+    // scrolling while the pointer is past the window edge is the entire
+    // point. The old get_position() (None for OutOfWindow) self-terminated
+    // the timer the moment X11 delivered LeaveNotify during the implicit
+    // grab (holding still past the edge stopped scrolling), and likewise
+    // under Windows' WM_MOUSELEAVE-during-SetCapture.
+    let mouse_position = match &full_window_state.mouse_state.cursor_position {
+        azul_core::window::CursorPosition::InWindow(pos)
+        | azul_core::window::CursorPosition::OutOfWindow(pos) => *pos,
+        azul_core::window::CursorPosition::Uninitialized => {
             return azul_core::callbacks::TimerCallbackReturn::terminate_unchanged();
         }
     };
 
-    // Get the focused node (the node being drag-selected in)
-    let focused_node = match callback_info.get_focused_node() {
+    // MWA-B8: anchor node — the focused node for text-selection drags,
+    // else the node under the pointer (node DnD / OS file hover, where
+    // nothing is focused). Previously focused-only, so non-text drags
+    // never found a scroll container.
+    let anchor_node = callback_info
+        .get_focused_node()
+        .copied()
+        .or_else(|| callback_info.get_deepest_hovered_node());
+    let focused_node = match anchor_node {
         Some(node) => node,
         None => {
             return azul_core::callbacks::TimerCallbackReturn::continue_unchanged();
@@ -4061,6 +4079,26 @@ pub trait PlatformWindow {
             }
         };
 
+        // MWA-B8: keep the auto-scroll timer alive for NON-TEXT drags too —
+        // node DnD and OS file hovers never auto-scrolled (TextSelectionDrag
+        // was the only StartAutoScrollTimer trigger). The start handler is
+        // idempotent (checks timers.contains_key).
+        let autoscroll_start_result: Option<ProcessEventResult> = {
+            let wants = synthetic_events.iter().any(|ev| {
+                matches!(
+                    ev.event_type,
+                    azul_core::events::EventType::FileHover
+                        | azul_core::events::EventType::Drag
+                        | azul_core::events::EventType::DragStart
+                )
+            });
+            if wants {
+                Some(self.apply_system_change(&SystemChange::StartAutoScrollTimer))
+            } else {
+                None
+            }
+        };
+
         // Update active drag position with current mouse position.
         // This must happen BEFORE callbacks so titlebar_drag (and other drag
         // callbacks) see the updated DragContext.current_position.
@@ -4724,6 +4762,11 @@ pub trait PlatformWindow {
         // MWA-A3c: fold the incremental :hover restyle outcome (computed
         // right after event determination above) into the pass result.
         if let Some(r) = hover_restyle_result {
+            result = result.max(r);
+        }
+
+        // MWA-B8: fold the drag-auto-scroll timer start (if any).
+        if let Some(r) = autoscroll_start_result {
             result = result.max(r);
         }
 

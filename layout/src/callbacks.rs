@@ -3601,6 +3601,23 @@ impl CallbackInfo {
             .get_dropped_files()
     }
 
+    /// Deepest node currently under the mouse pointer (MWA-B8). Anchor for
+    /// drag auto-scroll when there is no focused node — node drags and OS
+    /// file hovers scroll the container under the pointer, not the focused
+    /// text field.
+    #[must_use] pub fn get_deepest_hovered_node(&self) -> Option<DomNodeId> {
+        let hit = self
+            .get_layout_window()
+            .hover_manager
+            .get_current(&crate::managers::hover::InputPointId::Mouse)?;
+        hit.hovered_nodes.iter().next().and_then(|(dom_id, entry)| {
+            entry.regular_hit_test_nodes.keys().next_back().map(|nid| DomNodeId {
+                dom: *dom_id,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*nid)),
+            })
+        })
+    }
+
     /// Check if a node or file drag is currently active
     ///
     /// Returns true if either a node drag or file drag is in progress.
