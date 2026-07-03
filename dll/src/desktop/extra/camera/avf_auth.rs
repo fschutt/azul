@@ -143,10 +143,28 @@ pub fn request_av_access_nonblocking(video: bool) {
         None => return,
     };
     let label = media_label(media);
+    // MWA-C-permission: every arm now parks its outcome in the process-global
+    // channel — the capability pump folds it into the PermissionManager on
+    // the next event pass and fires PermissionChanged. Previously outcomes
+    // were only logged, so manager state stayed NotDetermined forever.
+    use azul_layout::managers::permission::{
+        push_async_result, Capability, PermissionQuality, PermissionState,
+    };
+    let capability = if video {
+        Capability::Camera
+    } else {
+        Capability::Microphone
+    };
     let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) };
     match status.0 {
         STATUS_AUTHORIZED => {
             crate::plog_info!("[avf_auth] {} access already granted", label);
+            push_async_result(
+                capability,
+                PermissionState::Granted {
+                    quality: PermissionQuality::Full,
+                },
+            );
         }
         STATUS_DENIED | STATUS_RESTRICTED => {
             crate::plog_warn!(
@@ -156,15 +174,31 @@ pub fn request_av_access_nonblocking(video: bool) {
                  terminal app when launched from a terminal)",
                 label
             );
+            push_async_result(
+                capability,
+                if status.0 == STATUS_RESTRICTED {
+                    PermissionState::Restricted
+                } else {
+                    PermissionState::Denied
+                },
+            );
         }
         _ => {
             crate::plog_info!("[avf_auth] requesting {} access (async, OS prompt)…", label);
+            push_async_result(capability, PermissionState::Requested);
             let handler = RcBlock::new(move |granted: Bool| {
-                if granted.as_bool() {
+                // Runs on a TCC dispatch-queue thread; the channel is the
+                // designed OS-thread → pump handoff (MWA-A1b).
+                let state = if granted.as_bool() {
                     crate::plog_info!("[avf_auth] async request: access granted");
+                    PermissionState::Granted {
+                        quality: PermissionQuality::Full,
+                    }
                 } else {
                     crate::plog_warn!("[avf_auth] async request: access denied by user");
-                }
+                    PermissionState::Denied
+                };
+                push_async_result(capability, state);
             });
             unsafe {
                 AVCaptureDevice::requestAccessForMediaType_completionHandler(media, &handler);

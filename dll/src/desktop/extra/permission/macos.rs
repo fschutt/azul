@@ -35,15 +35,31 @@ use objc::{msg_send, sel, sel_impl};
 
 pub fn handle_event(event: &PermissionDiffEvent) {
     match event {
-        PermissionDiffEvent::Subscribe { capability, .. } => match capability {
-            Capability::Camera => request_av_capture_access(true),
-            Capability::Microphone => request_av_capture_access(false),
-            // TODO(P1.2+): PHPhotoLibrary requestAuthorizationForAccessLevel:
-            // handler:, CGRequestScreenCaptureAccess, CLLocationManager
-            // requestWhenInUseAuthorization, … — wired per capability as the
-            // matching widgets land.
-            _ => {}
-        },
+        PermissionDiffEvent::Subscribe { capability, .. } => {
+            // MWA-C-permission: seed the manager with the CURRENT TCC state
+            // on every Subscribe (probe_status was implemented but had zero
+            // callers — dead code while the manager cache stayed
+            // NotDetermined). Non-prompting reads only; skip NotDetermined
+            // so an unknown probe never regresses a live state.
+            let probed = probe_status(*capability);
+            if probed != PermissionState::NotDetermined {
+                azul_layout::managers::permission::push_async_result(*capability, probed);
+            }
+            match capability {
+                Capability::Camera => request_av_capture_access(true),
+                Capability::Microphone => request_av_capture_access(false),
+                // Geolocation: the CLLocationManager prompt is owned by the
+                // parallel geolocation backend (extra/geolocation/macos.rs);
+                // its auth-change delegate pushes async results. Seeding
+                // above keeps get_permission_status truthful meanwhile.
+                // ScreenCapture: preflight seeded above; the prompt fires
+                // from the screencap backend on first use (which now pushes
+                // its outcome too).
+                // PhotoLibrary etc.: probe-seeded; prompt wiring lands with
+                // the matching widgets.
+                _ => {}
+            }
+        }
         // Release / Reconfigure: the capture sessions are owned by the
         // camera / mic worker threads (torn down via their close paths), so
         // there is nothing to release on the permission side.

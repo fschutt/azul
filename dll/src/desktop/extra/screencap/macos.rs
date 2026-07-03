@@ -103,6 +103,15 @@ fn ensure_screen_access() -> bool {
                 Err(_) => return true,
             };
         if preflight() {
+            // MWA-C-permission: inform the PermissionManager (this backend
+            // used to bypass it entirely — ScreenCapture state stayed
+            // NotDetermined forever).
+            azul_layout::managers::permission::push_async_result(
+                azul_layout::managers::permission::Capability::ScreenCapture,
+                azul_layout::managers::permission::PermissionState::Granted {
+                    quality: azul_layout::managers::permission::PermissionQuality::Full,
+                },
+            );
             return true;
         }
         // Not granted yet — trigger the prompt (first time) / System-Settings
@@ -114,6 +123,20 @@ fn ensure_screen_access() -> bool {
                  Privacy & Security → Screen Recording (a terminal-launched binary is listed as \
                  the terminal app), then retry",
                 if granted { "granted" } else { "not yet granted" }
+            );
+            // MWA-C-permission: park the outcome for the manager. "Not yet
+            // granted" after a request = the user must act in System
+            // Settings → report Denied (could_re_prompt stays false, which
+            // matches macOS: re-prompting is impossible until reset).
+            azul_layout::managers::permission::push_async_result(
+                azul_layout::managers::permission::Capability::ScreenCapture,
+                if granted {
+                    azul_layout::managers::permission::PermissionState::Granted {
+                        quality: azul_layout::managers::permission::PermissionQuality::Full,
+                    }
+                } else {
+                    azul_layout::managers::permission::PermissionState::Denied
+                },
             );
             return granted;
         }

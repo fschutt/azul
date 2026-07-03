@@ -104,6 +104,28 @@ mod imp {
             if high_accuracy { 8u32 } else { 6u32 },
         );
         let started: Result<(), _> = client.call("Start", &());
+        // MWA-C-permission: geoclue is the Linux geolocation authority — its
+        // Start outcome IS the permission answer (agent-mediated). Park it so
+        // PermissionManager state stops sitting at NotDetermined while fixes
+        // flow (or explains why they don't).
+        {
+            use azul_layout::managers::permission::{
+                push_async_result, Capability, PermissionQuality, PermissionState,
+            };
+            match &started {
+                Ok(()) => push_async_result(
+                    Capability::Geolocation,
+                    PermissionState::Granted {
+                        quality: if high_accuracy {
+                            PermissionQuality::Full
+                        } else {
+                            PermissionQuality::Reduced
+                        },
+                    },
+                ),
+                Err(_) => push_async_result(Capability::Geolocation, PermissionState::Denied),
+            }
+        }
         if started.is_err() {
             return;
         }
