@@ -86,6 +86,11 @@ pub const DEFAULT_SAMPLE_TIMEOUT_MS: u64 = 2000;
 /// Batch draining avoids per-sample overhead on every new sample.
 const DRAIN_BATCH_SIZE: usize = 100;
 
+/// MWA-B4: button-state bitfield recorded for touch-contact samples (a
+/// finger on the surface = primary contact, mirroring BUTTON_STATE_LEFT in
+/// the dll's mouse path so drag heuristics treat touch like a held button).
+pub const TOUCH_CONTACT_BUTTON_STATE: u8 = 0x01;
+
 /// Configuration for gesture detection thresholds
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GestureDetectionConfig {
@@ -480,6 +485,14 @@ pub struct GestureAndDragManager {
     /// Cleared automatically at the start of every new input recording
     /// cycle so a single OS event doesn't keep firing.
     pub native_gesture: Option<NativeGestureEvent>,
+    /// MWA-B4: OS touch id → session id. Desktop touch events previously
+    /// only filled the window's `touch_state`, so no touch ever became an
+    /// input session and `detect_pinch` / `detect_rotation` (which need two
+    /// concurrent sessions) were structurally dead on Windows/X11/Wayland.
+    /// The shells call [`touch_down`](Self::touch_down) /
+    /// [`touch_move`](Self::touch_move) / [`touch_up`](Self::touch_up); each
+    /// finger gets its own session (two fingers = two live sessions).
+    touch_sessions: alloc::collections::btree_map::BTreeMap<u64, u64>,
 }
 
 /// Gesture detected by a platform-native recognizer.
@@ -538,6 +551,7 @@ impl GestureAndDragManager {
             pad_state: None,
             long_press_callbacks_invoked: Vec::new(),
             native_gesture: None,
+            touch_sessions: alloc::collections::btree_map::BTreeMap::new(),
         }
     }
 
@@ -715,6 +729,104 @@ impl GestureAndDragManager {
         if let Some(session) = self.input_sessions.last_mut() {
             session.ended = true;
         }
+    }
+
+    // --- Per-touch-id input sessions (MWA-B4) ---
+
+    /// A finger made contact: open a dedicated session for `touch_id`.
+    pub fn touch_down(
+        &mut self,
+        touch_id: u64,
+        position: LogicalPosition,
+        timestamp: CoreInstant,
+        window_position: WindowPosition,
+        screen_position: LogicalPosition,
+    ) {
+        let session_id = self.start_input_session(
+            position,
+            timestamp,
+            TOUCH_CONTACT_BUTTON_STATE,
+            window_position,
+            screen_position,
+        );
+        self.touch_sessions.insert(touch_id, session_id);
+    }
+
+    /// A finger moved: record into ITS OWN session — never `last_mut()`,
+    /// two concurrent fingers must not interleave into one session (that
+    /// would corrupt both the drag heuristics and pinch/rotate distances).
+    /// Returns `true` if a sample was recorded.
+    pub fn touch_move(
+        &mut self,
+        touch_id: u64,
+        position: LogicalPosition,
+        timestamp: CoreInstant,
+        screen_position: LogicalPosition,
+    ) -> bool {
+        let Some(session_id) = self.touch_sessions.get(&touch_id).copied() else {
+            return false;
+        };
+        self.record_sample_for_session(session_id, position, timestamp, screen_position)
+    }
+
+    /// A finger lifted (or the OS cancelled the touch): final sample + end
+    /// the session and drop the id mapping.
+    pub fn touch_up(
+        &mut self,
+        touch_id: u64,
+        position: LogicalPosition,
+        timestamp: CoreInstant,
+        screen_position: LogicalPosition,
+    ) {
+        let Some(session_id) = self.touch_sessions.remove(&touch_id) else {
+            return;
+        };
+        let _ = self.record_sample_for_session(session_id, position, timestamp, screen_position);
+        if let Some(session) = self
+            .input_sessions
+            .iter_mut()
+            .find(|s| s.session_id == session_id)
+        {
+            session.ended = true;
+        }
+    }
+
+    /// Record a sample into the session with `session_id` (MWA-B4 helper —
+    /// the by-id sibling of `record_input_sample_with_pen`, which only ever
+    /// writes to the LAST session).
+    fn record_sample_for_session(
+        &mut self,
+        session_id: u64,
+        position: LogicalPosition,
+        timestamp: CoreInstant,
+        screen_position: LogicalPosition,
+    ) -> bool {
+        let Some(session) = self
+            .input_sessions
+            .iter_mut()
+            .find(|s| s.session_id == session_id)
+        else {
+            return false;
+        };
+        if session.ended {
+            return false;
+        }
+        if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
+            let remove_count =
+                session.samples.len() - MAX_SAMPLES_PER_SESSION + DRAIN_BATCH_SIZE;
+            session.samples.drain(0..remove_count);
+        }
+        session.samples.push(InputSample {
+            position,
+            screen_position,
+            timestamp,
+            button_state: TOUCH_CONTACT_BUTTON_STATE,
+            event_id: allocate_event_id(),
+            pressure: 0.5,
+            tilt: (0.0, 0.0),
+            touch_radius: (0.0, 0.0),
+        });
+        true
     }
 
     /// Clear old input sessions that have timed out
@@ -1559,5 +1671,72 @@ impl GestureAndDragManager {
                 self.active_drag = None;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod touch_session_tests {
+    use super::*;
+    use azul_core::task::{Instant as TestInstant, SystemTick};
+
+    fn ts(n: u64) -> CoreInstant {
+        TestInstant::Tick(SystemTick::new(n))
+    }
+
+    fn pos(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition { x, y }
+    }
+
+    #[test]
+    fn two_fingers_open_two_concurrent_sessions() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        assert_eq!(m.input_sessions.len(), 2);
+        assert!(!m.input_sessions[0].ended);
+        assert!(!m.input_sessions[1].ended);
+    }
+
+    #[test]
+    fn moves_land_in_the_correct_session_not_the_last_one() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        // Move finger 1 — the FIRST session must receive the sample even
+        // though session 2 is the most recent (record_input_sample would
+        // have corrupted session 2 here).
+        assert!(m.touch_move(1, pos(90.0, 100.0), ts(2), pos(90.0, 100.0)));
+        assert_eq!(m.input_sessions[0].samples.len(), 2, "finger 1 session grew");
+        assert_eq!(m.input_sessions[1].samples.len(), 1, "finger 2 session untouched");
+    }
+
+    #[test]
+    fn spread_gesture_is_detected_as_pinch_out() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        // Spread: initial distance 100 → current distance 200.
+        m.touch_move(1, pos(50.0, 100.0), ts(2), pos(50.0, 100.0));
+        m.touch_move(2, pos(250.0, 100.0), ts(3), pos(250.0, 100.0));
+        let pinch = m.detect_pinch().expect("two concurrent touch sessions must yield a pinch");
+        assert!(
+            pinch.scale > 1.5,
+            "spread must read as pinch-out (scale {}), initial {} current {}",
+            pinch.scale,
+            pinch.initial_distance,
+            pinch.current_distance
+        );
+    }
+
+    #[test]
+    fn touch_up_ends_only_its_own_session() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        m.touch_up(1, pos(100.0, 100.0), ts(2), pos(100.0, 100.0));
+        assert!(m.input_sessions[0].ended);
+        assert!(!m.input_sessions[1].ended);
+        // Further moves for the lifted finger are ignored.
+        assert!(!m.touch_move(1, pos(0.0, 0.0), ts(3), pos(0.0, 0.0)));
     }
 }
