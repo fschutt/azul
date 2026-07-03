@@ -1569,20 +1569,51 @@ impl WaylandWindow {
                     (window.wayland.wl_proxy_add_listener)(
                         deco,
                         &DECO_LISTENER as *const _ as *const _,
-                        &mut window as *mut _ as *mut _,
+                        // MWA-B6: pass the WINDOW, not a pointer to the local
+                        // binding — the old `&mut window as *mut _` was
+                        // harmless only while the configure handler ignored
+                        // its data argument; it acts on the window now.
+                        &mut *window as *mut WaylandWindow as *mut _,
                     );
-                    // set_mode(server_side = 2): opcode 1, signature "u".
+                    // MWA-B6: honor flags.decorations instead of forcing
+                    // server-side. CSD-wanting and frameless windows request
+                    // client_side (compositor draws nothing); everything
+                    // else requests server_side. client_side=1, server_side=2.
+                    let flags = &window.common.current_window_state.flags;
+                    let wants_csd = crate::desktop::csd::should_inject_csd(
+                        flags.has_decorations,
+                        flags.decorations,
+                    );
+                    let frameless = flags.decorations
+                        == azul_core::window::WindowDecorations::None;
+                    let mode: u32 = if wants_csd || frameless { 1 } else { 2 };
+                    // set_mode: opcode 1, signature "u".
                     type SetModeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32);
                     let set_mode_fn: SetModeFn =
                         std::mem::transmute(window.wayland.wl_proxy_marshal);
-                    set_mode_fn(deco, 1, 2);
+                    set_mode_fn(deco, 1, mode);
                     window.toplevel_decoration =
                         Some(deco as *mut defines::zxdg_toplevel_decoration_v1);
                     log_info!(
                         LogCategory::Platform,
-                        "[Wayland] Requested server-side decorations (xdg-decoration)"
+                        "[Wayland] Requested {} decorations (xdg-decoration)",
+                        if mode == 2 { "server-side" } else { "client-side" }
                     );
                 }
+            }
+        } else {
+            // MWA-B6: no xdg-decoration protocol (e.g. GNOME) — the
+            // compositor will NEVER draw a frame. If the user asked for
+            // normal decorations, flip this window to CSD so it isn't a
+            // bare, immovable, uncloseable rectangle.
+            let flags = &mut window.common.current_window_state.flags;
+            if flags.decorations != azul_core::window::WindowDecorations::None {
+                flags.decorations = azul_core::window::WindowDecorations::None;
+                flags.has_decorations = true;
+                log_info!(
+                    LogCategory::Platform,
+                    "[Wayland] No xdg-decoration protocol — falling back to CSD titlebar"
+                );
             }
         }
 

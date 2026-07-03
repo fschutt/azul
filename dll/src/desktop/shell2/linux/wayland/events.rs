@@ -636,14 +636,29 @@ pub(super) extern "C" fn registry_global_handler(
 /// decoration mode it will use (1 = client_side, 2 = server_side). Informational;
 /// we requested server-side, so this confirms whether the compositor honored it.
 pub(super) extern "C" fn toplevel_decoration_configure_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _deco: *mut zxdg_toplevel_decoration_v1,
     mode: u32,
 ) {
-    // Informational: we requested server-side (2); this reports what the compositor
-    // chose. A listener must exist for libwayland to dispatch the event, but we don't
-    // need to act on it (the compositor draws the decorations either way).
-    let _ = mode;
+    // MWA-B6: the compositor reports the mode it WILL use (1 = client_side,
+    // 2 = server_side) — it may refuse our request. If it will NOT draw
+    // server decorations while the window still expects them, flip to CSD
+    // (frameless + azul titlebar) and regenerate. The old handler discarded
+    // this, leaving a bare uncloseable rectangle on refusing compositors.
+    if data.is_null() {
+        return;
+    }
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    const CLIENT_SIDE: u32 = 1;
+    let flags = &mut window.common.current_window_state.flags;
+    if mode == CLIENT_SIDE
+        && flags.decorations != azul_core::window::WindowDecorations::None
+    {
+        flags.decorations = azul_core::window::WindowDecorations::None;
+        flags.has_decorations = true;
+        window.common.frame_needs_regeneration = true;
+        window.request_redraw();
+    }
 }
 
 pub(super) extern "C" fn registry_global_remove_handler(
