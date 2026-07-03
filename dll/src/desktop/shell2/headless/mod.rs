@@ -2965,11 +2965,26 @@ mod tests {
         scroll_frame_to(&mut window, 30.0);
         window.regenerate_layout().expect("scroll relayout");
         let damage = window.cpu_backend.last_frame_damage.clone();
+        // Scrollbar gutter: body margin 8 + 200px container - platform
+        // scrollbar width (8px macOS overlay, 12px Windows, 17px Linux
+        // classic). Damage rects can merge with adjacent content damage,
+        // so assert the gutter COLUMNS are covered rather than requiring a
+        // rect that ORIGINATES inside the gutter.
+        let sb_w: f32 = if cfg!(target_os = "macos") {
+            8.0
+        } else if cfg!(target_os = "windows") {
+            12.0
+        } else {
+            17.0
+        };
+        let gutter_start = 8.0 + 200.0 - sb_w;
         match &damage {
             FrameDamage::Rects(rs) => {
                 assert!(
-                    rs.iter().any(|r| r.origin.x >= 190.0),
-                    "scroll must damage the scrollbar region (thumb moved via                      GPU value cache); got {:?}",
+                    rs.iter().any(|r| r.origin.x + r.size.width > gutter_start + 0.5),
+                    "scroll must damage the scrollbar region past x={} (thumb moved \
+                     via GPU value cache); got {:?}",
+                    gutter_start,
                     rs
                 );
             }
