@@ -435,7 +435,9 @@ impl X11Window {
     /// Handle mouse button press/release events
     pub fn handle_mouse_button(&mut self, event: &XButtonEvent) -> ProcessEventResult {
         let is_down = event.type_ == ButtonPress;
-        let position = LogicalPosition::new(event.x as f32, event.y as f32);
+        // X11 event coords are PHYSICAL px; everything downstream (hit test,
+        // mouse_state, menu bounds check) is LOGICAL.
+        let position = self.to_logical_pos(event.x as f32, event.y as f32);
 
         // Menu/popup dismissal: the menu grabbed the pointer (owner_events=False),
         // so a press whose coords fall OUTSIDE the menu's own bounds is a "click
@@ -518,7 +520,7 @@ impl X11Window {
             MouseButton::Middle => BUTTON_STATE_MIDDLE,
             _ => BUTTON_STATE_NONE,
         };
-        let screen_pos = LogicalPosition::new(event.x_root as f32, event.y_root as f32);
+        let screen_pos = self.to_logical_pos(event.x_root as f32, event.y_root as f32);
         self.record_input_sample(position, button_state, is_down, !is_down, Some(screen_pos));
 
         // Update hit test
@@ -539,7 +541,8 @@ impl X11Window {
 
     /// Handle mouse motion events
     pub fn handle_mouse_move(&mut self, event: &XMotionEvent) -> ProcessEventResult {
-        let position = LogicalPosition::new(event.x as f32, event.y as f32);
+        // Physical (X11 wire) → logical.
+        let position = self.to_logical_pos(event.x as f32, event.y as f32);
 
         // Handle active scrollbar drag (special case - not part of normal event system)
         if self.common.scrollbar_drag_state.is_some() {
@@ -560,7 +563,7 @@ impl X11Window {
         let ms = &self.common.current_window_state.mouse_state;
         let button_state =
             (ms.left_down as u8) | ((ms.right_down as u8) << 1) | ((ms.middle_down as u8) << 2);
-        let screen_pos = LogicalPosition::new(event.x_root as f32, event.y_root as f32);
+        let screen_pos = self.to_logical_pos(event.x_root as f32, event.y_root as f32);
         self.record_input_sample(position, button_state, false, false, Some(screen_pos));
 
         // Update hit test
@@ -588,7 +591,8 @@ impl X11Window {
 
     /// Handle mouse entering/leaving window
     pub fn handle_mouse_crossing(&mut self, event: &XCrossingEvent) -> ProcessEventResult {
-        let position = LogicalPosition::new(event.x as f32, event.y as f32);
+        // Physical (X11 wire) → logical.
+        let position = self.to_logical_pos(event.x as f32, event.y as f32);
 
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
@@ -1072,14 +1076,19 @@ impl X11Window {
             _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
         };
 
+        // show_menu's screen-space math is consumed as PHYSICAL px on X11
+        // (parent_pos above is physical); scale the logical cursor to match.
+        let scale = self.hidpi();
+        let physical_cursor = LogicalPosition::new(position.x * scale, position.y * scale);
+
         // Create menu window options using unified menu system
         let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.resources.system_style.clone(),
             parent_pos,
-            None,           // No trigger rect for context menus
-            Some(position), // Cursor position
-            None,           // No parent menu
+            None,                   // No trigger rect for context menus
+            Some(physical_cursor), // Cursor position (physical px)
+            None,                   // No parent menu
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.

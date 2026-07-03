@@ -138,6 +138,9 @@ pub struct Xlib {
     pub XConvertSelection: XConvertSelection,
     pub XFree: XFree,
     pub XResizeWindow: XResizeWindow,
+    /// Optional: present in every real libX11, but loaded leniently so a
+    /// stripped/stub library degrades to the monitor-scale DPI fallback.
+    pub XResourceManagerString: Option<XResourceManagerString>,
     pub XUnmapWindow: XUnmapWindow,
     pub XCreateFontCursor: XCreateFontCursor,
     pub XDefineCursor: XDefineCursor,
@@ -218,6 +221,9 @@ impl Xlib {
             XConvertSelection: load_symbol!(lib, _, "XConvertSelection"),
             XFree: load_symbol!(lib, _, "XFree"),
             XResizeWindow: load_symbol!(lib, _, "XResizeWindow"),
+            XResourceManagerString: unsafe {
+                lib.get_symbol::<XResourceManagerString>("XResourceManagerString").ok()
+            },
             XUnmapWindow: load_symbol!(lib, _, "XUnmapWindow"),
             XCreateFontCursor: load_symbol!(lib, _, "XCreateFontCursor"),
             XDefineCursor: load_symbol!(lib, _, "XDefineCursor"),

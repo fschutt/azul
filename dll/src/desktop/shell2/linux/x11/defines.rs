@@ -723,6 +723,9 @@ pub type XChangeWindowAttributes =
     unsafe extern "C" fn(*mut Display, Window, c_ulong, *mut XSetWindowAttributes) -> c_int;
 pub type XMoveWindow = unsafe extern "C" fn(*mut Display, Window, c_int, c_int) -> c_int;
 pub type XResizeWindow = unsafe extern "C" fn(*mut Display, Window, c_uint, c_uint) -> c_int;
+/// Returns the RESOURCE_MANAGER property of screen 0 (the `xrdb` database,
+/// where `Xft.dpi` lives). The returned string is owned by Xlib — do NOT free it.
+pub type XResourceManagerString = unsafe extern "C" fn(*mut Display) -> *mut c_char;
 pub type XGetWindowProperty = unsafe extern "C" fn(
     *mut Display,
     Window,

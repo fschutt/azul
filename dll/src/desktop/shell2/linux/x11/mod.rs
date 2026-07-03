@@ -160,6 +160,67 @@ fn try_subscribe_xrandr(
     }
 }
 
+/// Detect the initial DPI for a new window (96 = scale 1.0).
+///
+/// Unit model: `WindowSize.dimensions` is LOGICAL, every X11 wire coordinate
+/// (XCreateWindow, ConfigureNotify, pointer events, XPutImage, …) is PHYSICAL
+/// pixels; `size.dpi / 96` is the conversion factor. This must run BEFORE the
+/// first XCreateWindow/layout so user-provided logical dimensions map to the
+/// right physical window size.
+///
+/// Priority:
+/// 1. `Xft.dpi` from the X resource database (the standard X11 UI-scale knob,
+///    set by GNOME/KDE/xrdb).
+/// 2. The monitor cache's `scale_factor` (XRandR/EDID mm-based estimate),
+///    quantized to 25% steps so measurement noise on ordinary monitors
+///    (e.g. a computed 1.04) stays exactly at scale 1.0 / dpi 96.
+/// 3. 96 (scale 1.0).
+fn detect_initial_dpi(xlib: &Xlib, display: *mut Display) -> u32 {
+    // 1. Xft.dpi from the RESOURCE_MANAGER property (xrdb database).
+    if let Some(dpi) = xft_dpi(xlib, display) {
+        return dpi;
+    }
+
+    // 2. Monitor cache scale (mm-based estimate) — quantized to 0.25 steps.
+    let monitors = crate::desktop::display::get_monitors();
+    if let Some(m) = monitors
+        .as_slice()
+        .iter()
+        .find(|m| m.is_primary_monitor)
+        .or_else(|| monitors.as_slice().first())
+    {
+        let quantized = (m.scale_factor * 4.0).round() / 4.0;
+        if quantized > 0.0 {
+            return (quantized * 96.0) as u32;
+        }
+    }
+
+    // 3. Standard baseline.
+    96
+}
+
+/// Read `Xft.dpi` from the X resource database, if set (sanity-clamped to
+/// 48..=480). Returns `None` when unset, unparsable, or the (optional)
+/// `XResourceManagerString` symbol is missing.
+fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
+    let resource_manager_string = xlib.XResourceManagerString?;
+    let s = unsafe { resource_manager_string(display) };
+    if s.is_null() {
+        return None;
+    }
+    let txt = unsafe { CStr::from_ptr(s) }.to_str().ok()?;
+    for line in txt.lines() {
+        if let Some(v) = line.strip_prefix("Xft.dpi:") {
+            if let Ok(dpi) = v.trim().parse::<f32>() {
+                if (48.0..=480.0).contains(&dpi) {
+                    return Some(dpi.round() as u32);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 ///
 /// Returns: (window_handle, has_argb_visual, optional_colormap)
@@ -240,15 +301,16 @@ fn try_create_argb_window(
     let attr_mask =
         CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask | CWOverrideRedirect;
 
-    // Create window with ARGB visual
+    // Create window with ARGB visual (X11 wire size = PHYSICAL pixels)
+    let phys_size = size.get_physical_size();
     let window = unsafe {
         (xlib.XCreateWindow)(
             display,
             root,
             0,
             0,
-            size.dimensions.width as u32,
-            size.dimensions.height as u32,
+            phys_size.width.max(1),
+            phys_size.height.max(1),
             0, // border_width
             visual_info.depth,
             InputOutput,
@@ -496,14 +558,8 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
         }
         let ev = &*(cookie.data as *const defines::XIDeviceEvent);
         let evtype = ev.evtype;
-        let dpi = win
-            .common
-            .current_window_state
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get();
-        let pos = azul_core::geom::LogicalPosition::new(ev.event_x as f32 / dpi, ev.event_y as f32 / dpi);
+        // XI2 event coords are physical; touch/pen state wants logical.
+        let pos = win.to_logical_pos(ev.event_x as f32, ev.event_y as f32);
         if evtype == defines::XI_TouchBegin
             || evtype == defines::XI_TouchUpdate
             || evtype == defines::XI_TouchEnd
@@ -962,6 +1018,29 @@ impl X11Window {
     /// Request a window redraw by sending an Expose event.
     ///
     /// If GPU damage rects are available, sends per-rect Expose events
+    /// Current HiDPI scale factor (`size.dpi / 96`; 1.0 at the standard 96 DPI).
+    ///
+    /// Unit model: `WindowSize.dimensions` and everything layout-side is
+    /// LOGICAL; all X11 wire coordinates (window sizes, ConfigureNotify,
+    /// pointer events, XPutImage rects) are PHYSICAL pixels.
+    /// physical = logical * hidpi(), logical = physical / hidpi().
+    #[inline]
+    pub(crate) fn hidpi(&self) -> f32 {
+        self.common
+            .current_window_state
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get()
+    }
+
+    /// Convert PHYSICAL (X11 wire) coordinates to a LOGICAL position.
+    #[inline]
+    pub(crate) fn to_logical_pos(&self, x: f32, y: f32) -> LogicalPosition {
+        let s = self.hidpi();
+        LogicalPosition::new(x / s, y / s)
+    }
+
     /// for incremental invalidation; otherwise sends a full-surface Expose.
     pub fn request_redraw(&mut self) {
         // Record render intent (the authoritative signal render_and_present
@@ -978,10 +1057,12 @@ impl X11Window {
                 expose.type_ = Expose;
                 expose.display = self.display;
                 expose.window = self.window;
-                expose.x = dr.origin.x as i32;
-                expose.y = dr.origin.y as i32;
-                expose.width = dr.size.width as i32 + 1;
-                expose.height = dr.size.height as i32 + 1;
+                // gpu_damage_rects are LOGICAL; Expose wire coords are PHYSICAL.
+                let s = self.hidpi();
+                expose.x = (dr.origin.x * s).floor() as i32;
+                expose.y = (dr.origin.y * s).floor() as i32;
+                expose.width = (dr.size.width * s).ceil() as i32 + 1;
+                expose.height = (dr.size.height * s).ceil() as i32 + 1;
                 unsafe {
                     (self.xlib.XSendEvent)(self.display, self.window, 0, ExposureMask, &mut event);
                 }
@@ -1222,7 +1303,21 @@ impl X11Window {
         }
         attributes.event_mask = event_mask;
 
-        let size = options.window_state.size;
+        // Detect the monitor scale BEFORE the first XCreateWindow/layout:
+        // `size.dimensions` stays LOGICAL, `size.dpi` carries the scale, and all
+        // X11 wire sizes below use `size.get_physical_size()`. Popup/menu windows
+        // created through pending_window_creates re-run this on the same display,
+        // so they inherit the same DPI as their parent.
+        let mut size = options.window_state.size;
+        size.dpi = detect_initial_dpi(&xlib, display);
+        if size.dpi != 96 {
+            log_debug!(
+                LogCategory::Platform,
+                "[X11] initial DPI detected: {} (scale {})",
+                size.dpi,
+                size.dpi as f32 / 96.0
+            );
+        }
         let position = options.window_state.position;
         // Monitor ID is now stored in FullWindowState.monitor_id, not in WindowState
         // For now, we default to monitor 0
@@ -1242,15 +1337,16 @@ impl X11Window {
             event_mask,
         )
         .unwrap_or_else(|| {
-            // Fallback to simple window without ARGB visual
+            // Fallback to simple window without ARGB visual (wire size = physical px)
+            let phys = size.get_physical_size();
             let window = unsafe {
                 (xlib.XCreateSimpleWindow)(
                     display,
                     root,
                     0,
                     0,
-                    size.dimensions.width as u32,
-                    size.dimensions.height as u32,
+                    phys.width.max(1),
+                    phys.height.max(1),
                     1,
                     0,
                     0,
@@ -1478,9 +1574,11 @@ impl X11Window {
                 ));
 
                 let render_api = sender.create_api();
+                // WebRender documents/framebuffers are sized in PHYSICAL pixels.
+                let phys = size.get_physical_size();
                 let framebuffer_size = webrender::api::units::DeviceIntSize::new(
-                    size.dimensions.width as i32,
-                    size.dimensions.height as i32,
+                    (phys.width as i32).max(1),
+                    (phys.height as i32).max(1),
                 );
                 let wr_doc_id = render_api.add_document(framebuffer_size);
                 let document_id = wr_translate2::translate_document_id_wr(wr_doc_id);
@@ -1592,7 +1690,7 @@ impl X11Window {
                 layout_window: None,
                 current_window_state: FullWindowState {
                     title: options.window_state.title.clone(),
-                    size: options.window_state.size,
+                    size, // logical dimensions + DETECTED dpi (see detect_initial_dpi above)
                     position: options.window_state.position,
                     flags: options.window_state.flags,
                     theme: options.window_state.theme,
@@ -1876,9 +1974,12 @@ impl X11Window {
                 )
             }
             WindowPosition::Uninitialized => {
-                // No explicit position - center on target monitor
-                let window_width = size.dimensions.width as isize;
-                let window_height = size.dimensions.height as isize;
+                // No explicit position - center on target monitor.
+                // Monitor geometry is raw X11 (physical) pixels, so center
+                // with the window's PHYSICAL size, not its logical dimensions.
+                let phys = size.get_physical_size();
+                let window_width = phys.width as isize;
+                let window_height = phys.height as isize;
 
                 let center_x =
                     target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
@@ -2392,7 +2493,12 @@ impl X11Window {
             }
             defines::ConfigureNotify => {
                 let ev = unsafe { &event.configure };
+                // ConfigureNotify carries PHYSICAL pixels; dimensions/viewport
+                // (layout side) are LOGICAL — divide by the HiDPI factor.
                 let (new_width, new_height) = (ev.width as u32, ev.height as u32);
+                let scale = self.hidpi();
+                let new_logical =
+                    LogicalSize::new(new_width as f32 / scale, new_height as f32 / scale);
 
                 let old_context = self.dynamic_selector_context.clone();
                 let size_changed = self.common.current_window_state.size.get_physical_size()
@@ -2405,10 +2511,9 @@ impl X11Window {
                 };
 
                 if size_changed {
-                    self.common.current_window_state.size.dimensions =
-                        LogicalSize::new(new_width as f32, new_height as f32);
-                    self.dynamic_selector_context.viewport_width = new_width as f32;
-                    self.dynamic_selector_context.viewport_height = new_height as f32;
+                    self.common.current_window_state.size.dimensions = new_logical;
+                    self.dynamic_selector_context.viewport_width = new_logical.width;
+                    self.dynamic_selector_context.viewport_height = new_logical.height;
                     self.dynamic_selector_context.orientation = if new_width > new_height {
                         azul_css::dynamic_selector::OrientationType::Landscape
                     } else {
@@ -2454,7 +2559,7 @@ impl X11Window {
                 let new_pos = azul_core::window::WindowPosition::Initialized(
                     azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
                 );
-                let new_dims = LogicalSize::new(new_width as f32, new_height as f32);
+                let new_dims = new_logical;
                 self.common.update_window_state(
                     crate::desktop::shell2::common::event::WindowStateSource::Os,
                     |ws| {
@@ -2471,20 +2576,46 @@ impl X11Window {
                         ev.x as f32 + new_width as f32 / 2.0,
                         ev.y as f32 + new_height as f32 / 2.0,
                     );
+                    // Per-monitor DPI only applies when no global Xft.dpi is set
+                    // (Xft.dpi is display-wide — moving monitors must not change it).
+                    let has_xft_dpi = xft_dpi(&self.xlib, self.display).is_some();
                     if let Some(display) =
                         crate::desktop::display::get_display_at_point(window_center)
                     {
-                        let new_dpi = (display.scale_factor * 96.0) as u32;
+                        // Same 0.25-step quantization as detect_initial_dpi, so a
+                        // noisy mm-based estimate (~1.04) stays at exactly 96 DPI.
+                        let new_dpi =
+                            (((display.scale_factor * 4.0).round() / 4.0) * 96.0) as u32;
                         let old_dpi = self.common.current_window_state.size.dpi;
-                        if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
+                        if !has_xft_dpi && new_dpi > 0 && (new_dpi as i32 - old_dpi as i32).abs() > 1 {
                             log_debug!(
                                 LogCategory::Window,
                                 "[X11 DPI Change] {} -> {} (moved to different monitor)",
                                 old_dpi,
                                 new_dpi
                             );
+                            // The PHYSICAL window size did not change (only the
+                            // monitor did) — keep it fixed and re-derive the
+                            // logical dimensions under the new scale, so layout
+                            // sees the new effective size.
+                            let phys = self.common.current_window_state.size.get_physical_size();
+                            let new_scale = new_dpi as f32 / 96.0;
+                            let new_logical = LogicalSize::new(
+                                phys.width as f32 / new_scale,
+                                phys.height as f32 / new_scale,
+                            );
                             self.common.current_window_state.size.dpi = new_dpi;
+                            self.common.current_window_state.size.dimensions = new_logical;
+                            self.dynamic_selector_context.viewport_width = new_logical.width;
+                            self.dynamic_selector_context.viewport_height = new_logical.height;
+                            self.common.next_relayout_reason =
+                                azul_core::callbacks::RelayoutReason::Resize;
                             self.regenerate_layout().ok();
+                            // Everything on screen was rendered at the old scale:
+                            // force a full re-present (the CPU surface re-allocates
+                            // itself from the new physical dims in render_frame).
+                            self.os_present_requested = true;
+                            self.request_redraw();
                         }
                     }
                 }
@@ -2589,7 +2720,8 @@ impl X11Window {
             azul_core::window::WindowPosition::Initialized(p) => (p.x, p.y),
             _ => (0, 0),
         };
-        LogicalPosition::new((root_x - ox) as f32, (root_y - oy) as f32)
+        // root/window position are physical px; hit-testing wants logical.
+        self.to_logical_pos((root_x - ox) as f32, (root_y - oy) as f32)
     }
 
     /// Send a ClientMessage to the XDND source window.
@@ -2921,7 +3053,8 @@ impl X11Window {
         // Re-clamp a menu's position to the monitor work-area now that its TRUE
         // size is known (show_menu positioned it from a size ESTIMATE). Keeps a
         // menu whose real content exceeds the estimate from spilling off-screen
-        // right/bottom. (DPI=1 assumption: position is physical, work_area logical.)
+        // right/bottom. Position and work_area are both raw X11 (physical) px,
+        // so compare with the menu's PHYSICAL size.
         if self.common.current_window_state.flags.window_type
             == azul_core::window::WindowType::Menu
         {
@@ -2930,16 +3063,17 @@ impl X11Window {
                 let posf = azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32);
                 if let Some(display) = crate::desktop::display::get_display_at_point(posf) {
                     let wa = display.work_area;
+                    let scale = final_size.get_hidpi_factor().inner.get();
                     // Height-clamp: a menu taller than the monitor work-area is
                     // capped to it so it never runs off the bottom of the screen.
                     // The menu DOM scrolls within the capped height (overflow-y:auto
                     // on the menu container in menu_renderer).
-                    if final_size.dimensions.height > wa.size.height {
-                        final_size.dimensions.height = wa.size.height;
+                    if final_size.dimensions.height * scale > wa.size.height {
+                        final_size.dimensions.height = wa.size.height / scale;
                         self.common.current_window_state.size = final_size;
                     }
-                    let w = final_size.dimensions.width;
-                    let h = final_size.dimensions.height;
+                    let w = final_size.dimensions.width * scale;
+                    let h = final_size.dimensions.height * scale;
                     let nx = posf.x.min(wa.origin.x + wa.size.width - w).max(wa.origin.x);
                     let ny = posf.y.min(wa.origin.y + wa.size.height - h).max(wa.origin.y);
                     if (nx - posf.x).abs() > 0.5 || (ny - posf.y).abs() > 0.5 {
@@ -3820,10 +3954,16 @@ impl X11Window {
 
         // Size changed?
         if previous.size.dimensions != current.size.dimensions {
-            let width = current.size.dimensions.width as u32;
-            let height = current.size.dimensions.height as u32;
+            // Programmatic (user-state) resize: dimensions are logical,
+            // XResizeWindow takes physical px.
+            let phys = current.size.get_physical_size();
             unsafe {
-                (self.xlib.XResizeWindow)(self.display, self.window, width, height);
+                (self.xlib.XResizeWindow)(
+                    self.display,
+                    self.window,
+                    phys.width.max(1),
+                    phys.height.max(1),
+                );
             }
         }
 
@@ -4201,14 +4341,17 @@ impl PlatformWindow for X11Window {
         text: &str,
         position: azul_core::geom::LogicalPosition,
     ) {
-        // Convert logical position to screen coordinates
+        // Convert logical position to LOGICAL screen coordinates: the window
+        // position is physical px, `position` is logical; show_tooltip →
+        // TooltipWindow::show converts logical→physical exactly once.
         let window_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => (pos.x, pos.y),
             _ => (0, 0),
         };
+        let scale = self.hidpi();
 
-        let screen_x = window_pos.0 + position.x as i32;
-        let screen_y = window_pos.1 + position.y as i32;
+        let screen_x = (window_pos.0 as f32 / scale + position.x) as i32;
+        let screen_y = (window_pos.1 as f32 / scale + position.y) as i32;
 
         self.show_tooltip(text.to_string(), screen_x, screen_y);
     }
@@ -4237,14 +4380,23 @@ impl X11Window {
             _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
         };
 
+        // show_menu mixes the parent position and cursor into screen-space
+        // offsets that every backend consumes as PHYSICAL px (its work-area
+        // clamp + the resulting RelativeToParentWindow offset). parent_pos is
+        // already physical (X11 window position); scale the LOGICAL cursor
+        // position to physical so both are in the same space.
+        let scale = self.hidpi();
+        let physical_cursor =
+            azul_core::geom::LogicalPosition::new(position.x * scale, position.y * scale);
+
         // Create menu window options
         let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
             parent_pos,
-            None,           // No trigger rect
-            Some(position), // Position for menu
-            None,           // No parent menu
+            None,                   // No trigger rect
+            Some(physical_cursor), // Position for menu (physical px)
+            None,                   // No parent menu
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.
@@ -4344,11 +4496,14 @@ impl X11Window {
         use defines::XPoint;
 
         if let ImePosition::Initialized(rect) = self.common.current_window_state.ime_position {
+            // ime_position is logical; the XIM spot / GDK cursor rect are
+            // window-relative PHYSICAL px.
+            let scale = self.hidpi();
             // Use XIM if available (preferred over GTK)
             if let Some(ref ime_mgr) = self.ime_manager {
                 let spot = XPoint {
-                    x: rect.origin.x as i16,
-                    y: rect.origin.y as i16,
+                    x: (rect.origin.x * scale) as i16,
+                    y: (rect.origin.y * scale) as i16,
                 };
 
                 // XNSpotLocation must be wrapped in an XNPreeditAttributes
@@ -4379,10 +4534,10 @@ impl X11Window {
             // Fallback to GTK IM context if XIM not available
             if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
                 let gdk_rect = dlopen::GdkRectangle {
-                    x: rect.origin.x as i32,
-                    y: rect.origin.y as i32,
-                    width: rect.size.width as i32,
-                    height: rect.size.height as i32,
+                    x: (rect.origin.x * scale) as i32,
+                    y: (rect.origin.y * scale) as i32,
+                    width: (rect.size.width * scale).ceil() as i32,
+                    height: (rect.size.height * scale).ceil() as i32,
                 };
 
                 unsafe {
