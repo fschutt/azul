@@ -1283,6 +1283,12 @@ fn matches_focus_filter(
         (DragOver, EventType::DragOver) => true,
         (DragLeave, EventType::DragLeave) => true,
         (Drop, EventType::Drop) => true,
+        // MWA-C-clipboard: W3C clipboard events on the focused element
+        // (qualified paths — `use FocusEventFilter::Copy` would shadow the
+        // `Copy` trait in this scope).
+        (FocusEventFilter::Copy, EventType::Copy) => true,
+        (FocusEventFilter::Cut, EventType::Cut) => true,
+        (FocusEventFilter::Paste, EventType::Paste) => true,
         _ => false,
     }
 }
@@ -1949,6 +1955,17 @@ pub enum FocusEventFilter {
     CompositionUpdate,
     /// IME composition ended (W3C `compositionend`)
     CompositionEnd,
+
+    // Clipboard events (W3C clipboard-events; MWA-C-clipboard: fire on the
+    // focused element BEFORE the OS default action, which preventDefault
+    // suppresses). APPENDED at the end for ABI stability — sync to api.json
+    // via azul-doc autofix in Phase D.
+    /// Content is about to be copied from the focused element (W3C `copy`)
+    Copy,
+    /// Content is about to be cut from the focused element (W3C `cut`)
+    Cut,
+    /// Content is about to be pasted into the focused element (W3C `paste`)
+    Paste,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -2540,6 +2557,13 @@ pub trait EventProvider {
         E::PermissionChanged => vec![EF::Hover(H::PermissionChanged), EF::Window(W::PermissionChanged)],
         E::BiometricResult => vec![EF::Hover(H::BiometricResult), EF::Window(W::BiometricResult)],
         E::KeyringResult => vec![EF::Hover(H::KeyringResult), EF::Window(W::KeyringResult)],
+
+        // MWA-C-clipboard: W3C clipboard events — fire on the focused
+        // element before the OS default action (preventDefault suppresses
+        // the default copy/cut/paste).
+        E::Copy => vec![EF::Focus(F::Copy)],
+        E::Cut => vec![EF::Focus(F::Cut)],
+        E::Paste => vec![EF::Focus(F::Paste)],
 
         // Unsupported events
         _ => vec![],

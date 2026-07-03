@@ -4413,10 +4413,25 @@ pub trait PlatformWindow {
         // Get external callbacks for system time
         let external = ExternalSystemCallbacks::rust_internal();
 
-        // Process pre-callback system changes (text selection, shortcuts) via apply_system_change
+        // Process pre-callback system changes (text selection, shortcuts) via apply_system_change.
+        // MWA-C-clipboard: Copy/Cut/Paste are DEFERRED until after callback
+        // dispatch so the W3C clipboard events (On::Copy/Cut/Paste) fire
+        // first and preventDefault can suppress the OS default action —
+        // previously the OS clipboard was written/read before any user
+        // callback ran and the clipboard events never fired at all.
+        let mut deferred_clipboard: Vec<SystemChange> = Vec::new();
         for system_change in &pre_filter.system_changes {
-            let r = self.apply_system_change(system_change);
-            result = result.max(r);
+            match system_change {
+                SystemChange::CopyToClipboard
+                | SystemChange::CutToClipboard { .. }
+                | SystemChange::PasteFromClipboard => {
+                    deferred_clipboard.push(system_change.clone());
+                }
+                _ => {
+                    let r = self.apply_system_change(system_change);
+                    result = result.max(r);
+                }
+            }
         }
 
         // EVENT FILTERING AND CALLBACK DISPATCH (W3C Propagation Model)
@@ -4439,6 +4454,75 @@ pub trait PlatformWindow {
         // a stale Scroll event (which would zoom the map on every mouse move).
         if let Some(w) = self.get_layout_window_mut() {
             w.scroll_manager.pending_wheel_event = None;
+        }
+
+        // MWA-C-clipboard: fire the W3C clipboard events for the deferred
+        // Copy/Cut/Paste shortcuts, then apply the OS default action unless
+        // a callback preventDefault'ed. For Paste, the OS clipboard is read
+        // into the manager FIRST so On::Paste callbacks can inspect it via
+        // get_clipboard_content(); the pending content is cleared afterwards
+        // (it used to persist forever, returning stale data).
+        if !deferred_clipboard.is_empty() {
+            let clip_target = old_focus.unwrap_or(azul_core::dom::DomNodeId {
+                dom: DomId { inner: 0 },
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    azul_core::id::NodeId::ZERO,
+                )),
+            });
+            let has_paste = deferred_clipboard
+                .iter()
+                .any(|c| matches!(c, SystemChange::PasteFromClipboard));
+            if has_paste {
+                if let Some(clipboard_text) = get_system_clipboard() {
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        lw.clipboard_manager.set_paste_content(ClipboardContent {
+                            plain_text: clipboard_text.as_str().into(),
+                            styled_runs: StyledTextRunVec::from_const_slice(&[]),
+                        });
+                    }
+                }
+            }
+            let now_ts = {
+                #[cfg(feature = "std")]
+                {
+                    azul_core::task::Instant::from(std::time::Instant::now())
+                }
+                #[cfg(not(feature = "std"))]
+                {
+                    azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0))
+                }
+            };
+            let clip_events: Vec<azul_core::events::SyntheticEvent> = deferred_clipboard
+                .iter()
+                .map(|c| {
+                    let et = match c {
+                        SystemChange::CopyToClipboard => azul_core::events::EventType::Copy,
+                        SystemChange::CutToClipboard { .. } => azul_core::events::EventType::Cut,
+                        _ => azul_core::events::EventType::Paste,
+                    };
+                    azul_core::events::SyntheticEvent::new(
+                        et,
+                        azul_core::events::EventSource::User,
+                        clip_target,
+                        now_ts.clone(),
+                        azul_core::events::EventData::None,
+                    )
+                })
+                .collect();
+            let (clip_result, _clip_update, clip_prevented) =
+                self.dispatch_events_propagated(&clip_events);
+            result = result.max(clip_result);
+            if !clip_prevented {
+                for change in &deferred_clipboard {
+                    let r = self.apply_system_change(change);
+                    result = result.max(r);
+                }
+            }
+            if has_paste {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.clipboard_manager.clear_paste();
+                }
+            }
         }
 
         let mut should_recurse = false;
