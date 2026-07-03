@@ -3589,8 +3589,19 @@ unsafe extern "system" fn window_proc(
             let scroll_amount = delta as f32 / WHEEL_DELTA as f32;
             let horizontal = msg == WM_MOUSEHWHEEL;
 
-            let x = (lparam & 0xFFFF) as i16 as i32;
-            let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+            // MWA-C-scroll: WM_MOUSEWHEEL/WM_MOUSEHWHEEL carry SCREEN
+            // coordinates in lparam (unlike the client-relative WM_MOUSE*
+            // messages) — convert first, or on any window not at the
+            // desktop origin the wheel hit-tested a spot offset by the
+            // window position and scrolled the wrong (or no) container.
+            let mut wheel_pt = dlopen::POINT {
+                x: (lparam & 0xFFFF) as i16 as i32,
+                y: ((lparam >> 16) & 0xFFFF) as i16 as i32,
+            };
+            unsafe {
+                (window.win32.user32.ScreenToClient)(hwnd, &mut wheel_pt);
+            }
+            let (x, y) = (wheel_pt.x, wheel_pt.y);
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
@@ -3602,6 +3613,39 @@ unsafe extern "system" fn window_proc(
 
             // Save previous state
             window.common.previous_window_state = Some(window.common.current_window_state.clone());
+
+            // MWA-C-scroll: refresh the hit test BEFORE recording the wheel
+            // delta (macOS/X11 order). record_scroll_from_hit_test targets
+            // hover_manager.get_current(), so recording first aimed the
+            // delta at wherever the pointer was on the LAST mouse-move —
+            // wrong container right after a layout change or fast move.
+            // CPU mode (no WR hit_tester/document_id) uses the shared
+            // perform_hit_test → cpu_hit_tester path.
+            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
+                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            }
+            if let Some(ref mut layout_window) = window.common.layout_window {
+                if let (Some(hit_tester), Some(doc_id)) = (
+                    window.common.hit_tester.as_mut(),
+                    window.common.document_id,
+                ) {
+                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
+
+                    let hit_tester = hit_tester.resolve();
+                    let hit_test = fullhittest_new_webrender(
+                        &*hit_tester,
+                        doc_id,
+                        layout_window.focus_manager.get_focused_node().copied(),
+                        &layout_window.layout_results,
+                        &CursorPosition::InWindow(logical_pos),
+                        hidpi_factor,
+                    );
+
+                    layout_window
+                        .hover_manager
+                        .push_hit_test(InputPointId::Mouse, hit_test);
+                }
+            }
 
             // Queue scroll input for the physics timer instead of directly setting offsets.
             // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
@@ -3661,38 +3705,7 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            // CPU mode (no WR hit_tester/document_id): resolve the hit test via
-            // the shared perform_hit_test → cpu_hit_tester path. Without this,
-            // events dispatched against a stale/empty hover state — hover CSS,
-            // clicks, wheel targeting and MouseEnter/Leave were all dead in the
-            // Windows CPU fallback (the GPU-gated block below has no CPU arm).
-            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
-                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
-            }
-
-            // Update hit test (GPU mode only — CPU mode handled above)
-            if let Some(ref mut layout_window) = window.common.layout_window {
-                if let (Some(hit_tester), Some(doc_id)) = (
-                    window.common.hit_tester.as_mut(),
-                    window.common.document_id,
-                ) {
-                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
-
-                    let hit_tester = hit_tester.resolve();
-                    let hit_test = fullhittest_new_webrender(
-                        &*hit_tester,
-                        doc_id,
-                        layout_window.focus_manager.get_focused_node().copied(),
-                        &layout_window.layout_results,
-                        &CursorPosition::InWindow(logical_pos),
-                        hidpi_factor,
-                    );
-
-                    layout_window
-                        .hover_manager
-                        .push_hit_test(InputPointId::Mouse, hit_test);
-                }
-            }
+            // (hit test already refreshed above, before the delta was recorded)
 
             // V2 system will detect Scroll event from ScrollManager state
             let result = window.process_window_events(0);

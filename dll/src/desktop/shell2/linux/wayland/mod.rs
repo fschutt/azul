@@ -220,6 +220,14 @@ pub struct WaylandWindow {
     /// MWA-B3: most recent input serial (pointer button OR key press) —
     /// wl_data_device.set_selection requires a real input serial.
     last_input_serial: u32,
+    /// MWA-C-scroll: wl_pointer.axis_source of the current pointer frame
+    /// (0=wheel, 1=finger, 2=continuous, 3=wheel_tilt). Finger/continuous
+    /// axis events classify as TrackpadContinuous so the physics timer
+    /// applies deltas directly (OS/compositor momentum) instead of wheel
+    /// impulses; axis_stop then emits TrackpadEnd for rubber-band
+    /// spring-back. Sticky across frames — compositors resend the source
+    /// with every scroll frame from a given device.
+    current_axis_source: u32,
     data_device_version: u32,
     data_device_initialized: bool,
     drag: events::WaylandDragState,
@@ -1341,6 +1349,7 @@ impl WaylandWindow {
             clipboard_offer: std::ptr::null_mut(),
             clipboard_source: std::ptr::null_mut(),
             last_input_serial: 0,
+            current_axis_source: 0,
             data_device_version: 0,
             data_device_initialized: false,
             drag: events::WaylandDragState::default(),
@@ -2921,12 +2930,27 @@ impl WaylandWindow {
 
                 let now = Instant::from(std::time::Instant::now());
 
+                // MWA-C-scroll: classify by wl_pointer.axis_source — finger
+                // (touchpad) and continuous (e.g. trackpoint with kinetic
+                // scrolling) deltas are position deltas, not wheel ticks;
+                // treating them as WheelDiscrete stacked velocity impulses
+                // and made touchpad scrolling fly. axis_stop → TrackpadEnd.
+                const WL_AXIS_SOURCE_FINGER: u32 = 1;
+                const WL_AXIS_SOURCE_CONTINUOUS: u32 = 2;
+                let source = if self.current_axis_source == WL_AXIS_SOURCE_FINGER
+                    || self.current_axis_source == WL_AXIS_SOURCE_CONTINUOUS
+                {
+                    ScrollInputSource::TrackpadContinuous
+                } else {
+                    ScrollInputSource::WheelDiscrete
+                };
+
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
                         // Raw delta; sign applied centrally (natural-scroll flag).
                         delta_x,
                         delta_y,
-                        ScrollInputSource::WheelDiscrete,
+                        source,
                         &layout_window.hover_manager,
                         &InputPointId::Mouse,
                         now,
@@ -2971,6 +2995,43 @@ impl WaylandWindow {
         // V2: Process events through state-diffing system
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
+    }
+
+    /// MWA-C-scroll: wl_pointer.axis_stop — fingers lifted from the
+    /// touchpad. Emits a zero-delta `TrackpadEnd` at the current scroll
+    /// target so the physics timer runs its rubber-band spring-back (the
+    /// same signal macOS derives from NSEventPhase::Ended). Without it an
+    /// overshot Wayland touchpad scroll stayed stuck past the boundary.
+    pub fn handle_pointer_axis_stop(&mut self) {
+        use azul_core::task::Instant;
+        use azul_layout::managers::hover::InputPointId;
+        use azul_layout::managers::scroll_state::ScrollInputSource;
+
+        const WL_AXIS_SOURCE_FINGER: u32 = 1;
+        const WL_AXIS_SOURCE_CONTINUOUS: u32 = 2;
+        if self.current_axis_source != WL_AXIS_SOURCE_FINGER
+            && self.current_axis_source != WL_AXIS_SOURCE_CONTINUOUS
+        {
+            // Wheel sources get axis_stop too on some compositors; spring-back
+            // only applies to trackpad-style rubber-banding.
+            return;
+        }
+
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            let now = Instant::from(std::time::Instant::now());
+            layout_window.scroll_manager.record_scroll_from_hit_test(
+                0.0,
+                0.0,
+                ScrollInputSource::TrackpadEnd,
+                &layout_window.hover_manager,
+                &InputPointId::Mouse,
+                now,
+            );
+            // No timer start here: a TrackpadEnd only matters after
+            // TrackpadContinuous inputs, which already started the physics
+            // timer; if it somehow expired, there is no overshoot to spring
+            // back from either.
+        }
     }
 
     /// Handle pointer enter event.

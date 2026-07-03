@@ -1646,20 +1646,27 @@ pub(super) extern "C" fn pointer_axis_handler(
     window.handle_pointer_axis(axis, value as f64 / 256.0);
 }
 
-// Stub handlers for unused pointer events
 extern "C" fn pointer_frame_handler(_data: *mut c_void, _pointer: *mut wl_pointer) {}
+// MWA-C-scroll: axis_source/axis_stop were empty stubs, so every Wayland
+// scroll was WheelDiscrete (touchpad deltas became velocity impulses) and
+// rubber-band spring-back never triggered. axis_source arrives before the
+// axis events of its frame — store it; axis_stop = fingers lifted.
 extern "C" fn pointer_axis_source_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _pointer: *mut wl_pointer,
-    _axis_source: u32,
+    axis_source: u32,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.current_axis_source = axis_source;
 }
 extern "C" fn pointer_axis_stop_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _pointer: *mut wl_pointer,
     _time: u32,
     _axis: u32,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_pointer_axis_stop();
 }
 extern "C" fn pointer_axis_discrete_handler(
     _data: *mut c_void,

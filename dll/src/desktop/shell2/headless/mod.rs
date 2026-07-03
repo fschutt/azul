@@ -1355,16 +1355,47 @@ impl HeadlessWindow {
                         let pos = LogicalPosition { x, y };
                         self.common.current_window_state.mouse_state.cursor_position =
                             CursorPosition::InWindow(pos);
-                        self.update_hit_test_at(pos);
-                        record_headless_input(&mut self, false, false); // MWA-A4
-                        let r = self.process_window_events(0);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
+                        // MWA-C-scroll: active scrollbar thumb drag (desktop
+                        // pattern) — scrollbar interaction was untestable in
+                        // E2E because headless never routed it.
+                        if self.common.scrollbar_drag_state.is_some() {
+                            let r = PlatformWindow::handle_scrollbar_drag(&mut self, pos);
+                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                                events_need_redraw = true;
+                            }
+                        } else {
+                            self.update_hit_test_at(pos);
+                            record_headless_input(&mut self, false, false); // MWA-A4
+                            let r = self.process_window_events(0);
+                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                                events_need_redraw = true;
+                            }
                         }
                     }
                     HeadlessEvent::MouseDown { button } => {
                         self.common.previous_window_state =
                             Some(self.common.current_window_state.clone());
+                        // MWA-C-scroll: scrollbar hit first (desktop pattern).
+                        let sb_hit = if matches!(button, azul_core::events::MouseButton::Left) {
+                            self.common
+                                .current_window_state
+                                .mouse_state
+                                .cursor_position
+                                .get_position()
+                                .and_then(|p| {
+                                    PlatformWindow::perform_scrollbar_hit_test(&self, p)
+                                        .map(|h| (h, p))
+                                })
+                        } else {
+                            None
+                        };
+                        if let Some((hit, p)) = sb_hit {
+                            self.common.current_window_state.mouse_state.left_down = true;
+                            let r = PlatformWindow::handle_scrollbar_click(&mut self, hit, p);
+                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                                events_need_redraw = true;
+                            }
+                        } else {
                         match button {
                             azul_core::events::MouseButton::Left => {
                                 self.common.current_window_state.mouse_state.left_down = true;
@@ -1382,10 +1413,16 @@ impl HeadlessWindow {
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
+                        }
                     }
                     HeadlessEvent::MouseUp { button } => {
                         self.common.previous_window_state =
                             Some(self.common.current_window_state.clone());
+                        // MWA-C-scroll: a release ends any scrollbar drag.
+                        if self.common.scrollbar_drag_state.is_some() {
+                            self.common.scrollbar_drag_state = None;
+                            events_need_redraw = true;
+                        }
                         match button {
                             azul_core::events::MouseButton::Left => {
                                 self.common.current_window_state.mouse_state.left_down = false;
@@ -2331,27 +2368,63 @@ mod tests {
                 let pos = LogicalPosition { x, y };
                 window.common.current_window_state.mouse_state.cursor_position =
                     CursorPosition::InWindow(pos);
-                window.update_hit_test_at(pos);
-                record_headless_input(window, false, false); // MWA-A4
-                needs_redraw = !matches!(
-                    window.process_window_events(0),
-                    ProcessEventResult::DoNothing
-                );
+                // MWA-C-scroll: active scrollbar thumb drag (desktop pattern).
+                if window.common.scrollbar_drag_state.is_some() {
+                    needs_redraw = !matches!(
+                        PlatformWindow::handle_scrollbar_drag(window, pos),
+                        ProcessEventResult::DoNothing
+                    );
+                } else {
+                    window.update_hit_test_at(pos);
+                    record_headless_input(window, false, false); // MWA-A4
+                    needs_redraw = !matches!(
+                        window.process_window_events(0),
+                        ProcessEventResult::DoNothing
+                    );
+                }
             }
             HeadlessEvent::MouseDown { button } => {
-                match button {
-                    MouseButton::Left => window.common.current_window_state.mouse_state.left_down = true,
-                    MouseButton::Right => window.common.current_window_state.mouse_state.right_down = true,
-                    MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = true,
-                    _ => {}
+                // MWA-C-scroll: scrollbar hit first (desktop pattern) —
+                // thumb drags / track jumps were untestable in E2E.
+                let sb_hit = if matches!(button, MouseButton::Left) {
+                    window
+                        .common
+                        .current_window_state
+                        .mouse_state
+                        .cursor_position
+                        .get_position()
+                        .and_then(|p| {
+                            PlatformWindow::perform_scrollbar_hit_test(window, p).map(|h| (h, p))
+                        })
+                } else {
+                    None
+                };
+                if let Some((hit, p)) = sb_hit {
+                    window.common.current_window_state.mouse_state.left_down = true;
+                    needs_redraw = !matches!(
+                        PlatformWindow::handle_scrollbar_click(window, hit, p),
+                        ProcessEventResult::DoNothing
+                    );
+                } else {
+                    match button {
+                        MouseButton::Left => window.common.current_window_state.mouse_state.left_down = true,
+                        MouseButton::Right => window.common.current_window_state.mouse_state.right_down = true,
+                        MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = true,
+                        _ => {}
+                    }
+                    record_headless_input(window, true, false); // MWA-A4
+                    needs_redraw = !matches!(
+                        window.process_window_events(0),
+                        ProcessEventResult::DoNothing
+                    );
                 }
-                record_headless_input(window, true, false); // MWA-A4
-                needs_redraw = !matches!(
-                    window.process_window_events(0),
-                    ProcessEventResult::DoNothing
-                );
             }
             HeadlessEvent::MouseUp { button } => {
+                // MWA-C-scroll: a release ends any scrollbar drag.
+                if window.common.scrollbar_drag_state.is_some() {
+                    window.common.scrollbar_drag_state = None;
+                    needs_redraw = true;
+                }
                 match button {
                     MouseButton::Left => window.common.current_window_state.mouse_state.left_down = false,
                     MouseButton::Right => window.common.current_window_state.mouse_state.right_down = false,

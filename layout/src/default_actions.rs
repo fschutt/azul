@@ -94,18 +94,27 @@ use std::collections::BTreeMap;
                 })
         }
 
-        // Activation (Space key)
+        // Activation (Space key) — or page-scroll when nothing activatable
+        // has focus (MWA-C-scroll: the browser default; Shift+Space pages up).
         VirtualKeyCode::Space => {
-            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_element_activatable(focus, layout_results)
-                    && !is_text_input(focus, layout_results)
+            match focused_node.as_ref() {
+                Some(focus)
+                    if is_element_activatable(focus, layout_results)
+                        && !is_text_input(focus, layout_results) =>
                 {
-                    DefaultAction::ActivateFocusedElement {
-                        target: *focus,
-                    }
-                } else {
-                    // Space in text input should insert space (handled by text input system)
-                    DefaultAction::None
-                })
+                    DefaultAction::ActivateFocusedElement { target: *focus }
+                }
+                // Space in text input should insert space (handled by text input system)
+                Some(focus) if is_text_input(focus, layout_results) => DefaultAction::None,
+                _ => DefaultAction::ScrollFocusedContainer {
+                    direction: if shift_down {
+                        ScrollDirection::Up
+                    } else {
+                        ScrollDirection::Down
+                    },
+                    amount: ScrollAmount::Page,
+                },
+            }
         }
 
         // Escape - clear focus
@@ -126,14 +135,25 @@ use std::collections::BTreeMap;
                 VirtualKeyCode::Left => ScrollDirection::Left,
                 _ => ScrollDirection::Right,
             };
-            focused_node.as_ref().map_or(DefaultAction::None, |focus| if is_text_input(focus, layout_results) {
-                    DefaultAction::None
-                } else {
-                    DefaultAction::ScrollFocusedContainer {
-                        direction,
-                        amount: ScrollAmount::Line,
+            // MWA-C-scroll: arrows scroll with NO focused node too (the
+            // consumer anchors on the hovered container then) — only a
+            // focused text input claims the arrows for caret movement.
+            focused_node.as_ref().map_or(
+                DefaultAction::ScrollFocusedContainer {
+                    direction,
+                    amount: ScrollAmount::Line,
+                },
+                |focus| {
+                    if is_text_input(focus, layout_results) {
+                        DefaultAction::None
+                    } else {
+                        DefaultAction::ScrollFocusedContainer {
+                            direction,
+                            amount: ScrollAmount::Line,
+                        }
                     }
-                })
+                },
+            )
         }
 
         // Page Up/Down

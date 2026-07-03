@@ -4700,7 +4700,24 @@ pub trait PlatformWindow {
                                 use azul_core::events::{ScrollDirection, ScrollAmount};
 
                                 if let Some(lw) = self.get_layout_window_mut() {
-                                    if let Some(focused) = lw.focus_manager.focused_node {
+                                    // MWA-C-scroll: anchor on the focused node,
+                                    // else the deepest hovered node — arrows /
+                                    // PgUp/PgDn/Space over an unfocused scroll
+                                    // container previously did nothing.
+                                    let anchor = lw.focus_manager.focused_node.or_else(|| {
+                                        let hit = lw.hover_manager.get_current(
+                                            &azul_layout::managers::hover::InputPointId::Mouse,
+                                        )?;
+                                        hit.hovered_nodes.iter().next().and_then(|(dom_id, entry)| {
+                                            entry.regular_hit_test_nodes.keys().next_back().map(|nid| {
+                                                azul_core::dom::DomNodeId {
+                                                    dom: *dom_id,
+                                                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*nid)),
+                                                }
+                                            })
+                                        })
+                                    });
+                                    if let Some(focused) = anchor {
                                         if let Some(ancestor) = lw.find_scrollable_ancestor(focused) {
                                             if let Some(anc_node) = ancestor.node.into_crate_internal() {
                                                 let anc_bounds = lw.get_node_bounds(ancestor.dom, anc_node);
@@ -5086,7 +5103,9 @@ pub trait PlatformWindow {
         }
     }
 
-    /// Handle track click - jump scroll to clicked position.
+    /// Handle a click on the non-thumb part of a scrollbar: arrow buttons
+    /// line-scroll, track clicks follow the OS preference (jump-to-position
+    /// or page-up/down).
     fn handle_track_click(
         &mut self,
         dom_id: DomId,
@@ -5096,11 +5115,24 @@ pub trait PlatformWindow {
     ) -> ProcessEventResult {
         use azul_core::dom::ScrollbarOrientation;
 
+        // MWA-C-scroll: SystemStyle.scrollbar_preferences.track_click was
+        // computed on every platform but never consumed — every track click
+        // hard-jumped to position regardless of the OS setting.
+        let track_click_pref = self.get_system_style().scrollbar_preferences.track_click;
+
         // Get scrollbar state to calculate target position
         let layout_window = match self.get_layout_window() {
             Some(lw) => lw,
             None => return ProcessEventResult::DoNothing,
         };
+
+        // MWA-C-scroll: ScrollbarHitId has no button variants, so arrow
+        // buttons arrive here folded into *Track — re-run the component
+        // hit-test to tell them apart (they used to jump-scroll like track).
+        let component = layout_window
+            .scroll_manager
+            .hit_test_scrollbars(click_position)
+            .map(|h| h.component);
 
         // Get current scrollbar geometry
         let scrollbar_state = if is_vertical {
@@ -5165,7 +5197,30 @@ pub trait PlatformWindow {
             scroll_state.current_offset.x
         };
 
-        let scroll_delta = target_scroll - current_scroll;
+        let scroll_delta = {
+            use azul_css::system::ScrollbarTrackClick;
+            use azul_layout::managers::scroll_state::ScrollbarComponent;
+            match component {
+                // Arrow buttons: one line per click, toward the arrow.
+                Some(ScrollbarComponent::TopButton) => -KEYBOARD_SCROLL_LINE_PX,
+                Some(ScrollbarComponent::BottomButton) => KEYBOARD_SCROLL_LINE_PX,
+                _ => match track_click_pref {
+                    ScrollbarTrackClick::JumpToPosition => target_scroll - current_scroll,
+                    ScrollbarTrackClick::PageUpDown => {
+                        // Page toward the click: before the thumb pages
+                        // back, past it pages forward (Windows default).
+                        let page = container_size * 0.9;
+                        let thumb_center = scrollbar_state.thumb_position_ratio
+                            + scrollbar_state.thumb_size_ratio * 0.5;
+                        if click_ratio < thumb_center {
+                            -page
+                        } else {
+                            page
+                        }
+                    }
+                },
+            }
+        };
 
         // Apply scroll using gpu_scroll
         if let Err(e) = self.gpu_scroll(

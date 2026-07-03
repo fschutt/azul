@@ -238,6 +238,10 @@ pub extern "C" fn scroll_physics_timer_callback(
 
     // 2. Integrate velocity physics for wheel-based momentum
     let mut velocity_updates: Vec<((DomId, NodeId), LogicalPosition)> = Vec::new();
+    // Residual momentum from nodes that hit their boundary this tick, to be
+    // transferred up the scroll chain after the iteration (can't mutate
+    // node_velocities mid-loop).
+    let mut momentum_handoffs: Vec<((DomId, NodeId), LogicalPosition)> = Vec::new();
 
     for ((dom_id, node_id), node_physics) in &mut physics.node_velocities {
         // Get current scroll info for clamping and per-node CSS config
@@ -312,15 +316,40 @@ pub extern "C" fn scroll_physics_timer_callback(
         node_physics.velocity.x *= decay;
         node_physics.velocity.y *= decay;
 
-        // At edges without rubber-banding: kill velocity
-        if !rubber_band_x
-            && (new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x) {
-                node_physics.velocity.x = 0.0;
+        // At edges without rubber-banding: hand the remaining momentum to a
+        // scrollable ancestor, then kill this node's velocity (MWA-C-scroll:
+        // a fling that exhausts the inner container mid-momentum continues
+        // on the outer one, mirroring the input-time boundary handoff in
+        // select_scroll_target). overscroll-behavior contain/none on this
+        // node stops the chain, matching CSS scroll-chaining semantics.
+        if !rubber_band_x && (new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x) {
+            let into_edge = (new_pos.x <= 0.0 && node_physics.velocity.x < 0.0)
+                || (new_pos.x >= info.max_scroll_x && node_physics.velocity.x > 0.0);
+            if into_edge
+                && info.overscroll_behavior_x == OverscrollBehavior::Auto
+                && node_physics.velocity.x.abs() > velocity_threshold
+            {
+                momentum_handoffs.push((
+                    (*dom_id, *node_id),
+                    LogicalPosition { x: node_physics.velocity.x, y: 0.0 },
+                ));
             }
-        if !rubber_band_y
-            && (new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y) {
-                node_physics.velocity.y = 0.0;
+            node_physics.velocity.x = 0.0;
+        }
+        if !rubber_band_y && (new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y) {
+            let into_edge = (new_pos.y <= 0.0 && node_physics.velocity.y < 0.0)
+                || (new_pos.y >= info.max_scroll_y && node_physics.velocity.y > 0.0);
+            if into_edge
+                && info.overscroll_behavior_y == OverscrollBehavior::Auto
+                && node_physics.velocity.y.abs() > velocity_threshold
+            {
+                momentum_handoffs.push((
+                    (*dom_id, *node_id),
+                    LogicalPosition { x: 0.0, y: node_physics.velocity.y },
+                ));
             }
+            node_physics.velocity.y = 0.0;
+        }
 
         // Check if rubber-banding spring-back is almost complete
         let new_overshoot_x = calculate_overshoot(new_pos.x, 0.0, info.max_scroll_x);
@@ -344,6 +373,50 @@ pub extern "C" fn scroll_physics_timer_callback(
     physics
         .node_velocities
         .retain(|_, v| v.velocity.x.abs() > 0.0 || v.velocity.y.abs() > 0.0 || v.is_rubber_banding);
+
+    // MWA-C-scroll: transfer residual momentum up the scroll chain — walk the
+    // scroll-parent chain to the nearest ancestor that can still consume in
+    // the fling's direction and seed it with the leftover velocity (picked up
+    // by the integration loop on the next tick; is_active() keeps the timer
+    // alive because the entry lands in node_velocities).
+    for ((dom_id, node_id), vel) in momentum_handoffs {
+        let mut cur = node_id;
+        for _ in 0..64 {
+            let Some(parent) = timer_info.find_scroll_parent(dom_id, cur) else {
+                break;
+            };
+            let Some(pinfo) = timer_info.get_scroll_node_info(dom_id, parent) else {
+                break;
+            };
+            let can_x = vel.x != 0.0
+                && ((vel.x > 0.0 && pinfo.current_offset.x < pinfo.max_scroll_x - 0.5)
+                    || (vel.x < 0.0 && pinfo.current_offset.x > 0.5));
+            let can_y = vel.y != 0.0
+                && ((vel.y > 0.0 && pinfo.current_offset.y < pinfo.max_scroll_y - 0.5)
+                    || (vel.y < 0.0 && pinfo.current_offset.y > 0.5));
+            if can_x || can_y {
+                let entry = physics
+                    .node_velocities
+                    .entry((dom_id, parent))
+                    .or_insert_with(NodeScrollPhysics::default);
+                if can_x {
+                    entry.velocity.x += vel.x;
+                }
+                if can_y {
+                    entry.velocity.y += vel.y;
+                }
+                break;
+            }
+            // This ancestor is itself exhausted in the fling's direction —
+            // respect ITS overscroll-behavior before chaining past it.
+            let stop_x = vel.x != 0.0 && pinfo.overscroll_behavior_x != OverscrollBehavior::Auto;
+            let stop_y = vel.y != 0.0 && pinfo.overscroll_behavior_y != OverscrollBehavior::Auto;
+            if stop_x || stop_y {
+                break;
+            }
+            cur = parent;
+        }
+    }
 
     // 3. Push ScrollTo changes for all updated positions
     let mut any_changes = false;
