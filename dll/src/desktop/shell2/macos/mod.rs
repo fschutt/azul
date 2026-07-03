@@ -304,6 +304,76 @@ mod view_handlers {
         }
     }
 
+    /// MWA-B4: macOS native pinch (trackpad magnification). Injects into the
+    /// gesture manager's native-override slot — which was designed for
+    /// exactly this and never called from macOS — then runs an event pass so
+    /// detect_pinch consumers fire in the same frame.
+    pub(super) fn magnify(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let magnification = event.magnification() as f32;
+            let scale = 1.0 + magnification;
+            let center = macos_window
+                .common
+                .current_window_state
+                .mouse_state
+                .cursor_position
+                .get_position()
+                .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
+            if let Some(lw) = macos_window.common.layout_window.as_mut() {
+                use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
+                // Synthesized distances: only the RATIO is meaningful for a
+                // native recognizer (a trackpad magnify event carries no
+                // real touch points).
+                lw.gesture_drag_manager.inject_native_gesture(
+                    NativeGestureEvent::Pinch(DetectedPinch {
+                        scale,
+                        center,
+                        initial_distance: 100.0,
+                        current_distance: 100.0 * scale,
+                    }),
+                );
+            }
+            macos_window.common.previous_window_state =
+                Some(macos_window.common.current_window_state.clone());
+            let result = macos_window.process_window_events(0);
+            macos_window.apply_activation_pass_result(result);
+        }
+    }
+
+    /// MWA-B4: macOS native rotation. NSEvent's rotation is in DEGREES with
+    /// counterclockwise positive; azul's DetectedRotation wants radians with
+    /// clockwise positive — hence the negated to_radians.
+    pub(super) fn rotate(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let degrees_ccw = event.rotation();
+            let center = macos_window
+                .common
+                .current_window_state
+                .mouse_state
+                .cursor_position
+                .get_position()
+                .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
+            if let Some(lw) = macos_window.common.layout_window.as_mut() {
+                use azul_layout::managers::gesture::{DetectedRotation, NativeGestureEvent};
+                lw.gesture_drag_manager.inject_native_gesture(
+                    NativeGestureEvent::Rotation(DetectedRotation {
+                        angle_radians: -degrees_ccw.to_radians(),
+                        center,
+                        duration_ms: 0, // per-event delta from the OS recognizer
+                    }),
+                );
+            }
+            macos_window.common.previous_window_state =
+                Some(macos_window.common.current_window_state.clone());
+            let result = macos_window.process_window_events(0);
+            macos_window.apply_activation_pass_result(result);
+        }
+    }
+
     pub(super) fn scroll_wheel(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
         crate::log_debug!(
@@ -716,6 +786,19 @@ define_class!(
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        // MWA-B4: trackpad pinch / rotate — injected into the gesture
+        // manager's native-override slot so detect_pinch/detect_rotation
+        // report OS-quality results (previously never wired on macOS).
+        #[unsafe(method(magnifyWithEvent:))]
+        fn magnify_with_event(&self, event: &NSEvent) {
+            view_handlers::magnify(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(rotateWithEvent:))]
+        fn rotate_with_event(&self, event: &NSEvent) {
+            view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
         }
 
         // NSDraggingDestination — file drag-and-drop
@@ -1328,6 +1411,19 @@ define_class!(
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        // MWA-B4: trackpad pinch / rotate — injected into the gesture
+        // manager's native-override slot so detect_pinch/detect_rotation
+        // report OS-quality results (previously never wired on macOS).
+        #[unsafe(method(magnifyWithEvent:))]
+        fn magnify_with_event(&self, event: &NSEvent) {
+            view_handlers::magnify(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(rotateWithEvent:))]
+        fn rotate_with_event(&self, event: &NSEvent) {
+            view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
         }
 
         // NSDraggingDestination — file drag-and-drop

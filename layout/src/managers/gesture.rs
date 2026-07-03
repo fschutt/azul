@@ -791,6 +791,22 @@ impl GestureAndDragManager {
         }
     }
 
+    /// The OS cancelled the whole touch sequence (e.g. the compositor took
+    /// the gesture over): end every touch session and drop the id map.
+    pub fn touch_cancel_all(&mut self) {
+        let ids: Vec<u64> = self.touch_sessions.values().copied().collect();
+        self.touch_sessions.clear();
+        for session_id in ids {
+            if let Some(session) = self
+                .input_sessions
+                .iter_mut()
+                .find(|s| s.session_id == session_id)
+            {
+                session.ended = true;
+            }
+        }
+    }
+
     /// Record a sample into the session with `session_id` (MWA-B4 helper —
     /// the by-id sibling of `record_input_sample_with_pen`, which only ever
     /// writes to the LAST session).

@@ -2524,6 +2524,7 @@ impl Win32Window {
             use azul_core::window::{TouchPoint, TouchPointVec};
             let ts = &mut self.common.current_window_state.touch_state;
             let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+            let was_present = pts.iter().any(|p| p.id == pointer_id as u64);
             pts.retain(|p| p.id != pointer_id as u64);
             if !is_up {
                 pts.push(TouchPoint {
@@ -2534,6 +2535,27 @@ impl Win32Window {
             }
             ts.touch_points = TouchPointVec::from_vec(pts);
             ts.num_touches = ts.touch_points.len();
+            // MWA-B4: per-finger gesture sessions (pinch/rotate need two
+            // live sessions). Screen position from the raw pixel location.
+            {
+                let now = azul_core::task::Instant::from(std::time::Instant::now());
+                let screen = azul_core::geom::LogicalPosition::new(
+                    ti.pointerInfo.ptPixelLocation.x as f32 / hf,
+                    ti.pointerInfo.ptPixelLocation.y as f32 / hf,
+                );
+                let window_position = self.common.current_window_state.position;
+                if let Some(lw) = self.common.layout_window.as_mut() {
+                    let gid = pointer_id as u64;
+                    if is_up {
+                        lw.gesture_drag_manager.touch_up(gid, pos, now, screen);
+                    } else if was_present {
+                        lw.gesture_drag_manager.touch_move(gid, pos, now, screen);
+                    } else {
+                        lw.gesture_drag_manager
+                            .touch_down(gid, pos, now, window_position, screen);
+                    }
+                }
+            }
         }
     }
 }

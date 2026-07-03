@@ -580,6 +580,24 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) -> ProcessEve
             }
             ts.touch_points = TouchPointVec::from_vec(pts);
             ts.num_touches = ts.touch_points.len();
+            // MWA-B4: per-finger gesture sessions — two live sessions are
+            // what detect_pinch/detect_rotation consume. Screen position
+            // comes from the XI2 root coordinates.
+            {
+                let now = azul_core::task::Instant::from(std::time::Instant::now());
+                let screen = win.to_logical_pos(ev.root_x as f32, ev.root_y as f32);
+                let window_position = win.common.current_window_state.position;
+                if let Some(lw) = win.common.layout_window.as_mut() {
+                    if evtype == defines::XI_TouchBegin {
+                        lw.gesture_drag_manager
+                            .touch_down(id, pos, now, window_position, screen);
+                    } else if is_up {
+                        lw.gesture_drag_manager.touch_up(id, pos, now, screen);
+                    } else {
+                        lw.gesture_drag_manager.touch_move(id, pos, now, screen);
+                    }
+                }
+            }
         } else {
             // Pointer event from a mouse OR a pen/tablet. This window
             // XISelectEvents'd for XI_ButtonPress/Release/Motion at creation, so

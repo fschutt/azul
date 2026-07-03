@@ -2547,6 +2547,7 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         let ts = &mut self.common.current_window_state.touch_state;
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+        let is_new = !pts.iter().any(|p| p.id == id as u64);
         if let Some(p) = pts.iter_mut().find(|p| p.id == id as u64) {
             p.position = pos;
         } else {
@@ -2558,6 +2559,22 @@ impl WaylandWindow {
         }
         ts.touch_points = TouchPointVec::from_vec(pts);
         ts.num_touches = ts.touch_points.len();
+        // MWA-B4: per-finger gesture sessions — without them, two-finger
+        // pinch/rotate were structurally undetectable (touch only filled
+        // touch_state). Screen position = surface-local estimate (the
+        // compositor exposes no global coordinates on Wayland).
+        {
+            let now = azul_core::task::Instant::from(std::time::Instant::now());
+            let window_position = self.common.current_window_state.position;
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                if is_new {
+                    lw.gesture_drag_manager
+                        .touch_down(id as u64, pos, now, window_position, pos);
+                } else {
+                    lw.gesture_drag_manager.touch_move(id as u64, pos, now, pos);
+                }
+            }
+        }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
     }
@@ -2568,9 +2585,20 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         let ts = &mut self.common.current_window_state.touch_state;
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+        let last_pos = pts
+            .iter()
+            .find(|p| p.id == id as u64)
+            .map(|p| p.position);
         pts.retain(|p| p.id != id as u64);
         ts.touch_points = TouchPointVec::from_vec(pts);
         ts.num_touches = ts.touch_points.len();
+        // MWA-B4: end this finger's gesture session.
+        if let Some(pos) = last_pos {
+            let now = azul_core::task::Instant::from(std::time::Instant::now());
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.gesture_drag_manager.touch_up(id as u64, pos, now, pos);
+            }
+        }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
     }
@@ -2581,6 +2609,10 @@ impl WaylandWindow {
         let ts = &mut self.common.current_window_state.touch_state;
         ts.touch_points = TouchPointVec::from_vec(Vec::new());
         ts.num_touches = 0;
+        // MWA-B4: end every gesture session for the cancelled sequence.
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.touch_cancel_all();
+        }
     }
 
     /// Feed the accumulated tablet pen state on the tool's `frame` event.
