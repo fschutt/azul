@@ -73,6 +73,24 @@ pub struct GeolocationManager {
     /// [`clear_pending_event`](Self::clear_pending_event) after dispatch
     /// (MWA-A1 — this manager previously computed fixes nobody dispatched).
     pending_event: bool,
+    /// Most recent backend error (subscription failed / timed out /
+    /// revoked), or `None`. Cleared on the next successful fix (MWA-A1b).
+    pub last_error: Option<LocationError>,
+    /// `true` when an error arrived since the last event-pass drain — the
+    /// `EventProvider` impl yields `EventType::GeolocationError` for it.
+    pending_error_event: bool,
+}
+
+/// Error from the native geolocation backend (MWA-A1b). Layout-internal
+/// (not FFI-exposed) until the `CallbackInfo` getter lands with the Phase C
+/// geolocation item — the `GeolocationError` EVENT carries no payload, so
+/// callbacks poll this via the manager.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LocationError {
+    /// Platform-specific error code (CLError code / GError code / HRESULT).
+    pub code: u32,
+    /// Human-readable message from the backend.
+    pub message: alloc::string::String,
 }
 
 impl GeolocationManager {
@@ -96,7 +114,7 @@ impl GeolocationManager {
     /// `f32::NAN`) compare equal — `PartialEq` returns `false` on
     /// NaN-vs-NaN, which would make every fix look "changed" even
     /// when nothing actually moved.
-    pub const fn set_latest_fix(&mut self, fix: LocationFix) -> bool {
+    pub fn set_latest_fix(&mut self, fix: LocationFix) -> bool {
         let changed = match self.latest_fix {
             Some(prev) => !Self::location_fix_bitwise_eq(&prev, &fix),
             None => true,
@@ -104,14 +122,25 @@ impl GeolocationManager {
         self.latest_fix = Some(fix);
         if changed {
             self.pending_event = true;
+            // A successful fix supersedes any earlier error.
+            self.last_error = None;
         }
         changed
     }
 
-    /// Clear the pending-event flag. The dll calls this after the event pass
-    /// has collected the `GeolocationFix` event.
+    /// Platform backend reports a subscription error (MWA-A1b). Always
+    /// raises the error-event flag — repeated errors each answer a live
+    /// subscription and callbacks should hear every one.
+    pub fn set_last_error(&mut self, error: LocationError) {
+        self.last_error = Some(error);
+        self.pending_error_event = true;
+    }
+
+    /// Clear the pending-event flags (fix + error). The dll calls this
+    /// after the event pass has collected the geolocation events.
     pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;
+        self.pending_error_event = false;
     }
 
     /// `true` while at least one `GeolocationProbe` is mounted — the
@@ -200,17 +229,26 @@ impl EventProvider for GeolocationManager {
     /// sensor / gamepad providers; before MWA-A1 nothing ever produced
     /// `EventType::GeolocationFix`, so fix callbacks could never fire.
     fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        let mut events = Vec::new();
         if self.pending_event {
-            alloc::vec![SyntheticEvent::new(
+            events.push(SyntheticEvent::new(
                 EventType::GeolocationFix,
+                CoreEventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
+        if self.pending_error_event {
+            events.push(SyntheticEvent::new(
+                EventType::GeolocationError,
                 CoreEventSource::User,
                 DomNodeId::ROOT,
                 timestamp,
                 EventData::None,
-            )]
-        } else {
-            Vec::new()
+            ));
         }
+        events
     }
 }
 
@@ -242,6 +280,26 @@ pub fn push_location_fix(fix: LocationFix) {
 /// [`GeolocationManager::set_latest_fix`] (the last one wins).
 pub fn drain_location_fixes() -> Vec<LocationFix> {
     let mut q = PENDING_FIXES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    core::mem::take(&mut *q)
+}
+
+// Error channel (MWA-A1b) — same shape as the fix channel: the native
+// backend's error callback fires on an OS thread and parks here; the
+// capability pump drains into `set_last_error`.
+
+static PENDING_ERRORS: std::sync::Mutex<Vec<LocationError>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Park a geolocation error delivered by a platform backend (in the dll).
+/// Thread-safe; poison-recovering.
+pub fn push_location_error(error: LocationError) {
+    let mut q = PENDING_ERRORS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    q.push(error);
+}
+
+/// Drain every error parked by [`push_location_error`], in arrival order.
+pub fn drain_location_errors() -> Vec<LocationError> {
+    let mut q = PENDING_ERRORS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -362,6 +420,33 @@ mod tests {
         // An identical fix is not a change — no re-fire.
         mgr.set_latest_fix(fix(37.0, -122.0));
         assert!(mgr.get_pending_events(ts).is_empty());
+    }
+
+    #[test]
+    fn error_channel_and_provider_event() {
+        use azul_core::task::{Instant, SystemTick};
+
+        drop(drain_location_errors());
+        push_location_error(LocationError { code: 1, message: "denied".into() });
+        let errs = drain_location_errors();
+        assert_eq!(errs.len(), 1);
+        assert!(drain_location_errors().is_empty());
+
+        let ts = Instant::Tick(SystemTick::new(0));
+        let mut mgr = GeolocationManager::new();
+        mgr.set_last_error(errs[0].clone());
+        let events = mgr.get_pending_events(ts.clone());
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].event_type,
+            azul_core::events::EventType::GeolocationError
+        );
+        mgr.clear_pending_event();
+        assert!(mgr.get_pending_events(ts).is_empty());
+
+        // a successful (changed) fix supersedes the stored error
+        mgr.set_latest_fix(fix(1.0, 2.0));
+        assert!(mgr.last_error.is_none());
     }
 
     #[test]

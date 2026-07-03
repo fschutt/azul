@@ -24,6 +24,12 @@ use alloc::vec::Vec;
 // `azul_layout::managers::keyring::*` import paths.
 pub use azul_core::keyring::{KeyringRequest, KeyringResult};
 
+use azul_core::dom::DomNodeId;
+use azul_core::events::{
+    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+};
+use azul_core::task::Instant;
+
 /// Cross-platform keyring state. One per `App` — the OS keyring is a
 /// per-process (per-app-identity) store, not per-window.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -31,6 +37,15 @@ pub struct KeyringManager {
     /// Outcome of the most recent keyring op, or `None` until the first
     /// completes. Read by callbacks via `CallbackInfo::get_keyring_result()`.
     pub last_result: Option<KeyringResult>,
+    /// Ops dispatched to the native backend whose outcome has not been
+    /// folded back yet (MWA-A1b arming signal for the capability pump).
+    pub in_flight: u32,
+    /// `true` when an op outcome was folded since the last event pass (set
+    /// on EVERY completion — a repeated identical outcome still answers a
+    /// fresh op). Read by the `EventProvider` impl
+    /// (`EventType::KeyringResult`), cleared by
+    /// [`clear_pending_event`](Self::clear_pending_event).
+    pub pending_event: bool,
 }
 
 impl KeyringManager {
@@ -49,7 +64,48 @@ impl KeyringManager {
     pub fn set_last_result(&mut self, result: KeyringResult) -> bool {
         let changed = self.last_result.as_ref() != Some(&result);
         self.last_result = Some(result);
+        // MWA-A1b: every completion fires an event and retires one
+        // in-flight op.
+        self.pending_event = true;
+        self.in_flight = self.in_flight.saturating_sub(1);
         changed
+    }
+
+    /// The pump dispatched `n` ops to the native backend; keep the timer
+    /// armed until their outcomes fold back (MWA-A1b).
+    pub const fn mark_requests_dispatched(&mut self, n: u32) {
+        self.in_flight = self.in_flight.saturating_add(n);
+    }
+
+    /// Clear the pending-event flag. The dll calls this after the event
+    /// pass has collected the `KeyringResult` event.
+    pub const fn clear_pending_event(&mut self) {
+        self.pending_event = false;
+    }
+
+    /// `true` while a dispatched op's outcome is still outstanding
+    /// (MWA-A1b arming signal).
+    #[must_use] pub const fn has_pending_async(&self) -> bool {
+        self.in_flight > 0
+    }
+}
+
+impl EventProvider for KeyringManager {
+    /// Yield a window-level `KeyringResult` event when an op outcome was
+    /// folded since the last pass (target = root; read the outcome via
+    /// `CallbackInfo::get_keyring_result` inside the callback).
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        if self.pending_event {
+            alloc::vec![SyntheticEvent::new(
+                EventType::KeyringResult,
+                CoreEventSource::User,
+                DomNodeId::ROOT,
+                timestamp,
+                EventData::None,
+            )]
+        } else {
+            Vec::new()
+        }
     }
 }
 
@@ -170,5 +226,36 @@ mod tests {
             "the last applied result wins"
         );
         assert!(drain_keyring_results().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod pump_provider_tests {
+    use super::*;
+    use azul_core::task::{Instant, SystemTick};
+
+    fn ts() -> Instant {
+        Instant::Tick(SystemTick::new(0))
+    }
+
+    #[test]
+    fn in_flight_and_events_track_op_lifecycle() {
+        let mut mgr = KeyringManager::new();
+        assert!(!mgr.has_pending_async());
+        mgr.mark_requests_dispatched(1);
+        assert!(mgr.has_pending_async());
+        assert!(mgr.get_pending_events(ts()).is_empty(), "no outcome yet");
+
+        mgr.set_last_result(KeyringResult::Stored);
+        assert!(!mgr.has_pending_async());
+        let events = mgr.get_pending_events(ts());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, azul_core::events::EventType::KeyringResult);
+        mgr.clear_pending_event();
+
+        // repeated identical outcome still fires — it answers a fresh op
+        mgr.mark_requests_dispatched(1);
+        mgr.set_last_result(KeyringResult::Stored);
+        assert_eq!(mgr.get_pending_events(ts()).len(), 1);
     }
 }

@@ -75,10 +75,15 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed |= lw.sensor_manager.set_reading(reading);
     }
 
-    // Geolocation: fixes are pushed by the native subscription's OS-thread
-    // callback; folding one raises the manager's GeolocationFix pending flag.
+    // Geolocation: fixes / errors are pushed by the native subscription's
+    // OS-thread callbacks; folding raises the manager's pending flags
+    // (GeolocationFix / GeolocationError provider events).
     for fix in azul_layout::managers::geolocation::drain_location_fixes() {
         changed |= lw.geolocation_manager.set_latest_fix(fix);
+    }
+    for error in azul_layout::managers::geolocation::drain_location_errors() {
+        lw.geolocation_manager.set_last_error(error);
+        changed = true;
     }
 
     // Permission: async prompt outcomes parked by OS completion handlers.
@@ -87,26 +92,39 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     }
 
     // Biometric: availability probe (OnceLock-cached native call), then
-    // dispatch queued prompts, then fold parked outcomes.
+    // dispatch queued prompts (tracked in-flight so the timer stays armed
+    // until the reply folds back), then fold parked outcomes. A completion
+    // always counts as a change — even a repeat outcome answers a fresh
+    // request and must dispatch a BiometricResult event.
     lw.biometric_manager
         .set_availability(crate::desktop::extra::biometric::availability_cached());
     let bio_requests = azul_layout::managers::biometric::drain_biometric_requests();
-    for prompt in &bio_requests {
-        crate::desktop::extra::biometric::request(prompt);
+    if !bio_requests.is_empty() {
+        lw.biometric_manager
+            .mark_requests_dispatched(bio_requests.len() as u32);
         changed = true;
     }
+    for prompt in &bio_requests {
+        crate::desktop::extra::biometric::request(prompt);
+    }
     for result in azul_layout::managers::biometric::drain_biometric_results() {
-        changed |= lw.biometric_manager.set_last_result(result);
+        lw.biometric_manager.set_last_result(result);
+        changed = true;
     }
 
     // Keyring: same request → native backend → parked-result shape.
     let keyring_requests = azul_layout::managers::keyring::drain_keyring_requests();
-    for req in &keyring_requests {
-        crate::desktop::extra::keyring::request(req);
+    if !keyring_requests.is_empty() {
+        lw.keyring_manager
+            .mark_requests_dispatched(keyring_requests.len() as u32);
         changed = true;
     }
+    for req in &keyring_requests {
+        crate::desktop::extra::keyring::request(req);
+    }
     for result in azul_layout::managers::keyring::drain_keyring_results() {
-        changed |= lw.keyring_manager.set_last_result(result);
+        lw.keyring_manager.set_last_result(result);
+        changed = true;
     }
 
     changed
@@ -130,6 +148,15 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
     }
     if lw.geolocation_manager.has_active_subscription() {
         want(GEOLOCATION_INTERVAL_MS);
+    }
+    // Async prompt outcomes (MWA-A1b): while a biometric / keyring op is in
+    // flight or an OS permission prompt is up, keep draining so the reply
+    // reaches callbacks even if the user never touches the window again.
+    if lw.permission_manager.has_pending_async()
+        || lw.biometric_manager.has_pending_async()
+        || lw.keyring_manager.has_pending_async()
+    {
+        want(ASYNC_RESULT_INTERVAL_MS);
     }
 
     interval

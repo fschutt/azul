@@ -26,6 +26,12 @@
 
 use alloc::vec::Vec;
 
+use azul_core::dom::DomNodeId;
+use azul_core::events::{
+    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+};
+use azul_core::task::Instant;
+
 // `BiometricKind` / `BiometricResult` / `BiometricPrompt` live in
 // `azul-core` so the request config can cross the FFI without a cyclic
 // dep on `azul-layout`. Re-exported here for the existing
@@ -45,6 +51,16 @@ pub struct BiometricManager {
     /// refreshes it on startup and after enrollment changes; callbacks
     /// read it to decide whether to even offer biometric unlock.
     pub availability: BiometricKind,
+    /// Prompts dispatched to the native backend whose outcome has not been
+    /// folded back yet (MWA-A1b). While non-zero the capability pump keeps
+    /// its timer armed so the reply reaches callbacks in an idle app.
+    pub in_flight: u32,
+    /// `true` when a prompt outcome was folded since the last event pass
+    /// (set on EVERY completion, even a repeated identical outcome — the
+    /// user re-authenticated and the callback must hear about it). Read by
+    /// the `EventProvider` impl (`EventType::BiometricResult`), cleared by
+    /// [`clear_pending_event`](Self::clear_pending_event).
+    pub pending_event: bool,
 }
 
 impl Default for BiometricManager {
@@ -52,6 +68,8 @@ impl Default for BiometricManager {
         Self {
             last_result: None,
             availability: BiometricKind::NotAvailable,
+            in_flight: 0,
+            pending_event: false,
         }
     }
 }
@@ -94,13 +112,55 @@ impl BiometricManager {
     pub fn set_last_result(&mut self, result: BiometricResult) -> bool {
         let changed = self.last_result != Some(result);
         self.last_result = Some(result);
+        // MWA-A1b: every completion fires an event (even an identical
+        // repeat outcome — it answers a fresh request) and retires one
+        // in-flight prompt.
+        self.pending_event = true;
+        self.in_flight = self.in_flight.saturating_sub(1);
         changed
+    }
+
+    /// The pump dispatched `n` prompts to the native backend; keep the
+    /// timer armed until their outcomes fold back (MWA-A1b).
+    pub const fn mark_requests_dispatched(&mut self, n: u32) {
+        self.in_flight = self.in_flight.saturating_add(n);
+    }
+
+    /// Clear the pending-event flag. The dll calls this after the event
+    /// pass has collected the `BiometricResult` event.
+    pub const fn clear_pending_event(&mut self) {
+        self.pending_event = false;
+    }
+
+    /// `true` while a dispatched prompt's outcome is still outstanding
+    /// (MWA-A1b arming signal).
+    #[must_use] pub const fn has_pending_async(&self) -> bool {
+        self.in_flight > 0
     }
 
     /// `true` if the last attempt unlocked successfully (biometric match
     /// or OS passcode fallback). Convenience for the vault gate.
     #[must_use] pub const fn last_was_success(&self) -> bool {
         matches!(self.last_result, Some(r) if r.is_success())
+    }
+}
+
+impl EventProvider for BiometricManager {
+    /// Yield a window-level `BiometricResult` event when a prompt outcome
+    /// was folded since the last pass (target = root; read the outcome via
+    /// `CallbackInfo::get_biometric_result` inside the callback).
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        if self.pending_event {
+            alloc::vec![SyntheticEvent::new(
+                EventType::BiometricResult,
+                CoreEventSource::User,
+                DomNodeId::ROOT,
+                timestamp,
+                EventData::None,
+            )]
+        } else {
+            Vec::new()
+        }
     }
 }
 
@@ -274,5 +334,47 @@ mod tests {
         assert_eq!(p.reason.as_str(), "Unlock your vault");
         assert_eq!(p.cancel_label.as_str(), "");
         assert!(!p.allow_device_credential);
+    }
+}
+
+#[cfg(test)]
+mod pump_provider_tests {
+    use super::*;
+    use azul_core::task::{Instant, SystemTick};
+
+    fn ts() -> Instant {
+        Instant::Tick(SystemTick::new(0))
+    }
+
+    #[test]
+    fn in_flight_tracks_dispatch_and_completion() {
+        let mut mgr = BiometricManager::new();
+        assert!(!mgr.has_pending_async());
+        mgr.mark_requests_dispatched(2);
+        assert!(mgr.has_pending_async());
+        mgr.set_last_result(BiometricResult::Cancelled);
+        assert!(mgr.has_pending_async(), "one of two still outstanding");
+        mgr.set_last_result(BiometricResult::Authenticated);
+        assert!(!mgr.has_pending_async());
+        // saturates — an unsolicited result never underflows
+        mgr.set_last_result(BiometricResult::Failed);
+        assert!(!mgr.has_pending_async());
+    }
+
+    #[test]
+    fn every_completion_fires_an_event_even_identical_repeats() {
+        let mut mgr = BiometricManager::new();
+        assert!(mgr.get_pending_events(ts()).is_empty());
+        mgr.set_last_result(BiometricResult::Cancelled);
+        assert_eq!(mgr.get_pending_events(ts()).len(), 1);
+        mgr.clear_pending_event();
+        assert!(mgr.get_pending_events(ts()).is_empty());
+        // identical outcome answering a FRESH prompt → fresh event
+        mgr.set_last_result(BiometricResult::Cancelled);
+        assert_eq!(mgr.get_pending_events(ts()).len(), 1);
+        assert_eq!(
+            mgr.get_pending_events(ts())[0].event_type,
+            azul_core::events::EventType::BiometricResult
+        );
     }
 }

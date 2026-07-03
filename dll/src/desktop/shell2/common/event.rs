@@ -3858,24 +3858,31 @@ pub trait PlatformWindow {
         let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
 
         // Get EventProvider managers (text input, sensors, gamepad,
-        // geolocation — the last added by MWA-A1 so parked GPS fixes become
-        // GeolocationFix events instead of silently updating manager state).
+        // geolocation, permission, biometric, keyring — the last four added
+        // by MWA-A1/A1b so async capability outcomes become events instead
+        // of silently updating manager state).
         let providers_ref = self.get_layout_window().map(|w| {
             (
                 &w.text_input_manager,
                 &w.sensor_manager,
                 &w.gamepad_manager,
                 &w.geolocation_manager,
+                &w.permission_manager,
+                &w.biometric_manager,
+                &w.keyring_manager,
             )
         });
 
         // Build list of EventProvider managers
         let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
-        if let Some((tm, sm, gm, geo)) = providers_ref {
+        if let Some((tm, sm, gm, geo, pm, bm, km)) = providers_ref {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
             event_providers.push(gm as &dyn azul_core::events::EventProvider);
             event_providers.push(geo as &dyn azul_core::events::EventProvider);
+            event_providers.push(pm as &dyn azul_core::events::EventProvider);
+            event_providers.push(bm as &dyn azul_core::events::EventProvider);
+            event_providers.push(km as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -3918,6 +3925,9 @@ pub trait PlatformWindow {
             w.sensor_manager.clear_pending_event();
             w.gamepad_manager.clear_pending_event();
             w.geolocation_manager.clear_pending_event();
+            w.permission_manager.clear_pending_changed();
+            w.biometric_manager.clear_pending_event();
+            w.keyring_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
         }
 

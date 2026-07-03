@@ -28,6 +28,10 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 
 use azul_core::dom::DomNodeId;
+use azul_core::events::{
+    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+};
+use azul_core::task::Instant;
 
 /// One closed enum covering every capability the framework can request.
 ///
@@ -198,6 +202,32 @@ pub struct PermissionManager {
     /// instead of receiving callbacks during the layout pass itself (the
     /// layout pass is on a hot path that should not block on FFI).
     pending_events: Vec<PermissionDiffEvent>,
+    /// State flips folded since the last event pass, with the capability's
+    /// most recent subscriber node (MWA-A1b). Read by the `EventProvider`
+    /// impl to synthesize targeted `PermissionChanged` events; cleared by
+    /// [`clear_pending_changed`](Self::clear_pending_changed) after dispatch.
+    pending_changed: Vec<(Capability, Option<DomNodeId>)>,
+}
+
+impl EventProvider for PermissionManager {
+    /// Yield one `PermissionChanged` event per state flip folded since the
+    /// last pass — targeted at the capability's most recent subscriber node
+    /// when known (so a probe node's Hover callback fires), else the root
+    /// (window-level filters match either way).
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        self.pending_changed
+            .iter()
+            .map(|(_capability, node)| {
+                SyntheticEvent::new(
+                    EventType::PermissionChanged,
+                    CoreEventSource::User,
+                    node.unwrap_or(DomNodeId::ROOT),
+                    timestamp.clone(),
+                    EventData::None,
+                )
+            })
+            .collect()
+    }
 }
 
 impl PermissionManager {
@@ -277,7 +307,27 @@ impl PermissionManager {
             return false;
         }
         entry.state = state;
+        // MWA-A1b: remember the flip so the EventProvider can synthesize a
+        // PermissionChanged event, targeted at the subscriber node when known.
+        self.pending_changed.push((capability, entry.last_subscriber));
         true
+    }
+
+    /// Clear the pending state-flip queue. The dll calls this after the
+    /// event pass has collected the `PermissionChanged` events.
+    pub fn clear_pending_changed(&mut self) {
+        self.pending_changed.clear();
+    }
+
+    /// `true` while any capability sits in [`PermissionState::Requested`]
+    /// (an OS prompt is in flight and its outcome will arrive through the
+    /// async channel) — the capability pump keeps its timer armed so the
+    /// outcome reaches callbacks even in an otherwise idle app (MWA-A1b
+    /// arming signal).
+    #[must_use] pub fn has_pending_async(&self) -> bool {
+        self.statuses
+            .values()
+            .any(|e| e.state == PermissionState::Requested)
     }
 
     /// Drain queued diff events. Platform backend calls this once per frame.
@@ -555,5 +605,53 @@ mod tests {
 
         // A second drain is empty — the queue was taken, not copied.
         assert!(drain_async_results().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod pump_provider_tests {
+    use super::*;
+    use azul_core::task::{Instant, SystemTick};
+
+    fn ts() -> Instant {
+        Instant::Tick(SystemTick::new(0))
+    }
+
+    #[test]
+    fn status_flip_yields_targeted_permission_changed_event() {
+        let node = DomNodeId::ROOT;
+        let mut mgr = PermissionManager::new();
+        mgr.subscribe(Capability::Geolocation, node);
+        drop(mgr.take_pending_events());
+        assert!(mgr.get_pending_events(ts()).is_empty(), "no flip yet");
+
+        assert!(mgr.set_status(Capability::Geolocation, PermissionState::Requested));
+        assert!(mgr.has_pending_async(), "Requested = OS prompt in flight");
+        let events = mgr.get_pending_events(ts());
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].event_type,
+            azul_core::events::EventType::PermissionChanged
+        );
+        assert_eq!(events[0].target, node, "targeted at the subscriber node");
+
+        mgr.clear_pending_changed();
+        assert!(mgr.get_pending_events(ts()).is_empty(), "cleared after dispatch");
+
+        assert!(mgr.set_status(
+            Capability::Geolocation,
+            PermissionState::Granted { quality: PermissionQuality::Full },
+        ));
+        assert!(!mgr.has_pending_async(), "prompt resolved");
+        assert_eq!(mgr.get_pending_events(ts()).len(), 1);
+    }
+
+    #[test]
+    fn unchanged_status_emits_no_event() {
+        let mut mgr = PermissionManager::new();
+        assert!(mgr.set_status(Capability::Geolocation, PermissionState::Denied));
+        mgr.clear_pending_changed();
+        assert!(!mgr.set_status(Capability::Geolocation, PermissionState::Denied));
+        assert!(mgr.get_pending_events(ts()).is_empty());
     }
 }

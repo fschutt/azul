@@ -680,6 +680,20 @@ pub enum EventType {
     /// The native geolocation subscription errored, timed out, or was
     /// revoked.
     GeolocationError,
+
+    // Async capability outcomes (MWA-A1b — synthesized by the capability
+    // pump's manager EventProviders so idle apps observe prompt results).
+    /// A permission's OS-observed state changed (granted / denied /
+    /// revoked / restricted). Targeted at the capability's most recent
+    /// subscriber node when known, else the root. Read the new state via
+    /// `CallbackInfo` permission accessors.
+    PermissionChanged,
+    /// A biometric authentication prompt completed. Read the outcome via
+    /// `CallbackInfo::get_biometric_result`.
+    BiometricResult,
+    /// A keyring store / get / delete operation completed. Read the outcome
+    /// via `CallbackInfo::get_keyring_result`.
+    KeyringResult,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1173,7 +1187,7 @@ fn matches_hover_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError};
+    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1221,6 +1235,9 @@ fn matches_hover_filter(
         (GamepadInput, EventType::GamepadInput) => true,
         (GeolocationFix, EventType::GeolocationFix) => true,
         (GeolocationError, EventType::GeolocationError) => true,
+        (PermissionChanged, EventType::PermissionChanged) => true,
+        (BiometricResult, EventType::BiometricResult) => true,
+        (KeyringResult, EventType::KeyringResult) => true,
         _ => false,
     }
 }
@@ -1278,7 +1295,7 @@ fn matches_window_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
+    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1326,6 +1343,9 @@ fn matches_window_filter(
         (GamepadInput, EventType::GamepadInput) => true,
         (GeolocationFix, EventType::GeolocationFix) => true,
         (GeolocationError, EventType::GeolocationError) => true,
+        (PermissionChanged, EventType::PermissionChanged) => true,
+        (BiometricResult, EventType::BiometricResult) => true,
+        (KeyringResult, EventType::KeyringResult) => true,
         (DragStart, EventType::DragStart) => true,
         (Drag, EventType::Drag) => true,
         (DragEnd, EventType::DragEnd) => true,
@@ -1730,6 +1750,15 @@ pub enum HoverEventFilter {
     #[doc(hidden)]
     /// Internal: Triple click for paragraph/line selection
     SystemTextTripleClick,
+
+    // Async capability outcomes (MWA-A1b)
+    /// A permission's OS-observed state changed while this node (the
+    /// capability's most recent subscriber) is in the target chain.
+    PermissionChanged,
+    /// A biometric authentication prompt completed.
+    BiometricResult,
+    /// A keyring store / get / delete operation completed.
+    KeyringResult,
 }
 
 impl HoverEventFilter {
@@ -1813,6 +1842,10 @@ impl HoverEventFilter {
             Self::SystemTextSingleClick => None,
             Self::SystemTextDoubleClick => None,
             Self::SystemTextTripleClick => None,
+            // Async capability outcomes — no focus-filter equivalents
+            Self::PermissionChanged => None,
+            Self::BiometricResult => None,
+            Self::KeyringResult => None,
         }
     }
 }
@@ -2063,6 +2096,15 @@ pub enum WindowEventFilter {
     /// The window moved to a different monitor. The new monitor is available
     /// via `CallbackInfo::get_current_monitor()`.
     MonitorChanged,
+
+    // Async capability outcomes (MWA-A1b) — window-level mirrors (the
+    // outcome isn't inherently bound to a node).
+    /// A permission's OS-observed state changed.
+    PermissionChanged,
+    /// A biometric authentication prompt completed.
+    BiometricResult,
+    /// A keyring store / get / delete operation completed.
+    KeyringResult,
 }
 
 impl WindowEventFilter {
@@ -2138,6 +2180,10 @@ impl WindowEventFilter {
             // Window-specific events with no hover equivalent
             Self::DpiChanged => None,
             Self::MonitorChanged => None,
+            // Async capability outcomes — mirror to the hover twin
+            Self::PermissionChanged => Some(HoverEventFilter::PermissionChanged),
+            Self::BiometricResult => Some(HoverEventFilter::BiometricResult),
+            Self::KeyringResult => Some(HoverEventFilter::KeyringResult),
         }
     }
 }
@@ -2480,6 +2526,13 @@ pub trait EventProvider {
         // CallbackInfo::get_geolocation_fix.
         E::GeolocationFix => vec![EF::Hover(H::GeolocationFix), EF::Window(W::GeolocationFix)],
         E::GeolocationError => vec![EF::Hover(H::GeolocationError), EF::Window(W::GeolocationError)],
+
+        // Async capability outcomes (MWA-A1b): node-level Hover mirror (the
+        // permission event targets the capability's subscriber node) + the
+        // window-level filter.
+        E::PermissionChanged => vec![EF::Hover(H::PermissionChanged), EF::Window(W::PermissionChanged)],
+        E::BiometricResult => vec![EF::Hover(H::BiometricResult), EF::Window(W::BiometricResult)],
+        E::KeyringResult => vec![EF::Hover(H::KeyringResult), EF::Window(W::KeyringResult)],
 
         // Unsupported events
         _ => vec![],
