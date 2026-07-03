@@ -215,13 +215,23 @@ fn detect_window_state_events(
 fn get_all_hovered_nodes(
     hover_manager: &crate::managers::hover::HoverManager,
     frame_index: usize,
-) -> BTreeSet<NodeId> {
+) -> BTreeSet<(DomId, NodeId)> {
     use crate::managers::hover::InputPointId;
-    let dom_id = DomId { inner: 0 };
+    // MWA-C-hover: walk EVERY hit DOM, not just DomId 0 — the old
+    // root-DOM-only read meant MouseEnter/MouseLeave never fired for nodes
+    // inside VirtualView / iframe child DOMs.
     hover_manager
         .get_frame(&InputPointId::Mouse, frame_index)
-        .and_then(|ht| ht.hovered_nodes.get(&dom_id))
-        .map(|ht| ht.regular_hit_test_nodes.keys().copied().collect())
+        .map(|ht| {
+            ht.hovered_nodes
+                .iter()
+                .flat_map(|(dom_id, hit)| {
+                    hit.regular_hit_test_nodes
+                        .keys()
+                        .map(move |node_id| (*dom_id, *node_id))
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -437,12 +447,12 @@ pub fn determine_all_events(
         let previous_hovered = get_all_hovered_nodes(hover_manager, 1);
 
         // Nodes that lost hover -> MouseLeave
-        for node_id in previous_hovered.difference(&current_hovered) {
+        for (dom_id, node_id) in previous_hovered.difference(&current_hovered) {
             events.push(SyntheticEvent::new(
                 EventType::MouseLeave,
                 EventSource::User,
                 DomNodeId {
-                    dom: root_node.dom,
+                    dom: *dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                 },
                 timestamp.clone(),
@@ -451,12 +461,12 @@ pub fn determine_all_events(
         }
 
         // Nodes that gained hover -> MouseEnter
-        for node_id in current_hovered.difference(&previous_hovered) {
+        for (dom_id, node_id) in current_hovered.difference(&previous_hovered) {
             events.push(SyntheticEvent::new(
                 EventType::MouseEnter,
                 EventSource::User,
                 DomNodeId {
-                    dom: root_node.dom,
+                    dom: *dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                 },
                 timestamp.clone(),

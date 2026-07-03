@@ -3149,6 +3149,18 @@ unsafe extern "system" fn window_proc(
             window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::OutOfWindow(last_pos);
 
+            // MWA-C-hover: clear the hover manager (macOS/X11/Wayland all
+            // push an empty hit test on leave) — without it the hover-chain
+            // diff saw no change, so per-node MouseLeave never fired and
+            // stale :hover styling persisted while the pointer was
+            // off-window.
+            if let Some(ref mut layout_window) = window.common.layout_window {
+                layout_window.hover_manager.push_hit_test(
+                    InputPointId::Mouse,
+                    azul_core::hit_test::FullHitTest::empty(None),
+                );
+            }
+
             // Process events - this will trigger MouseLeave callbacks
             let result = window.process_window_events(0);
 

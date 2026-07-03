@@ -2845,9 +2845,12 @@ impl WaylandWindow {
                 return;
             }
 
-            // Check for context menu (right-click)
+            // Check for context menu (right-click).
+            // MWA-C-hover: read the LIVE hover manager (X11 pattern) —
+            // common.last_hovered_node has no writer anywhere, so hit-node
+            // context menus never opened on Wayland.
             if mouse_button == MouseButton::Right {
-                if let Some(hit_node) = self.common.last_hovered_node {
+                if let Some(hit_node) = self.get_first_hovered_node() {
                     if self.try_show_context_menu(hit_node, position) {
                         // Context menu was shown, consume the event
                         self.request_redraw();
@@ -3061,9 +3064,15 @@ impl WaylandWindow {
             return;
         }
 
+        // MWA-C-hover: save previous state + run the event pass so
+        // MouseEnter callbacks and :hover styling fire on the entry itself
+        // instead of on the first subsequent motion event.
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
         self.request_redraw();
     }
 
@@ -3292,6 +3301,12 @@ impl WaylandWindow {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
+        // MWA-C-hover: save the previous state and RUN the event pass —
+        // previously this handler only pushed the empty hit test and
+        // requested a redraw, so per-node MouseLeave callbacks, the tooltip
+        // stop and the :hover restyle were all deferred to whatever event
+        // happened to arrive next (macOS/X11/Windows all diff immediately).
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::OutOfWindow(last_pos);
         if let Some(ref mut layout_window) = self.common.layout_window {
@@ -3299,6 +3314,8 @@ impl WaylandWindow {
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
         }
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
         self.request_redraw();
     }
 
@@ -3382,6 +3399,29 @@ impl WaylandWindow {
             layout_window.file_drop_manager.set_dropped_file(None);
         }
         result
+    }
+
+    /// MWA-C-hover: deepest hovered node from the LIVE hover manager (X11's
+    /// get_first_hovered_node pattern) — used for right-click context menus;
+    /// the old `common.last_hovered_node` field had no writer anywhere.
+    fn get_first_hovered_node(&self) -> Option<HitTestNode> {
+        self.common
+            .layout_window
+            .as_ref()?
+            .hover_manager
+            .get_current(&InputPointId::Mouse)?
+            .hovered_nodes
+            .iter()
+            .flat_map(|(dom_id, ht)| {
+                ht.regular_hit_test_nodes
+                    .keys()
+                    .next_back()
+                    .map(|node_id| HitTestNode {
+                        dom_id: dom_id.inner as u64,
+                        node_id: node_id.index() as u64,
+                    })
+            })
+            .next()
     }
 
     /// Try to show context menu for a node at the given position
