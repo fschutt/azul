@@ -3637,7 +3637,13 @@ impl CallbackInfo {
     /// Check if a file drag is specifically active
     #[must_use] pub fn is_file_drag_active(&self) -> bool {
         let lw = self.get_layout_window();
-        lw.gesture_drag_manager.is_file_dropping() || lw.drag_drop_manager.is_dragging_file()
+        // MWA-C-file_drop: an EXTERNAL OS drag (Finder/Explorer hovering
+        // files over the window) lives in file_drop_manager, not in the
+        // intra-app drag managers — without this arm the query answered
+        // false during exactly the drag it is most often asked about.
+        lw.gesture_drag_manager.is_file_dropping()
+            || lw.drag_drop_manager.is_dragging_file()
+            || !lw.file_drop_manager.get_hovered_files().is_empty()
     }
 
     /// Get the current drag/drop state (if any)

@@ -1009,6 +1009,12 @@ extern "C" fn data_device_enter(
             data_offer_accept(window, id, serial);
             data_offer_set_actions(window, id);
         }
+        // MWA-C-file_drop: file identity is unknown until drop on Wayland —
+        // reading the offer (wl_data_offer.receive) is a blocking pipe
+        // round-trip the source app may not answer before the user releases,
+        // so hover carries a "<file>" placeholder (same convention as X11
+        // before its speculative fetch returns) and the real paths arrive
+        // with the drop in data_device_drop.
         let r = window.handle_file_drag_entered(pos, vec!["<file>".to_string()]);
         window.handle_process_event_result(r);
     } else {
@@ -1033,7 +1039,8 @@ extern "C" fn data_device_motion(
     window.drag.position = pos;
     if window.drag.has_uri_list && !window.drag.offer.is_null() {
         // Re-accept with the saved enter serial (compositors expect a response
-        // on each motion to keep the drag alive).
+        // on each motion to keep the drag alive). "<file>" placeholder: see
+        // data_device_enter — paths are only readable at drop.
         unsafe { data_offer_accept(window, window.drag.offer, window.drag.enter_serial) };
         let r = window.handle_file_drag_entered(pos, vec!["<file>".to_string()]);
         window.handle_process_event_result(r);

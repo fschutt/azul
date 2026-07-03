@@ -836,20 +836,13 @@ impl MacOSWindow {
     /// Process a file drop event (the user released the dragged files over the
     /// window — emits `EventType::FileDrop`).
     ///
-    /// TODO(superplan g6): wire the `NSDraggingDestination` delegate in
-    /// `macos/mod.rs` (Group 7 — both `GLView` and `CPUView`). It does not exist
-    /// yet, so file-drop on macOS never fires (Windows wires this via
-    /// `WM_DROPFILES`). Needed in mod.rs:
-    ///   - `registerForDraggedTypes:[NSFilenamesPboardType]` after the view is
-    ///     created, so the window accepts file drags.
-    ///   - `draggingEntered:` / `draggingUpdated:` -> read the pasteboard file
-    ///     paths and call `self.handle_file_drag_entered(position, paths)`; return
-    ///     `NSDragOperationCopy`.
-    ///   - `draggingExited:` -> call `self.handle_file_drag_exited()`.
-    ///   - `performDragOperation:` -> read file paths and call
-    ///     `self.handle_file_drop(position, paths)`; return `true`.
-    /// The three `handle_file_*` methods below own all manager mutation +
-    /// one-shot clearing, so the delegate only has to extract paths and forward.
+    /// The `NSDraggingDestination` delegate IS wired in `macos/mod.rs` on both
+    /// `GLView` and `CPUView` (registerForDraggedTypes at view creation;
+    /// draggingEntered:/draggingUpdated:/draggingExited:/performDragOperation:
+    /// forward here) — a stale TODO here previously claimed otherwise
+    /// (MWA-C-file_drop). The three `handle_file_*` methods below own all
+    /// manager mutation + one-shot clearing, so the delegate only extracts
+    /// paths + the drag location and forwards.
     pub fn handle_file_drop(
         &mut self,
         position: LogicalPosition,
