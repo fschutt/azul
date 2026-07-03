@@ -40,12 +40,27 @@ pub mod linux;
 /// request channel.
 ///
 /// iOS/macOS route to the real `LAContext` backend; Android to the
-/// `BiometricPrompt` JNI backend (both park the outcome in the result
-/// channel asynchronously). Platforms without a backend yet (Windows /
-/// Linux) resolve to `Unavailable` immediately so the request → result
-/// round-trip stays observable — `CallbackInfo::get_biometric_result()`
-/// reads it next frame.
+/// `BiometricPrompt` JNI backend; Windows to `UserConsentVerifier`
+/// (Hello); Linux to fprintd over D-Bus — all four park the outcome in
+/// the result channel asynchronously (MWA-C-biometric: doc was stale,
+/// every desktop backend is real). Targets without any backend resolve
+/// to `Unavailable` immediately so the request → result round-trip stays
+/// observable — `CallbackInfo::get_biometric_result()` reads it next
+/// frame.
 pub fn request(prompt: &BiometricPrompt) {
+    // MWA-C-biometric: never pop a REAL OS auth sheet from a headless /
+    // E2E run (the dispatcher is keyed on target_os, not backend — a
+    // headless test on a Mac dev box would otherwise raise a live TouchID
+    // sheet). Resolve to Unavailable so the round-trip stays observable.
+    if std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
+        || std::env::var("AZ_E2E_TEST").is_ok()
+    {
+        let _ = prompt;
+        azul_layout::managers::biometric::push_biometric_result(
+            azul_core::biometric::BiometricResult::Unavailable,
+        );
+        return;
+    }
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     apple::request(prompt);
     #[cfg(target_os = "android")]

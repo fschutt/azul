@@ -155,6 +155,12 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
     if lw.permission_manager.has_pending_async()
         || lw.biometric_manager.has_pending_async()
         || lw.keyring_manager.has_pending_async()
+        // MWA-C-biometric: requests QUEUED mid-pass (parked in the channel,
+        // not yet dispatched → in_flight still 0) must arm the timer too,
+        // or a prompt queued by a DoNothing callback would wait for an
+        // unrelated event before being shown.
+        || azul_layout::managers::biometric::has_queued_requests()
+        || azul_layout::managers::keyring::has_queued_requests()
     {
         want(ASYNC_RESULT_INTERVAL_MS);
     }

@@ -128,6 +128,15 @@ pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
     core::mem::take(&mut *q)
 }
 
+/// MWA-C-biometric/keyring: see biometric::has_queued_requests — pump
+/// arming must count parked-but-undispatched requests.
+pub fn has_queued_requests() -> bool {
+    PENDING_REQUESTS
+        .lock()
+        .map(|q| !q.is_empty())
+        .unwrap_or_else(|e| !e.into_inner().is_empty())
+}
+
 // ────────── Result channel (platform backend → manager) ───────────────
 
 static PENDING_RESULTS: std::sync::Mutex<Vec<KeyringResult>> =
