@@ -103,6 +103,48 @@ pub enum HeadlessEvent {
     Resize { width: f32, height: f32 },
     /// Simulate scroll wheel
     Scroll { delta_x: f32, delta_y: f32 },
+    /// Simulate an OS file drag hovering the window at (x, y) (MWA-A4).
+    /// Mirrors the desktop ingress: XdndPosition / draggingUpdated /
+    /// IDropTarget::DragOver / wl_data_device.motion.
+    FileHover { x: f32, y: f32, path: String },
+    /// Simulate an OS file drop at (x, y) (MWA-A4). Mirrors XdndDrop /
+    /// performDragOperation / IDropTarget::Drop / wl_data_device.drop.
+    FileDrop { x: f32, y: f32, path: String },
+    /// Simulate the OS file drag leaving the window without dropping
+    /// (MWA-A4). Mirrors XdndLeave / draggingExited / DragLeave.
+    FileHoverCancel,
+}
+
+/// MWA-A4: feed the gesture manager's input sessions exactly like the
+/// desktop shells do (every OS mouse handler calls `record_input_sample`).
+/// Headless previously only mutated `mouse_state`, so `detect_drag`,
+/// `detect_double_click`, `detect_long_press`, swipes and node-DnD were
+/// structurally invisible to headless E2E — the entire gesture surface was
+/// untestable.
+fn record_headless_input(
+    window: &mut HeadlessWindow,
+    is_button_down: bool,
+    is_button_up: bool,
+) {
+    use crate::desktop::shell2::common::event::{
+        BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+    };
+    let ms = &window.common.current_window_state.mouse_state;
+    let mut button_state = BUTTON_STATE_NONE;
+    if ms.left_down {
+        button_state |= BUTTON_STATE_LEFT;
+    }
+    if ms.right_down {
+        button_state |= BUTTON_STATE_RIGHT;
+    }
+    if ms.middle_down {
+        button_state |= BUTTON_STATE_MIDDLE;
+    }
+    let pos = ms
+        .cursor_position
+        .get_position()
+        .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
+    window.record_input_sample(pos, button_state, is_button_down, is_button_up, None);
 }
 
 /// Outcome of a single `CpuBackend::render_frame` call — the seed of the
@@ -1245,6 +1287,64 @@ impl HeadlessWindow {
                     HeadlessEvent::Close => {
                         self.close();
                     }
+                    HeadlessEvent::FileHover { x, y, path } => {
+                        // MWA-A4: same ingress the OS backends perform —
+                        // position + hit test + hovered-file into the manager,
+                        // then an event pass (dispatches HoveredFile).
+                        use azul_core::window::CursorPosition;
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        let pos = LogicalPosition { x, y };
+                        self.common.current_window_state.mouse_state.cursor_position =
+                            CursorPosition::InWindow(pos);
+                        self.update_hit_test_at(pos);
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.file_drop_manager.set_hovered_file(Some(path.into()));
+                        }
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                    HeadlessEvent::FileDrop { x, y, path } => {
+                        use azul_core::window::CursorPosition;
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        let pos = LogicalPosition { x, y };
+                        self.common.current_window_state.mouse_state.cursor_position =
+                            CursorPosition::InWindow(pos);
+                        self.update_hit_test_at(pos);
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.file_drop_manager.set_dropped_file(Some(path.into()));
+                        }
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                        // Post-pass cleanup, mirroring the OS backends: the
+                        // drop is a one-shot; hover state ends with it.
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.file_drop_manager.set_dropped_file(None);
+                            lw.file_drop_manager.set_hovered_file(None);
+                            lw.file_drop_manager.clear_hover_cancelled();
+                        }
+                    }
+                    HeadlessEvent::FileHoverCancel => {
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            // Some→None flags the cancel; the pass dispatches
+                            // HoveredFileCancelled, then we clear the flag.
+                            lw.file_drop_manager.set_hovered_file(None);
+                        }
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.file_drop_manager.clear_hover_cancelled();
+                        }
+                    }
                     HeadlessEvent::MouseMove { x, y } => {
                         use azul_core::window::CursorPosition;
                         self.common.previous_window_state =
@@ -1253,6 +1353,7 @@ impl HeadlessWindow {
                         self.common.current_window_state.mouse_state.cursor_position =
                             CursorPosition::InWindow(pos);
                         self.update_hit_test_at(pos);
+                        record_headless_input(&mut self, false, false); // MWA-A4
                         let r = self.process_window_events(0);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
@@ -1273,6 +1374,7 @@ impl HeadlessWindow {
                             }
                             _ => {}
                         }
+                        record_headless_input(&mut self, true, false); // MWA-A4
                         let r = self.process_window_events(0);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
@@ -1293,6 +1395,7 @@ impl HeadlessWindow {
                             }
                             _ => {}
                         }
+                        record_headless_input(&mut self, false, true); // MWA-A4
                         let r = self.process_window_events(0);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
@@ -2226,6 +2329,7 @@ mod tests {
                 window.common.current_window_state.mouse_state.cursor_position =
                     CursorPosition::InWindow(pos);
                 window.update_hit_test_at(pos);
+                record_headless_input(window, false, false); // MWA-A4
                 needs_redraw = !matches!(
                     window.process_window_events(0),
                     ProcessEventResult::DoNothing
@@ -2238,6 +2342,7 @@ mod tests {
                     MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = true,
                     _ => {}
                 }
+                record_headless_input(window, true, false); // MWA-A4
                 needs_redraw = !matches!(
                     window.process_window_events(0),
                     ProcessEventResult::DoNothing
@@ -2250,6 +2355,7 @@ mod tests {
                     MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = false,
                     _ => {}
                 }
+                record_headless_input(window, false, true); // MWA-A4
                 needs_redraw = !matches!(
                     window.process_window_events(0),
                     ProcessEventResult::DoNothing

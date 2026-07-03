@@ -43,7 +43,7 @@ Raw audit JSON (deep detail, may not survive reboot): `/private/tmp/claude-501/-
   - e) a11y incremental text updates: push the computed update (layout/window.rs, text-edit tree-update fn) to the active platform adapter (+ raise on Windows).
   - f) flip `a11y` into azul-dll DEFAULT features (Cargo.toml edit only; per D8).
   STATUS: TODO
-- [ ] MWA-A4 Headless input parity (test enabler). Feed record_input_sample sessions from headless MouseMove/Down/Up (headless/mod.rs mouse handlers only set mouse_state today); route wheel into ScrollManager; add simulate_file_drop; tick scroll easing in headless. After this, E2E tests for drag / double-click / auto-scroll / drop become writable. STATUS: TODO
+- [x] MWA-A4 Headless input parity — DONE (this commit). record_headless_input() helper feeds gesture input sessions from MouseMove/Down/Up in BOTH headless dispatch sites (run loop + test-harness step fn) — drags/double-clicks/long-press/swipes/node-DnD are now observable headlessly. NEW HeadlessEvent::{FileHover, FileDrop, FileHoverCancel} mirror the OS DnD ingress (position + hit test + FileDropManager + event pass + OS-style post-pass cleanup). Wheel + scroll easing: OBSOLETE — headless Scroll already drives record_scroll_from_hit_test + SCROLL_MOMENTUM timer, and the run loop ticks process_timers_and_threads (fixed post-audit). TEST-DEBT: gesture E2Es themselves land with the B-items they verify (B4/B7/B8/B12). STATUS: DONE
 
 ## Phase B — confirmed big-ticket bugs (after A)
 - [ ] MWA-B1 Horizontal wheel: add WM_MOUSEHWHEEL arm (windows/mod.rs wndproc) + X11 buttons 6/7 → handle_scroll(±x) (x11/events.rs button handling). STATUS: TODO
