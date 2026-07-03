@@ -386,6 +386,9 @@ mod view_handlers {
                         center,
                         initial_distance: 100.0,
                         current_distance: 100.0 * scale,
+                        // Trackpad magnify events are deltas without a
+                        // gesture clock; consumers key off scale/center.
+                        duration_ms: 0,
                     }),
                 );
             }
