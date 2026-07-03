@@ -3371,7 +3371,8 @@ impl MacOSWindow {
             let (mut renderer, sender) = match webrender::create_webrender_instance(
                 gl_funcs.clone(),
                 Box::new(notifier),
-                default_renderer_options(&options, create_program_cache(&gl_funcs)),
+                // NSOpenGLContext has no buffer-age query — no partial present.
+                default_renderer_options(&options, create_program_cache(&gl_funcs), None),
                 None,
             ) {
                 Ok(rs) => rs,

@@ -1549,6 +1549,11 @@ impl X11Window {
                     wr_translate2::default_renderer_options(
                         &options,
                         wr_translate2::create_program_cache(&gl_functions.functions),
+                        // EGL backend: buffer-age partial present (WR
+                        // accumulates dirty regions over the back buffer's
+                        // age and reports the total through this cell; the
+                        // swap passes it to eglSwapBuffersWithDamage).
+                        Some(gl_context.wr_damage.clone()),
                     ),
                     None,
                 ) {
@@ -3802,7 +3807,17 @@ impl X11Window {
             (physical_size.height as i32).max(1),
         );
 
-        match renderer.render(framebuffer_size, 0) {
+        // Back buffer age (EGL_EXT_buffer_age): lets WebRender render only
+        // the dirty regions accumulated over the last `age` frames instead of
+        // the full frame. 0 (unsupported / query failed / new buffer) means
+        // "buffer content undefined" and degrades to a full render — exactly
+        // today's behavior. Age resets to 0 automatically on surface resize.
+        let buffer_age = match &self.render_mode {
+            RenderMode::Gpu(gl_context, _) => gl_context.buffer_age(),
+            _ => 0,
+        };
+
+        match renderer.render(framebuffer_size, buffer_age) {
             Ok(results) => {
                 // Store WebRender's dirty rects for per-rect Expose invalidation.
                 let dpi_scale = self.common.current_window_state.size.dpi as f32 / 96.0;
@@ -3830,9 +3845,33 @@ impl X11Window {
 
         self.common.display_list_initialized = true;
 
-        // Step 6: Swap buffers
+        // Step 6: Swap buffers. When WebRender reported a buffer-age-widened
+        // total damage region (see PartialPresentDamage) pass it to
+        // eglSwapBuffersWithDamage so the compositor only updates that
+        // region. Force a FULL swap when the OS asked for a repaint
+        // (Expose/MapNotify: on-screen content may be stale/undefined, and a
+        // partial present would leave the uncovered area stale on
+        // non-composited X11).
         if let RenderMode::Gpu(gl_context, _) = &self.render_mode {
-            if let Err(e) = gl_context.swap_buffers() {
+            let force_full = self.os_present_requested;
+            self.os_present_requested = false;
+            let fb_w = framebuffer_size.width.max(0) as u32;
+            let fb_h = framebuffer_size.height.max(0) as u32;
+            let damage = if force_full {
+                let _ = gl_context.wr_damage.take(); // drop stale region
+                None
+            } else {
+                gl_context.wr_damage.take().map(|rects| {
+                    wr_translate2::device_rects_to_present_rects(&rects, fb_w, fb_h)
+                })
+            };
+            let swap_result = match damage {
+                Some(rects) => gl_context.swap_buffers_with_damage(&rects, fb_h),
+                // No reported region / forced full ⇒ full swap (present must
+                // never silently shrink — DAMAGE_REGION_PLAN §3).
+                None => gl_context.swap_buffers(),
+            };
+            if let Err(e) = swap_result {
                 return Err(e);
             }
         }

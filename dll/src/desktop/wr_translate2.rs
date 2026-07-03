@@ -180,10 +180,78 @@ pub fn create_program_cache(
     Some(program_cache)
 }
 
+/// Shared cell that receives WebRender's buffer-age-widened TOTAL damage
+/// region for the frame being rendered (current frame's dirty rect unioned
+/// with the dirty rects of the previous `buffer_age - 1` frames, from WR's
+/// internal `BufferDamageTracker`). WR writes it via the
+/// [`webrender::PartialPresentCompositor`] hook immediately before
+/// compositing to the main framebuffer; the platform presenter `take()`s it
+/// after `renderer.render(size, buffer_age)` and passes it to
+/// `eglSwapBuffersWithDamage[KHR|EXT]`.
+///
+/// Rects are physical device px, top-left origin (the EGL presenter must
+/// y-flip them to bottom-left origin). `take()` returning `None` means WR
+/// did not report a partial region this frame — present in FULL (per
+/// DAMAGE_REGION_PLAN §3: "PresentDamage must never silently become ∅").
+#[derive(Clone, Default)]
+pub struct PartialPresentDamage {
+    inner: Arc<Mutex<Option<Vec<DeviceIntRect>>>>,
+}
+
+impl PartialPresentDamage {
+    /// Take the total damage region WR reported for the last rendered frame.
+    pub fn take(&self) -> Option<Vec<DeviceIntRect>> {
+        self.inner.lock().ok()?.take()
+    }
+}
+
+impl webrender::PartialPresentCompositor for PartialPresentDamage {
+    fn set_buffer_damage_region(&mut self, rects: &[DeviceIntRect]) {
+        if let Ok(mut guard) = self.inner.lock() {
+            *guard = Some(rects.to_vec());
+        }
+    }
+}
+
+/// Clamp WebRender device rects (physical px, TOP-LEFT origin, i32) to a
+/// `fb_w`×`fb_h` framebuffer and convert to `(x, y, w, h)` u32 present
+/// rects for swap-with-damage. Degenerate/off-buffer rects are dropped — an
+/// empty result must be treated as FULL by the presenter (present damage
+/// never silently shrinks to ∅, DAMAGE_REGION_PLAN §3).
+pub fn device_rects_to_present_rects(
+    rects: &[DeviceIntRect],
+    fb_w: u32,
+    fb_h: u32,
+) -> Vec<(u32, u32, u32, u32)> {
+    rects
+        .iter()
+        .filter_map(|r| {
+            let x0 = r.min.x.clamp(0, fb_w as i32);
+            let y0 = r.min.y.clamp(0, fb_h as i32);
+            let x1 = r.max.x.clamp(0, fb_w as i32);
+            let y1 = r.max.y.clamp(0, fb_h as i32);
+            if x1 > x0 && y1 > y0 {
+                Some((x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// Default WebRender renderer options
+///
+/// `partial_present`: pass `Some(cell)` on backends that query the back
+/// buffer's age (EGL_EXT_buffer_age) and feed it into
+/// `renderer.render(size, buffer_age)`. WR then accumulates dirty regions
+/// over the buffer's age (`draw_previous_partial_present_regions`), scissors
+/// its composite to that total region, and reports it through the cell for
+/// swap-with-damage. Backends without buffer-age support pass `None` and get
+/// today's behavior unchanged.
 pub fn default_renderer_options(
     options: &azul_layout::window_state::WindowCreateOptions,
     cached_programs: Option<Rc<webrender::ProgramCache>>,
+    partial_present: Option<PartialPresentDamage>,
 ) -> WrRendererOptions {
     use azul_core::window::WindowBackgroundMaterial;
     use azul_css::props::basic::color::ColorU;
@@ -226,10 +294,18 @@ pub fn default_renderer_options(
         // Enable partial present so WebRender computes per-frame dirty rects
         // from tile invalidation. These rects are returned in RenderResults and
         // forwarded to the OS compositor for per-region invalidation.
+        //
+        // With a `partial_present` cell (EGL backends with buffer-age),
+        // `draw_previous_partial_present_regions: true` makes WR union the
+        // current dirty rect with the tracked damage of the previous
+        // `buffer_age - 1` frames — required for correctness when rendering
+        // partially into an aged (multi-buffered) back buffer. Unknown age
+        // (0) or age beyond WR's 4-frame history degrades to Full.
         compositor_config: webrender::CompositorConfig::Draw {
             max_partial_present_rects: 1,
-            draw_previous_partial_present_regions: false,
-            partial_present: None,
+            draw_previous_partial_present_regions: partial_present.is_some(),
+            partial_present: partial_present
+                .map(|p| Box::new(p) as Box<dyn webrender::PartialPresentCompositor>),
         },
         ..WrRendererOptions::default()
     }

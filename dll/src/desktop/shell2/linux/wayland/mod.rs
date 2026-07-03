@@ -268,6 +268,14 @@ pub struct WaylandWindow {
     /// so the Wayland compositor can skip recompositing unchanged regions.
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
 
+    /// Whether the last GPU render was actually presented (swapped). The
+    /// Wayland GPU path skips the swap for 0-draw-call frames; WebRender's
+    /// internal buffer-damage tracker still records such frames, so its
+    /// frame counter and EGL's buffer-age counter drift apart. After a
+    /// skipped present the next frame passes buffer_age=0 (= full render),
+    /// resynchronizing conservatively.
+    gpu_last_render_presented: bool,
+
     /// Shared CPU rendering backend (same as the headless + X11 paths): owns the
     /// retained pixmap, compositor, glyph cache, display-list damage diff AND the
     /// scroll-shift / eligibility / present-split machinery. Replaces the former
@@ -1311,6 +1319,7 @@ impl WaylandWindow {
             frame_callback_pending: false,
             needs_redraw: false,
             gpu_damage_rects: Vec::new(),
+            gpu_last_render_presented: true,
             timer_fds: std::collections::BTreeMap::new(),
             #[cfg(feature = "a11y")]
             accessibility_adapter: LinuxAccessibilityAdapter::new(),
@@ -1874,6 +1883,13 @@ impl WaylandWindow {
             wr_translate2::default_renderer_options(
                 options,
                 wr_translate2::create_program_cache(&gl_functions.functions),
+                // EGL backend: buffer-age partial present (WR accumulates
+                // dirty regions over the back buffer's age and reports the
+                // total through this cell for eglSwapBuffersWithDamage).
+                match &self.render_mode {
+                    RenderMode::Gpu(gl_context, _) => Some(gl_context.wr_damage.clone()),
+                    _ => None,
+                },
             ),
             None,
         )
@@ -3870,6 +3886,19 @@ impl WaylandWindow {
                     let physical_size = self.common.current_window_state.size.get_physical_size();
                     use azul_core::gl as gl_types;
                     gl_context.make_current();
+
+                    // Back buffer age (EGL_EXT_buffer_age): lets WebRender
+                    // render only the dirty regions accumulated over the last
+                    // `age` frames. 0 = unsupported / undefined content ⇒
+                    // full render (today's behavior). Pass 0 after a skipped
+                    // present (see gpu_last_render_presented) — WR's damage
+                    // tracker counts renders while EGL counts swaps.
+                    let buffer_age = if self.gpu_last_render_presented {
+                        gl_context.buffer_age()
+                    } else {
+                        0
+                    };
+
                     gl_functions
                         .functions
                         .bind_framebuffer(gl_types::FRAMEBUFFER, 0);
@@ -3879,10 +3908,17 @@ impl WaylandWindow {
                         physical_size.width as gl_types::GLint,
                         physical_size.height as gl_types::GLint,
                     );
-                    gl_functions.functions.clear_color(0.937, 0.941, 0.945, 1.0);
-                    gl_functions
-                        .functions
-                        .clear(gl_types::COLOR_BUFFER_BIT | gl_types::DEPTH_BUFFER_BIT);
+                    // Clear the whole backbuffer ONLY when its content is
+                    // undefined (age 0). With EGL_EXT_buffer_age reporting
+                    // age >= 1 the buffer's previous content is guaranteed
+                    // preserved — a full clear would wipe the regions
+                    // WebRender is about to SKIP (partial render).
+                    if buffer_age == 0 {
+                        gl_functions.functions.clear_color(0.937, 0.941, 0.945, 1.0);
+                        gl_functions
+                            .functions
+                            .clear(gl_types::COLOR_BUFFER_BIT | gl_types::DEPTH_BUFFER_BIT);
+                    }
 
                     // 2. Update and render
                     renderer.update();
@@ -3898,7 +3934,7 @@ impl WaylandWindow {
                     // window. X11 only renders on real events so it never hit this; the
                     // Wayland frame-callback loop did. Gate strictly on draw calls.
                     let mut should_present = false;
-                    match renderer.render(device_size, 0) {
+                    match renderer.render(device_size, buffer_age) {
                         Ok(results) => {
                             if results.stats.total_draw_calls > 0 {
                                 should_present = true;
@@ -3932,7 +3968,30 @@ impl WaylandWindow {
                     // should_present above). Swapping an empty (0-draw-call) buffer would
                     // wipe the last good frame, since the EGL surface is multi-buffered.
                     if should_present {
-                        if let Err(e) = gl_context.swap_buffers() {
+                        // Buffer-age partial present: WebRender reported the
+                        // TOTAL damage region (current frame ∪ previous
+                        // `buffer_age - 1` frames) through the wr_damage cell.
+                        // eglSwapBuffersWithDamage passes it to the compositor
+                        // (and posts the wl_surface damage itself, so the
+                        // manual wl_surface_damage hints below are skipped).
+                        let fb_w = physical_size.width;
+                        let fb_h = physical_size.height;
+                        let present_rects = if gl_context.partial_present.swap_with_damage.is_some()
+                        {
+                            gl_context.wr_damage.take().map(|rects| {
+                                wr_translate2::device_rects_to_present_rects(&rects, fb_w, fb_h)
+                            })
+                        } else {
+                            let _ = gl_context.wr_damage.take();
+                            None
+                        };
+                        let swap_result = match &present_rects {
+                            // Empty rect list falls back to a full swap inside
+                            // swap_buffers_with_damage (never silently ∅).
+                            Some(rects) => gl_context.swap_buffers_with_damage(rects, fb_h),
+                            None => gl_context.swap_buffers(),
+                        };
+                        if let Err(e) = swap_result {
                             log_error!(
                                 LogCategory::Rendering,
                                 "[Wayland] Swap buffers failed: {:?}",
@@ -3940,12 +3999,18 @@ impl WaylandWindow {
                             );
                             return;
                         }
+                        self.gpu_last_render_presented = true;
+                        let swap_carried_damage =
+                            matches!(&present_rects, Some(r) if !r.is_empty());
 
                         // 3.5. Inform Wayland compositor which regions changed (GPU damage
                         // hints). EGL handles buffer attachment via eglSwapBuffers, but
                         // explicit wl_surface_damage calls let the compositor skip
-                        // recompositing unchanged regions.
-                        if !self.gpu_damage_rects.is_empty() {
+                        // recompositing unchanged regions. Skipped when the swap itself
+                        // already carried the damage region.
+                        if swap_carried_damage {
+                            self.gpu_damage_rects.clear();
+                        } else if !self.gpu_damage_rects.is_empty() {
                             for dr in &self.gpu_damage_rects {
                                 unsafe {
                                     (self.wayland.wl_surface_damage)(
@@ -3970,6 +4035,13 @@ impl WaylandWindow {
                                 );
                             }
                         }
+                    } else {
+                        // Rendered but NOT presented: WR's buffer-damage
+                        // tracker recorded this frame while EGL's buffer age
+                        // did not advance — force a full render next frame to
+                        // resynchronize, and drop the stale damage region.
+                        self.gpu_last_render_presented = false;
+                        let _ = gl_context.wr_damage.take();
                     }
 
                     self.common.display_list_initialized = true;

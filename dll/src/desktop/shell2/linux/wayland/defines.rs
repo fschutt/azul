@@ -288,7 +288,7 @@ pub use super::super::x11::defines::{
 
 // Re-export EGL types from X11 defines (they're the same across X11 and Wayland)
 pub use super::super::x11::defines::{
-    EGLConfig, EGLContext, EGLDisplay, EGLNativeDisplayType, EGLSurface,
+    EGLConfig, EGLContext, EGLDisplay, EGLNativeDisplayType, EGLSurface, EGL_BUFFER_AGE_EXT,
 };
 
 // Listener structs (wayland-client protocol)

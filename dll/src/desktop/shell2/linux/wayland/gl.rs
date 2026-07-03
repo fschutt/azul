@@ -24,6 +24,12 @@ pub struct GlContext {
     pub egl_surface: Option<EGLSurface>,
     wl_egl_window: Option<*mut wl_egl_window>,
     wayland: Option<Rc<Wayland>>,
+    /// EGL_EXT_buffer_age / swap-with-damage capabilities (shared detection
+    /// with the X11 EGL backend).
+    pub partial_present: crate::desktop::shell2::linux::x11::gl::EglPartialPresent,
+    /// Cell through which WebRender reports the buffer-age-widened total
+    /// damage region of each rendered frame (see `default_renderer_options`).
+    pub wr_damage: crate::desktop::wr_translate2::PartialPresentDamage,
 }
 
 impl Default for GlContext {
@@ -35,6 +41,8 @@ impl Default for GlContext {
             egl_surface: None,
             wl_egl_window: None,
             wayland: None,
+            partial_present: Default::default(),
+            wr_damage: Default::default(),
         }
     }
 }
@@ -234,6 +242,9 @@ impl GlContext {
             ));
         }
 
+        let partial_present =
+            crate::desktop::shell2::linux::x11::gl::EglPartialPresent::detect(&egl, egl_display);
+
         Ok(Self {
             egl: Some(egl),
             egl_display: Some(egl_display),
@@ -241,6 +252,8 @@ impl GlContext {
             egl_surface: Some(egl_surface),
             wl_egl_window: Some(egl_window),
             wayland: Some(wayland.clone()),
+            partial_present,
+            wr_damage: Default::default(),
         })
     }
 
@@ -283,6 +296,64 @@ impl GlContext {
             }
         }
         Ok(())
+    }
+
+    /// Age of the current back buffer in frames (EGL_EXT_buffer_age).
+    /// 0 = unsupported / query failed / undefined content ⇒ full render.
+    pub fn buffer_age(&self) -> usize {
+        if !self.partial_present.buffer_age_supported {
+            return 0;
+        }
+        let (egl, display, surface) = match (self.egl.as_ref(), self.egl_display, self.egl_surface)
+        {
+            (Some(e), Some(d), Some(s)) => (e, d, s),
+            _ => return 0,
+        };
+        let mut age: i32 = 0;
+        let ok = unsafe {
+            (egl.eglQuerySurface)(display, surface, EGL_BUFFER_AGE_EXT as i32, &mut age)
+        };
+        if ok == 0 || age < 0 {
+            0
+        } else {
+            age as usize
+        }
+    }
+
+    /// Swap, passing the damaged region (physical px, TOP-LEFT origin) to
+    /// eglSwapBuffersWithDamage[KHR|EXT]. Rects are y-flipped here (EGL
+    /// damage rects use a bottom-left origin). Falls back to a plain full
+    /// swap when the extension is unavailable or `rects` is empty.
+    ///
+    /// On Wayland this also posts the surface damage to the compositor, so
+    /// callers using it must NOT additionally call wl_surface_damage.
+    pub fn swap_buffers_with_damage(
+        &self,
+        rects: &[(u32, u32, u32, u32)],
+        buf_height: u32,
+    ) -> Result<(), WindowError> {
+        let swap_fn = match self.partial_present.swap_with_damage {
+            Some(f) if !rects.is_empty() => f,
+            _ => return self.swap_buffers(),
+        };
+        let (display, surface) = match (self.egl_display, self.egl_surface) {
+            (Some(d), Some(s)) => (d, s),
+            _ => return Ok(()),
+        };
+        let mut egl_rects: Vec<i32> = Vec::with_capacity(rects.len() * 4);
+        for &(x, y, w, h) in rects {
+            // top-left (x, y, w, h) → bottom-left origin
+            let flipped_y = buf_height.saturating_sub(y.saturating_add(h));
+            egl_rects.extend_from_slice(&[x as i32, flipped_y as i32, w as i32, h as i32]);
+        }
+        let ok = unsafe { swap_fn(display, surface, egl_rects.as_ptr(), rects.len() as i32) };
+        if ok == 0 {
+            Err(WindowError::PlatformError(
+                "eglSwapBuffersWithDamage failed".into(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     /// Resizes the underlying `wl_egl_window` to the given dimensions.

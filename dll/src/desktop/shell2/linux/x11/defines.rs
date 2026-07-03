@@ -428,6 +428,11 @@ pub const EGL_CONTEXT_MAJOR_VERSION: u32 = 0x3098;
 pub const EGL_CONTEXT_MINOR_VERSION: u32 = 0x30FB;
 pub const EGL_CONTEXT_OPENGL_PROFILE_MASK: u32 = 0x30FD;
 pub const EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT: u32 = 0x00000001;
+/// eglQueryString name: display extension list (space-separated).
+pub const EGL_EXTENSIONS: u32 = 0x3055;
+/// EGL_EXT_buffer_age: eglQuerySurface attribute — age of the back buffer in
+/// frames (1 = same buffer as last frame, 0 = undefined/new content).
+pub const EGL_BUFFER_AGE_EXT: u32 = 0x313D;
 
 // EGL function pointer types
 pub type eglGetDisplay = unsafe extern "C" fn(EGLNativeDisplayType) -> EGLDisplay;
@@ -442,6 +447,13 @@ pub type eglCreateWindowSurface =
 pub type eglMakeCurrent =
     unsafe extern "C" fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> u32;
 pub type eglSwapBuffers = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;
+pub type eglQuerySurface = unsafe extern "C" fn(EGLDisplay, EGLSurface, i32, *mut i32) -> u32;
+pub type eglQueryString = unsafe extern "C" fn(EGLDisplay, i32) -> *const c_char;
+/// eglSwapBuffersWithDamageKHR / eglSwapBuffersWithDamageEXT (identical
+/// signatures): rects are (x, y, w, h) EGLint quadruples in buffer
+/// coordinates with a BOTTOM-LEFT origin, n_rects = number of quadruples.
+pub type eglSwapBuffersWithDamage =
+    unsafe extern "C" fn(EGLDisplay, EGLSurface, *const i32, i32) -> u32;
 pub type eglSwapInterval = unsafe extern "C" fn(EGLDisplay, i32) -> u32;
 pub type eglGetError = unsafe extern "C" fn() -> i32;
 pub type eglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_void;

@@ -11,12 +11,79 @@ use crate::desktop::shell2::common::{
 };
 use crate::{log_debug, log_warn};
 
+/// Detected EGL partial-present capabilities for a display (shared by the
+/// X11 and Wayland GL contexts — both load EGL through [`Egl`]).
+///
+/// - `buffer_age_supported` (EGL_EXT_buffer_age): the back buffer's age can
+///   be queried, so WebRender can render only the accumulated dirty region
+///   (see `wr_translate2::PartialPresentDamage`).
+/// - `swap_with_damage` (EGL_KHR/EXT_swap_buffers_with_damage): the swap can
+///   carry the damaged region so the compositor only recomposites it.
+///
+/// Either can be present without the other; absence of both means full
+/// render + full swap, exactly as before.
+#[derive(Clone, Copy, Default)]
+pub struct EglPartialPresent {
+    pub buffer_age_supported: bool,
+    pub swap_with_damage: Option<eglSwapBuffersWithDamage>,
+}
+
+impl EglPartialPresent {
+    /// Probe the display's extension string and resolve the swap-with-damage
+    /// entry point (KHR preferred, EXT fallback) via eglGetProcAddress.
+    pub fn detect(egl: &Egl, egl_display: EGLDisplay) -> Self {
+        let ext_ptr = unsafe { (egl.eglQueryString)(egl_display, EGL_EXTENSIONS as i32) };
+        if ext_ptr.is_null() {
+            return Self::default();
+        }
+        let exts = unsafe { std::ffi::CStr::from_ptr(ext_ptr) }.to_string_lossy();
+        let has_ext = |name: &str| exts.split(' ').any(|e| e == name);
+
+        let buffer_age_supported = has_ext("EGL_EXT_buffer_age");
+
+        let swap_with_damage = if has_ext("EGL_KHR_swap_buffers_with_damage") {
+            Some(b"eglSwapBuffersWithDamageKHR\0".as_slice())
+        } else if has_ext("EGL_EXT_swap_buffers_with_damage") {
+            Some(b"eglSwapBuffersWithDamageEXT\0".as_slice())
+        } else {
+            None
+        }
+        .and_then(|sym| {
+            let p = unsafe { (egl.eglGetProcAddress)(sym.as_ptr() as *const _) };
+            if p.is_null() {
+                None
+            } else {
+                Some(unsafe {
+                    std::mem::transmute::<*const core::ffi::c_void, eglSwapBuffersWithDamage>(p)
+                })
+            }
+        });
+
+        log_debug!(
+            LogCategory::Platform,
+            "[EGL] partial present: buffer_age={} swap_with_damage={}",
+            buffer_age_supported,
+            swap_with_damage.is_some()
+        );
+
+        Self {
+            buffer_age_supported,
+            swap_with_damage,
+        }
+    }
+}
+
 /// Holds the EGL display, context, and surface for an X11 window.
 pub struct GlContext {
     pub egl: Rc<Egl>,
     pub egl_display: EGLDisplay,
     pub egl_context: EGLContext,
     pub egl_surface: EGLSurface,
+    /// EGL_EXT_buffer_age / swap-with-damage capabilities of this display.
+    pub partial_present: EglPartialPresent,
+    /// Cell through which WebRender reports the buffer-age-widened total
+    /// damage region of each rendered frame (see `default_renderer_options`).
+    pub wr_damage: crate::desktop::wr_translate2::PartialPresentDamage,
 }
 
 impl GlContext {
@@ -175,11 +242,15 @@ impl GlContext {
             "[EGL] OpenGL context created successfully"
         );
 
+        let partial_present = EglPartialPresent::detect(egl, egl_display);
+
         Ok(Self {
             egl: egl.clone(),
             egl_display,
             egl_context,
             egl_surface,
+            partial_present,
+            wr_damage: Default::default(),
         })
     }
 
@@ -227,6 +298,69 @@ impl GlContext {
     pub fn swap_buffers(&self) -> Result<(), WindowError> {
         if unsafe { (self.egl.eglSwapBuffers)(self.egl_display, self.egl_surface) } == 0 {
             Err(WindowError::PlatformError("eglSwapBuffers failed".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Age of the current back buffer in frames (EGL_EXT_buffer_age).
+    ///
+    /// Returns 0 (= "content undefined, treat as fully invalid") when the
+    /// extension is unsupported or the query fails — the conservative value:
+    /// WebRender then renders and presents the full frame.
+    pub fn buffer_age(&self) -> usize {
+        if !self.partial_present.buffer_age_supported {
+            return 0;
+        }
+        let mut age: i32 = 0;
+        let ok = unsafe {
+            (self.egl.eglQuerySurface)(
+                self.egl_display,
+                self.egl_surface,
+                EGL_BUFFER_AGE_EXT as i32,
+                &mut age,
+            )
+        };
+        if ok == 0 || age < 0 {
+            0
+        } else {
+            age as usize
+        }
+    }
+
+    /// Swap, passing the damaged region (physical px, TOP-LEFT origin rects)
+    /// to eglSwapBuffersWithDamage[KHR|EXT] so the compositor only updates
+    /// that region. Rects are y-flipped here (EGL damage rects use a
+    /// bottom-left origin). Falls back to a plain full swap when the
+    /// extension is unavailable or `rects` is empty (empty damage ⇒ per spec
+    /// "full surface damaged" anyway).
+    pub fn swap_buffers_with_damage(
+        &self,
+        rects: &[(u32, u32, u32, u32)],
+        buf_height: u32,
+    ) -> Result<(), WindowError> {
+        let swap_fn = match self.partial_present.swap_with_damage {
+            Some(f) if !rects.is_empty() => f,
+            _ => return self.swap_buffers(),
+        };
+        let mut egl_rects: Vec<i32> = Vec::with_capacity(rects.len() * 4);
+        for &(x, y, w, h) in rects {
+            // top-left (x, y, w, h) → bottom-left origin
+            let flipped_y = buf_height.saturating_sub(y.saturating_add(h));
+            egl_rects.extend_from_slice(&[x as i32, flipped_y as i32, w as i32, h as i32]);
+        }
+        let ok = unsafe {
+            swap_fn(
+                self.egl_display,
+                self.egl_surface,
+                egl_rects.as_ptr(),
+                rects.len() as i32,
+            )
+        };
+        if ok == 0 {
+            Err(WindowError::PlatformError(
+                "eglSwapBuffersWithDamage failed".into(),
+            ))
         } else {
             Ok(())
         }

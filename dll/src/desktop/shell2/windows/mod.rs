@@ -350,7 +350,12 @@ impl Win32Window {
                                 );
                             })),
                         }),
-                        default_renderer_options(&options, create_program_cache(&gl_functions.functions)),
+                        // WGL has no buffer-age query — no partial present.
+                        default_renderer_options(
+                            &options,
+                            create_program_cache(&gl_functions.functions),
+                            None,
+                        ),
                         None,
                     )
                     .map_err(|e| WindowError::PlatformError(format!("WebRender error: {:?}", e)))?;

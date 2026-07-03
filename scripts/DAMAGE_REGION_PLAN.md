@@ -608,6 +608,18 @@ refactor. Investigate: text shaping cache key in `layout/src/solver3` text/IFC p
   (CPU `XCopyArea` shift + strip; present whole viewport). Verify on a scroll demo.
 - **P5:** GPU path — drive WR render from `render` damage, **buffer-age present** for `present`
   damage (fallback Full). Verify: no full-window flicker; opacity/transform = composite-only.
+  **STATUS 2026-07-03: DONE for EGL (X11 + Wayland).** No hand-rolled ring buffer — WebRender's
+  own `BufferDamageTracker` (4-frame history) does the age accumulation: `default_renderer_options`
+  now takes an optional `PartialPresentDamage` cell (`wr_translate2.rs`); when set, WR runs with
+  `draw_previous_partial_present_regions: true` + a `PartialPresentCompositor` hook and both
+  scissors its composite to (current ∪ last `age-1` frames) and reports that total region through
+  the cell. Backends query `EGL_BUFFER_AGE_EXT` (`GlContext::buffer_age()`, 0 = unknown ⇒ Full)
+  and pass it to `renderer.render(size, age)`; the reported region goes to
+  `eglSwapBuffersWithDamage[KHR|EXT]` (y-flipped to bottom-left origin, physical px) when
+  `EGL_KHR/EXT_swap_buffers_with_damage` is present, else full swap. X11 forces a full swap on
+  Expose/MapNotify (`os_present_requested`); Wayland skips its full-framebuffer pre-clear when
+  age ≥ 1 (preserved buffer) and resyncs with age=0 after a skipped (0-draw-call) present.
+  Windows (WGL) and macOS (NSOpenGL) have no buffer-age query — untouched (full swap as before).
 - **P6:** caret/cursor/image-callback imperative sources through the collector (2-rect cursor).
 - **P7:** port the unified consumer to macOS/Windows/Wayland (delete the 4 duplicated CPU
   diff sites; one detector remains).
