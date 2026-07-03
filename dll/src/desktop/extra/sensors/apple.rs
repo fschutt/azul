@@ -63,6 +63,27 @@ pub fn start() {
     }
 }
 
+/// MWA-C-sensors: non-destructive IMU presence probe for AzCapability —
+/// the capability report used to hardcode available=false on macOS while
+/// this real check existed unused. Reuses the started manager when
+/// available (avoids a second CMMotionManager); otherwise creates a
+/// temporary one just for the availability bits.
+pub fn has_motion_hardware() -> bool {
+    unsafe {
+        let existing = MANAGER.load(Ordering::Acquire);
+        if !existing.is_null() {
+            let mgr = &*existing;
+            return mgr.isAccelerometerAvailable()
+                || mgr.isGyroAvailable()
+                || mgr.isMagnetometerAvailable();
+        }
+        let mgr = CMMotionManager::new();
+        mgr.isAccelerometerAvailable()
+            || mgr.isGyroAvailable()
+            || mgr.isMagnetometerAvailable()
+    }
+}
+
 /// Read the latest sample of each sensor and park it for the layout pass.
 /// No-op until [`start`] has published the manager.
 pub fn poll() {

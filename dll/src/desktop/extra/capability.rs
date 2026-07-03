@@ -165,9 +165,29 @@ impl PlatformCapability {
         } else if cfg!(target_os = "android") {
             cap(false, "SensorManager (JNI)", "Rust path ready; AzulSensors.java helper pending")
         } else if cfg!(target_os = "macos") {
-            cap(false, "CoreMotion", "most Macs have no accelerometer; reading stays None")
+            // MWA-C-sensors: REAL probe (was hardcoded false, hiding working
+            // sensors on IMU-equipped hardware from AzCapability gates).
+            #[cfg(target_os = "macos")]
+            {
+                if super::sensors::apple::has_motion_hardware() {
+                    return cap(true, "CoreMotion", "");
+                }
+                return cap(false, "CoreMotion", "no motion hardware present");
+            }
+            #[cfg(not(target_os = "macos"))]
+            cap(false, "CoreMotion", "unreachable")
         } else if cfg!(target_os = "windows") {
-            cap(false, "WinRT Sensors", "most desktops have no accelerometer; reading stays None")
+            // MWA-C-sensors: REAL probe via WinRT GetDefault (was hardcoded
+            // false).
+            #[cfg(target_os = "windows")]
+            {
+                if super::sensors::windows::has_motion_hardware() {
+                    return cap(true, "WinRT Sensors", "");
+                }
+                return cap(false, "WinRT Sensors", "no motion hardware present");
+            }
+            #[cfg(not(target_os = "windows"))]
+            cap(false, "WinRT Sensors", "unreachable")
         } else {
             cap(false, "none", "no motion-sensor backend on this target")
         }

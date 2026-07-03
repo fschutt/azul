@@ -28,6 +28,21 @@ unsafe impl Send for Sensors {}
 unsafe impl Sync for Sensors {}
 static SENSORS: OnceLock<Sensors> = OnceLock::new();
 
+/// MWA-C-sensors: non-destructive IMU presence probe for AzCapability —
+/// the capability report used to hardcode available=false on Windows
+/// while GetDefault() is exactly the real check. Reuses the started
+/// sensor set when available.
+pub fn has_motion_hardware() -> bool {
+    if let Some(s) = SENSORS.get() {
+        return s.accel.is_some() || s.gyro.is_some() || s.mag.is_some();
+    }
+    // GetDefault() errs when no sensor is present (same contract start()
+    // relies on with `.ok()`).
+    Accelerometer::GetDefault().is_ok()
+        || Gyrometer::GetDefault().is_ok()
+        || Magnetometer::GetDefault().is_ok()
+}
+
 pub fn start() {
     let s = Sensors {
         accel: Accelerometer::GetDefault().ok(),
