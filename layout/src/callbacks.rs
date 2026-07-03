@@ -3665,7 +3665,14 @@ impl CallbackInfo {
     /// Returns None if no drag is active, or Some with drag context.
     /// Prefer this over `get_drag_state` for new code.
     #[must_use] pub const fn get_drag_context(&self) -> Option<&azul_core::drag::DragContext> {
-        self.get_layout_window().drag_drop_manager.get_drag_context()
+        // MWA-C-drag_drop: the gesture manager holds the LIVE context — the
+        // drag_drop_manager mirror is a frozen clone from drag start, so its
+        // current_drop_target/position were stale for the whole drag. The
+        // mirror stays only as a legacy fallback.
+        match self.get_layout_window().gesture_drag_manager.get_drag_context() {
+            Some(ctx) => Some(ctx),
+            None => self.get_layout_window().drag_drop_manager.get_drag_context(),
+        }
     }
 
     // Hover Manager Access
@@ -3710,8 +3717,8 @@ impl CallbackInfo {
 
     /// Get the node being dragged (if any)
     #[must_use] pub fn get_dragged_node(&self) -> Option<DomNodeId> {
-        self.get_drag_drop_manager()
-            .get_drag_context()
+        // MWA-C-drag_drop: gesture-primary (live), mirror fallback (frozen).
+        self.get_drag_context()
             .and_then(|ctx| {
                 ctx.as_node_drag().map(|node_drag| {
                     DomNodeId {
@@ -3724,12 +3731,22 @@ impl CallbackInfo {
 
     /// Get the file path being dragged (if any)
     #[must_use] pub fn get_dragged_file(&self) -> Option<&AzString> {
-        self.get_drag_drop_manager()
-            .get_drag_context()
+        // MWA-C-drag_drop: no path ever wrote a FileDrop context into the
+        // drag_drop_manager mirror, so this reader returned None forever.
+        // Gesture context first (intra-app file drags), then the
+        // FileDropManager's hovered/dropped state (external OS drags).
+        self.get_drag_context()
             .and_then(|ctx| {
                 ctx.as_file_drop().and_then(|file_drop| {
                     file_drop.files.as_ref().first()
                 })
+            })
+            .or_else(|| {
+                let lw = self.get_layout_window();
+                lw.file_drop_manager
+                    .get_hovered_files()
+                    .first()
+                    .or_else(|| lw.file_drop_manager.get_dropped_files().first())
             })
     }
 
