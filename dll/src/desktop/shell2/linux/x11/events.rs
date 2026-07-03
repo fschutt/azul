@@ -477,6 +477,18 @@ impl X11Window {
                 // Scroll down - handle separately
                 return self.handle_scroll(0.0, -1.0, position);
             }
+            6 if is_down => {
+                // MWA-B1: horizontal wheel LEFT (X11 button 6) — was unmapped,
+                // so tilt-wheel / trackpad horizontal scrolling was completely
+                // dead on X11. Sign follows the vertical convention above
+                // (4 = +1, 5 = −1); direction normalization happens centrally
+                // in ScrollManager. NEEDS-RUNTIME-VERIFY: sign on real hw.
+                return self.handle_scroll(1.0, 0.0, position);
+            }
+            7 if is_down => {
+                // MWA-B1: horizontal wheel RIGHT (X11 button 7).
+                return self.handle_scroll(-1.0, 0.0, position);
+            }
             _ => MouseButton::Other(event.button as u8),
         };
 
