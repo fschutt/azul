@@ -100,15 +100,25 @@ impl WindowsAccessibilityAdapter {
         if let Some(adapter) = guard.as_mut() {
             // Wrap in catch_unwind to prevent panics from crashing the app
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                adapter.update_if_active(|| tree_update);
+                // MWA-A3a: update_if_active returns the QueuedEvents this
+                // update implies (focus changes, property changes, live-
+                // region announcements) — they MUST be raised. Discarding
+                // them meant azul emitted ZERO UIA events on Windows;
+                // Narrator only ever saw data on a fresh pull, and live
+                // regions were silent.
+                if let Some(queued_events) = adapter.update_if_active(|| tree_update) {
+                    queued_events.raise();
+                }
             }));
         }
     }
 
     /// Notify that window focus changed
     pub fn set_focus(&self, _has_focus: bool) {
-        // Focus state is automatically managed by the SubclassingAdapter
-        // through Windows messages, so we don't need to manually update it
+        // Correct as a no-op HERE (unlike the unix adapter): the
+        // SubclassingAdapter subclasses the HWND's wndproc and observes
+        // WM_SETFOCUS / WM_KILLFOCUS itself, so window-focus state needs no
+        // manual forwarding on Windows (MWA-A3a verified).
     }
 
     /// Get pending actions from assistive technology

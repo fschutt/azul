@@ -916,6 +916,23 @@ impl PlatformWindow for WaylandWindow {
 
     // Timer Management (Wayland Implementation - uses timerfd for native OS timer support)
 
+    fn flush_a11y_tree_update(&mut self) {
+        // MWA-A3e: push incremental a11y updates (text edits / caret moves)
+        // parked in last_tree_update by the event pass; previously they only
+        // reached AT-SPI on the next full relayout.
+        #[cfg(feature = "a11y")]
+        {
+            let pending = self
+                .common
+                .layout_window
+                .as_mut()
+                .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+            if let Some(update) = pending {
+                self.accessibility_adapter.update_tree(update);
+            }
+        }
+    }
+
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         let interval_ms = timer.tick_millis();
         if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -2876,6 +2893,9 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = false;
         self.dynamic_selector_context.window_focused = false;
+        // MWA-A3b: forward to AT-SPI — accesskit_unix never learns window
+        // focus on its own (Orca got no focus events on Wayland).
+        self.accessibility_adapter.set_focus(false);
         // Run the state-diff pass so WindowFocusLost callbacks fire and
         // focus-conditional styling restyles (the bare snapshot alone was
         // overwritten by the next event's snapshot before anything diffed it).
@@ -2973,6 +2993,8 @@ impl WaylandWindow {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = true;
         self.dynamic_selector_context.window_focused = true;
+        // MWA-A3b: mirror of handle_keyboard_leave — forward focus to AT-SPI.
+        self.accessibility_adapter.set_focus(true);
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
         self.request_redraw();

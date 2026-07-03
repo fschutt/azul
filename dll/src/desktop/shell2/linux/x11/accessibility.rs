@@ -111,10 +111,24 @@ impl LinuxAccessibilityAdapter {
         }
     }
 
-    /// Notify that window focus changed
-    pub fn set_focus(&self, _has_focus: bool) {
-        // Focus state is automatically managed by the Adapter
-        // through AT-SPI protocol, so we don't need to manually update it
+    /// Notify that window focus changed.
+    ///
+    /// MWA-A3b: the previous "automatically managed" comment was WRONG —
+    /// accesskit_unix does NOT observe window focus itself. Its adapter
+    /// starts with `is_window_focused: false` forever unless told, which
+    /// suppressed AT-SPI focus events entirely: Orca never announced focus
+    /// moves inside azul windows. The platform shells call this from X11
+    /// FocusIn/FocusOut and wl_keyboard enter/leave (this adapter is shared
+    /// by both Linux backends).
+    pub fn set_focus(&self, has_focus: bool) {
+        let Ok(mut guard) = self.adapter.try_lock() else {
+            return;
+        };
+        if let Some(adapter) = guard.as_mut() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                adapter.update_window_focus_state(has_focus);
+            }));
+        }
     }
 
     /// Get pending actions from assistive technology

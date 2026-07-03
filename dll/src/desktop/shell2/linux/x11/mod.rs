@@ -2482,6 +2482,9 @@ impl X11Window {
                 self.common.current_window_state.window_focused = true;
                 self.dynamic_selector_context.window_focused = true;
                 self.sync_ime_position_to_os();
+                // MWA-A3b: tell the AT-SPI adapter — accesskit_unix never
+                // learns window focus on its own (Orca got no focus events).
+                self.accessibility_adapter.set_focus(true);
                 self.process_window_events(0)
             }
             defines::FocusOut => {
@@ -2489,6 +2492,7 @@ impl X11Window {
                     Some(self.common.current_window_state.clone());
                 self.common.current_window_state.window_focused = false;
                 self.dynamic_selector_context.window_focused = false;
+                self.accessibility_adapter.set_focus(false);
                 self.process_window_events(0)
             }
             defines::MapNotify => {
@@ -3189,10 +3193,12 @@ impl X11Window {
             }
         }
 
-        // Update accessibility tree after layout
+        // Update accessibility tree after layout (take, not clone — the
+        // flush_a11y_tree_update hook drains the same slot at end-of-pass;
+        // MWA-A3e, matches the wayland/macOS backends)
         #[cfg(feature = "a11y")]
-        if let Some(layout_window) = self.common.layout_window.as_ref() {
-            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.take() {
                 self.accessibility_adapter.update_tree(tree_update);
             }
         }
@@ -4287,6 +4293,23 @@ impl PlatformWindow for X11Window {
     }
 
     // Timer Management (X11 Implementation - uses timerfd for native OS timer support)
+
+    fn flush_a11y_tree_update(&mut self) {
+        // MWA-A3e: push incremental a11y updates (text edits / caret moves)
+        // parked in last_tree_update by the event pass; previously they only
+        // reached AT-SPI on the next full relayout.
+        #[cfg(feature = "a11y")]
+        {
+            let pending = self
+                .common
+                .layout_window
+                .as_mut()
+                .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+            if let Some(update) = pending {
+                self.accessibility_adapter.update_tree(update);
+            }
+        }
+    }
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         let interval_ms = timer.tick_millis();

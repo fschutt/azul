@@ -2153,6 +2153,13 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    // MWA-A3d: snapshot BEFORE mutating (same fix as the X11
+                    // FocusIn handler) — mutating without a snapshot made the
+                    // false→true diff invisible, so WindowFocusReceived
+                    // callbacks never fired on macOS and focus-conditional
+                    // styling never repainted.
+                    macos_window.common.previous_window_state =
+                        Some(macos_window.common.current_window_state.clone());
                     macos_window.common.current_window_state.window_focused = true;
                     macos_window.dynamic_selector_context.window_focused = true;
 
@@ -2167,6 +2174,12 @@ define_class!(
                         }
                         macos_window.common.a11y_dirty = true;
                     }
+
+                    // MWA-A3d: run the state-diff pass NOW so the transition
+                    // dispatches instead of being overwritten by the next
+                    // event's snapshot.
+                    let result = macos_window.process_window_events(0);
+                    macos_window.apply_activation_pass_result(result);
                 }
             }
         }
@@ -2177,6 +2190,13 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    // MWA-A3d: snapshot BEFORE mutating — see
+                    // window_did_become_key for the full rationale. Blur was
+                    // fully dead: WindowFocusLost never dispatched, the caret
+                    // kept blinking and selections stayed highlighted while
+                    // the window was in the background.
+                    macos_window.common.previous_window_state =
+                        Some(macos_window.common.current_window_state.clone());
                     macos_window.common.current_window_state.window_focused = false;
                     macos_window.dynamic_selector_context.window_focused = false;
 
@@ -2185,6 +2205,10 @@ define_class!(
                     if let Some(adapter) = macos_window.accessibility_adapter.as_mut() {
                         adapter.update_view_focus_state(false);
                     }
+
+                    // MWA-A3d: dispatch the transition now.
+                    let result = macos_window.process_window_events(0);
+                    macos_window.apply_activation_pass_result(result);
                 }
             }
         }
@@ -2439,6 +2463,25 @@ impl event::PlatformWindow for MacOSWindow {
     }
 
     // Timer Management (macOS/NSTimer Implementation)
+
+    fn flush_a11y_tree_update(&mut self) {
+        // MWA-A3e: push incremental a11y updates (text edits / caret moves)
+        // parked in last_tree_update by the event pass; previously they only
+        // reached VoiceOver on the next full relayout / a11y rebuild.
+        #[cfg(feature = "a11y")]
+        {
+            let pending = self
+                .common
+                .layout_window
+                .as_mut()
+                .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+            if let (Some(update), Some(adapter)) =
+                (pending, self.accessibility_adapter.as_mut())
+            {
+                adapter.update_tree(update);
+            }
+        }
+    }
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         use super::common::event::PlatformWindow;
@@ -6262,6 +6305,29 @@ impl MacOSWindow {
     ///
     /// This decouples our asynchronous rendering backend (WebRender) from the synchronous
     /// OS drawing model.
+    /// MWA-A3d: apply a `process_window_events` result from a window-delegate
+    /// notification context (activation / deactivation), where no NSView
+    /// caller consumes an `EventProcessResult`. Mirrors the mouseDown result
+    /// match in the view event path.
+    fn apply_activation_pass_result(&mut self, result: azul_core::events::ProcessEventResult) {
+        use azul_core::events::ProcessEventResult as PER;
+        match result {
+            PER::DoNothing => {}
+            PER::ShouldReRenderCurrentWindow => self.request_redraw(),
+            PER::ShouldUpdateDisplayListCurrentWindow => {
+                self.common.display_list_dirty = true;
+                self.request_redraw();
+            }
+            PER::ShouldIncrementalRelayout => {
+                self.apply_incremental_relayout_result();
+            }
+            _ => {
+                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
+        }
+    }
+
     pub fn request_redraw(&mut self) {
         log_trace!(
             LogCategory::Rendering,

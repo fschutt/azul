@@ -1333,10 +1333,12 @@ impl Win32Window {
             }
         }
 
-        // Update accessibility tree after layout
+        // Update accessibility tree after layout (take, not clone — the
+        // flush_a11y_tree_update hook drains the same slot at end-of-pass;
+        // MWA-A3e, matches the wayland/macOS backends)
         #[cfg(feature = "a11y")]
-        if let Some(layout_window) = self.common.layout_window.as_ref() {
-            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.take() {
                 self.accessibility_adapter.update_tree(tree_update);
             }
         }
@@ -4609,6 +4611,23 @@ impl PlatformWindow for Win32Window {
             previous_window_state: &self.common.previous_window_state,
             current_window_state: &self.common.current_window_state,
             renderer_resources: &mut self.common.renderer_resources,
+        }
+    }
+
+    fn flush_a11y_tree_update(&mut self) {
+        // MWA-A3e: push incremental a11y updates (text edits / caret moves)
+        // parked in last_tree_update by the event pass; previously they only
+        // reached UIA on the next full relayout.
+        #[cfg(feature = "a11y")]
+        {
+            let pending = self
+                .common
+                .layout_window
+                .as_mut()
+                .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+            if let Some(update) = pending {
+                self.accessibility_adapter.update_tree(update);
+            }
         }
     }
 

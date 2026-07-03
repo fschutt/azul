@@ -493,6 +493,56 @@ fn apply_focus_restyle(
     }
 }
 
+/// Apply an incremental `:hover` restyle for this pass's MouseEnter /
+/// MouseLeave targets and classify the result (MWA-A3c).
+///
+/// Before this existed, enter/leave events dispatched to callbacks but the
+/// styled DOM's `:hover` flags were only recomputed by a FULL DOM
+/// regeneration — pure-CSS hover styling did nothing on any backend until
+/// something else rebuilt the DOM (`restyle_nodes_hover` was dead code).
+fn apply_hover_restyle(
+    layout_window: &mut LayoutWindow,
+    changes_per_dom: std::collections::BTreeMap<
+        azul_core::dom::DomId,
+        azul_core::styled_dom::HoverChange,
+    >,
+) -> ProcessEventResult {
+    use azul_core::diff::ChangeAccumulator;
+
+    let mut result = ProcessEventResult::DoNothing;
+    for (dom_id, hover_change) in changes_per_dom {
+        let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+            continue;
+        };
+        let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+            None, // focus
+            Some(hover_change),
+            None, // active
+        );
+        if restyle_result.changed_nodes.is_empty() {
+            continue;
+        }
+        // Same granular classification as apply_focus_restyle: paint-only
+        // changes avoid relayout, layout-affecting ones take the
+        // incremental path (no DOM rebuild — states are already updated).
+        let r = if restyle_result.gpu_only_changes {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            let mut accumulator = ChangeAccumulator::new();
+            accumulator.merge_restyle_result(&restyle_result);
+            if accumulator.needs_layout() {
+                ProcessEventResult::ShouldIncrementalRelayout
+            } else if accumulator.needs_paint_only() {
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            } else {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+        };
+        result = result.max(r);
+    }
+    result
+}
+
 // Button state bitfield constants for `record_input_sample`.
 pub const BUTTON_STATE_NONE: u8 = 0x00;
 pub const BUTTON_STATE_LEFT: u8 = 0x01;
@@ -3970,6 +4020,47 @@ pub trait PlatformWindow {
             }
         }
 
+        // MWA-A3c: incremental :hover restyle. Enter/leave events dispatched
+        // to callbacks, but the styled DOM's :hover flags were never updated
+        // outside a full DOM regeneration — pure-CSS hover styling was dead
+        // on every backend. Collect this pass's MouseEnter/MouseLeave
+        // targets per DOM and restyle now; the outcome merges into the pass
+        // result at the bottom of this function.
+        let hover_restyle_result: Option<ProcessEventResult> = {
+            use std::collections::BTreeMap;
+            let mut per_dom: BTreeMap<
+                azul_core::dom::DomId,
+                azul_core::styled_dom::HoverChange,
+            > = BTreeMap::new();
+            for ev in &synthetic_events {
+                let is_enter = ev.event_type == azul_core::events::EventType::MouseEnter;
+                let is_leave = ev.event_type == azul_core::events::EventType::MouseLeave;
+                if !is_enter && !is_leave {
+                    continue;
+                }
+                let Some(node) = ev.target.node.into_crate_internal() else {
+                    continue;
+                };
+                let entry = per_dom.entry(ev.target.dom).or_insert_with(|| {
+                    azul_core::styled_dom::HoverChange {
+                        left_nodes: Vec::new(),
+                        entered_nodes: Vec::new(),
+                    }
+                });
+                if is_enter {
+                    entry.entered_nodes.push(node);
+                } else {
+                    entry.left_nodes.push(node);
+                }
+            }
+            if per_dom.is_empty() {
+                None
+            } else {
+                self.get_layout_window_mut()
+                    .map(|lw| apply_hover_restyle(lw, per_dom))
+            }
+        };
+
         // Update active drag position with current mouse position.
         // This must happen BEFORE callbacks so titlebar_drag (and other drag
         // callbacks) see the updated DragContext.current_position.
@@ -4630,13 +4721,22 @@ pub trait PlatformWindow {
         let r = self.apply_system_change(&SystemChange::FinalizePendingFocusChanges);
         result = result.max(r);
 
-        // MWA-A1: callbacks above may have added / removed the DOM's first
-        // gamepad or sensor listener or GeolocationProbe (the listener flags
-        // refresh during regenerate_layout's walk) — re-sync the pump timer
-        // so a newly-added listener gets wake-ups without waiting for
-        // further user input. No-op when nothing changed.
+        // MWA-A3c: fold the incremental :hover restyle outcome (computed
+        // right after event determination above) into the pass result.
+        if let Some(r) = hover_restyle_result {
+            result = result.max(r);
+        }
+
+        // End-of-pass housekeeping (top-level pass only):
+        // - MWA-A1: re-sync the pump timer — callbacks above may have added /
+        //   removed the DOM's first gamepad/sensor listener or a
+        //   GeolocationProbe (flags refresh during regenerate_layout's walk).
+        // - MWA-A3e: push any pending a11y tree update so INCREMENTAL updates
+        //   (text edits / caret moves computed during this pass) reach the OS
+        //   adapter now instead of waiting for the next full relayout.
         if depth == 0 {
             self.sync_capability_pump_timer();
+            self.flush_a11y_tree_update();
         }
 
         result
@@ -5026,6 +5126,17 @@ pub trait PlatformWindow {
             self.start_timer(CAPABILITY_PUMP_TIMER_ID.id, timer);
         }
     }
+
+    /// MWA-A3e: push any pending a11y tree update to the platform adapter.
+    ///
+    /// Default is a no-op (headless / mobile shells). The four desktop
+    /// backends override it with their adapter push. Called at the end of
+    /// every top-level `process_window_events` pass so INCREMENTAL updates
+    /// (text edits / caret moves — computed by `update_a11y_tree_incremental`
+    /// during the pass and stored in `a11y_manager.last_tree_update`) reach
+    /// assistive technology immediately; previously they sat there until the
+    /// next full relayout happened to push the tree.
+    fn flush_a11y_tree_update(&mut self) {}
 
     // PROVIDED: Thread Callback Invocation (Cross-Platform Implementation)
 
