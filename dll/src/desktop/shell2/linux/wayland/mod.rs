@@ -1578,11 +1578,15 @@ impl WaylandWindow {
                     (window.wayland.wl_proxy_add_listener)(
                         deco,
                         &DECO_LISTENER as *const _ as *const _,
-                        // MWA-B6: pass the WINDOW, not a pointer to the local
-                        // binding — the old `&mut window as *mut _` was
-                        // harmless only while the configure handler ignored
-                        // its data argument; it acts on the window now.
-                        &mut *window as *mut WaylandWindow as *mut _,
+                        // MWA-B6/MWA-D: same pattern as every other listener
+                        // registered in this constructor — the pointer to
+                        // the stack local is TEMPORARY by design; the first
+                        // poll re-binds all proxy listeners to the stable
+                        // boxed `self` (see `listeners_rebound`), and the
+                        // configure handler (which acts on the window since
+                        // MWA-B6) only runs during event dispatch, i.e.
+                        // after that rebind.
+                        &mut window as *mut WaylandWindow as *mut _,
                     );
                     // MWA-B6: honor flags.decorations instead of forcing
                     // server-side. CSD-wanting and frameless windows request
