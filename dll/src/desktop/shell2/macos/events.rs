@@ -56,7 +56,7 @@ fn button_to_flags(button: MouseButton) -> u8 {
 /// Azul/WebRender uses a top-left origin coordinate system where Y=0 is at the top.
 /// This function converts from macOS to Azul coordinates.
 #[inline]
-fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> LogicalPosition {
+pub(super) fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> LogicalPosition {
     LogicalPosition::new(location.x as f32, window_height - location.y as f32)
 }
 

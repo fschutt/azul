@@ -366,7 +366,6 @@ extern "C" fn auto_scroll_timer_callback(
     // never found a scroll container.
     let anchor_node = callback_info
         .get_focused_node()
-        .copied()
         .or_else(|| callback_info.get_deepest_hovered_node());
     let focused_node = match anchor_node {
         Some(node) => node,
@@ -4073,6 +4072,13 @@ pub trait PlatformWindow {
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
+            // MWA-C-gesture: an injected native gesture (macOS magnify/rotate
+            // per MWA-B4, or debug-server injection) is consumed by exactly
+            // this pass's detectors — clear it so an ended pinch doesn't
+            // latch and re-fire PinchIn/RotateClockwise on every later pass.
+            // (iOS/Android clear per-frame in their own loops; gesture.rs
+            // documented this clear but no desktop path ever performed it.)
+            w.gesture_drag_manager.clear_native_gesture();
             // MWA-B12: a LongPress was just emitted for this hold — mark it
             // so it doesn't re-fire on every later pass of the same session.
             if synthetic_events
@@ -4202,6 +4208,36 @@ pub trait PlatformWindow {
             });
             if wants {
                 Some(self.apply_system_change(&SystemChange::StartAutoScrollTimer))
+            } else {
+                None
+            }
+        };
+
+        // MWA-C-gesture: cancel an active drag on Escape or window blur.
+        // cancel_drag / DeactivateDrag existed but nothing invoked them from
+        // input — a drag survived focus loss (Alt-Tab mid-drag left the node
+        // stuck to a phantom cursor) and there was no keyboard escape hatch.
+        let drag_cancel_result: Option<ProcessEventResult> = {
+            let drag_active = self
+                .get_layout_window()
+                .is_some_and(|lw| lw.gesture_drag_manager.is_dragging());
+            let wants_cancel = drag_active
+                && synthetic_events.iter().any(|ev| {
+                    match ev.event_type {
+                        azul_core::events::EventType::WindowFocusOut => true,
+                        azul_core::events::EventType::KeyDown => matches!(
+                            self.get_current_window_state()
+                                .keyboard_state
+                                .current_virtual_keycode,
+                            azul_core::window::OptionVirtualKeyCode::Some(
+                                azul_core::window::VirtualKeyCode::Escape,
+                            )
+                        ),
+                        _ => false,
+                    }
+                });
+            if wants_cancel {
+                Some(self.apply_system_change(&SystemChange::DeactivateDrag))
             } else {
                 None
             }
@@ -4875,6 +4911,11 @@ pub trait PlatformWindow {
 
         // MWA-B8: fold the drag-auto-scroll timer start (if any).
         if let Some(r) = autoscroll_start_result {
+            result = result.max(r);
+        }
+
+        // MWA-C-gesture: fold the Escape / focus-loss drag cancellation.
+        if let Some(r) = drag_cancel_result {
             result = result.max(r);
         }
 
