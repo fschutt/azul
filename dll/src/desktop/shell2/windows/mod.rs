@@ -1575,6 +1575,34 @@ impl Win32Window {
     /// Refresh the hit test at the cached cursor position (OLE drags do not
     /// deliver `WM_MOUSEMOVE`, so the cached position is the best available —
     /// same approach as the macOS backend, which reuses its cached cursor).
+    /// MWA-B7: convert an OLE drag POINTL (screen px) to logical window
+    /// coords and make it the current cursor position — no WM_MOUSEMOVE
+    /// arrives during an OS drag, so the cached cursor is stale.
+    fn set_drag_cursor_from_screen(&mut self, screen_x: i32, screen_y: i32) {
+        use azul_core::window::CursorPosition;
+        let mut pt = dlopen::POINT { x: screen_x, y: screen_y };
+        unsafe {
+            (self.win32.user32.ScreenToClient)(self.hwnd, &mut pt);
+        }
+        let hf = self.common.current_window_state.size.get_hidpi_factor();
+        let pos = azul_core::geom::LogicalPosition::new(
+            pt.x as f32 / hf.inner.get(),
+            pt.y as f32 / hf.inner.get(),
+        );
+        self.common.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(pos);
+    }
+
+    /// MWA-B7: the OS drag moved over the window (OLE DragOver) — refresh
+    /// position + hit test so HoveredFile re-targets the node under the
+    /// drag. Previously DragOver did nothing positional at all.
+    pub fn handle_file_drag_moved(&mut self, screen_pt: (i32, i32)) -> ProcessEventResult {
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.set_drag_cursor_from_screen(screen_pt.0, screen_pt.1);
+        self.update_file_drag_hit_test();
+        self.process_window_events(0)
+    }
+
     fn update_file_drag_hit_test(&mut self) {
         use azul_core::window::CursorPosition;
         if let CursorPosition::InWindow(pos) =
@@ -1586,8 +1614,13 @@ impl Win32Window {
 
     /// Process a file drag entering / moving over the window (emits
     /// `EventType::FileHover`).
-    pub fn handle_file_drag_entered(&mut self, paths: Vec<String>) -> ProcessEventResult {
+    pub fn handle_file_drag_entered(
+        &mut self,
+        paths: Vec<String>,
+        screen_pt: (i32, i32),
+    ) -> ProcessEventResult {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.set_drag_cursor_from_screen(screen_pt.0, screen_pt.1); // MWA-B7
 
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -1624,8 +1657,13 @@ impl Win32Window {
 
     /// Process a file drop (the user released the dragged files over the
     /// window — emits `EventType::FileDrop`).
-    pub fn handle_file_drop(&mut self, paths: Vec<String>) -> ProcessEventResult {
+    pub fn handle_file_drop(
+        &mut self,
+        paths: Vec<String>,
+        screen_pt: (i32, i32),
+    ) -> ProcessEventResult {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.set_drag_cursor_from_screen(screen_pt.0, screen_pt.1); // MWA-B7
 
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {

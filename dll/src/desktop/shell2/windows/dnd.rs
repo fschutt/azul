@@ -150,13 +150,15 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
         &self,
         pdataobj: Ref<IDataObject>,
         _grfkeystate: MODIFIERKEYS_FLAGS,
-        _pt: &POINTL,
+        pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows::core::Result<()> {
         let paths = pdataobj.as_ref().map(extract_paths).unwrap_or_default();
         let accept = !paths.is_empty();
         if accept {
-            with_window(self.hwnd, |w| w.handle_file_drag_entered(paths));
+            // MWA-B7: forward the drag location (screen px) — it is the only
+            // fresh position during an OS drag.
+            with_window(self.hwnd, |w| w.handle_file_drag_entered(paths, (pt.x, pt.y)));
         }
         if !pdweffect.is_null() {
             unsafe {
@@ -169,11 +171,13 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
     fn DragOver(
         &self,
         _grfkeystate: MODIFIERKEYS_FLAGS,
-        _pt: &POINTL,
+        pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows::core::Result<()> {
-        // We don't have the data object here; the hover state is already set
-        // from DragEnter. Just keep advertising the copy effect.
+        // Hover state is already set from DragEnter; MWA-B7: refresh the
+        // position + hit test so HoveredFile re-targets the node under the
+        // drag as it moves (this arm previously did nothing positional).
+        with_window(self.hwnd, |w| w.handle_file_drag_moved((pt.x, pt.y)));
         if !pdweffect.is_null() {
             unsafe {
                 *pdweffect = DROPEFFECT_COPY;
@@ -191,13 +195,13 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
         &self,
         pdataobj: Ref<IDataObject>,
         _grfkeystate: MODIFIERKEYS_FLAGS,
-        _pt: &POINTL,
+        pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows::core::Result<()> {
         let paths = pdataobj.as_ref().map(extract_paths).unwrap_or_default();
         let accept = !paths.is_empty();
         if accept {
-            with_window(self.hwnd, |w| w.handle_file_drop(paths));
+            with_window(self.hwnd, |w| w.handle_file_drop(paths, (pt.x, pt.y)));
         }
         if !pdweffect.is_null() {
             unsafe {

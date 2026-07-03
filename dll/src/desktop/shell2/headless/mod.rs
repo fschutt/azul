@@ -106,10 +106,10 @@ pub enum HeadlessEvent {
     /// Simulate an OS file drag hovering the window at (x, y) (MWA-A4).
     /// Mirrors the desktop ingress: XdndPosition / draggingUpdated /
     /// IDropTarget::DragOver / wl_data_device.motion.
-    FileHover { x: f32, y: f32, path: String },
+    FileHover { x: f32, y: f32, paths: Vec<String> },
     /// Simulate an OS file drop at (x, y) (MWA-A4). Mirrors XdndDrop /
     /// performDragOperation / IDropTarget::Drop / wl_data_device.drop.
-    FileDrop { x: f32, y: f32, path: String },
+    FileDrop { x: f32, y: f32, paths: Vec<String> },
     /// Simulate the OS file drag leaving the window without dropping
     /// (MWA-A4). Mirrors XdndLeave / draggingExited / DragLeave.
     FileHoverCancel,
@@ -1287,7 +1287,7 @@ impl HeadlessWindow {
                     HeadlessEvent::Close => {
                         self.close();
                     }
-                    HeadlessEvent::FileHover { x, y, path } => {
+                    HeadlessEvent::FileHover { x, y, paths } => {
                         // MWA-A4: same ingress the OS backends perform —
                         // position + hit test + hovered-file into the manager,
                         // then an event pass (dispatches HoveredFile).
@@ -1299,14 +1299,16 @@ impl HeadlessWindow {
                             CursorPosition::InWindow(pos);
                         self.update_hit_test_at(pos);
                         if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.file_drop_manager.set_hovered_file(Some(path.into()));
+                            // MWA-B7: full multi-file list, like the OS shells.
+                            lw.file_drop_manager
+                                .set_hovered_files(paths.into_iter().map(Into::into).collect());
                         }
                         let r = self.process_window_events(0);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
                         }
                     }
-                    HeadlessEvent::FileDrop { x, y, path } => {
+                    HeadlessEvent::FileDrop { x, y, paths } => {
                         use azul_core::window::CursorPosition;
                         self.common.previous_window_state =
                             Some(self.common.current_window_state.clone());
@@ -1315,7 +1317,8 @@ impl HeadlessWindow {
                             CursorPosition::InWindow(pos);
                         self.update_hit_test_at(pos);
                         if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.file_drop_manager.set_dropped_file(Some(path.into()));
+                            lw.file_drop_manager
+                                .set_dropped_files(paths.into_iter().map(Into::into).collect());
                         }
                         let r = self.process_window_events(0);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {

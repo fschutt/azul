@@ -843,16 +843,25 @@ impl MacOSWindow {
     ///   - `registerForDraggedTypes:[NSFilenamesPboardType]` after the view is
     ///     created, so the window accepts file drags.
     ///   - `draggingEntered:` / `draggingUpdated:` -> read the pasteboard file
-    ///     paths and call `self.handle_file_drag_entered(paths)`; return
+    ///     paths and call `self.handle_file_drag_entered(position, paths)`; return
     ///     `NSDragOperationCopy`.
     ///   - `draggingExited:` -> call `self.handle_file_drag_exited()`.
     ///   - `performDragOperation:` -> read file paths and call
-    ///     `self.handle_file_drop(paths)`; return `true`.
+    ///     `self.handle_file_drop(position, paths)`; return `true`.
     /// The three `handle_file_*` methods below own all manager mutation +
     /// one-shot clearing, so the delegate only has to extract paths and forward.
-    pub fn handle_file_drop(&mut self, paths: Vec<String>) -> EventProcessResult {
+    pub fn handle_file_drop(
+        &mut self,
+        position: LogicalPosition,
+        paths: Vec<String>,
+    ) -> EventProcessResult {
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        // MWA-B7: the OS drag location is the ONLY fresh position — no
+        // mouse-move events arrive during an OS drag, so the cached cursor
+        // is stale (wherever the pointer was before the drag started).
+        self.common.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(position);
 
         // Update cursor manager with dropped file
         if !paths.is_empty() {
@@ -865,11 +874,8 @@ impl MacOSWindow {
             }
         }
 
-        // Update hit test at current cursor position
-        if let CursorPosition::InWindow(pos) = self.common.current_window_state.mouse_state.cursor_position
-        {
-            self.update_hit_test(pos);
-        }
+        // Update hit test at the OS-provided drop location (MWA-B7).
+        self.update_hit_test(position);
 
         // V2 system will detect FileDrop event from state diff
         let result = self.process_window_events(0);
@@ -885,7 +891,11 @@ impl MacOSWindow {
     /// Process a file drag entering / moving over the window (emits
     /// `EventType::FileHover`). Called by the `NSDraggingDestination`
     /// `draggingEntered:` / `draggingUpdated:` delegate (see `handle_file_drop`).
-    pub fn handle_file_drag_entered(&mut self, paths: Vec<String>) -> EventProcessResult {
+    pub fn handle_file_drag_entered(
+        &mut self,
+        position: LogicalPosition,
+        paths: Vec<String>,
+    ) -> EventProcessResult {
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
@@ -900,12 +910,10 @@ impl MacOSWindow {
             }
         }
 
-        // Update hit test at current cursor position
-        if let CursorPosition::InWindow(pos) =
-            self.common.current_window_state.mouse_state.cursor_position
-        {
-            self.update_hit_test(pos);
-        }
+        // Update hit test at the OS-provided drag location (MWA-B7).
+        self.common.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(position);
+        self.update_hit_test(position);
 
         // V2 system detects FileHover from the file_drop_manager state.
         let result = self.process_window_events(0);

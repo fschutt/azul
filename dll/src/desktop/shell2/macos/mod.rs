@@ -622,7 +622,14 @@ mod view_handlers {
         if let Some(window_ptr) = window_ptr {
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                let result = macos_window.handle_file_drag_entered(paths);
+                // MWA-B7: draggingLocation is the only fresh position during
+                // an OS drag (window coords, bottom-left origin — same flip
+                // as the mouse handlers).
+                let location = info.draggingLocation();
+                let window_height =
+                    macos_window.common.current_window_state.size.dimensions.height;
+                let position = events::macos_to_azul_coords(location, window_height);
+                let result = macos_window.handle_file_drag_entered(position, paths);
                 route_result(macos_window, result);
                 macos_window.sync_window_state();
             }
@@ -652,7 +659,11 @@ mod view_handlers {
         if let Some(window_ptr) = window_ptr {
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                let result = macos_window.handle_file_drop(paths);
+                let location = info.draggingLocation();
+                let window_height =
+                    macos_window.common.current_window_state.size.dimensions.height;
+                let position = events::macos_to_azul_coords(location, window_height);
+                let result = macos_window.handle_file_drop(position, paths);
                 route_result(macos_window, result);
                 macos_window.sync_window_state();
             }
