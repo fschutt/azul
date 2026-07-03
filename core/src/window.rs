@@ -360,6 +360,18 @@ impl KeyboardState {
     #[must_use] pub fn super_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin)
     }
+    /// The platform's PRIMARY shortcut modifier: Cmd (super) on macOS, Ctrl
+    /// everywhere else (MWA-A2). Every standard editing shortcut
+    /// (copy / cut / paste / select-all / undo / redo) keys off this —
+    /// hardcoding `ctrl_down()` made Cmd+C/X/V/A/Z dead on macOS, where Cmd
+    /// arrives as LWin/super.
+    #[must_use] pub fn primary_down(&self) -> bool {
+        if cfg!(target_os = "macos") {
+            self.super_down()
+        } else {
+            self.ctrl_down()
+        }
+    }
     #[must_use] pub fn is_key_down(&self, key: VirtualKeyCode) -> bool {
         self.pressed_virtual_keycodes.iter().any(|k| *k == key)
     }

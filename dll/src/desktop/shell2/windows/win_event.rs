@@ -235,6 +235,14 @@ pub fn vkey_to_winit_vkey(vkey: i32) -> Option<VirtualKeyCode> {
         winuser::VK_RCONTROL => Some(VirtualKeyCode::RControl),
         winuser::VK_LMENU => Some(VirtualKeyCode::LAlt),
         winuser::VK_RMENU => Some(VirtualKeyCode::RAlt),
+        // MWA-A2: WM_KEYDOWN/WM_KEYUP deliver the GENERIC modifier codes
+        // (VK_SHIFT/VK_CONTROL/VK_MENU) unless the caller runs MapVirtualKey
+        // on the scancode — dropping them meant ctrl_down() was NEVER true
+        // on Windows and every Ctrl shortcut was dead. Map generic → left
+        // variant (side doesn't matter for shortcut state).
+        winuser::VK_SHIFT => Some(VirtualKeyCode::LShift),
+        winuser::VK_CONTROL => Some(VirtualKeyCode::LControl),
+        winuser::VK_MENU => Some(VirtualKeyCode::LAlt),
         winuser::VK_PAUSE => Some(VirtualKeyCode::Pause),
         winuser::VK_CAPITAL => Some(VirtualKeyCode::Capital),
         winuser::VK_KANA => Some(VirtualKeyCode::Kana),

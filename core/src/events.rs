@@ -2925,12 +2925,15 @@ pub enum KeyboardShortcut {
 }
 
 impl KeyboardShortcut {
-    /// Map a `(VirtualKeyCode, ctrl, shift)` triple to a text-editing shortcut.
-    /// Returns `None` if the key combination is not a recognized shortcut or
-    /// if `ctrl` is not held.
-    #[must_use] pub const fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool, shift: bool) -> Option<Self> {
+    /// Map a `(VirtualKeyCode, primary, shift)` triple to a text-editing
+    /// shortcut. Returns `None` if the key combination is not a recognized
+    /// shortcut or if `primary` is not held. `primary` is the platform's
+    /// primary modifier — Cmd on macOS, Ctrl elsewhere — obtained from
+    /// `KeyboardState::primary_down()` (MWA-A2: hardcoding Ctrl here made
+    /// every editing shortcut dead on macOS).
+    #[must_use] pub const fn from_key(vk: crate::window::VirtualKeyCode, primary: bool, shift: bool) -> Option<Self> {
         use crate::window::VirtualKeyCode::{C, X, V, A, Z, Y};
-        if !ctrl {
+        if !primary {
             return None;
         }
         Some(match vk {
@@ -3182,15 +3185,24 @@ fn handle_key_down(
         return None;
     };
 
-    let ctrl = keyboard_state.ctrl_down();
+    // MWA-A2: standard shortcuts key off the PRIMARY modifier (Cmd on
+    // macOS, Ctrl elsewhere); word-jump / word-delete keys off the
+    // platform's word modifier (Option on macOS, Ctrl elsewhere).
+    let primary = keyboard_state.primary_down();
+    let word_mod = if cfg!(target_os = "macos") {
+        keyboard_state.alt_down()
+    } else {
+        keyboard_state.ctrl_down()
+    };
     let shift = keyboard_state.shift_down();
     let vk = keyboard_state.current_virtual_keycode.as_ref()?;
 
-    // Check keyboard shortcuts (Ctrl+key) → emit specific SystemChange variants.
-    // Standard editing shortcuts are routed through the `KeyboardShortcut` enum,
-    // and a couple of additional Azul-specific Ctrl combos are matched after.
-    if ctrl {
-        if let Some(shortcut) = KeyboardShortcut::from_key(*vk, ctrl, shift) {
+    // Check keyboard shortcuts (primary+key) → emit specific SystemChange
+    // variants. Standard editing shortcuts are routed through the
+    // `KeyboardShortcut` enum, and a couple of additional Azul-specific
+    // primary-modifier combos are matched after.
+    if primary {
+        if let Some(shortcut) = KeyboardShortcut::from_key(*vk, primary, shift) {
             let change = match shortcut {
                 KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
                 KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
@@ -3210,20 +3222,21 @@ fn handle_key_down(
 
     // Unified: arrow keys, Home/End, Backspace/Delete all map to SelectionOp.
     let mode_for_shift = if shift { SelectionMode::Extend } else { SelectionMode::Move };
-    let selection_op = if let Some(arrow) = ArrowDirection::from_key(*vk, ctrl) {
-        let (direction, step) = arrow.to_selection(ctrl);
+    let selection_op = if let Some(arrow) = ArrowDirection::from_key(*vk, word_mod) {
+        let (direction, step) = arrow.to_selection(word_mod);
         SelectionOp::new(direction, step, mode_for_shift)
     } else {
         match vk {
-            // Backspace/Delete = Delete mode (Ctrl upgrades to Word)
+            // Backspace/Delete = Delete mode (word modifier upgrades to
+            // Word: Option+Backspace on macOS, Ctrl+Backspace elsewhere)
             VirtualKeyCode::Back => SelectionOp::new(
                 SelectionDirection::Backward,
-                if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+                if word_mod { SelectionStep::Word } else { SelectionStep::Character },
                 SelectionMode::Delete,
             ),
             VirtualKeyCode::Delete => SelectionOp::new(
                 SelectionDirection::Forward,
-                if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+                if word_mod { SelectionStep::Word } else { SelectionStep::Character },
                 SelectionMode::Delete,
             ),
             _ => return None,
@@ -3617,6 +3630,35 @@ mod tests {
         assert_eq!(lo.max_self(hi), hi);
         assert_eq!(hi.max_self(lo), hi);
         assert_eq!(lo.max_self(lo), lo);
+    }
+
+    #[test]
+    fn keyboard_shortcut_keys_off_primary_modifier() {
+        use crate::window::VirtualKeyCode::{A, C, V, X, Z};
+        // No primary modifier → never a shortcut (MWA-A2).
+        assert_eq!(KeyboardShortcut::from_key(C, false, false), None);
+        assert_eq!(KeyboardShortcut::from_key(Z, false, true), None);
+        // Primary held → the standard editing set.
+        assert_eq!(KeyboardShortcut::from_key(C, true, false), Some(KeyboardShortcut::Copy));
+        assert_eq!(KeyboardShortcut::from_key(X, true, false), Some(KeyboardShortcut::Cut));
+        assert_eq!(KeyboardShortcut::from_key(V, true, false), Some(KeyboardShortcut::Paste));
+        assert_eq!(KeyboardShortcut::from_key(A, true, false), Some(KeyboardShortcut::SelectAll));
+        assert_eq!(KeyboardShortcut::from_key(Z, true, false), Some(KeyboardShortcut::Undo));
+        assert_eq!(KeyboardShortcut::from_key(Z, true, true), Some(KeyboardShortcut::Redo));
+    }
+
+    #[test]
+    fn primary_modifier_is_platform_correct() {
+        use crate::window::{KeyboardState, VirtualKeyCode};
+        let mut cmd_held = KeyboardState::default();
+        cmd_held.pressed_virtual_keycodes = vec![VirtualKeyCode::LWin].into();
+        // Cmd/super is primary ONLY on macOS.
+        assert_eq!(cmd_held.primary_down(), cfg!(target_os = "macos"));
+
+        let mut ctrl_held = KeyboardState::default();
+        ctrl_held.pressed_virtual_keycodes = vec![VirtualKeyCode::LControl].into();
+        // Ctrl is primary everywhere EXCEPT macOS.
+        assert_eq!(ctrl_held.primary_down(), !cfg!(target_os = "macos"));
     }
 
     #[test]
