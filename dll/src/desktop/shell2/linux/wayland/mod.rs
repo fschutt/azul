@@ -233,6 +233,23 @@ pub struct WaylandWindow {
     decoration_manager: Option<*mut defines::zxdg_decoration_manager_v1>,
     toplevel_decoration: Option<*mut defines::zxdg_toplevel_decoration_v1>,
 
+    // wp-fractional-scale-v1 + wp-viewporter (fractional HiDPI). When the
+    // compositor advertises both, `preferred_scale` (scale×120) drives
+    // size.dpi, buffers are allocated at physical size WITHOUT
+    // set_buffer_scale (must stay 1) and the viewport maps them to the
+    // logical surface size via set_destination. When either protocol is
+    // missing, the integer wl_output scale path below is used unchanged.
+    fractional_scale_manager: Option<*mut defines::wp_fractional_scale_manager_v1>,
+    viewporter: Option<*mut defines::wp_viewporter>,
+    /// Per-surface wp_fractional_scale_v1 (delivers preferred_scale events).
+    fractional_scale: Option<*mut defines::wp_fractional_scale_v1>,
+    /// Per-surface wp_viewport for the main surface.
+    viewport: Option<*mut defines::wp_viewport>,
+    /// Last compositor-preferred scale ×120 (None until the first
+    /// preferred_scale event = integer path active). Full precision lives
+    /// here; size.dpi holds the rounded ×96 value.
+    pub(crate) preferred_scale_120: Option<u32>,
+
     // Tooltip
     tooltip: Option<tooltip::TooltipWindow>,
 
@@ -388,6 +405,16 @@ pub struct WaylandPopup {
 
     /// wl_shm handle (borrowed from the parent) for lazily creating the CPU buffer.
     shm: *mut defines::wl_shm,
+    /// wp_viewporter (borrowed from the parent) + the parent's preferred
+    /// fractional scale ×120. When both are present the popup buffer is
+    /// allocated at the exact physical size and mapped to logical via a
+    /// wp_viewport (buffer scale stays 1) instead of the integer
+    /// set_buffer_scale path.
+    viewporter: Option<*mut defines::wp_viewporter>,
+    preferred_scale_120: Option<u32>,
+    /// The popup surface's own wp_viewport (created lazily in
+    /// `render_if_ready`, destroyed in `close`).
+    viewport: Option<*mut defines::wp_viewport>,
     /// Whether the menu DOM has already been rendered into the buffer.
     rendered: bool,
     /// Shared CPU rendering backend (the menu is painted via the headless CPU
@@ -647,6 +674,11 @@ impl WaylandWindow {
     }
 
     pub fn present(&mut self) -> Result<(), WindowError> {
+        let fractional = self.fractional_scale_active();
+        let (logical_w, logical_h) = {
+            let d = &self.common.current_window_state.size.dimensions;
+            (d.width as i32, d.height as i32)
+        };
         let result = match &mut self.render_mode {
             RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
             RenderMode::Cpu(Some(cpu_state)) => {
@@ -659,7 +691,19 @@ impl WaylandWindow {
                     let surface_version =
                         (self.wayland.wl_proxy_get_version)(self.surface as *mut defines::wl_proxy);
                     let scale = cpu_state.scale.max(1);
-                    if surface_version >= 3 && scale > 1 {
+                    if fractional {
+                        // Viewport fractional scaling: buffer scale MUST be 1
+                        // (reset any stale integer value) and the viewport
+                        // maps the physical buffer to the logical size.
+                        if surface_version >= 3 {
+                            (self.wayland.wl_surface_set_buffer_scale)(self.surface, 1);
+                        }
+                        if let Some(vp) = self.viewport {
+                            wp_viewport_set_destination(
+                                &self.wayland, vp, logical_w, logical_h,
+                            );
+                        }
+                    } else if surface_version >= 3 && scale > 1 {
                         (self.wayland.wl_surface_set_buffer_scale)(self.surface, scale);
                     }
                     for (dx, dy, dw, dh) in cpu_state.damage_rects.drain(..) {
@@ -748,9 +792,11 @@ impl WaylandWindow {
             self.tablet_manager as _,
             self.tablet_seat as _,
         ];
-        let opt_proxies: [*mut std::ffi::c_void; 3] = [
+        let opt_proxies: [*mut std::ffi::c_void; 4] = [
             self.text_input.map_or(std::ptr::null_mut(), |p| p as _),
             self.toplevel_decoration.map_or(std::ptr::null_mut(), |p| p as _),
+            // wp_fractional_scale_v1 (preferred_scale events dereference `data`).
+            self.fractional_scale.map_or(std::ptr::null_mut(), |p| p as _),
             // wl_data_device (file DnD). The per-drag wl_data_offer proxies are
             // created by handlers that already hold the stable pointer, so they
             // inherit it automatically.
@@ -1193,6 +1239,11 @@ impl WaylandWindow {
             current_blur: None,
             decoration_manager: None,
             toplevel_decoration: None,
+            fractional_scale_manager: None,
+            viewporter: None,
+            fractional_scale: None,
+            viewport: None,
+            preferred_scale_120: None,
             tooltip: None,
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
@@ -1364,6 +1415,54 @@ impl WaylandWindow {
                 &mut window as *mut _ as *mut _,
             )
         };
+
+        // Fractional-scale support (wp-fractional-scale-v1 + wp-viewporter).
+        // Both managers were bound in the registry roundtrip above (if the
+        // compositor has them); create the per-surface objects now. The
+        // wp_fractional_scale_v1.preferred_scale event then drives size.dpi
+        // (see events::wp_fractional_scale_preferred_scale_handler); until it
+        // arrives the integer wl_output scale path runs unchanged.
+        if let Some(mgr) = window.fractional_scale_manager {
+            unsafe {
+                // get_fractional_scale: opcode 1, "no" (new_id, object<wl_surface>)
+                // — same marshal_constructor pattern as get_toplevel_decoration.
+                type GetFracCtor = unsafe extern "C" fn(
+                    *mut defines::wl_proxy, u32, *const defines::wl_interface,
+                    *mut c_void, *mut defines::wl_surface,
+                ) -> *mut defines::wl_proxy;
+                let f: GetFracCtor =
+                    std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+                let fs = f(
+                    mgr as *mut defines::wl_proxy,
+                    1, // opcode 1 = get_fractional_scale (opcode 0 is `destroy`!)
+                    defines::get_wp_fractional_scale_v1_interface(),
+                    std::ptr::null_mut(),
+                    window.surface,
+                );
+                if !fs.is_null() {
+                    static FRACTIONAL_SCALE_LISTENER: defines::wp_fractional_scale_v1_listener =
+                        defines::wp_fractional_scale_v1_listener {
+                            preferred_scale: events::wp_fractional_scale_preferred_scale_handler,
+                        };
+                    (window.wayland.wl_proxy_add_listener)(
+                        fs,
+                        &FRACTIONAL_SCALE_LISTENER as *const _ as *const _,
+                        &mut window as *mut _ as *mut _,
+                    );
+                    window.fractional_scale = Some(fs as *mut defines::wp_fractional_scale_v1);
+                }
+            }
+        }
+        if let Some(vpr) = window.viewporter {
+            window.viewport =
+                unsafe { wp_viewporter_get_viewport(&window.wayland, vpr, window.surface) };
+            if window.fractional_scale.is_some() && window.viewport.is_some() {
+                log_info!(
+                    LogCategory::Platform,
+                    "[Wayland] Fractional scaling enabled (wp_fractional_scale_v1 + wp_viewport)"
+                );
+            }
+        }
 
         window.xdg_surface = unsafe {
             (window.wayland.xdg_wm_base_get_xdg_surface)(window.xdg_wm_base, window.surface)
@@ -2783,6 +2882,37 @@ impl WaylandWindow {
             .max(1.0) as i32
     }
 
+    /// `true` when fractional viewport scaling drives presentation: the
+    /// compositor sent a `preferred_scale` AND we have a wp_viewport to map
+    /// the physical buffer onto the logical surface. In this mode
+    /// `set_buffer_scale` must NOT be called (buffer scale stays 1) and the
+    /// present path calls `wp_viewport.set_destination(logical_w, logical_h)`.
+    fn fractional_scale_active(&self) -> bool {
+        self.viewport.is_some() && self.preferred_scale_120.is_some()
+    }
+
+    /// (physical_width, physical_height, buffer_scale) for the CPU shm
+    /// buffers at the given LOGICAL size.
+    ///
+    /// - Fractional path: physical = ceil(logical × dpi/96) — the exact size
+    ///   `CpuBackend::render_frame` produces — with buffer scale 1 (the
+    ///   viewport maps it back to logical).
+    /// - Integer path: physical = logical × round(dpi/96), buffer scale =
+    ///   round(dpi/96) (announced via set_buffer_scale at attach).
+    fn cpu_buffer_spec(&self, logical_w: i32, logical_h: i32) -> (i32, i32, i32) {
+        if self.fractional_scale_active() {
+            let d = (self.common.current_window_state.size.dpi as f32 / 96.0).max(0.01);
+            (
+                ((logical_w.max(1) as f32) * d).ceil() as i32,
+                ((logical_h.max(1) as f32) * d).ceil() as i32,
+                1,
+            )
+        } else {
+            let s = self.buffer_scale();
+            (logical_w.max(1) * s, logical_h.max(1) * s, s)
+        }
+    }
+
     /// Arm the key-repeat timer for `keycode` (delay, then interval).
     fn arm_key_repeat(&mut self, keycode: u32) {
         if self.key_repeat_fd < 0 || self.key_repeat_rate_ms == 0 {
@@ -3706,6 +3836,16 @@ impl WaylandWindow {
 
         self.needs_redraw = false;
 
+        // Fractional-scale presentation state (computed before the
+        // render_mode borrow): with a viewport + preferred_scale the buffer
+        // scale stays 1 and set_destination maps the physical buffer to the
+        // LOGICAL surface size.
+        let fractional = self.fractional_scale_active();
+        let (logical_w, logical_h) = {
+            let d = &self.common.current_window_state.size.dimensions;
+            (d.width as i32, d.height as i32)
+        };
+
         match &mut self.render_mode {
             RenderMode::Gpu(gl_context, gl_functions) => {
                 if let Some(renderer) = &mut self.common.renderer {
@@ -4085,10 +4225,22 @@ impl WaylandWindow {
                             0,
                         );
                         *cpu_state.slots[cpu_state.active].busy = true;
-                        // HiDPI: tell the compositor the buffer is scale× the
-                        // surface size (v3+). Without this a physical-sized
-                        // buffer displays scale× too large.
-                        if surface_version >= 3 && cpu_state.scale > 1 {
+                        if fractional {
+                            // Fractional path: buffer scale stays 1 (reset a
+                            // stale integer value if any); the viewport maps
+                            // the physical buffer to the LOGICAL surface size.
+                            if surface_version >= 3 {
+                                (self.wayland.wl_surface_set_buffer_scale)(self.surface, 1);
+                            }
+                            if let Some(vp) = self.viewport {
+                                wp_viewport_set_destination(
+                                    &self.wayland, vp, logical_w, logical_h,
+                                );
+                            }
+                        } else if surface_version >= 3 && cpu_state.scale > 1 {
+                            // HiDPI: tell the compositor the buffer is scale×
+                            // the surface size (v3+). Without this a
+                            // physical-sized buffer displays scale× too large.
                             (self.wayland.wl_surface_set_buffer_scale)(
                                 self.surface,
                                 cpu_state.scale,
@@ -4127,8 +4279,8 @@ impl WaylandWindow {
                 if !self.shm.is_null() {
                     let width = self.common.current_window_state.size.dimensions.width as i32;
                     let height = self.common.current_window_state.size.dimensions.height as i32;
-                    let scale = self.buffer_scale();
-                    match CpuFallbackState::new(&self.wayland, self.shm, width, height, scale) {
+                    let (buf_w, buf_h, scale) = self.cpu_buffer_spec(width, height);
+                    match CpuFallbackState::new(&self.wayland, self.shm, buf_w, buf_h, scale) {
                         Ok(cpu_state) => {
                             self.render_mode = RenderMode::Cpu(Some(cpu_state));
                             self.os_present_requested = true; // fresh buffer
@@ -4382,6 +4534,20 @@ impl Drop for WaylandWindow {
                 (self.wayland.wl_proxy_destroy)(blur_manager as _);
             }
 
+            // Clean up fractional-scale / viewporter resources
+            if let Some(vp) = self.viewport.take() {
+                wp_viewport_destroy(&self.wayland, vp);
+            }
+            if let Some(fs) = self.fractional_scale.take() {
+                (self.wayland.wl_proxy_destroy)(fs as _);
+            }
+            if let Some(vpr) = self.viewporter.take() {
+                (self.wayland.wl_proxy_destroy)(vpr as _);
+            }
+            if let Some(mgr) = self.fractional_scale_manager.take() {
+                (self.wayland.wl_proxy_destroy)(mgr as _);
+            }
+
             // Clean up xdg-decoration resources
             if let Some(deco) = self.toplevel_decoration.take() {
                 (self.wayland.wl_proxy_destroy)(deco as _);
@@ -4422,22 +4588,89 @@ impl Drop for WaylandWindow {
     }
 }
 
+// ── wp-viewporter marshal helpers (hand-rolled, like the xdg-decoration
+//    requests: transmute wl_proxy_marshal[_constructor] with the interface
+//    tables from defines.rs) ────────────────────────────────────────────────
+
+/// `wp_viewporter.get_viewport` (opcode 1, "no"): one wp_viewport per
+/// wl_surface. Returns None if the request failed.
+unsafe fn wp_viewporter_get_viewport(
+    wayland: &Wayland,
+    viewporter: *mut defines::wp_viewporter,
+    surface: *mut defines::wl_surface,
+) -> Option<*mut defines::wp_viewport> {
+    if viewporter.is_null() || surface.is_null() {
+        return None;
+    }
+    type GetViewportCtor = unsafe extern "C" fn(
+        *mut defines::wl_proxy,
+        u32,
+        *const defines::wl_interface,
+        *mut c_void,
+        *mut defines::wl_surface,
+    ) -> *mut defines::wl_proxy;
+    let f: GetViewportCtor = std::mem::transmute(wayland.wl_proxy_marshal_constructor);
+    let vp = f(
+        viewporter as *mut defines::wl_proxy,
+        1, // opcode 1 = get_viewport (opcode 0 is `destroy`!)
+        defines::get_wp_viewport_interface(),
+        std::ptr::null_mut(), // NULL new_id placeholder ("n" arg)
+        surface,
+    );
+    if vp.is_null() {
+        None
+    } else {
+        Some(vp as *mut defines::wp_viewport)
+    }
+}
+
+/// `wp_viewport.set_destination(width, height)` (opcode 2, "ii"): the surface
+/// size in LOGICAL (surface-local) coordinates the buffer is scaled to.
+/// Double-buffered state, applied on the next wl_surface.commit.
+unsafe fn wp_viewport_set_destination(
+    wayland: &Wayland,
+    viewport: *mut defines::wp_viewport,
+    logical_w: i32,
+    logical_h: i32,
+) {
+    if viewport.is_null() || logical_w <= 0 || logical_h <= 0 {
+        return; // 0/negative destination is a protocol error
+    }
+    type SetDestFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, i32, i32);
+    let f: SetDestFn = std::mem::transmute(wayland.wl_proxy_marshal);
+    f(viewport as *mut defines::wl_proxy, 2, logical_w, logical_h);
+}
+
+/// `wp_viewport.destroy` (opcode 0, "") + proxy teardown.
+unsafe fn wp_viewport_destroy(wayland: &Wayland, viewport: *mut defines::wp_viewport) {
+    if viewport.is_null() {
+        return;
+    }
+    type DestroyFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+    let f: DestroyFn = std::mem::transmute(wayland.wl_proxy_marshal);
+    f(viewport as *mut defines::wl_proxy, 0);
+    (wayland.wl_proxy_destroy)(viewport as *mut _);
+}
+
 impl CpuFallbackState {
+    /// `physical_width`/`physical_height` are the BUFFER dimensions in device
+    /// pixels (callers compute them via `cpu_buffer_spec` — logical × integer
+    /// scale, or ceil(logical × fractional scale) with `scale` = 1 when
+    /// viewport scaling is active). Buffers were once allocated at LOGICAL
+    /// size while render_frame produced a physical-sized pixmap — on any
+    /// scale>=2 output the linear copy sheared the image into garbage.
+    /// `scale` is the integer value for `wl_surface.set_buffer_scale` (1 on
+    /// non-HiDPI and ALWAYS 1 on the fractional/viewport path).
     fn new(
         wayland: &Rc<Wayland>,
         shm: *mut wl_shm,
-        logical_width: i32,
-        logical_height: i32,
+        physical_width: i32,
+        physical_height: i32,
         scale: i32,
     ) -> Result<Self, WindowError> {
         let scale = scale.max(1);
-        // Buffers are allocated at PHYSICAL size; the surface gets
-        // set_buffer_scale(scale) at commit. The old code allocated at
-        // LOGICAL size while render_frame produced a physical-sized pixmap —
-        // on any scale>=2 output the linear copy sheared the image into
-        // garbage (and everything was blurry at best).
-        let width = logical_width.max(1) * scale;
-        let height = logical_height.max(1) * scale;
+        let width = physical_width.max(1);
+        let height = physical_height.max(1);
         let stride = width * 4;
         let size = stride * height * 2; // TWO buffers in one pool
 
@@ -4628,6 +4861,9 @@ impl Drop for CpuFallbackState {
 impl WaylandWindow {
     /// Resize the rendering surface to match compositor's requested size
     pub(super) fn resize_surface(&mut self, width: i32, height: i32) {
+        // Physical buffer size + integer buffer scale (fractional-aware);
+        // computed before the render_mode borrow below.
+        let (buf_w, buf_h, scale) = self.cpu_buffer_spec(width, height);
         match &mut self.render_mode {
             RenderMode::Gpu(gl_context, _gl_functions) => {
                 gl_context.resize(&self.wayland, width, height);
@@ -4635,10 +4871,7 @@ impl WaylandWindow {
             RenderMode::Cpu(cpu_opt) => {
                 if !self.shm.is_null() {
                     drop(cpu_opt.take());
-                    let scale = (self.common.current_window_state.size.dpi as f32 / 96.0)
-                        .round()
-                        .max(1.0) as i32;
-                    match CpuFallbackState::new(&self.wayland, self.shm, width, height, scale) {
+                    match CpuFallbackState::new(&self.wayland, self.shm, buf_w, buf_h, scale) {
                         Ok(new_state) => {
                             *cpu_opt = Some(new_state);
                             // Fresh buffer = undefined content: the next
@@ -4998,6 +5231,9 @@ impl WaylandPopup {
             app_data: parent.common.app_data.clone(),
 
             shm: parent.shm,
+            viewporter: parent.viewporter,
+            preferred_scale_120: parent.preferred_scale_120,
+            viewport: None,
             rendered: false,
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
@@ -5009,6 +5245,11 @@ impl WaylandPopup {
     pub fn close(&mut self) {
         if self.is_open {
             unsafe {
+                // The viewport must go before its wl_surface (protocol).
+                if let Some(vp) = self.viewport.take() {
+                    wp_viewport_destroy(&self.wayland, vp);
+                }
+
                 if !self.xdg_popup.is_null() {
                     (self.wayland.xdg_popup_destroy)(self.xdg_popup);
                     self.xdg_popup = std::ptr::null_mut();
@@ -5076,17 +5317,31 @@ impl WaylandPopup {
             logical_w, logical_h, buf_w, buf_h, dpi_factor
         );
 
+        // Fractional viewport scaling (inherited from the parent window):
+        // buffer at exact physical size, buffer scale 1, wp_viewport maps it
+        // to the logical popup size at attach.
+        let fractional = self.viewporter.is_some() && self.preferred_scale_120.is_some();
+
         // Lazily create the CPU shm buffer (sized in physical pixels).
         if matches!(self.render_mode, RenderMode::Cpu(None)) {
-            // The popup renders at dpi_factor into a physical-sized pixmap;
-            // give the buffer the matching integer scale so the compositor
+            // Integer path: the popup renders at dpi_factor into a
+            // physical-sized pixmap; give the buffer the matching integer
+            // scale (rounded up to a multiple of it) so the compositor
             // doesn't display it dpi× oversized (set_buffer_scale at attach).
-            let scale = dpi_factor.round().max(1.0) as i32;
+            let scale = if fractional { 1 } else { dpi_factor.round().max(1.0) as i32 };
+            let (phys_w, phys_h) = if fractional {
+                (buf_w, buf_h)
+            } else {
+                (
+                    ((buf_w + scale - 1) / scale) * scale,
+                    ((buf_h + scale - 1) / scale) * scale,
+                )
+            };
             match CpuFallbackState::new(
                 &self.wayland,
                 self.shm,
-                (buf_w + scale - 1) / scale,
-                (buf_h + scale - 1) / scale,
+                phys_w,
+                phys_h,
                 scale,
             ) {
                 Ok(state) => self.render_mode = RenderMode::Cpu(Some(state)),
@@ -5146,13 +5401,47 @@ impl WaylandPopup {
             unsafe {
                 (self.wayland.wl_surface_attach)(self.surface, cpu_state.active_buffer(), 0, 0);
                 unsafe { *cpu_state.slots[cpu_state.active].busy = true };
-                (self.wayland.wl_surface_damage)(
-                    self.surface,
-                    0,
-                    0,
-                    cpu_state.width,
-                    cpu_state.height,
-                );
+                let surface_version =
+                    (self.wayland.wl_proxy_get_version)(self.surface as *mut defines::wl_proxy);
+                if fractional {
+                    // Physical-sized buffer + wp_viewport → logical size.
+                    // Buffer scale MUST stay 1 in this mode.
+                    if self.viewport.is_none() {
+                        if let Some(vpr) = self.viewporter {
+                            self.viewport =
+                                wp_viewporter_get_viewport(&self.wayland, vpr, self.surface);
+                        }
+                    }
+                    if let Some(vp) = self.viewport {
+                        wp_viewport_set_destination(
+                            &self.wayland,
+                            vp,
+                            logical_w.ceil() as i32,
+                            logical_h.ceil() as i32,
+                        );
+                    }
+                } else if surface_version >= 3 && cpu_state.scale > 1 {
+                    // Integer HiDPI: announce the buffer scale, or the
+                    // physical-sized buffer displays scale× too large.
+                    (self.wayland.wl_surface_set_buffer_scale)(self.surface, cpu_state.scale);
+                }
+                if surface_version >= 4 {
+                    (self.wayland.wl_surface_damage_buffer)(
+                        self.surface,
+                        0,
+                        0,
+                        cpu_state.width,
+                        cpu_state.height,
+                    );
+                } else {
+                    (self.wayland.wl_surface_damage)(
+                        self.surface,
+                        0,
+                        0,
+                        cpu_state.width,
+                        cpu_state.height,
+                    );
+                }
                 (self.wayland.wl_surface_commit)(self.surface);
                 (self.wayland.wl_display_flush)(self.display);
             }
@@ -5664,6 +5953,7 @@ impl WaylandWindow {
                 self.compositor,
                 self.shm,
                 subcompositor,
+                self.viewporter,
                 self.common.fc_cache.clone(),
             ) {
                 Ok(tooltip_window) => {

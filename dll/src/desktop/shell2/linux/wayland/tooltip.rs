@@ -59,6 +59,12 @@ pub struct TooltipWindow {
     surface: *mut wl_surface,
     subsurface: *mut wl_subsurface,
 
+    /// wp_viewport for the tooltip surface (present when the compositor has
+    /// wp_viewporter). The tooltip buffer is rendered at DEVICE resolution;
+    /// the viewport maps it back to the logical size so it isn't displayed
+    /// dpi× oversized on scaled outputs (works for fractional scales too).
+    viewport: Option<*mut wp_viewport>,
+
     // Shared memory buffer for rendering
     pool: Option<*mut wl_shm_pool>,
     buffer: Option<*mut wl_buffer>,
@@ -83,6 +89,7 @@ impl TooltipWindow {
         compositor: *mut wl_compositor,
         shm: *mut wl_shm,
         subcompositor: *mut wl_subcompositor,
+        viewporter: Option<*mut wp_viewporter>,
         fc_cache: Arc<FcFontCache>,
     ) -> Result<Self, String> {
         if compositor.is_null() {
@@ -115,6 +122,11 @@ impl TooltipWindow {
             // Set subsurface to desynchronized mode for immediate updates
             (wayland.wl_subsurface_set_desync)(subsurface);
 
+            // One wp_viewport per surface (when the compositor supports
+            // viewporter): maps the device-resolution buffer to logical size.
+            let viewport = viewporter
+                .and_then(|vpr| super::wp_viewporter_get_viewport(&wayland, vpr, surface));
+
             Ok(Self {
                 wayland,
                 display,
@@ -124,6 +136,7 @@ impl TooltipWindow {
                 subcompositor,
                 surface,
                 subsurface,
+                viewport,
                 pool: None,
                 buffer: None,
                 data: None,
@@ -202,6 +215,18 @@ impl TooltipWindow {
             // Attach buffer and commit.
             if let Some(buffer) = self.buffer {
                 (self.wayland.wl_surface_attach)(self.surface, buffer, 0, 0);
+                // The buffer is at DEVICE resolution; map it to the logical
+                // size via the viewport so scaled outputs (integer AND
+                // fractional) don't display it dpi× oversized. Without
+                // viewporter the legacy 1:1 behavior is kept.
+                if let Some(vp) = self.viewport {
+                    super::wp_viewport_set_destination(
+                        &self.wayland,
+                        vp,
+                        ((self.width as f32 / dpi).ceil() as i32).max(1),
+                        ((self.height as f32 / dpi).ceil() as i32).max(1),
+                    );
+                }
                 (self.wayland.wl_surface_damage)(self.surface, 0, 0, self.width, self.height);
                 (self.wayland.wl_surface_commit)(self.surface);
             }
@@ -409,6 +434,11 @@ impl Drop for TooltipWindow {
     fn drop(&mut self) {
         unsafe {
             self.cleanup_buffer();
+
+            // The viewport must go before its wl_surface (protocol).
+            if let Some(vp) = self.viewport.take() {
+                super::wp_viewport_destroy(&self.wayland, vp);
+            }
 
             if !self.subsurface.is_null() {
                 (self.wayland.wl_subsurface_destroy)(self.subsurface);

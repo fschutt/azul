@@ -205,6 +205,13 @@ pub(super) extern "C" fn wl_surface_enter_handler(
         window.current_outputs.push(output);
     }
 
+    // Fractional-scale protocol active? Then it — not the integer wl_output
+    // scale — owns size.dpi (the compositor sends preferred_scale on monitor
+    // changes too). Keep the output bookkeeping above, skip the dpi update.
+    if window.preferred_scale_120.is_some() {
+        return;
+    }
+
     // Check if scale factor changed (entered monitor with different DPI)
     let new_scale = window.calculate_current_scale_factor();
     let old_dpi = window.common.current_window_state.size.dpi;
@@ -246,6 +253,11 @@ pub(super) extern "C" fn wl_surface_leave_handler(
     // Remove this output from current_outputs
     window.current_outputs.retain(|&o| o != output);
 
+    // Fractional-scale protocol owns size.dpi when active (see enter handler).
+    if window.preferred_scale_120.is_some() {
+        return;
+    }
+
     // Check if scale factor changed (left monitor, now on different monitor)
     let new_scale = window.calculate_current_scale_factor();
     let old_dpi = window.common.current_window_state.size.dpi;
@@ -271,6 +283,51 @@ pub(super) extern "C" fn wl_surface_leave_handler(
         window.resize_surface(w, h);
         window.request_redraw();
     }
+}
+
+/// `wp_fractional_scale_v1.preferred_scale` — the compositor's preferred scale
+/// for our surface, delivered as scale×120 (120 = 1.0, 144 = 1.2, 180 = 1.5).
+/// Takes over DPI ownership from the integer wl_output path: updates size.dpi
+/// (= scale × 96), recreates the shm buffers at the new physical size,
+/// relayouts and schedules a full repaint. `WindowSize.dimensions` stays
+/// LOGICAL (that contract is scale-independent).
+pub(super) extern "C" fn wp_fractional_scale_preferred_scale_handler(
+    data: *mut c_void,
+    _fractional_scale: *mut wp_fractional_scale_v1,
+    scale_120: u32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    if scale_120 == 0 || window.preferred_scale_120 == Some(scale_120) {
+        return;
+    }
+    let old_dpi = window.common.current_window_state.size.dpi;
+    // dpi = scale × 96 = scale_120 × 96 / 120, rounded to the nearest integer
+    // (size.dpi is u32; the exact ×120 value stays in preferred_scale_120).
+    let new_dpi = (scale_120 * 96 + 60) / 120;
+    window.preferred_scale_120 = Some(scale_120);
+
+    if new_dpi == old_dpi {
+        return; // e.g. the initial preferred_scale(120) on a 1.0 output
+    }
+
+    log_info!(
+        LogCategory::Window,
+        "[Wayland DPI Change] {} -> {} (wp_fractional_scale preferred_scale = {}/120)",
+        old_dpi,
+        new_dpi,
+        scale_120
+    );
+    window.common.current_window_state.size.dpi = new_dpi;
+    window.common.frame_needs_regeneration = true;
+    // Recreate the shm buffers at the new physical size (same rationale as the
+    // wl_output enter/leave handlers) and schedule the frame NOW — Wayland
+    // sends no spurious expose/configure to mask a missing redraw request.
+    let (w, h) = {
+        let d = &window.common.current_window_state.size.dimensions;
+        (d.width as i32, d.height as i32)
+    };
+    window.resize_surface(w, h);
+    window.request_redraw();
 }
 
 extern "C" fn xdg_wm_base_ping_handler(data: *mut c_void, shell: *mut xdg_wm_base, serial: u32) {
@@ -502,6 +559,50 @@ pub(super) extern "C" fn registry_global_handler(
                 crate::log_debug!(
                     LogCategory::Platform,
                     "[Wayland] Bound org_kde_kwin_blur_manager - blur effects available"
+                );
+            }
+        }
+        "wp_fractional_scale_manager_v1" => {
+            // fractional-scale-v1: the compositor tells us the preferred
+            // per-surface scale as scale×120 (144 = 1.2). Staging protocol, not
+            // exported by libwayland -> hand-built interface (same as the blur
+            // manager). The per-surface wp_fractional_scale_v1 object is
+            // created after the wl_surface exists (see WaylandWindow::new).
+            let mgr = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    super::defines::get_wp_fractional_scale_manager_v1_interface(),
+                    version.min(1),
+                ) as *mut wp_fractional_scale_manager_v1
+            };
+            if !mgr.is_null() {
+                window.fractional_scale_manager = Some(mgr);
+                crate::log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Bound wp_fractional_scale_manager_v1 - fractional scaling available"
+                );
+            }
+        }
+        "wp_viewporter" => {
+            // viewporter (stable): maps a physical-sized buffer onto the
+            // logical surface size (wp_viewport.set_destination) — required to
+            // present fractional-scale buffers, since set_buffer_scale is
+            // integer-only. Per-surface viewports are created after the
+            // wl_surface exists (see WaylandWindow::new).
+            let vpr = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    super::defines::get_wp_viewporter_interface(),
+                    version.min(1),
+                ) as *mut wp_viewporter
+            };
+            if !vpr.is_null() {
+                window.viewporter = Some(vpr);
+                crate::log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Bound wp_viewporter - viewport scaling available"
                 );
             }
         }

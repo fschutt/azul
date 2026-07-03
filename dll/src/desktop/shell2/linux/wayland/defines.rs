@@ -56,6 +56,40 @@ pub struct zxdg_toplevel_decoration_v1_listener {
     pub configure:
         extern "C" fn(data: *mut core::ffi::c_void, deco: *mut zxdg_toplevel_decoration_v1, mode: u32),
 }
+
+// wp-fractional-scale-v1 (fractional HiDPI: preferred_scale delivers scale×120)
+#[repr(C)]
+pub struct wp_fractional_scale_manager_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct wp_fractional_scale_v1 {
+    _private: [u8; 0],
+}
+
+/// Listener for `wp_fractional_scale_v1`. The single `preferred_scale` event
+/// reports the compositor-preferred scale for the surface as scale×120
+/// (e.g. 144 = 1.2, 180 = 1.5).
+#[repr(C)]
+pub struct wp_fractional_scale_v1_listener {
+    pub preferred_scale: extern "C" fn(
+        data: *mut core::ffi::c_void,
+        fractional_scale: *mut wp_fractional_scale_v1,
+        scale: u32,
+    ),
+}
+
+// wp-viewporter (crop & scale: maps a physical-sized buffer onto a
+// logical-sized surface — required for fractional scaling, where
+// wl_surface.set_buffer_scale can only express integers)
+#[repr(C)]
+pub struct wp_viewporter {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct wp_viewport {
+    _private: [u8; 0],
+}
 #[repr(C)]
 pub struct wl_surface {
     _private: [u8; 0],
@@ -759,6 +793,101 @@ pub fn get_zxdg_toplevel_decoration_v1_interface() -> &'static wl_interface {
             name: b"zxdg_toplevel_decoration_v1\0".as_ptr() as _, version: 1,
             method_count: 3, methods: requests.as_ptr(),
             event_count: 1, events: events.as_ptr(),
+        }))
+    })).0
+}
+
+/// Minimal `wp_fractional_scale_manager_v1` interface (fractional-scale-v1).
+/// Not exported by libwayland (staging protocol) -> hand-built like the blur /
+/// decoration tables. v1 requests, in opcode order: destroy() = "",
+/// get_fractional_scale(new_id<wp_fractional_scale_v1>, object<wl_surface>) = "no".
+/// No events.
+pub fn get_wp_fractional_scale_manager_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE.get_or_init(|| SyncInterface({
+        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
+        ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _,              signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
+            wl_message { name: b"get_fractional_scale\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"wp_fractional_scale_manager_v1\0".as_ptr() as _, version: 1,
+            method_count: 2, methods: requests.as_ptr(),
+            event_count: 0, events: std::ptr::null(),
+        }))
+    })).0
+}
+
+/// Minimal `wp_fractional_scale_v1` interface (the per-surface object returned
+/// by `get_fractional_scale`). v1 requests: destroy() = "". One event:
+/// preferred_scale(uint scale) = "u" — scale is the numerator of a fraction
+/// with denominator 120 (e.g. 144 = 1.2).
+pub fn get_wp_fractional_scale_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE.get_or_init(|| SyncInterface({
+        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
+        ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"preferred_scale\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"wp_fractional_scale_v1\0".as_ptr() as _, version: 1,
+            method_count: 1, methods: requests.as_ptr(),
+            event_count: 1, events: events.as_ptr(),
+        }))
+    })).0
+}
+
+/// Minimal `wp_viewporter` interface (viewporter, stable). v1 requests, in
+/// opcode order: destroy() = "", get_viewport(new_id<wp_viewport>,
+/// object<wl_surface>) = "no". No events.
+pub fn get_wp_viewporter_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE.get_or_init(|| SyncInterface({
+        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
+        ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _,      signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
+            wl_message { name: b"get_viewport\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"wp_viewporter\0".as_ptr() as _, version: 1,
+            method_count: 2, methods: requests.as_ptr(),
+            event_count: 0, events: std::ptr::null(),
+        }))
+    })).0
+}
+
+/// Minimal `wp_viewport` interface (the per-surface crop/scale object returned
+/// by `wp_viewporter.get_viewport`). v1 requests, in opcode order:
+/// destroy() = "", set_source(fixed x, fixed y, fixed w, fixed h) = "ffff",
+/// set_destination(int width, int height) = "ii". No events.
+pub fn get_wp_viewport_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE.get_or_init(|| SyncInterface({
+        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
+        ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"destroy\0".as_ptr() as _,         signature: b"\0".as_ptr() as _,     types: nt.as_ptr() },
+            wl_message { name: b"set_source\0".as_ptr() as _,      signature: b"ffff\0".as_ptr() as _, types: nt.as_ptr() },
+            wl_message { name: b"set_destination\0".as_ptr() as _, signature: b"ii\0".as_ptr() as _,   types: nt.as_ptr() },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"wp_viewport\0".as_ptr() as _, version: 1,
+            method_count: 3, methods: requests.as_ptr(),
+            event_count: 0, events: std::ptr::null(),
         }))
     })).0
 }
