@@ -2896,10 +2896,17 @@ impl WaylandWindow {
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
-        // Determine scroll delta based on axis
+        // Determine scroll delta based on axis.
+        // MWA-B13: wl_pointer.axis is POSITIVE toward bottom/right (the
+        // "natural" content direction), but azul's raw-delta chokepoint uses
+        // the X11 convention (button 4 / up = +1, button 5 / down = −1) —
+        // ScrollManager's scroll_sign() normalizes from THAT. Passing the wl
+        // value through unsigned inverted every wheel/trackpad scroll on
+        // Wayland. NEEDS-RUNTIME-VERIFY: direction on a real compositor
+        // (with and without natural-scroll enabled).
         let (delta_x, delta_y) = match axis {
-            WL_POINTER_AXIS_HORIZONTAL_SCROLL => (value as f32, 0.0),
-            WL_POINTER_AXIS_VERTICAL_SCROLL => (0.0, value as f32),
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => (-(value as f32), 0.0),
+            WL_POINTER_AXIS_VERTICAL_SCROLL => (0.0, -(value as f32)),
             _ => (0.0, 0.0),
         };
 
