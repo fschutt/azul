@@ -821,6 +821,64 @@ pub fn get_wp_fractional_scale_manager_v1_interface() -> &'static wl_interface {
     })).0
 }
 
+// --- wl_data_source (MWA-B3: native Wayland clipboard, copy side) ---
+
+/// Opaque `wl_data_source` proxy (outgoing clipboard / DnD source).
+#[repr(C)]
+pub struct wl_data_source {
+    _private: [u8; 0],
+}
+
+/// Listener for `wl_data_source` events, in protocol order.
+#[repr(C)]
+pub struct wl_data_source_listener {
+    pub target:
+        extern "C" fn(data: *mut c_void, source: *mut wl_data_source, mime_type: *const c_char),
+    pub send: extern "C" fn(
+        data: *mut c_void,
+        source: *mut wl_data_source,
+        mime_type: *const c_char,
+        fd: i32,
+    ),
+    pub cancelled: extern "C" fn(data: *mut c_void, source: *mut wl_data_source),
+    pub dnd_drop_performed: extern "C" fn(data: *mut c_void, source: *mut wl_data_source),
+    pub dnd_finished: extern "C" fn(data: *mut c_void, source: *mut wl_data_source),
+    pub action: extern "C" fn(data: *mut c_void, source: *mut wl_data_source, dnd_action: u32),
+}
+
+/// Minimal `wl_data_source` interface for `wl_proxy_marshal_constructor` —
+/// hand-built like the decoration / fractional-scale tables. Requests in
+/// opcode order: offer(s)=0, destroy()=1, set_actions(u, since:3)=2. Events
+/// in order: target(?s), send(sh), cancelled(), dnd_drop_performed(since:3),
+/// dnd_finished(since:3), action(u, since:3).
+pub fn get_wl_data_source_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE.get_or_init(|| SyncInterface({
+        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
+        ]));
+        let requests: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"offer\0".as_ptr() as _,       signature: b"s\0".as_ptr() as _,  types: nt.as_ptr() },
+            wl_message { name: b"destroy\0".as_ptr() as _,     signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
+            wl_message { name: b"set_actions\0".as_ptr() as _, signature: b"3u\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        let events: &'static [wl_message] = Box::leak(Box::new([
+            wl_message { name: b"target\0".as_ptr() as _,             signature: b"?s\0".as_ptr() as _, types: nt.as_ptr() },
+            wl_message { name: b"send\0".as_ptr() as _,               signature: b"sh\0".as_ptr() as _, types: nt.as_ptr() },
+            wl_message { name: b"cancelled\0".as_ptr() as _,          signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
+            wl_message { name: b"dnd_drop_performed\0".as_ptr() as _, signature: b"3\0".as_ptr() as _,  types: nt.as_ptr() },
+            wl_message { name: b"dnd_finished\0".as_ptr() as _,       signature: b"3\0".as_ptr() as _,  types: nt.as_ptr() },
+            wl_message { name: b"action\0".as_ptr() as _,             signature: b"3u\0".as_ptr() as _, types: nt.as_ptr() },
+        ]));
+        Box::leak(Box::new(wl_interface {
+            name: b"wl_data_source\0".as_ptr() as _, version: 3,
+            method_count: 3, methods: requests.as_ptr(),
+            event_count: 6, events: events.as_ptr(),
+        }))
+    })).0
+}
+
 /// Minimal `wp_fractional_scale_v1` interface (the per-surface object returned
 /// by `get_fractional_scale`). v1 requests: destroy() = "". One event:
 /// preferred_scale(uint scale) = "u" — scale is the numerator of a fraction

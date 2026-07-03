@@ -1069,6 +1069,19 @@ extern "C" fn data_device_drop(data: *mut c_void, _dev: *mut wl_data_device) {
 /// Ask the source to write `text/uri-list` into a pipe, read it fully, and parse
 /// it into local file paths. Returns empty on any failure.
 unsafe fn receive_uri_list(window: &WaylandWindow, offer: *mut wl_data_offer) -> Vec<String> {
+    let bytes = receive_offer_bytes(window, offer, URI_LIST_MIME);
+    let text = String::from_utf8_lossy(&bytes);
+    parse_uri_list(&text)
+}
+
+/// MWA-B3: receive an arbitrary mime payload from a `wl_data_offer` through a
+/// pipe — the generalization of the DnD uri-list receive, shared with the
+/// clipboard paste path (`read_wayland_selection`).
+pub(super) unsafe fn receive_offer_bytes(
+    window: &WaylandWindow,
+    offer: *mut wl_data_offer,
+    mime_type: &str,
+) -> Vec<u8> {
     let mut fds = [0i32; 2];
     if libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) != 0 {
         return Vec::new();
@@ -1076,7 +1089,7 @@ unsafe fn receive_uri_list(window: &WaylandWindow, offer: *mut wl_data_offer) ->
     let (read_fd, write_fd) = (fds[0], fds[1]);
 
     // wl_data_offer.receive(mime_type, fd): opcode 1, signature "sh".
-    let mime = std::ffi::CString::new(URI_LIST_MIME).unwrap();
+    let mime = std::ffi::CString::new(mime_type).unwrap();
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const c_char, i32) =
         std::mem::transmute(window.wayland.wl_proxy_marshal);
     f(offer as *mut wl_proxy, 1, mime.as_ptr(), write_fd);
@@ -1105,8 +1118,7 @@ unsafe fn receive_uri_list(window: &WaylandWindow, offer: *mut wl_data_offer) ->
     }
     libc::close(read_fd);
 
-    let text = String::from_utf8_lossy(&buf);
-    parse_uri_list(&text)
+    buf
 }
 
 /// Parse a `text/uri-list` payload (RFC 2483) into local filesystem paths:
@@ -1156,12 +1168,96 @@ fn percent_decode(s: &str) -> String {
 }
 
 extern "C" fn data_device_selection(
-    _data: *mut c_void,
+    data: *mut c_void,
     _dev: *mut wl_data_device,
-    _id: *mut wl_data_offer,
+    id: *mut wl_data_offer,
 ) {
-    // Clipboard selection offers are not consumed here (clipboard.rs owns that).
+    // MWA-B3: the compositor announces the current clipboard selection
+    // owner's offer here. Stash it so read_wayland_selection() can
+    // receive() from it; destroy the previous offer (each selection event
+    // hands over a fresh one). id == NULL means the selection was cleared.
+    // This was an empty stub — pure-Wayland paste was impossible.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let old = window.clipboard_offer;
+    if !old.is_null() && old != id {
+        // wl_data_offer.destroy: opcode 2, signature "".
+        unsafe {
+            let destroy: unsafe extern "C" fn(*mut wl_proxy, u32) =
+                std::mem::transmute(window.wayland.wl_proxy_marshal);
+            destroy(old as *mut wl_proxy, 2);
+        }
+    }
+    window.clipboard_offer = id;
 }
+
+// --- wl_data_source events (MWA-B3: outgoing clipboard) ---
+
+extern "C" fn data_source_target(
+    _data: *mut c_void,
+    _source: *mut wl_data_source,
+    _mime: *const c_char,
+) {
+}
+
+/// The compositor (on behalf of the pasting client) pulls our copy text.
+extern "C" fn data_source_send(
+    _data: *mut c_void,
+    _source: *mut wl_data_source,
+    _mime: *const c_char,
+    fd: i32,
+) {
+    // Every offered mime is a plain-UTF-8 spelling, so serve the same bytes.
+    let text = super::clipboard::native_copy_text().unwrap_or_default();
+    let bytes = text.as_bytes();
+    let mut off = 0usize;
+    while off < bytes.len() {
+        let n = unsafe {
+            libc::write(
+                fd,
+                bytes[off..].as_ptr() as *const c_void,
+                bytes.len() - off,
+            )
+        };
+        if n > 0 {
+            off += n as usize;
+        } else {
+            let err = unsafe { *libc::__errno_location() };
+            if err == libc::EINTR {
+                continue;
+            }
+            break;
+        }
+    }
+    unsafe { libc::close(fd) };
+}
+
+/// Another client took the selection — we no longer own the clipboard.
+extern "C" fn data_source_cancelled(data: *mut c_void, source: *mut wl_data_source) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    super::clipboard::clear_native_copy();
+    if window.clipboard_source == source {
+        window.clipboard_source = std::ptr::null_mut();
+    }
+    // wl_data_source.destroy: opcode 1, signature "".
+    unsafe {
+        let destroy: unsafe extern "C" fn(*mut wl_proxy, u32) =
+            std::mem::transmute(window.wayland.wl_proxy_marshal);
+        destroy(source as *mut wl_proxy, 1);
+    }
+}
+
+extern "C" fn data_source_dnd_drop_performed(_data: *mut c_void, _source: *mut wl_data_source) {}
+extern "C" fn data_source_dnd_finished(_data: *mut c_void, _source: *mut wl_data_source) {}
+extern "C" fn data_source_action(_data: *mut c_void, _source: *mut wl_data_source, _action: u32) {}
+
+pub(super) static WL_DATA_SOURCE_LISTENER: wl_data_source_listener = wl_data_source_listener {
+    target: data_source_target,
+    send: data_source_send,
+    cancelled: data_source_cancelled,
+    dnd_drop_performed: data_source_dnd_drop_performed,
+    dnd_finished: data_source_dnd_finished,
+    action: data_source_action,
+};
 
 static WL_DATA_DEVICE_LISTENER: wl_data_device_listener = wl_data_device_listener {
     data_offer: data_device_data_offer,
@@ -1288,12 +1384,15 @@ pub(super) extern "C" fn keyboard_keymap_handler(
 pub(super) extern "C" fn keyboard_key_handler(
     data: *mut c_void,
     _keyboard: *mut wl_keyboard,
-    _serial: u32,
+    serial: u32,
     _time: u32,
     key: u32,
     state: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // MWA-B3: key serials are valid input serials for set_selection — store
+    // BEFORE the keymap guard so Ctrl+C works even without prior clicks.
+    window.last_input_serial = serial;
     // No usable keymap/state (compositor sent an unparseable keymap) -> skip rather
     // than deref a NULL xkb_state in the translation path.
     if window.keyboard_state.state.is_null() {

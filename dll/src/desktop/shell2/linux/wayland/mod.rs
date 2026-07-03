@@ -211,6 +211,15 @@ pub struct WaylandWindow {
     // (see events::try_init_data_device). `drag` holds the live transfer state.
     data_device_manager: *mut defines::wl_data_device_manager,
     data_device: *mut defines::wl_data_device,
+    /// MWA-B3: current clipboard selection offer from the compositor
+    /// (null = no selection). Set by events::data_device_selection.
+    clipboard_offer: *mut defines::wl_data_offer,
+    /// MWA-B3: our live outgoing clipboard source (null when another client
+    /// owns the selection). Destroyed and replaced on every copy.
+    clipboard_source: *mut defines::wl_data_source,
+    /// MWA-B3: most recent input serial (pointer button OR key press) —
+    /// wl_data_device.set_selection requires a real input serial.
+    last_input_serial: u32,
     data_device_version: u32,
     data_device_initialized: bool,
     drag: events::WaylandDragState,
@@ -1329,6 +1338,9 @@ impl WaylandWindow {
             tablet_initialized: false,
             data_device_manager: std::ptr::null_mut(),
             data_device: std::ptr::null_mut(),
+            clipboard_offer: std::ptr::null_mut(),
+            clipboard_source: std::ptr::null_mut(),
+            last_input_serial: 0,
             data_device_version: 0,
             data_device_initialized: false,
             drag: events::WaylandDragState::default(),
@@ -2668,6 +2680,7 @@ impl WaylandWindow {
     /// Handle pointer button event
     pub fn handle_pointer_button(&mut self, serial: u32, button: u32, state: u32) {
         self.pointer_state.serial = serial;
+        self.last_input_serial = serial; // MWA-B3: valid serial for set_selection
 
         // While the pointer is over an open menu popup, route the click to the
         // popup's layout (the xdg_popup grab delivers it through this parent's
@@ -2989,6 +3002,103 @@ impl WaylandWindow {
     /// the first KEYPRESS (handle_key inferred it), so click-to-focus alone
     /// left the window styled/behaving as unfocused, and WindowFocusReceived
     /// callbacks never fired on Wayland.
+    // --- Native Wayland clipboard (MWA-B3) ---
+
+    /// Take clipboard ownership: create a `wl_data_source` offering the
+    /// plain-text mime spellings and set it as the seat selection with the
+    /// last input serial. Returns `false` when prerequisites are missing
+    /// (no data device, no input serial yet) so the caller can fall back to
+    /// the XWayland path. The text itself is parked in
+    /// `clipboard::NATIVE_COPY`; the compositor pulls it through
+    /// `events::data_source_send`.
+    pub(super) fn wayland_set_selection(&mut self) -> bool {
+        if self.data_device_manager.is_null() || self.data_device.is_null() {
+            return false;
+        }
+        if self.last_input_serial == 0 {
+            return false;
+        }
+        unsafe {
+            // Destroy any previous outgoing source. destroy: opcode 1, "".
+            if !self.clipboard_source.is_null() {
+                let destroy: unsafe extern "C" fn(*mut defines::wl_proxy, u32) =
+                    std::mem::transmute(self.wayland.wl_proxy_marshal);
+                destroy(self.clipboard_source as *mut defines::wl_proxy, 1);
+                self.clipboard_source = std::ptr::null_mut();
+            }
+
+            // create_data_source: opcode 0 on wl_data_device_manager, "n".
+            type CreateSrcCtor = unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *const defines::wl_interface,
+                *mut std::ffi::c_void,
+            ) -> *mut defines::wl_proxy;
+            let ctor: CreateSrcCtor =
+                std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
+            let src = ctor(
+                self.data_device_manager as *mut defines::wl_proxy,
+                0,
+                defines::get_wl_data_source_interface(),
+                std::ptr::null_mut(),
+            );
+            if src.is_null() {
+                return false;
+            }
+
+            // offer(mime_type): opcode 0, "s" — advertise the common
+            // plain-text spellings so GTK/Qt/terminal clients all match.
+            let offer: unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *const std::os::raw::c_char,
+            ) = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            for mime in ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"] {
+                let c = std::ffi::CString::new(mime).unwrap();
+                offer(src, 0, c.as_ptr());
+            }
+
+            (self.wayland.wl_proxy_add_listener)(
+                src,
+                &events::WL_DATA_SOURCE_LISTENER as *const _ as *const _,
+                self as *mut Self as *mut _,
+            );
+
+            // set_selection(source, serial): opcode 1 on wl_data_device.
+            let set_selection: unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *mut defines::wl_proxy,
+                u32,
+            ) = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            set_selection(
+                self.data_device as *mut defines::wl_proxy,
+                1,
+                src,
+                self.last_input_serial,
+            );
+            (self.wayland.wl_display_flush)(self.display);
+
+            self.clipboard_source = src as *mut defines::wl_data_source;
+        }
+        true
+    }
+
+    /// Read the current clipboard selection (another client's offer) as
+    /// UTF-8 text via a pipe (same mechanism as the DnD uri-list receive).
+    pub(super) fn read_wayland_selection(&mut self) -> Option<String> {
+        if self.clipboard_offer.is_null() {
+            return None;
+        }
+        let bytes = unsafe {
+            events::receive_offer_bytes(self, self.clipboard_offer, "text/plain;charset=utf-8")
+        };
+        if bytes.is_empty() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
     pub fn handle_keyboard_enter(&mut self) {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
         self.common.current_window_state.window_focused = true;

@@ -69,8 +69,62 @@ pub fn get_clipboard_content() -> Option<String> {
     read_from_clipboard().ok()
 }
 
+// --- Native wl_data_device clipboard (MWA-B3) ---
+
+/// Text we currently offer on the native Wayland selection. `Some` = we own
+/// the selection: `events::data_source_send` serves the pasting client from
+/// here, and `events::data_source_cancelled` clears it when another client
+/// takes the selection over.
+static NATIVE_COPY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The text served to pasting clients while we own the selection.
+pub(super) fn native_copy_text() -> Option<String> {
+    NATIVE_COPY.lock().ok().and_then(|g| g.clone())
+}
+
+/// Ownership lost (source cancelled) — stop serving / short-circuiting reads.
+pub(super) fn clear_native_copy() {
+    if let Ok(mut g) = NATIVE_COPY.lock() {
+        *g = None;
+    }
+}
+
+/// Run `f` against a live `WaylandWindow` from the (main-thread) Linux window
+/// registry. The clipboard entry points are free functions called from the
+/// shared event pipeline on the main thread, so the raw registry pointer is
+/// valid for the duration of the call.
+fn with_wayland_window<R>(f: impl FnOnce(&mut super::WaylandWindow) -> R) -> Option<R> {
+    for id in crate::desktop::shell2::linux::registry::get_all_window_ids() {
+        let Some(ptr) = (unsafe { crate::desktop::shell2::linux::registry::get_window(id) })
+        else {
+            continue;
+        };
+        let win = unsafe { &mut *ptr };
+        if let crate::desktop::shell2::linux::LinuxWindow::Wayland(w) = win {
+            return Some(f(w));
+        }
+    }
+    None
+}
+
 /// Write string to Wayland clipboard
 pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
+    // MWA-B3: native wl_data_device first — works on pure Wayland sessions
+    // (no XWayland). Park the text, then take the seat selection; pasting
+    // clients pull it through data_source_send.
+    if let Ok(mut g) = NATIVE_COPY.lock() {
+        *g = Some(text.to_owned());
+    }
+    if with_wayland_window(|w| w.wayland_set_selection()) == Some(true) {
+        log_debug!(
+            LogCategory::Resources,
+            "[Wayland Clipboard] native wl_data_source selection taken"
+        );
+        return Ok(());
+    }
+    clear_native_copy();
+
+    // XWayland fallback (x11-clipboard) — pre-existing path.
     let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
     let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
 
@@ -85,6 +139,18 @@ pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
 
 /// Read string from Wayland clipboard
 fn read_from_clipboard() -> Result<String, ClipboardError> {
+    // MWA-B3: if we own the selection, answer locally (a receive() on our
+    // own offer would deadlock the single-threaded event loop: the send
+    // event that serves it can't dispatch while we block on the pipe).
+    if let Some(text) = native_copy_text() {
+        return Ok(text);
+    }
+    // Native path: another client's offer, received through a pipe.
+    if let Some(Some(text)) = with_wayland_window(|w| w.read_wayland_selection()) {
+        return Ok(text);
+    }
+
+    // XWayland fallback (x11-clipboard) — pre-existing path.
     let guard = clipboard().ok_or(ClipboardError::InitFailed)?;
     let clipboard = guard.as_ref().ok_or(ClipboardError::InitFailed)?;
 
