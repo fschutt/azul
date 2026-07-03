@@ -1061,6 +1061,15 @@ impl LayoutWindow {
                 .gpu_state_manager
                 .get_or_create_cache(dom_id)
                 .synchronize(&styled_dom);
+            // MWA-C-gpu_state: drop the PREVIOUS pass's events before
+            // merging this one's. `pending_changes` has zero drain call
+            // sites (both renderers re-read cache values via
+            // synchronize_gpu_values / from_gpu_cache instead), and
+            // merge() appends Vecs — so this accumulated every layout's
+            // events forever, an unbounded leak in any long-running app.
+            // The field stays as a same-pass event record until a consumer
+            // exists (see FOLLOW-UPS).
+            let _ = self.gpu_state_manager.take_pending_changes();
             self.gpu_state_manager
                 .pending_changes
                 .merge(&mut transform_opacity_events);
@@ -2740,6 +2749,55 @@ impl LayoutWindow {
     ///
     /// A vector of GPU scrollbar opacity change events
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// MWA-C-gpu_state: per-frame scrollbar GPU-cache refresh for the CPU
+    /// render path. The WebRender transaction builders run
+    /// `update_scrollbar_transforms` + `synchronize_scrollbar_opacity` every
+    /// frame, but the CPU branches only ticked the scroll manager — overlay
+    /// scrollbar thumb transforms and fade opacity in the cache refreshed
+    /// only on full relayout, and `scrollbar_fade_active` could keep
+    /// requesting redraws that changed nothing. Call before
+    /// `CpuBackend::render_frame`. Uses the manager's own
+    /// `fade_delay`/`fade_duration` (the WR paths still pass literals — see
+    /// FOLLOW-UPS note).
+    #[cfg(feature = "std")]
+    pub fn refresh_scrollbar_gpu_cache_for_cpu_frame(&mut self) {
+        let system_callbacks = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        {
+            let Self {
+                ref layout_results,
+                ref scroll_manager,
+                ref mut gpu_state_manager,
+                ..
+            } = *self;
+            for (dom_id, layout_result) in layout_results {
+                let _ = gpu_state_manager.update_scrollbar_transforms(
+                    *dom_id,
+                    scroll_manager,
+                    &layout_result.layout_tree,
+                );
+            }
+        }
+        let fade_delay = self.gpu_state_manager.fade_delay.clone();
+        let fade_duration = self.gpu_state_manager.fade_duration.clone();
+        let Self {
+            ref layout_results,
+            ref scroll_manager,
+            ref mut gpu_state_manager,
+            ..
+        } = *self;
+        for (dom_id, layout_result) in layout_results {
+            let _ = Self::synchronize_scrollbar_opacity(
+                gpu_state_manager,
+                scroll_manager,
+                *dom_id,
+                &layout_result.layout_tree,
+                &system_callbacks,
+                fade_delay.clone(),
+                fade_duration.clone(),
+            );
+        }
+    }
+
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,

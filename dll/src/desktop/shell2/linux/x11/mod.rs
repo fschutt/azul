@@ -3573,6 +3573,10 @@ impl X11Window {
                     // gl=None forces the callback's CPU branch.
                     if let Some(lw) = self.common.layout_window.as_mut() {
                         lw.invoke_cpu_image_callbacks(&azul_core::gl::OptionGlContextPtr::None);
+                        // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache
+                        // refresh (WR builders do this every frame; the CPU
+                        // branch refreshed only on full relayout).
+                        lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
                     }
 
                     if let Some(ref layout_window) = self.common.layout_window {

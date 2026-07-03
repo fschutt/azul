@@ -2888,12 +2888,23 @@ pub trait PlatformWindow {
                                 }
                             }
 
+                            // MWA-C-gpu_state: register the drag transform in
+                            // the CSS transform maps — the display list builds
+                            // the dragged node's reference frame EXCLUSIVELY
+                            // from css_transform_keys (display_list.rs child
+                            // ref-frame lookup); the old write went into
+                            // transform_keys, which is the vertical-scrollbar-
+                            // thumb map, so the per-pixel drag offset never
+                            // reached the screen (and could corrupt a thumb
+                            // key). A pre-existing CSS transform is replaced
+                            // for the drag's duration and restored by the CSS
+                            // sync on the post-drag relayout.
                             let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                            if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.transform_keys.entry(node_id) {
+                            if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.css_transform_keys.entry(node_id) {
                                 let transform_key = azul_core::resources::TransformKey::unique();
                                 let identity = azul_core::transform::ComputedTransform3D::IDENTITY;
                                 e.insert(transform_key);
-                                gpu_cache.current_transform_values.insert(node_id, identity);
+                                gpu_cache.css_current_transform_values.insert(node_id, identity);
                             }
                         }
                     }
@@ -2940,7 +2951,8 @@ pub trait PlatformWindow {
                             let new_transform = azul_core::transform::ComputedTransform3D::new_translation(
                                 delta_x, delta_y, 0.0,
                             );
-                            gpu_cache.current_transform_values.insert(node_id, new_transform);
+                            // MWA-C-gpu_state: css map — see InitDragVisualState.
+                            gpu_cache.css_current_transform_values.insert(node_id, new_transform);
                         }
                     }
                 }
@@ -2985,9 +2997,13 @@ pub trait PlatformWindow {
                         if let Some(node_drag) = ctx.as_node_drag() {
                             let dom_id = node_drag.dom_id;
                             let node_id = node_drag.node_id;
+                            // MWA-C-gpu_state: css maps — see InitDragVisualState.
+                            // A genuine CSS transform on the node is restored
+                            // by the CSS sync on the post-drag relayout (the
+                            // :dragging restyle triggers one).
                             let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                            gpu_cache.transform_keys.remove(&node_id);
-                            gpu_cache.current_transform_values.remove(&node_id);
+                            gpu_cache.css_transform_keys.remove(&node_id);
+                            gpu_cache.css_current_transform_values.remove(&node_id);
                         }
                     }
 

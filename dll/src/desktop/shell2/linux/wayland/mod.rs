@@ -4449,6 +4449,10 @@ impl WaylandWindow {
                     // content is unchanged (callbacks cache by their own revision).
                     if let Some(lw) = self.common.layout_window.as_mut() {
                         lw.invoke_cpu_image_callbacks(&azul_core::gl::OptionGlContextPtr::None);
+                        // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache
+                        // refresh (WR builders do this every frame; the CPU
+                        // branch refreshed only on full relayout).
+                        lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
                     }
 
                     let rendered = if let Some(ref layout_window) = self.common.layout_window {
@@ -5782,6 +5786,10 @@ impl WaylandPopup {
             #[cfg(feature = "cpurender")]
             {
                 if laid_out {
+                    // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache refresh.
+                    if let Some(lw) = self.layout_window.as_mut() {
+                        lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+                    }
                     if let Some(ref layout_window) = self.layout_window {
                         self.cpu_backend.render_frame(
                             layout_window,

@@ -6139,6 +6139,10 @@ impl MacOSWindow {
                     // gl=None forces the callback's CPU branch.
                     layout_window
                         .invoke_cpu_image_callbacks(&azul_core::gl::OptionGlContextPtr::None);
+                    // MWA-C-gpu_state: per-frame scrollbar thumb/fade cache
+                    // refresh (WR builders do this every frame; the CPU
+                    // branch refreshed only on full relayout).
+                    layout_window.refresh_scrollbar_gpu_cache_for_cpu_frame();
 
                     // Shared CPU renderer (same path as headless + X11 + Wayland):
                     // damage diff + scroll-offset feed + thin-strip scroll-shift with
