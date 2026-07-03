@@ -3449,11 +3449,13 @@ impl MacOSWindow {
                     window.setStyleMask(style_mask);
                 }
                 WindowDecorations::None => {
-                    // Borderless window
+                    // Borderless window. MWA-B11: KEEP Resizable — a
+                    // borderless+resizable NSWindow gets native edge-drag
+                    // resize from AppKit (10.12+); removing it was why CSD
+                    // windows could not be resized at all on macOS.
                     style_mask.remove(NSWindowStyleMask::Titled);
                     style_mask.remove(NSWindowStyleMask::Closable);
                     style_mask.remove(NSWindowStyleMask::Miniaturizable);
-                    style_mask.remove(NSWindowStyleMask::Resizable);
                     window.setStyleMask(style_mask);
                 }
             }

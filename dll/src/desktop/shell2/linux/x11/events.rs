@@ -492,6 +492,42 @@ impl X11Window {
             _ => MouseButton::Other(event.button as u8),
         };
 
+        // MWA-B11: CSD resize edges — frameless windows previously had NO
+        // way to resize. A left press in the border band hands the resize
+        // to the WM via _NET_WM_MOVERESIZE (root coords come straight from
+        // the button event; the implicit grab must be released first or the
+        // WM cannot take over the pointer).
+        if is_down
+            && button == MouseButton::Left
+            && self.common.current_window_state.flags.decorations
+                == azul_core::window::WindowDecorations::None
+        {
+            use crate::desktop::shell2::common::event::{
+                csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
+            };
+            let size = self.common.current_window_state.size.dimensions;
+            if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
+                // _NET_WM_MOVERESIZE directions: TOPLEFT=0 TOP=1 TOPRIGHT=2
+                // RIGHT=3 BOTTOMRIGHT=4 BOTTOM=5 BOTTOMLEFT=6 LEFT=7.
+                let direction: std::os::raw::c_long = match edge {
+                    CsdResizeEdge::TopLeft => 0,
+                    CsdResizeEdge::Top => 1,
+                    CsdResizeEdge::TopRight => 2,
+                    CsdResizeEdge::Right => 3,
+                    CsdResizeEdge::BottomRight => 4,
+                    CsdResizeEdge::Bottom => 5,
+                    CsdResizeEdge::BottomLeft => 6,
+                    CsdResizeEdge::Left => 7,
+                };
+                self.begin_net_wm_moveresize(
+                    event.x_root as std::os::raw::c_long,
+                    event.y_root as std::os::raw::c_long,
+                    direction,
+                );
+                return ProcessEventResult::DoNothing;
+            }
+        }
+
         // Check for scrollbar hit FIRST (before state changes)
         if is_down {
             if let Some(scrollbar_hit_id) =

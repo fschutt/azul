@@ -561,6 +561,82 @@ fn apply_hover_restyle(
     result
 }
 
+// MWA-B11: CSD resize edges
+
+/// Which frameless-window edge a pointer press falls on (within
+/// [`CSD_RESIZE_BAND_PX`]). Each backend maps this to its native
+/// interactive-resize primitive (xdg_toplevel.resize / _NET_WM_MOVERESIZE /
+/// WM_NCLBUTTONDOWN HT*; macOS resizes natively via the Resizable
+/// styleMask on borderless windows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsdResizeEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+/// Width of the invisible resize band along frameless-window borders.
+pub const CSD_RESIZE_BAND_PX: f32 = 8.0;
+
+/// MWA-B11: CSD resize-edge hit test. Returns which edge (if any) `pos`
+/// falls on for a window of `size`; callers gate on
+/// `flags.decorations == WindowDecorations::None` (server-decorated windows
+/// get real WM edges).
+#[must_use]
+pub fn csd_resize_edge_at(
+    pos: azul_core::geom::LogicalPosition,
+    size: azul_core::geom::LogicalSize,
+    band: f32,
+) -> Option<CsdResizeEdge> {
+    let l = pos.x <= band;
+    let r = pos.x >= size.width - band;
+    let t = pos.y <= band;
+    let b = pos.y >= size.height - band;
+    Some(match (l, r, t, b) {
+        (true, _, true, _) => CsdResizeEdge::TopLeft,
+        (_, true, true, _) => CsdResizeEdge::TopRight,
+        (true, _, _, true) => CsdResizeEdge::BottomLeft,
+        (_, true, _, true) => CsdResizeEdge::BottomRight,
+        (true, ..) => CsdResizeEdge::Left,
+        (_, true, ..) => CsdResizeEdge::Right,
+        (_, _, true, _) => CsdResizeEdge::Top,
+        (_, _, _, true) => CsdResizeEdge::Bottom,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod csd_resize_edge_tests {
+    use super::*;
+    use azul_core::geom::{LogicalPosition, LogicalSize};
+
+    fn size() -> LogicalSize {
+        LogicalSize { width: 800.0, height: 600.0 }
+    }
+
+    #[test]
+    fn corners_edges_and_center() {
+        let p = |x, y| LogicalPosition { x, y };
+        assert_eq!(csd_resize_edge_at(p(2.0, 2.0), size(), 8.0), Some(CsdResizeEdge::TopLeft));
+        assert_eq!(csd_resize_edge_at(p(797.0, 3.0), size(), 8.0), Some(CsdResizeEdge::TopRight));
+        assert_eq!(csd_resize_edge_at(p(1.0, 599.0), size(), 8.0), Some(CsdResizeEdge::BottomLeft));
+        assert_eq!(csd_resize_edge_at(p(799.0, 598.0), size(), 8.0), Some(CsdResizeEdge::BottomRight));
+        assert_eq!(csd_resize_edge_at(p(400.0, 4.0), size(), 8.0), Some(CsdResizeEdge::Top));
+        assert_eq!(csd_resize_edge_at(p(400.0, 597.0), size(), 8.0), Some(CsdResizeEdge::Bottom));
+        assert_eq!(csd_resize_edge_at(p(3.0, 300.0), size(), 8.0), Some(CsdResizeEdge::Left));
+        assert_eq!(csd_resize_edge_at(p(796.0, 300.0), size(), 8.0), Some(CsdResizeEdge::Right));
+        assert_eq!(csd_resize_edge_at(p(400.0, 300.0), size(), 8.0), None);
+        // just inside the band boundary
+        assert_eq!(csd_resize_edge_at(p(8.0, 300.0), size(), 8.0), Some(CsdResizeEdge::Left));
+        assert_eq!(csd_resize_edge_at(p(8.1, 300.0), size(), 8.0), None);
+    }
+}
+
 // Button state bitfield constants for `record_input_sample`.
 pub const BUTTON_STATE_NONE: u8 = 0x00;
 pub const BUTTON_STATE_LEFT: u8 = 0x01;

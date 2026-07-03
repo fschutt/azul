@@ -137,6 +137,9 @@ pub struct Wayland {
     pub xdg_toplevel_set_min_size: unsafe extern "C" fn(*mut xdg_toplevel, i32, i32),
     pub xdg_toplevel_set_max_size: unsafe extern "C" fn(*mut xdg_toplevel, i32, i32),
     pub xdg_toplevel_move: unsafe extern "C" fn(*mut xdg_toplevel, *mut wl_seat, u32),
+    /// MWA-B11: xdg_toplevel.resize(seat, serial, edges) — compositor-managed
+    /// interactive resize for CSD windows.
+    pub xdg_toplevel_resize: unsafe extern "C" fn(*mut xdg_toplevel, *mut wl_seat, u32, u32),
     pub xdg_wm_base_add_listener:
         unsafe extern "C" fn(*mut xdg_wm_base, *const xdg_wm_base_listener, *mut c_void) -> i32,
     pub xdg_surface_add_listener:
@@ -430,6 +433,7 @@ impl Wayland {
             xdg_toplevel_set_min_size: xdg_toplevel_set_min_size_impl,
             xdg_toplevel_set_max_size: xdg_toplevel_set_max_size_impl,
             xdg_toplevel_move: xdg_toplevel_move_impl,
+            xdg_toplevel_resize: xdg_toplevel_resize_impl,
             xdg_wm_base_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_toplevel_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
@@ -869,6 +873,17 @@ unsafe extern "C" fn xdg_toplevel_set_max_size_impl(t: *mut xdg_toplevel, w: i32
 unsafe extern "C" fn xdg_toplevel_move_impl(t: *mut xdg_toplevel, seat: *mut wl_seat, serial: u32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) = std::mem::transmute(ctx().marshal);
     f(t as *mut wl_proxy, 5, seat, serial);
+}
+unsafe extern "C" fn xdg_toplevel_resize_impl(
+    t: *mut xdg_toplevel,
+    seat: *mut wl_seat,
+    serial: u32,
+    edges: u32,
+) {
+    // xdg_toplevel.resize: opcode 6, signature "ouu" (MWA-B11).
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32, u32) =
+        std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 6, seat, serial, edges);
 }
 unsafe extern "C" fn xdg_positioner_set_size_impl(p: *mut xdg_positioner, w: i32, h: i32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32) = std::mem::transmute(ctx().marshal);

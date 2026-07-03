@@ -4755,6 +4755,48 @@ impl X11Window {
         );
     }
 
+    /// MWA-B11: start a WM-managed interactive resize (or move, direction 8)
+    /// via _NET_WM_MOVERESIZE. Mirrors the _NET_WM_STATE ClientMessage
+    /// sender above; the implicit pointer grab from the triggering button
+    /// press MUST be released first, or the WM cannot take the pointer.
+    pub(super) fn begin_net_wm_moveresize(
+        &mut self,
+        x_root: std::os::raw::c_long,
+        y_root: std::os::raw::c_long,
+        direction: std::os::raw::c_long,
+    ) {
+        unsafe {
+            (self.xlib.XUngrabPointer)(self.display, 0 /* CurrentTime */);
+
+            let screen = (self.xlib.XDefaultScreen)(self.display);
+            let root = (self.xlib.XRootWindow)(self.display, screen);
+
+            let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+            event.type_ = defines::ClientMessage;
+            event.window = self.window;
+            event.message_type = (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_MOVERESIZE\0".as_ptr() as *const c_char,
+                0,
+            );
+            event.format = 32;
+            event.data.l[0] = x_root;
+            event.data.l[1] = y_root;
+            event.data.l[2] = direction;
+            event.data.l[3] = 1; // button 1
+            event.data.l[4] = 1; // source: normal application
+
+            (self.xlib.XSendEvent)(
+                self.display,
+                root,
+                0,
+                defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                &mut event as *mut _ as *mut defines::XEvent,
+            );
+            (self.xlib.XFlush)(self.display);
+        }
+    }
+
     /// Check timers and threads, trigger callbacks if needed.
     /// This is called on every poll_event() to simulate timer ticks.
     /// If any timer/thread callback requested a visual update, trigger a redraw

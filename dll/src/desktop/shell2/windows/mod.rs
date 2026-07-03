@@ -3185,6 +3185,41 @@ unsafe extern "system" fn window_proc(
             );
 
             // Check for scrollbar hit FIRST (before state changes)
+            // MWA-B11: CSD resize edges — a left press in the border band
+            // of a frameless window hands the sizing loop to the OS via
+            // WM_NCLBUTTONDOWN with the matching hit-test code.
+            if window.common.current_window_state.flags.decorations
+                == azul_core::window::WindowDecorations::None
+            {
+                use crate::desktop::shell2::common::event::{
+                    csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
+                };
+                let size = window.common.current_window_state.size.dimensions;
+                if let Some(edge) = csd_resize_edge_at(logical_pos, size, CSD_RESIZE_BAND_PX) {
+                    const WM_NCLBUTTONDOWN: u32 = 0x00A1;
+                    let ht: usize = match edge {
+                        CsdResizeEdge::Left => 10,        // HTLEFT
+                        CsdResizeEdge::Right => 11,       // HTRIGHT
+                        CsdResizeEdge::Top => 12,         // HTTOP
+                        CsdResizeEdge::TopLeft => 13,     // HTTOPLEFT
+                        CsdResizeEdge::TopRight => 14,    // HTTOPRIGHT
+                        CsdResizeEdge::Bottom => 15,      // HTBOTTOM
+                        CsdResizeEdge::BottomLeft => 16,  // HTBOTTOMLEFT
+                        CsdResizeEdge::BottomRight => 17, // HTBOTTOMRIGHT
+                    };
+                    unsafe {
+                        (window.win32.user32.ReleaseCapture)();
+                        (window.win32.user32.SendMessageW)(
+                            hwnd,
+                            WM_NCLBUTTONDOWN,
+                            ht as dlopen::WPARAM,
+                            lparam,
+                        );
+                    }
+                    return 0;
+                }
+            }
+
             if let Some(scrollbar_hit_id) =
                 PlatformWindow::perform_scrollbar_hit_test(&*window, logical_pos)
             {

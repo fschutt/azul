@@ -2784,6 +2784,43 @@ impl WaylandWindow {
         // Save previous state BEFORE making changes
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
+        // MWA-B11: CSD resize edges — frameless windows previously had NO
+        // way to resize. A press in the border band hands the resize to the
+        // compositor (xdg_toplevel.resize); edge codes per xdg-shell.
+        if is_down
+            && button == 0x110 // BTN_LEFT
+            && self.common.current_window_state.flags.decorations
+                == azul_core::window::WindowDecorations::None
+        {
+            use crate::desktop::shell2::common::event::{
+                csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
+            };
+            let size = self.common.current_window_state.size.dimensions;
+            if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
+                let edges: u32 = match edge {
+                    CsdResizeEdge::Top => 1,
+                    CsdResizeEdge::Bottom => 2,
+                    CsdResizeEdge::Left => 4,
+                    CsdResizeEdge::TopLeft => 5,
+                    CsdResizeEdge::BottomLeft => 6,
+                    CsdResizeEdge::Right => 8,
+                    CsdResizeEdge::TopRight => 9,
+                    CsdResizeEdge::BottomRight => 10,
+                };
+                if !self.xdg_toplevel.is_null() && !self.seat.is_null() && serial != 0 {
+                    unsafe {
+                        (self.wayland.xdg_toplevel_resize)(
+                            self.xdg_toplevel,
+                            self.seat,
+                            serial,
+                            edges,
+                        );
+                    }
+                    return;
+                }
+            }
+        }
+
         // Check for scrollbar hit FIRST (before state changes)
         if is_down {
             use crate::desktop::shell2::common::event::PlatformWindow;
