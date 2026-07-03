@@ -17,18 +17,20 @@ Raw audit JSON (deep detail, may not survive reboot): `/private/tmp/claude-501/-
 9. Behavior you cannot runtime-verify without compiling (esp. Wayland/X11/Windows): implement per protocol/API docs and tag the item NEEDS-RUNTIME-VERIFY; Phase D's smoke list picks these up.
 10. Lock protocol: on start, if `scripts/.manager_fix.lock` exists with mtime < 45 min → another tick is active, exit silently. Else write timestamp+pid to it. Remove it on clean exit.
 
-## DECISIONS (defaults are ACTIVE until the user overrides — override by editing this section or telling the interactive session)
-- D1 SCOPE — wiring-only. Make existing paths honest: events synthesized, errors surfaced, loop woken, capability reports truthful. NO net-new OS platform backends (WinRT Geolocator, Windows Hello, ashpd portals, fprintd, OS drag-source protocol impls that amount to new subsystems) — collect those under FOLLOW-UPS. [DEFAULT — pending user confirm]
-- D2 macOS titlebar — use `performWindowDragWithEvent:` from the titlebar node's mouse-down path (OS-smooth, snapping, correct on every monitor); keep the manual-math path only as fallback/programmatic move, but FIX it anyway (Y-flip must use screen frame origin; carry fractional residual; restore-before-drag when maximized; no 5px threshold for window-drag). [DEFAULT]
-- D3 Capability pump — ONE shared lazily-started pump thread (first gamepad/sensor/geo/biometric/keyring subscription starts it; stops when unused) pushing into the existing process-global channels and waking the loop via each backend's existing waker (the WR frame-ready wake path). Drain moves from regenerate_layout to early process_window_events, synthesizes manager events, and requests an event pass. [DEFAULT]
-- D4 Shortcuts — introduce a "primary modifier" (Cmd on macOS, Ctrl elsewhere) in core keyboard state; `KeyboardShortcut::from_key` keys off primary; Windows normalizes generic VK_CONTROL/VK_SHIFT/VK_MENU to sided variants (or GetKeyState sync). Native macOS Edit menu = separate item MWA-B14. [DEFAULT]
-- D5 API staging — api.json edits allowed during A–C, generators deferred to Phase D. [DEFAULT]
-- D6 End game — when A–C are exhausted the loop AUTO-ENTERS Phase D (compile gate) rather than stopping. [DEFAULT — please confirm]
-- D7 Ordering — per-subsystem across all backends simultaneously (not per-OS passes). [DEFAULT]
-- D8 a11y feature gating — wiring fixed under the existing `a11y` feature; whether it joins default features (binary size vs out-of-box a11y) = USER CALL. [OPEN]
+## DECISIONS (CONFIRMED by user 2026-07-03 except where marked)
+- D1 SCOPE — FIX EVERYTHING. Real platform backends ARE in scope (macOS CoreLocation, Windows WinRT Geolocator + Windows Hello/UserConsentVerifier, Linux xdg-desktop-portal permissions + GeoClue2 + fprintd, ...). Phase C implements the report's fix sketches fully; only FOLLOW-UPS below are out. [CONFIRMED]
+- D2 macOS titlebar — `performWindowDragWithEvent:` (OS-smooth) from the titlebar node's mouse-down; manual-math path FIXED anyway as fallback/programmatic move (Y-flip uses screen frame origin; fractional residual carried; restore-before-drag when maximized; no 5px threshold for window-drag). [CONFIRMED]
+- D3 Capability pump — TIMER-ARMED and SINGLE-THREADED (NO pump thread): while any capability subscription/use is active, arm a recurring shell timer (gamepad ~16ms; slower per-subsystem cadences where sensible, e.g. sensors 50-100ms) that drains sources → synthesizes manager events → requests an event pass. Rationale (user): must run on WASM where there are no threads. Backend timers must wake blocked loops on all shells (they already drive user timers — reuse that path); drain moves from regenerate_layout into early process_window_events. [CONFIRMED — replaces the earlier thread design]
+- D4 Shortcuts — primary modifier (Cmd on macOS, Ctrl elsewhere) in core keyboard state; `KeyboardShortcut::from_key` keys off primary; Windows normalizes generic VK_CONTROL/VK_SHIFT/VK_MENU. PLUS full native macOS Edit menu with key equivalents (MWA-B14). [CONFIRMED]
+- D5 API — BREAKING api.json changes allowed. Stage edits during A–C under API-STAGED; Phase D runs azul-doc autofix + `azul-doc codegen all` to regenerate ALL language bindings. [CONFIRMED]
+- D6 End game — fully automatic. SUCCESS CONDITION: entire audit list done (every report §5 gap FIXED / OBSOLETE / FOLLOW-UP) AND azul-dll (--features build-dll) AND examples compile. Compilation only at the end, for speed. [CONFIRMED]
+- D7 Ordering — per-subsystem across all backends at once; verify at the end with compile + cross-compile (see Phase D). [CONFIRMED]
+- D8 a11y — `a11y` JOINS azul-dll DEFAULT features (users can opt out). Implemented as MWA-A3f. [CONFIRMED]
+- D9 Dependency policy for new platform backends — match repo style: dlopen + hand-rolled bindings. Linux portals/GeoClue2/fprintd via the existing linux/dbus + shared_dbus infra; WinRT via combase dlopen + RoGetActivationFactory/HSTRING plumbing; macOS via objc2/dlopen frameworks. NO new heavy crates (no windows-rs, no zbus/ashpd, no tokio). [DEFAULT — user may veto]
+- D10 Mobile/web — audited surface = 4 desktops + headless. Default: iOS/Android real backends (GCController etc.) and dll/src/web wiring stay FOLLOW-UPS; mobile capability reports made HONEST now; all new designs (esp. D3 timer pump) must remain WASM/single-thread-compatible. [OPEN — awaiting user]
 
 ## Phase A — architecture first (in order)
-- [ ] MWA-A1 Capability pump + loop wake (pattern 1). Move gilrs poll out of regenerate_layout (common/layout.rs, sole call site, fn that polls gilrs ~L891); shared pump per D3; drain early in process_window_events; synthesize GamepadInput / sensor / geolocation / biometric / keyring / permission events + request an event pass (kills the +1-pass latency); make iOS/Android gamepad capability report honest (stubs currently claim supported=true, capability.rs). Unit tests: pump lifecycle, drain→event synthesis. STATUS: TODO
+- [ ] MWA-A1 Capability pump + loop wake (pattern 1). Move gilrs poll out of regenerate_layout (common/layout.rs, sole call site, fn that polls gilrs ~L891); TIMER-ARMED single-threaded pump per D3 (recurring shell timer armed while any subscription is active, disarmed when none; per-subsystem cadence; timer must wake blocked loops on macOS/Windows/X11/Wayland/headless via the existing user-timer path); drain early in process_window_events; synthesize GamepadInput / sensor / geolocation / biometric / keyring / permission events + request an event pass (kills the +1-pass latency); make iOS/Android gamepad capability report honest (stubs currently claim supported=true, capability.rs). Unit tests: arm/disarm lifecycle, drain→event synthesis. STATUS: TODO
 - [ ] MWA-A2 Primary-modifier + Windows VK normalization (pattern 2). core/src/events.rs `KeyboardShortcut::from_key` (Ctrl-only guard) → primary modifier; core KeyboardState gains is_primary_down (Cmd on macOS — currently arrives as LWin/super, macos/events.rs; Ctrl elsewhere); windows/win_event.rs maps generic VK_CONTROL/VK_SHIFT/VK_MENU to sided variants. Unit tests: from_key matrix under both platform conventions. Unlocks copy/cut/paste/select-all/undo/redo on macOS + Windows in one stroke. STATUS: TODO
 - [ ] MWA-A3 Output-drain sweep — the confirmed "computed but never delivered" criticals (pattern 3):
   - a) Windows a11y: capture and `.raise()` the QueuedEvents returned by `update_if_active` (windows/accessibility.rs, currently `let _ =`); implement `set_focus` (currently `_has_focus` no-op).
@@ -36,6 +38,7 @@ Raw audit JSON (deep detail, may not survive reboot): `/private/tmp/claude-501/-
   - c) hover: feed HoverChange into `restyle_on_state_change` (common/event.rs passes `None, // hover`) from the MouseEnter/Leave diff → incremental :hover restyle on every backend.
   - d) window activation: snapshot previous_window_state, flip window_focused, run process_window_events in macOS windowDidBecomeKey/ResignKey, X11 focus handlers, Windows WM_ACTIVATE, wayland keyboard enter/leave → WindowFocusIn/Out finally dispatch; blur pauses caret + dims selection (focus_cursor tie-in).
   - e) a11y incremental text updates: push the computed update (layout/window.rs, text-edit tree-update fn) to the active platform adapter (+ raise on Windows).
+  - f) flip `a11y` into azul-dll DEFAULT features (Cargo.toml edit only; per D8).
   STATUS: TODO
 - [ ] MWA-A4 Headless input parity (test enabler). Feed record_input_sample sessions from headless MouseMove/Down/Up (headless/mod.rs mouse handlers only set mouse_state today); route wheel into ScrollManager; add simulate_file_drop; tick scroll easing in headless. After this, E2E tests for drag / double-click / auto-scroll / drop become writable. STATUS: TODO
 
@@ -60,7 +63,7 @@ Raw audit JSON (deep detail, may not survive reboot): `/private/tmp/claude-501/-
 - [ ] MWA-C-scroll STATUS: TODO
 - [ ] MWA-C-a11y STATUS: TODO
 - [ ] MWA-C-file_drop STATUS: TODO
-- [ ] MWA-C-drag_drop (D1 applies: intra-app DnD + honest errors; per-backend OS drag-SOURCE protocols likely FOLLOW-UPS) STATUS: TODO
+- [ ] MWA-C-drag_drop (intra-app DnD in full; OS drag-SOURCE = FOLLOW-UP per user 2026-07-03; the acceptance case that MUST work is inbound Finder→azul drop, covered by MWA-B7) STATUS: TODO
 - [ ] MWA-C-hover STATUS: TODO
 - [ ] MWA-C-focus_cursor STATUS: TODO
 - [ ] MWA-C-text_input STATUS: TODO
@@ -71,25 +74,27 @@ Raw audit JSON (deep detail, may not survive reboot): `/private/tmp/claude-501/-
 - [ ] MWA-C-virtual_view STATUS: TODO
 - [ ] MWA-C-gpu_state STATUS: TODO
 - [ ] MWA-C-changeset STATUS: TODO
-- [ ] MWA-C-permission (D1 wiring-only) STATUS: TODO
-- [ ] MWA-C-geolocation (D1 wiring-only) STATUS: TODO
-- [ ] MWA-C-biometric (D1 wiring-only) STATUS: TODO
-- [ ] MWA-C-keyring (D1 wiring-only) STATUS: TODO
-- [ ] MWA-C-sensors (D1 wiring-only) STATUS: TODO
+- [ ] MWA-C-permission (D1 FULL scope: real platform backend per report §5 fix sketch; dependency policy D9) STATUS: TODO
+- [ ] MWA-C-geolocation (D1 FULL scope: real platform backend per report §5 fix sketch; dependency policy D9) STATUS: TODO
+- [ ] MWA-C-biometric (D1 FULL scope: real platform backend per report §5 fix sketch; dependency policy D9) STATUS: TODO
+- [ ] MWA-C-keyring (D1 FULL scope: real platform backend per report §5 fix sketch; dependency policy D9) STATUS: TODO
+- [ ] MWA-C-sensors (D1 FULL scope: real platform backend per report §5 fix sketch; dependency policy D9) STATUS: TODO
 - [ ] MWA-C-csd (whatever B5/B6/B9/B11 did not cover) STATUS: TODO
 
 ## Phase D — compile gate (auto-entered per D6, only when A–C exhausted)
 1. `cargo check -p azul-layout -p azul-core` then `-p azul-dll --features build-dll`, then workspace — fix everything (a pile is expected; that is the deal).
-2. Apply API-STAGED through the azul-doc autofix workflow (autofix commands only — never hand-curated patches), regen bindings, re-check.
+2. Apply API-STAGED through the azul-doc autofix workflow (autofix commands only — never hand-curated patches), then `azul-doc codegen all` to regenerate ALL language bindings; re-check.
 3. `cargo test` workspace (unit + headless E2E incl. all tests written in A–C).
-4. Walk the NEEDS-RUNTIME-VERIFY list; record per-OS smoke results here.
-5. Set STATUS: DONE at the top, remove the lock, CronList → CronDelete the job named `manager-wiring-fixes`, write a final summary + merge recommendation for the user.
+4. Examples compile (workspace examples; C hello-world where cheap). Cross-compile verify: `cargo check --target x86_64-unknown-linux-gnu -p azul-dll --features build-dll` with CXX/CC/AR/LINKER per the crosscompile-vkmem memory note; windows target too if a toolchain is present (else CI).
+5. Walk the NEEDS-RUNTIME-VERIFY list; record per-OS smoke results here.
+6. SUCCESS CONDITION (D6): every report §5 gap FIXED / OBSOLETE / FOLLOW-UP + steps 1–4 green. Then set STATUS: DONE at the top, remove the lock, CronList → CronDelete the fix-loop cron, write a final summary + merge recommendation for the user.
 
 ## API-STAGED (api.json edits awaiting Phase D regen)
 (none yet)
 
-## FOLLOW-UPS (out of scope per D1)
-(none yet)
+## FOLLOW-UPS (explicitly deferred)
+- OS drag-SOURCE (dragging content OUT of azul into other apps: NSDraggingSource / DoDragDrop / XDND source side / wl_data_source) — deferred by user 2026-07-03. Inbound drops (Finder→azul) are IN scope (MWA-B7).
+- (pending D10) iOS/Android real capability backends (GCController, Android sensors); dll/src/web wiring.
 
 ## Session log
 (one line per tick: UTC time — items touched — commits — notes)
