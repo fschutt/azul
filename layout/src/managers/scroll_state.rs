@@ -546,25 +546,113 @@ impl ScrollManager {
 
         let hit_test = hover_manager.get_current(input_point_id)?;
 
-        for (dom_id, hit_node) in &hit_test.hovered_nodes {
-            for node_id in hit_node.scroll_hit_test_nodes.keys() {
-                let scrollable = self.is_node_scrollable(*dom_id, *node_id);
-                if !scrollable {
-                    continue;
-                }
-                let input = ScrollInput {
-                    dom_id: *dom_id,
-                    node_id: *node_id,
-                    delta: LogicalPosition { x: delta_x, y: delta_y },
-                    timestamp: now,
-                    source,
-                };
-                let should_start_timer = self.record_scroll_input(input);
-                return Some((*dom_id, *node_id, should_start_timer));
+        // MWA-B2: nested scroll containers — innermost-first with boundary
+        // handoff. The previous ascending iteration always picked the
+        // OUTERMOST scrollable ancestor (BTreeMap keys ascend; ancestors
+        // have lower arena NodeIds), so wheeling over a list inside a
+        // scrollable page scrolled the page instead of the list. We now
+        // walk innermost-first and give the event to the first candidate
+        // that can still move in the delta's direction (the web's default
+        // overscroll handoff); when every candidate is pinned, the
+        // innermost scrollable wins so the gesture still targets the node
+        // under the pointer.
+        let sign = self.scroll_sign();
+        let (eff_x, eff_y) = (delta_x * sign, delta_y * sign);
+        let target = self.select_scroll_target(
+            hit_test.hovered_nodes.iter().flat_map(|(dom_id, hit_node)| {
+                hit_node
+                    .scroll_hit_test_nodes
+                    .keys()
+                    .rev()
+                    .map(move |node_id| (*dom_id, *node_id))
+            }),
+            eff_x,
+            eff_y,
+        );
+        let (dom_id, node_id) = target?;
+        let input = ScrollInput {
+            dom_id,
+            node_id,
+            // Raw delta — record_scroll_input applies scroll_sign() itself.
+            delta: LogicalPosition { x: delta_x, y: delta_y },
+            timestamp: now,
+            source,
+        };
+        let should_start_timer = self.record_scroll_input(input);
+        Some((dom_id, node_id, should_start_timer))
+    }
+
+    /// MWA-B2: choose the scroll node a wheel/trackpad event should drive.
+    ///
+    /// `candidates` must be ordered innermost-first; `eff_x`/`eff_y` are the
+    /// direction-normalized deltas (post `scroll_sign()`: positive = offset
+    /// grows = view moves toward content's down/right). The first candidate
+    /// with remaining travel in a moved direction wins; if every candidate
+    /// is pinned, the innermost scrollable is returned so the gesture still
+    /// anchors under the pointer (matches CSS default overscroll behavior).
+    fn select_scroll_target<I>(
+        &self,
+        candidates: I,
+        eff_x: f32,
+        eff_y: f32,
+    ) -> Option<(DomId, NodeId)>
+    where
+        I: Iterator<Item = (DomId, NodeId)>,
+    {
+        let mut fallback = None;
+        for (dom_id, node_id) in candidates {
+            if !self.is_node_scrollable(dom_id, node_id) {
+                continue;
+            }
+            if fallback.is_none() {
+                fallback = Some((dom_id, node_id));
+            }
+            if self.can_consume_delta(dom_id, node_id, eff_x, eff_y) {
+                return Some((dom_id, node_id));
             }
         }
+        fallback
+    }
 
-        None
+    /// `true` when the node still has travel in the direction of the
+    /// normalized delta on at least one moved axis — the boundary-handoff
+    /// test for [`select_scroll_target`](Self::select_scroll_target).
+    fn can_consume_delta(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        eff_x: f32,
+        eff_y: f32,
+    ) -> bool {
+        const EPS: f32 = 0.5;
+        let Some(state) = self.states.get(&(dom_id, node_id)) else {
+            return false;
+        };
+        let effective_width = state
+            .virtual_scroll_size
+            .map_or(state.content_rect.size.width, |s| s.width);
+        let effective_height = state
+            .virtual_scroll_size
+            .map_or(state.content_rect.size.height, |s| s.height);
+        let max_x = (effective_width - state.container_rect.size.width).max(0.0);
+        let max_y = (effective_height - state.container_rect.size.height).max(0.0);
+        let off = state.current_offset;
+
+        let x_ok = if eff_x > EPS {
+            off.x < max_x - EPS
+        } else if eff_x < -EPS {
+            off.x > EPS
+        } else {
+            false
+        };
+        let y_ok = if eff_y > EPS {
+            off.y < max_y - EPS
+        } else if eff_y < -EPS {
+            off.y > EPS
+        } else {
+            false
+        };
+        x_ok || y_ok
     }
 
     /// Get a clone of the scroll input queue (for sharing with timer callbacks).
@@ -1321,5 +1409,103 @@ mod natural_scroll_tests {
         assert_eq!(q.len(), 2);
         assert_eq!(q[0].delta.y, -5.0, "traditional first");
         assert_eq!(q[1].delta.y, 5.0, "natural after toggle");
+    }
+
+    // MWA-B2: nested-scroll target selection (innermost-first + handoff).
+
+    fn nested_setup() -> (ScrollManager, DomId, NodeId, NodeId) {
+        use azul_core::geom::{LogicalRect, LogicalSize};
+
+        let now = Instant::from(std::time::Instant::now());
+        let mut m = ScrollManager::new();
+        let dom = DomId::ROOT_ID;
+        // Ancestors have LOWER arena ids than descendants.
+        let outer = NodeId::from_usize(1).unwrap();
+        let inner = NodeId::from_usize(9).unwrap();
+        // Outer: 200x200 viewport over 200x1000 content → max_y = 800.
+        m.register_or_update_scroll_node(
+            dom,
+            outer,
+            LogicalRect {
+                origin: LogicalPosition::zero(),
+                size: LogicalSize { width: 200.0, height: 200.0 },
+            },
+            LogicalSize { width: 200.0, height: 1000.0 },
+            now.clone(),
+            8.0,
+            8.0,
+            false,
+            true,
+        );
+        // Inner: 100x100 viewport over 100x300 content → max_y = 200.
+        m.register_or_update_scroll_node(
+            dom,
+            inner,
+            LogicalRect {
+                origin: LogicalPosition::zero(),
+                size: LogicalSize { width: 100.0, height: 100.0 },
+            },
+            LogicalSize { width: 100.0, height: 300.0 },
+            now,
+            8.0,
+            8.0,
+            false,
+            true,
+        );
+        (m, dom, outer, inner)
+    }
+
+    #[test]
+    fn nested_scroll_prefers_innermost_with_room() {
+        let (m, dom, outer, inner) = nested_setup();
+        // Innermost-first candidate order, scrolling "down" (eff +y).
+        let picked = m.select_scroll_target(
+            [(dom, inner), (dom, outer)].into_iter(),
+            0.0,
+            1.0,
+        );
+        assert_eq!(picked, Some((dom, inner)), "inner has room → inner wins");
+    }
+
+    #[test]
+    fn nested_scroll_hands_off_to_ancestor_at_boundary() {
+        let (mut m, dom, outer, inner) = nested_setup();
+        // Pin the inner container at its bottom edge (max_y = 200).
+        m.states.get_mut(&(dom, inner)).unwrap().current_offset =
+            LogicalPosition { x: 0.0, y: 200.0 };
+
+        let down = m.select_scroll_target(
+            [(dom, inner), (dom, outer)].into_iter(),
+            0.0,
+            1.0,
+        );
+        assert_eq!(down, Some((dom, outer)), "inner pinned at bottom → handoff");
+
+        let up = m.select_scroll_target(
+            [(dom, inner), (dom, outer)].into_iter(),
+            0.0,
+            -1.0,
+        );
+        assert_eq!(up, Some((dom, inner)), "inner has room upward → inner again");
+    }
+
+    #[test]
+    fn nested_scroll_falls_back_to_innermost_when_all_pinned() {
+        let (mut m, dom, outer, inner) = nested_setup();
+        m.states.get_mut(&(dom, inner)).unwrap().current_offset =
+            LogicalPosition { x: 0.0, y: 200.0 };
+        m.states.get_mut(&(dom, outer)).unwrap().current_offset =
+            LogicalPosition { x: 0.0, y: 800.0 };
+
+        let picked = m.select_scroll_target(
+            [(dom, inner), (dom, outer)].into_iter(),
+            0.0,
+            1.0,
+        );
+        assert_eq!(
+            picked,
+            Some((dom, inner)),
+            "everything pinned → innermost fallback (gesture stays under pointer)"
+        );
     }
 }
