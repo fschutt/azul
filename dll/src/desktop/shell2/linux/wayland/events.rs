@@ -1919,6 +1919,16 @@ pub(super) extern "C" fn text_input_done_handler(
         } else {
             lw.text_edit_manager.clear_preedit();
         }
+        // MWA-C-text_input: splice/restore the composition glyphs in the
+        // text cache (macOS-only before) — Wayland CJK composition showed
+        // only an approximate-width underline with no visible text.
+        if let Some((dom_id, node_id)) = lw
+            .text_edit_manager
+            .get_editing_dom_id()
+            .zip(lw.text_edit_manager.get_editing_node_id())
+        {
+            lw.apply_preedit_to_text_cache(dom_id, node_id);
+        }
     }
     // Preedit changes (set or clear) need a redraw
     window.request_redraw();

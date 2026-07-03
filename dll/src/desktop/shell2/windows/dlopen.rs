@@ -493,6 +493,10 @@ pub struct Imm32Functions {
     pub ImmGetCompositionStringW:
         unsafe extern "system" fn(HIMC, u32, *mut core::ffi::c_void, u32) -> i32,
     pub ImmSetCompositionWindow: unsafe extern "system" fn(HIMC, *const COMPOSITIONFORM) -> BOOL,
+    /// MWA-C-text_input: associate/dissociate the IME context per editable
+    /// focus (NULL HIMC = IME disabled for the window). Returns the
+    /// previously associated context.
+    pub ImmAssociateContext: unsafe extern "system" fn(HWND, HIMC) -> HIMC,
 }
 
 /// Win32 shell32.dll function pointers for drag-and-drop
@@ -738,6 +742,7 @@ impl Win32Libraries {
                 ImmReleaseContext: dll.get_symbol("ImmReleaseContext").ok()?,
                 ImmGetCompositionStringW: dll.get_symbol("ImmGetCompositionStringW").ok()?,
                 ImmSetCompositionWindow: dll.get_symbol("ImmSetCompositionWindow").ok()?,
+                ImmAssociateContext: dll.get_symbol("ImmAssociateContext").ok()?,
             })
         });
 

@@ -844,6 +844,10 @@ pub struct X11Window {
     /// XDND drop-target protocol state (atoms + live drag session).
     xdnd: XdndState,
     ime_manager: Option<events::ImeManager>,
+    /// MWA-C-text_input: whether the XIC currently holds input focus (XIC is
+    /// focused at creation, so this starts true). Diffed against
+    /// editable-focus × window-focus in sync_ime_focus_state.
+    ime_ic_focused: bool,
     render_mode: RenderMode,
     tooltip: Option<tooltip::TooltipWindow>,
     screensaver_inhibit_cookie: Option<u32>, // D-Bus cookie for ScreenSaver.Inhibit
@@ -1770,6 +1774,7 @@ impl X11Window {
             wm_delete_window_atom,
             xdnd,
             ime_manager,
+            ime_ic_focused: true,
             render_mode,
             tooltip: None,
             screensaver_inhibit_cookie: None,
@@ -2467,6 +2472,18 @@ impl X11Window {
                         }
                         _ => lw.text_edit_manager.clear_preedit(),
                     }
+                    // MWA-C-text_input: splice/restore the composition glyphs
+                    // in the text cache before the display-list rebuild below
+                    // (macOS-only before) — the rebuild made the underline
+                    // appear but the composed CJK text itself stayed
+                    // invisible.
+                    if let Some((dom_id, node_id)) = lw
+                        .text_edit_manager
+                        .get_editing_dom_id()
+                        .zip(lw.text_edit_manager.get_editing_node_id())
+                    {
+                        lw.apply_preedit_to_text_cache(dom_id, node_id);
+                    }
                     editing_dom = lw.text_edit_manager.get_editing_dom_id();
                 }
                 // The composition text just changed — rebuild the edited
@@ -2570,6 +2587,7 @@ impl X11Window {
                 self.common.current_window_state.window_focused = true;
                 self.dynamic_selector_context.window_focused = true;
                 self.sync_ime_position_to_os();
+                self.sync_ime_focus_state();
                 // MWA-A3b: tell the AT-SPI adapter — accesskit_unix never
                 // learns window focus on its own (Orca got no focus events).
                 self.accessibility_adapter.set_focus(true);
@@ -2581,6 +2599,7 @@ impl X11Window {
                 self.common.current_window_state.window_focused = false;
                 self.dynamic_selector_context.window_focused = false;
                 self.accessibility_adapter.set_focus(false);
+                self.sync_ime_focus_state();
                 self.process_window_events(0)
             }
             defines::MapNotify => {
@@ -3351,6 +3370,7 @@ impl X11Window {
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
+        self.sync_ime_focus_state();
 
         // Export the (possibly changed) application menu bar to GNOME Shell.
         // No-op unless GNOME native menus are active for this window.
@@ -4670,6 +4690,26 @@ impl Drop for X11Window {
 impl X11Window {
     /// Sync ime_position from window state to OS
     /// Sync IME position to OS (X11 with XIM)
+    /// MWA-C-text_input: keep the XIC focus state in sync with
+    /// editable-focus × window-focus (Wayland/macOS gate their IME the same
+    /// way). The IC was focused once at creation and never released, so the
+    /// input method could pop its candidate window with nothing editable
+    /// focused, and kept it while the window was in the background.
+    pub fn sync_ime_focus_state(&mut self) {
+        let want = self.common.current_window_state.window_focused
+            && self
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| lw.text_edit_manager.has_active_editing());
+        if want != self.ime_ic_focused {
+            if let Some(ime) = &self.ime_manager {
+                ime.set_ic_focused(want);
+            }
+            self.ime_ic_focused = want;
+        }
+    }
+
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
         use defines::XPoint;

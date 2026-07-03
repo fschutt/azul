@@ -259,6 +259,21 @@ impl ImeManager {
         self.xic
     }
 
+    /// MWA-C-text_input: focus/unfocus the input context depending on
+    /// whether an editable node is active — XSetICFocus previously ran once
+    /// at IC creation and never toggled, so the IM could pop its candidate
+    /// window while nothing editable was focused (Wayland/macOS both gate
+    /// their IME on editable focus).
+    pub(super) fn set_ic_focused(&self, focused: bool) {
+        unsafe {
+            if focused {
+                (self.xlib.XSetICFocus)(self.xic);
+            } else {
+                (self.xlib.XUnsetICFocus)(self.xic);
+            }
+        }
+    }
+
     /// True when the negotiated style is `OverTheSpot`: callers should push
     /// `XNSpotLocation` updates on caret moves so the IM can position its
     /// candidate window.
@@ -761,6 +776,16 @@ impl X11Window {
                             lw.text_edit_manager.set_preedit(t, caret, caret);
                         }
                         _ => lw.text_edit_manager.clear_preedit(),
+                    }
+                    // MWA-C-text_input: splice/restore the composition glyphs
+                    // in the text cache (macOS-only before) — X11 CJK
+                    // composition showed only an approximate-width underline.
+                    if let Some((dom_id, node_id)) = lw
+                        .text_edit_manager
+                        .get_editing_dom_id()
+                        .zip(lw.text_edit_manager.get_editing_node_id())
+                    {
+                        lw.apply_preedit_to_text_cache(dom_id, node_id);
                     }
                 }
             }

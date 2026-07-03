@@ -156,6 +156,13 @@ pub struct Win32Window {
     pub high_surrogate: Option<u16>,
     /// IME composition string (for preview during typing)
     pub ime_composition: Option<String>,
+    /// MWA-C-text_input: whether the window's IME context is currently
+    /// associated (starts true — Windows associates a default context).
+    /// Diffed against editable focus in sync_ime_enabled_state.
+    pub ime_enabled: bool,
+    /// The HIMC returned by ImmAssociateContext(hwnd, NULL) when we disable
+    /// the IME, restored on re-enable (null while enabled).
+    pub ime_saved_himc: dlopen::HIMC,
 
     // System functions
     /// DPI functions
@@ -591,6 +598,8 @@ impl Win32Window {
             thread_timer_running: None,
             high_surrogate: None,
             ime_composition: None,
+            ime_enabled: true,
+            ime_saved_himc: std::ptr::null_mut(),
             dpi: dpi_functions,
             font_registry,
             dynamic_selector_context,
@@ -1399,6 +1408,7 @@ impl Win32Window {
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
+        self.sync_ime_enabled_state();
 
         Ok(result)
     }
@@ -3884,6 +3894,15 @@ unsafe extern "system" fn window_proc(
                 // Clear preedit in cursor manager
                 if let Some(ref mut lw) = window.common.layout_window {
                     lw.text_edit_manager.clear_preedit();
+                    // MWA-C-text_input: restore the pre-preedit text cache
+                    // (apply with empty preedit = restore + re-shape).
+                    if let Some((dom_id, node_id)) = lw
+                        .text_edit_manager
+                        .get_editing_dom_id()
+                        .zip(lw.text_edit_manager.get_editing_node_id())
+                    {
+                        lw.apply_preedit_to_text_cache(dom_id, node_id);
+                    }
                 }
                 // Redraw to clear preedit underline
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -3928,6 +3947,18 @@ unsafe extern "system" fn window_proc(
                                             lw.text_edit_manager.set_preedit(
                                                 text.clone(), 0, text.len() as i32,
                                             );
+                                            // MWA-C-text_input: splice the composition
+                                            // glyphs into the text cache (macOS-only
+                                            // before) — Windows CJK composition showed
+                                            // only an approximate-width underline with
+                                            // no visible text.
+                                            if let Some((dom_id, node_id)) = lw
+                                                .text_edit_manager
+                                                .get_editing_dom_id()
+                                                .zip(lw.text_edit_manager.get_editing_node_id())
+                                            {
+                                                lw.apply_preedit_to_text_cache(dom_id, node_id);
+                                            }
                                         }
                                     }
                                     log_trace!(
@@ -3959,6 +3990,14 @@ unsafe extern "system" fn window_proc(
             // Clear preedit in cursor manager
             if let Some(ref mut lw) = window.common.layout_window {
                 lw.text_edit_manager.clear_preedit();
+                // MWA-C-text_input: restore the pre-preedit text cache.
+                if let Some((dom_id, node_id)) = lw
+                    .text_edit_manager
+                    .get_editing_dom_id()
+                    .zip(lw.text_edit_manager.get_editing_node_id())
+                {
+                    lw.apply_preedit_to_text_cache(dom_id, node_id);
+                }
             }
             // Redraw to clear preedit underline
             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -5096,6 +5135,34 @@ impl Win32Window {
     }
 
     /// Sync ime_position from window state to OS
+    /// MWA-C-text_input: associate/dissociate the window's IME context per
+    /// editable focus (Wayland/macOS gate their IME the same way) — the
+    /// context was always associated, so the IME candidate window could
+    /// activate while nothing editable was focused.
+    pub fn sync_ime_enabled_state(&mut self) {
+        let Some(ref imm32) = self.win32.imm32 else {
+            return;
+        };
+        let want = self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.text_edit_manager.has_active_editing());
+        if want == self.ime_enabled {
+            return;
+        }
+        unsafe {
+            if want {
+                // Re-associate the context we saved when disabling.
+                (imm32.ImmAssociateContext)(self.hwnd, self.ime_saved_himc);
+                self.ime_saved_himc = std::ptr::null_mut();
+            } else {
+                self.ime_saved_himc = (imm32.ImmAssociateContext)(self.hwnd, std::ptr::null_mut());
+            }
+        }
+        self.ime_enabled = want;
+    }
+
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
 
