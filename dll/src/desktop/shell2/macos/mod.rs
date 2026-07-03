@@ -597,25 +597,9 @@ mod view_handlers {
         }
     }
 
-    pub(super) fn undo(window_ptr: Option<*mut std::ffi::c_void>) {
-        // Forward to MacOSWindow for actual undo logic
-        if let Some(window_ptr) = window_ptr {
-            unsafe {
-                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                macos_window.perform_undo();
-            }
-        }
-    }
-
-    pub(super) fn redo(window_ptr: Option<*mut std::ffi::c_void>) {
-        // Forward to MacOSWindow for actual redo logic
-        if let Some(window_ptr) = window_ptr {
-            unsafe {
-                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                macos_window.perform_redo();
-            }
-        }
-    }
+    // NOTE: undo/redo view_handlers were removed with the duplicate
+    // `undo:`/`redo:` selector registrations — the Edit-menu handlers
+    // (`edit_command(EditCommand::Undo/Redo)`) are the single dispatch path.
 
     // File drag-and-drop (NSDraggingDestination)
     //
@@ -1029,18 +1013,12 @@ define_class!(
             view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
         }
 
-        // NSResponder Undo/Redo Support
-        // These methods are called automatically by macOS when Cmd+Z / Cmd+Shift+Z are pressed
-
-        #[unsafe(method(undo:))]
-        fn undo(&self, _sender: Option<&NSObject>) {
-            view_handlers::undo(*self.ivars().window_ptr.borrow());
-        }
-
-        #[unsafe(method(redo:))]
-        fn redo(&self, _sender: Option<&NSObject>) {
-            view_handlers::redo(*self.ivars().window_ptr.borrow());
-        }
+        // NSResponder Cmd+Z / Cmd+Shift+Z arrive via the `undo:`/`redo:`
+        // selectors registered ABOVE (`edit_undo`/`edit_redo`, MWA-B14 Edit
+        // menu) — registering them a second time here made objc2's
+        // class_addMethod abort at first view creation ("failed to add
+        // method undo:"). perform_undo/perform_redo delegate to the same
+        // UndoTextEdit/RedoTextEdit arms, so one registration serves both.
 
         #[unsafe(method(validateUserInterfaceItem:))]
         fn validate_user_interface_item(&self, item: &ProtocolObject<dyn NSObjectProtocol>) -> Bool {
@@ -1706,18 +1684,10 @@ define_class!(
             view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
         }
 
-        // NSResponder Undo/Redo Support
-        // These methods are called automatically by macOS when Cmd+Z / Cmd+Shift+Z are pressed
-
-        #[unsafe(method(undo:))]
-        fn undo(&self, _sender: Option<&NSObject>) {
-            view_handlers::undo(*self.ivars().window_ptr.borrow());
-        }
-
-        #[unsafe(method(redo:))]
-        fn redo(&self, _sender: Option<&NSObject>) {
-            view_handlers::redo(*self.ivars().window_ptr.borrow());
-        }
+        // NSResponder Cmd+Z / Cmd+Shift+Z arrive via the `undo:`/`redo:`
+        // selectors registered ABOVE (`edit_undo`/`edit_redo`, MWA-B14 Edit
+        // menu) — a second registration here made objc2's class_addMethod
+        // abort at first view creation ("failed to add method undo:").
 
         /// Timer tick method - called by NSTimer with repeats:true
         /// This method invokes expired timers and thread callbacks via the stored MacOSWindow pointer.
@@ -7215,5 +7185,22 @@ fn macos_event_name(t: usize) -> &'static str {
         26 => "OtherMouseUp",
         27 => "OtherMouseDragged",
         _ => "Other",
+    }
+}
+
+#[cfg(test)]
+mod objc_class_registration_tests {
+    /// Duplicate selector registrations (e.g. `undo:` declared both as an
+    /// Edit-menu handler and an NSResponder handler) abort the process
+    /// inside `define_class!` at FIRST class access — and the headless E2E
+    /// suite never creates these views, so CI could not see the abort that
+    /// crashed every released macOS GUI binary (0.2.0, 2026-07-03). Force
+    /// registration of all three classes here.
+    #[test]
+    fn objc_view_classes_register_without_abort() {
+        use objc2::ClassType;
+        let _ = super::GLView::class();
+        let _ = super::CPUView::class();
+        let _ = super::WindowDelegate::class();
     }
 }
