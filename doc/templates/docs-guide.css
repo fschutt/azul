@@ -1,0 +1,162 @@
+/* ==========================================================================
+   docs-guide.css - guide-family styles, layered on azlin.css + azul-docs.css.
+   Covers only what the shared docs design system does not: the fake-window
+   chrome around azul-render screenshots, markdown alert boxes, the guide
+   index sub-chapter lists, the prev/next chapter footer, and the print/PDF
+   layout (the docs_pdf job renders guide pages via Chrome print-to-pdf).
+   ========================================================================== */
+
+/* ---- Guide index: sub-chapter lists inside a .docs-list-item ---- */
+.docs-content ul.docs-sublist {
+    margin: 0 0 14px;
+    padding-left: 22px;
+}
+.docs-content .docs-sublist li {
+    font-size: 15px;
+    line-height: 1.6;
+    margin-bottom: 6px;
+}
+.docs-sub-desc { color: var(--color-text-light); }
+
+/* ---- Prev/next chapter footer: plain accent links (colored by the shared
+        .docs-content a rule) in a hairline-topped row ---- */
+.docs-guide-footer {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-border);
+    font-family: var(--font-sans);
+}
+.docs-guide-prevnext {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.docs-guide-prevnext a { font-weight: 600; }
+.docs-guide-prevnext .docs-guide-next { margin-left: auto; text-align: right; }
+.docs-guide-meta {
+    font-size: 14px;
+    color: var(--color-text-light);
+    margin-top: 14px;
+}
+
+/* ---- Fake-window chrome for azul-render screenshots. The figure wraps a
+        window-shaped frame so the reader sees a screenshot, not an embedded
+        UI. The subtitle goes in the titlebar instead of a <figcaption>. ---- */
+.azul-screenshot { margin: 24px 0; text-align: center; }
+.azul-window {
+    display: inline-block;
+    text-align: left;
+    border: 1px solid #b8b8b8;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+    background: #fff;
+    max-width: 100%;
+}
+.azul-titlebar {
+    display: flex;
+    align-items: center;
+    padding: 7px 12px;
+    background: linear-gradient(to bottom, #ececec, #d6d6d6);
+    border-bottom: 1px solid #b8b8b8;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12px;
+    color: #444;
+    user-select: none;
+}
+.azul-tb-traffic {
+    display: inline-flex;
+    gap: 6px;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+.azul-tb-traffic > span {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 0.5px solid rgba(0, 0, 0, 0.18);
+}
+.azul-tb-close { background: #ff5f57; }
+.azul-tb-min { background: #febc2e; }
+.azul-tb-max { background: #28c840; }
+.azul-tb-title {
+    flex: 1;
+    text-align: center;
+    padding-right: 60px; /* offset traffic-light width so title is visually centred */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* The window frame already provides border/radius/shadow - neutralise the
+   shared .docs-content img framing for the screenshot inside it. */
+.azul-window img,
+.docs-content .azul-window img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0;
+}
+
+/* ---- Markdown alerts (comrak alerts extension) ---- */
+.markdown-alert-warning {
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px dashed #facb26;
+    margin: 20px 0;
+    background: #fff8be;
+    color: #222;
+    box-shadow: 0px 0px 20px #facb2655;
+}
+.markdown-alert-warning .markdown-alert-title {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+/* ---- Print / PDF (azul-doc -> Chrome print-to-pdf): drop the nav chrome,
+        use the full page width, WRAP long code lines (on-screen they
+        overflow-x:auto, which would clip them in a PDF), and keep figures /
+        screenshots / tables from being split across page breaks. The
+        on-screen code theme is already light, so no token overrides. ---- */
+@media print {
+    @page { margin: 1.4cm; }
+    .navbar, .nav-overlay, .mobile-menu, .docs-footer,
+    .skip-to-content, #azul-search-mount, .docs-guide-footer {
+        display: none !important;
+    }
+    .docs-hero { padding: 0 0 8px; }
+    .docs-hero h1 { font-size: 26pt; }
+    .docs-body { padding: 0 0 12px; }
+    .docs-content { max-width: 100% !important; }
+    .docs-content p, .docs-content li { font-size: 11pt; line-height: 1.5; }
+    .docs-content h2, .docs-content h3, .docs-content h4 {
+        break-after: avoid;
+        cursor: auto !important;
+    }
+    .docs-content pre,
+    .docs-content pre code {
+        white-space: pre-wrap !important;
+        word-break: break-word;
+        overflow: visible !important;
+        font-size: 8.5pt;
+        box-shadow: none !important;
+        text-shadow: none !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .docs-content img, .azul-window, .azul-screenshot,
+    .docs-content table, .docs-content figure, .markdown-alert-warning {
+        break-inside: avoid;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .docs-content a {
+        color: inherit !important;
+        text-decoration: underline;
+        border-bottom: none;
+    }
+}

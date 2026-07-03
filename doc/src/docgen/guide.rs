@@ -253,10 +253,34 @@ fn classify_tree(g: &Guide) -> &'static str {
     }
 }
 
-/// Generate HTML for a specific guide
-pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
+/// Strip the leading `# Title` line from a markdown body. The azlin shell
+/// renders the chapter title in the `.docs-hero` opener, so a body-level H1
+/// would duplicate it. Only the FIRST non-blank line is considered; the raw
+/// `.md` twin deployed next to the page keeps its H1 untouched.
+fn strip_leading_h1(content: &str) -> String {
+    let mut result: Vec<&str> = Vec::new();
+    let mut seen_content = false;
+    for line in content.lines() {
+        if !seen_content {
+            let t = line.trim();
+            if t.is_empty() {
+                continue;
+            }
+            seen_content = true;
+            if t.starts_with("# ") {
+                continue;
+            }
+        }
+        result.push(line);
+    }
+    result.join("\n")
+}
+
+/// Generate HTML for a specific guide page in the azlin docs shell.
+/// The rendered markdown lands in `.docs-content` (azul-docs.css styles
+/// prose/code/tables/images); guide-family extras (screenshot window
+/// chrome, alerts, prev/next footer, print layout) live in docs-guide.css.
+pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
     let prism_script = crate::docgen::get_prism_script();
     let search_script = crate::docgen::get_search_init(
         crate::docgen::PageKind::GuidePage(&guide.default_search_keys),
@@ -266,7 +290,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     // fences into <figure>/slideshow HTML. Use an absolute URL prefix so
     // pages at any nesting depth (`guide/dom.html` vs `guide/internals/dom.html`)
     // resolve to the same screenshots directory.
-    let processed_content = preprocess_markdown_content(&guide.content);
+    let processed_content = preprocess_markdown_content(&strip_leading_h1(&guide.content));
     let screenshot_prefix = format!("{HTML_ROOT}/guide/screenshots/");
     let processed_content = crate::reftest::autodoc::expand_azul_render_blocks(
         &processed_content,
@@ -319,327 +343,84 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             },
         },
     );
-    let title = &guide.title;
 
-    let css = "
-        h1 {
-            font-family: 'Instrument Serif', Georgia, serif;
-            font-size: 2em;
-            font-weight: 700;
-            line-height: 1.15;
-            margin-top: 0;
-            margin-bottom: 25px;
-            letter-spacing: 0.01em;
-        }
-        @media screen and (max-width: 768px) {
-            h1 { font-size: 1.8em; }
-        }
-        @media screen and (max-width: 480px) {
-            h1 { font-size: 1.5em; }
-        }
-        h2, h3, h4 { cursor: pointer; }
-        h2 {
-            font-family: 'Imbue', Georgia, serif;
-            font-size: 2em;
-            font-weight: normal;
-            margin-top: 25px;
-            margin-bottom: 15px;
-        }
-        h3 { margin-top: 22px; margin-bottom: 10px; font-size: 1.3em; }
-        h4 { margin-top: 18px; margin-bottom: 8px; font-size: 1.1em; }
-        #guide { max-width: 700px; line-height: 1.7; font-size: 1.1em; }
-        /* D1/R4-6: the search sits in a column beside the article when there
-           is room. When the viewport is too narrow for both, it does NOT push
-           the layout (and never displaces the h1) — instead it OVERLAYS the
-           text mobile-style: pinned to the bottom of the viewport, with a
-           gradient above it so the text appears to fade out underneath, and
-           extra bottom padding so the last lines never hide under the bar. */
-        .guide-layout { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 36px; }
-        .guide-layout > #guide { flex: 1 1 auto; min-width: 0; padding-bottom: 80px; }
-        .guide-search-col { flex: 1 1 300px; min-width: 300px; position: sticky; top: 20px; align-self: flex-start; padding: 0; display: flex; }
-        .guide-search-col .page-search { max-width: 100%; display: flex; flex-grow: 1; min-width: 100%; }
-        .guide-search-col .azul-search { flex: 1 1 auto; min-width: 0; width: 100%; }
-        /* overlay bar/fade colour = the guide content background, so the text
-           dissolves cleanly under the bar. White in light mode, dark in dark. */
-        .guide-search-col { --fade-bg: #ffffff; }
-        @media (prefers-color-scheme: dark) { .guide-search-col { --fade-bg: #15181f; } }
-        @media (max-width: 1100px) {
-            .guide-layout { display: block; }
-            .guide-layout > #guide { padding-bottom: 200px; }
-            .guide-search-col {
-                position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 9000;
-                margin: 0; padding: 0; pointer-events: none;
-            }
-            /* full-width bar, flush to the bottom edge */
-            .guide-search-col .page-search {
-                max-width: 100%; margin: 0; pointer-events: auto;
-                background: var(--fade-bg);
-                padding: 12px 10px calc(12px + env(safe-area-inset-bottom));
-            }
-            /* fade: text dissolves into the content background above the bar */
-            .guide-search-col::before {
-                content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 96px;
-                pointer-events: none;
-                background: linear-gradient(to bottom, transparent, var(--fade-bg));
-            }
-            /* bar lives at the bottom -> results open UPWARD, full width */
-            .guide-search-col .azs-panel-inline { top: auto; bottom: calc(100% + 6px); left: 10px; right: 10px; }
-        }
-        #guide p { margin-bottom: 1em; }
-        #guide img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
-        #guide ul, #guide ol {
-            margin-top: 15px;
-            margin-bottom: 15px;
-            margin-left: 30px;
-        }
-        #guide li {
-            font-size: 16px;
-            margin-bottom: 0.6em;
-        }
-        #guide li > p { margin-bottom: 0.3em; }
-        #guide li:last-child { margin-bottom: 0; }
-        #guide code {
-            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-weight: bold;
-            font-size: 0.75em;
-            border-radius: 5px;
-            padding: 2px 5px;
-        }
-        #guide pre code {
-            font-weight: normal;
-            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-size: 10pt;
-            margin-top: 5px;
-            margin-bottom: 5px;
-            display: block;
-            padding: 3px;
-            border-radius: 3px;
-            white-space: pre;
-            overflow-x: auto;
-        }
-        /* Dark theme for fenced code blocks - guide pages only.
-           The index/landing pages don't render `#guide`, so main.css's
-           light Prism theme stays in effect there. */
-        #guide pre[class*=\"language-\"],
-        #guide pre code[class*=\"language-\"],
-        #guide pre code {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            text-shadow: none;
-            padding: 12px 14px;
-            border-radius: 4px;
-        }
-        #guide pre .token.comment,
-        #guide pre .token.prolog,
-        #guide pre .token.doctype,
-        #guide pre .token.cdata { color: #6a9955; font-style: italic; }
-        #guide pre .token.punctuation { color: #d4d4d4; }
-        #guide pre .token.property,
-        #guide pre .token.tag,
-        #guide pre .token.boolean,
-        #guide pre .token.number,
-        #guide pre .token.constant,
-        #guide pre .token.symbol,
-        #guide pre .token.deleted { color: #b5cea8; }
-        #guide pre .token.selector,
-        #guide pre .token.attr-name,
-        #guide pre .token.string,
-        #guide pre .token.char,
-        #guide pre .token.builtin,
-        #guide pre .token.inserted { color: #ce9178; }
-        #guide pre .token.operator,
-        #guide pre .token.entity,
-        #guide pre .token.url { color: #d4d4d4; background: transparent; }
-        #guide pre .token.atrule,
-        #guide pre .token.attr-value,
-        #guide pre .token.keyword { color: #c586c0; }
-        #guide pre .token.function,
-        #guide pre .token.class-name { color: #dcdcaa; }
-        #guide pre .token.regex,
-        #guide pre .token.important,
-        #guide pre .token.variable { color: #9cdcfe; }
-        #guide pre .token.lifetime-annotation { color: #4ec9b0; }
-        /* Fake-window chrome for azul-render screenshots. The figure wraps
-           a window-shaped frame so the reader sees a screenshot, not an
-           embedded UI. The subtitle goes in the titlebar instead of a
-           separate <figcaption> below. */
-        .azul-screenshot { margin: 24px 0; text-align: center; }
-        .azul-window {
-            display: inline-block;
-            text-align: left;
-            border: 1px solid #b8b8b8;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-            background: #fff;
-            max-width: 100%;
-        }
-        .azul-titlebar {
-            display: flex;
-            align-items: center;
-            padding: 7px 12px;
-            background: linear-gradient(to bottom, #ececec, #d6d6d6);
-            border-bottom: 1px solid #b8b8b8;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            font-size: 12px;
-            color: #444;
-            user-select: none;
-        }
-        .azul-tb-traffic {
-            display: inline-flex;
-            gap: 6px;
-            margin-right: 12px;
-            flex-shrink: 0;
-        }
-        .azul-tb-traffic > span {
-            display: inline-block;
-            width: 11px;
-            height: 11px;
-            border-radius: 50%;
-            border: 0.5px solid rgba(0, 0, 0, 0.18);
-        }
-        .azul-tb-close { background: #ff5f57; }
-        .azul-tb-min { background: #febc2e; }
-        .azul-tb-max { background: #28c840; }
-        .azul-tb-title {
-            flex: 1;
-            text-align: center;
-            padding-right: 60px; /* offset traffic-light width so title is visually centred */
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .azul-window img { display: block; max-width: 100%; height: auto; }
-        .markdown-alert-warning {
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px dashed #facb26;
-            margin-top: 20px;
-            margin-bottom: 20px;
-            background: #fff8be;
-            color: #222;
-            box-shadow: 0px 0px 20px #facb2655;
-        }
-        .markdown-alert-warning .markdown-alert-title {
-            font-weight: bold;
-            font-size: 1.1em;
-        }
-        /* Print / PDF (azul-doc → Chrome print-to-pdf): drop the nav chrome,
-           use the full page width, WRAP long code lines (on-screen they
-           overflow-x:auto, which would clip them in a PDF), force code blocks to
-           a LIGHT theme (the dark on-screen theme wastes toner and reads poorly
-           on paper — web keeps dark for content/code contrast), and keep
-           figures/screenshots/tables from being split across page breaks. */
-        @media print {
-            @page { margin: 1.4cm; }
-            aside, nav, footer, #azul-search-mount { display: none !important; }
-            body, .center, main { display: block !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
-            #guide { max-width: 100% !important; width: 100% !important; font-size: 11pt; line-height: 1.5; }
-            h1, h2, h3, h4 { text-shadow: none !important; cursor: auto !important; break-after: avoid; }
-            #guide pre,
-            #guide pre code,
-            #guide pre[class*=\"language-\"],
-            #guide pre code[class*=\"language-\"] {
-                white-space: pre-wrap !important;
-                word-break: break-word;
-                overflow: visible !important;
-                font-size: 8.5pt;
-                background: #f6f8fa !important;
-                color: #24292f !important;
-                border: 1px solid #d0d7de !important;
-                text-shadow: none !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
-            /* Light syntax palette for print (GitHub-light flavored), overriding
-               the dark on-screen token colors above. */
-            #guide pre .token.comment,
-            #guide pre .token.prolog,
-            #guide pre .token.doctype,
-            #guide pre .token.cdata { color: #6e7781 !important; font-style: italic; }
-            #guide pre .token.punctuation,
-            #guide pre .token.operator,
-            #guide pre .token.entity,
-            #guide pre .token.url { color: #24292f !important; background: transparent !important; }
-            #guide pre .token.property,
-            #guide pre .token.tag,
-            #guide pre .token.boolean,
-            #guide pre .token.number,
-            #guide pre .token.constant,
-            #guide pre .token.symbol,
-            #guide pre .token.deleted { color: #0550ae !important; }
-            #guide pre .token.selector,
-            #guide pre .token.attr-name,
-            #guide pre .token.string,
-            #guide pre .token.char,
-            #guide pre .token.builtin,
-            #guide pre .token.inserted { color: #0a3069 !important; }
-            #guide pre .token.atrule,
-            #guide pre .token.attr-value,
-            #guide pre .token.keyword { color: #cf222e !important; }
-            #guide pre .token.function,
-            #guide pre .token.class-name { color: #8250df !important; }
-            #guide pre .token.regex,
-            #guide pre .token.important,
-            #guide pre .token.variable { color: #e36209 !important; }
-            #guide pre .token.lifetime-annotation { color: #1a7f64 !important; }
-            #guide img, .azul-window, .azul-screenshot, table, figure, .markdown-alert-warning {
-                break-inside: avoid;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
-            a { color: inherit; text-decoration: underline; }
-        }
-    ";
+    // Prev/next chapter links follow the linear teaching order of the
+    // full guide list (same ordering as the index page).
+    let all = get_guide_list();
+    let pos = all.iter().position(|g| g.file_name == guide.file_name);
+    let (prev, next) = match pos {
+        Some(i) => (
+            if i > 0 { all.get(i - 1) } else { None },
+            all.get(i + 1),
+        ),
+        None => (None, None),
+    };
 
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>{title}</title>
+    let mut footer = String::from("<div class=\"docs-guide-footer\">\n<div class=\"docs-guide-prevnext\">\n");
+    if let Some(p) = prev {
+        footer.push_str(&format!(
+            "<a class=\"docs-guide-prev\" href=\"{HTML_ROOT}/guide/{}\">&larr; {}</a>\n",
+            p.file_name,
+            transform_german_quotes(&p.title),
+        ));
+    }
+    if let Some(n) = next {
+        footer.push_str(&format!(
+            "<a class=\"docs-guide-next\" href=\"{HTML_ROOT}/guide/{}\">{} &rarr;</a>\n",
+            n.file_name,
+            transform_german_quotes(&n.title),
+        ));
+    }
+    footer.push_str(&format!(
+        "</div>\n<p class=\"docs-guide-meta\"><a href=\"{HTML_ROOT}/guide\">All chapters</a> \
+         &middot; <a href=\"{HTML_ROOT}/guide/{}.md\">Markdown source</a></p>\n</div>",
+        guide.file_name,
+    ));
 
-        {header_tags}
-        </head>
+    let lede = match &guide.description {
+        Some(d) => format!(
+            "\n      <p class=\"docs-lede\">{}</p>",
+            transform_german_quotes(&html_escape(d)),
+        ),
+        None => String::new(),
+    };
 
-        <body>
-        <div class='center'>
-
-        <aside>
-            <header>
-            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-
-        <main>
-            <div class='guide-layout'>
-            <div id='guide'>
-            <style>
-                {css}
-            </style>
-            {content}
-            <p style='font-size:1.2em;margin-top:20px;'>
-            <a href='{HTML_ROOT}/guide'>Back to guide index</a>
-            </p>
-            </div>
-            <aside class='guide-search-col'>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
-            </aside>
-            </div>
-        </main>
-
+    let main_html = format!(
+        r#"<section class="docs-hero">
+      <div class="container">
+        <div class="docs-eyebrow">Guide</div>
+        <h1>{title}</h1>{lede}
+      </div>
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-layout">
+        <div class="docs-content">
+{content}
+{footer}
         </div>
-        {prism_script}
-        {search_script}
-        </body>
-        </html>"
-    )
+        <aside class="docs-search-rail">
+          <div id="azul-search-mount" data-azs-inline></div>
+        </aside>
+        </div>
+      </div>
+    </section>"#,
+        title = transform_german_quotes(&guide.title),
+    );
+
+    let page = crate::docgen::AzlinPage {
+        title: guide.title.clone(),
+        active_nav: "guide",
+        head_extra: format!("{prism_script}\n{search_script}"),
+        page_css: Some(include_str!("../../templates/docs-guide.css")),
+        main_html,
+    };
+    crate::docgen::azlin_page(&page, false)
 }
 
-pub fn generate_guide_mainpage(version: &str) -> String {
+/// Generate the guide index (/ui/guide.html) in the azlin docs shell:
+/// airy hero + three hairline `.docs-list` sections (no cards).
+pub fn generate_guide_mainpage(_version: &str) -> String {
     let pages = get_guide_list();
 
     // Bucket pages by tree.
@@ -658,98 +439,42 @@ pub fn generate_guide_mainpage(version: &str) -> String {
     let advanced = render_tree(&tree2);
     let contributor = render_tree(&tree3);
 
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
     let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Guide(&[]));
 
-    let css = "
-        #guide-index { max-width: 760px; }
-        #guide-index h2 {
-            font-family: 'Instrument Serif', Georgia, serif;
-            font-size: 1.6em;
-            font-weight: normal;
-            margin-top: 32px;
-            margin-bottom: 12px;
-            text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
-        }
-        #guide-index h2:first-child { margin-top: 8px; }
-        #guide-index ul {
-            list-style: none;
-            padding-left: 0;
-            margin: 0;
-        }
-        #guide-index ul ul {
-            padding-left: 18px;
-            margin: 4px 0 8px 0;
-            border-left: 1px dashed #ccc;
-        }
-        #guide-index li {
-            line-height: 1.35;
-            margin: 0;
-            padding: 4px 0;
-            font-size: 15px;
-        }
-        #guide-index ul ul li { font-size: 14px; padding: 3px 0; }
-        #guide-index a { text-decoration: none; font-weight: 500; }
-        #guide-index a:hover { text-decoration: underline; }
-        #guide-index .page-desc {
-            color: #555;
-            font-size: 13px;
-            margin: 1px 0 0 16px;
-            line-height: 1.4;
-        }
-        #guide-index ul ul .page-desc { margin-left: 14px; }
-    ";
-
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>User Guide</title>
-
-        {header_tags}
-        </head>
-
-        <body>
-        <div class='center'>
-        <aside>
-            <header>
-            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-        <main>
-            <div class='guide-layout'>
-            <div class='guide-main'>
-            <h1>User Guide</h1>
-            <style>{css}</style>
-            <div id='guide-index'>
-                <h2 id='getting-started'><a href='#getting-started' style='text-decoration:none;color:inherit;'>Getting Started</a></h2>
-                {getting_started}
-
-                <h2 id='advanced'><a href='#advanced' style='text-decoration:none;color:inherit;'>Advanced</a></h2>
-                {advanced}
-
-                <h2 id='contributors'><a href='#contributors' style='text-decoration:none;color:inherit;'>Contributors</a></h2>
-                {contributor}
-            </div>
-            </div>
-            <aside class='guide-search-col'>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
-            </aside>
-            </div>
-        </main>
+    let main_html = format!(
+        r#"<section class="docs-hero">
+      <div class="container">
+        <div class="docs-eyebrow">Guide</div>
+        <h1>User guide</h1>
+        <p class="docs-lede">Learn Azul chapter by chapter, from the first window to the framework internals.</p>
+        <div id="azul-search-mount" class="azs-mount-inline"></div>
+      </div>
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-content">
+          <h2 id="getting-started">Getting Started</h2>
+{getting_started}
+          <h2 id="advanced">Advanced</h2>
+{advanced}
+          <h2 id="contributors">Contributors</h2>
+{contributor}
         </div>
-        {search_script}
-        </body>
-        </html>"
-    )
+      </div>
+    </section>"#
+    );
+
+    let page = crate::docgen::AzlinPage {
+        title: "User Guide".to_string(),
+        active_nav: "guide",
+        head_extra: search_script,
+        page_css: Some(include_str!("../../templates/docs-guide.css")),
+        main_html,
+    };
+    crate::docgen::azlin_page(&page, false)
 }
 
-/// Render a flat list of pages as a nested tree based on slug `/` hierarchy.
+/// Render a flat list of pages as a `.docs-list` of `.docs-list-item`s.
 /// A page with file_name `parent/child` becomes a sub-bullet under the page
 /// with file_name `parent` (when that page exists in the same bucket); else
 /// it's promoted to the top level under a synthetic group label.
@@ -799,27 +524,62 @@ fn render_tree(pages: &[&Guide]) -> String {
     }
 
     let mut s = String::new();
-    s.push_str("<ul>\n");
+    s.push_str("<div class=\"docs-list\">\n");
     for g in &top_level {
-        s.push_str(&render_li(g, &children));
+        s.push_str(&render_list_item(g, &children));
     }
     // Render orphan groups (e.g. `bindings/` without a `bindings.md` parent).
     for (group_slug, kids) in &orphan_groups {
         let label = group_slug.rsplit('/').next().unwrap_or(group_slug);
         let label_titled = title_case(label);
         s.push_str(&format!(
-            "<li><span style='font-weight:600;'>{label_titled}</span>\n<ul>\n"
+            "<div class=\"docs-list-item\">\n<h3>{label_titled}</h3>\n<ul class=\"docs-sublist\">\n"
         ));
         for k in kids {
-            s.push_str(&render_li(k, &children));
+            s.push_str(&render_sub_li(k, &children));
         }
-        s.push_str("</ul>\n</li>\n");
+        s.push_str("</ul>\n</div>\n");
     }
-    s.push_str("</ul>\n");
+    s.push_str("</div>\n");
     s
 }
 
-fn render_li(g: &Guide, children: &std::collections::BTreeMap<String, Vec<&Guide>>) -> String {
+/// One top-level chapter as a hairline `.docs-list-item`: title link,
+/// one-line description, optional sub-chapter list, "Read chapter" link.
+fn render_list_item(
+    g: &Guide,
+    children: &std::collections::BTreeMap<String, Vec<&Guide>>,
+) -> String {
+    let mut s = format!(
+        "<div class=\"docs-list-item\">\n<h3><a href=\"{HTML_ROOT}/guide/{}\">{}</a></h3>\n",
+        g.file_name,
+        transform_german_quotes(&g.title),
+    );
+    if let Some(desc) = &g.description {
+        s.push_str(&format!(
+            "<p>{}</p>\n",
+            transform_german_quotes(&html_escape(desc)),
+        ));
+    }
+    if let Some(kids) = children.get(g.file_name.as_str()) {
+        s.push_str("<ul class=\"docs-sublist\">\n");
+        for k in kids {
+            s.push_str(&render_sub_li(k, children));
+        }
+        s.push_str("</ul>\n");
+    }
+    s.push_str(&format!(
+        "<a class=\"docs-read-more\" href=\"{HTML_ROOT}/guide/{}\">Read chapter &rarr;</a>\n</div>\n",
+        g.file_name,
+    ));
+    s
+}
+
+/// Sub-chapter bullet (nested pages like `hello-world/rust`).
+fn render_sub_li(
+    g: &Guide,
+    children: &std::collections::BTreeMap<String, Vec<&Guide>>,
+) -> String {
     let mut s = format!(
         "<li><a href=\"{HTML_ROOT}/guide/{}\">{}</a>",
         g.file_name,
@@ -827,14 +587,14 @@ fn render_li(g: &Guide, children: &std::collections::BTreeMap<String, Vec<&Guide
     );
     if let Some(desc) = &g.description {
         s.push_str(&format!(
-            "\n<div class=\"page-desc\">{}</div>",
+            " <span class=\"docs-sub-desc\">&mdash; {}</span>",
             transform_german_quotes(&html_escape(desc)),
         ));
     }
     if let Some(kids) = children.get(g.file_name.as_str()) {
-        s.push_str("\n<ul>\n");
+        s.push_str("\n<ul class=\"docs-sublist\">\n");
         for k in kids {
-            s.push_str(&render_li(k, children));
+            s.push_str(&render_sub_li(k, children));
         }
         s.push_str("</ul>\n");
     }
@@ -901,57 +661,4 @@ fn rewrite_md_links(content: &str) -> String {
         i += content[i..].chars().next().unwrap().len_utf8();
     }
     out
-}
-
-/// Generate a combined guide index page
-pub fn generate_guide_index(versions: &[String]) -> String {
-    let mut version_items = String::new();
-    for version in versions {
-        version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{version}\">{version}</a></li>\n",
-        ));
-    }
-
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
-    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Guide(&[]));
-
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>Choose guide version</title>
-
-        {header_tags}
-        </head>
-
-        <body>
-        <div class='center'>
-        <aside>
-            <header>
-            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-        <main>
-            <div class='guide-layout'>
-            <div class='guide-main'>
-            <h1>Choose guide version</h1>
-            <div>
-            <ul>{version_items}</ul>
-            </div>
-            </div>
-            <aside class='guide-search-col'>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
-            </aside>
-            </div>
-        </main>
-        </div>
-        {search_script}
-        </body>
-        </html>"
-    )
 }

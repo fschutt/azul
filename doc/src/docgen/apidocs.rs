@@ -12,158 +12,55 @@ use crate::{
 
 const PREFIX: &str = "Az";
 
-const API_CSS: &str = "
-    body > .center > main #api > ul * {
-        font-size: 12px;
-        font-weight: normal;
-        list-style-type: none;
-        font-family: monospace;
-    }
-
-    body > .center > main #api > ul > li ul {
-        margin-left: 20px;
-    }
-
-    body > .center > main #api > ul > li.m {
-        margin-top: 40px;
-        margin-bottom: 20px;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li {
-        margin-bottom: 15px;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li.st.e {
-        color: #2b6a2d;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li.st.s {
-        color: #905;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li.fnty, body > .center > main #api > ul > li.m \
-                       > ul > li .arg {
-        color: #4c1c1a;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li.st .f {
-        margin-left: 20px;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li.st .v.doc {
-        margin-left: 20px;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li.st .cn {
-        margin-left: 20px;
-        color: #07a;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li.st .fn {
-        margin-left: 20px;
-        color: #004e92;
-    }
-
-    body > .center > main #api > ul > li.m > ul > li p.ret, body > .center > main #api > ul > li.m \
-                       > ul > li p.fn.ret, body > .center > main #api > ul > li.m > ul > li \
-                       p.ret.doc {
-        margin-left: 0px;
-    }
-
-    body > .center > main #api p.doc {
-        margin-top: 5px !important;
-        color: black !important;
-        max-width: 70ch !important;
-        font-weight: bolder;
-    }
-
-    body > .center > main #api a {
-        color: inherit !important;
-    }       body > .center > main #api a { color: inherit !important; }
-
-    @media (prefers-color-scheme: dark) {
-        body > .center > main #api > ul > li.m > ul > li.st.e {
-            color: #98d398;
-        }
-        body > .center > main #api > ul > li.m > ul > li.st.s {
-            color: #f08080;
-        }
-        body > .center > main #api > ul > li.m > ul > li.fnty,
-        body > .center > main #api > ul > li.m > ul > li .arg {
-            color: #e5c07b;
-        }
-        body > .center > main #api > ul > li.m > ul > li.st .cn {
-            color: #98d398;
-        }
-        body > .center > main #api > ul > li.m > ul > li.st .fn {
-            color: #79b8ff;
-        }
-        body > .center > main #api p.doc {
-            color: #d8d8d8 !important;
-        }
-    }
-";
-
-/// Generate API documentation HTML for a specific version
+/// Generate API documentation HTML for a specific version.
+///
+/// Rendered in the azlin docs shell (see `docgen::azlin_page`); the API
+/// listing styles live in `templates/docs-api.css` - NO inline CSS here.
 pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let version_data = api_data.get_version(version).unwrap();
 
-    let notes = String::new();
-
     let title = format!("API v{version}");
     let content = generate_api_content(&version_data);
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
     let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Api);
 
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>{title}</title>
-
-        {header_tags}
-        <style>{API_CSS}</style>
-        </head>
-
-        <body>
-        <div class='center'>
-
-        <aside>
-            <header>
-            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-
-        <main>
-            <div class='guide-layout'>
-            <div class='guide-main'>
-            <h1>{title}</h1>
-            <div id='api'>
-            {notes}
+    let main_html = format!(
+        r#"<section class="docs-hero">
+      <div class="container">
+        <p class="docs-eyebrow">API reference</p>
+        <h1>{title}</h1>
+        <p class="docs-lede">Every module, class, enum, callback and function exported by libazul {version}.</p>
+      </div>
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-layout">
+          <div class="docs-content docs-wide">
+            <div id="api">
             {content}
             </div>
-            <p style='font-size:1.2em;margin-top:20px;'>
-            <a href='{HTML_ROOT}/api'>Back to API index</a>
-            </p>
-            </div>
-            <aside class='guide-search-col'>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
-            </aside>
-            </div>
-        </main>
-
+            <p class="api-backlink"><a href="{HTML_ROOT}/api">Back to API index</a></p>
+          </div>
+          <aside class="docs-search-rail">
+            <div id="azul-search-mount" data-azs-inline></div>
+          </aside>
         </div>
-        {prism_script}
-        {search_script}
-        </body>
-        </html>"
-    )
+      </div>
+    </section>"#
+    );
+
+    let page = crate::docgen::AzlinPage {
+        title,
+        active_nav: "api",
+        head_extra: format!("{prism_script}\n{search_script}"),
+        page_css: Some(include_str!("../../templates/docs-api.css")),
+        main_html,
+    };
+
+    // The old shell hardcoded linked (non-inlined) shared CSS for API pages
+    // (get_common_head_tags(false)); keep that behavior - the family
+    // stylesheet above is inlined by the shell either way.
+    crate::docgen::azlin_page(&page, false)
 }
 
 fn generate_api_content(version_data: &VersionData) -> String {
@@ -657,65 +554,51 @@ fn generate_api_content(version_data: &VersionData) -> String {
     return html;
 }
 
-/// Generate a combined API index page
+/// Generate a combined API index page (version selector).
 pub fn generate_api_index(api_data: &ApiData) -> String {
     let title = format!("Select API version");
 
+    // Version selector: same links as before ({HTML_ROOT}/api/<version>),
+    // rendered as azlin docs cards. Ordering = get_sorted_versions, unchanged.
     let mut content = String::new();
     for version in api_data.get_sorted_versions() {
         content.push_str(&format!(
-            "<li><a href=\"{}/api/{}\">{}</a></li>\n",
-            HTML_ROOT, version, version
+            "<a class=\"docs-card\" href=\"{}/api/{}\"><h4>{}</h4><p>Full class and function \
+             reference for version {}</p></a>\n",
+            HTML_ROOT, version, version, version
         ));
     }
 
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
     let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Api);
 
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>{title}</title>
-
-        {header_tags}
-        </head>
-
-        <body>
-        <div class='center'>
-
-        <aside>
-            <header>
-            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-
-        <main>
-            <div class='guide-layout'>
-            <div class='guide-main'>
-            <h1>{title}</h1>
-            <div>
-            <ul style='margin-left:20px;'>
-            {content}
-            </ul>
-            </div>
-            </div>
-            <aside class='guide-search-col'>
-            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
-            </aside>
-            </div>
-        </main>
-
+    let main_html = format!(
+        r#"<section class="docs-hero">
+      <div class="container">
+        <p class="docs-eyebrow">API reference</p>
+        <h1>{title}</h1>
+        <p class="docs-lede">Pick a release to browse the full API listing, or search across the latest version right here.</p>
+        <div id="azul-search-mount"></div>
+      </div>
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-content docs-wide">
+          <div class="docs-card-grid api-version-grid">
+          {content}
+          </div>
         </div>
-        {prism_script}
-        {search_script}
-        </body>
-        </html>"
-    )
+      </div>
+    </section>"#
+    );
+
+    let page = crate::docgen::AzlinPage {
+        title,
+        active_nav: "api",
+        head_extra: format!("{prism_script}\n{search_script}"),
+        page_css: Some(include_str!("../../templates/docs-api.css")),
+        main_html,
+    };
+
+    crate::docgen::azlin_page(&page, false)
 }

@@ -1,0 +1,91 @@
+/* ==========================================================================
+   docs-release.css - release-pages family stylesheet (releases index +
+   per-version release pages). Layers on azlin.css (tokens) and
+   azul-docs.css (shell/content). Part of the 2026-07-04 CSS
+   rearchitecture: NO inline <style> blocks in Rust strings.
+   ========================================================================== */
+
+/* ---- Hero metadata (git commit link in the lede) ----
+   Accent, :visited pinned - the lede sits outside .docs-content, so the
+   shared link rule does not reach it. Never default browser blue. */
+.docs-hero .docs-lede a,
+.docs-hero .docs-lede a:visited {
+    color: var(--color-accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s ease;
+}
+.docs-hero .docs-lede a:hover {
+    color: var(--color-accent-hover);
+    border-bottom-color: currentColor;
+}
+
+/* ---- "Jump to" section nav under the release notes ---- */
+.release-jump {
+    margin: 12px 0 8px;
+    font-family: var(--font-sans);
+}
+.release-jump strong {
+    font-size: 15px;
+}
+.release-jump ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    list-style: none;
+    margin: 6px 0 0;
+    padding-left: 0;
+}
+.docs-content .release-jump ul {
+    /* beat the shared `.docs-content ul` padding/margin */
+    margin: 6px 0 0;
+    padding-left: 0;
+}
+.docs-content .release-jump li {
+    margin-bottom: 0;
+    font-size: 15px;
+}
+
+/* ---- Muted helper notes (guide pointers, macOS quarantine note) ---- */
+.docs-content .release-note {
+    color: var(--color-text-light);
+    font-size: 15px;
+    max-width: 720px;
+}
+
+/* ---- Download tiles: filename line ---- */
+.docs-card .docs-card-file {
+    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--color-text-light);
+    overflow-wrap: anywhere;
+    margin: 0;
+}
+
+/* Tile for an artifact this release does not ship (kept in the grid so the
+   set of artifacts stays legible, but visibly inert). */
+.docs-card.is-missing {
+    opacity: 0.55;
+    background: var(--color-bg);
+}
+
+/* ---- Demos: nested OS-group lists ---- */
+.docs-content .release-demos {
+    list-style: none;
+    padding-left: 0;
+}
+.docs-content .release-demos > li {
+    margin-bottom: 18px;
+}
+.docs-content .release-demos ul {
+    list-style: none;
+    padding-left: 20px;
+    margin: 6px 0 8px;
+}
+.docs-content .release-demos li {
+    font-size: 16px;
+}
+.docs-content .release-demos pre {
+    margin: 8px 0 12px;
+}

@@ -1,0 +1,184 @@
+/* ==========================================================================
+   docs-api.css - API reference family stylesheet (api.html + api/<ver>.html)
+
+   Layers on azlin.css (tokens) + azul-docs.css (docs shell). Replaces the
+   old API_CSS inline <style> block from apidocs.rs; every rule is scoped
+   to #api / .api-* so nothing leaks into other docs families.
+
+   Markup contract (do not break - search JS + deep links depend on it):
+     #api > ul > li.m#m.<module>           module section
+       li.st.e / li.st.s / li.fnty         enum / struct / fnptr, id="st.<Class>"
+       li.cn / li.fn                       ctor / method, id="<Class>.<member>"
+       p.doc variants (m/class/v/f/arg/cn/fn/ret + doc)  doc rows
+       span.chd                            "has destructor" badge
+   ========================================================================== */
+
+/* ---- Listing typography: Red Hat Mono, compact, no list bullets ---- */
+#api,
+#api p,
+#api li,
+#api h3,
+#api h4 {
+    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.7;
+    color: var(--color-text);
+}
+#api ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+#api ul ul {
+    margin-left: 24px;
+}
+#api p,
+#api li {
+    margin: 0;
+}
+#api h3,
+#api h4 {
+    margin: 0;
+    font-weight: 600;
+}
+
+/* Deep links (#st.Button, #Button.new, #m.dom) must land BELOW the fixed
+   glass navbar; the old fixed-sidebar layout never needed this. */
+#api [id] {
+    scroll-margin-top: 110px;
+}
+
+/* Keep a class/fn block on one printed page (was `.pbi` in main.css,
+   which docs pages no longer load). */
+#api .pbi {
+    break-inside: avoid;
+}
+
+/* ---- Module sections: hairline separators, generous whitespace ---- */
+#api > ul > li.m {
+    border-top: 1px solid var(--color-border);
+    padding: 40px 0 16px;
+}
+#api > ul > li.m:first-child {
+    border-top: none;
+    padding-top: 8px;
+}
+#api > ul > li.m > h3 {
+    font-size: 15px;
+    letter-spacing: 0.01em;
+    margin-bottom: 24px;
+}
+#api > ul > li.m > ul > li {
+    margin-bottom: 20px;
+}
+
+/* ---- Semantic keyword colors (light-only azlin palette) ---- */
+#api li.st.e > h4 {
+    color: #1f6b45; /* enum / union enum */
+}
+#api li.st.s > h4 {
+    color: #8c2f5f; /* struct */
+}
+#api li.fnty > h4,
+#api .arg {
+    color: #6d431f; /* fnptr typedefs + arguments */
+}
+#api li.st .cn {
+    color: #0a6a8a; /* constructors */
+}
+#api li.st .fn {
+    color: var(--color-accent); /* methods */
+}
+
+/* ---- Structural indentation (same shape as the old listing) ---- */
+#api li.st .f,
+#api li.st .v.doc,
+#api li.st .cn,
+#api li.st .fn {
+    margin-left: 24px;
+}
+#api li.st p.ret,
+#api li.st p.fn.ret,
+#api li.st p.cn.ret,
+#api li p.ret,
+#api li p.fn.ret,
+#api li p.ret.doc {
+    margin-left: 0;
+}
+
+/* ---- Doc rows: Rubik prose against the mono listing ---- */
+#api p.doc {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.6;
+    color: var(--color-text-light);
+    max-width: 70ch;
+    margin: 6px 0 4px;
+}
+#api p.m.doc {
+    font-size: 15px;
+    margin: 0 0 12px;
+}
+
+/* ---- "has destructor" badge: quiet pill instead of bare text ---- */
+#api .chd {
+    display: inline-block;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-light);
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    padding: 1px 8px;
+    vertical-align: 1px;
+}
+
+/* ---- Links: inherit the semantic color (never browser blue), hairline
+        underline on hover. :visited pinned. ---- */
+#api a,
+#api a:visited {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s ease;
+}
+#api a:hover {
+    border-bottom-color: currentColor;
+}
+
+/* ---- Back link under the listing ---- */
+.api-backlink {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-border);
+    font-size: 15px;
+}
+.api-backlink a,
+.api-backlink a:visited {
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+/* ---- Version selector cards (api.html): mono version numbers ---- */
+.api-version-grid h4 {
+    font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 18px;
+}
+
+/* ---- Responsive: shallower nesting on small screens ---- */
+@media (max-width: 600px) {
+    #api ul ul {
+        margin-left: 14px;
+    }
+    #api li.st .f,
+    #api li.st .v.doc,
+    #api li.st .cn,
+    #api li.st .fn {
+        margin-left: 14px;
+    }
+}

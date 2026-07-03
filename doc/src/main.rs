@@ -1448,14 +1448,21 @@ fn main() -> anyhow::Result<()> {
                     let _ = fs::create_dir_all(parent);
                 }
                 // In debug mode, strip the production hostname so links resolve
-                // against the local server (`python -m http.server`). Files keep
-                // their `.html` extension because static servers don't rewrite.
-                let html_out = if is_debug {
+                // against the local server (`python -m http.server`).
+                let mut html_out = if is_debug {
                     html.replace("https://azul.rs", "")
                 } else {
                     html
                 };
-                fs::write(&path_real, &html_out)?;
+                if path.ends_with(".html") {
+                    // Clean URLs: internal links lose their .html extension;
+                    // the twin <stem>/index.html makes the extensionless URL
+                    // resolve on any static server (Pages AND python http.server).
+                    html_out = strip_html_links(&html_out);
+                    write_page_with_clean_twin(&output_dir, &path, &html_out)?;
+                } else {
+                    fs::write(&path_real, &html_out)?;
+                }
                 println!("  [OK] Generated: {}", path);
             }
 
@@ -1513,16 +1520,24 @@ fn main() -> anyhow::Result<()> {
 
             // Generate releases index page
             let versions = api_data.get_sorted_versions();
-            let releases_index = dllgen::deploy::generate_releases_index(&versions);
-            fs::write(output_dir.join("releases.html"), &releases_index)?;
+            let mut releases_index = dllgen::deploy::generate_releases_index(&versions);
+            if is_debug {
+                releases_index = releases_index.replace("https://azul.rs", "");
+            }
+            releases_index = strip_html_links(&releases_index);
+            write_page_with_clean_twin(&output_dir, "releases.html", &releases_index)?;
             println!("  [OK] Generated: releases.html");
 
             // Generate donation page
             println!("Generating donation page...");
             let funding_yaml_bytes = include_str!("../../.github/FUNDING.yml");
             match docgen::donate::generate_donation_page(funding_yaml_bytes) {
-                Ok(donation_html) => {
-                    fs::write(output_dir.join("donate.html"), &donation_html)?;
+                Ok(mut donation_html) => {
+                    if is_debug {
+                        donation_html = donation_html.replace("https://azul.rs", "");
+                    }
+                    donation_html = strip_html_links(&donation_html);
+                    write_page_with_clean_twin(&output_dir, "donate.html", &donation_html)?;
                     println!("  [OK] Generated: donate.html");
                 }
                 Err(e) => {
@@ -1624,6 +1639,13 @@ fn main() -> anyhow::Result<()> {
                 templates_dir.join("ui-landing.css"),
                 root_dir.join("ui-landing.css"),
             )?;
+            // Shared docs shell stylesheet (api/guide/releases/donate/blog).
+            // Debug mode links it externally; production inlines it (see
+            // get_docs_head_tags).
+            fs::copy(
+                templates_dir.join("azul-docs.css"),
+                root_dir.join("azul-docs.css"),
+            )?;
             fs::copy(
                 templates_dir.join("azlin-ws.html"),
                 root_dir.join("ws.html"),
@@ -1635,6 +1657,17 @@ fn main() -> anyhow::Result<()> {
             let azlin_landing =
                 fs::read_to_string(templates_dir.join("azlin-index.template.html"))?;
             fs::write(root_dir.join("index.html"), azlin_landing)?;
+            // Clean-URL twins for the root marketing stubs (/ws, /os):
+            // GitHub Pages resolves extensionless URLs natively, the local
+            // python server needs the directory form.
+            for stub in ["ws", "os"] {
+                let stub_dir = root_dir.join(stub);
+                fs::create_dir_all(&stub_dir)?;
+                fs::copy(
+                    root_dir.join(format!("{stub}.html")),
+                    stub_dir.join("index.html"),
+                )?;
+            }
             println!("  [OK] Generated root marketing landing + ws/os stubs + azlin.css");
 
             // Mirror the /ui page tree with root-level redirect stubs so links
@@ -1818,16 +1851,32 @@ fn generate_release_pages(
             let assets = ReleaseAssets::collect(&version_dir);
 
             // Generate release HTML page with dynamic sizes
-            let release_html = dllgen::deploy::generate_release_html(version, api_data, &assets);
-            fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
+            let release_html = strip_html_links(&dllgen::deploy::generate_release_html(
+                version, api_data, &assets,
+            ));
+            // Twin release/<version>/index.html lands INSIDE the artifact
+            // dir, making the extensionless /release/<version> URL resolve.
+            write_page_with_clean_twin(
+                &releases_dir,
+                &format!("{version}.html"),
+                &release_html,
+            )?;
             println!("  [OK] Generated: release/{}.html", version);
         }
 
         // Generate release HTML page with dynamic sizes (for strict mode, after validation)
         if deploy_mode == DeployMode::Strict {
             let assets = ReleaseAssets::collect(&version_dir);
-            let release_html = dllgen::deploy::generate_release_html(version, api_data, &assets);
-            fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
+            let release_html = strip_html_links(&dllgen::deploy::generate_release_html(
+                version, api_data, &assets,
+            ));
+            // Twin release/<version>/index.html lands INSIDE the artifact
+            // dir, making the extensionless /release/<version> URL resolve.
+            write_page_with_clean_twin(
+                &releases_dir,
+                &format!("{version}.html"),
+                &release_html,
+            )?;
             println!("  [OK] Generated: release/{}.html", version);
         }
     }
@@ -2076,5 +2125,87 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  OTHER:");
     println!("    v2 dll                        - Generate v2 DLL bindings");
     println!();
+    Ok(())
+}
+
+// ===========================================================================
+// Clean-URL layer (2026-07-04): rendered pages must not contain ".html"
+// links. Every internal href is rewritten to its extensionless form and
+// every page is written TWICE - <name>.html (legacy inbound links) and
+// <name>/index.html (serves the clean URL on GitHub Pages and on
+// `python -m http.server` alike).
+// ===========================================================================
+
+/// Rewrite internal `.html` hrefs (azul.rs-absolute or root-relative) to
+/// extensionless clean URLs, preserving #fragments and ?queries. External
+/// links and non-href occurrences of ".html" are left untouched.
+fn strip_html_links(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(pos) = rest.find("href=") {
+        let (head, tail) = rest.split_at(pos + 5);
+        out.push_str(head);
+        let mut chars = tail.chars();
+        let quote = match chars.next() {
+            Some(q @ ('"' | '\'')) => q,
+            _ => {
+                rest = tail;
+                continue;
+            }
+        };
+        let after_quote = &tail[1..];
+        let Some(end) = after_quote.find(quote) else {
+            rest = tail;
+            continue;
+        };
+        let url = &after_quote[..end];
+        out.push(quote);
+        out.push_str(&clean_internal_url(url));
+        out.push(quote);
+        rest = &after_quote[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `/ui/guide/installation.html#anchor` -> `/ui/guide/installation#anchor`;
+/// `/ui/guide/index.html` -> `/ui/guide`; external URLs pass through.
+fn clean_internal_url(url: &str) -> String {
+    let internal = url.starts_with("https://azul.rs/") || url.starts_with('/');
+    if !internal {
+        return url.to_string();
+    }
+    // Split off #fragment and ?query (first of either wins).
+    let split_at = url.find(['#', '?']).unwrap_or(url.len());
+    let (path, suffix) = url.split_at(split_at);
+    let new_path = if let Some(stripped) = path.strip_suffix("/index.html") {
+        if stripped.is_empty() { "/" } else { stripped }.to_string()
+    } else if let Some(stripped) = path.strip_suffix(".html") {
+        stripped.to_string()
+    } else {
+        return url.to_string();
+    };
+    format!("{new_path}{suffix}")
+}
+
+/// Write `dir/<rel>` AND, when `rel` is `<stem>.html` (not index.html),
+/// `dir/<stem>/index.html` with the same content.
+fn write_page_with_clean_twin(
+    dir: &std::path::Path,
+    rel: &str,
+    html: &str,
+) -> anyhow::Result<()> {
+    let path = dir.join(rel);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&path, html)?;
+    if let Some(stem) = rel.strip_suffix(".html") {
+        if !stem.is_empty() && !stem.ends_with("index") && !stem.ends_with('/') {
+            let clean_dir = dir.join(stem);
+            fs::create_dir_all(&clean_dir)?;
+            fs::write(clean_dir.join("index.html"), html)?;
+        }
+    }
     Ok(())
 }

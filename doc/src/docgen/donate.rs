@@ -1,3 +1,18 @@
+use super::{azlin_page, AzlinPage};
+
+/// One funding-platform tile in the `.docs-card-grid`.
+fn donation_card(href: &str, name: &str, description: &str) -> String {
+    format!(
+        r#"        <a class="docs-card" href="{href}" target="_blank" rel="noopener noreferrer">
+          <h4>{name}</h4>
+          <p>{description}</p>
+        </a>
+"#
+    )
+}
+
+/// Generate the donate page (azlin docs shell). Funding platforms come from
+/// .github/FUNDING.yml, passed in as `yaml_str`.
 pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
     // Parse FUNDING.yml
     #[derive(serde_derive::Deserialize, Debug)]
@@ -10,221 +25,96 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
 
     let funding: FundingConfig = serde_yaml::from_str(yaml_str)?;
 
-    let mut donation_options = String::new();
+    let mut donation_cards = String::new();
+    let mut github_sponsors_url = None;
 
     // GitHub Sponsors
     if let Some(github_user) = &funding.github {
-        donation_options.push_str(&format!(
-            r#"<div class="donation-option">
-                <h2>GitHub Sponsors</h2>
-                <a href="https://github.com/sponsors/{}" class="donation-button github">
-                    Sponsor on GitHub
-                </a>
-            </div>"#,
-            github_user
+        let url = format!("https://github.com/sponsors/{}", github_user);
+        donation_cards.push_str(&donation_card(
+            &url,
+            "GitHub Sponsors",
+            "One-time or recurring sponsorship through your GitHub account.",
         ));
+        github_sponsors_url = Some(url);
     }
 
     // Ko-fi
     if let Some(kofi_user) = &funding.ko_fi {
-        donation_options.push_str(&format!(
-            r#"<div class="donation-option">
-                <h2>Ko-fi</h2>
-                <a href="https://ko-fi.com/{}" class="donation-button kofi">
-                    Support on Ko-fi
-                </a>
-            </div>"#,
-            kofi_user
+        donation_cards.push_str(&donation_card(
+            &format!("https://ko-fi.com/{}", kofi_user),
+            "Ko-fi",
+            "Quick one-time support - buy the maintainer a coffee.",
         ));
     }
 
     // Liberapay
     if let Some(liberapay_user) = &funding.liberapay {
-        donation_options.push_str(&format!(
-            r#"<div class="donation-option">
-                <h2>Liberapay</h2>
-                <a href="https://liberapay.com/{}" class="donation-button liberapay">
-                    Donate on Liberapay
-                </a>
-            </div>"#,
-            liberapay_user
+        donation_cards.push_str(&donation_card(
+            &format!("https://liberapay.com/{}", liberapay_user),
+            "Liberapay",
+            "Recurring donations via the non-profit, open-source platform.",
         ));
     }
 
     // Custom options
     if let Some(custom_options) = &funding.custom {
         for url in custom_options {
-            let (service, button_class) = if url.contains("paypal.me") {
-                ("PayPal", "paypal")
+            let (service, description) = if url.contains("paypal.me") {
+                ("PayPal", "One-time donation via PayPal.")
             } else if url.contains("wise.com") {
-                ("Wise", "wise")
+                ("Wise", "Direct bank transfer via Wise.")
             } else {
-                ("Other", "other")
+                ("Other", "Support the project via this platform.")
             };
-
-            donation_options.push_str(&format!(
-                r#"<div class="donation-option">
-                    <h2>{}</h2>
-                    <a href="{}" class="donation-button {}">
-                        Donate via {}
-                    </a>
-                </div>"#,
-                service, url, button_class, service
-            ));
+            donation_cards.push_str(&donation_card(url, service, description));
         }
     }
 
-    // Get common head tags and sidebar
-    let common_head_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
-    let prism_script = crate::docgen::get_prism_script();
+    // Primary CTA: GitHub Sponsors, when configured.
+    let cta = match &github_sponsors_url {
+        Some(url) => format!(
+            r#"          <p><a class="btn btn-primary" href="{url}" target="_blank" rel="noopener noreferrer">Sponsor on GitHub</a></p>
+"#
+        ),
+        None => String::new(),
+    };
 
-    // Additional CSS for the donation page
-    let donation_css = r#"
-        .donation-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-        
-        .donation-option {
-            background-color: #f5f7fa;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            padding: 2rem;
-            width: 300px;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        
-        .donation-option:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-        }
-        
-        .donation-option h2 {
-            color: #004e92;
-            margin-bottom: 1rem;
-            font-size: 2.5rem;
-        }
-        
-        .donation-option p {
-            margin-bottom: 1.5rem;
-            color: #555;
-            line-height: 1.4;
-        }
-        
-        .donation-button {
-            display: inline-block;
-            background-color: #004e92;
-            color: white;
-            padding: 0.75rem 1.5rem;
-            border-radius: 5px;
-            text-decoration: none;
-            font-weight: bold;
-            transition: background-color 0.2s;
-            text-align: center;
-            width: 100%;
-            box-sizing: border-box;
-        }
-        
-        .donation-button:hover {
-            background-color: #003366;
-        }
-        
-        .donation-intro {
-            max-width: 800px;
-            line-height: 1.6;
-            font-size: 1.2rem;
-        }
-        
-        .github { background-color: #24292e; }
-        .github:hover { background-color: #1a1e22; }
-        
-        .kofi { background-color: #29abe0; }
-        .kofi:hover { background-color: #2180ab; }
-        
-        .liberapay { background-color: #f6c915; color: #1a171b; }
-        .liberapay:hover { background-color: #e0b50e; }
-        
-        .paypal { background-color: #003087; }
-        .paypal:hover { background-color: #001e53; }
-        
-        .wise { background-color: #9fe870; color: #1a171b; }
-        .wise:hover { background-color: #8ad057; }
-        
-        @media (max-width: 768px) {
-            .donation-container {
-                flex-direction: column;
-                align-items: center;
-            }
-            
-            .donation-option {
-                width: 100%;
-                max-width: 300px;
-            }
-            
-            .donation-intro {
-                padding: 0 1rem;
-            }
-        }
-    "#;
-
-    // Generate the full HTML page
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <title>Support Azul</title>
-  {common_head_tags}
-  <style>
-    {donation_css}
-  </style>
-</head>
-<body>
-  <div class="center">
-    <aside>
-      <header>
-        <h1 style="display:none;" data-pagefind-ignore>Azul GUI Framework</h1>
-        <a href="{html_root}">
-          <img src="{html_root}/logo.svg">
-        </a>
-      </header>
-      {sidebar}
-    </aside>
-    <main>
-      <h1>Support Azul!</h1>
-
-      <div class="donation-intro">
-        <p>Azul is an open-source GUI framework that relies on community support to continue development. 
-        Your contributions help maintain the project, implement new features, and keep resources available to everyone.</p>
-        <p></p>
-        <br/>
-        <p>Choose one of the options below to support the project:</p>
+    let main_html = format!(
+        r#"    <section class="docs-hero">
+      <div class="container">
+        <p class="docs-eyebrow">Support Azul</p>
+        <h1>Donate</h1>
+        <p class="docs-lede">Azul is an open-source GUI framework that relies on community
+        support to continue development. Your contributions help maintain the project,
+        implement new features, and keep resources available to everyone.</p>
       </div>
-      
-      <div class="donation-container">
-        {donation_options}
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-content">
+          <p>Choose one of the options below to support the project:</p>
+{cta}        </div>
+        <div class="docs-card-grid">
+{donation_cards}        </div>
+        <div class="docs-content">
+          <p>Thank you for considering supporting Azul! Every contribution helps the
+          project grow.</p>
+          <p>If you have any questions about donations, please reach out via
+          <a href="https://github.com/fschutt/azul/issues">GitHub</a>.</p>
+        </div>
       </div>
-      
-      <div class="donation-intro" style="margin-top: 2rem;">
-        <p>Thank you for considering supporting Azul! Every contribution helps the project grow.</p>
-        <br/>
-        <p>If you have any questions about donations, please reach out via 
-        <a href="https://github.com/fschutt/azul/issues">GitHub</a>.</p>
-      </div>
-    </main>
-  </div>
-  {prism_script}
-</body>
-</html>"#,
-        common_head_tags = common_head_tags,
-        donation_css = donation_css,
-        html_root = crate::docgen::HTML_ROOT,
-        sidebar = sidebar,
-        donation_options = donation_options,
-        prism_script = prism_script,
+    </section>"#
     );
 
-    Ok(html)
+    Ok(azlin_page(
+        &AzlinPage {
+            title: "Support Azul".to_string(),
+            active_nav: "donate",
+            head_extra: String::new(),
+            page_css: None,
+            main_html,
+        },
+        true,
+    ))
 }

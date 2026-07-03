@@ -1296,11 +1296,15 @@ footer {
         gap: 40px;
     }
     
-    .hero-image-wrapper {
+    /* Scoped to the MARKETING hero (.hero): image-first on mobile is a
+       frontpage choice. Unscoped, this leaked into /ui's .ui-hero (which
+       also uses .hero-content) and pushed the release/search card above
+       the page heading on mobile. */
+    .hero .hero-image-wrapper {
         order: 1;
     }
-    
-    .hero-content {
+
+    .hero .hero-content {
         order: 2;
     }
     
@@ -1633,8 +1637,11 @@ a:hover {
 }
 .btn-primary, .btn-primary:visited,
 .btn-hero-primary, .btn-hero-primary:visited { color: var(--color-navy); }
-.btn-hero-secondary, .btn-hero-secondary:visited { color: white; }
 .btn-secondary, .btn-secondary:visited { color: var(--color-accent); }
+/* MUST come after the .btn-secondary override: hero CTAs carry BOTH
+   classes and sit on the navy gradient - accent-blue text is unreadable
+   there ("API docs" CTA bug). Last rule wins at equal specificity. */
+.btn-hero-secondary, .btn-hero-secondary:visited { color: white; }
 .nav-links a, .nav-links a:visited { color: var(--color-text-light); }
 .mobile-menu a, .mobile-menu a:visited { color: var(--color-text); }
 .skip-to-content, .skip-to-content:visited { color: white; }

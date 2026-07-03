@@ -1,6 +1,6 @@
 use comrak::options::{Extension, Parse, Plugins, Render, RenderPlugins};
 
-use super::HTML_ROOT;
+use super::{azlin_page, AzlinPage, HTML_ROOT};
 
 /// Blog post information structure
 pub struct BlogPost {
@@ -95,17 +95,62 @@ pub fn get_blog_list() -> Vec<BlogPost> {
     )]
 }
 
-/// Generate HTML for a specific blog post
-pub fn generate_blog_post_html(post: &BlogPost) -> String {
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
-    let prism_script = crate::docgen::get_prism_script();
+/// Minimal HTML escape for text that came out of markdown source.
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
 
-    // Pre-process content
-    let processed_content = preprocess_markdown_content(&post.content);
+/// Strip markdown inline links: `[text](url)` becomes `text`.
+fn strip_md_links(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(start) = rest.find('[') {
+        let after = &rest[start..];
+        if let Some(mid_rel) = after.find("](") {
+            if let Some(end_rel) = after[mid_rel..].find(')') {
+                out.push_str(&rest[..start]);
+                out.push_str(&after[1..mid_rel]);
+                rest = &after[mid_rel + end_rel + 1..];
+                continue;
+            }
+        }
+        break;
+    }
+    out.push_str(rest);
+    out
+}
 
-    let content = comrak::markdown_to_html_with_plugins(
-        &processed_content,
+/// First paragraph of the post (after the H1), de-markdowned, for the
+/// blog index excerpt.
+fn post_excerpt(post: &BlogPost) -> String {
+    let mut lines: Vec<&str> = Vec::new();
+    let mut started = false;
+    for line in post.content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.starts_with("```") {
+            if started {
+                break;
+            }
+            continue;
+        }
+        if trimmed.is_empty() {
+            if started {
+                break;
+            }
+            continue;
+        }
+        started = true;
+        lines.push(trimmed);
+    }
+    let text = strip_md_links(&lines.join(" ")).replace("**", "").replace('`', "");
+    escape_html(&text)
+}
+
+/// Render the post's markdown body to HTML (shared prose/code/img styles in
+/// azul-docs.css cover the output; Prism handles code fences client-side).
+fn render_markdown(content: &str) -> String {
+    comrak::markdown_to_html_with_plugins(
+        content,
         &comrak::Options {
             render: Render::default(),
             parse: Parse::default(),
@@ -137,194 +182,105 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
                 heading_adapter: None,
             },
         },
-    );
-
-    let title = &post.title;
-    let date = &post.date;
-
-    let css = "
-        h1 { 
-            font-family: 'Instrument Serif', Georgia, serif;
-            font-size: 2.5em;
-            font-weight: normal;
-            line-height: 1.2;
-            margin-top: 0;
-            margin-bottom: 25px;
-            text-shadow: currentColor 0.5px 0.5px 0.5px, currentColor -0.5px -0.5px 0.5px, currentColor 0px -0.5px 0.5px, currentColor -0.5px 0px 0.5px;
-            letter-spacing: 0.02em;
-        }
-        @media screen and (max-width: 768px) {
-            h1 { font-size: 2.2em; }
-        }
-        @media screen and (max-width: 480px) {
-            h1 { font-size: 1.8em; }
-        }
-        h2, h3, h4 { cursor: pointer; }
-        h2 { 
-            font-family: 'Instrument Serif', Georgia, serif;
-            font-size: 28px;
-            font-weight: normal;
-            text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
-        }
-        h3 { font-weight: bold; margin-top: 35px; font-size: 24px; }
-        h4 { font-weight: bold; margin-top: 25px; font-size: 20px; }
-        #blog { max-width: 700px; line-height: 1.7; font-size: 1.1em; }
-        #blog img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
-        #blog ul, #blog ol {
-            margin-top: 15px;
-            margin-bottom: 15px;
-            margin-left: 30px;
-        }
-        #blog li {
-            font-size: 1em;
-            margin-bottom: 8px;
-        }
-        #blog p {
-            margin-bottom: 15px;
-            margin-top: 10px;
-        }
-        #blog code {
-            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-weight: bold;
-            font-size: 10pt;
-            border-radius: 3px;
-            padding: 0px 3px;
-        }
-        #blog pre code {
-            font-weight: normal;
-            font-family: 'Red Hat Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-size: 10pt;
-            margin-top: 5px;
-            margin-bottom: 5px;
-            display: block;
-            padding: 3px;
-            border-radius: 3px;
-            white-space: pre;
-            overflow-x: auto;
-        }
-        .blog-date {
-            color: #666;
-            font-style: italic;
-            margin-bottom: 20px;
-        }
-    ";
-
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>{title} - Azul Blog</title>
-
-        {header_tags}
-        </head>
-
-        <body>
-        <div class='center'>
-
-        <aside>
-            <header>
-            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-
-        <main>
-            <div id='blog'>
-            <style>
-                {css}
-            </style>
-            <h1>{title}</h1>
-            <p class='blog-date'>Posted on {date}</p>
-            {content}
-            </div>
-            <p style='font-size:1.2em;margin-top:20px;'>
-            <a href='{HTML_ROOT}/blog.html'>Back to blog index</a>
-            </p>
-        </main>
-
-        </div>
-        {prism_script}
-        </body>
-        </html>"
     )
 }
 
-/// Generate the blog index page listing all posts
-pub fn generate_blog_index() -> String {
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
+/// Generate HTML for a specific blog post (azlin docs shell).
+pub fn generate_blog_post_html(post: &BlogPost) -> String {
+    let processed_content = preprocess_markdown_content(&post.content);
+    let content = render_markdown(&processed_content);
 
+    let title = escape_html(&post.title);
+    let date = &post.date;
+
+    let main_html = format!(
+        r#"    <section class="docs-hero">
+      <div class="container">
+        <h1>{title}</h1>
+        <p class="docs-lede docs-meta">Posted on {date}</p>
+      </div>
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-layout">
+        <div class="docs-content">
+{content}
+          <hr/>
+          <p><a href="{HTML_ROOT}/blog">&larr; Back to blog</a></p>
+        </div>
+        <aside class="docs-search-rail">
+          <div id="azul-search-mount" data-azs-inline></div>
+        </aside>
+        </div>
+      </div>
+    </section>"#
+    );
+
+    azlin_page(
+        &AzlinPage {
+            title: format!("{} - Azul Blog", post.title),
+            active_nav: "blog",
+            // Sticky API-search rail next to the post body (the post's
+            // reading measure leaves the right gutter free for results).
+            head_extra: format!(
+                "{}\n{}",
+                crate::docgen::get_prism_script(),
+                crate::docgen::get_search_init(crate::docgen::PageKind::Other)
+            ),
+            page_css: None,
+            main_html,
+        },
+        true,
+    )
+}
+
+/// Generate the blog index page listing all posts (azlin docs shell).
+pub fn generate_blog_index() -> String {
     // Get all blog posts, sorted by date (newest first)
     let mut posts = get_blog_list();
     posts.sort_by(|a, b| b.date.cmp(&a.date));
 
     let mut post_items = String::new();
     for post in &posts {
+        let href = format!("{HTML_ROOT}/blog/{}.html", post.file_name);
+        let title = escape_html(&post.title);
+        let excerpt = post_excerpt(post);
         post_items.push_str(&format!(
-            "<li class='blog-item'>
-                <span class='blog-date'>{}</span>
-                <a href='{HTML_ROOT}/blog/{}.html'>{}</a>
-            </li>\n",
-            post.date, post.file_name, post.title,
+            r#"        <article class="docs-list-item">
+          <h3><a href="{href}">{title}</a></h3>
+          <p class="docs-meta">Posted on {date}</p>
+          <p>{excerpt}</p>
+          <a class="docs-read-more" href="{href}">Read more &rarr;</a>
+        </article>
+"#,
+            date = post.date,
         ));
     }
 
-    let css = "
-        #blog-index { max-width: 700px; line-height: 1.5; font-size: 1.2em; }
-        #blog-index ul { list-style: none; margin-left: 0; }
-        #blog-index .blog-item {
-            padding: 15px 0;
-            border-bottom: 1px solid #eee;
-        }
-        #blog-index .blog-date {
-            color: #666;
-            font-size: 0.9em;
-            margin-right: 15px;
-        }
-        #blog-index a {
-            color: #0446bf;
-            text-decoration: none;
-        }
-        #blog-index a:hover {
-            text-decoration: underline;
-        }
-    ";
+    let main_html = format!(
+        r#"    <section class="docs-hero">
+      <div class="container">
+        <p class="docs-eyebrow">Blog</p>
+        <h1>Blog</h1>
+        <p class="docs-lede">News, updates, and tutorials for the Azul GUI framework.</p>
+      </div>
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-list">
+{post_items}        </div>
+      </div>
+    </section>"#
+    );
 
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>Blog - Azul GUI Framework</title>
-
-        {header_tags}
-        </head>
-
-        <body>
-        <div class='center'>
-        <aside>
-            <header>
-            <h1 style='display:none;' data-pagefind-ignore>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-        <main>
-            <div id='blog-index'>
-            <style>
-                {css}
-            </style>
-            <h1>Blog</h1>
-            <p>News, updates, and tutorials for the Azul GUI Framework.</p>
-            <ul>{post_items}</ul>
-            </div>
-        </main>
-        </div>
-        </body>
-        </html>"
+    azlin_page(
+        &AzlinPage {
+            title: "Blog - Azul GUI framework".to_string(),
+            active_nav: "blog",
+            head_extra: String::new(),
+            page_css: None,
+            main_html,
+        },
+        true,
     )
 }

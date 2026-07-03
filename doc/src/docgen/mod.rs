@@ -663,11 +663,14 @@ pub fn get_prism_script() -> String {
 /// confirms the copy.
 pub fn get_anchor_link_script() -> String {
     r##"<style>
-.center main h1, .center main h2, .center main h3, .center main h4 {
+.center main h1, .center main h2, .center main h3, .center main h4,
+.docs-content h1, .docs-content h2, .docs-content h3, .docs-content h4 {
   position: relative;
 }
 .center main h1 .anchor, .center main h2 .anchor,
-.center main h3 .anchor, .center main h4 .anchor {
+.center main h3 .anchor, .center main h4 .anchor,
+.docs-content h1 .anchor, .docs-content h2 .anchor,
+.docs-content h3 .anchor, .docs-content h4 .anchor {
   position: absolute;
   left: -1em;
   top: 0;
@@ -683,11 +686,15 @@ pub fn get_anchor_link_script() -> String {
   font-weight: normal;
 }
 .center main h1:hover .anchor, .center main h2:hover .anchor,
-.center main h3:hover .anchor, .center main h4:hover .anchor {
+.center main h3:hover .anchor, .center main h4:hover .anchor,
+.docs-content h1:hover .anchor, .docs-content h2:hover .anchor,
+.docs-content h3:hover .anchor, .docs-content h4:hover .anchor {
   opacity: 1;
 }
 .center main h1 .anchor::before, .center main h2 .anchor::before,
-.center main h3 .anchor::before, .center main h4 .anchor::before {
+.center main h3 .anchor::before, .center main h4 .anchor::before,
+.docs-content h1 .anchor::before, .docs-content h2 .anchor::before,
+.docs-content h3 .anchor::before, .docs-content h4 .anchor::before {
   content: "#";
   font-size: 0.7em;
 }
@@ -710,7 +717,9 @@ pub fn get_anchor_link_script() -> String {
 .azs-deeplink-toast[data-visible="true"] { opacity: 1; }
 @media (prefers-color-scheme: dark) {
   .center main h1 .anchor, .center main h2 .anchor,
-  .center main h3 .anchor, .center main h4 .anchor { color: #888; }
+  .center main h3 .anchor, .center main h4 .anchor,
+  .docs-content h1 .anchor, .docs-content h2 .anchor,
+  .docs-content h3 .anchor, .docs-content h4 .anchor { color: #888; }
 }
 </style>
 <script>
@@ -724,7 +733,9 @@ document.addEventListener('DOMContentLoaded', function () {
   // to the clipboard.
   var headings = document.querySelectorAll(
     '.center main h1 > a.anchor[id], .center main h2 > a.anchor[id], ' +
-    '.center main h3 > a.anchor[id], .center main h4 > a.anchor[id]'
+    '.center main h3 > a.anchor[id], .center main h4 > a.anchor[id], ' +
+    '.docs-content h1 > a.anchor[id], .docs-content h2 > a.anchor[id], ' +
+    '.docs-content h3 > a.anchor[id], .docs-content h4 > a.anchor[id]'
   );
   if (headings.length === 0) return;
 
@@ -1002,4 +1013,188 @@ pub fn get_sidebar() -> String {
       </nav>
     "
     )
+}
+
+// ===========================================================================
+// Azlin docs shell (2026-07-04 CSS rearchitecture)
+//
+// ONE shell for every docs page: floating glass navbar + airy opener +
+// footer, styled by azlin.css (tokens/nav/buttons) + azul-docs.css (docs
+// content). Page families may add ONE family stylesheet (docs-*.css,
+// passed as `page_css`); ad-hoc inline <style> blocks in Rust strings are
+// forbidden - that patchwork is what produced the unreadable-blue-links /
+// two-designs situation this replaces.
+// ===========================================================================
+
+/// Everything `azlin_page` needs to assemble a full docs page.
+pub struct AzlinPage {
+    /// `<title>` content (" - Azul GUI framework" is NOT appended).
+    pub title: String,
+    /// Which navbar entry to mark active: "overview" | "releases" | "guide"
+    /// | "api" | "reftests" | "blog" | "donate" (anything else: none).
+    pub active_nav: &'static str,
+    /// Extra tags appended to `<head>` (search init, prism script, family
+    /// stylesheet links...). May be empty.
+    pub head_extra: String,
+    /// Optional page-family stylesheet CONTENT (e.g.
+    /// `include_str!("../../templates/docs-api.css")`). Inlined in prod,
+    /// and ALSO inlined in debug (family css is not copied to the deploy
+    /// root; only azul-docs.css is).
+    pub page_css: Option<&'static str>,
+    /// Contents of `<main>` (typically `.docs-hero` + `.docs-body`).
+    pub main_html: String,
+}
+
+/// Head tags for docs pages: fonts (Playfair/Rubik/Red Hat Mono), favicon,
+/// prism theme, search css, azlin.css + azul-docs.css (linked in debug,
+/// inlined in prod - same rule as the /ui landing).
+pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> String {
+    let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
+
+    let mut css_tag = if inline_css {
+        let azlin_css = include_str!("../../templates/azlin.css");
+        let docs_css = include_str!("../../templates/azul-docs.css");
+        format!("<style>\n{}\n{}\n</style>", azlin_css, docs_css)
+    } else {
+        "<link rel='stylesheet' type='text/css' href='/azlin.css'>\n      \
+         <link rel='stylesheet' type='text/css' href='/azul-docs.css'>"
+            .to_string()
+    };
+    if let Some(family) = page_css {
+        css_tag.push_str(&format!("\n      <style>\n{}\n</style>", family));
+    }
+
+    format!("
+      <meta charset='utf-8'/>
+      <meta name='viewport' content='width=device-width, initial-scale=1'>
+      <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
+      <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
+      <meta name='keywords' content='gui, rust, user interface'>
+
+      <link rel='preconnect' href='https://fonts.googleapis.com'>
+      <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+      <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800;900&family=Rubik:wght@400;500;600;700&display=swap' rel='stylesheet'>
+      <link rel='preload' as='font' href='{base_url}/fonts/RedHatMono-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
+      <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
+      <link rel='stylesheet' href='{base_url}/azul-search.css'>
+      <style>
+      @font-face {{
+          font-family: \"Red Hat Mono\";
+          font-style: normal;
+          font-weight: 300 700;
+          src: url(\"{base_url}/fonts/RedHatMono-VariableFont_wght.ttf\") format(\"truetype-variations\");
+      }}
+      </style>
+      {css_tag}
+      {anchor_link}
+      <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
+      <script defer src='{base_url}/azul-review.js'></script>
+    ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script())
+}
+
+/// The floating glass navbar + mobile menu, identical to the /ui landing's
+/// (single source of truth for docs pages; the landing templates keep their
+/// static copies - keep the link list in sync with index.template.html and
+/// azlin-index.template.html).
+pub fn azlin_nav(active: &str) -> String {
+    const LINKS: [(&str, &str); 8] = [
+        ("overview", "https://azul.rs/ui"),
+        ("releases", "https://azul.rs/ui/releases"),
+        ("code", "https://github.com/fschutt/azul"),
+        ("guide", "https://azul.rs/ui/guide"),
+        ("api", "https://azul.rs/ui/api"),
+        ("reftests", "https://azul.rs/ui/reftest"),
+        ("blog", "https://azul.rs/ui/blog"),
+        ("donate", "https://azul.rs/ui/donate"),
+    ];
+    let nav_links = LINKS
+        .iter()
+        .map(|(name, href)| {
+            let class = if *name == active { " class=\"active\"" } else { "" };
+            format!("<a href=\"{href}\" role=\"menuitem\"{class}>{name}</a>")
+        })
+        .collect::<Vec<_>>()
+        .join("\n          ");
+    let mobile_links = LINKS
+        .iter()
+        .map(|(name, href)| format!("<a href=\"{href}\">{name}</a>"))
+        .collect::<Vec<_>>()
+        .join("\n    ");
+    format!(
+        r##"<a href="#main-content" class="skip-to-content">Skip to main content</a>
+  <nav class="navbar" role="navigation" aria-label="Main navigation">
+    <div class="container">
+      <a href="/" class="nav-brand-link" aria-label="Go to homepage">
+        <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
+      </a>
+      <div class="nav-right">
+        <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
+        <div class="nav-links" role="menu">
+          {nav_links}
+        </div>
+      </div>
+    </div>
+  </nav>
+  <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
+  <aside class="mobile-menu" aria-label="Mobile navigation">
+    {mobile_links}
+  </aside>"##
+    )
+}
+
+/// Docs footer, same voice as the /ui landing footer.
+pub fn azlin_footer() -> String {
+    r#"<footer role="contentinfo" class="docs-footer">
+    <div class="container">
+      <p>© 2026 Azul · MIT-licensed · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://azul.rs/ui/donate">Donate</a></p>
+    </div>
+  </footer>
+  <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>"#
+        .to_string()
+}
+
+/// Assemble a complete docs page in the azlin shell.
+pub fn azlin_page(page: &AzlinPage, inline_css: bool) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>{title}</title>
+  {head}
+  {head_extra}
+</head>
+<body class="docs">
+  {nav}
+  <main id="main-content" role="main">
+{main}
+  </main>
+  {footer}
+</body>
+</html>"#,
+        title = page.title,
+        head = get_docs_head_tags(inline_css, page.page_css),
+        head_extra = page.head_extra,
+        nav = azlin_nav(page.active_nav),
+        main = page.main_html,
+        footer = azlin_footer(),
+    )
+}
+
+/// Write a docs page under BOTH `<dir>/<name>.html` (legacy inbound links)
+/// and `<dir>/<name>/index.html` (serves the extensionless clean URL on
+/// GitHub Pages and python -m http.server alike). Rendered pages link the
+/// clean URL only; the .html twin is for old bookmarks/backlinks.
+pub fn write_page_clean_url(
+    dir: &std::path::Path,
+    name: &str,
+    html: &str,
+) -> anyhow::Result<()> {
+    use std::fs;
+    fs::create_dir_all(dir)?;
+    fs::write(dir.join(format!("{name}.html")), html)?;
+    let clean_dir = dir.join(name);
+    fs::create_dir_all(&clean_dir)?;
+    fs::write(clean_dir.join("index.html"), html)?;
+    Ok(())
 }

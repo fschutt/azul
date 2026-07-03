@@ -120,7 +120,9 @@ body.ui-landing {
 .feature-section:nth-of-type(even) { background: var(--color-bg); }
 .feature-section h2.feature-title {
     font-family: var(--font-serif);
-    font-size: 56px;
+    /* Sized for the half-width intro column (the title no longer spans
+       the full container). */
+    font-size: 42px;
     font-weight: bold;
     line-height: 1.12;
     letter-spacing: -0.02em;
@@ -140,23 +142,48 @@ body.ui-landing {
 .feature-section .description p { margin-bottom: 16px; }
 .feature-section .description a { color: var(--color-accent); }
 
+/* Two-column example layout: intro (title + description) and screenshot
+   stack in the LEFT column; the toolbar + code panel fill the RIGHT
+   column from the very top. This removes the L-shaped void that sat
+   above the language pills when the heading/description spanned the
+   full width with a 700px measure. */
 .ui-example-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 48px;
+    grid-template-areas:
+        "intro code"
+        "image code";
+    gap: 32px 48px;
     align-items: start;
 }
-
-/* Screenshot column */
-.feature-image { min-width: 0; }
-.feature-image .screenshot-wrapper {
-    display: block;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 12px 48px rgba(0, 4, 40, 0.18);
-    background: white;
-    border: 1px solid var(--color-border);
+.feature-intro { grid-area: intro; }
+.feature-intro .description { margin-bottom: 0; }
+.feature-image { grid-area: image; }
+.feature-code { grid-area: code; }
+.example-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 16px;
 }
+
+/* Screenshot column. Card styling (bg/border/shadow) lives on the IMG,
+   not the wrapper: macOS screenshots carry a BAKED-IN drop shadow +
+   transparent rounded corners, so a white card behind them double-frames
+   the window and leaves dead space - mac imgs render bare instead. */
+.feature-image {
+    min-width: 0;
+    /* Reset azlin.css's marketing .feature-image card (white bg, 250px
+       fixed height, shadow, radius) - here it is a plain grid cell; the
+       card look lives on the windows/linux imgs below. */
+    height: auto;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    margin-bottom: 0;
+}
+.feature-image .screenshot-wrapper { display: block; }
 .feature-image img {
     width: 100%;
     height: auto;
@@ -164,6 +191,17 @@ body.ui-landing {
 }
 img.showcase { display: none; }
 img.showcase.windows { display: initial; }
+.feature-image img.showcase.windows,
+.feature-image img.showcase.linux {
+    border-radius: 12px;
+    box-shadow: 0 12px 48px rgba(0, 4, 40, 0.18);
+    background: white;
+    border: 1px solid var(--color-border);
+}
+.feature-image img.showcase.mac {
+    /* shadow + corner rounding are baked into the PNG */
+    background: transparent;
+}
 
 /* Code column */
 .feature-code { min-width: 0; }
@@ -316,7 +354,21 @@ img.showcase.windows { display: initial; }
     padding: 16px;
 }
 .example-code pre { margin: 0; white-space: pre; }
-.example-code code {
+/* Prism's default theme paints its own beige pre background (inset inside
+   our white panel = the "weird white padding") and translucent white boxes
+   behind operator/entity tokens. Neutralize both - the panel IS the bg. */
+.example-code pre,
+.example-code pre[class*="language-"] {
+    background: transparent;
+    padding: 0;
+}
+.example-code .token.operator,
+.example-code .token.entity,
+.example-code .token.url {
+    background: none;
+}
+.example-code code,
+.example-code code[class*="language-"] {
     background: transparent;
     font-family: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13px;
@@ -338,7 +390,14 @@ img.showcase.windows { display: initial; }
 @media (max-width: 1024px) {
     .ui-hero .container { grid-template-columns: 1fr; gap: 48px; }
     .ui-hero-side { min-height: 300px; }
-    .ui-example-grid { grid-template-columns: 1fr; gap: 32px; }
+    .ui-example-grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "intro"
+            "image"
+            "code";
+        gap: 32px;
+    }
 }
 @media (max-width: 768px) {
     .ui-hero { padding: 130px 0 70px; }

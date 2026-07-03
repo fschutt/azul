@@ -183,7 +183,7 @@
             return {
               type: 'api-index',
               version: index.v,
-              apiPageUrl: AZS_BASE + '/api/' + index.v + '.html',
+              apiPageUrl: AZS_BASE + '/api/' + index.v,
               // Expose the raw index so default-key resolution can do
               // direct name lookups without re-running the search ranker.
               _index: index,
