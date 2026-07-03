@@ -223,6 +223,64 @@ fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
 
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 ///
+/// MWA-B5: `_MOTIF_WM_HINTS` — tell the WM which decorations to draw.
+/// Without this, `WindowDecorations::None` still got the full WM frame, so
+/// the azul CSD titlebar rendered UNDER the real one (double chrome), and
+/// NoTitle/NoControls did nothing at all. Still the universally-honored
+/// mechanism (no EWMH replacement exists). format=32 properties carry C
+/// `long`s on the Xlib wire side, hence the `c_long` fields.
+unsafe fn apply_motif_wm_hints(
+    xlib: &Xlib,
+    display: *mut defines::Display,
+    window: defines::Window,
+    decorations: azul_core::window::WindowDecorations,
+) {
+    use std::os::raw::c_long;
+
+    #[repr(C)]
+    struct MotifWmHints {
+        flags: c_long,
+        functions: c_long,
+        decorations: c_long,
+        input_mode: c_long,
+        status: c_long,
+    }
+    const MWM_HINTS_DECORATIONS: c_long = 1 << 1;
+    // Motif decoration bits: ALL=1, BORDER=2, RESIZEH=4, TITLE=8, MENU=16,
+    // MINIMIZE=32, MAXIMIZE=64.
+    let deco_bits: c_long = match decorations {
+        azul_core::window::WindowDecorations::None => 0,
+        azul_core::window::WindowDecorations::NoTitle => 2 | 4,
+        azul_core::window::WindowDecorations::NoControls => 2 | 4 | 8,
+        _ => 1, // Normal / NoTitleAutoInject: full WM decorations
+    };
+    let hints = MotifWmHints {
+        flags: MWM_HINTS_DECORATIONS,
+        functions: 0,
+        decorations: deco_bits,
+        input_mode: 0,
+        status: 0,
+    };
+    let atom = (xlib.XInternAtom)(
+        display,
+        b"_MOTIF_WM_HINTS\0".as_ptr() as *const c_char,
+        0,
+    );
+    if atom == 0 {
+        return;
+    }
+    (xlib.XChangeProperty)(
+        display,
+        window,
+        atom,
+        atom, // property type = the _MOTIF_WM_HINTS atom itself
+        32,
+        defines::PropModeReplace,
+        &hints as *const MotifWmHints as *const u8,
+        5,
+    );
+}
+
 /// Returns: (window_handle, has_argb_visual, optional_colormap)
 fn try_create_argb_window(
     xlib: &Rc<Xlib>,
@@ -1430,6 +1488,18 @@ impl X11Window {
                     );
                 }
             }
+        }
+
+        // MWA-B5: apply decoration hints BEFORE mapping, so frameless / CSD
+        // windows never flash the WM frame (and the azul titlebar doesn't
+        // render UNDER the WM's real titlebar — the double-chrome bug).
+        unsafe {
+            apply_motif_wm_hints(
+                &xlib,
+                display,
+                window_handle,
+                options.window_state.flags.decorations,
+            );
         }
 
         // WM_CLASS hint (instance + class) from the window options, so the WM / taskbar
@@ -4006,6 +4076,19 @@ impl X11Window {
             Some(prev) => (prev.clone(), self.common.current_window_state.clone()),
             None => return, // First frame, nothing to sync
         };
+
+        // MWA-B5: decoration mode changed at runtime → re-apply motif hints
+        // (creation applies the initial value before mapping).
+        if previous.flags.decorations != current.flags.decorations {
+            unsafe {
+                apply_motif_wm_hints(
+                    &self.xlib,
+                    self.display,
+                    self.window,
+                    current.flags.decorations,
+                );
+            }
+        }
 
         // Title changed?
         if previous.title != current.title {
