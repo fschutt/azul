@@ -226,15 +226,16 @@ pub fn drain_biometric_requests() -> Vec<BiometricPrompt> {
 }
 
 /// MWA-C-biometric: true while requests are parked in the channel but not
-/// yet dispatched. The capability pump's arming check must count these —
+/// yet dispatched.
+///
+/// The capability pump's arming check must count these —
 /// `has_pending_async` only sees `in_flight` (post-dispatch), so a prompt
 /// queued MID-pass (after the top-of-pass pump already ran) would otherwise
 /// wait for an unrelated event before ever being shown.
 pub fn has_queued_requests() -> bool {
     PENDING_REQUESTS
         .lock()
-        .map(|q| !q.is_empty())
-        .unwrap_or_else(|e| !e.into_inner().is_empty())
+        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
 }
 
 #[cfg(test)]
@@ -386,7 +387,7 @@ mod pump_provider_tests {
         assert_eq!(mgr.get_pending_events(ts()).len(), 1);
         assert_eq!(
             mgr.get_pending_events(ts())[0].event_type,
-            azul_core::events::EventType::BiometricResult
+            EventType::BiometricResult
         );
     }
 }

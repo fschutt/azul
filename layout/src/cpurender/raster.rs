@@ -857,6 +857,7 @@ impl CpuRenderState {
 
 /// Flatten the GPU value cache into `key.id → value` maps — the SAME
 /// extraction `CpuRenderState::from_gpu_cache` feeds the renderer with.
+///
 /// Exposed separately so the damage layer can diff the values frame-to-frame:
 /// scrollbar thumb position / fade opacity / drag & CSS transforms change
 /// WITHOUT any display-list item changing (items only carry the keys), so a
@@ -1037,6 +1038,8 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// Push/Pop state commands are always processed (they maintain clip/scroll stacks).
 #[allow(clippy::cast_possible_truncation)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss)] // bounded layout/render numeric cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics
 ///
 /// Panics if the damage-rect iterator is unexpectedly empty.
@@ -1053,6 +1056,17 @@ pub fn render_display_list_damaged(
     render_state: &CpuRenderState,
     damage_rects: &[LogicalRect],
 ) -> Result<(), String> {
+    // A damage rect snapped OUTWARD to physical-pixel boundaries, carried
+    // BOTH as physical ints (clear + clip) and as the equivalent logical
+    // rect (item filter).
+    struct SnappedRect {
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        logical: LogicalRect,
+    }
+
     if damage_rects.is_empty() {
         return Ok(()); // nothing changed
     }
@@ -1064,13 +1078,6 @@ pub fn render_display_list_damaged(
     // 18.625, any dpi ≠ 1). The snapped rect is carried BOTH as physical ints
     // (clear + clip) and as the equivalent logical rect (item filter), so the
     // filter admits every item that touches a cleared pixel.
-    struct SnappedRect {
-        x0: i32,
-        y0: i32,
-        x1: i32,
-        y1: i32,
-        logical: LogicalRect,
-    }
     let pw_i = pixmap.width() as i32;
     let ph_i = pixmap.height() as i32;
     let snap_out = |dr: &LogicalRect| -> Option<SnappedRect> {

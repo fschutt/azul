@@ -185,6 +185,9 @@ gpu-video = { version = "0.4.0", default-features = false, optional = true }
 objc = { version = "0.2", optional = true }
 objc-foundation = { version = "0.1", optional = true }
 objc_id = { version = "0.1", optional = true }
+# Runtime loader for VideoToolbox/CoreMedia (video_codec/videotoolbox.rs is
+# cfg'd for macos+ios but the optional dep was previously macos-only).
+libloading = { version = "0.8.6", optional = true }
 # objc2 stack for the biometric backend (P4.1) — shared with macOS via
 # `extra/biometric/apple.rs`. New objc2-native backends (design decision
 # #2) use these rather than the objc 0.2 above.

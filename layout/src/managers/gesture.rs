@@ -86,9 +86,10 @@ pub const DEFAULT_SAMPLE_TIMEOUT_MS: u64 = 2000;
 /// Batch draining avoids per-sample overhead on every new sample.
 const DRAIN_BATCH_SIZE: usize = 100;
 
-/// MWA-B4: button-state bitfield recorded for touch-contact samples (a
-/// finger on the surface = primary contact, mirroring BUTTON_STATE_LEFT in
-/// the dll's mouse path so drag heuristics treat touch like a held button).
+/// MWA-B4: button-state bitfield recorded for touch-contact samples.
+///
+/// A finger on the surface = primary contact, mirroring `BUTTON_STATE_LEFT` in
+/// the dll's mouse path so drag heuristics treat touch like a held button.
 pub const TOUCH_CONTACT_BUTTON_STATE: u8 = 0x01;
 
 /// Configuration for gesture detection thresholds
@@ -1057,7 +1058,7 @@ impl GestureAndDragManager {
     /// repeated invocations.
     /// MWA-B12: mark the CURRENT session's long-press as delivered. The
     /// event pass calls this right after emitting `EventType::LongPress` —
-    /// nothing ever called `mark_long_press_callback_invoked`, so LongPress
+    /// nothing ever called `mark_long_press_callback_invoked`, so `LongPress`
     /// re-fired on every subsequent pass of the same hold.
     pub fn mark_current_long_press_invoked(&mut self) {
         if let Some(id) = self.get_current_session().map(|s| s.session_id) {

@@ -1107,7 +1107,7 @@ fn shift_diagonal_2d(
 /// Returns `true` when there is no such frame (nothing to do).
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-pub fn scroll_fast_path_eligible(
+#[must_use] pub fn scroll_fast_path_eligible(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
     clip_bounds: &LogicalRect,
@@ -1246,6 +1246,7 @@ pub struct GpuValueDamage {
 /// this channel, the `ScrollBarStyled` equality arm would freeze the thumb
 /// (missed damage); with it, an idle window reaches `FrameDamage::None` even
 /// with scrollbars present.
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
 #[must_use] pub fn gpu_value_damage(
     display_list: &DisplayList,
     old_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
@@ -1318,6 +1319,7 @@ pub struct GpuValueDamage {
 /// frames ineligible for the fast path (a scrollbar would disable it for
 /// every scroll container), the caller adds these rects to the damage set so
 /// the dragged pixels are simply repainted after the shift.
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[must_use] pub fn overlay_rects_after_frame(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,

@@ -402,7 +402,7 @@ impl Chip {
                             cb: default_on_chip_remove as usize,
                             ctx: OptionRefAny::None,
                         },
-                        refany: state_ref.clone(),
+                        refany: state_ref,
                     }]
                     .into(),
                 );

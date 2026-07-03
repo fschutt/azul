@@ -94,7 +94,7 @@ pub const TOOLTIP_DELAY_TIMER_ID: TimerId = TimerId { id: 0x0004 };
 pub const CAPABILITY_PUMP_TIMER_ID: TimerId = TimerId { id: 0x0005 };
 /// Timer ID for the one-shot long-press wake-up (MWA-B12).
 ///
-/// Armed on every MouseDown for the long-press threshold: a motionless
+/// Armed on every `MouseDown` for the long-press threshold: a motionless
 /// press generates no further events, so no pass would ever evaluate
 /// `detect_long_press` — this timer wakes the loop exactly once at the
 /// threshold, `invoke_expired_timers` runs an event pass, and the

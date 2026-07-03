@@ -167,9 +167,10 @@ impl NodeUndoRedoStack {
     }
 }
 
-/// MWA-C-undo_redo: styled-content snapshots for an operation, kept OUT of
-/// the FFI-exposed `UndoableOperation` (which crosses the C API via
-/// `inspect_undo_operation`) and keyed by `TextChangeset.id`. Undo restores
+/// MWA-C-undo_redo: styled-content snapshots for an operation.
+///
+/// Kept OUT of the FFI-exposed `UndoableOperation` (which crosses the C API
+/// via `inspect_undo_operation`) and keyed by `TextChangeset.id`. Undo restores
 /// `pre`, redo restores `post` — previously both rebuilt the text with
 /// `StyleProperties::default()`, discarding all styling, and redo re-entered
 /// the recording pipeline (double-recording + clearing the redo stack).

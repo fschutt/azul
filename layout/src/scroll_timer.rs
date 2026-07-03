@@ -131,7 +131,7 @@ impl ScrollPhysicsState {
 /// This function has `extern "C"` ABI so it can be used as a `TimerCallbackType`.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub extern "C" fn scroll_physics_timer_callback(
     mut data: RefAny,
     mut timer_info: TimerCallbackInfo,

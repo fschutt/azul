@@ -882,6 +882,7 @@ impl DisplayListItem {
     #[allow(clippy::float_cmp)]
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
     #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use] pub fn is_visually_equal(&self, other: &Self) -> bool {
         if std::mem::discriminant(self) != std::mem::discriminant(other) {
             return false;

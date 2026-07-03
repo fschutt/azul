@@ -201,7 +201,7 @@ impl FocusManager {
 /// ties); then all remaining keyboard-focusable nodes (`Auto`,
 /// `OverrideInParent(0)`, implicit focusables) in document order.
 /// `TabIndex::NoKeyboardFocus` (tabindex=-1) nodes stay focusable by click /
-/// API but are NEVER part of the Tab order. The previous linear NodeId walk
+/// API but are NEVER part of the Tab order. The previous linear `NodeId` walk
 /// both ignored positive-tabindex ordering and tabbed onto tabindex=-1 nodes.
 fn collect_tab_order(layout_results: &BTreeMap<DomId, DomLayoutResult>) -> Vec<DomNodeId> {
     use azul_core::dom::TabIndex;
@@ -299,8 +299,8 @@ fn next_in_tab_order(
 
 /// Context for focus-target resolution (`Path` / `Id` lookups).
 ///
-/// MWA-C-focus_cursor: the old linear-walk machinery (SearchDirection,
-/// search_focusable_node, get_*_start) was replaced by the W3C tab order
+/// MWA-C-focus_cursor: the old linear-walk machinery (`SearchDirection`,
+/// `search_focusable_node`, `get_*_start`) was replaced by the W3C tab order
 /// built in `collect_tab_order`; only the layout lookup helpers remain.
 struct FocusSearchContext<'a> {
     /// Reference to all DOM layouts in the window

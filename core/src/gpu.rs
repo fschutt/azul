@@ -116,6 +116,7 @@ impl GpuValueCache {
     }
 
     /// One-time CPU feature detection (SSE/AVX) for the transform math fast paths.
+    #[allow(clippy::missing_const_for_fn)] // non-x86_64 body is empty; x86_64 uses atomics
     fn init_simd_features() {
         #[cfg(target_arch = "x86_64")]
         unsafe {

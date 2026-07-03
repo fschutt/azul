@@ -3612,8 +3612,8 @@ impl CallbackInfo {
     #[must_use] pub fn measure_dom(
         &self,
         dom: azul_core::dom::Dom,
-        available: azul_core::geom::LogicalSize,
-    ) -> azul_core::geom::LogicalSize {
+        available: LogicalSize,
+    ) -> LogicalSize {
         self.get_layout_window().measure_dom(dom, available)
     }
 
@@ -3625,11 +3625,11 @@ impl CallbackInfo {
         let hit = self
             .get_layout_window()
             .hover_manager
-            .get_current(&crate::managers::hover::InputPointId::Mouse)?;
+            .get_current(&InputPointId::Mouse)?;
         hit.hovered_nodes.iter().next().and_then(|(dom_id, entry)| {
             entry.regular_hit_test_nodes.keys().next_back().map(|nid| DomNodeId {
                 dom: *dom_id,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*nid)),
+                node: NodeHierarchyItemId::from_crate_internal(Some(*nid)),
             })
         })
     }

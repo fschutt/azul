@@ -3696,13 +3696,17 @@ mod tests {
     #[test]
     fn primary_modifier_is_platform_correct() {
         use crate::window::{KeyboardState, VirtualKeyCode};
-        let mut cmd_held = KeyboardState::default();
-        cmd_held.pressed_virtual_keycodes = vec![VirtualKeyCode::LWin].into();
+        let cmd_held = KeyboardState {
+            pressed_virtual_keycodes: vec![VirtualKeyCode::LWin].into(),
+            ..Default::default()
+        };
         // Cmd/super is primary ONLY on macOS.
         assert_eq!(cmd_held.primary_down(), cfg!(target_os = "macos"));
 
-        let mut ctrl_held = KeyboardState::default();
-        ctrl_held.pressed_virtual_keycodes = vec![VirtualKeyCode::LControl].into();
+        let ctrl_held = KeyboardState {
+            pressed_virtual_keycodes: vec![VirtualKeyCode::LControl].into(),
+            ..Default::default()
+        };
         // Ctrl is primary everywhere EXCEPT macOS.
         assert_eq!(ctrl_held.primary_down(), !cfg!(target_os = "macos"));
     }

@@ -2590,6 +2590,7 @@ impl X11Window {
                 self.sync_ime_focus_state();
                 // MWA-A3b: tell the AT-SPI adapter — accesskit_unix never
                 // learns window focus on its own (Orca got no focus events).
+                #[cfg(feature = "a11y")]
                 self.accessibility_adapter.set_focus(true);
                 self.process_window_events(0)
             }
@@ -2598,6 +2599,7 @@ impl X11Window {
                     Some(self.common.current_window_state.clone());
                 self.common.current_window_state.window_focused = false;
                 self.dynamic_selector_context.window_focused = false;
+                #[cfg(feature = "a11y")]
                 self.accessibility_adapter.set_focus(false);
                 self.sync_ime_focus_state();
                 self.process_window_events(0)
@@ -2693,6 +2695,7 @@ impl X11Window {
                 // non-synthetic events on reparenting WMs; good enough as a
                 // best-effort update, and synthetic (WM-sent) events are
                 // root-absolute. NEEDS-RUNTIME-VERIFY under a reparenting WM.
+                #[cfg(feature = "a11y")]
                 if size_changed || position_changed {
                     self.accessibility_adapter.set_root_window_bounds(
                         f64::from(ev.x),

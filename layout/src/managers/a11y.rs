@@ -85,7 +85,7 @@ impl A11yManager {
     /// This should be called after each layout pass to synchronize the
     /// accessibility tree with the visual representation.
     #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use] pub fn update_tree(
         root_id: A11yNodeId,
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
@@ -360,17 +360,12 @@ impl A11yManager {
         }
     }
 
-    /// Builds an accesskit Node from Azul's `NodeData` and layout information.
-    #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     /// MWA-B10: outbound twin of `map_accesskit_action` — declares a node's
     /// supported actions in the tree (payload-carrying variants map to their
     /// action KIND; the payload only exists on inbound requests).
-    fn map_action_to_accesskit(
-        action: &azul_core::a11y::AccessibilityAction,
-    ) -> Option<Action> {
+    const fn map_action_to_accesskit(action: &AccessibilityAction) -> Action {
         use azul_core::a11y::AccessibilityAction as A;
-        Some(match action {
+        match action {
             A::Default => Action::Click,
             A::Focus => Action::Focus,
             A::Blur => Action::Blur,
@@ -395,9 +390,12 @@ impl A11yManager {
             }
             A::SetValue(_) | A::SetNumericValue(_) => Action::SetValue,
             A::CustomAction(_) => Action::CustomAction,
-        })
+        }
     }
 
+    /// Builds an accesskit Node from Azul's `NodeData` and layout information.
+    #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,
@@ -473,9 +471,7 @@ impl A11yManager {
         // API-declared actions never reached assistive technology.
         if let Some(info) = a11y_info {
             for action in info.supported_actions.as_ref() {
-                if let Some(ak) = Self::map_action_to_accesskit(action) {
-                    builder.add_action(ak);
-                }
+                builder.add_action(Self::map_action_to_accesskit(action));
             }
         }
 
@@ -600,7 +596,7 @@ impl A11yManager {
         // as AriaProperty/Custom (no parsing existed; live regions were only
         // reachable through the explicit AccessibilityInfo.is_live_region
         // flag, so HTML-defined live regions never announced).
-        for attr in node_data.attributes().iter() {
+        for attr in node_data.attributes() {
             let (name, value) = match attr {
                 azul_core::dom::AttributeType::AriaProperty(nv)
                 | azul_core::dom::AttributeType::Custom(nv) => {

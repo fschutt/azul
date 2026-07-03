@@ -107,17 +107,17 @@ impl Platform {
     #[inline]
     #[must_use] pub const fn current() -> Self {
         #[cfg(target_os = "macos")]
-        { Platform::MacOs }
+        { Self::MacOs }
         #[cfg(target_os = "windows")]
-        { Platform::Windows }
+        { Self::Windows }
         #[cfg(target_os = "linux")]
         { Self::Linux(DesktopEnvironment::Other(AzString::from_const_str("unknown"))) }
         #[cfg(target_os = "android")]
-        { Platform::Android }
+        { Self::Android }
         #[cfg(target_os = "ios")]
-        { Platform::Ios }
+        { Self::Ios }
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android", target_os = "ios")))]
-        { Platform::Unknown }
+        { Self::Unknown }
     }
 }
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted

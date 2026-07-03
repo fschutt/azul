@@ -128,13 +128,12 @@ pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
     core::mem::take(&mut *q)
 }
 
-/// MWA-C-biometric/keyring: see biometric::has_queued_requests — pump
+/// MWA-C-biometric/keyring: see `biometric::has_queued_requests` — pump
 /// arming must count parked-but-undispatched requests.
 pub fn has_queued_requests() -> bool {
     PENDING_REQUESTS
         .lock()
-        .map(|q| !q.is_empty())
-        .unwrap_or_else(|e| !e.into_inner().is_empty())
+        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
 }
 
 // ────────── Result channel (platform backend → manager) ───────────────
@@ -259,7 +258,7 @@ mod pump_provider_tests {
         assert!(!mgr.has_pending_async());
         let events = mgr.get_pending_events(ts());
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, azul_core::events::EventType::KeyringResult);
+        assert_eq!(events[0].event_type, EventType::KeyringResult);
         mgr.clear_pending_event();
 
         // repeated identical outcome still fires — it answers a fresh op

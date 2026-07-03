@@ -153,7 +153,7 @@ fn new_id_namespace() -> IdNamespace {
 #[cfg(feature = "std")]
 extern "C" fn virtual_view_measure_dom_trampoline(
     ctx: *mut core::ffi::c_void,
-    dom: *mut azul_core::dom::Dom,
+    dom: *mut Dom,
     available: LogicalSize,
 ) -> LogicalSize {
     if ctx.is_null() || dom.is_null() {
@@ -478,7 +478,7 @@ pub struct LayoutWindow {
     /// Map of `DomId` -> Set of `NodeIds` that need re-rendering
     /// MWA-C-virtual_view: pending re-invocations now carry the QUEUE-TIME
     /// reason so the user callback receives EdgeScrolled/BoundsExpanded/
-    /// DomRecreated instead of everything collapsing to InitialRender.
+    /// `DomRecreated` instead of everything collapsing to `InitialRender`.
     pub pending_virtual_view_updates: BTreeMap<DomId, BTreeMap<NodeId, VirtualViewCallbackReason>>,
     /// Lifecycle events produced by DOM reconciliation, waiting to be dispatched.
     ///
@@ -817,7 +817,7 @@ impl LayoutWindow {
     /// and the virtual scroll size. Cost: a full cold style+layout pass per
     /// call — cache results per item template where possible.
     #[cfg(feature = "std")]
-    pub fn measure_dom(&self, dom: azul_core::dom::Dom, available: LogicalSize) -> LogicalSize {
+    pub fn measure_dom(&self, dom: Dom, available: LogicalSize) -> LogicalSize {
         let styled_dom = StyledDom::create_from_dom(dom);
         self.measure_styled_dom(&styled_dom, available)
     }
@@ -845,7 +845,7 @@ impl LayoutWindow {
         };
         let mut scratch_text = TextLayoutCache::new();
         let viewport = LogicalRect::new(LogicalPosition::zero(), available);
-        let external = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let external = ExternalSystemCallbacks::rust_internal();
 
         let layout_result = solver3::layout_document(
             &mut scratch_cache,
@@ -888,6 +888,10 @@ impl LayoutWindow {
         LogicalSize::new(max_x, max_y)
     }
 
+    /// # Errors
+    ///
+    /// Returns a [`solver3::LayoutError`] if the solver fails to lay out the
+    /// root DOM or any child (`VirtualView` / iframe) DOM.
     pub fn layout_dom_recursive(
         &mut self,
         styled_dom: StyledDom,
@@ -1173,7 +1177,7 @@ impl LayoutWindow {
             // events forever, an unbounded leak in any long-running app.
             // The field stays as a same-pass event record until a consumer
             // exists (see FOLLOW-UPS).
-            let _ = self.gpu_state_manager.take_pending_changes();
+            drop(self.gpu_state_manager.take_pending_changes());
             self.gpu_state_manager
                 .pending_changes
                 .merge(&mut transform_opacity_events);
@@ -1808,6 +1812,7 @@ impl LayoutWindow {
     /// `Some(child_dom_id)` if the callback was invoked and the child DOM was laid out.
     /// The parent's display list generator will then use this ID to reference the child's
     /// display list. Returns `None` if the callback was not invoked.
+    #[allow(clippy::too_many_lines)] // 5 re-invocation rules + recursive layout in one flow
     fn invoke_virtual_view_callback_impl(
         &mut self,
         parent_dom_id: DomId,
@@ -2863,7 +2868,7 @@ impl LayoutWindow {
     /// A vector of GPU scrollbar opacity change events
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     /// MWA-C-gpu_state: per-frame scrollbar GPU-cache refresh for the CPU
-    /// render path. The WebRender transaction builders run
+    /// render path. The `WebRender` transaction builders run
     /// `update_scrollbar_transforms` + `synchronize_scrollbar_opacity` every
     /// frame, but the CPU branches only ticked the scroll manager — overlay
     /// scrollbar thumb transforms and fade opacity in the cache refreshed
@@ -2874,7 +2879,7 @@ impl LayoutWindow {
     /// FOLLOW-UPS note).
     #[cfg(feature = "std")]
     pub fn refresh_scrollbar_gpu_cache_for_cpu_frame(&mut self) {
-        let system_callbacks = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
         {
             let Self {
                 ref layout_results,
@@ -2883,15 +2888,15 @@ impl LayoutWindow {
                 ..
             } = *self;
             for (dom_id, layout_result) in layout_results {
-                let _ = gpu_state_manager.update_scrollbar_transforms(
+                drop(gpu_state_manager.update_scrollbar_transforms(
                     *dom_id,
                     scroll_manager,
                     &layout_result.layout_tree,
-                );
+                ));
             }
         }
-        let fade_delay = self.gpu_state_manager.fade_delay.clone();
-        let fade_duration = self.gpu_state_manager.fade_duration.clone();
+        let fade_delay = self.gpu_state_manager.fade_delay;
+        let fade_duration = self.gpu_state_manager.fade_duration;
         let Self {
             ref layout_results,
             ref scroll_manager,
@@ -2899,18 +2904,19 @@ impl LayoutWindow {
             ..
         } = *self;
         for (dom_id, layout_result) in layout_results {
-            let _ = Self::synchronize_scrollbar_opacity(
+            drop(Self::synchronize_scrollbar_opacity(
                 gpu_state_manager,
                 scroll_manager,
                 *dom_id,
                 &layout_result.layout_tree,
                 &system_callbacks,
-                fade_delay.clone(),
-                fade_duration.clone(),
-            );
+                fade_delay,
+                fade_duration,
+            ));
         }
     }
 
+    #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural split
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,
@@ -5498,7 +5504,7 @@ impl LayoutWindow {
         // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
         // the REAL styled content instead of rebuilding with
         // StyleProperties::default() (which stripped all styling).
-        let pre_content_snapshot = content.clone();
+        let pre_content_snapshot = content;
         let post_content_snapshot = new_content.clone();
 
         // Update the text cache with the new inline content
@@ -7229,7 +7235,7 @@ impl LayoutWindow {
                     },
                     affinity: CursorAffinity::Leading,
                 });
-                azul_core::selection::SelectionRange {
+                SelectionRange {
                     start: anchor,
                     end: anchor,
                 }
@@ -7267,7 +7273,7 @@ impl LayoutWindow {
             };
             self.undo_redo_manager.store_content_snapshot(
                 changeset_id,
-                content.clone(),
+                content,
                 new_content.clone(),
             );
             self.undo_redo_manager.record_operation(changeset, pre_state);

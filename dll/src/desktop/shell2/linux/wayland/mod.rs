@@ -3089,6 +3089,7 @@ impl WaylandWindow {
         self.dynamic_selector_context.window_focused = false;
         // MWA-A3b: forward to AT-SPI — accesskit_unix never learns window
         // focus on its own (Orca got no focus events on Wayland).
+        #[cfg(feature = "a11y")]
         self.accessibility_adapter.set_focus(false);
         // Run the state-diff pass so WindowFocusLost callbacks fire and
         // focus-conditional styling restyles (the bare snapshot alone was
@@ -3151,14 +3152,16 @@ impl WaylandWindow {
         self.key_repeat_keycode = Some(keycode);
         let delay = self.key_repeat_delay_ms.max(1) as i64;
         let interval = self.key_repeat_rate_ms.max(1) as i64;
+        // tv_sec/tv_nsec are i32 on 32-bit targets (i686, armv7) — cast via
+        // the libc typedefs; the ms-derived values always fit.
         let spec = libc::itimerspec {
             it_value: libc::timespec {
-                tv_sec: delay / 1000,
-                tv_nsec: (delay % 1000) * 1_000_000,
+                tv_sec: (delay / 1000) as libc::time_t,
+                tv_nsec: ((delay % 1000) * 1_000_000) as libc::c_long,
             },
             it_interval: libc::timespec {
-                tv_sec: interval / 1000,
-                tv_nsec: (interval % 1000) * 1_000_000,
+                tv_sec: (interval / 1000) as libc::time_t,
+                tv_nsec: ((interval % 1000) * 1_000_000) as libc::c_long,
             },
         };
         unsafe {
@@ -3285,6 +3288,7 @@ impl WaylandWindow {
         self.common.current_window_state.window_focused = true;
         self.dynamic_selector_context.window_focused = true;
         // MWA-A3b: mirror of handle_keyboard_leave — forward focus to AT-SPI.
+        #[cfg(feature = "a11y")]
         self.accessibility_adapter.set_focus(true);
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);

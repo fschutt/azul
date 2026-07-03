@@ -46,6 +46,7 @@ use std::collections::BTreeMap;
 
 /// Determine the default action for a keyboard event based on the
 /// current key, focused element, and whether `prevent_default()` was called.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use] pub fn determine_keyboard_default_action(
     keyboard_state: &KeyboardState,
     focused_node: Option<DomNodeId>,

@@ -81,16 +81,18 @@ pub struct GeolocationManager {
     pending_error_event: bool,
 }
 
-/// Error from the native geolocation backend (MWA-A1b). Layout-internal
+/// Error from the native geolocation backend (MWA-A1b).
+///
+/// Layout-internal
 /// (not FFI-exposed) until the `CallbackInfo` getter lands with the Phase C
 /// geolocation item — the `GeolocationError` EVENT carries no payload, so
 /// callbacks poll this via the manager.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LocationError {
-    /// Platform-specific error code (CLError code / GError code / HRESULT).
+    /// Platform-specific error code (`CLError` code / `GError` code / HRESULT).
     pub code: u32,
     /// Human-readable message from the backend.
-    pub message: alloc::string::String,
+    pub message: String,
 }
 
 impl GeolocationManager {
@@ -115,10 +117,9 @@ impl GeolocationManager {
     /// NaN-vs-NaN, which would make every fix look "changed" even
     /// when nothing actually moved.
     pub fn set_latest_fix(&mut self, fix: LocationFix) -> bool {
-        let changed = match self.latest_fix {
-            Some(prev) => !Self::location_fix_bitwise_eq(&prev, &fix),
-            None => true,
-        };
+        let changed = self
+            .latest_fix
+            .is_none_or(|prev| !Self::location_fix_bitwise_eq(&prev, &fix));
         self.latest_fix = Some(fix);
         if changed {
             self.pending_event = true;
@@ -412,7 +413,7 @@ mod tests {
         mgr.set_latest_fix(fix(37.0, -122.0));
         let events = mgr.get_pending_events(ts.clone());
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, azul_core::events::EventType::GeolocationFix);
+        assert_eq!(events[0].event_type, EventType::GeolocationFix);
 
         mgr.clear_pending_event();
         assert!(mgr.get_pending_events(ts.clone()).is_empty(), "cleared after dispatch");
@@ -439,7 +440,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0].event_type,
-            azul_core::events::EventType::GeolocationError
+            EventType::GeolocationError
         );
         mgr.clear_pending_event();
         assert!(mgr.get_pending_events(ts).is_empty());

@@ -631,7 +631,7 @@ mod pump_provider_tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0].event_type,
-            azul_core::events::EventType::PermissionChanged
+            EventType::PermissionChanged
         );
         assert_eq!(events[0].target, node, "targeted at the subscriber node");
 

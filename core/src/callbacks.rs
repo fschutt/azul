@@ -261,8 +261,7 @@ pub struct VirtualViewCallbackInfo {
 /// Trampoline signature for [`VirtualViewCallbackInfo::measure_dom`]:
 /// `(layout_window_ctx, dom, available) -> content extent`. The `Dom` is
 /// passed by pointer and CONSUMED (moved out) by the trampoline.
-pub type MeasureDomFn =
-    extern "C" fn(*mut c_void, *mut crate::dom::Dom, LogicalSize) -> LogicalSize;
+pub type MeasureDomFn = extern "C" fn(*mut c_void, *mut Dom, LogicalSize) -> LogicalSize;
 
 impl Clone for VirtualViewCallbackInfo {
     #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
@@ -338,11 +337,7 @@ impl VirtualViewCallbackInfo {
     /// pass, so cache measured sizes per item template.
     ///
     /// Returns `LogicalSize::zero()` when no measure hook was injected.
-    #[must_use] pub fn measure_dom(
-        &self,
-        dom: crate::dom::Dom,
-        available: LogicalSize,
-    ) -> LogicalSize {
+    #[must_use] pub fn measure_dom(&self, dom: Dom, available: LogicalSize) -> LogicalSize {
         if self.measure_dom_fn.is_null() {
             return LogicalSize::zero();
         }
@@ -350,11 +345,7 @@ impl VirtualViewCallbackInfo {
         // which stores a valid MeasureDomFn.
         let f: MeasureDomFn = unsafe { core::mem::transmute(self.measure_dom_fn) };
         let mut dom = core::mem::ManuallyDrop::new(dom);
-        f(
-            self.measure_dom_ctx,
-            core::ptr::from_mut::<crate::dom::Dom>(&mut dom),
-            available,
-        )
+        f(self.measure_dom_ctx, core::ptr::from_mut::<Dom>(&mut dom), available)
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
