@@ -614,6 +614,30 @@ impl ScrollManager {
         fallback
     }
 
+    /// MWA-B10: the a11y tree's scroll surface for a node — current offset
+    /// plus max travel per axis, or `None` when the node isn't scrollable.
+    /// Screen readers use this (with the ScrollUp/Down/... actions) to
+    /// drive the same inbound handler mouse users exercise.
+    #[must_use] pub fn a11y_scroll_info(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<(LogicalPosition, f32, f32)> {
+        let state = self.states.get(&(dom_id, node_id))?;
+        let effective_width = state
+            .virtual_scroll_size
+            .map_or(state.content_rect.size.width, |s| s.width);
+        let effective_height = state
+            .virtual_scroll_size
+            .map_or(state.content_rect.size.height, |s| s.height);
+        let max_x = (effective_width - state.container_rect.size.width).max(0.0);
+        let max_y = (effective_height - state.container_rect.size.height).max(0.0);
+        if max_x <= 0.0 && max_y <= 0.0 {
+            return None;
+        }
+        Some((state.current_offset, max_x, max_y))
+    }
+
     /// `true` when the node still has travel in the direction of the
     /// normalized delta on at least one moved axis — the boundary-handoff
     /// test for [`select_scroll_target`](Self::select_scroll_target).

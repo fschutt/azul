@@ -89,6 +89,7 @@ impl A11yManager {
     #[must_use] pub fn update_tree(
         root_id: A11yNodeId,
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
+        scroll_manager: &crate::managers::scroll_state::ScrollManager,
         window_title: &AzString,
         window_size: LogicalSize,
         focused_node: Option<DomNodeId>,
@@ -167,6 +168,32 @@ impl A11yManager {
                     }
                     builder
                 };
+
+                // MWA-B10: advertise the scroll surface. The INBOUND handler
+                // (LayoutWindow::process_accessibility_action) has handled
+                // ScrollUp/Down/Left/Right/SetScrollOffset/ScrollIntoView all
+                // along — but the tree never declared any scroll action or
+                // offset, so screen readers had nothing to invoke.
+                if let Some((offset, max_x, max_y)) =
+                    scroll_manager.a11y_scroll_info(*dom_id, NodeId::new(dom_idx))
+                {
+                    node.set_scroll_x(f64::from(offset.x));
+                    node.set_scroll_x_min(0.0);
+                    node.set_scroll_x_max(f64::from(max_x));
+                    node.set_scroll_y(f64::from(offset.y));
+                    node.set_scroll_y_min(0.0);
+                    node.set_scroll_y_max(f64::from(max_y));
+                    node.set_clips_children();
+                    if max_y > 0.0 {
+                        node.add_action(Action::ScrollUp);
+                        node.add_action(Action::ScrollDown);
+                    }
+                    if max_x > 0.0 {
+                        node.add_action(Action::ScrollLeft);
+                        node.add_action(Action::ScrollRight);
+                    }
+                    node.add_action(Action::SetScrollOffset);
+                }
 
                 // Collect child text and promote to this node's label or value.
                 // Only do this when all children are text nodes — if the node has
@@ -336,6 +363,41 @@ impl A11yManager {
     /// Builds an accesskit Node from Azul's `NodeData` and layout information.
     #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// MWA-B10: outbound twin of `map_accesskit_action` — declares a node's
+    /// supported actions in the tree (payload-carrying variants map to their
+    /// action KIND; the payload only exists on inbound requests).
+    fn map_action_to_accesskit(
+        action: &azul_core::a11y::AccessibilityAction,
+    ) -> Option<Action> {
+        use azul_core::a11y::AccessibilityAction as A;
+        Some(match action {
+            A::Default => Action::Click,
+            A::Focus => Action::Focus,
+            A::Blur => Action::Blur,
+            A::Collapse => Action::Collapse,
+            A::Expand => Action::Expand,
+            A::ScrollIntoView => Action::ScrollIntoView,
+            A::Increment => Action::Increment,
+            A::Decrement => Action::Decrement,
+            A::ShowContextMenu => Action::ShowContextMenu,
+            A::HideTooltip => Action::HideTooltip,
+            A::ShowTooltip => Action::ShowTooltip,
+            A::ScrollUp => Action::ScrollUp,
+            A::ScrollDown => Action::ScrollDown,
+            A::ScrollLeft => Action::ScrollLeft,
+            A::ScrollRight => Action::ScrollRight,
+            A::ReplaceSelectedText(_) => Action::ReplaceSelectedText,
+            A::ScrollToPoint(_) => Action::ScrollToPoint,
+            A::SetScrollOffset(_) => Action::SetScrollOffset,
+            A::SetTextSelection(_) => Action::SetTextSelection,
+            A::SetSequentialFocusNavigationStartingPoint => {
+                Action::SetSequentialFocusNavigationStartingPoint
+            }
+            A::SetValue(_) | A::SetNumericValue(_) => Action::SetValue,
+            A::CustomAction(_) => Action::CustomAction,
+        })
+    }
+
     fn build_node(
         node_data: &NodeData,
         layout_node: &LayoutNodeHot,
@@ -405,6 +467,22 @@ impl A11yManager {
                 }
             }
         }
+
+        // MWA-B10: declare user-supplied supported actions — the public
+        // AccessibilityInfo.supported_actions field was never read, so
+        // API-declared actions never reached assistive technology.
+        if let Some(info) = a11y_info {
+            for action in info.supported_actions.as_ref() {
+                if let Some(ak) = Self::map_action_to_accesskit(action) {
+                    builder.add_action(ak);
+                }
+            }
+        }
+
+        // MWA-B10: every content node can be scrolled into view — the
+        // inbound handler implements it; declaring it lets screen readers
+        // use it for navigation.
+        builder.add_action(Action::ScrollIntoView);
 
         // === Heading level ===
         match &node_data.node_type {

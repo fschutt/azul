@@ -3070,6 +3070,7 @@ impl LayoutWindow {
             crate::managers::a11y::A11yManager::update_tree(
                 self.a11y_manager.root_id,
                 &self.layout_results,
+                &self.scroll_manager,
                 &self.current_window_state.title,
                 self.current_window_state.size.dimensions,
                 self.focus_manager.get_focused_node().copied(),
