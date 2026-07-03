@@ -2965,8 +2965,23 @@ unsafe extern "system" fn window_proc(
             // current_window_state.position and adds the frame delta, so if the
             // OS independently moves the window (DPI change, clamping, snap),
             // the position must reflect the actual OS value.
-            let x = (lparam & 0xFFFF) as i16 as i32;
-            let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+            // MWA-C-csd: WM_MOVE's lparam is the CLIENT-area origin, but
+            // sync_window_state positions via SetWindowPos, which takes the
+            // FRAME origin — storing the client origin made the round-trip
+            // drift by the frame border on decorated windows (coincided
+            // only for WS_POPUP). Read the frame rect instead; fall back to
+            // the client origin if the call fails.
+            let (x, y) = {
+                let mut rect = dlopen::RECT { left: 0, top: 0, right: 0, bottom: 0 };
+                if unsafe { (window.win32.user32.GetWindowRect)(hwnd, &mut rect) } != 0 {
+                    (rect.left, rect.top)
+                } else {
+                    (
+                        (lparam & 0xFFFF) as i16 as i32,
+                        ((lparam >> 16) & 0xFFFF) as i16 as i32,
+                    )
+                }
+            };
             let pos = azul_core::window::WindowPosition::Initialized(
                 azul_core::geom::PhysicalPositionI32::new(x, y),
             );

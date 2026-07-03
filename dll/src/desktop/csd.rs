@@ -57,6 +57,13 @@ pub(crate) fn create_titlebar_styled_dom(
 /// 2. `decorations` is set to `None` (frameless window)
 #[inline]
 pub fn should_inject_csd(has_decorations: bool, decorations: WindowDecorations) -> bool {
+    // MWA-C-csd: never inject a DESKTOP titlebar on mobile — iOS/Android
+    // share regenerate_layout, and decorations==None there would otherwise
+    // grow close/min/max buttons and a drag bar that make no sense on a
+    // phone (windows are fullscreen surfaces; the OS owns system chrome).
+    if cfg!(any(target_os = "ios", target_os = "android")) {
+        return false;
+    }
     has_decorations && decorations == WindowDecorations::None
 }
 

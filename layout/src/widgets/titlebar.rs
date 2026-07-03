@@ -539,14 +539,37 @@ pub(crate) mod callbacks {
         // OS-smooth / snap-aware / multi-monitor-correct; the manual
         // per-event position loop below remains for X11/Windows and as the
         // programmatic fallback.
-        let ws = info.get_current_window_state();
+        let ws = info.get_current_window_state().clone();
         let native_move = matches!(ws.position, azul_core::window::WindowPosition::Uninitialized)
             || cfg!(target_os = "macos");
         if native_move {
             info.begin_interactive_move();
+        } else {
+            // MWA-C-csd: reset the fractional-residual accumulator for the
+            // manual move loop (see titlebar_drag).
+            RESIDUAL_X_BITS.store(0f32.to_bits(), core::sync::atomic::Ordering::Relaxed);
+            RESIDUAL_Y_BITS.store(0f32.to_bits(), core::sync::atomic::Ordering::Relaxed);
+            // MWA-C-csd: dragging a maximized window restores it first —
+            // the native paths get this from the OS drag loop, but the
+            // manual loop moved the still-maximized frame around.
+            if ws.flags.frame == azul_core::window::WindowFrame::Maximized {
+                let mut s = ws;
+                s.flags.frame = azul_core::window::WindowFrame::Normal;
+                info.modify_window_state(s);
+            }
         }
         Update::DoNothing
     }
+
+    /// MWA-C-csd: fractional-residual carry for the manual drag loop —
+    /// rounding alone still loses up to half a pixel per event in a
+    /// consistent direction, so very slow trackpad drags crawled. Only one
+    /// interactive drag exists at a time and callbacks run on the UI
+    /// thread; atomics keep this no_std-friendly (f32 stored as bits).
+    static RESIDUAL_X_BITS: core::sync::atomic::AtomicU32 =
+        core::sync::atomic::AtomicU32::new(0);
+    static RESIDUAL_Y_BITS: core::sync::atomic::AtomicU32 =
+        core::sync::atomic::AtomicU32::new(0);
 
     /// Drag — apply incremental screen-space delta to the CURRENT window position.
     ///
@@ -569,14 +592,20 @@ pub(crate) mod callbacks {
         let current_pos = info.get_current_window_state().position;
 
         if let (azul_core::geom::OptionDragDelta::Some(d), WindowPosition::Initialized(pos)) = (delta, current_pos) {
-            // MWA-B9: round, don't truncate — `as i32` swallowed every
-            // sub-pixel delta toward zero, so slow Retina-trackpad drags
-            // stalled entirely. (Full fractional-residual carry is a
-            // MWA-C-gesture follow-up; on macOS interactive drags now take
-            // the native path anyway.)
+            use core::sync::atomic::Ordering;
+            // MWA-C-csd: full fractional-residual carry (upgrades MWA-B9's
+            // round-only fix). Each event applies the integer part of
+            // delta + residual and carries the remainder, so arbitrarily
+            // slow drags advance losslessly.
+            let total_x = d.dx + f32::from_bits(RESIDUAL_X_BITS.load(Ordering::Relaxed));
+            let total_y = d.dy + f32::from_bits(RESIDUAL_Y_BITS.load(Ordering::Relaxed));
+            let apply_x = total_x.round();
+            let apply_y = total_y.round();
+            RESIDUAL_X_BITS.store((total_x - apply_x).to_bits(), Ordering::Relaxed);
+            RESIDUAL_Y_BITS.store((total_y - apply_y).to_bits(), Ordering::Relaxed);
             let new_pos = WindowPosition::Initialized(PhysicalPositionI32::new(
-                pos.x + d.dx.round() as i32,
-                pos.y + d.dy.round() as i32,
+                pos.x + apply_x as i32,
+                pos.y + apply_y as i32,
             ));
             let mut ws = info.get_current_window_state().clone();
             ws.position = new_pos;
