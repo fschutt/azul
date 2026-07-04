@@ -80,6 +80,7 @@
 
 pub mod functions;
 pub mod gomod;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -109,15 +110,26 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let types_src = types::generate(ir, config)?;
     let functions_src = functions::generate(ir, config)?;
     let wrappers_src = wrappers::generate(ir, config)?;
+    let callbacks_src = managed::generate(ir, config)?;
+    let callbacks_export_src = managed::generate_export(ir, config)?;
     let gomod_src = gomod::generate_go_mod();
 
     let mut out = String::with_capacity(
-        azul.len() + types_src.len() + functions_src.len() + wrappers_src.len() + gomod_src.len() + 256,
+        azul.len()
+            + types_src.len()
+            + functions_src.len()
+            + wrappers_src.len()
+            + callbacks_src.len()
+            + callbacks_export_src.len()
+            + gomod_src.len()
+            + 256,
     );
     push_section(&mut out, "azul.go", &azul);
     push_section(&mut out, "types.go", &types_src);
     push_section(&mut out, "functions.go", &functions_src);
     push_section(&mut out, "wrappers.go", &wrappers_src);
+    push_section(&mut out, "callbacks.go", &callbacks_src);
+    push_section(&mut out, "callbacks_export.go", &callbacks_export_src);
     push_section(&mut out, "go.mod", &gomod_src);
     Ok(out)
 }

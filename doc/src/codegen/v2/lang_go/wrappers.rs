@@ -129,7 +129,7 @@ fn emit_header(b: &mut CodeBuilder) {
 // Inclusion filters
 // ============================================================================
 
-fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+pub(crate) fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
     }
@@ -292,7 +292,14 @@ fn emit_static_factory(
     b.line(&header);
     b.indent();
 
-    let call = format!("C.{}({})", f.c_name, call_args);
+    // Functions with a callback-WRAPPER-struct arg (Az<Kind>Callback, per
+    // the host-invoker allowlist) must link the `<c_name>Struct` C-ABI
+    // export: the plain export takes a bare fn pointer (cgo `*[0]byte`),
+    // which is both a compile error for the struct-typed Go param AND
+    // would discard the host-handle ctx. See managed_host_invoker.rs
+    // (`managed_c_symbol`) and the 2026-07-04 triple-export note.
+    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(f);
+    let call = format!("C.{}({})", c_symbol, call_args);
 
     if returns_self {
         b.line(&format!("self := &{}{{ inner: {} }}", go_name, call));
@@ -393,7 +400,11 @@ fn emit_instance_method(
         format!("{}, {}", self_expr, user_call_args)
     };
 
-    let call = format!("C.{}({})", f.c_name, call_args_full);
+    // Same `<c_name>Struct` substitution as emit_static_factory: functions
+    // taking a callback wrapper struct must link the Struct-suffixed
+    // C-ABI export (see managed_host_invoker::managed_c_symbol).
+    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(f);
+    let call = format!("C.{}({})", c_symbol, call_args_full);
 
     if returns_self {
         b.line(&format!(
@@ -404,11 +415,16 @@ fn emit_instance_method(
         // without this, the returned `*Foo` would never have its
         // `_delete` called and the underlying allocation leaks until
         // process exit. Mirrors the `runtime.SetFinalizer(self, …)`
-        // block emit_static_factory uses (lang_go/wrappers.rs:299-306).
-        b.line(&format!(
-            "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
-            go_name
-        ));
+        // block emit_static_factory uses. GATED on has_delete: types
+        // without an `Az<T>_delete` never get a `Close()` method, so an
+        // ungated finalizer here is a hard compile error (`x.Close
+        // undefined`) — ColorU, SvgRect, ScrollIntoViewOptions et al.
+        if has_destructor(&f.class_name, ir) {
+            b.line(&format!(
+                "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
+                go_name
+            ));
+        }
         // If self was consumed by-value, clear its finalizer so the
         // user's deferred `self.Close()` (or the GC's eventual
         // finalizer fire) doesn't double-drop the stale bytes.
