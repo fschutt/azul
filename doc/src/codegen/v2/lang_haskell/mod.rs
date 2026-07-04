@@ -92,7 +92,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let umbrella = generate_umbrella(ir, config)?;
     let ffi = generate_ffi(ir, config)?;
     let types_src = generate_types_module(ir, config)?;
-    let cabal_src = cabal::generate_cabal();
+    let cabal_src = cabal::generate_cabal(&ir.api_version);
     let cshim_src = cshim::generate_c_shims(ir, config);
 
     let mut out = String::with_capacity(

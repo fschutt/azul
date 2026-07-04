@@ -6,11 +6,13 @@ wrappers.
 
 ## Status
 
-🟢 **Codegen-side polished**: Phase H — outbound + inbound shim
-layers, register helpers, Show/Eq routing, Vec→list, Option/Result
-tag-byte, AzString round-trip — all land in the generator. AZ_DEBUG
-full-GUI verification is blocked at the libazul macOS webrender side
-(C.1, same blocker as Pascal/Lisp).
+🟢 **Full GUI counter E2E passing** (2026-07-04): `HelloWorld.hs` is a
+complete counter app (body > div{font-size:32px} > text + "Increase
+counter" button). With `AZ_E2E=tests/e2e/hello_world_counter.json` and
+`AZ_BACKEND=headless` the libazul runner clicks the button and prints
+`test result: ok` — `bash scripts/e2e_language_matrix.sh haskell`
+reports `✓ WORKS`. The former macOS webrender blocker (C.1) was fixed
+libazul-side on 2026-07-03.
 
 ## Requirements
 
@@ -95,7 +97,12 @@ on the trampoline side.
 
 ## Files
 
-- `HelloWorld.hs` — Python-quality smoke test (~64 LOC).
+- `HelloWorld.hs` — full-GUI counter hello-world (~150 LOC). Installs
+  the layout + typed ButtonOnClick trampolines via `mk_<X>_inner` /
+  `set_inner`, keeps app state in a Haskell `IORef` captured by the
+  inner closures, and builds the DOM with the raw `c_Az*_via`
+  out-pointer primitives (see the note in the file header on why the
+  DOM is not round-tripped through `T.Dom` values).
 - `azul-example.cabal` — example executable manifest.
 - `cabal.project` — points at `../azul-haskell/` for the in-tree
   `azul` library package.
@@ -116,14 +123,24 @@ The library lives in `../azul-haskell/`:
   `_trampoline` / `_set_inner` plumbing.
 - `cbits/azul.h` — generated header (copy of `target/codegen/azul.h`).
 
-## Status of full App.run (H.2)
+## Full App.run wiring (H.2 — DONE 2026-07-04)
 
-Splicing the trampoline `FunPtr ()` into `WindowCreateOptions`'s
-nested `window_state.layout_callback` field needs platform-aware
-Storable-offset arithmetic the codegen doesn't carry today (the offset
-depends on the exact field layout of WindowState). The pieces are in
-place; the splice is one focused task once libazul's macOS event-loop
-crash (C.1) clears and the codegen exposes the offset.
+No Storable-offset splice is needed: `AzWindowCreateOptions_create`
+takes the layout callback as its argument, so the example simply pokes
+`p_AzLayoutCallbackType_trampoline` into a `FunPtr`-sized cell and
+calls `c_AzWindowCreateOptions_create_via`. Two rules keep the run
+loop stable:
+
+1. `c_AzApp_run_via` must be a **`safe`** foreign import (patched in
+   the generated `FFI.hs`): libazul re-enters Haskell through the
+   trampolines while `AzApp_run` is on the C side, and call-ins during
+   an `unsafe` call abort/deadlock the GHC RTS. The example executable
+   is also built `-threaded` for robust foreign call-ins.
+2. Aggregate out-buffers are sized from the C ABI (`sizeof()` of
+   `azul.h` structs), not from the Haskell `Storable` instances —
+   tagged-union placeholder sizes in `Types.hs` are estimates and
+   their `peek`/`poke` intentionally `error` out, so `T.Dom` values
+   must never be peeked; build DOM bytes with `_via` calls instead.
 
 ## Recent updates (2026-05-15/16)
 

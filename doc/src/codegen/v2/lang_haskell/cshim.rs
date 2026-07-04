@@ -413,7 +413,26 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
         let c_ty = c_typename(&a.type_name);
         match a.ref_kind {
             ArgRefKind::Owned => {
-                if is_c_primitive(&a.type_name) {
+                if let Some(cbi) = a.callback_info.as_ref().filter(|cbi| {
+                    // The DLL ABI takes the BARE fn pointer (`Az<K>CallbackType`)
+                    // exactly when the api.json arg passes the WRAPPER struct of a
+                    // host-invoker kind (the typed-callback API change rewrote
+                    // those setters). The Haskell side holds the wrapper struct
+                    // (what `Az<K>Callback_createFromHostHandle` returns), so keep
+                    // the struct-pointer parameter and forward its `cb` field.
+                    // NOT rewritten:
+                    //  - typedef-form args (`IconResolverCallbackType`): the plain
+                    //    aggregate path already passes the fn ptr correctly;
+                    //  - non-invoker wrapper structs (`DatasetMergeCallback`): the
+                    //    DLL genuinely takes the struct by value.
+                    a.type_name == cbi.callback_wrapper_name
+                        && super::super::managed_host_invoker::HOST_INVOKER_KINDS
+                            .contains(&cbi.callback_wrapper_name.as_str())
+                }) {
+                    let wrapper = c_typename(&cbi.callback_wrapper_name);
+                    params.push(format!("const {} *{}", wrapper, raw_name));
+                    call_args.push(format!("{}->cb", raw_name));
+                } else if is_c_primitive(&a.type_name) {
                     params.push(format!("{} {}", c_ty, raw_name));
                     call_args.push(raw_name);
                 } else {

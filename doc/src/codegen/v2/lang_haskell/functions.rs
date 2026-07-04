@@ -282,7 +282,15 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         }
     }
 
-    let safety = if function_takes_callback(func, ir) {
+    // `safe` when the call can RE-ENTER Haskell: either a callback typedef
+    // appears in the function's own signature, OR the function invokes
+    // callbacks STORED IN STRUCTS earlier (the event loop / window plumbing).
+    // A Haskell call-in during an `unsafe` foreign call aborts or deadlocks
+    // the GHC RTS — AzApp_run re-entering the layout trampoline was exactly
+    // that failure (2026-07-04). Keep this list in sync with any future
+    // "runs callbacks without taking one" entry points.
+    let reenters_haskell = matches!(func.c_name.as_str(), "AzApp_run" | "AzApp_addWindow");
+    let safety = if function_takes_callback(func, ir) || reenters_haskell {
         "safe"
     } else {
         "unsafe"
