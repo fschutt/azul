@@ -7,14 +7,18 @@
   <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
   <meta name='description' content='CSS rendering reference tests for azul-layout'>
   <link rel='shortcut icon' type='image/x-icon' href='https://azul.rs/ui/favicon.ico'>
-  <link rel='stylesheet' type='text/css' href='https://azul.rs/ui/main.css'>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800;900&family=Rubik:wght@400;500;600;700&display=swap' rel='stylesheet'>
+  <link rel='stylesheet' type='text/css' href='https://azul.rs/azlin.css'>
+  <link rel='stylesheet' type='text/css' href='https://azul.rs/azul-docs.css'>
   <style>
     /* Reftest-specific styles */
     :root {
       --color-pass: #2ecc71;
       --color-warning: #f39c12;
       --color-fail: #e74c3c;
-      --color-primary: #4a6bdf;
+      --color-primary: #004e92;
       --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       --border-radius: 6px;
     }
@@ -313,29 +317,50 @@
     }
   </style>
 </head>
-<body>
-  <div class="center">
-    <aside>
-      <header>
-        <h1 style="display:none;">Azul GUI Framework</h1>
-        <a href="https://azul.rs"><img src="https://azul.rs/logo.svg" alt="Azul Logo" style="width:100px;height:100px;"></a>
-      </header>
-      <nav>
-        <ul class='nav-grid'>
-          <li><a href='https://azul.rs'>overview</a></li>
-          <li><a href='https://azul.rs/ui/releases'>releases</a></li>
-          <li><a href='https://github.com/fschutt/azul'>code</a></li>
-          <li><a href='https://discord.gg/V96ZGKqQvn'>discord</a></li>
-          <li><a href='https://azul.rs/ui/guide'>guide</a></li>
-          <li><a href='https://azul.rs/ui/api'>api</a></li>
-          <li class="active"><a href='https://azul.rs/ui/reftest'>reftests</a></li>
-          <li><a href='https://azul.rs/ui/blog'>blog</a></li>
-          <li><a href='https://azul.rs/ui/donate'>donate</a></li>
-        </ul>
-      </nav>
-    </aside>
-    <main>
-      <h1>azul-layout reftest results</h1>
+<body class="docs">
+  <a href="#main-content" class="skip-to-content">Skip to main content</a>
+  <nav class="navbar" role="navigation" aria-label="Main navigation">
+    <div class="container">
+      <a href="/" class="nav-brand-link" aria-label="Go to homepage">
+        <img src="https://azul.rs/logo.svg" alt="Azul" class="nav-brand-logo">
+      </a>
+      <div class="nav-right">
+        <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" onclick="document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',document.body.classList.contains('nav-open'));"><span></span><span></span><span></span></button>
+        <div class="nav-links" role="menu">
+          <a href="https://azul.rs/ui" role="menuitem">overview</a>
+          <a href="https://azul.rs/ui/releases" role="menuitem">releases</a>
+          <a href="https://github.com/fschutt/azul" role="menuitem">code</a>
+          <a href="https://azul.rs/ui/guide" role="menuitem">guide</a>
+          <a href="https://azul.rs/ui/api" role="menuitem">api</a>
+          <a href="https://azul.rs/ui/reftest" role="menuitem" class="active">reftests</a>
+          <a href="https://azul.rs/ui/blog" role="menuitem">blog</a>
+          <a href="https://azul.rs/ui/donate" role="menuitem">donate</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+  <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
+  <aside class="mobile-menu" aria-label="Mobile navigation">
+    <a href="https://azul.rs/ui">overview</a>
+    <a href="https://azul.rs/ui/releases">releases</a>
+    <a href="https://github.com/fschutt/azul">code</a>
+    <a href="https://azul.rs/ui/guide">guide</a>
+    <a href="https://azul.rs/ui/api">api</a>
+    <a href="https://azul.rs/ui/reftest">reftests</a>
+    <a href="https://azul.rs/ui/blog">blog</a>
+    <a href="https://azul.rs/ui/donate">donate</a>
+  </aside>
+  <main id="main-content" role="main">
+    <section class="docs-hero">
+      <div class="container">
+        <p class="docs-eyebrow">Reftests</p>
+        <h1>CSS reftest results</h1>
+        <p class="docs-lede">azul-layout rendering compared against Chrome, pixel by pixel.</p>
+      </div>
+    </section>
+    <section class="docs-body">
+      <div class="container">
+        <div class="docs-content docs-wide">
 
       <!-- Compact summary bar -->
       <div class="summary-bar">
@@ -369,8 +394,16 @@
       <div class="no-results" id="noResults">
         <p>No tests match the current filter</p>
       </div>
-    </main>
-  </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer role="contentinfo" class="docs-footer">
+    <div class="container">
+      <p>&#169; 2026 Azul &#183; MIT-licensed &#183; <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a> &#183; <a href="https://azul.rs/ui/donate">Donate</a></p>
+    </div>
+  </footer>
+  <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
 
   <!-- Overlay for data viewing -->
   <div class="overlay" id="dataOverlay">
