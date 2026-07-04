@@ -40,17 +40,19 @@ There is no `azul` gem on rubygems.org yet (the name is taken by an unrelated
 project - do not `gem install azul`). Install manually:
 
 ```sh
-gem install ffi          # the FFI runtime
+# --user-install avoids Gem::FilePermissionError on macOS system Ruby;
+# pin 1.15.x if you are on Ruby 2.6 (ffi >= 1.16 may not build there).
+gem install --user-install ffi -v 1.15.5
 # download the native library:
-wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib   # macOS
-wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so      # linux
-# windows: download https://azul.rs/ui/release/0.2.0/azul.dll
+wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
+wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
+# windows: download https://azul.rs/ui/release/$VERSION/azul.dll
 ```
 
 Then drop the generated `azul.rb` binding next to your script and run with `-I.`:
 
 ```sh
-wget https://azul.rs/ui/release/0.2.0/azul.rb
+wget https://azul.rs/ui/release/$VERSION/azul.rb
 ```
 
 ## Simple "Counter" Example
@@ -80,12 +82,9 @@ layout = lambda do |data_ptr, _info|
   m = Azul::RefAny.unwrap(data_ptr)
   next Azul::Dom.create_body if m.nil?
 
-  # CssProperty is a tagged-union without a Ruby wrapper class yet; use the
-  # Native form directly.
-  font_size_px   = Azul::Native.az_style_font_size_px(32.0)
-  font_size_prop = Azul::Native.az_css_property_font_size(font_size_px)
+  # Style a node with a plain CSS string via .with_css.
   label = Azul::Dom.create_div
-    .with_css_property(Azul::CssPropertyWithConditions.simple(font_size_prop))
+    .with_css('font-size: 32px;')
     .with_child(Azul::Dom.create_text(m.counter.to_s))
 
   # Smart .on_click(data, &block) wraps refany + registers internally.
@@ -95,7 +94,7 @@ layout = lambda do |data_ptr, _info|
 
   Azul::Dom.create_body
     .with_child(label)
-    .with_child(Azul::Dom.new(button.dom))
+    .with_child(button.dom)
 end
 
 # Smart factory hides the manual layout_callback splice; .with(opts) recursively
@@ -112,7 +111,7 @@ window = Azul::WindowCreateOptions.create_with_layout(layout).with(
 )
 
 app = Azul::App.create(data, Azul::AppConfig.create)
-app.run(window.ptr)
+app.run(window)
 ```
 
 Four things to notice.
@@ -125,8 +124,9 @@ Four things to notice.
 - **Smart builders.** `WindowCreateOptions.create_with_layout(lambda)` and
   `Button.create(...).on_click(model, fn)` hide the register + splice; `.with(hash)`
   drops the field-drilling boilerplate.
-- **`CssProperty` has no wrapper class yet** — build it via `Azul::Native.az_css_property_*`
-  for now (`Azul::String#to_s`, `Option#to_opt`, `Result#unwrap`, `Vec#to_a` do exist).
+- **Style with CSS strings.** `Dom#with_css('font-size: 32px;')` parses a plain CSS
+  string — no manual property construction needed (`Azul::String#to_s`,
+  `Option#to_opt`, `Result#unwrap`, `Vec#to_a` also exist).
 
 ## Build and run
 
@@ -141,8 +141,10 @@ pictured on the [hello-world landing page](../hello-world.md).
 
 - **`cannot load such file -- azul`** — `azul.rb` isn't on the load path. Run with
   `ruby -I. hello-world.rb`.
-- **`Could not open library 'libazul'`** — the native library isn't on
-  `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`, or not in the working directory.
+- **`Could not open library 'libazul'`** — put `libazul.dylib` / `libazul.so` next
+  to `azul.rb`, or point `AZ_LIB_DIR` at its directory
+  (`AZ_LIB_DIR=. ruby -I. hello-world.rb`). Note that `DYLD_LIBRARY_PATH` does
+  NOT work with macOS system Ruby — SIP strips `DYLD_*` variables.
 - **Counter does not advance** — the lambda yielded `Azul::Update::DoNothing`. Remember
   `next` returns from a block.
 

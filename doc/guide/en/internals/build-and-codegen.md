@@ -68,7 +68,7 @@ The `check_generated_files()` step in the build script refuses to compile when a
 
 ## api.json schema
 
-Top-level shape: `{ "<version>": { "api": { "<module>": { "classes": { "<TypeName>": { ... } }, "functions": { ... } }, ... }, ... } }`. The current version is keyed `"0.2.0"`.
+Top-level shape: `{ "<version>": { "api": { "<module>": { "classes": { "<TypeName>": { ... } }, "functions": { ... } }, ... }, ... } }`. The current version is keyed `"$VERSION"`.
 
 Each class entry carries:
 

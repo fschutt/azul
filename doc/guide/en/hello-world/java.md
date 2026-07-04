@@ -11,8 +11,8 @@ prerequisites: [hello-world]
 tracked_files:
   - api.json
   - examples/java/HelloWorld.java
-last_generated_rev: 39416ebc681c6423bfdefa94dc996f613184ea0b
-generated_at: 2026-05-29T00:00:00Z
+last_generated_rev: dab922c5e869ab3c1ff69a2d7f4af1af19a5c27c
+generated_at: 2026-07-04T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -53,7 +53,7 @@ platforms also do step 1 below so JNA finds the native library):
   <dependency>
     <groupId>rs.azul</groupId>
     <artifactId>azul</artifactId>
-    <version>0.2.0</version>
+    <version>$VERSION</version>
   </dependency>
 </dependencies>
 ```
@@ -62,14 +62,14 @@ Alternatively, install manually. Only JNA itself
 (`net.java.dev.jna:jna:5.14.0`) comes from Maven Central as usual.
 
 1. Download the native library from the
-   [release page](https://azul.rs/ui/release/0.2.0) (`libazul.dylib`
+   [release page](https://azul.rs/ui/release/$VERSION) (`libazul.dylib`
    / `libazul.so` / `azul.dll`) and keep it in your working directory or pass
    `-Djna.library.path=.`.
 2. Download the generated `com.azul` wrapper sources and unpack them into
    your source tree:
 
    ```sh
-   wget https://azul.rs/ui/release/0.2.0/azul-java.zip
+   wget https://azul.rs/ui/release/$VERSION/azul-java.zip
    unzip azul-java.zip -d src/main/java/com/azul/
    ```
 
@@ -92,7 +92,7 @@ public final class HelloWorld {
 
     // Click callback. refanyGet recovers your object from the handle; write the
     // Update value back through the out-pointer.
-    private static final AzulNativeManaged.CallbackInvokerCallback ON_CLICK =
+    private static final AzulNativeManaged.ButtonOnClickCallbackInvokerCallback ON_CLICK =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object m = AzulHostInvoker.refanyGet(dataPtr);
             int result = AzUpdate.DoNothing.value;
@@ -139,26 +139,32 @@ Four things to notice.
   and the same instance is handed back to every callback. Use `instanceof` to guard
   the cast and fall back to `Dom.createBody()` / `AzUpdate.DoNothing` on mismatch.
 - **Typed `LayoutCallback` SAM** — returns a `Dom` directly; the bridge handles the
-  byte-splice into the native out-pointer. Click handlers use
-  `CallbackInvokerCallback` and write the `Update` int via `outPtr.setInt(0, ...)`.
+  byte-splice into the native out-pointer. Click handlers use the event's typed SAM
+  (`ButtonOnClickCallbackInvokerCallback` for `Button.onClick`) and write the
+  `Update` int via `outPtr.setInt(0, ...)`.
 - **Wrapper-class fluent API** — `Dom.createBody().withChild(...)` and
-  `Button.create(label).withButtonType(...).onClick(data, fn).dom()`. `AzString`
+  `Button.create(label).withButtonType(...).onClick(data, fn).dom()`. `AzulString`
   decodes to `java.lang.String` via `.toString()`.
 - **`try (App app = ...)`** releases native memory deterministically — `close()` calls
   the C-side `delete`.
 
 ## Build and run
 
+Use the ready-made Maven project from the repository —
+[`examples/java/pom.xml`](https://github.com/fschutt/azul/blob/master/examples/java/pom.xml)
+— as your project pom. It bundles JNA into the output jar via
+`maven-shade-plugin` and sets `Main-Class: com.azul.HelloWorld` in the
+manifest, so a plain `java -jar` works with no manual classpath:
+
 ```sh
 mvn package
 # macOS — -XstartOnFirstThread is REQUIRED so libazul's NSApplication loop
 # pumps on the JVM main thread.
-DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
-    -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar \
-    com.azul.HelloWorld
+java -XstartOnFirstThread -Djna.library.path=. -jar target/hello-world-1.0.0.jar
 ```
 
-On Linux/Windows drop `-XstartOnFirstThread` and use `LD_LIBRARY_PATH` / `PATH`.
+On Linux/Windows drop `-XstartOnFirstThread`. `-Djna.library.path=.` points
+JNA at the directory holding `libazul.dylib` / `libazul.so` / `azul.dll`.
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md).
 Click the button: the counter increments and the layout callback re-runs.

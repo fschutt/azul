@@ -11,8 +11,8 @@ prerequisites: [hello-world]
 tracked_files:
   - api.json
   - examples/kotlin/HelloWorld.kt
-last_generated_rev: 39416ebc681c6423bfdefa94dc996f613184ea0b
-generated_at: 2026-05-29T00:00:00Z
+last_generated_rev: dab922c5e869ab3c1ff69a2d7f4af1af19a5c27c
+generated_at: 2026-07-04T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -49,22 +49,22 @@ repositories {
 }
 dependencies {
     implementation("net.java.dev.jna:jna:5.14.0")
-    implementation("rs.azul:azul:0.2.0")
+    implementation("rs.azul:azul:$VERSION")
 }
 ```
 
 Alternatively, install manually:
 
 1. Download the native library from the
-   [release page](https://azul.rs/ui/release/0.2.0) (`libazul.dylib`
+   [release page](https://azul.rs/ui/release/$VERSION) (`libazul.dylib`
    / `libazul.so` / `azul.dll`).
 2. Add the generated `Azul.kt` bindings (plus optional Gradle scaffolding)
    to your sources:
 
    ```sh
-   wget https://azul.rs/ui/release/0.2.0/Azul.kt
-   wget https://azul.rs/ui/release/0.2.0/build.gradle.kts
-   wget https://azul.rs/ui/release/0.2.0/settings.gradle.kts
+   wget https://azul.rs/ui/release/$VERSION/Azul.kt
+   wget https://azul.rs/ui/release/$VERSION/build.gradle.kts
+   wget https://azul.rs/ui/release/$VERSION/settings.gradle.kts
    ```
 
 The native library must be discoverable via `-Djna.library.path` /
@@ -82,7 +82,7 @@ class MyDataModel(var counter: Int)
 private val MODEL = MyDataModel(5)
 
 // Click callback: write the Update int through the out-pointer.
-private val onClick = AzulNativeManaged.CallbackInvokerCallback { _, dataPtr, _, outPtr ->
+private val onClick = AzulNativeManaged.ButtonOnClickCallbackInvokerCallback { _, dataPtr, _, outPtr ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
     val result = if (m is MyDataModel) { m.counter += 1; AzUpdate.RefreshDom.value }
                  else AzUpdate.DoNothing.value
@@ -126,8 +126,9 @@ Three things to notice.
   factory hides the host-invoker register + JNA byte-splice. Note the `!!` on the
   nullable `Pointer?` out-pointer before `setInt`.
 - **Fluent wrapper API** — `Dom.createBody().withChild(...)` and
-  `Button.create(...).withButtonType(...).onClick(data, fn).dom()`. `AzString.toString()`
-  decodes UTF-8 into `kotlin.String`.
+  `Button.create(...).withButtonType(...).onClick(data, fn).dom()`. The click
+  handler is the event's typed SAM (`ButtonOnClickCallbackInvokerCallback` for
+  `Button.onClick`). `AzulString.toString()` decodes UTF-8 into `kotlin.String`.
 
 ## Build and run
 
@@ -139,8 +140,17 @@ DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
     -cp hello-world.jar:$JNA_JAR com.azul.HelloWorldKt
 ```
 
-`$JNA_JAR` points at your `jna-5.14.0.jar`. On Linux/Windows drop
+`$JNA_JAR` points at your `jna-5.14.0.jar` (from Maven Central,
+`net.java.dev.jna:jna:5.14.0`). On Linux/Windows drop
 `-XstartOnFirstThread` and use `LD_LIBRARY_PATH` / `PATH`.
+
+Alternatively — and recommended — use the Gradle project from the
+repository's `examples/kotlin/` directory
+([`build.gradle.kts`](https://github.com/fschutt/azul/blob/master/examples/kotlin/build.gradle.kts)):
+`gradle run` pulls JNA from Maven Central, compiles `Azul.kt` +
+`HelloWorld.kt` with daemon caching (the 4 GB compiler heap is preset in
+`gradle.properties`), and wires `jna.library.path` onto the run task for
+you.
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md).
 

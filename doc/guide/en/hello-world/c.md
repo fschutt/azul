@@ -48,16 +48,16 @@ straight from the GitHub release:
 
 ```sh
 # linux - Debian / Ubuntu (installs /usr/include/azul.h + /usr/lib/libazul.so)
-curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul_0.2.0_amd64.deb
-sudo apt install ./azul_0.2.0_amd64.deb
+curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_$VERSION_amd64.deb
+sudo apt install ./azul_$VERSION_amd64.deb
 
 # linux - Fedora / RHEL
-curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul-0.2.0-1.x86_64.rpm
-sudo dnf install ./azul-0.2.0-1.x86_64.rpm
+curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul-$VERSION-1.x86_64.rpm
+sudo dnf install ./azul-$VERSION-1.x86_64.rpm
 ```
 
 ARM64 and other architectures are on the
-[GitHub releases page](https://github.com/fschutt/azul/releases/tag/0.2.0).
+[GitHub releases page](https://github.com/fschutt/azul/releases/tag/$VERSION).
 The `.deb` / `.rpm` installs `libazul.so` plus the `azul.h` header into the
 standard system locations, so a plain `cc hello-world.c -lazul` will pick
 everything up.
@@ -84,18 +84,18 @@ brew install fschutt/azul/azul
 There is currently no Chocolatey package, AUR or Alpine repository. On
 Windows (and for CI on any platform), download the
 header and the library directly from the
-[release page](https://azul.rs/ui/release/0.2.0):
+[release page](https://azul.rs/ui/release/$VERSION):
 
 ```sh
 # header (same file on every platform)
-curl -L -O https://azul.rs/ui/release/0.2.0/azul.h
+curl -L -O https://azul.rs/ui/release/$VERSION/azul.h
 
 # windows (plus azul.lib if you link with MSVC)
-curl.exe -L -O https://azul.rs/ui/release/0.2.0/azul.dll
+curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll
 # linux
-curl -L -O https://azul.rs/ui/release/0.2.0/libazul.so
+curl -L -O https://azul.rs/ui/release/$VERSION/libazul.so
 # macos (Apple Silicon; Intel: libazul.x86_64.dylib)
-curl -L -O https://azul.rs/ui/release/0.2.0/libazul.dylib
+curl -L -O https://azul.rs/ui/release/$VERSION/libazul.dylib
 ```
 
 You then either install both into a system path or pass `-I` and `-L` to the compiler.
@@ -137,7 +137,7 @@ void MyDataModel_destructor(void* m) { }
 // state-hot-reload machinery (requires you to supply toJson /
 // fromJson callbacks).
 AZ_REFLECT(MyDataModel, MyDataModel_destructor);
-// AZ_REFLECT_JSON(MyDataModel, destructor_fn, fromJson, toJson)
+// AZ_REFLECT_JSON(MyDataModel, destructor_fn, toJson, fromJson)
 
 // Forward-declare on_click so layout() can pass it to the button.
 // All UI callbacks share this same signature.
@@ -152,6 +152,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // so we don't use the "RefMut" here.
     MyDataModelRef d = MyDataModelRef_create(&data);
     if (!MyDataModel_downcastRef(&data, &d)) {
+        // _delete is safe even though the downcast failed: it only
+        // releases what _create allocated and skips the borrow-count
+        // decrease when .ptr was never set.
+        MyDataModelRef_delete(&d);
         return AzDom_createBody();
     }
 
@@ -164,7 +168,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // copy the bytes to an owned AzString, since char[20] will
     // go out of scope at the end of this function
     AzString label_text = AzString_copyFromBytes(
-        buffer, 
+        (const uint8_t*)buffer,
         0 /* start */,
         written /* num_bytes to copy */
     );
@@ -192,7 +196,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Final wrapup and return
     AzDom body = AzDom_createBody();
-    AzDom_addChild(&body, label_wrapper);
+    AzDom_addChild(&body, label_dom);
     AzDom_addChild(&body, button_dom);
     return body;
 }
@@ -206,7 +210,9 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     // is already borrowed elsewhere or holds a different type.
     MyDataModelRefMut d = MyDataModelRefMut_create(&data);
     if (!MyDataModel_downcastMut(&data, &d)) {
-        // You could debug here
+        // You could debug here. _delete is safe on this failure
+        // path too - see the note in layout() above.
+        MyDataModelRefMut_delete(&d);
         return AzUpdate_DoNothing;
     }
 
@@ -214,8 +220,10 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     // (thread safe, no other thread has access to this at this point)
     d.ptr->counter += 1;
 
-    // ALWAYS pair _create with _delete before returning. Forgetting
-    // this leaves the RefAny borrowed and the next downcast will fail.
+    // ALWAYS pair _create with _delete before returning - on every
+    // path, including failed downcasts. Forgetting it after a
+    // successful downcast leaves the RefAny borrowed and the next
+    // downcast will fail.
     MyDataModelRefMut_delete(&d);
 
     // RefreshDom now queues a new layout() invocation:
@@ -262,9 +270,9 @@ int main() {
 Five things to notice.
 
 - **`AZ_REFLECT(...)`** — generates the upcast / downcast helpers and a runtime type tag the framework uses to verify casts. The destructor parameter is a function pointer the framework calls when the last `RefAny` referencing your struct is dropped; if your struct owns heap data, free it here. The longer form `AZ_REFLECT_JSON(struct, destructor, toJson, fromJson)` additionally plugs into the state-hot-reload machinery — not needed for hello-world.
-- **`FooRef_create` / `FooRef_delete`** — every downcast must be paired with a delete before the function returns. This is the C version of Rust's `RefMut` going out of scope: it releases the runtime borrow on this RefAny instance.
+- **`FooRef_create` / `FooRef_delete`** — every `_create` must be paired with a `_delete` before the function returns, on the success *and* the failure path. `_delete` is failure-safe: if the downcast never succeeded (`.ptr` is still `0`), it only releases the bookkeeping that `_create` allocated and does not touch the borrow count. After a successful downcast it is the C version of Rust's `RefMut` going out of scope: it releases the runtime borrow on this RefAny instance.
 - **`AzRefAny_clone`** — bumps the reference count, does not deep-copy your struct. The second `RefAny` is moved into the button so the click handler can downcast it later. Cloning is thread-safe (refcount is atomic).
-- **`AzString_fromConstStr` vs `AzString_copyFromBytes`** — strings cross the FFI as length-prefixed UTF-8 buffers, not `const char*`. For compile-time string literals, `AzString_fromConstStr` (wrapped in our `AZ_CONST_STR` macro) is a zero-allocation designated initializer: the resulting `AzString` just points at `.rodata` and carries a `NoDestructor` so the framework will not try to free it. For runtime-built strings (e.g. the counter `snprintf`'d into a stack buffer above), use `AzString_copyFromBytes` instead — it copies the bytes into a refcounted heap buffer so the framework can outlive your stack frame.
+- **`AzString_fromConstStr` vs `AzString_copyFromBytes`** — strings cross the FFI as length-prefixed UTF-8 buffers, not `const char*`. For compile-time string literals, `AzString_fromConstStr` (wrapped in our `AZ_CONST_STR` macro) is a zero-allocation designated initializer: the resulting `AzString` just points at `.rodata` and carries a `NoDestructor` so the framework will not try to free it. For runtime-built strings (e.g. the counter `snprintf`'d into a stack buffer above), use `AzString_copyFromBytes` instead — it copies the bytes into a refcounted heap buffer so the framework can outlive your stack frame. For NUL-terminated runtime strings, `azul.h` also ships the shorthand `AZ_STR(s)`, which expands to `AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))`.
 - **`AzDom_setCss("...")`** — accepts a CSS string, the C analogue of Rust's `set_css`. Multi-property strings are valid: `"font-size: 50px; color: white;"`. You can also embed `:hover { }`, `:focus { }`, `@media ... { }`, `@os(macos >= sonoma) { }` dynamic queries directly inline — in difference to regular CSS. The string is parsed once on the first cascade and cached, so this is not a per-frame cost. (For programmatic, type-safe access without a CSS string round-trip, use `AzDom_addCssProperty` with the `AzCssProperty_*` constructors instead.)
 
 Things we did not use that you may want to explore next.

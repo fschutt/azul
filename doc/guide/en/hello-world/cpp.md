@@ -53,12 +53,12 @@ Fedora/RHEL, install the prebuilt package from the GitHub release
 
 ```sh
 # linux - Debian / Ubuntu
-curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul_0.2.0_amd64.deb
-sudo apt install ./azul_0.2.0_amd64.deb
+curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_$VERSION_amd64.deb
+sudo apt install ./azul_$VERSION_amd64.deb
 
 # linux - Fedora / RHEL
-curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul-0.2.0-1.x86_64.rpm
-sudo dnf install ./azul-0.2.0-1.x86_64.rpm
+curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul-$VERSION-1.x86_64.rpm
+sudo dnf install ./azul-$VERSION-1.x86_64.rpm
 ```
 
 Instead of downloading the `.deb` manually, Debian/Ubuntu users can also
@@ -83,19 +83,22 @@ brew install fschutt/azul/azul
 There is currently no Chocolatey package, AUR or Alpine repository. On
 Windows (and for CI on any platform), download the
 C++ wrapper header and the library directly from the
-[release page](https://azul.rs/ui/release/0.2.0):
+[release page](https://azul.rs/ui/release/$VERSION):
 
 ```sh
 # wrapper for the C++ standard you target
-curl -L -O https://azul.rs/ui/release/0.2.0/azul17.hpp
+curl -L -O https://azul.rs/ui/release/$VERSION/azul17.hpp
 # also: azul03.hpp, azul11.hpp, azul14.hpp, azul20.hpp, azul23.hpp
 
+# the C header - every azul<NN>.hpp does #include "azul.h"
+curl -L -O https://azul.rs/ui/release/$VERSION/azul.h
+
 # windows (plus azul.lib if you link with MSVC)
-curl.exe -L -O https://azul.rs/ui/release/0.2.0/azul.dll
+curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll
 # linux
-curl -L -O https://azul.rs/ui/release/0.2.0/libazul.so
+curl -L -O https://azul.rs/ui/release/$VERSION/libazul.so
 # macos (Apple Silicon; Intel: libazul.x86_64.dylib)
-curl -L -O https://azul.rs/ui/release/0.2.0/libazul.dylib
+curl -L -O https://azul.rs/ui/release/$VERSION/libazul.dylib
 ```
 
 You then either install both into a system path or pass `-I` and `-L` to the compiler.
@@ -177,55 +180,60 @@ struct MyDataModel {
     // OptionXxx wrappers convert implicitly to std::optional<Inner>, so a
     // model field that nullably caches a parsed URL keeps its source-of-
     // truth shape while the rest of the app reads it as std::optional.
-    std::optional<AzUrl> last_url;
+    std::optional<Url> last_url;
 };
 
 // Callback signatures take the raw C types because the framework
-// dispatches through C function pointers. Inside the body we use
-// `azul::downcast_ref<T>` and `azul::downcast_mut<T>` directly on the
-// parameter, so there's no need to wrap.
+// dispatches through C function pointers. The framework hands every
+// callback an OWNED AzRefAny (a refcount+1 clone), so the first thing
+// the body does is adopt it into the RAII `RefAny` wrapper - the
+// wrapper's destructor releases that reference when the callback
+// returns. (Calling the free `azul::downcast_ref<T>(data)` on the raw
+// parameter without adopting it would leak one strong reference per
+// invocation.)
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 // f(DataModel) -> Dom. Runs once on startup and again after every
 // callback that returns Update::RefreshDom.
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
-    // Free-function downcast: works directly on the AzRefAny parameter.
-    // Returns const T* (or nullptr on type mismatch). Per-type identity
-    // is derived from the address of a template-instantiated static, so
-    // the compiler stamps a unique tag per T at link time. No
-    // AZ_REFLECT macro, no per-type registration.
-    auto* d = downcast_ref<MyDataModel>(data);
+    // Adopt the owned reference; ~RefAny drops it on return.
+    RefAny data_wrapper(data);
+
+    // Member downcast: returns const T* (or nullptr on type mismatch).
+    // Per-type identity is derived from the address of a template-
+    // instantiated static, so the compiler stamps a unique tag per T at
+    // link time. No AZ_REFLECT macro, no per-type registration.
+    auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return Dom::create_body();
 
     // To pass the data to the button's click handler we clone the
-    // underlying ref. AzRefAny_clone bumps the refcount; the clone is
-    // owned by whoever consumes it (the button's RefAny parameter).
-    AzRefAny on_click_data = AzRefAny_clone(&data);
-
+    // wrapper. clone() bumps the refcount; the clone is owned by the
+    // button and released when the button's DOM node is destroyed.
+    //
     // String-taking methods gained std::string_view overloads in C++17,
     // so "..."sv literals flow straight in. .with_* methods consume
     // *this and return a new value, so chain them inline. The Dom's
     // r-value `operator AzDom()` does the C-ABI conversion implicitly
     // on return, so no `.release()` is needed.
     return Dom::create_body()
-        .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_css("font-size: 50px;"sv))
+        .with_child(Dom::create_div()
+            .with_css("font-size: 32px;"sv)
+            .with_child(Dom::create_text(String(std::to_string(d->counter).c_str()))))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
-            .with_on_click(RefAny(on_click_data), on_click)
-            .dom())
-        .with_component_css(Css::empty());
+            .with_on_click(data_wrapper.clone(), on_click)
+            .dom());
 }
 
 // Definition of the click callback forward-declared above. The framework
 // invokes this through a C function pointer when the button's hit-test
 // matches a MouseUp event.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
-    // downcast_mut is the mutable counterpart. Borrow tracking is
-    // identical. nullptr means either the type doesn't match or the
-    // RefAny is already borrowed elsewhere.
-    auto* d = downcast_mut<MyDataModel>(data);
+    // Adopt the owned reference here too, then use downcast_mut - the
+    // mutable counterpart. nullptr means the type tag doesn't match.
+    RefAny data_wrapper(data);
+    auto* d = data_wrapper.downcast_mut<MyDataModel>();
     if (!d) return AzUpdate_DoNothing;
 
     d->counter += 1;
@@ -281,15 +289,15 @@ int main() {
 
 Seven things to notice.
 
-- **Why `Az*` prefixes appear at all** — most types are exposed as wrapper *classes* (`RefAny`, `Dom`, `App`) for RAII. Function-pointer typedefs like `AzCallbackType` are fixed to the raw C structs by the framework, so the callback signature has to spell out `AzRefAny` and `AzCallbackInfo`. Inside the body you can use the C++ surface freely. Simple enums (`AzUpdate`, `AzMouseCursorType`, …) are aliased via `using Update = AzUpdate;` so you can drop the prefix on those.
-- **`azul::downcast_ref<T>` / `azul::downcast_mut<T>` work directly on `AzRefAny`** — free function templates that take the C struct by reference and return `const T*` / `T*` (or nullptr on type mismatch). Same generic identity scheme as `RefAny::create<T>`. Use these inside callback bodies so you don't have to wrap the parameter just to downcast it.
-- **The `RefAny` wrapper class is still useful** — when you need RAII auto-cleanup (the framework hands the callback an owned reference; the destructor decrements the refcount) or when you want the chainable `RefAny::create<T>(model)` factory and `data.clone()` builder. Construct it from a raw `AzRefAny` only when you actually want to take ownership.
+- **Why `Az*` prefixes appear at all** — most types are exposed as wrapper *classes* (`RefAny`, `Dom`, `App`) for RAII. Function-pointer typedefs like `AzCallbackType` are fixed to the raw C structs by the framework, so the callback signature has to spell out `AzRefAny` and `AzCallbackInfo`. Inside the body you can use the C++ surface freely. Simple enums (`AzUpdate`, `AzMouseCursorType`, …) are aliased via `using Update = AzUpdate;` so you can drop the prefix on the *type* — the enum *constants* are plain C enumerators and keep their C spelling (`AzUpdate_RefreshDom`, `AzButtonType_Primary`).
+- **Adopt the callback's `AzRefAny` parameter into `RefAny`** — the framework hands every callback an *owned* reference (a refcount+1 clone), and the wrapper's destructor is what releases it when the callback returns. The free `azul::downcast_ref<T>` / `azul::downcast_mut<T>` function templates also work directly on the C struct (same generic identity scheme as `RefAny::create<T>`, nullptr on type mismatch), but they only *read* — using them on the raw parameter without adopting it (or manually calling `AzRefAny_delete(&data)` before returning) leaks one strong reference per invocation. Reserve them for `AzRefAny` values that something else owns.
+- **The `RefAny` wrapper class is the ownership tool** — RAII auto-cleanup (the framework hands the callback an owned reference; the destructor decrements the refcount), the chainable `RefAny::create<T>(model)` factory, and the `data_wrapper.clone()` builder for handing a new strong reference to a widget. Construct it from a raw `AzRefAny` only when you actually want to take ownership.
 - **No `AZ_REFLECT` line for C++11+** — `RefAny::create<T>` / `refany.downcast_ref<T>()` / `refany.downcast_mut<T>()` are template members on `RefAny`. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT(StructName)` macro is still emitted in `azul03.hpp` for C++03 compatibility (no template member functions there).
 - **RAII over manual `_delete`** — there's no explicit pairing with `_delete` like in C, which removes a whole class of bugs.
 - **C-ABI return is implicit** — every wrapper class has an r-value `operator AzInner()` that yields the underlying C struct and zeros the wrapper. So `return Dom::create_body();` from a callback whose signature is `AzDom layout(...)` works without an explicit `.release()`. The conversion only fires on r-values (return values, `std::move`'d locals); l-values still need an explicit `.release()` if you want to hand the C struct to a function pointer outside the return statement. Inside C++, transfer ownership with `std::move` as usual: `App::create(std::move(data), ...)`, `app.run(std::move(window))`.
 - **`.with_*` builder methods consume `*this`** — they return a new value rather than mutating in place. Chain them inline; they do not allocate beyond what the underlying `Az*_set*` would. The corresponding `set_*` methods (e.g. `Button::set_on_click`) mutate in place if you prefer that style.
 - **`std::move` for ownership transfer** — `App::run(std::move(window))`, `App::create(std::move(data), ...)`. A copy would leave you with two handles competing to free the same memory; if there's a debug build you'll get a double-free at exit. Modern compilers warn when a value is implicitly copied where a move was wanted.
-- **`std::string_view` flows in** — `Button::create("Increase counter"sv)` and `with_css("font-size: 50px;"sv)` use the C++17 sv-literal directly. The codegen emits sibling `(std::string_view)` overloads on every method whose original signature took a `String`, so there is no `String("...")` wrapping step.
+- **`std::string_view` flows in** — `Button::create("Increase counter"sv)` and `with_css("font-size: 32px;"sv)` use the C++17 sv-literal directly. The codegen emits sibling `(std::string_view)` overloads on every method whose original signature took a `String`, so there is no `String("...")` wrapping step.
 
 Things we did not use that you may want to explore next.
 
@@ -369,7 +377,7 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 - **Linker error: `undefined reference to AzApp_create`** — the dynamic library is not linked. Add `-lazul` and confirm the rpath (`-Wl,-rpath,/path/to/azul-lib` on Linux, `@executable_path/.` on macOS, place `azul.dll` next to the `.exe` on Windows).
 - **Counter does not update on click** — the click callback returned `AzUpdate_DoNothing`, or the downcast silently returned `nullptr`. Verify with an `assert(d != nullptr)` or a print before the increment.
 - **The window opens blank** — the layout callback returned an empty body, or you forgot a `.with_child(...)` somewhere in the chain.
-- **`error: 'auto' not allowed`** — you are compiling with `-std=c++03`. Either upgrade to `c++11`, or use the `azul03.hpp` example template, which goes through the `AZ_REFLECT(StructName)` macro and the raw `Az*` types directly.
+- **`error: 'auto' not allowed`** — you are compiling with `-std=c++03`. Either upgrade to `c++11`, or use the `azul03.hpp` example template: the same wrapper classes (`Dom`, `Button`, `App`, …) work there too — only the template-based reflection is missing, so reflection goes through the `AZ_REFLECT(StructName)` macro instead.
 - **`no member named 'create_p_with_text' in 'azul::Dom'`** — you copied an old example that used `Dom::p` or `Dom::body`, or a pre-rename one that used `Dom::create_p_with_text`. The actual codegen surface uses the api.json names verbatim: `Dom::create_body()` / `Dom::create_p_with_text(...)` / `Dom::create_h1_with_text(...)` / `Dom::with_css(...)`.
 
 

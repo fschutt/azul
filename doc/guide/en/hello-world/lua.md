@@ -39,13 +39,13 @@ You need **LuaJIT 2.1+** (vanilla Lua has no `ffi`) and the native `libazul` lib
 There is no LuaRocks package yet - install manually:
 
 1. Download the native library from the
-   [release page](https://azul.rs/ui/release/0.2.0) (`libazul.dylib`
+   [release page](https://azul.rs/ui/release/$VERSION) (`libazul.dylib`
    / `libazul.so` / `azul.dll`).
 2. Put the generated `azul.lua` next to `hello-world.lua`, or point
    `LUA_PATH` at it:
 
    ```sh
-   wget https://azul.rs/ui/release/0.2.0/azul.lua
+   wget https://azul.rs/ui/release/$VERSION/azul.lua
    ```
 
    (It is also produced by `cargo run --bin azul-doc -- codegen all` into

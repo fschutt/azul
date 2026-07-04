@@ -86,7 +86,7 @@ links against it:
   `lib/<abi>/` (e.g. `lib/arm64-v8a/`); on iOS, embed `libazul.dylib` in
   `MyApp.app/Frameworks/` and set the app binary's rpath to
   `@executable_path/Frameworks`. CI publishes a `libazul` per mobile target on
-  the [release page](https://azul.rs/ui/release/0.2.0) for download. Your app can be C, Rust, or any
+  the [release page](https://azul.rs/ui/release/$VERSION) for download. Your app can be C, Rust, or any
   binding — a C `hello-world.c` links `libazul` and calls `AzApp_create` /
   `AzApp_run` exactly as on desktop. On iOS the app binary **and** the embedded
   `libazul.dylib` must both be code-signed.
@@ -280,7 +280,7 @@ or even a Mac:
 ## Installing & debugging the built app
 
 You don't have to build anything to try the demos — every example is published
-per-OS on the [release page](https://azul.rs/ui/release/0.2.0) (Demos section): a `.apk` for Android, a
+per-OS on the [release page](https://azul.rs/ui/release/$VERSION) (Demos section): a `.apk` for Android, a
 device `.app` and a Simulator `.app` for iOS. To install a build (yours or a
 downloaded one):
 

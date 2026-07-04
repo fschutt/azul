@@ -28,8 +28,10 @@ default-search-keys:
 
 The JavaScript binding loads the prebuilt `libazul` native library via
 [koffi](https://koffi.dev/) on Node, `bun:ffi` on Bun, and `Deno.UnsafeCallback` on
-Deno — the same `azul.js` covers all three runtimes. You write ordinary JS: a plain
-object, a function per callback, and the smart `createWithLayout` factory.
+Deno. **Node.js is the verified runtime**; the same `azul.js` also detects Bun and
+Deno, but those paths are experimental (callback return values are not yet written
+back to native memory there). You write ordinary JS: a plain object, a function per
+callback, and the smart `createWithLayout` factory.
 
 ## Installation
 
@@ -42,15 +44,15 @@ unrelated project - do not `npm install azul`). Install manually:
 ```sh
 npm install koffi
 # download the native library into the working dir:
-wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib   # macOS
-wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so      # linux
-# windows: download https://azul.rs/ui/release/0.2.0/azul.dll
+wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
+wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
+# windows: download https://azul.rs/ui/release/$VERSION/azul.dll
 ```
 
 Then drop the generated `azul.js` binding next to your script:
 
 ```sh
-wget https://azul.rs/ui/release/0.2.0/azul.js
+wget https://azul.rs/ui/release/$VERSION/azul.js
 ```
 
 ## Simple "Counter" Example
@@ -138,16 +140,27 @@ bun  run hello-world.js
 deno run --allow-ffi --unstable-ffi hello-world.js
 ```
 
-The native library must be in the working directory or on `DYLD_LIBRARY_PATH` /
-`LD_LIBRARY_PATH` / `PATH`. You should see the window pictured on the
-[hello-world landing page](../hello-world.md).
+`azul.js` looks for the native library (`libazul.dylib` / `libazul.so` /
+`azul.dll`) in this order:
+
+1. `$AZ_LIB` — explicit path to the library *file* (overrides everything),
+2. the directory containing `azul.js` itself,
+3. `$AZ_LIB_DIR` — directory containing the library,
+4. the current working directory,
+5. the system loader search path (`DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` / `PATH`).
+
+With the download steps above (library and `azul.js` in the same directory) it is
+found automatically — no environment variables needed. You should see the window
+pictured on the [hello-world landing page](../hello-world.md).
 
 ## Common errors
 
 - **`Cannot find module './azul.js'`** — run from the directory containing `azul.js`,
   or fix the `require` path.
-- **koffi fails to load `libazul`** — the native library isn't discoverable; put it in
-  the working dir or set the loader path.
+- **koffi fails to load `libazul`** — the native library isn't in any of the
+  locations listed under "Build and run"; the simplest fix is to put
+  `libazul.dylib` / `libazul.so` / `azul.dll` next to `azul.js`, or point
+  `AZ_LIB_DIR` at the directory that contains it (or `AZ_LIB` at the file itself).
 - **Process aborts on click with no stack** — a callback threw; the
   `uncaughtException` logger surfaces it. Counter not advancing usually means you
   returned `Update.DoNothing`.

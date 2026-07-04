@@ -34,34 +34,39 @@ returns a `Dom` — and the generated `Azul.cs` handles the marshalling. No
 
 ## Installation
 
-You need **.NET 8+** and the native `libazul` library for your platform.
+You need the **.NET 10 SDK** and the native `libazul` library for your platform.
+(The example project `examples/csharp/Hello.csproj` and the downloadable
+`Azul.csproj` both target `net10.0`.)
 
 There is no NuGet package yet (neither on nuget.org nor on a custom feed) - 
 install manually:
 
 1. Download the native library for your OS from the
-   [release page](https://azul.rs/ui/release/0.2.0) and
+   [release page](https://azul.rs/ui/release/$VERSION) and
    keep it next to your binary (or on the loader path):
 
    ```sh
    # macOS (Apple Silicon; Intel: libazul.x86_64.dylib)
-   wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib
+   wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib
    # linux
-   wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so
+   wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so
    # windows
-   # download https://azul.rs/ui/release/0.2.0/azul.dll
+   # download https://azul.rs/ui/release/$VERSION/azul.dll
    ```
 
 2. Add the generated `Azul.cs` bindings to your project:
 
    ```sh
-   wget https://azul.rs/ui/release/0.2.0/Azul.cs
+   wget https://azul.rs/ui/release/$VERSION/Azul.cs
    # optional project scaffold:
-   wget https://azul.rs/ui/release/0.2.0/Azul.csproj
+   wget https://azul.rs/ui/release/$VERSION/Azul.csproj
    ```
 
-The native library must be discoverable at runtime via `DYLD_LIBRARY_PATH` (macOS),
-`LD_LIBRARY_PATH` (Linux), or `PATH` (Windows).
+That's it for library discovery: the generated `Azul.cs` installs a
+`DllImportResolver` that probes the app's base directory and the current
+working directory for `libazul.dylib` / `libazul.so` / `azul.dll`, so keeping
+the native library next to your project (step 1) is sufficient — no
+`DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` setup needed for `dotnet run`.
 
 ## Simple "Counter" Example
 
@@ -144,11 +149,8 @@ Four things to notice.
 ## Build and run
 
 ```sh
-# macOS
-DYLD_LIBRARY_PATH=. dotnet run
-# linux
-LD_LIBRARY_PATH=. dotnet run
-# windows (azul.dll on PATH or in the working dir)
+# all platforms — the native library sits next to the project (step 1),
+# and the generated DllImportResolver finds it there
 dotnet run
 ```
 
@@ -159,8 +161,10 @@ value renders.
 ## Common errors
 
 - **`DllNotFoundException` / `Unable to load shared library 'azul'`** — the native
-  library isn't on the loader path. Set `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`, or
-  put `azul.dll` next to the executable on Windows.
+  library wasn't found. Put `libazul.dylib` / `libazul.so` / `azul.dll` in the
+  project directory (or next to the published executable); the generated resolver
+  probes both. `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` also work as a fallback for
+  non-standard layouts, but note macOS strips `DYLD_*` in some launch paths (SIP).
 - **Counter does not advance** — `OnClick` returned `(int)AzUpdate.DoNothing`. Return
   `(int)AzUpdate.RefreshDom` after mutating.
 - **`RefanyGet(...) as MyDataModel` is null** — the handle holds a different type, or

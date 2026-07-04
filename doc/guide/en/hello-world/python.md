@@ -57,16 +57,16 @@ the manual download below.
 ### Manual download
 
 Download the prebuilt extension module for 
-your platform from the [release page](https://azul.rs/ui/release/0.2.0) and put 
+your platform from the [release page](https://azul.rs/ui/release/$VERSION) and put 
 it next to your script:
 
 ```sh
 # macOS
-curl -L -o azul.so https://azul.rs/ui/release/0.2.0/azul.so
+curl -L -o azul.so https://azul.rs/ui/release/$VERSION/azul.so
 # linux
-curl -L -o azul.so https://azul.rs/ui/release/0.2.0/azul.cpython.so
+curl -L -o azul.so https://azul.rs/ui/release/$VERSION/azul.cpython.so
 # windows
-curl.exe -L -O https://azul.rs/ui/release/0.2.0/azul.pyd
+curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.pyd
 ```
 
 The module bundles the prebuilt native library, so there are no further system 
@@ -88,34 +88,39 @@ class DataModel:
     def __init__(self, counter):
         self.counter = counter
 
-# Layout callback: f(DataModel) -> Dom. Runs once on startup and again
-# after every callback that returns Update.RefreshDom.
-def layout(data, layoutcallbackinfo):
+# Layout callback: f(DataModel, LayoutCallbackInfo) -> Dom. Runs once on
+# startup and again after every callback that returns Update.RefreshDom.
+def layout(data, info):
 
-    # Rendered counter label. p_with_text wraps the text node in a <p>;
-    # .with_css(...) is the builder counterpart of set_css(...) - it
-    # consumes self and returns a new Dom, so we can chain inline.
-    label_dom = (Dom.p_with_text(str(data.counter))
-                 .with_css("font-size: 50px;"))
+    # Rendered counter label: a text node wrapped in a styled div.
+    # .with_css(...) consumes self and returns a new Dom, so builder
+    # calls chain inline.
+    label = (Dom.create_div()
+             .with_child(Dom.create_text(str(data.counter)))
+             .with_css("font-size: 32px;"))
 
-    # Button widget: custom widget from the "azul.widgets" module
-    button = Button.create("Increase counter")
-    button.set_on_click(data, on_click)
-    button_dom = button.dom()
+    # Button widget with a click handler. Everything lives in the flat
+    # `azul` module; with_on_click(data, callback) registers the handler
+    # and .dom() turns the widget into a Dom node.
+    button = (Button.create("Increase counter")
+              .with_on_click(data, on_click)
+              .dom()
+              .with_css("flex-grow: 1;"))
 
     # Final wrapup - Dom.create_body builds the root, then .with_child(...)
-    # appends children. Mutating set_/add_ methods are also available; the
-    # builder form just chains nicer.
+    # appends children. Builder methods return a NEW Dom - keep chaining
+    # (or re-assign the result); they do not mutate in place.
     return (Dom.create_body()
-            .with_child(label_dom)
-            .with_child(button_dom))
+            .with_child(label)
+            .with_child(button))
 
-# Click callback: f(DataModel) -> Update. 'data' is the same Python
-# instance you passed to App.create, it is mutated in place (thread safe).
-# Update variants in Python are constructor calls, hence the trailing ().
+# Click callback: f(DataModel, CallbackInfo) -> Update. 'data' is the same
+# Python instance you passed to App.create, it is mutated in place (thread
+# safe). Update variants are plain class attributes - no parentheses:
+# return Update.RefreshDom.
 def on_click(data, info):
     data.counter += 1
-    return Update.RefreshDom()
+    return Update.RefreshDom
 
 # main function
 if __name__ == "__main__":
@@ -126,9 +131,6 @@ if __name__ == "__main__":
     # Configure the window. layout is the "/" default route; SPA-style
     # routing is done later by swapping the layout callback.
     window = WindowCreateOptions.create(layout)
-    window.window_state.title = "Hello World!"
-    window.window_state.size.dimensions.width = 400.0
-    window.window_state.size.dimensions.height = 300.0
 
     # AppConfig discovers system-native styling, monitor layout, etc.
     # App.run blocks until the last window closes.
@@ -145,7 +147,7 @@ Three things to notice.
 Things we did not use that you may want to explore next.
 
 - The `info` argument — read-only access to the system font cache, image cache, GL context, current window size, routing, and localization dictionaries in `layout`; lots of mutation helpers in `on_click` (DOM navigation, CSS overrides without rebuilding, computed-layout queries).
-- `WindowCreateOptions` — title, size, decorations, transparency, monitor pinning. Covered in [windowing](../windowing.md).
+- `WindowCreateOptions` — the Python binding currently exposes only `WindowCreateOptions.create(layout)`; setting the window title, size, decorations etc. from Python is not wrapped yet. The underlying options are covered in [windowing](../windowing.md).
 
 ## Run it
 
@@ -194,6 +196,7 @@ import azul
 ## Common errors
 
 - **`ModuleNotFoundError: No module named 'azul'`** — the downloaded `azul.so` / `azul.pyd` is not in the directory you are running from (or on `sys.path`). Run `python3` from the directory containing the file, or prepend that path to `sys.path`.
+- **Blank window / dead button** — a callback raised an exception. The binding prints the Python traceback to stderr and falls back to a default return value (an empty `Dom` for `layout`, `DoNothing` for event callbacks), so check the terminal you started the app from.
 - **Counter does not advance** — the click callback returned `Update.DoNothing`, or it implicitly returned `None` (which the binding treats as `DoNothing`). Always end a mutating handler with `return Update.RefreshDom`.
 - **`TypeError: layout() takes 0 positional arguments but 2 were given`** — your callback signature is wrong. `layout` and click handlers must accept exactly `(data, info)`.
 - **Mutation isn't sticking** — you mutated a *copy* of the model instead of the instance bound to the framework. The binding always passes the same instance back; check that you are not shadowing `data` with a fresh `DataModel(...)` somewhere inside the callback.

@@ -46,7 +46,7 @@ The generated files land under `target/codegen/`. Nothing in that directory is c
 
 ## Anatomy of api.json
 
-The file is a top-level map of version strings (`"0.2.0"`, …) to version data. Within a version the relevant keys are:
+The file is a top-level map of version strings (`"$VERSION"`, …) to version data. Within a version the relevant keys are:
 
 - `apiversion` — integer, bumped when the FFI ABI breaks.
 - `git` — short SHA pinned to that release.

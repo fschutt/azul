@@ -43,19 +43,24 @@ There is no opam package yet - install manually:
 ```sh
 opam install ctypes ctypes-foreign
 # download the native library into the project dir:
-wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib   # macOS
-wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so      # linux
+wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
+wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
 ```
 
 Add the generated `azul.ml` / `azul.mli` (plus optional dune scaffolding) to
 your dune project:
 
 ```sh
-wget https://azul.rs/ui/release/0.2.0/azul.ml
-wget https://azul.rs/ui/release/0.2.0/azul.mli
-wget https://azul.rs/ui/release/0.2.0/dune
-wget https://azul.rs/ui/release/0.2.0/dune-project
+wget https://azul.rs/ui/release/$VERSION/azul.ml
+wget https://azul.rs/ui/release/$VERSION/azul.mli
+wget https://azul.rs/ui/release/$VERSION/dune
+wget https://azul.rs/ui/release/$VERSION/dune-project
 ```
+
+Then save the counter example below as `hello_world.ml` next to the
+downloaded files, and uncomment the `(executable ...)` stanza at the
+bottom of the downloaded `dune` file so `dune exec ./hello_world.exe`
+has something to build.
 
 ## Simple "Counter" Example
 
@@ -84,7 +89,11 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
   match Azul.azul_refany_get ref_ptr with
   | None -> Azul.raw_dom (Azul.Dom.create_body ())
   | Some (m : my_data_model) ->
-      let click_cb   = Azul.azul_register_callback on_click in
+      (* Button.onClick is TYPED: Button.with_on_click takes an
+         az_button_on_click_callback, so register through the
+         button-specific helper (the generic azul_register_callback
+         returns an az_callback and will not type-check here). *)
+      let click_cb   = Azul.azul_register_button_on_click_callback on_click in
       let click_data = Azul.azul_refany_create m in
 
       (* with_* consume the receiver as their first arg; flip the arg order
