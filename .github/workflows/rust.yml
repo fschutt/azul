@@ -1244,6 +1244,41 @@ jobs:
             echo "OK: $f has no unwind panic runtime (panic=abort)"
           done
 
+      # The cdylib must export ONLY the azul C API — dll/build.rs restricts
+      # exports so ~120 stray turso/SQLite extension symbols (time_*, uuid*,
+      # *_VTabModule) + wasm-bindgen shims don't pollute the host's global
+      # dynamic namespace (audit §2.1). Assert the restriction actually took.
+      # Allowed: Az*/az_* (C API + host-invokers), PyInit_* + Py*/_Py*
+      # (python module + interposed weak stubs), and objc2 __*_Azul* class
+      # statics on macOS. Windows is skipped (build.rs doesn't restrict there).
+      - name: Assert cdylib exports only the azul C API
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            LIST() { nm -gU "$1" 2>/dev/null | awk '{print $NF}'; }
+          else
+            LIST() { nm -D --defined-only "$1" 2>/dev/null | awk '{print $NF}'; }
+          fi
+          rc=0
+          for f in target/prod-release/libazul.so target/prod-release/libazul.dylib \
+                   target/prod-release/azul.so; do
+            [ -f "$f" ] || continue
+            STRAY=$(LIST "$f" | sed 's/^_//' \
+              | grep -vE '^(Az|az_|Py|PyInit_|_Py)' \
+              | grep -vE '^_?(_CLASS_|_IVAR_OFFSET_|_DROP_FLAG_OFFSET_|_REGISTER_CLASS_)Azul' \
+              | grep -vE '^(__CLASS_|__IVAR_OFFSET_|__DROP_FLAG_OFFSET_|__REGISTER_CLASS_)Azul' \
+              || true)
+            if [ -n "$STRAY" ]; then
+              echo "::error::$f exports non-azul symbols (export restriction failed):"
+              echo "$STRAY" | head -40
+              rc=1
+            else
+              echo "OK: $f exports only the azul C API ($(LIST "$f" | wc -l | tr -d ' ') symbols)"
+            fi
+          done
+          exit $rc
+
       - name: Upload Screenshots
         uses: actions/upload-artifact@v7
         continue-on-error: true
@@ -3262,22 +3297,57 @@ jobs:
         run: |
           # cargo-geiger refuses a virtual-manifest root AND requires an
           # ABSOLUTE --manifest-path; point it at the azul-dll package manifest.
-          # --locked: use the committed Cargo.lock instead of re-resolving, which
-          # makes cargo-geiger's bundled cargo panic (assertion pending_ids.insert)
-          # on this dep graph (icu_experimental). Filter the non-fatal
-          # "Failed to match (ignoring source)" source-match warnings.
-          cargo geiger --locked --manifest-path "$PWD/dll/Cargo.toml" --output-format Ascii 2>&1 \
+          #
+          # cargo-geiger's bundled cargo (0.86.0) panics with
+          # `assertion failed: self.pending_ids.insert(id)` during its
+          # "Downloading crates" phase on this dep graph — which is why the
+          # 0.2.0 release shipped a 287-byte file that was just the panic dump.
+          # The panic is ONLY in the download path, so we pre-fetch every crate
+          # with cargo (which doesn't have the bug) and run geiger --offline so
+          # it never enters that phase. --locked keeps it on the committed
+          # lockfile. We then VALIDATE the output actually contains the report
+          # table before publishing it; if geiger still failed, we ship an
+          # honest "unavailable" note instead of a misleading empty/panic file.
+          mkdir -p stats
+          cargo fetch --locked --manifest-path "$PWD/dll/Cargo.toml" || true
+          cargo geiger --offline --locked --manifest-path "$PWD/dll/Cargo.toml" \
+            --output-format Ascii 2>&1 \
             | grep -v 'Failed to match (ignoring source)' > geiger.txt || true
-          mkdir -p stats && cp geiger.txt stats/cargo-geiger.txt
+
+          # A real report has the legend/table header ("Functions  Expressions"
+          # or the ☢️/:) rows). If it's missing, geiger failed (panic/empty).
+          if grep -qE 'Functions +Expressions|Rusty' geiger.txt; then
+            cp geiger.txt stats/cargo-geiger.txt
+            REPORT_OK=1
+          else
+            {
+              echo "cargo-geiger report unavailable for this build."
+              echo ""
+              echo "cargo-geiger 0.13.x (bundled cargo 0.86.0) panics"
+              echo "(assertion failed: self.pending_ids.insert(id)) on azul's"
+              echo "dependency graph. Tracking a fix / newer cargo-geiger; until"
+              echo "then this report is intentionally omitted rather than shipped"
+              echo "as an empty/garbage file. Raw tool output below."
+              echo ""
+              echo "---- raw output ----"
+              cat geiger.txt
+            } > stats/cargo-geiger.txt
+            REPORT_OK=0
+          fi
+
           {
             echo '## ☢️ Unsafe surface — cargo-geiger (azul-dll)'
             echo ''
-            echo '<details><summary>full report</summary>'
-            echo ''
-            echo '```'
-            tail -250 geiger.txt
-            echo '```'
-            echo '</details>'
+            if [ "$REPORT_OK" = "1" ]; then
+              echo '<details><summary>full report</summary>'
+              echo ''
+              echo '```'
+              tail -250 stats/cargo-geiger.txt
+              echo '```'
+              echo '</details>'
+            else
+              echo '⚠️ cargo-geiger could not run on this dep graph (bundled-cargo panic). See stats/cargo-geiger.txt.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload cargo-geiger report
