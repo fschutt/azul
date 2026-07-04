@@ -68,6 +68,42 @@ wired and fine. It governs the compositor's own render targets, **not** the
 user-image resource cache. Don't confuse the two; the leak is in the resource
 cache, not the compositor targets.
 
+## 2d. CRITICAL: the leak currently *masks* a latent aliasing bug
+
+Verified by reading `ImageRef` (`resources.rs:853`): `data: *const
+DecodedImage` is refcounted via `copies: *const AtomicUsize` and **freed the
+moment the last ref drops** (`into_inner` / the `Drop` impl). `ImageRefHash =
+data as usize` (`:1135`) and the registered-image lookup in
+`build_add_image_resource_updates` (`resources.rs:3096`) skips `AddImage` for
+any hash already in `currently_registered_images`.
+
+Chain the two facts together:
+
+> today nothing is ever deleted, so the heap only grows and a freed image's
+> address is (almost) never handed back out → pointer-derived hashes stay
+> unique in practice → the skip-if-registered check is safe **only because of
+> the leak**.
+
+The instant a GC frees a texture + its registry entry, the backing `data`
+box is freed and the allocator is free to hand that exact address to the
+**next** decoded image. That new image now hashes to the **same**
+`ImageRefHash` as the just-evicted one. Two ways it then goes wrong:
+
+1. If the stale registry entry hasn't been evicted yet:
+   `build_add_image_resource_updates` sees the hash as "already registered",
+   emits **no** `AddImage`, and the new image renders with the **old
+   image's texture** — silent visual corruption, not a crash.
+2. If it was evicted: fine — until the *same* address is reused a second
+   time within one frame, at which point two logically-distinct images share
+   one key.
+
+**Consequence for implementation:** you cannot land *any* of the GC options
+in §4 (A or B) on top of pointer-derived keys — doing so trades a memory leak
+for intermittent wrong-image rendering that only shows up under allocator
+reuse (i.e. exactly the video/capture workload the GC targets, once the leak
+that hid it is gone). **Option C is not optional; it is a prerequisite.** Do
+C, prove rendering is unchanged, *then* add B.
+
 ## 3. Why `ImageRefHash` makes this subtle (read before designing)
 
 - `core/src/resources.rs:1135` — `image_ref_get_hash(ir).inner = ir.data as
