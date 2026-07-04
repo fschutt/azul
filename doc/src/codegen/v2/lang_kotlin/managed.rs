@@ -16,7 +16,7 @@
 use super::super::generator::CodeBuilder;
 use super::super::ir::CodegenIR;
 use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
-use super::{ffi_type_name, LIBRARY_NAME};
+use super::{ffi_type_name, user_enum_type_name, LIBRARY_NAME};
 
 /// Append the host-invoker block to the existing `Azul.kt` body.
 pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
@@ -452,7 +452,9 @@ fn emit_kt_data_typed_invoker_sam(
             if kt_managed_has_wrapper_class(rt, ir) {
                 (rt.to_string(), RetShape::WrapperStruct)
             } else if ir.find_enum(rt).is_some() {
-                (ffi_type_name(rt), RetShape::Enum)
+                // Unit enums are emitted unprefixed (`Update`) — see
+                // `user_enum_type_name` in lang_java/mod.rs.
+                (user_enum_type_name(rt), RetShape::Enum)
             } else {
                 return;
             }
@@ -557,7 +559,7 @@ fn emit_kt_data_typed_invoker_sam(
                 "val __result = typed.invoke({})",
                 call_args.join(", ")
             ));
-            // `enum class AzUpdate(val value: Int)` — `.value` is
+            // `enum class Update(val value: Int)` — `.value` is
             // already `Int`; no `.toLong()` conversion needed (and
             // `Pointer.setInt` rejects Long).
             builder.line("outPtr?.setInt(0, __result.value)");

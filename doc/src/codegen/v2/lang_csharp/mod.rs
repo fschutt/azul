@@ -113,6 +113,24 @@ pub fn ffi_type_name(name: &str) -> String {
     format!("Az{}", name)
 }
 
+/// The user-facing C# type name for enums that appear as *values* in
+/// user code: unit-only enums (`Update`, `ButtonType`, ...) and
+/// monomorphized `SimpleEnum` aliases. Emitted WITHOUT the `Az`
+/// prefix — the type already lives inside `namespace Azul`, so
+/// `Azul.AzUpdate` was a redundant double-prefix.
+///
+/// Collision analysis (2026-07-04, against the checked-in generated
+/// output): none of the 171 unit-enum names collide with any other
+/// type the generator emits into the namespace (Az-prefixed FFI
+/// structs, unprefixed wrapper classes / union hierarchies — api.json
+/// class names are unique across structs and enums) nor with `System`
+/// types the generated file references. Tag enums (`AzX_Tag`) and
+/// tagged-union FFI structs keep the `Az` prefix: they are FFI
+/// plumbing, not user-facing values.
+pub fn user_enum_type_name(name: &str) -> String {
+    sanitize_identifier(name)
+}
+
 /// Map a Rust/IR type name to its C# equivalent.
 ///
 /// `is_field` true means we are emitting a field of a `[StructLayout]`
@@ -172,6 +190,17 @@ pub fn map_type_to_csharp(rust_type: &str, ir: &CodegenIR) -> String {
                 if ta.monomorphized_def.is_none() {
                     return map_type_to_csharp(&ta.target, ir);
                 }
+                // Monomorphized SimpleEnum aliases are emitted as
+                // unprefixed user-facing enums (see types.rs); the
+                // Struct / TaggedUnion kinds keep the Az FFI prefix.
+                if let Some(ref mono) = ta.monomorphized_def {
+                    if matches!(
+                        mono.kind,
+                        super::ir::MonomorphizedKind::SimpleEnum { .. }
+                    ) {
+                        return user_enum_type_name(trimmed);
+                    }
+                }
                 return ffi_type_name(trimmed);
             }
             // Recursive struct/enum types in field positions can't be
@@ -186,6 +215,12 @@ pub fn map_type_to_csharp(rust_type: &str, ir: &CodegenIR) -> String {
             if let Some(e) = ir.find_enum(trimmed) {
                 if matches!(e.category, super::super::ir::TypeCategory::Recursive) {
                     return "IntPtr".to_string();
+                }
+                if !e.is_union {
+                    // Unit enums are user-facing values — unprefixed
+                    // (`Update`, `ButtonType`). Tagged unions stay
+                    // Az-prefixed FFI structs.
+                    return user_enum_type_name(trimmed);
                 }
                 return ffi_type_name(trimmed);
             }

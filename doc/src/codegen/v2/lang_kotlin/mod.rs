@@ -45,6 +45,7 @@ use super::ir::{
 pub use super::lang_java::ffi_type_name;
 pub use super::lang_java::is_java_reserved;
 pub use super::lang_java::map_jvm_type as base_map_jvm_type;
+pub use super::lang_java::user_enum_type_name;
 
 /// Library name JNA loads. Matches the Java side.
 pub const LIBRARY_NAME: &str = "azul";
@@ -305,7 +306,10 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
 // ============================================================================
 
 fn emit_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
-    let name = ffi_type_name(&enum_def.name);
+    // Unprefixed user-facing name (`Update`, `ButtonType`) — the enum
+    // already lives in `package com.azul`. Same rule + collision
+    // analysis as lang_java (`user_enum_type_name`).
+    let name = user_enum_type_name(&enum_def.name);
 
     if !enum_def.doc.is_empty() {
         // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
@@ -549,6 +553,9 @@ fn emit_monomorphized_alias(
     }
     match &mono_def.kind {
         MonomorphizedKind::SimpleEnum { variants, .. } => {
+            // User-facing enum values — unprefixed, same rule as
+            // `emit_unit_enum`.
+            let name = user_enum_type_name(&ta.name);
             builder.line(&format!("enum class {}(val value: Int) {{", name));
             builder.indent();
             let last = variants.len().saturating_sub(1);

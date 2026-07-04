@@ -351,6 +351,25 @@ pub fn generate_wrappers(
     builder.line("// --------------------------------------------------------------------------");
     builder.blank();
 
+    // Finalizer-thread delete affinity guard. .NET finalizers run on a
+    // dedicated GC finalizer thread; Az*_delete has no cross-thread
+    // teardown guarantee while the native event loop is pumping on the
+    // main thread (unlike Ruby/LuaJIT, whose GC finalizers run on the VM
+    // thread, .NET genuinely crosses threads here). `App.Run` flips this
+    // flag; `Dispose(false)` (the finalizer path) checks it and downgrades
+    // a would-be cross-thread native delete to a leak-with-warning.
+    // Proper deferred-delete draining on the main thread needs dll-side
+    // cooperation (a lock-free delete queue drained by the event loop) —
+    // documented follow-up.
+    builder.line("/// <summary>Internal: tracks whether the native event loop (App.Run) is active, to keep GC-finalizer-thread deletes from racing it.</summary>");
+    builder.line("internal static class __AzAppLoopState");
+    builder.line("{");
+    builder.indent();
+    builder.line("internal static volatile bool Running;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
     for s in &ir.structs {
         if !should_emit_wrapper(s, ir, config) {
             continue;
@@ -507,10 +526,30 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // `public` so external assemblies (PowerShell scripts importing
     // the Azul module) can extract the raw struct when handing it to
     // a layout callback return.
+    //
+    // Disposed/consumed guard: after Dispose() the struct's heap
+    // pointers are freed, and after __Consume() ownership moved to the
+    // native side — handing `_inner` out in either state invites a
+    // double-free (e.g. passing the same wrapper to two consuming call
+    // sites). All codegen-emitted call sites read `Raw` BEFORE calling
+    // `__Consume()`, so the guard only fires on genuine use-after-
+    // dispose/-consume. Same exception shape as the method-entry guard
+    // in `emit_wrapper_method`.
     builder.line(&format!(
-        "/// <summary>Returns the underlying FFI struct by value (use with care).</summary>"
+        "/// <summary>Returns the underlying FFI struct by value. Throws <see cref=\"ObjectDisposedException\"/> if this wrapper was already disposed or consumed (ownership transferred to the native side).</summary>"
     ));
-    builder.line(&format!("public {} Raw => _inner;", ffi_name));
+    builder.line(&format!("public {} Raw", ffi_name));
+    builder.line("{");
+    builder.indent();
+    builder.line("get");
+    builder.line("{");
+    builder.indent();
+    builder.line("if (_disposed) throw new ObjectDisposedException(nameof(_inner), \"wrapper already disposed or consumed; its native data is no longer owned by this object\");");
+    builder.line("return _inner;");
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("}");
     builder.blank();
     builder.line("/// <summary>Wrap an existing raw FFI struct (takes ownership).</summary>");
     builder.line(&format!(
@@ -989,6 +1028,24 @@ fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_na
     builder.line("{");
     builder.indent();
     builder.line("if (_disposed) return;");
+    builder.line("// Finalizer-thread affinity guard: `disposing == false` means we're");
+    builder.line("// on the GC finalizer thread. While App.Run is pumping the native");
+    builder.line("// event loop on the main thread, Az*_delete from another thread has");
+    builder.line("// no teardown guarantee — downgrade the potential cross-thread crash");
+    builder.line("// to a leak-with-warning. Dispose() explicitly (or keep the object");
+    builder.line("// referenced) to avoid the leak. Deterministic deferred deletion");
+    builder.line("// needs a dll-side delete queue drained by the event loop (follow-up).");
+    builder.line("if (!disposing && __AzAppLoopState.Running)");
+    builder.line("{");
+    builder.indent();
+    builder.line("_disposed = true;");
+    builder.line(&format!(
+        "System.Console.Error.WriteLine(\"[azul] warning: {} finalized on the GC thread while the App event loop is running; skipping the native delete (memory leaked). Call Dispose() before App.Run or keep the object alive.\");",
+        class_name
+    ));
+    builder.line("return;");
+    builder.dedent();
+    builder.line("}");
     builder.line("// `disposing` is false when called from the finalizer; native");
     builder.line("// cleanup is still safe because the FFI struct is value-typed.");
     // Use Marshal.AllocHGlobal/StructureToPtr instead of `fixed` so the
@@ -1406,6 +1463,10 @@ fn emit_wrapper_method(
     // mutation through `out` semantics.
     // Only emit the marshal path when self is taken by POINTER; for
     // by-value self we already pass `_inner` directly above.
+    // App.Run blocks inside the native event loop for the app's lifetime;
+    // flag that window so `Dispose(false)` (GC finalizer thread) can skip
+    // cross-thread native deletes while it is open (see __AzAppLoopState).
+    let is_app_run = func.c_name == "AzApp_run";
     if takes_self && !self_by_value {
         builder.line(&format!(
             "var __self = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<{}>());",
@@ -1417,6 +1478,9 @@ fn emit_wrapper_method(
         builder.line(&format!(
             "System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);",
         ));
+        if is_app_run {
+            builder.line("__AzAppLoopState.Running = true;");
+        }
         let emit_cs_consume = |b: &mut CodeBuilder, names: &[String]| {
             for n in names {
                 b.line(&format!("{}.__Consume();", n));
@@ -1469,6 +1533,9 @@ fn emit_wrapper_method(
         builder.line("finally");
         builder.line("{");
         builder.indent();
+        if is_app_run {
+            builder.line("__AzAppLoopState.Running = false;");
+        }
         builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__self);");
         builder.dedent();
         builder.line("}");

@@ -510,8 +510,9 @@ fn emit_cs_data_typed_delegate(
             if cs_managed_has_wrapper_class(rt, ir) {
                 (rt.to_string(), RetShape::WrapperStruct)
             } else if ir.find_enum(rt).is_some() {
-                // C# emits enums as `AzUpdate` (no `Az` strip).
-                (super::ffi_type_name(rt), RetShape::Enum)
+                // Unit enums are emitted unprefixed (`Update`) — see
+                // `user_enum_type_name` in mod.rs.
+                (super::user_enum_type_name(rt), RetShape::Enum)
             } else {
                 return;
             }

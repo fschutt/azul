@@ -95,10 +95,10 @@ public final class HelloWorld {
     private static final AzulNativeManaged.ButtonOnClickCallbackInvokerCallback ON_CLICK =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object m = AzulHostInvoker.refanyGet(dataPtr);
-            int result = AzUpdate.DoNothing.value;
+            int result = Update.DoNothing.value;
             if (m instanceof MyDataModel) {
                 ((MyDataModel) m).counter += 1;
-                result = AzUpdate.RefreshDom.value;
+                result = Update.RefreshDom.value;
             }
             outPtr.setInt(0, result);
         };
@@ -116,7 +116,7 @@ public final class HelloWorld {
                 .withCss("font-size: 32px;")
                 .withChild(Dom.createText(String.valueOf(m.counter)));
             Dom buttonDom = Button.create("Increase counter")
-                .withButtonType(AzButtonType.Primary.value)
+                .withButtonType(ButtonType.Primary.value)
                 .onClick(m, ON_CLICK)
                 .dom();
             return Dom.createBody()
@@ -137,7 +137,7 @@ Four things to notice.
 
 - **`AzulHostInvoker.refanyWrap` / `refanyGet`** — your `MyDataModel` is wrapped once
   and the same instance is handed back to every callback. Use `instanceof` to guard
-  the cast and fall back to `Dom.createBody()` / `AzUpdate.DoNothing` on mismatch.
+  the cast and fall back to `Dom.createBody()` / `Update.DoNothing` on mismatch.
 - **Typed `LayoutCallback` SAM** — returns a `Dom` directly; the bridge handles the
   byte-splice into the native out-pointer. Click handlers use the event's typed SAM
   (`ButtonOnClickCallbackInvokerCallback` for `Button.onClick`) and write the
@@ -175,8 +175,8 @@ Click the button: the counter increments and the layout callback re-runs.
   `-Djna.library.path` / `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`.
 - **Window never appears / instant crash on macOS** — you omitted
   `-XstartOnFirstThread`. Cocoa requires the event loop on the main thread.
-- **Counter does not advance** — the click handler wrote `AzUpdate.DoNothing.value`.
-  Write `AzUpdate.RefreshDom.value` to `outPtr` after mutating.
+- **Counter does not advance** — the click handler wrote `Update.DoNothing.value`.
+  Write `Update.RefreshDom.value` to `outPtr` after mutating.
 
 ## Coming Up Next
 

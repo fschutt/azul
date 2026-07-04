@@ -5,9 +5,9 @@
 // App, AppConfig, WindowCreateOptions) plus the AzulHostInvoker helpers.
 // The typed `AzulHostInvoker.LayoutCallback` SAM returns a `Dom` directly;
 // the host-invoker bridge does the struct-byte splice internally, so user
-// code never touches `Structure.newInstance` / `getByteArray`. The only
-// Az-prefixed names left are the enum types (AzUpdate, AzButtonType) —
-// the Java artifact keeps the Az prefix for enums.
+// code never touches `Structure.newInstance` / `getByteArray`. Enum types
+// are unprefixed too (Update, ButtonType) — nothing Az-prefixed remains
+// in user code.
 //
 // Build:  scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar
 // Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
@@ -31,9 +31,9 @@ object HelloWorld {
         AzulHostInvoker.refanyGet(dataPtr) match {
           case m: MyDataModel =>
             m.counter += 1
-            outPtr.setInt(0, AzUpdate.RefreshDom.value)
+            outPtr.setInt(0, Update.RefreshDom.value)
           case _ =>
-            outPtr.setInt(0, AzUpdate.DoNothing.value)
+            outPtr.setInt(0, Update.DoNothing.value)
         }
     }
 
@@ -46,7 +46,7 @@ object HelloWorld {
               .withCss("font-size: 32px;")
               .withChild(Dom.createText(String.valueOf(m.counter)))
             val buttonDom = Button.create("Increase counter")
-              .withButtonType(AzButtonType.Primary.value)
+              .withButtonType(ButtonType.Primary.value)
               .onClick(m, ON_CLICK)
               .dom()
             Dom.createBody()

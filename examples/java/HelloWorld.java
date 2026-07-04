@@ -16,10 +16,10 @@ public final class HelloWorld {
     private static final AzulNativeManaged.ButtonOnClickCallbackInvokerCallback ON_CLICK =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object m = AzulHostInvoker.refanyGet(dataPtr);
-            int result = AzUpdate.DoNothing.value;
+            int result = Update.DoNothing.value;
             if (m instanceof MyDataModel) {
                 ((MyDataModel) m).counter += 1;
-                result = AzUpdate.RefreshDom.value;
+                result = Update.RefreshDom.value;
             }
             outPtr.setInt(0, result);
         };
@@ -35,7 +35,7 @@ public final class HelloWorld {
                 .withCss("font-size: 32px;")
                 .withChild(Dom.createText(String.valueOf(m.counter)));
             Dom buttonDom = Button.create("Increase counter")
-                .withButtonType(AzButtonType.Primary.value)
+                .withButtonType(ButtonType.Primary.value)
                 .onClick(m, ON_CLICK)
                 .dom();
             return Dom.createBody()

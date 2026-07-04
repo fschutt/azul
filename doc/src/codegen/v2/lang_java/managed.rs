@@ -612,9 +612,11 @@ fn emit_data_typed_invoker_sam(
             if managed_has_wrapper_class(rt, ir) {
                 (rt.to_string(), RetShape::WrapperStruct)
             } else if ir.find_enum(rt).is_some() {
-                // Surface the FFI-prefixed enum name (e.g. `AzUpdate`)
-                // — that's what JVM users actually call `.value` on.
-                (super::ffi_type_name(rt), RetShape::Enum)
+                // Surface the unprefixed enum name (e.g. `Update`) —
+                // that's what JVM users actually call `.value` on
+                // (unit enums are emitted unprefixed; see
+                // `user_enum_type_name` in mod.rs).
+                (super::user_enum_type_name(rt), RetShape::Enum)
             } else {
                 return;
             }

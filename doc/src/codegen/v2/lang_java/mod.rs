@@ -153,6 +153,27 @@ pub fn ffi_type_name(name: &str) -> String {
     format!("Az{}", name)
 }
 
+/// The user-facing Java type name for enums that appear as *values*
+/// in user code: unit-only enums (`Update`, `ButtonType`, ...) and
+/// monomorphized `SimpleEnum` aliases. Emitted WITHOUT the `Az`
+/// prefix — the class already lives in `package com.azul`, so
+/// `com.azul.AzUpdate` was a redundant double-prefix.
+///
+/// Collision analysis (2026-07-04, against the full generated file
+/// set): none of the 171 unit-enum names collides with any other
+/// emitted `.java` file — wrapper classes carry api.json struct names
+/// (unique vs. enum names), union helpers carry a `Helpers` suffix,
+/// tag/variant/native files carry the `Az` prefix — nor with any
+/// `java.lang` type the generated code references unqualified
+/// (`String` is already special-cased to `AzulString` for wrappers).
+/// Tag enums (`AzX_Tag`) and tagged-union Union classes keep the `Az`
+/// prefix: FFI plumbing, not user-facing.
+///
+/// Shared with `lang_kotlin` (same rule, single `Azul.kt` file).
+pub fn user_enum_type_name(name: &str) -> String {
+    sanitize_identifier(name)
+}
+
 /// Map a Rust/IR type name to its Java/JNA-friendly equivalent. The
 /// JVM has no unsigned types, so unsigned C types widen to their
 /// signed Java counterpart of equal size where safe (`u8` → `byte`,
@@ -221,6 +242,19 @@ pub fn map_jvm_type(rust_type: &str, ir: &CodegenIR) -> String {
                 if ta.monomorphized_def.is_none() {
                     return map_jvm_type(&ta.target, ir);
                 }
+                // Monomorphized SimpleEnum aliases are emitted as
+                // plain Java enums — heap objects JNA can't size in a
+                // Structure field. Same treatment as unit enums below:
+                // `int` at the FFI level. (No such alias exists in the
+                // current api.json; this keeps the branch consistent.)
+                if let Some(ref mono) = ta.monomorphized_def {
+                    if matches!(
+                        mono.kind,
+                        super::ir::MonomorphizedKind::SimpleEnum { .. }
+                    ) {
+                        return "int".to_string();
+                    }
+                }
                 return ffi_type_name(trimmed);
             }
             // Recursive struct/enum types can't be expanded inline (Java
@@ -240,9 +274,9 @@ pub fn map_jvm_type(rust_type: &str, ir: &CodegenIR) -> String {
                 if !e.is_union {
                     // Unit enums (C `enum X`) are 4 bytes (sizeof(int))
                     // in the C ABI. The codegen-emitted Java `public enum
-                    // AzX` is a heap object, which JNA can't size in a
+                    // X` is a heap object, which JNA can't size in a
                     // struct field. Emit `int` for FFI struct fields;
-                    // consumers can convert via `AzX.fromInt(...)`.
+                    // consumers can convert via `X.fromInt(...)`.
                     return "int".to_string();
                 }
                 return ffi_type_name(trimmed);

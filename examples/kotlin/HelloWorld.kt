@@ -9,8 +9,8 @@ private val MODEL = MyDataModel(5)
 
 private val onClick = AzulNativeManaged.ButtonOnClickCallbackInvokerCallback { _, dataPtr, _, outPtr ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
-    val result = if (m is MyDataModel) { m.counter += 1; AzUpdate.RefreshDom.value }
-                 else AzUpdate.DoNothing.value
+    val result = if (m is MyDataModel) { m.counter += 1; Update.RefreshDom.value }
+                 else Update.DoNothing.value
     outPtr!!.setInt(0, result)
 }
 
@@ -23,7 +23,7 @@ private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
             .withCss("font-size: 32px;")
             .withChild(Dom.createText(m.counter.toString()))
         val buttonDom = Button.create("Increase counter")
-            .withButtonType(AzButtonType.Primary.value)
+            .withButtonType(ButtonType.Primary.value)
             .onClick(m, onClick)
             .dom()
         Dom.createBody()

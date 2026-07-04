@@ -92,9 +92,9 @@ namespace HelloWorld
         private static int OnClick(IntPtr dataPtr, IntPtr infoPtr)
         {
             var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return (int)AzUpdate.DoNothing;
+            if (m == null) return (int)Update.DoNothing;
             m.Counter += 1;
-            return (int)AzUpdate.RefreshDom;
+            return (int)Update.RefreshDom;
         }
 
         // Layout callback: f(data) -> Dom. Runs on startup and again after any
@@ -109,7 +109,7 @@ namespace HelloWorld
                 .WithChild(Dom.CreateText(m.Counter.ToString()));
 
             var buttonDom = Button.Create("Increase counter")
-                .WithButtonType(AzButtonType.Primary)
+                .WithButtonType(ButtonType.Primary)
                 .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))
                 .Dom();
 
@@ -142,7 +142,7 @@ Four things to notice.
   fluent C#. The `WithCss("...")` builder accepts any CSS string, including
   `:hover { }` / `@media` / `@os(...)` inline queries.
 - **Callbacks are delegates.** A layout callback is `Func<IntPtr, IntPtr, Dom>`; a
-  click handler is `Func<IntPtr, IntPtr, int>` returning `(int)AzUpdate.*`.
+  click handler is `Func<IntPtr, IntPtr, int>` returning `(int)Update.*`.
 - **`using var app`** disposes deterministically — `Dispose()` calls the C-side
   `delete`, so native memory is released when the `App` goes out of scope.
 
@@ -165,10 +165,10 @@ value renders.
   project directory (or next to the published executable); the generated resolver
   probes both. `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` also work as a fallback for
   non-standard layouts, but note macOS strips `DYLD_*` in some launch paths (SIP).
-- **Counter does not advance** — `OnClick` returned `(int)AzUpdate.DoNothing`. Return
-  `(int)AzUpdate.RefreshDom` after mutating.
+- **Counter does not advance** — `OnClick` returned `(int)Update.DoNothing`. Return
+  `(int)Update.RefreshDom` after mutating.
 - **`RefanyGet(...) as MyDataModel` is null** — the handle holds a different type, or
-  it is borrowed elsewhere. Return `Dom.CreateBody()` / `AzUpdate.DoNothing`.
+  it is borrowed elsewhere. Return `Dom.CreateBody()` / `Update.DoNothing`.
 
 ## Coming Up Next
 

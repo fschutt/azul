@@ -1,9 +1,10 @@
 //! Struct, enum and callback emission for the Java JNA generator.
 //!
 //! Strategy:
-//! - **Unit-only enums** -> `public enum Az<Name> { ... }` plus a
-//!   per-variant `int VALUE` for the JNA wire format (JNA passes
-//!   enums as plain `int`).
+//! - **Unit-only enums** -> `public enum <Name> { ... }` (unprefixed —
+//!   user-facing values inside `package com.azul`; see
+//!   `user_enum_type_name`) plus a per-variant `int VALUE` for the JNA
+//!   wire format (JNA passes enums as plain `int`).
 //! - **Tagged-union enums** (`is_union == true`) -> three pieces:
 //!     1. `Az<Name>_Tag` — Java enum giving every variant a stable
 //!        ordinal that matches the C-ABI tag.
@@ -33,7 +34,7 @@ use super::super::ir::{
     MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
     TypeCategory,
 };
-use super::{emit_file, ffi_type_name, map_jvm_type, sanitize_identifier};
+use super::{emit_file, ffi_type_name, map_jvm_type, sanitize_identifier, user_enum_type_name};
 
 // ============================================================================
 // Top-level driver
@@ -54,7 +55,9 @@ pub fn emit_all_type_files(
         if enum_def.is_union {
             emit_tagged_union_files(out, enum_def, ir, config)?;
         } else {
-            let name = ffi_type_name(&enum_def.name);
+            // Unit enums are user-facing values — unprefixed file +
+            // class name (`Update.java`). See `user_enum_type_name`.
+            let name = user_enum_type_name(&enum_def.name);
             let chunk = emit_file(
                 &format!("{}.java", name),
                 |b| {
@@ -134,6 +137,9 @@ fn emit_monomorphized_alias_files(
 
     match &mono_def.kind {
         MonomorphizedKind::SimpleEnum { variants, .. } => {
+            // User-facing enum values — unprefixed, same rule as unit
+            // enums in `emit_all_type_files`.
+            let name = user_enum_type_name(&ta.name);
             let chunk = emit_file(
                 &format!("{}.java", name),
                 |b| {
@@ -410,7 +416,10 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
 // ============================================================================
 
 fn emit_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
-    let name = ffi_type_name(&enum_def.name);
+    // Unprefixed user-facing name (`Update`, `ButtonType`) — the class
+    // lives in `package com.azul` already. Must match the file name
+    // chosen in `emit_all_type_files`.
+    let name = user_enum_type_name(&enum_def.name);
 
     if !enum_def.doc.is_empty() {
         builder.line("/**");

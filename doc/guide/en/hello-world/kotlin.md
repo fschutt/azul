@@ -84,8 +84,8 @@ private val MODEL = MyDataModel(5)
 // Click callback: write the Update int through the out-pointer.
 private val onClick = AzulNativeManaged.ButtonOnClickCallbackInvokerCallback { _, dataPtr, _, outPtr ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
-    val result = if (m is MyDataModel) { m.counter += 1; AzUpdate.RefreshDom.value }
-                 else AzUpdate.DoNothing.value
+    val result = if (m is MyDataModel) { m.counter += 1; Update.RefreshDom.value }
+                 else Update.DoNothing.value
     outPtr!!.setInt(0, result)
 }
 
@@ -100,7 +100,7 @@ private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
             .withCss("font-size: 32px;")
             .withChild(Dom.createText(m.counter.toString()))
         val buttonDom = Button.create("Increase counter")
-            .withButtonType(AzButtonType.Primary.value)
+            .withButtonType(ButtonType.Primary.value)
             .onClick(m, onClick)
             .dom()
         Dom.createBody()
@@ -121,7 +121,7 @@ Three things to notice.
 
 - **`refanyWrap` / `refanyGet` with `is` smart-casts** — the same object instance is
   handed back to every callback; `if (m is MyDataModel)` both guards and smart-casts.
-  On mismatch return `Dom.createBody()` / `AzUpdate.DoNothing.value`.
+  On mismatch return `Dom.createBody()` / `Update.DoNothing.value`.
 - **`LayoutCallback` SAM returns `Dom`** — the companion `WindowCreateOptions.create`
   factory hides the host-invoker register + JNA byte-splice. Note the `!!` on the
   nullable `Pointer?` out-pointer before `setInt`.
@@ -158,7 +158,7 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 
 - **`UnsatisfiedLinkError`** — native library not on the JNA library path.
 - **No window on macOS** — `-XstartOnFirstThread` missing.
-- **Counter does not advance** — the click handler wrote `AzUpdate.DoNothing.value`.
+- **Counter does not advance** — the click handler wrote `Update.DoNothing.value`.
 - **`NullPointerException` on `outPtr`** — the `!!` unwrap on the SAM's nullable
   `Pointer?` arg is required; keep it.
 - **Process hangs at exit on Windows** — the example builds and runs the whole

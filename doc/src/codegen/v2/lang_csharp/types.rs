@@ -1,9 +1,11 @@
 //! Struct, enum, and callback delegate emission for the C# generator.
 //!
 //! Strategy:
-//! - **Unit-only enums** -> `public enum AzFoo : uint { ... }`. We do not
-//!   emit explicit numeric values; the C ABI uses sequential numbering
-//!   from 0, which matches the C# default.
+//! - **Unit-only enums** -> `public enum Foo : uint { ... }` (unprefixed
+//!   — user-facing values inside `namespace Azul`; see
+//!   `user_enum_type_name`). We do not emit explicit numeric values;
+//!   the C ABI uses sequential numbering from 0, which matches the C#
+//!   default.
 //! - **Tagged-union enums** (`is_union == true`) -> a tag enum
 //!   `AzFoo_Tag : uint` plus per-variant `[StructLayout(Sequential)]`
 //!   structs (`AzFooVariant_Bar`) plus an `[StructLayout(Explicit)]`
@@ -26,7 +28,7 @@ use super::super::ir::{
     MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
     TypeCategory,
 };
-use super::{ffi_type_name, map_type_to_csharp, sanitize_identifier};
+use super::{ffi_type_name, map_type_to_csharp, sanitize_identifier, user_enum_type_name};
 
 // ============================================================================
 // Top-level type emission
@@ -91,6 +93,9 @@ fn generate_monomorphized_alias(
 
     match &mono_def.kind {
         MonomorphizedKind::SimpleEnum { variants, .. } => {
+            // User-facing enum values — emitted unprefixed, same rule
+            // as generate_unit_enum (`Azul.AzX` was a double-prefix).
+            let name = user_enum_type_name(&ta.name);
             for d in doc {
                 builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
             }
@@ -254,7 +259,12 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
 // ============================================================================
 
 fn generate_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
-    let name = ffi_type_name(&enum_def.name);
+    // Unit enums are user-facing values (`Update.RefreshDom`,
+    // `ButtonType.Primary`) — emit unprefixed inside `namespace Azul`.
+    // The C ABI passes them as plain integers, so no marshalling
+    // signature depends on the type NAME. Collision-checked against
+    // every other emitted type name (see `user_enum_type_name`).
+    let name = user_enum_type_name(&enum_def.name);
 
     if !enum_def.doc.is_empty() {
         for d in &enum_def.doc {

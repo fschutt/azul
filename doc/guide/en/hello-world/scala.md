@@ -104,9 +104,9 @@ object HelloWorld {
         AzulHostInvoker.refanyGet(dataPtr) match {
           case m: MyDataModel =>
             m.counter += 1
-            outPtr.setInt(0, AzUpdate.RefreshDom.value)
+            outPtr.setInt(0, Update.RefreshDom.value)
           case _ =>
-            outPtr.setInt(0, AzUpdate.DoNothing.value)
+            outPtr.setInt(0, Update.DoNothing.value)
         }
     }
 
@@ -126,7 +126,7 @@ object HelloWorld {
               .withChild(Dom.createText(String.valueOf(m.counter)))
             val buttonDom = new Dom(
               Button.create("Increase counter")
-                .withButtonType(AzButtonType.Primary.value)
+                .withButtonType(ButtonType.Primary.value)
                 .onClick(m, ON_CLICK)
                 .dom()
                 .rawPointer())
@@ -152,7 +152,7 @@ object HelloWorld {
 Five things to notice.
 
 - **It is the Java binding, verbatim** — `Dom`, `Button`,
-  `WindowCreateOptions`, `AzUpdate` are the generated `com.azul` Java
+  `WindowCreateOptions`, `Update` are the generated `com.azul` Java
   classes; JNA loads `libazul` underneath. The program lives in
   `package com.azul` because the raw-pointer plumbing it uses (the
   `Dom(Pointer)` constructor, for instance) is package-private in the
@@ -164,12 +164,12 @@ Five things to notice.
   callback recovers the *same instance*. `match { case m: MyDataModel
   => ...; case _ => ... }` is the Scala-natural version of Java's
   `instanceof` guard, with the mismatch arm writing
-  `AzUpdate.DoNothing` / an empty body.
+  `Update.DoNothing` / an empty body.
 - **`ButtonOnClickCallbackInvokerCallback` SAM** — click handlers use
   the *typed per-widget* SAM from `AzulNativeManaged` (a generic
   `CallbackInvokerCallback` no longer matches `Button.onClick`).
   Mutate the model, then write the `Update` int through the
-  out-pointer: `outPtr.setInt(0, AzUpdate.RefreshDom.value)`. Scala 3
+  out-pointer: `outPtr.setInt(0, Update.RefreshDom.value)`. Scala 3
   lambda-SAM conversion works too — the anonymous-class form above is
   just explicit about which interface is implemented.
 - **The layout callback splices bytes** — this example implements the
@@ -224,8 +224,8 @@ the button: the counter increments and the layout callback re-runs.
   compiler picks up. Compile them exactly once with `javac -d classes`
   and reference only the `classes/` directory afterwards.
 - **Counter does not advance** — the mismatch arm ran and wrote
-  `AzUpdate.DoNothing.value`; verify `refanyGet` returns your model
-  type and that you write `AzUpdate.RefreshDom.value` *after*
+  `Update.DoNothing.value`; verify `refanyGet` returns your model
+  type and that you write `Update.RefreshDom.value` *after*
   mutating.
 - **Sporadic crashes under GC pressure** — a hazard of the raw
   byte-splice style shown here: once a struct's bytes are handed to

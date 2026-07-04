@@ -18,9 +18,9 @@ namespace HelloWorld
         private static int OnClick(IntPtr dataPtr, IntPtr infoPtr)
         {
             var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return (int)AzUpdate.DoNothing;
+            if (m == null) return (int)Update.DoNothing;
             m.Counter += 1;
-            return (int)AzUpdate.RefreshDom;
+            return (int)Update.RefreshDom;
         }
 
         private static Dom Layout(IntPtr dataPtr, IntPtr infoPtr)
@@ -31,7 +31,7 @@ namespace HelloWorld
                 .WithCss("font-size: 32px;")
                 .WithChild(Dom.CreateText(m.Counter.ToString()));
             var buttonDom = Button.Create("Increase counter")
-                .WithButtonType(AzButtonType.Primary)
+                .WithButtonType(ButtonType.Primary)
                 .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))
                 .Dom();
             return Dom.CreateBody()
