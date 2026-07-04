@@ -32,7 +32,7 @@ def layout(data, info):
             .with_css("padding:20px;font-family:sans-serif;")
             .with_child(title)
             .with_child(container))
-    return body.style(Css.empty())
+    return body
 
 
 state = InfinityState()

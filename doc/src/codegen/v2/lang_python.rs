@@ -868,7 +868,22 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 prefix, return_type
             ));
             builder.line("    Ok(ret) => unsafe { mem::transmute(ret.inner) },");
-            builder.line("    Err(_) => default,");
+            builder.line("    Err(e) => {");
+            builder.line("        // `return None` (or falling off the end of the callback)");
+            builder.line("        // intentionally maps to the default return value; any OTHER");
+            builder.line("        // wrong return type is a user bug that must be surfaced on");
+            builder.line("        // stderr, not silently swallowed.");
+            builder.line("        if !result.is_none(py) {");
+            builder.line(&format!(
+                "            eprintln!(\"azul: {} callback returned an unexpected type (expected {}), using default return value:\");",
+                callback.name, return_type
+            ));
+            // pyo3 0.27: extract() on a pyclass fails with PyClassGuardError
+            // (not PyErr) — convert before printing the traceback.
+            builder.line("            pyo3::PyErr::from(e).print(py);");
+            builder.line("        }");
+            builder.line("        default");
+            builder.line("    }");
             builder.line("}");
         }
 
@@ -876,11 +891,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         builder.line("}");
         builder.line("Err(e) => {");
         builder.indent();
-        builder.line("#[cfg(feature = \"logging\")]");
+        builder.line("// ALWAYS surface the Python exception on sys.stderr. The");
+        builder.line("// python-extension build installs no logger (fern is disabled");
+        builder.line("// under the pyo3 build and pyo3_log::init is never called), so");
+        builder.line("// a feature-gated log::error! silently swallows the traceback");
+        builder.line("// and the user only sees a blank window / dead button.");
         builder.line(&format!(
-            "log::error!(\"Exception in {} callback: {{:?}}\", e);",
+            "eprintln!(\"azul: unhandled Python exception in {} callback:\");",
             callback.name
         ));
+        builder.line("e.print(py);");
         builder.line("default");
         builder.dedent();
         builder.line("}");
@@ -1326,6 +1346,21 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             }
         }
 
+        if !enum_def.is_union {
+            // Unit variants of C-like enums are exposed as #[classattr]
+            // INSTANCES (`Update.RefreshDom`), but docs and examples have
+            // historically also used the constructor-call spelling
+            // (`Update.RefreshDom()`). Make every instance callable and
+            // return itself, so BOTH spellings work instead of the parens
+            // form raising a TypeError that the callback trampoline then
+            // maps to a default return value.
+            builder.line("fn __call__(&self) -> Self {");
+            builder.line("    // Fieldless repr(C) enum: a bitwise copy is a valid clone.");
+            builder.line("    Self { inner: unsafe { core::mem::transmute_copy(&self.inner) } }");
+            builder.line("}");
+            builder.blank();
+        }
+
         builder.line("fn __str__(&self) -> String {");
         builder.line("    format!(\"{:?}\", self)");
         builder.line("}");
@@ -1644,14 +1679,22 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
             // Callback types with callback_info are converted from Py<PyAny> to Callback struct
             if let Some(ref cb_info) = arg.callback_info {
-                // Wrap Python callable in the callback wrapper struct with trampoline
+                // Wrap Python callable in the callback wrapper struct with trampoline.
+                //
+                // IMPORTANT: the ctx RefAny must store the PyCallableWrapper ITSELF —
+                // every generated trampoline extracts it via
+                // `callable_core.downcast_ref::<PyCallableWrapper>()` (see
+                // generate_trampoline). RefAny::downcast_ref compares TypeIds, so
+                // re-wrapping the callable into a PyDataWrapper here (as was done
+                // historically to reuse create_py_refany_with_json) makes the
+                // downcast fail and EVERY Python callback silently degrades to its
+                // default return value: blank window, dead buttons, no traceback.
                 builder.line(&format!(
                     "let __py_{}_wrapper = PyCallableWrapper {{ _py_callable: Some({}.clone_ref(py)) }};",
                     arg.name, arg.name
                 ));
-                // Use create_py_refany_with_json for callable wrappers too
                 builder.line(&format!(
-                    "let __py_{}_refany = create_py_refany_with_json(PyDataWrapper {{ _py_data: __py_{}_wrapper._py_callable.as_ref().map(|c| c.clone_ref(py)) }});",
+                    "let __py_{}_refany = azul_core::refany::RefAny::new(__py_{}_wrapper);",
                     arg.name, arg.name
                 ));
 

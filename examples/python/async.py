@@ -13,7 +13,7 @@ class AsyncState:
         self.error_message = ""
 
 
-CLICK = EventFilter.Hover(HoverEventFilter.MouseUp())
+CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
 
 
 def connect_button(data):
@@ -60,13 +60,13 @@ def layout(data, info):
             .with_child(title)
             .with_child(content))
 
-    return body.style(Css.empty())
+    return body
 
 
 def start_connection(data, info):
     data.stage = "connecting"
     data.progress = 0.0
-    return Update.RefreshDom()
+    return Update.RefreshDom
 
 
 def reset_connection(data, info):
@@ -74,7 +74,7 @@ def reset_connection(data, info):
     data.progress = 0.0
     data.loaded_data = []
     data.error_message = ""
-    return Update.RefreshDom()
+    return Update.RefreshDom
 
 
 state = AsyncState()

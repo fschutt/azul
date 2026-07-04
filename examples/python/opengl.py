@@ -25,7 +25,7 @@ def layout(data, info):
             .with_child(title)
             .with_child(placeholder))
 
-    return body.style(Css.empty())
+    return body
 
 
 state = OpenGlState()

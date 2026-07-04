@@ -12,7 +12,7 @@ class WidgetShowcase:
         self.text_input = ""
 
 
-CLICK = EventFilter.Hover(HoverEventFilter.MouseUp())
+CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
 
 
 def layout(data, info):
@@ -56,14 +56,14 @@ def layout(data, info):
             .with_child(color_input)
             .with_child(number_input))
 
-    return body.style(Css.empty())
+    return body
 
 
 def on_button_click(data, info):
     data.progress_value += 10.0
     if data.progress_value > 100.0:
         data.progress_value = 0.0
-    return Update.RefreshDom()
+    return Update.RefreshDom
 
 
 model = WidgetShowcase()

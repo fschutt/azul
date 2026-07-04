@@ -107,7 +107,7 @@ def make_callback(calc, event_type, event_data):
             calc.invert_sign()
         elif event_type == "percent":
             calc.percent()
-        return Update.RefreshDom()
+        return Update.RefreshDom
     return cb
 
 
@@ -116,7 +116,7 @@ def button(calc, label, event_type, event_data, style):
             .with_css(style)
             .with_child(Dom.create_text(label))
             .with_callback(
-                EventFilter.Hover(HoverEventFilter.MouseUp()),
+                EventFilter.Hover(HoverEventFilter.MouseUp),
                 calc,
                 make_callback(calc, event_type, event_data)))
 
@@ -157,7 +157,7 @@ def layout(data, info):
             .with_child(display)
             .with_child(buttons))
 
-    return body.style(Css.empty())
+    return body
 
 
 def main():

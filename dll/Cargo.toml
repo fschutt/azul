@@ -38,7 +38,7 @@ backtrace = { version = "0.3.66", optional = true }
 # ("auto-initialize feature is enabled, but your python installation only
 # supports embedding the Python interpreter statically"). Nothing in this crate
 # embeds an interpreter, so it is unused.
-pyo3 = { version = "0.27.1", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros"], optional = true }
+pyo3 = { version = "0.27.1", default-features = false, features = ["abi3-py310", "multiple-pymethods", "extension-module", "macros"], optional = true }
 pyo3-log = { version = "0.13.2", default-features = false, optional = true }
 
 # PHP bindings (Zend engine extension via ext-php-rs)
