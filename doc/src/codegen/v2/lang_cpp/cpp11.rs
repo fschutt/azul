@@ -68,6 +68,10 @@ impl CppDialect for Cpp11Generator {
         }
         code.push_str("\r\n");
 
+        // Non-prefixed aliases for the raw C callback fn-ptr typedefs. Must
+        // precede the class declarations, whose method signatures use them.
+        code.push_str(&generate_callback_typedef_aliases(ir, config, false));
+
         // Template-reflection scaffolding (detail::type_id_holder /
         // detail::type_destructor). Must precede the class declarations
         // because RefAny's template members reference these names at parse
@@ -594,8 +598,15 @@ impl Cpp11Generator {
                 "// {} is a tagged union - use C API\r\n",
                 enum_name
             ));
+            code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
+        } else {
+            // Unit enum: scoped, non-prefixed value constants
+            // (`Update::RefreshDom`) that keep the raw C enum type. C++11/14
+            // namespace-scope `constexpr` has INTERNAL linkage, so use the
+            // template-static ODR-safe form (external linkage, one address
+            // across TUs).
+            code.push_str(&generate_enum_constants_extern(enum_def, config, false));
         }
-        code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
     }
 }
 

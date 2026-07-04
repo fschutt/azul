@@ -65,6 +65,10 @@ impl CppDialect for Cpp17Generator {
         }
         code.push_str("\r\n");
 
+        // Non-prefixed aliases for the raw C callback fn-ptr typedefs. Must
+        // precede the class declarations, whose method signatures use them.
+        code.push_str(&generate_callback_typedef_aliases(ir, config, false));
+
         // Template-reflection scaffolding (detail::type_id_holder /
         // detail::type_destructor + ReflectableModel concept). Must precede
         // the class declarations because RefAny's template members reference
@@ -639,15 +643,9 @@ impl CppDialect for Cpp17Generator {
             "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; }}\r\n",
             c_inner_type, c_inner_type
         ));
-        // C++17: std::optional
-        code.push_str(&format!(
-            "    std::optional<{}> toStdOptional() const {{ return isSome() ? std::optional<{}>(inner_.Some.payload) : std::nullopt; }}\r\n",
-            c_inner_type, c_inner_type
-        ));
-        code.push_str(&format!(
-            "    operator std::optional<{}>() const {{ return toStdOptional(); }}\r\n",
-            c_inner_type
-        ));
+        // C++17: std::optional — yields std::optional<Wrapper> when the
+        // payload has a wrapper class (consuming && form for non-copy ones).
+        emit_option_to_std_optional(code, &inner_type, &c_inner_type, ir);
     }
 
     fn generate_result_methods(
@@ -815,7 +813,16 @@ impl Cpp17Generator {
                 "// {} is a tagged union - use C API\r\n",
                 enum_name
             ));
+            code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
+        } else {
+            // Unit enum: scoped, non-prefixed value constants
+            // (`Update::RefreshDom`) that keep the raw C enum type — see
+            // generate_enum_constants_namespace.
+            code.push_str(&generate_enum_constants_namespace(
+                enum_def,
+                config,
+                "inline constexpr",
+            ));
         }
-        code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
     }
 }

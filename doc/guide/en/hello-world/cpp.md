@@ -127,7 +127,10 @@ What you actually get per standard, in code:
     so `"foo"sv` flows in without a `String(...)` wrapping step;
   - `[[nodiscard]]` on factory and constructor methods;
   - `Option<T>::toStdOptional() -> std::optional<Inner>` plus the matching
-    implicit conversion;
+    implicit conversion. When the payload has a wrapper class, `Inner` IS
+    that wrapper (`std::optional<String>`, not `std::optional<AzString>`);
+    for non-copy payloads the conversion is `&&`-qualified (consuming) so
+    ownership moves into the `std::optional` exactly once;
   - structured bindings on every `ResultXxx` wrapper:
     `auto [ok, err] = std::move(result);` works without per-class hooks.
 - **`azul20.hpp`** — adds:
@@ -144,7 +147,9 @@ What you actually get per standard, in code:
   - `Result<Ok, Err>::toStdExpected() && -> std::expected<Ok, Err>` and the
     matching implicit conversion. Methods returning a `ResultXxx` wrapper
     can be assigned straight into a `std::expected<Ok, Err>`, then chained
-    monadically with `.and_then` / `.or_else`.
+    monadically with `.and_then` / `.or_else`. `Ok` / `Err` are the wrapper
+    classes when one exists (`std::expected<Url, UrlParseError>`, not
+    `std::expected<AzUrl, AzUrlParseError>`) — the expected owns them.
   - Deducing-`this` builder methods: every `with_*` is emitted as a
     `template<class Self> auto with_xxx(this Self&& self, …)` so the
     same method body works on l-values and r-values without separate
@@ -221,7 +226,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             .with_css("font-size: 32px;"sv)
             .with_child(Dom::create_text(String(std::to_string(d->counter).c_str()))))
         .with_child(Button::create("Increase counter"sv)
-            .with_button_type(AzButtonType_Primary)
+            .with_button_type(ButtonType::Primary)   // scoped enum constants
             .with_on_click(data_wrapper.clone(), on_click)
             .dom());
 }
@@ -234,13 +239,15 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     // mutable counterpart. nullptr means the type tag doesn't match.
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_mut<MyDataModel>();
-    if (!d) return AzUpdate_DoNothing;
+    if (!d) return Update::DoNothing;
 
     d->counter += 1;
 
-    // RefreshDom queues a new layout() invocation:
+    // Update::RefreshDom queues a new layout() invocation:
     // dom build -> cascade -> relayout -> display list -> render
-    return AzUpdate_RefreshDom;
+    // (the constant's type is the raw AzUpdate, so it flows straight
+    // through the C fn-ptr return; AzUpdate_RefreshDom works too)
+    return Update::RefreshDom;
 }
 
 // Every ResultXxx wrapper destructures into (std::optional<Ok>, std::optional<Err>)
@@ -289,7 +296,7 @@ int main() {
 
 Seven things to notice.
 
-- **Why `Az*` prefixes appear at all** — most types are exposed as wrapper *classes* (`RefAny`, `Dom`, `App`) for RAII. Function-pointer typedefs like `AzCallbackType` are fixed to the raw C structs by the framework, so the callback signature has to spell out `AzRefAny` and `AzCallbackInfo`. Inside the body you can use the C++ surface freely. Simple enums (`AzUpdate`, `AzMouseCursorType`, …) are aliased via `using Update = AzUpdate;` so you can drop the prefix on the *type* — the enum *constants* are plain C enumerators and keep their C spelling (`AzUpdate_RefreshDom`, `AzButtonType_Primary`).
+- **Why `Az*` prefixes appear at all** — most types are exposed as wrapper *classes* (`RefAny`, `Dom`, `App`) for RAII. Function-pointer typedefs like `AzCallbackType` are fixed to the raw C structs by the framework (a function pointer must match the C signature *exactly*), so the callback definition has to spell out `AzRefAny`, `AzCallbackInfo` and the `AzUpdate` return type. Inside the body you can use the C++ surface freely. For every simple enum the header emits a namespace of *value constants* with the Rust spelling — `Update::RefreshDom`, `ButtonType::Primary` — whose type is the raw C enum, so they flow through method arguments and C fn-ptr returns without casts. The C enumerator spellings (`AzUpdate_RefreshDom`, `AzButtonType_Primary`) keep working; in *signatures* the enum type is spelled `AzUpdate` (the non-prefixed name is the constants namespace). The callback fn-ptr typedefs also get non-prefixed aliases (`azul::CallbackType`, `azul::LayoutCallbackType`, …) for storing callbacks in your own code.
 - **Adopt the callback's `AzRefAny` parameter into `RefAny`** — the framework hands every callback an *owned* reference (a refcount+1 clone), and the wrapper's destructor is what releases it when the callback returns. The free `azul::downcast_ref<T>` / `azul::downcast_mut<T>` function templates also work directly on the C struct (same generic identity scheme as `RefAny::create<T>`, nullptr on type mismatch), but they only *read* — using them on the raw parameter without adopting it (or manually calling `AzRefAny_delete(&data)` before returning) leaks one strong reference per invocation. Reserve them for `AzRefAny` values that something else owns.
 - **The `RefAny` wrapper class is the ownership tool** — RAII auto-cleanup (the framework hands the callback an owned reference; the destructor decrements the refcount), the chainable `RefAny::create<T>(model)` factory, and the `data_wrapper.clone()` builder for handing a new strong reference to a widget. Construct it from a raw `AzRefAny` only when you actually want to take ownership.
 - **No `AZ_REFLECT` line for C++11+** — `RefAny::create<T>` / `refany.downcast_ref<T>()` / `refany.downcast_mut<T>()` are template members on `RefAny`. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT(StructName)` macro is still emitted in `azul03.hpp` for C++03 compatibility (no template member functions there).
@@ -310,7 +317,7 @@ Things we did not use that you may want to explore next.
 - `examples/cpp/cpp03/hello-world.cpp` keeps the explicit `AZ_REFLECT(MyDataModel)` line and uses `MyDataModel_upcast` / `MyDataModel_downcast_ref` / `MyDataModel_downcast_mut` directly. No move semantics, no string-view, no `std::optional`.
 - `examples/cpp/cpp14/hello-world.cpp` adds `auto`-return on `layout` and a runtime sanity check on `RefAny::type_id_v<MyDataModel>` (the address-of-static trick that backs it isn't a constant expression, so it can't be `static_assert`-ed).
 - `examples/cpp/cpp20/hello-world.cpp` `static_assert`s on `azul::ReflectableModel<MyDataModel>` (the concept itself is `constexpr`-friendly, the *value* of `type_id_v` isn't), and feeds a `U8Vec` straight into a function taking `std::span<const uint8_t>` via the implicit `toSpan()` conversion.
-- `examples/cpp/cpp23/hello-world.cpp` returns a `std::expected<AzUrl, AzUrlParseError>` directly from a function whose body just does `return Url::parse("…"sv);`. The implicit `operator std::expected<Ok, Err>() &&` on the `Result` wrapper does the conversion. The example also exercises the deducing-`this` builders by chaining `.with_*` on a mix of l-value and r-value `Dom`s in the same expression.
+- `examples/cpp/cpp23/hello-world.cpp` returns a `std::expected<Url, UrlParseError>` (the RAII wrapper classes, which the expected then owns) directly from a function whose body just does `return Url::parse("…"sv);`. The implicit `operator std::expected<Ok, Err>() &&` on the `Result` wrapper does the conversion. The example also exercises the deducing-`this` builders by chaining `.with_*` on a mix of l-value and r-value `Dom`s in the same expression.
 
 ## Build and run
 
@@ -368,14 +375,14 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 
 1. `app.run(std::move(window))` opened a native window and ran `layout()` once with your `RefAny` on startup.
 2. The returned `AzDom` was styled, laid out, and rendered (default: CPU-rendered; can be GPU-rendered if needed).
-3. On click, the button's event filter matched a `MouseUp` inside its hit-test bounds. The framework borrowed the `RefAny` mutably, ran `on_click`, observed the `AzUpdate_RefreshDom` return, and re-invoked `layout()`.
+3. On click, the button's event filter matched a `MouseUp` inside its hit-test bounds. The framework borrowed the `RefAny` mutably, ran `on_click`, observed the `Update::RefreshDom` return, and re-invoked `layout()`.
 4. The new `AzDom` was diffed against the previous one; only the changed text node was repainted.
 
 ## Common errors
 
 - **Double-free at exit** — you copied a wrapper that should have been moved. Inside C++, use `std::move` for every `RefAny` / `WindowCreateOptions` / `Button` / `Dom` you hand off. The layout callback's return is handled implicitly by the wrapper's r-value `operator AzInner()`, so there's nothing manual there.
 - **Linker error: `undefined reference to AzApp_create`** — the dynamic library is not linked. Add `-lazul` and confirm the rpath (`-Wl,-rpath,/path/to/azul-lib` on Linux, `@executable_path/.` on macOS, place `azul.dll` next to the `.exe` on Windows).
-- **Counter does not update on click** — the click callback returned `AzUpdate_DoNothing`, or the downcast silently returned `nullptr`. Verify with an `assert(d != nullptr)` or a print before the increment.
+- **Counter does not update on click** — the click callback returned `Update::DoNothing`, or the downcast silently returned `nullptr`. Verify with an `assert(d != nullptr)` or a print before the increment.
 - **The window opens blank** — the layout callback returned an empty body, or you forgot a `.with_child(...)` somewhere in the chain.
 - **`error: 'auto' not allowed`** — you are compiling with `-std=c++03`. Either upgrade to `c++11`, or use the `azul03.hpp` example template: the same wrapper classes (`Dom`, `Button`, `App`, …) work there too — only the template-based reflection is missing, so reflection goes through the `AZ_REFLECT(StructName)` macro instead.
 - **`no member named 'create_p_with_text' in 'azul::Dom'`** — you copied an old example that used `Dom::p` or `Dom::body`, or a pre-rename one that used `Dom::create_p_with_text`. The actual codegen surface uses the api.json names verbatim: `Dom::create_body()` / `Dom::create_p_with_text(...)` / `Dom::create_h1_with_text(...)` / `Dom::with_css(...)`.

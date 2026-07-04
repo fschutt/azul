@@ -21,7 +21,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .with_child(Dom::create_text(String(std::to_string(d->counter).c_str())));
 
     Button button = Button::create("Increase counter")
-        .with_button_type(AzButtonType_Primary)
+        .with_button_type(ButtonType::Primary)
         .with_on_click(data_wrapper.clone(), on_click);
 
     return Dom::create_body()
@@ -32,9 +32,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_mut<MyDataModel>();
-    if (!d) return AzUpdate_DoNothing;
+    if (!d) return Update::DoNothing;
     d->counter += 1;
-    return AzUpdate_RefreshDom;
+    return Update::RefreshDom;
 }
 
 int main() {

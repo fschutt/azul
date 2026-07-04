@@ -50,6 +50,10 @@ impl CppDialect for Cpp14Generator {
         }
         code.push_str("\r\n");
 
+        // Non-prefixed aliases for the raw C callback fn-ptr typedefs. Must
+        // precede the class declarations, whose method signatures use them.
+        code.push_str(&generate_callback_typedef_aliases(ir, config, false));
+
         // Template-reflection scaffolding before class declarations so
         // RefAny::create<T> can resolve detail::type_id_holder at parse time.
         code.push_str(&generate_template_reflection(std));
@@ -79,12 +83,18 @@ impl CppDialect for Cpp14Generator {
                 continue;
             }
             // Cpp11Generator owns the enum-wrapper helper, but it's not on the
-            // trait. Inline the simple typedef path here.
+            // trait. Inline the simple alias/constants path here (must match
+            // Cpp11Generator::generate_enum_wrapper).
             let c_type_name = config.apply_prefix(&enum_def.name);
             if enum_def.is_union {
                 code.push_str(&format!("// {} is a tagged union - use C API\r\n", enum_def.name));
+                code.push_str(&format!("using {} = {};\r\n\r\n", enum_def.name, c_type_name));
+            } else {
+                // Unit enum: scoped, non-prefixed value constants
+                // (`Update::RefreshDom`). C++14 namespace-scope `constexpr`
+                // has internal linkage → template-static ODR-safe form.
+                code.push_str(&generate_enum_constants_extern(enum_def, config, false));
             }
-            code.push_str(&format!("using {} = {};\r\n\r\n", enum_def.name, c_type_name));
         }
 
         code.push_str("// Method implementations\r\n");

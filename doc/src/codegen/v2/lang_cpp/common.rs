@@ -291,6 +291,204 @@ pub fn get_result_payload_types(enum_def: &EnumDef) -> Option<(String, String)> 
     Some((ok_t, err_t))
 }
 
+/// Emit non-prefixed value constants for a unit (non-union) enum, scoped in
+/// a namespace so user code can write `Update::RefreshDom` (the same spelling
+/// Rust uses) while every constant keeps the raw C enum type (`AzUpdate`) and
+/// therefore stays implicitly usable wherever the C API expects the enum —
+/// including as the return value of a raw fn-ptr callback.
+///
+/// This intentionally replaces the old `using Update = AzUpdate;` type alias:
+/// a namespace and a type cannot share a name in the same scope, and the
+/// constants are the part user code actually spells. The C type name
+/// (`AzUpdate`) remains available for signatures, and every existing
+/// `AzUpdate_RefreshDom` constant spelling keeps working.
+///
+/// `const_decl` is the per-standard variable form:
+///   - C++03:    "static const"      (internal linkage, constant-initialized)
+///   - C++11/14: "constexpr"         (internal linkage per TU — header-safe)
+///   - C++17+:   "inline constexpr"  (one entity across TUs)
+pub fn generate_enum_constants_namespace(
+    enum_def: &EnumDef,
+    config: &CodegenConfig,
+    const_decl: &str,
+) -> String {
+    let enum_name = &enum_def.name;
+    let c_type_name = config.apply_prefix(enum_name);
+    let mut code = String::new();
+    // Suppressed when this header is #included as the global-module fragment
+    // of azul.cppm (which #defines AZUL_MODULE_EXPORT): the module re-declares
+    // these constants in its own exported purview so `import azul;` consumers
+    // see `azul::Update::RefreshDom`. A module-attached re-declaration would
+    // collide with a global-fragment one, hence the guard.
+    code.push_str("#ifndef AZUL_MODULE_EXPORT\r\n");
+    code.push_str(&format!("namespace {} {{\r\n", enum_name));
+    for variant in &enum_def.variants {
+        code.push_str(&format!(
+            "    {} {} {} = {}_{};\r\n",
+            const_decl, c_type_name, variant.name, c_type_name, variant.name
+        ));
+    }
+    code.push_str(&format!("}} // namespace {}\r\n", enum_name));
+    code.push_str("#endif // AZUL_MODULE_EXPORT\r\n\r\n");
+    code
+}
+
+/// ODR-safe variant of [`generate_enum_constants_namespace`] for the
+/// pre-C++17 dialects (C++03/11/14), where namespace-scope `const` /
+/// `constexpr` constants have INTERNAL linkage — each translation unit gets
+/// its own copy, so `&Update::RefreshDom` differs between TUs and taking that
+/// address inside a cross-TU `inline` function is an ODR violation.
+///
+/// The fix is the standard header-only external-linkage-constant idiom: a
+/// class *template*'s static data members have external linkage and the
+/// linker merges them to a single definition across TUs (templates are exempt
+/// from the one-definition rule for their own definitions). `Update` becomes a
+/// typedef/alias to that template instance, so `Update::RefreshDom` still
+/// reads as an `AzUpdate` value *and* has one address program-wide.
+///
+/// C++17+ keeps the cleaner `inline constexpr` namespace form (inline
+/// variables already have external linkage) — see the caller split.
+///
+/// `is_cpp03` picks `static const` + `typedef` (no `constexpr`/`using` in
+/// C++03) vs `static constexpr` + `using` for C++11/14.
+pub fn generate_enum_constants_extern(
+    enum_def: &EnumDef,
+    config: &CodegenConfig,
+    is_cpp03: bool,
+) -> String {
+    let enum_name = &enum_def.name;
+    let c_type_name = config.apply_prefix(enum_name);
+    let member_kw = if is_cpp03 { "static const" } else { "static constexpr" };
+    let def_kw = if is_cpp03 { "const" } else { "constexpr" };
+    let holder = format!("{}_consts_", enum_name);
+
+    let mut code = String::new();
+    // See generate_enum_constants_namespace for the AZUL_MODULE_EXPORT guard.
+    code.push_str("#ifndef AZUL_MODULE_EXPORT\r\n");
+    code.push_str("namespace az_enum_detail {\r\n");
+    // The template parameter is only there to make these static members
+    // template members (→ external linkage, mergeable across TUs).
+    code.push_str(&format!("template<class = void> struct {} {{\r\n", holder));
+    for variant in &enum_def.variants {
+        code.push_str(&format!(
+            "    {} {} {} = {}_{};\r\n",
+            member_kw, c_type_name, variant.name, c_type_name, variant.name
+        ));
+    }
+    code.push_str("};\r\n");
+    // Out-of-line definitions so the members are ODR-usable (address-taking,
+    // reference binding) — one line each, still header-only via the template.
+    for variant in &enum_def.variants {
+        code.push_str(&format!(
+            "template<class T> {} {} {}<T>::{};\r\n",
+            def_kw, c_type_name, holder, variant.name
+        ));
+    }
+    code.push_str("} // namespace az_enum_detail\r\n");
+    if is_cpp03 {
+        code.push_str(&format!(
+            "typedef az_enum_detail::{}<> {};\r\n\r\n",
+            holder, enum_name
+        ));
+    } else {
+        code.push_str(&format!(
+            "using {} = az_enum_detail::{}<>;\r\n",
+            enum_name, holder
+        ));
+    }
+    code.push_str("#endif // AZUL_MODULE_EXPORT\r\n\r\n");
+    code
+}
+
+/// Emit non-prefixed aliases for the raw C callback fn-ptr typedefs
+/// (`using LayoutCallbackType = AzLayoutCallbackType;`). The callback
+/// registration methods take these raw fn-ptr types, so aliasing them lets
+/// the generated method signatures (and user code holding fn ptrs) drop the
+/// `Az` prefix. Sorted by name so the output is stable across regens.
+/// `use_typedef` switches to C++03 `typedef` syntax.
+pub fn generate_callback_typedef_aliases(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    use_typedef: bool,
+) -> String {
+    let mut cbs: Vec<&CallbackTypedefDef> = ir
+        .callback_typedefs
+        .iter()
+        .filter(|cb| config.should_include_type(&cb.name))
+        .collect();
+    cbs.sort_by(|a, b| a.name.cmp(&b.name));
+    if cbs.is_empty() {
+        return String::new();
+    }
+    let mut code = String::new();
+    code.push_str("// Callback fn-ptr typedef aliases. These ARE the C types, so user\r\n");
+    code.push_str("// callbacks must still be defined with the raw C parameter structs\r\n");
+    code.push_str("// (function-pointer types have to match the C signature exactly).\r\n");
+    for cb in cbs {
+        let c_name = config.apply_prefix(&cb.name);
+        if use_typedef {
+            code.push_str(&format!("typedef {} {};\r\n", c_name, cb.name));
+        } else {
+            code.push_str(&format!("using {} = {};\r\n", cb.name, c_name));
+        }
+    }
+    code.push_str("\r\n");
+    code
+}
+
+/// Emit `toStdOptional()` (+ the implicit `operator std::optional<T>`) for an
+/// Option wrapper class (C++17 and later). When the payload has a
+/// non-prefixed wrapper class, the conversion yields
+/// `std::optional<Wrapper>` instead of the raw C payload struct:
+///   - Copy payloads: `const`-qualified, wraps a bitwise copy (the wrapper
+///     for a Copy type is itself copyable and owns nothing).
+///   - Non-copy payloads: `&&`-qualified (consuming) — ownership of the
+///     payload transfers into the wrapper and the Option resets to None,
+///     mirroring the C++23 `toStdExpected() &&` shape (no double free).
+/// Payloads without a wrapper class keep the historical raw-payload form.
+pub fn emit_option_to_std_optional(
+    code: &mut String,
+    inner_type: &str,
+    c_inner_type: &str,
+    ir: &CodegenIR,
+) {
+    if !type_has_wrapper(inner_type, ir) {
+        code.push_str(&format!(
+            "    std::optional<{}> toStdOptional() const {{ return isSome() ? std::optional<{}>(inner_.Some.payload) : std::nullopt; }}\r\n",
+            c_inner_type, c_inner_type
+        ));
+        code.push_str(&format!(
+            "    operator std::optional<{}>() const {{ return toStdOptional(); }}\r\n",
+            c_inner_type
+        ));
+        return;
+    }
+    let payload_is_copy = ir
+        .find_struct(inner_type)
+        .map(|s| s.traits.is_copy)
+        .unwrap_or(false);
+    if payload_is_copy {
+        code.push_str(&format!(
+            "    std::optional<{w}> toStdOptional() const {{ return isSome() ? std::optional<{w}>({w}(inner_.Some.payload)) : std::nullopt; }}\r\n",
+            w = inner_type
+        ));
+        code.push_str(&format!(
+            "    operator std::optional<{w}>() const {{ return toStdOptional(); }}\r\n",
+            w = inner_type
+        ));
+    } else {
+        code.push_str(&format!(
+            "    std::optional<{w}> toStdOptional() && {{ if (!isSome()) return std::nullopt; {c} v = inner_.Some.payload; inner_ = {{}}; return std::optional<{w}>({w}(v)); }}\r\n",
+            w = inner_type,
+            c = c_inner_type
+        ));
+        code.push_str(&format!(
+            "    operator std::optional<{w}>() && {{ return std::move(*this).toStdOptional(); }}\r\n",
+            w = inner_type
+        ));
+    }
+}
+
 /// Generate the `azul.cppm` module partition file. Emitted alongside
 /// `azul20.hpp` / `azul23.hpp` so users on a modules-aware toolchain can
 /// `import azul;` instead of `#include "azul20.hpp"`.
@@ -309,6 +507,11 @@ pub fn generate_module_partition(
     code.push_str("// Compile with `c++ -std=c++20 -fmodules-ts -c azul.cppm` (or your toolchain's\r\n");
     code.push_str("// equivalent) so consumers can `import azul;`.\r\n\r\n");
     code.push_str("module;\r\n");
+    // Suppress the header's own unit-enum constant namespaces in the global
+    // module fragment so we can re-declare them, exported, in the purview
+    // below (a module-attached re-declaration can't collide with a
+    // global-fragment one). See generate_enum_constants_namespace.
+    code.push_str("#define AZUL_MODULE_EXPORT 1\r\n");
     code.push_str(&format!("#include \"{}\"\r\n", header_name));
     code.push_str("export module azul;\r\n\r\n");
     code.push_str("export namespace azul {\r\n");
@@ -334,6 +537,32 @@ pub fn generate_module_partition(
     if standard >= CppStandard::Cpp20 {
         code.push_str("    using azul::ReflectableModel;\r\n");
     }
+
+    // Unit-enum value constants (`azul::Update::RefreshDom`). The header's own
+    // copies were suppressed via AZUL_MODULE_EXPORT above; re-declare them here
+    // in the exported purview so `import azul;` consumers can spell them. The
+    // C enumerators (AzUpdate_RefreshDom) come from the global-fragment
+    // #include and are visible here. `inline constexpr` (C++20 is guaranteed
+    // for the module).
+    for enum_def in &ir.enums {
+        if enum_def.is_union || !enum_def.generic_params.is_empty() {
+            continue;
+        }
+        if !config.should_include_type(&enum_def.name) {
+            continue;
+        }
+        let c_type_name = config.apply_prefix(&enum_def.name);
+        code.push_str(&format!("    namespace {} {{\r\n", enum_def.name));
+        for variant in &enum_def.variants {
+            code.push_str(&format!(
+                "        inline constexpr {ct} {v} = {ct}_{v};\r\n",
+                ct = c_type_name,
+                v = variant.name
+            ));
+        }
+        code.push_str(&format!("    }} // namespace {}\r\n", enum_def.name));
+    }
+
     code.push_str("} // namespace azul\r\n");
     code
 }
@@ -672,8 +901,13 @@ pub fn arg_to_cpp_type_ex(
     // Check if this is a callback wrapper that should be substituted
     if substitute_callbacks {
         if let Some(callback_typedef) = get_callback_typedef_name(base_type, ir) {
-            // Use the C type (e.g., AzLayoutCallbackType)
-            return config.apply_prefix(&callback_typedef);
+            // Use the non-prefixed alias of the C fn-ptr typedef (e.g.
+            // `LayoutCallbackType` = `AzLayoutCallbackType`). The alias is
+            // emitted by generate_callback_typedef_aliases() right after the
+            // forward declarations, so it is always in scope here. The alias
+            // IS the C type, so user callbacks still have to be defined with
+            // the raw C parameter structs (fn-ptr types must match exactly).
+            return callback_typedef;
         }
     }
 

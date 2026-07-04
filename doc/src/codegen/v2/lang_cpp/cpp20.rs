@@ -74,6 +74,10 @@ impl CppDialect for Cpp20Generator {
         }
         code.push_str("\r\n");
 
+        // Non-prefixed aliases for the raw C callback fn-ptr typedefs. Must
+        // precede the class declarations, whose method signatures use them.
+        code.push_str(&generate_callback_typedef_aliases(ir, config, false));
+
         // Template-reflection scaffolding (detail::type_id_holder /
         // detail::type_destructor + ReflectableModel concept) before class
         // declarations so RefAny's template members can resolve the names.
@@ -352,14 +356,9 @@ impl CppDialect for Cpp20Generator {
             "    {} unwrapOr(const {}& def) const {{ return isSome() ? inner_.Some.payload : def; }}\r\n",
             c_inner_type, c_inner_type
         ));
-        code.push_str(&format!(
-            "    std::optional<{}> toStdOptional() const {{ return isSome() ? std::optional<{}>(inner_.Some.payload) : std::nullopt; }}\r\n",
-            c_inner_type, c_inner_type
-        ));
-        code.push_str(&format!(
-            "    operator std::optional<{}>() const {{ return toStdOptional(); }}\r\n",
-            c_inner_type
-        ));
+        // toStdOptional: yields std::optional<Wrapper> when the payload has a
+        // wrapper class (consuming && form for non-copy payloads).
+        emit_option_to_std_optional(code, &inner_type, &c_inner_type, ir);
     }
 
     fn generate_result_methods(
@@ -429,6 +428,10 @@ impl CppDialect for Cpp23Generator {
             code.push_str(&format!("class {};\r\n", struct_def.name));
         }
         code.push_str("\r\n");
+
+        // Non-prefixed aliases for the raw C callback fn-ptr typedefs. Must
+        // precede the class declarations, whose method signatures use them.
+        code.push_str(&generate_callback_typedef_aliases(ir, config, false));
 
         // Template-reflection scaffolding before class declarations.
         code.push_str(&generate_template_reflection(std));
@@ -718,20 +721,43 @@ fn emit_cpp23_result_extras(
     };
     let c_type_name = config.apply_prefix(&struct_def.name);
 
+    // When a payload type has a non-prefixed wrapper class, the expected
+    // carries the wrapper (which takes ownership of the moved-out payload —
+    // the Result was zeroed, so exactly one owner remains). Payloads without
+    // a wrapper (primitives, plain-enum errors) stay raw.
+    let ok_has_wrapper = type_has_wrapper(&ok_t, ir);
+    let err_has_wrapper = type_has_wrapper(&err_t, ir);
+    let ok_ty = if ok_has_wrapper { ok_t.clone() } else { c_ok.clone() };
+    let err_ty = if err_has_wrapper { err_t.clone() } else { c_err.clone() };
+    let ok_expr = if ok_has_wrapper {
+        format!("{}(v)", ok_t)
+    } else {
+        "std::move(v)".to_string()
+    };
+    let err_expr = if err_has_wrapper {
+        format!("{}(e)", err_t)
+    } else {
+        "std::move(e)".to_string()
+    };
+
     // `std::expected` is C++23 library support, which lags the `-std=c++23`
     // language flag (e.g. the CI clang accepts `-std=c++2b` but ships no
     // <expected>). Guard the conversions on the feature-test macro so the
     // header still compiles on a toolchain that lacks the type.
     code.push_str("#if defined(__cpp_lib_expected)\r\n");
     code.push_str(&format!(
-        "    std::expected<{ok}, {err}> toStdExpected() && {{\r\n        if (isOk()) {{\r\n            {ok} v = inner_.Ok.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{ok}, {err}>(std::move(v));\r\n        }} else {{\r\n            {err} e = inner_.Err.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{ok}, {err}>(std::unexpected<{err}>(std::move(e)));\r\n        }}\r\n    }}\r\n",
-        ok = c_ok,
-        err = c_err,
+        "    std::expected<{okt}, {errt}> toStdExpected() && {{\r\n        if (isOk()) {{\r\n            {cok} v = inner_.Ok.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{okt}, {errt}>({oke});\r\n        }} else {{\r\n            {cerr} e = inner_.Err.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{okt}, {errt}>(std::unexpected<{errt}>({erre}));\r\n        }}\r\n    }}\r\n",
+        okt = ok_ty,
+        errt = err_ty,
+        cok = c_ok,
+        cerr = c_err,
+        oke = ok_expr,
+        erre = err_expr,
     ));
     code.push_str(&format!(
-        "    operator std::expected<{ok}, {err}>() && {{ return std::move(*this).toStdExpected(); }}\r\n",
-        ok = c_ok,
-        err = c_err,
+        "    operator std::expected<{okt}, {errt}>() && {{ return std::move(*this).toStdExpected(); }}\r\n",
+        okt = ok_ty,
+        errt = err_ty,
     ));
     code.push_str("#endif // __cpp_lib_expected\r\n");
     let _ = c_type_name;
@@ -820,8 +846,17 @@ impl Cpp20Generator {
                 "// {} is a tagged union - use C API\r\n",
                 enum_name
             ));
+            code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
+        } else {
+            // Unit enum: scoped, non-prefixed value constants
+            // (`Update::RefreshDom`) that keep the raw C enum type — see
+            // generate_enum_constants_namespace.
+            code.push_str(&generate_enum_constants_namespace(
+                enum_def,
+                config,
+                "inline constexpr",
+            ));
         }
-        code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
     }
 }
 

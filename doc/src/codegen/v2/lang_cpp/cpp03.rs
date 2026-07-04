@@ -61,6 +61,10 @@ impl CppDialect for Cpp03Generator {
         }
         code.push_str("\r\n");
 
+        // Non-prefixed aliases for the raw C callback fn-ptr typedefs. Must
+        // precede the class declarations, whose method signatures use them.
+        code.push_str(&generate_callback_typedef_aliases(ir, config, true));
+
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {
@@ -675,7 +679,13 @@ impl Cpp03Generator {
                 "// {} is a tagged union - use C API\r\n",
                 enum_name
             ));
+            code.push_str(&format!("typedef {} {};\r\n\r\n", c_type_name, enum_name));
+        } else {
+            // Unit enum: scoped, non-prefixed value constants
+            // (`Update::RefreshDom`). C++03 namespace-scope `static const`
+            // has internal linkage → template-static ODR-safe form
+            // (`static const` members + a typedef alias; no constexpr/using).
+            code.push_str(&generate_enum_constants_extern(enum_def, config, true));
         }
-        code.push_str(&format!("typedef {} {};\r\n\r\n", c_type_name, enum_name));
     }
 }
