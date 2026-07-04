@@ -422,6 +422,17 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
 
     // Methods: Method, MethodMut, DeepCopy, DebugToString, plus static
     // factories (Constructor, StaticMethod, Default, EnumVariantConstructor).
+    //
+    // A raw `toString` alias would collide with the decoded `toString()`
+    // this file emits elsewhere: AzString's manual UTF-8 decode above,
+    // and the Phase I.3.4 `Az<X>_toDbgString`-routed variant below.
+    // Duplicate class members are legal JS but the LATER definition
+    // silently wins, so the alias must be skipped whenever a decoded
+    // toString will be emitted (it is strictly better: it decodes the
+    // AzString instead of returning the raw koffi struct).
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let emits_decoded_tostring = matches!(s.category, TypeCategory::String)
+        || (s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym));
     let mut emitted_any = false;
     for f in &funcs {
         match f.kind {
@@ -434,7 +445,9 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
                 emitted_any = true;
             }
             FunctionKind::DebugToString => {
-                emit_instance_alias(b, f, "toString", &class);
+                if !emits_decoded_tostring {
+                    emit_instance_alias(b, f, "toString", &class);
+                }
                 emitted_any = true;
             }
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
@@ -1179,23 +1192,21 @@ fn emit_instance_method(
 }
 
 fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str, class: &str) {
-    let user_args = user_args(f);
-    let params = render_params(&user_args);
-    let call_args = render_call_args(&user_args);
-
+    // DeepCopy (`clone`) and DebugToString (`toString`) take only the
+    // receiver on the C side. The IR spells that receiver arg
+    // `instance`, which `user_args` doesn't filter (it only knows
+    // `self` / the lowercased class name) — emitting it produced a
+    // phantom `instance` parameter that was passed as an extra FFI arg
+    // (harmless only because koffi ignores extras, and wrong on
+    // Bun/Deno). Aliases are receiver-only by construction, so emit a
+    // zero-parameter method that calls with just `this._ptr`.
     b.line(&format!(
         "/** Idiomatic alias dispatching to `lib.{}`. */",
         f.c_name
     ));
-    b.line(&format!("{}({}) {{", alias, params));
+    b.line(&format!("{}() {{", alias));
     b.indent();
-    emit_callback_register_lines(b, &user_args);
-    let mut call = format!("lib.{}(this._ptr", f.c_name);
-    if !call_args.is_empty() {
-        call.push_str(", ");
-        call.push_str(&call_args);
-    }
-    call.push(')');
+    let call = format!("lib.{}(this._ptr)", f.c_name);
 
     let returns_self = f
         .return_type

@@ -44,7 +44,7 @@
 //!   returns need per-runtime out-pointer writeback support.
 
 use super::super::generator::CodeBuilder;
-use super::super::ir::CodegenIR;
+use super::super::ir::{CallbackTypedefDef, CodegenIR, EnumVariantKind, FunctionKind};
 use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
 
 /// Emit the host-invoker block. Insertion order: AFTER the existing
@@ -305,6 +305,9 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
             "console.error('[azul] {} error:', e);",
             wrapper
         ));
+        if cb_has_return {
+            emit_catch_default_write(b, ir, cb);
+        }
         b.dedent();
         b.line("}");
         b.dedent();
@@ -326,18 +329,80 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.blank();
 }
 
+/// Emit the catch-arm `outPtr` write for a throwing user callback.
+///
+/// libazul's static thunk (`impl_managed_callback!` in
+/// `core/src/host_invoker.rs`) pre-fills `*outPtr` with the kind's
+/// default (`Update::DoNothing`, `Dom::create_body()`, ...) before
+/// dispatching to the host, so an untouched out-struct is already
+/// well-defined. But the success path's `koffi.encode` of a nested
+/// struct can throw halfway through and leave `*outPtr` torn;
+/// re-writing a complete safe default here guarantees native code
+/// never reads a half-written return value.
+///
+/// Classification of the return type:
+/// - fieldless enum (`Update`, ...) → `int32_t 0` (the first variant,
+///   i.e. `Update.DoNothing`);
+/// - struct with an IR `Default` factory (`Dom` → `AzDom_default`,
+///   `VirtualViewReturn` → `AzVirtualViewReturn_default`) → encode a
+///   freshly-constructed default struct;
+/// - anything else (e.g. `OnTextInputReturn`, which has no `_default`
+///   C export) → leave the native pre-filled default in place
+///   (documented no-op).
+fn emit_catch_default_write(b: &mut CodeBuilder, ir: &CodegenIR, cb: &CallbackTypedefDef) {
+    let rt = cb.return_type.as_deref().map(str::trim).unwrap_or("");
+    let unit_enum = ir
+        .find_enum(rt)
+        .map(|e| {
+            !e.is_union
+                && e.variants
+                    .iter()
+                    .all(|v| matches!(v.kind, EnumVariantKind::Unit))
+        })
+        .unwrap_or(false);
+    let default_factory = ir
+        .functions_for_class(rt)
+        .find(|f| matches!(f.kind, FunctionKind::Default))
+        .map(|f| f.c_name.clone());
+    b.line("// The native thunk pre-filled *outPtr with this kind's default,");
+    b.line("// but a koffi.encode that threw halfway above may have left it");
+    b.line("// torn — re-write a complete safe default. (Bun/Deno never");
+    b.line("// encode, so there the native pre-fill always stands.)");
+    b.line("if (azulFFI.runtime === 'node-koffi') {");
+    b.indent();
+    if unit_enum {
+        b.line(&format!(
+            "try {{ azulFFI.koffi.encode(outPtr, 'int32_t', 0); }} catch (_e2) {{ /* pre-fill stands */ }} // 0 == {}.DoNothing-style first variant",
+            rt
+        ));
+    } else if let Some(c_name) = default_factory {
+        b.line(&format!(
+            "try {{ azulFFI.koffi.encode(outPtr, '{}', lib.{}()); }} catch (_e2) {{ /* pre-fill stands */ }}",
+            super::ffi_type_name(rt),
+            c_name
+        ));
+    } else {
+        b.line(&format!(
+            "// No Az{}_default C export — rely on the native pre-filled default.",
+            rt
+        ));
+    }
+    b.dedent();
+    b.line("}");
+}
+
 fn emit_register_callback(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("// Wrap a JS function in the matching Az<Kind> cdata struct so a");
     b.line("// native call site (e.g. button.setOnClick(...)) can store it.");
     b.line("function registerCallback(kind, fn) {");
     b.indent();
-    b.line("if (typeof fn !== 'function') {");
-    b.indent();
-    b.line(
-        "throw new TypeError(`azul.registerCallback: expected function, got ${typeof fn}`);",
-    );
-    b.dedent();
-    b.line("}");
+    b.line("// Pass through anything that isn't a plain function — in particular");
+    b.line("// already-registered Az<Kind> callback structs. The smart on_* setters");
+    b.line("// register the user's fn and then delegate to with_on_* / set_on_*,");
+    b.line("// which route through registerCallback again; that second call must");
+    b.line("// be a no-op, not a TypeError (double-registration regression,");
+    b.line("// BINDINGS_REVIEW_2026_07_04).");
+    b.line("if (typeof fn !== 'function') return fn;");
     b.line("_ensureHostInvokerInit();");
     b.line("const id = _allocHandle(fn);");
     b.line("switch (kind) {");

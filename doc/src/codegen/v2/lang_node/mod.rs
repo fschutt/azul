@@ -105,7 +105,7 @@ pub const DLL_NAME: &str = "azul";
 /// `azul.js` and `package.json`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let azul_js = generate_azul_js(ir, config)?;
-    let pkg_json = package_json::generate_package_json();
+    let pkg_json = package_json::generate_package_json(&ir.api_version);
 
     let mut out = String::with_capacity(azul_js.len() + pkg_json.len() + 256);
     push_section(&mut out, "azul.js", &azul_js);
@@ -209,9 +209,14 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("//   * Deno      >= 1.30 (uses built-in `Deno.dlopen`)");
     b.line("//");
     b.line("// The prebuilt native library (`libazul.so` on Linux, `libazul.dylib` on");
-    b.line("// macOS, `azul.dll` on Windows) must be discoverable on the dynamic-loader");
-    b.line("// search path (`LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` / `PATH`) or placed");
-    b.line("// in the same directory as this file. There is no native compile step.");
+    b.line("// macOS, `azul.dll` on Windows) is resolved in this order:");
+    b.line("//   1. $AZ_LIB      — explicit path to the shared-library file,");
+    b.line("//   2. the directory containing this azul.js file,");
+    b.line("//   3. $AZ_LIB_DIR  — directory containing the shared library,");
+    b.line("//   4. the current working directory,");
+    b.line("//   5. the system loader search path (LD_LIBRARY_PATH /");
+    b.line("//      DYLD_LIBRARY_PATH / PATH / rpath).");
+    b.line("// There is no native compile step.");
     b.line("//");
     b.line("// Modern JavaScript only: ES2020+, `class`, `FinalizationRegistry`,");
     b.line("// `const` / `let`, no `var`. Output module format is CommonJS for maximum");
@@ -262,25 +267,83 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("//   }");
     b.line("// ----------------------------------------------------------------------------");
     b.blank();
-    // The bare library name (`azul` -> `azul.dll` / `libazul.so` / `libazul.dylib`)
-    // works whenever the loader search path (`LD_LIBRARY_PATH` etc.) finds it.
-    // But macOS SIP strips `DYLD_*` from hardened interpreters (the system/
-    // Homebrew `node`), so a bare name can't be located there. When the
-    // environment provides an explicit absolute path via `AZ_LIB` (the way the
-    // AZ_E2E harness points every binding at the freshly-built lib), prefer it.
-    b.line(&format!(
-        "const DLL_NAME = (typeof process !== 'undefined' && process.env && \
-process.env.AZ_LIB) ? process.env.AZ_LIB : '{}';",
-        DLL_NAME
-    ));
+    // dlopen does NO lib-prefix/suffix mangling on any of the three runtimes
+    // (verified empirically for koffi, `bun:ffi` and `Deno.dlopen`): a bare
+    // "azul" is passed straight through and never matches `libazul.dylib` /
+    // `libazul.so` / `azul.dll` on disk — no matter what `DYLD_LIBRARY_PATH`
+    // / `LD_LIBRARY_PATH` / `PATH` say. So we derive the platform filename
+    // ourselves and probe the well-known locations, in order:
+    //
+    //   1. `AZ_LIB`      — explicit path to the shared-library *file*
+    //                       (the AZ_E2E harness hook); used verbatim.
+    //   2. next to azul.js (npm-style: drop the dylib beside the binding).
+    //   3. `AZ_LIB_DIR`  — *directory* containing the shared library.
+    //   4. the current working directory (the documented download-and-run flow).
+    //   5. the bare platform filename, so the system loader search path
+    //      (`LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` / `PATH` / rpath) still applies.
+    b.line("// Derive the platform shared-library filename: azul -> azul.dll /");
+    b.line("// libazul.so / libazul.dylib. dlopen does NOT do this mangling itself.");
+    b.line("function _platformLibName(base) {");
+    b.indent();
+    b.line("const os = (typeof process !== 'undefined' && process.platform)");
+    b.indent();
+    b.line("? process.platform");
+    b.line(": (typeof globalThis.Deno !== 'undefined' && globalThis.Deno.build.os === 'windows') ? 'win32'");
+    b.line(": (typeof globalThis.Deno !== 'undefined' && globalThis.Deno.build.os === 'darwin') ? 'darwin'");
+    b.line(": 'linux';");
+    b.dedent();
+    b.line("if (os === 'win32') return base + '.dll';");
+    b.line("if (os === 'darwin') return 'lib' + base + '.dylib';");
+    b.line("return 'lib' + base + '.so';");
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("function _libFileExists(p) {");
+    b.indent();
+    b.line("try {");
+    b.indent();
+    b.line("if (typeof require === 'function') return require('fs').existsSync(p);");
+    b.line("if (typeof globalThis.Deno !== 'undefined') { globalThis.Deno.statSync(p); return true; }");
+    b.dedent();
+    b.line("} catch (_e) { /* unreadable or missing — keep probing */ }");
+    b.line("return false;");
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("function _resolveDllPath() {");
+    b.indent();
+    b.line("const env = (typeof process !== 'undefined' && process.env) ? process.env : {};");
+    b.line("// 1) AZ_LIB: explicit path to the shared-library file. Used verbatim.");
+    b.line("if (env.AZ_LIB) return env.AZ_LIB;");
+    b.line(&format!("const fileName = _platformLibName('{}');", DLL_NAME));
+    b.line("const candidates = [];");
+    b.line("// 2) Same directory as azul.js (npm-style: dylib next to the binding).");
+    b.line("if (typeof __dirname !== 'undefined') candidates.push(__dirname + '/' + fileName);");
+    b.line("// 3) AZ_LIB_DIR: directory that contains the shared library.");
+    b.line("if (env.AZ_LIB_DIR) candidates.push(env.AZ_LIB_DIR + '/' + fileName);");
+    b.line("// 4) Current working directory (the documented download-and-run flow).");
+    b.line("if (typeof process !== 'undefined' && typeof process.cwd === 'function') {");
+    b.indent();
+    b.line("candidates.push(process.cwd() + '/' + fileName);");
+    b.dedent();
+    b.line("}");
+    b.line("for (const c of candidates) { if (_libFileExists(c)) return c; }");
+    b.line("// 5) Bare platform filename: lets the system loader search path");
+    b.line("//    (LD_LIBRARY_PATH / DYLD_LIBRARY_PATH / PATH / rpath) resolve it.");
+    b.line("return fileName;");
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("const DLL_NAME = _resolveDllPath();");
     b.blank();
 
     // ---- Node / koffi branch ------------------------------------------------
     b.line("function loadNodeKoffi() {");
     b.indent();
-    b.line("// koffi is a pure-JS libffi binding. It loads via require() and");
-    b.line("// resolves the platform DLL name automatically (`azul` -> `azul.dll`");
-    b.line("// / `libazul.so` / `libazul.dylib`).");
+    b.line("// koffi is a pure-JS libffi binding. DLL_NAME was already resolved");
+    b.line("// to a concrete platform filename or path by _resolveDllPath()");
+    b.line("// above — koffi.load passes the string straight to dlopen and does");
+    b.line("// no lib-prefix/suffix mangling of its own.");
     b.line("const koffi = require('koffi');");
     b.line("const lib = koffi.load(DLL_NAME);");
     b.line("return {");
@@ -323,12 +386,12 @@ process.env.AZ_LIB) ? process.env.AZ_LIB : '{}';",
     // ---- Bun branch ---------------------------------------------------------
     b.line("function loadBun() {");
     b.indent();
-    b.line("// `bun:ffi` ships in the Bun runtime; no install step. The dlopen");
-    b.line("// call resolves library names the same way as koffi/Deno.");
-    b.line("const { dlopen, FFIType, suffix, ptr, JSCallback } = require('bun:ffi');");
-    b.line("// If DLL_NAME already names a concrete file (an absolute/relative path,");
-    b.line("// e.g. from AZ_LIB), use it verbatim; otherwise append the platform suffix.");
-    b.line("const path = /[\\\\/]|\\.(dll|dylib|so)$/.test(DLL_NAME) ? DLL_NAME : `${DLL_NAME}.${suffix}`;");
+    b.line("// `bun:ffi` ships in the Bun runtime; no install step. Bun's dlopen");
+    b.line("// does no name mangling either — DLL_NAME is already a resolved");
+    b.line("// path or a full platform filename (lib prefix + suffix included),");
+    b.line("// so use it verbatim.");
+    b.line("const { dlopen, FFIType, ptr, JSCallback } = require('bun:ffi');");
+    b.line("const path = DLL_NAME;");
     b.line("// Bun requires the symbol map up-front. We populate it lazily by");
     b.line("// returning a builder that records bindings until the user is done,");
     b.line("// then reopens. This wastes a small amount of work but keeps the");
@@ -422,18 +485,9 @@ process.env.AZ_LIB) ? process.env.AZ_LIB : '{}';",
     b.line("// Deno.dlopen requires a symbol map at open time. We use the same");
     b.line("// lazy-symbol-map pattern as Bun.");
     b.line("const Deno = globalThis.Deno;");
-    b.line("// Resolve the platform-specific filename. Deno does NOT auto-resolve");
-    b.line("// `'azul'` to `libazul.so` etc.: the caller must spell it out.");
-    b.line("const platform = Deno.build.os;");
-    b.line("// An explicit path (e.g. from AZ_LIB) is used verbatim; a bare name gets");
-    b.line("// the platform's lib prefix/suffix.");
-    b.line("const libPath = /[\\\\/]|\\.(dll|dylib|so)$/.test(DLL_NAME)");
-    b.indent();
-    b.line("? DLL_NAME");
-    b.line(": platform === 'windows'");
-    b.line("? `${DLL_NAME}.dll`");
-    b.line(": platform === 'darwin' ? `lib${DLL_NAME}.dylib` : `lib${DLL_NAME}.so`;");
-    b.dedent();
+    b.line("// Deno.dlopen does NOT auto-resolve bare names; DLL_NAME is already");
+    b.line("// a resolved path or a full platform filename from _resolveDllPath().");
+    b.line("const libPath = DLL_NAME;");
     b.line("const pendingSymbols = {};");
     b.line("let opened = null;");
     b.line("function ensureOpen() {");
