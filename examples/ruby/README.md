@@ -5,7 +5,9 @@ Ruby bindings for the [Azul](https://azul.rs) GUI framework via the
 
 ## Status
 
-✅ **Full GUI E2E** — counter probe 5→8 via `AZ_DEBUG` verified.
+✅ **Full GUI E2E** — counter probe 5→8 via `AZ_DEBUG` verified
+(the e2e harness copies the current `target/codegen/azul.rb` over the
+vendored copy before running, so the pass tracks the live artifact).
 
 ## Requirements
 
@@ -50,15 +52,16 @@ ruby -I. hello-world.rb
 
 ## Notes
 
-- `CssProperty` is a tagged-union without a Ruby wrapper class today.
-  Use `Azul::Native.az_css_property_*` directly for now.
+- Style nodes with plain CSS strings: `Azul::Dom.create_text('5').with_css('font-size: 32px;')`.
+  (No need to build `CssProperty` unions via `Azul::Native.az_css_property_*` —
+  `Dom#with_css` parses the string for you.)
 - The codegen's `_register_callback` helper auto-fires inside the
   consuming-form builders (`with_on_click` etc.), so the smart
   `on_click` only wraps `data` — no double-register.
 
 ## Files
 
-- `hello-world.rb` — 69-line Python-quality port.
+- `hello-world.rb` — 48-line counter example (Python parity).
 - `azul.rb` — generated bindings.
 - `Gemfile` — gem dependencies.
 - `libazul.dylib` — prebuilt native library.

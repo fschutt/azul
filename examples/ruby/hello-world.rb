@@ -21,10 +21,8 @@ layout = lambda do |data_ptr, _info|
   m = Azul::RefAny.unwrap(data_ptr)
   next Azul::Dom.create_body if m.nil?
 
-  font_size_px = Azul::Native.az_style_font_size_px(32.0)
-  font_size_prop = Azul::Native.az_css_property_font_size(font_size_px)
   label = Azul::Dom.create_div
-    .with_css_property(Azul::CssPropertyWithConditions.simple(font_size_prop))
+    .with_css('font-size: 32px;')
     .with_child(Azul::Dom.create_text(m.counter.to_s))
 
   button = Azul::Button.create('Increase counter')
@@ -33,7 +31,7 @@ layout = lambda do |data_ptr, _info|
 
   Azul::Dom.create_body
     .with_child(label)
-    .with_child(Azul::Dom.new(button.dom))
+    .with_child(button.dom)
 end
 
 window = Azul::WindowCreateOptions.create_with_layout(layout).with(
@@ -48,4 +46,4 @@ window = Azul::WindowCreateOptions.create_with_layout(layout).with(
 )
 
 app = Azul::App.create(data, Azul::AppConfig.create)
-app.run(window.ptr)
+app.run(window)

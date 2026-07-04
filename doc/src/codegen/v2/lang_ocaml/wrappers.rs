@@ -771,6 +771,7 @@ fn emit_ocaml_to_string_if_supported(
     }
     let self_t = if has_wrapper { "t.raw" } else { "t" };
     let raw_dbg = ocaml_binding_name(&dbg_sym);
+    let raw_string_delete = ocaml_binding_name("AzString_delete");
     builder.line(&format!("(* String repr routed through {}. *)", dbg_sym));
     builder.line("let to_string (t : t) : string =");
     builder.indent();
@@ -781,8 +782,12 @@ fn emit_ocaml_to_string_if_supported(
     builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
     builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
     builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
-    builder.line("if Ctypes.is_null vec_ptr || vec_len = 0 then \"\"");
-    builder.line("else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len");
+    builder.line("let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len in");
+    // The AzString returned by value from toDbgString owns a heap
+    // buffer; nothing else ever frees it (no wrapper, no finaliser).
+    // Consume it here — the bytes were copied into __out above.
+    builder.line(&format!("{} (Ctypes.addr __s);", raw_string_delete));
+    builder.line("__out");
     builder.dedent();
     builder.blank();
 }
@@ -843,7 +848,7 @@ fn build_method_signature(
     has_wrapper: bool,
     class_name: &str,
 ) -> String {
-    let method_name = idiomatic_method_name(&func.method_name);
+    let method_name = method_emission_name(func, ir);
     let class_lower = class_name.to_lowercase();
     let is_self_arg = |name: &str| name == "self" || name == class_lower;
 
@@ -932,7 +937,7 @@ fn emit_method_impl(
     has_wrapper: bool,
     class_name: &str,
 ) {
-    let method_name = idiomatic_method_name(&func.method_name);
+    let method_name = method_emission_name(func, ir);
     let class_lower = class_name.to_lowercase();
     let is_self_arg = |name: &str| name == "self" || name == class_lower;
 
@@ -1151,6 +1156,33 @@ fn emit_union_variant_interface(
 fn idiomatic_method_name(method_name: &str) -> String {
     let snake = to_snake_case(method_name);
     if snake == "new" {
+        return "create".to_string();
+    }
+    sanitize_identifier(&snake)
+}
+
+/// Collision-aware variant of [`idiomatic_method_name`] used by BOTH the
+/// `.mli` signature and `.ml` impl emitters (they must agree).
+///
+/// `new` normally renders as `create`, but when the same class ALSO has a
+/// literal `create` method the two would collide: a duplicate `val create`
+/// in one module signature is Error (warning 32) under dune's default dev
+/// profile, and in the struct the later `let create` silently shadows the
+/// earlier one (ColorU / Accordion / ComboBox all hit this). On collision,
+/// `new` falls back to the standard reserved-word sanitization (`new_`),
+/// the same trailing-underscore convention every other OCaml keyword gets.
+fn method_emission_name(func: &FunctionDef, ir: &CodegenIR) -> String {
+    let snake = to_snake_case(&func.method_name);
+    if snake == "new" {
+        let class_has_real_create = ir
+            .functions_for_class(&func.class_name)
+            .any(|f| !f.kind.is_trait_function() && to_snake_case(&f.method_name) == "create");
+        if class_has_real_create {
+            // `new` is an OCaml keyword; sanitize_identifier renders it
+            // as `new_`, keeping the arg-taking constructor reachable
+            // alongside the literal `create`.
+            return sanitize_identifier(&snake);
+        }
         return "create".to_string();
     }
     sanitize_identifier(&snake)

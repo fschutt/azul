@@ -204,9 +204,9 @@ fn emit_class_wrapper(
     // IR-derived via [`layout_callback_factory_info`] — adding/
     // renaming the eligible class in api.json lights this up
     // without touching this emitter.
-    if let Some(info) =
-        super::super::managed_host_invoker::layout_callback_factory_info(s, ir)
-    {
+    let factory_info =
+        super::super::managed_host_invoker::layout_callback_factory_info(s, ir);
+    if let Some(info) = factory_info.as_ref() {
         let default_ruby = native_function_name(&info.default_c_name);
         builder.line("# Smart factory: pass a layout-callback Proc/lambda/block;");
         builder.line("# the host-invoker registration and struct-field splice happen");
@@ -267,7 +267,33 @@ fn emit_class_wrapper(
         if !should_emit_method(func) {
             continue;
         }
-        emit_method(builder, func, &prefixed, &snake, ir);
+        // Legacy layout-callback factory (e.g. `WindowCreateOptions.create`):
+        // the C-side `_create` discards the host-handle ctx (callbacks fire
+        // but the user's Proc is never reached), and its attach_function
+        // expects a bare `:az_*_callback_type` fn-ptr that the registered
+        // AzLayoutCallback FFI::Struct can't satisfy (raises TypeError at
+        // call time). When the working smart factory exists, alias the
+        // legacy name to it instead of emitting a broken method.
+        if let Some(info) = factory_info.as_ref() {
+            if is_legacy_layout_factory(func, info) {
+                let legacy_name = ruby_method_name(&func.method_name);
+                builder.line("# Legacy factory routed to the working smart factory: the raw");
+                builder.line("# C `_create` path drops the host-handle ctx, so the user's");
+                builder.line("# Proc would never be invoked.");
+                builder.line("class << self");
+                builder.indent();
+                builder.line(&format!(
+                    "alias_method :{}, :create_with_layout",
+                    legacy_name
+                ));
+                builder.dedent();
+                builder.line("end");
+                builder.blank();
+                emitted_any_method = true;
+                continue;
+            }
+        }
+        emit_method(builder, func, &prefixed, &snake, ir, config);
         emitted_any_method = true;
     }
 
@@ -555,7 +581,14 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
     ReturnIdiom::Plain
 }
 
-fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, type_snake: &str, ir: &CodegenIR) {
+fn emit_method(
+    builder: &mut CodeBuilder,
+    func: &FunctionDef,
+    prefixed: &str,
+    type_snake: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
     let ruby_method = ruby_method_name(&func.method_name);
     let native_call = native_function_name(&func.c_name);
 
@@ -579,6 +612,31 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         .as_deref()
         .map(|t| t.trim() == owning_class)
         .unwrap_or(false);
+
+    // Does the C call MOVE self? Only when api.json declares
+    // `self: "value"` (ir_builder maps that to ArgRefKind::Owned on the
+    // arg named after the class). `&self` / `&mut self` receivers pass a
+    // pointer — the wrapper stays valid and its finalizer must stay
+    // armed. DeepCopy never consumes (clone leaves the original intact).
+    let self_is_owned = takes_self
+        && !matches!(func.kind, FunctionKind::DeepCopy)
+        && func
+            .args
+            .iter()
+            .find(|a| a.name == "self" || a.name == type_snake)
+            .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+            .unwrap_or(false);
+
+    // Plain returns of a DIFFERENT type that has an emitted wrapper class
+    // (e.g. `Button#dom` → Dom) get auto-wrapped so users receive
+    // `Azul::Dom` instead of a raw Native::AzDom FFI::Struct — consistent
+    // with the self-typed path, and the wrapper's finalizer takes
+    // ownership of the returned value.
+    let wrap_class = if matches!(idiom, ReturnIdiom::Plain) && !returns_self_type {
+        return_wrapper_class(func, ir, config)
+    } else {
+        None
+    };
 
     // Strip an explicit `self` from the visible argument list (Ruby
     // supplies it via `@ptr`). For DeepCopy methods the first arg IS
@@ -644,10 +702,12 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             }
         }
         let call = format!("Native.{}({})", native_call, call_args.join(", "));
-        // DeepCopy does NOT consume self — clone returns a fresh copy
-        // while leaving the original intact. Mark consumes_self=false
-        // for that path; everything else (with-builders etc.) consumes.
-        let consumes_self = !matches!(func.kind, FunctionKind::DeepCopy);
+        // Consume self exactly when the C ABI takes it by value (see
+        // self_is_owned above) — regardless of what the method returns.
+        // Previously only the returns-self builder branch disarmed the
+        // finalizer, so consuming methods returning a DIFFERENT type
+        // (all 43 widget `.dom` methods) left it armed → double free.
+        let consumes_self = self_is_owned;
         emit_method_body_instance(
             builder,
             &call,
@@ -657,6 +717,7 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             &consumed_names,
             consumes_self,
             idiom,
+            wrap_class.as_deref(),
         );
         builder.dedent();
         builder.line("end");
@@ -710,6 +771,7 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         prefixed,
         &consumed_names,
         idiom,
+        wrap_class.as_deref(),
     );
     builder.dedent();
     builder.line("end");
@@ -760,6 +822,7 @@ fn emit_method_body_instance(
     consumed_names: &[String],
     consumes_self: bool,
     idiom: ReturnIdiom,
+    wrap_class: Option<&str>,
 ) {
     let _ = prefixed;
     // Phase I.5.3 (Ruby): Option<T>/Result<T,E> auto-unwrap at the
@@ -770,6 +833,9 @@ fn emit_method_body_instance(
         builder.line(&format!("_ret = {}", call));
         for n in consumed_names {
             builder.line(&format!("Azul._consume({})", n));
+        }
+        if consumes_self {
+            emit_self_disarm(builder);
         }
         match idiom {
             ReturnIdiom::Option => builder.line("_ret.to_opt"),
@@ -784,6 +850,10 @@ fn emit_method_body_instance(
             for n in consumed_names {
                 builder.line(&format!("Azul._consume({})", n));
             }
+            if consumes_self {
+                emit_self_disarm(builder);
+                builder.line("nil");
+            }
         }
         Some(_) if returns_self_type && consumes_self => {
             // Consuming-builder: self is moved into the C call along
@@ -794,13 +864,7 @@ fn emit_method_body_instance(
             for n in consumed_names {
                 builder.line(&format!("Azul._consume({})", n));
             }
-            builder.line("begin");
-            builder.indent();
-            builder.line("ObjectSpace.undefine_finalizer(self)");
-            builder.dedent();
-            builder.line("rescue StandardError");
-            builder.line("end");
-            builder.line("@ptr = nil");
+            emit_self_disarm(builder);
             builder.line("self.class.new(_next)");
         }
         Some(_) if returns_self_type => {
@@ -813,14 +877,25 @@ fn emit_method_body_instance(
             builder.line("self.class.new(_next)");
         }
         Some(_) => {
-            if consumed_names.is_empty() {
+            // Plain return of a different type. If the C ABI moved self
+            // (self: "value" in api.json — e.g. every widget's `.dom`),
+            // disarm the finalizer so it can't double-free the moved-out
+            // struct. If the return type has a wrapper class, hand back
+            // the wrapper instead of the raw FFI::Struct.
+            if consumed_names.is_empty() && !consumes_self && wrap_class.is_none() {
                 builder.line(call);
             } else {
                 builder.line(&format!("_ret = {}", call));
                 for n in consumed_names {
                     builder.line(&format!("Azul._consume({})", n));
                 }
-                builder.line("_ret");
+                if consumes_self {
+                    emit_self_disarm(builder);
+                }
+                match wrap_class {
+                    Some(cls) => builder.line(&format!("{}.new(_ret)", cls)),
+                    None => builder.line("_ret"),
+                }
             }
         }
     }
@@ -836,6 +911,7 @@ fn emit_method_body_static(
     prefixed: &str,
     consumed_names: &[String],
     idiom: ReturnIdiom,
+    wrap_class: Option<&str>,
 ) {
     if matches!(idiom, ReturnIdiom::Option | ReturnIdiom::Result) {
         builder.line(&format!("_ret = {}", call));
@@ -869,17 +945,85 @@ fn emit_method_body_static(
             builder.line("new(_next)");
         }
         Some(_) => {
-            if consumed_names.is_empty() {
+            // Plain return of a different type: wrap in its wrapper
+            // class when one exists (mirrors the instance path).
+            if consumed_names.is_empty() && wrap_class.is_none() {
                 builder.line(call);
             } else {
                 builder.line(&format!("_ret = {}", call));
                 for n in consumed_names {
                     builder.line(&format!("Azul._consume({})", n));
                 }
-                builder.line("_ret");
+                match wrap_class {
+                    Some(cls) => builder.line(&format!("{}.new(_ret)", cls)),
+                    None => builder.line("_ret"),
+                }
             }
         }
     }
+}
+
+/// Emit the "self was moved into the C call" epilogue: undefine the
+/// wrapper's finalizer (so it can't double-free the transferred struct)
+/// and nil out `@ptr` (so later use fails visibly instead of passing a
+/// dangling struct back into the FFI).
+fn emit_self_disarm(builder: &mut CodeBuilder) {
+    builder.line("begin");
+    builder.indent();
+    builder.line("ObjectSpace.undefine_finalizer(self)");
+    builder.dedent();
+    builder.line("rescue StandardError");
+    builder.line("end");
+    builder.line("@ptr = nil");
+}
+
+/// If `func`'s plain return type has an emitted Ruby wrapper class
+/// (i.e. the struct passes `should_emit_struct` AND owns a `_delete`
+/// C function — the exact condition `emit_wrappers` uses), return the
+/// class name so call sites can auto-wrap the raw FFI::Struct.
+fn return_wrapper_class(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<String> {
+    let rt = func.return_type.as_deref()?.trim();
+    let s = ir.structs.iter().find(|st| st.name == rt)?;
+    if !should_emit_struct(s, config) {
+        return None;
+    }
+    let has_delete = ir
+        .functions
+        .iter()
+        .any(|f| f.kind == FunctionKind::Delete && f.class_name == rt);
+    if !has_delete {
+        return None;
+    }
+    Some(rt.to_string())
+}
+
+/// Does `func` match the legacy layout-callback factory that
+/// `layout_callback_factory_info` superseded? Same predicate the
+/// detector uses to find `create_func`: a static/constructor with
+/// exactly one callback arg of the factory's wrapper kind, returning
+/// the owning class by value.
+fn is_legacy_layout_factory(
+    func: &FunctionDef,
+    info: &super::super::managed_host_invoker::LayoutCallbackFactoryInfo,
+) -> bool {
+    matches!(
+        func.kind,
+        FunctionKind::Constructor | FunctionKind::StaticMethod
+    ) && func.args.len() == 1
+        && func.args[0]
+            .callback_info
+            .as_ref()
+            .map(|cb| cb.callback_wrapper_name == info.callback_wrapper)
+            .unwrap_or(false)
+        && func
+            .return_type
+            .as_deref()
+            .map(|r| r.trim() == info.class_name)
+            .unwrap_or(false)
 }
 
 /// Wrap a positional argument in a tiny `_unwrap` helper that accepts both

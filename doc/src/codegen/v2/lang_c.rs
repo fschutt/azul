@@ -346,6 +346,11 @@ impl CGenerator {
         builder.line("#endif");
         builder.blank();
 
+        // string.h is needed for strlen() in the AZ_STR convenience macro
+        builder.line("/* strlen() - used by the AZ_STR convenience macro */");
+        builder.line("#include <string.h>");
+        builder.blank();
+
         // DLL import/export macros
         builder.line("/* cross-platform define for __declspec(dllimport) */");
         builder.line("#ifdef _WIN32");
@@ -1376,6 +1381,25 @@ impl CGenerator {
         builder.line("#endif /* __cplusplus - end of C99 designated initializer macros */");
         builder.blank();
 
+        // AZ_STR convenience macro for runtime strings. Deliberately emitted
+        // OUTSIDE the #ifndef __cplusplus block (AzString_copyFromBytes is a
+        // plain extern function, so the macro works in C and C++ alike) and
+        // token-identical to the ad-hoc definition used by the C examples and
+        // the debug_server Export->Code scaffold, so a user (or generated
+        // file) re-defining it is a no-diagnostic benign redefinition.
+        // NB: one self-contained /* ... */ per line — the LuaJIT/php-ffi cdef
+        // converter (lang_lua/cdef.rs) filters line-wise and would leave the
+        // ` * ` continuation lines of a multi-line block comment behind as
+        // bare `*` tokens, breaking ffi.cdef / FFI::cdef at parse time.
+        builder.line("/* Macro to copy a runtime NUL-terminated string into a refcounted AzString. */");
+        builder.line("/* Counterpart to AzString_fromConstStr: use AzString_fromConstStr for */");
+        builder.line("/* compile-time literals (zero allocation), AZ_STR for runtime strings: */");
+        builder.line("/*     AzString title = AZ_STR(some_char_ptr);                          */");
+        builder.line("#ifndef AZ_STR");
+        builder.line("#define AZ_STR(s) AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))");
+        builder.line("#endif");
+        builder.blank();
+
         // AZ_REFLECT macro for user-defined types
         self.generate_az_reflect_macro(builder);
     }
@@ -1406,8 +1430,11 @@ impl CGenerator {
         builder.line(" * - bool foo_downcastRef(AzRefAny, fooRef* restrict): downcasts the RefAny immutably, if true is returned then the fooRef is properly initialized");
         builder.line(" * - bool foo_downcastMut(AzRefAny, fooRefMut* restrict): downcasts the RefAny mutably, if true is returned then the fooRef is properly initialized");
         builder.line(" *");
-        builder.line(" * - void fooRef_delete(fooRef): disposes of the fooRef and decreases the immutable reference count");
-        builder.line(" * - void fooRefMut_delete(fooRefMut): disposes of the fooRefMut and decreases the mutable reference count");
+        builder.line(" * - void fooRef_delete(fooRef): disposes of the fooRef and decreases the immutable reference count.");
+        builder.line(" *   Safe to call even if the downcast FAILED: when .ptr is still 0 the refcount decrease is skipped,");
+        builder.line(" *   so always pair every fooRef_create with a fooRef_delete on every code path.");
+        builder.line(" * - void fooRefMut_delete(fooRefMut): disposes of the fooRefMut and decreases the mutable reference");
+        builder.line(" *   count. Like fooRef_delete, this is safe to call after a failed downcast (no-op on the refcount).");
         builder.line(" * - bool fooRefAny_delete(AzRefAny): disposes of the AzRefAny type, returns false if the AzRefAny is not of type RefAny<foo>");
         builder.line(" *");
         builder.line(" * USAGE:");
@@ -1488,15 +1515,20 @@ impl CGenerator {
         builder.line("    } \\");
         builder.line("    \\");
         builder.line("    /* releases a structNameRef (decreases the RefCount) */ \\");
+        builder.line("    /* safe to call after a FAILED downcast: .ptr is still 0 then, so the */ \\");
+        builder.line("    /* borrow-count decrease is skipped and only the _create clone is released */ \\");
         builder.line("    void structName##Ref_delete(structName##Ref* restrict value) { \\");
-        builder.line("        AzRefCount_decreaseRef(&value->sharing_info); \\");
+        builder.line("        if (value->ptr != 0) { AzRefCount_decreaseRef(&value->sharing_info); } \\");
         builder.line("        AzRefCount_delete(&value->sharing_info); \\");
+        builder.line("        value->ptr = 0; \\");
         builder.line("    }\\");
         builder.line("    \\");
         builder.line("    /* releases a structNameRefMut (decreases the mutable RefCount) */ \\");
+        builder.line("    /* safe to call after a FAILED downcast (see structNameRef_delete above) */ \\");
         builder.line("    void structName##RefMut_delete(structName##RefMut* restrict value) { \\");
-        builder.line("        AzRefCount_decreaseRefmut(&value->sharing_info); \\");
+        builder.line("        if (value->ptr != 0) { AzRefCount_decreaseRefmut(&value->sharing_info); } \\");
         builder.line("        AzRefCount_delete(&value->sharing_info); \\");
+        builder.line("        value->ptr = 0; \\");
         builder.line("    }\\");
         builder.line("    /* releases a structNameRefAny (checks if the RefCount is 0 and calls the destructor) */ \\");
         builder.line("    bool structName##RefAny_delete(AzRefAny* restrict refany) { \\");

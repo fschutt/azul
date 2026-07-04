@@ -33,6 +33,11 @@ pub fn generate_dune_project() -> String {
 }
 
 /// Single deterministic per-library `dune` file.
+///
+/// Deliberately NO `(public_name azul)`: a public name requires an
+/// `azul.opam` file in the workspace, and we don't ship one — with it,
+/// `dune build` hard-errors ("You cannot declare items to be installed
+/// without adding a <package>.opam file") before compiling anything.
 pub fn generate_dune() -> String {
     let s = r#"; ============================================================================
 ; Auto-generated Dune build manifest for the Azul OCaml bindings library.
@@ -46,11 +51,23 @@ pub fn generate_dune() -> String {
 ; current working directory).
 ; ============================================================================
 
+; The generated azul bindings (azul.ml + azul.mli) defined as a local library.
+; The codegen emits many declarations that are unused by any given consumer;
+; that's fine for an FFI-binding library. Suppress warning 32 (unused
+; value declaration) so the build doesn't fail on a stable, complete API.
 (library
  (name azul)
- (public_name azul)
+ (flags (:standard -w -32-26-27-33-34-35-37-39))
  (libraries ctypes ctypes-foreign)
  (modules azul))
+
+; Uncomment to build the hello-world example from the guide
+; (save the snippet as hello_world.ml next to this file):
+;
+; (executable
+;  (name hello_world)
+;  (modules hello_world)
+;  (libraries ctypes ctypes-foreign azul))
 "#;
     s.to_string()
 }

@@ -698,6 +698,23 @@ fn php_class_name_is_reserved(name: &str) -> bool {
             | "list"
             // PHP 8.1 enum keyword.
             | "enum"
+            // FULL reserved-keyword set: PHP rejects EVERY keyword as a
+            // class name at parse time ("unexpected token X, expecting
+            // identifier"), not just the scalar type aliases above. The
+            // Switch widget (api.json class `Switch`) was the first real
+            // collision: `final class Switch` broke the whole 100k-line
+            // Azul.php with a parse error. Mirrors sanitize_php_identifier.
+            | "abstract" | "and" | "as" | "break" | "case" | "catch" | "class"
+            | "clone" | "const" | "continue" | "declare" | "default" | "die"
+            | "do" | "echo" | "else" | "elseif" | "empty" | "enddeclare"
+            | "endfor" | "endforeach" | "endif" | "endswitch" | "endwhile"
+            | "eval" | "exit" | "extends" | "final" | "finally" | "fn" | "for"
+            | "foreach" | "function" | "global" | "goto" | "if" | "implements"
+            | "include" | "include_once" | "instanceof" | "insteadof"
+            | "interface" | "isset" | "match" | "namespace" | "new" | "or"
+            | "print" | "private" | "protected" | "public" | "require"
+            | "require_once" | "return" | "switch" | "throw" | "trait" | "try"
+            | "unset" | "use" | "var" | "while" | "xor" | "yield"
     )
 }
 
