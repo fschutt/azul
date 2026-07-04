@@ -1,4 +1,6 @@
-{ fpc -Mobjfpc -Sh -Fl. -k-L. -k-lazul hello-world.pas && LD_LIBRARY_PATH=. ./hello-world }
+{ fpc -Mobjfpc -Sh -Fl. hello-world.pas && DYLD_LIBRARY_PATH=. ./hello-world
+  (azul.pas carries {$linklib azul}, so no -k-lazul is needed; -Fl. supplies
+  the library search path. Linux: LD_LIBRARY_PATH=. instead of DYLD_.) }
 
 program HelloWorld;
 
@@ -55,8 +57,8 @@ end;
 procedure TMyLayoutHandler.Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer);
 var
   m: TObject;
-  body, counter_text, label_wrap, button_dom: TAzDom;
-  btn: TAzButton;
+  counter_text, label_wrap, body: TDom;
+  btn: TButton;
   click_handler: TMyClickHandler;
   click_cb: TAzButtonOnClickCallback;
   click_data: TAzRefAny;
@@ -64,32 +66,42 @@ begin
   m := azul_refany_get(PAzRefAny(arg0));
   if (m = nil) or not (m is TMyModel) then
   begin
-    body := AzDom_createBody();
+    body := TDom.CreateBody;
     if out_ptr <> nil then
-      PAzDom(out_ptr)^ := body;
+      PAzDom(out_ptr)^ := body.Release;
+    body.Free;
     Exit;
   end;
 
-  counter_text := AzDom_createText(MakeAzString(IntToStr(TMyModel(m).Counter)));
-  label_wrap := AzDom_createDiv();
-  label_wrap := AzDom_withCss(label_wrap, MakeAzString('font-size: 32px;'));
-  label_wrap := AzDom_withChild(label_wrap, counter_text);
+  { Idiomatic wrapper classes: TDom.CreateText / CreateDiv / CreateBody are
+    named constructors; builder methods return fresh TDom wrappers and
+    consume their by-value inputs (ownership flips off, so .Free on a
+    consumed wrapper only releases the object shell, never the DOM). }
+  counter_text := TDom.CreateText(MakeAzString(IntToStr(TMyModel(m).Counter)));
+  label_wrap := TDom.CreateDiv.WithCss(MakeAzString('font-size: 32px;'))
+                              .WithChild(counter_text);
 
   click_handler := TMyClickHandler.Create;
   click_cb := azul_register_buttononclickcallback(click_handler);
   click_data := azul_refany_create(TMyModel(m));
 
-  btn := AzButton_create(MakeAzString('Increase counter'));
-  btn := AzButton_withButtonType(btn, TAzButtonType_Primary);
-  btn := AzButton_withOnClick(btn, click_data, click_cb);
-  button_dom := AzButton_dom(btn);
+  btn := TButton.Create(MakeAzString('Increase counter'))
+                .WithButtonType(TAzButtonType_Primary)
+                .WithOnClick(click_data, click_cb);
 
-  body := AzDom_createBody();
-  body := AzDom_withChild(body, label_wrap);
-  body := AzDom_withChild(body, button_dom);
+  body := TDom.CreateBody.WithChild(label_wrap).WithChild(btn.Dom);
 
+  { Release detaches the raw record: ownership passes to libazul via out_ptr. }
   if out_ptr <> nil then
-    PAzDom(out_ptr)^ := body;
+    PAzDom(out_ptr)^ := body.Release;
+
+  { Free the wrapper shells (records were consumed / released above).
+    Anonymous chain intermediates leak their small TObject shells - fine
+    for a demo; keep references and Free them in production code. }
+  counter_text.Free;
+  label_wrap.Free;
+  btn.Free;
+  body.Free;
 end;
 
 var

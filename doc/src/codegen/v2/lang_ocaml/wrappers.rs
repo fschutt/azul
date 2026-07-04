@@ -34,6 +34,9 @@ use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
 };
+use super::super::managed_host_invoker::{
+    host_invoker_kinds, layout_callback_factory_info, wrapper_name,
+};
 use super::functions::ocaml_binding_name;
 use super::{
     inner_pointer_form, inner_pointer_form_type, map_type_to_ocaml, map_type_to_ocaml_typ,
@@ -105,6 +108,48 @@ pub fn emit_idiomatic_module_interface(
     Ok(())
 }
 
+/// `.mli` side of the Dom-typed layout sugar (see
+/// [`emit_layout_dom_sugar_implementation`]). Emitted at the very end of
+/// the interface so `dom`, `az_ref_any`, `az_layout_callback` and the
+/// factory classes' FFI types are all already declared.
+pub fn emit_layout_dom_sugar_interface(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    if !layout_dom_sugar_available(ir, config) {
+        return;
+    }
+    let dom_t = ocaml_wrapper_type_name("Dom");
+    let refany_ffi = ocaml_ffi_type_name("RefAny");
+    let cb_sig = format!(
+        "({} Ctypes.structure Ctypes.ptr -> unit Ctypes.ptr -> {})",
+        refany_ffi, dom_t
+    );
+
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.line("(* Idiomatic layout registration sugar (Dom.t-returning).                     *)");
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.blank();
+    for s in &ir.structs {
+        let Some(info) = layout_callback_factory_info(s, ir) else {
+            continue;
+        };
+        builder.line(&format!(
+            "val azul_{}_with_layout_dom : {} -> {} Ctypes.structure",
+            to_snake_case(&info.class_name),
+            cb_sig,
+            ocaml_ffi_type_name(&info.class_name)
+        ));
+    }
+    builder.line(&format!(
+        "val azul_register_layout_callback_dom : {} -> {} Ctypes.structure",
+        cb_sig,
+        ocaml_ffi_type_name("LayoutCallback")
+    ));
+    builder.blank();
+}
+
 // ============================================================================
 // Implementation (.ml) emission
 // ============================================================================
@@ -163,9 +208,105 @@ pub fn emit_idiomatic_module_implementation(
     Ok(())
 }
 
+/// `.ml` side of the Dom-typed layout sugar: additive wrappers around the
+/// managed-prelude helpers (`azul_window_create_options_with_layout`,
+/// `azul_register_layout_callback`) whose callback is typed — it receives
+/// the `AzRefAny` data pointer pre-cast and returns a wrapper `dom`
+/// (`Dom.t`) instead of a raw `az_dom Ctypes.structure`. The returned
+/// wrapper is consumed after its raw struct is handed to libazul
+/// (ownership moves), so the `Gc.finalise` finaliser cannot double-free
+/// the returned DOM tree — the documented raw path (`raw_dom` without
+/// `azul_consume`) leaves that footgun to the user.
+///
+/// Must be emitted AFTER the wrapper records (`raw_dom`, `dom`) — i.e. at
+/// the very end of `azul.ml`.
+pub fn emit_layout_dom_sugar_implementation(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    if !layout_dom_sugar_available(ir, config) {
+        return;
+    }
+    let dom_t = ocaml_wrapper_type_name("Dom");
+    let refany_ffi = ocaml_ffi_type_name("RefAny");
+    let raw_dom = format!("raw_{}", dom_t);
+    let arg_line = format!(
+        "(layout_fn : {} Ctypes.structure Ctypes.ptr -> unit Ctypes.ptr -> {})",
+        refany_ffi, dom_t
+    );
+
+    let emit_body = |builder: &mut CodeBuilder, delegate: &str| {
+        builder.line(delegate);
+        builder.line("  (fun (data : unit Ctypes.ptr) (info : unit Ctypes.ptr) ->");
+        builder.line(&format!(
+            "     let d = layout_fn (Ctypes.from_voidp {} data) info in",
+            refany_ffi
+        ));
+        builder.line(&format!("     let r = {} d in", raw_dom));
+        builder.line("     azul_consume d;");
+        builder.line("     r)");
+    };
+
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.line("(* Idiomatic layout registration sugar (Dom.t-returning).                     *)");
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.blank();
+    for s in &ir.structs {
+        let Some(info) = layout_callback_factory_info(s, ir) else {
+            continue;
+        };
+        let class_snake = to_snake_case(&info.class_name);
+        builder.line(&format!(
+            "(* Dom.t-returning variant of azul_{}_with_layout: the layout *)",
+            class_snake
+        ));
+        builder.line("(* callback receives the RefAny data pointer pre-cast and returns a *)");
+        builder.line("(* wrapper `dom`. The wrapper is consumed once its raw struct is handed *)");
+        builder.line("(* to libazul (ownership moves), so the Gc finaliser cannot double-free *)");
+        builder.line("(* the returned DOM tree. *)");
+        builder.line(&format!(
+            "let azul_{}_with_layout_dom",
+            class_snake
+        ));
+        builder.indent();
+        builder.line(&arg_line);
+        builder.line(&format!(
+            ": {} Ctypes.structure =",
+            ocaml_ffi_type_name(&info.class_name)
+        ));
+        emit_body(builder, &format!("azul_{}_with_layout", class_snake));
+        builder.dedent();
+        builder.blank();
+    }
+    builder.line("(* Dom.t-returning variant of azul_register_layout_callback (same contract). *)");
+    builder.line("let azul_register_layout_callback_dom");
+    builder.indent();
+    builder.line(&arg_line);
+    builder.line(&format!(
+        ": {} Ctypes.structure =",
+        ocaml_ffi_type_name("LayoutCallback")
+    ));
+    emit_body(builder, "azul_register_layout_callback");
+    builder.dedent();
+    builder.blank();
+}
+
 // ============================================================================
 // Filters
 // ============================================================================
+
+/// True when the `dom` wrapper record exists (Dom is wrapped and owns
+/// native memory) and the LayoutCallback host-invoker kind is emitted —
+/// the preconditions for the Dom-typed layout sugar above.
+fn layout_dom_sugar_available(ir: &CodegenIR, config: &CodegenConfig) -> bool {
+    let dom_wrapped = ir
+        .find_struct("Dom")
+        .map(|s| should_wrap(s, config))
+        .unwrap_or(false)
+        && collect_delete_targets(ir).contains("Dom");
+    dom_wrapped && host_invoker_kinds(ir).any(|cb| wrapper_name(cb) == "LayoutCallback")
+}
 
 fn should_wrap(s: &StructDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {

@@ -121,6 +121,10 @@ fn generate_interface(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> 
     // Idiomatic Azul module surface: nested submodules per class.
     wrappers::emit_idiomatic_module_interface(&mut builder, ir, config)?;
 
+    // Dom.t-returning layout registration sugar (needs `dom` +
+    // `az_window_create_options` + `az_layout_callback` declared above).
+    wrappers::emit_layout_dom_sugar_interface(&mut builder, ir, config);
+
     Ok(builder.finish())
 }
 
@@ -153,6 +157,11 @@ fn generate_implementation(ir: &CodegenIR, config: &CodegenConfig) -> Result<Str
 
     // 5. Idiomatic Azul module surface implementation.
     wrappers::emit_idiomatic_module_implementation(&mut builder, ir, config)?;
+
+    // 6. Dom.t-returning layout registration sugar (needs the wrapper
+    //    records' `dom` / `raw_dom` and the managed prelude's
+    //    `azul_*_with_layout` / `azul_register_layout_callback`).
+    wrappers::emit_layout_dom_sugar_implementation(&mut builder, ir, config);
 
     Ok(builder.finish())
 }

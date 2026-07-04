@@ -81,9 +81,10 @@ hello-world.exe
 ```
 
 `-Fl.` adds the current directory to the *linker's* library search
-path; the `external 'azul'` declarations inside `azul.pas` already
-tell FPC to link against `libazul`, so no `{$linklib}` or `-k-lazul`
-is strictly needed as long as the library sits next to your source.
+path. `azul.pas` carries a `{$linklib azul}` directive, so FPC links
+against `libazul` automatically — you do **not** need `-k-lazul` on
+the command line, only `-Fl.` (or a system-installed `libazul`) so the
+linker can find the library file.
 
 ## Simple "Counter" Example
 
@@ -145,8 +146,8 @@ end;
 procedure TMyLayoutHandler.Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer);
 var
   m: TObject;
-  body, counter_text, label_wrap, button_dom: TAzDom;
-  btn: TAzButton;
+  counter_text, label_wrap, body: TDom;
+  btn: TButton;
   click_handler: TMyClickHandler;
   click_cb: TAzButtonOnClickCallback;
   click_data: TAzRefAny;
@@ -154,32 +155,40 @@ begin
   m := azul_refany_get(PAzRefAny(arg0));
   if (m = nil) or not (m is TMyModel) then
   begin
-    body := AzDom_createBody();
+    body := TDom.CreateBody;
     if out_ptr <> nil then
-      PAzDom(out_ptr)^ := body;
+      PAzDom(out_ptr)^ := body.Release;
+    body.Free;
     Exit;
   end;
 
-  counter_text := AzDom_createText(MakeAzString(IntToStr(TMyModel(m).Counter)));
-  label_wrap := AzDom_createDiv();
-  label_wrap := AzDom_withCss(label_wrap, MakeAzString('font-size: 32px;'));
-  label_wrap := AzDom_withChild(label_wrap, counter_text);
+  { Idiomatic wrapper classes: TDom.CreateText / CreateDiv / CreateBody are
+    named constructors; builder methods return fresh TDom wrappers and
+    consume their by-value inputs, so .Free on a consumed wrapper only
+    releases the object shell, never the DOM it was moved into. }
+  counter_text := TDom.CreateText(MakeAzString(IntToStr(TMyModel(m).Counter)));
+  label_wrap := TDom.CreateDiv.WithCss(MakeAzString('font-size: 32px;'))
+                              .WithChild(counter_text);
 
   click_handler := TMyClickHandler.Create;
   click_cb := azul_register_buttononclickcallback(click_handler);
   click_data := azul_refany_create(TMyModel(m));
 
-  btn := AzButton_create(MakeAzString('Increase counter'));
-  btn := AzButton_withButtonType(btn, TAzButtonType_Primary);
-  btn := AzButton_withOnClick(btn, click_data, click_cb);
-  button_dom := AzButton_dom(btn);
+  btn := TButton.Create(MakeAzString('Increase counter'))
+                .WithButtonType(TAzButtonType_Primary)
+                .WithOnClick(click_data, click_cb);
 
-  body := AzDom_createBody();
-  body := AzDom_withChild(body, label_wrap);
-  body := AzDom_withChild(body, button_dom);
+  body := TDom.CreateBody.WithChild(label_wrap).WithChild(btn.Dom);
 
+  { Release detaches the raw record: ownership passes to libazul via out_ptr. }
   if out_ptr <> nil then
-    PAzDom(out_ptr)^ := body;
+    PAzDom(out_ptr)^ := body.Release;
+
+  { Free the wrapper shells (their records were consumed / released above). }
+  counter_text.Free;
+  label_wrap.Free;
+  btn.Free;
+  body.Free;
 end;
 
 var
@@ -241,19 +250,29 @@ Five things to notice.
   carries around; `azul_refany_get(PAzRefAny(arg0))` in a callback hands
   the *same instance* back. Always guard with `<> nil` and `is` before
   the typecast, and fall back to an empty body / no-op on mismatch.
+- **Ownership** — the handle table *owns* every object you pass to
+  `azul_refany_create` or `azul_register_*`, and `Free`s it exactly once
+  when libazul drops the last reference (the table dedups by object
+  identity and refcounts, so re-wrapping the same model on each relayout
+  is safe). So do **not** `Free` those objects yourself — only the
+  short-lived `TDom` / `TButton` *wrapper shells* you build inside a
+  layout callback are yours to `Free`.
 - **Raw `Invoke` signatures** — `arg0` is the data `PAzRefAny`, `arg1`
   the (unused here) info pointer, and `out_ptr` is where the result is
   written: a click handler stores `PAzUpdate(out_ptr)^ :=
   TAzUpdate_RefreshDom`, a layout handler stores `PAzDom(out_ptr)^ :=
-  body`. Forgetting the `out_ptr` write is the classic
+  body.Release` (the wrapper form) or `PAzDom(out_ptr)^ := body` (the raw
+  record form). Forgetting the `out_ptr` write is the classic
   "window opens but nothing happens" bug.
-- **By-value builder style** — `AzDom_withChild`, `AzDom_withCss`,
-  `AzButton_withOnClick` all *consume* their first argument by value and
-  return a new record, hence the reassignment chains
-  (`label_wrap := AzDom_withChild(label_wrap, ...)`). Do not keep using
-  a record after passing it by value to a consuming function. Strings
-  cross the FFI as UTF-8 buffers: the `MakeAzString` helper copies an
-  `AnsiString` via `AzString_fromUtf8`.
+- **Fluent wrapper style** — `TDom.CreateDiv` / `TButton.Create` are
+  named constructors returning wrapper objects; `WithCss`, `WithChild`,
+  `WithButtonType`, `WithOnClick` return a fresh wrapper so you can chain
+  them (`TDom.CreateDiv.WithCss(...).WithChild(...)`). `body.Release`
+  detaches the raw record and hands ownership to libazul through
+  `out_ptr`. (The raw `AzDom_*` / `AzButton_*` record functions are still
+  exported if you prefer the C-style by-value builder.) Strings cross the
+  FFI as UTF-8 buffers: `MakeAzString` copies an `AnsiString` via
+  `AzString_fromUtf8`.
 
 ## Build and run
 
@@ -272,12 +291,12 @@ hello-world.exe
 ```
 
 `-Mobjfpc -Sh` mirror the `{$mode objfpc}{$H+}` directives on the
-command line. If your linker setup does not pick up the library from
-`-Fl.`, the fully explicit variant (the one the repository's e2e
-harness uses) spells everything out:
+command line. `azul.pas`'s `{$linklib azul}` handles the `-lazul` for
+you. If your linker still cannot find the library file, pass its
+directory to the linker explicitly:
 
 ```sh
-fpc -Mobjfpc -Sh -Fl. -k-L. -k-lazul hello-world.pas
+fpc -Mobjfpc -Sh -Fl. -k-L. hello-world.pas
 ```
 
 Compiling `azul.pas` takes about two seconds and prints two
@@ -294,7 +313,7 @@ value renders.
 - **`ld: symbol(s) not found` / `cannot find -lazul` at the link
   step** — the native library is not where the linker looks. Build from
   the directory holding `libazul.{so,dylib}` / `azul.dll` and keep
-  `-Fl.` (or use the explicit `-k-L. -k-lazul` variant above).
+  `-Fl.` (or add the explicit `-k-L.` linker path shown above).
 - **Runtime: "library not found"** — the *loader* cannot find the
   library. Export `LD_LIBRARY_PATH=.` (Linux) /
   `DYLD_LIBRARY_PATH=.` (macOS), or place `azul.dll` next to the

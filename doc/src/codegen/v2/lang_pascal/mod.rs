@@ -108,6 +108,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("{$mode objfpc}{$H+}");
     builder.line("{$PACKRECORDS C}");
     builder.line("{$MACRO ON}");
+    // Auto-link the native library so users don't need `-k-lazul` on the fpc
+    // command line — only the library search path (`-Fl.` / `-k-L.`) or a
+    // system-installed libazul is still required. `azul` resolves to
+    // libazul.so / libazul.dylib / azul.dll per platform.
+    builder.line(&format!("{{$linklib {}}}", LIB_NAME));
     builder.blank();
 
     // === interface section ===

@@ -100,6 +100,21 @@ pub fn emit_interface_types(
                 let lit = sanitize_identifier(&super::to_snake_case(&v.name));
                 builder.line(&format!("val {}_variant_{} : int", ffi, lit));
             }
+            // Idiomatic module counterpart: the .ml defines
+            // `module Update = struct let refresh_dom : int = 1 ... end`
+            // (emit_unit_enum below), but without a matching signature
+            // here the module is hidden by this interface and the
+            // az_*_variant_* prefixed constants were the only reachable
+            // spelling (BINDINGS_REVIEW_2026_07_04 addendum item 8).
+            // Keep the two surfaces in sync.
+            builder.line(&format!("module {} : sig", e.name));
+            builder.indent();
+            for v in &e.variants {
+                let lit = sanitize_identifier(&super::to_snake_case(&v.name));
+                builder.line(&format!("val {} : int", lit));
+            }
+            builder.dedent();
+            builder.line("end");
         }
     }
 
