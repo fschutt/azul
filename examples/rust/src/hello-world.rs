@@ -13,18 +13,18 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
 
-    let mut label = Dom::create_text(counter.as_str());
-    label.set_css("font-size: 50px");
+    // Canonical hello-world shape shared by every language binding:
+    // body > div{font-size:32px} > text(counter), then the button.
+    let label = Dom::create_div()
+        .with_css("font-size: 32px")
+        .with_child(Dom::create_text(counter.as_str()));
 
     let mut button = Button::create("Increase counter");
     button.set_on_click(data.clone(), my_on_click);
     let mut button = button.dom();
     button.set_css("flex-grow: 1");
 
-    let mut body = Dom::create_body();
-    body.set_css("background-color: green");
-    
-    body
+    Dom::create_body()
         .with_child(label)
         .with_child(button)
 }
@@ -41,7 +41,7 @@ extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
 }
 
 fn main() {
-    let data = DataModel { counter: 0 };
+    let data = DataModel { counter: 5 };
     let config = AppConfig::create();
     let app = App::create(RefAny::new(data), config);
     let window = WindowCreateOptions::create(my_layout_func);

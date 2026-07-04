@@ -16,8 +16,10 @@ type
     constructor Create(c: Integer);
   end;
 
-  { Click handler: bump counter and request a DOM refresh. }
-  TMyClickHandler = class(TAzCallbackInvoker)
+  { Click handler: bump counter and request a DOM refresh.
+    Button.onClick is TYPED since the typed-callback API change: derive
+    from TAzButtonOnClickCallbackInvoker, not the generic TAzCallbackInvoker. }
+  TMyClickHandler = class(TAzButtonOnClickCallbackInvoker)
     procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
   end;
 
@@ -56,7 +58,7 @@ var
   body, counter_text, label_wrap, button_dom: TAzDom;
   btn: TAzButton;
   click_handler: TMyClickHandler;
-  click_cb: TAzCallback;
+  click_cb: TAzButtonOnClickCallback;
   click_data: TAzRefAny;
 begin
   m := azul_refany_get(PAzRefAny(arg0));
@@ -74,7 +76,7 @@ begin
   label_wrap := AzDom_withChild(label_wrap, counter_text);
 
   click_handler := TMyClickHandler.Create;
-  click_cb := azul_register_callback(click_handler);
+  click_cb := azul_register_buttononclickcallback(click_handler);
   click_data := azul_refany_create(TMyModel(m));
 
   btn := AzButton_create(MakeAzString('Increase counter'));

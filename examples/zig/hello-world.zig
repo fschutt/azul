@@ -82,15 +82,15 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     C.AzDom_addCssProperty(&label_wrapper, cond);
     C.AzDom_addChild(&label_wrapper, label);
 
-    // Increment button. `AzCallback_create` wraps the raw fn pointer
-    // in a `{ cb, ctx=None }` struct; the C ABI takes `AzCallback`.
+    // Increment button. The typed `AzButton_setOnClick` takes the bare
+    // `AzButtonOnClickCallbackType` fn pointer directly — no AzCallback
+    // struct wrapping needed since the typed-callback API change.
     const btn_label_bytes = "Increase counter";
     const btn_label = C.AzString_fromUtf8(btn_label_bytes.ptr, btn_label_bytes.len);
     var button = C.AzButton_create(btn_label);
     C.AzButton_setButtonType(&button, C.AzButtonType_Primary);
     const data_clone = C.AzRefAny_clone(&d);
-    const callback = C.AzCallback_create(onClick);
-    C.AzButton_setOnClick(&button, data_clone, callback);
+    C.AzButton_setOnClick(&button, data_clone, onClick);
     const button_dom = C.AzButton_dom(button);
 
     // Body.
