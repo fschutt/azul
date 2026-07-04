@@ -376,6 +376,10 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("callback(proto, jsFn) { return koffi.register(jsFn, proto); },");
     b.line("// Address-of / pointer helpers for wrapper destructors.");
     b.line("addr(value) { return koffi.address(value); },");
+    b.line("// Write an int32 through an out-pointer (callback return writeback;");
+    b.line("// same primitive on all three runtimes so the invoker layer can");
+    b.line("// write enum returns without a runtime gate).");
+    b.line("writeInt32(p, v) { koffi.encode(p, 'int32_t', v); },");
     b.line("ptr: 'void *',");
     b.dedent();
     b.line("};");
@@ -390,7 +394,7 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("// does no name mangling either — DLL_NAME is already a resolved");
     b.line("// path or a full platform filename (lib prefix + suffix included),");
     b.line("// so use it verbatim.");
-    b.line("const { dlopen, FFIType, ptr, JSCallback } = require('bun:ffi');");
+    b.line("const { dlopen, FFIType, ptr, JSCallback, toArrayBuffer } = require('bun:ffi');");
     b.line("const path = DLL_NAME;");
     b.line("// Bun requires the symbol map up-front. We populate it lazily by");
     b.line("// returning a builder that records bindings until the user is done,");
@@ -472,6 +476,11 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.dedent();
     b.line("},");
     b.line("addr(value) { return ptr(value); },");
+    b.line("// Write an int32 through an out-pointer (callback return writeback).");
+    b.line("// `toArrayBuffer(p, 0, 4)` maps the pointed-at native memory as a");
+    b.line("// mutable ArrayBuffer view — DataView writes go straight through.");
+    b.line("// Little-endian: all supported targets (x86_64/aarch64) are LE.");
+    b.line("writeInt32(p, v) { new DataView(toArrayBuffer(p, 0, 4)).setInt32(0, v, true); },");
     b.line("ptr: FFIType.ptr,");
     b.dedent();
     b.line("};");
@@ -558,6 +567,11 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.dedent();
     b.line("},");
     b.line("addr(value) { return Deno.UnsafePointer.of(value); },");
+    b.line("// Write an int32 through an out-pointer (callback return writeback).");
+    b.line("// `UnsafePointerView.getArrayBuffer(len)` returns a direct mutable");
+    b.line("// view over the native memory at the pointer, so the DataView write");
+    b.line("// lands in the framework's out-struct. LE on all supported targets.");
+    b.line("writeInt32(p, v) { new DataView(new Deno.UnsafePointerView(p).getArrayBuffer(4)).setInt32(0, v, true); },");
     b.line("ptr: 'pointer',");
     b.dedent();
     b.line("};");

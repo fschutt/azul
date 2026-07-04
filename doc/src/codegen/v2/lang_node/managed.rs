@@ -145,6 +145,9 @@ fn emit_dispatch_state(b: &mut CodeBuilder) {
     b.line("// reference). Process-lifetime today.");
     b.line("const _livePins = [];");
     b.line("let _hostInvokerInitialized = false;");
+    b.line("// One-shot flag: warn only once when a struct-returning callback");
+    b.line("// fires on Bun/Deno (no struct writeback there; default is used).");
+    b.line("let _structRetWarnedOnce = false;");
     b.blank();
     b.line("function _allocHandle(value) {");
     b.indent();
@@ -237,17 +240,22 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         if cb_has_return {
             b.line(&format!("const ret = fn({});", user_args.join(", ")));
             b.line("if (ret === undefined || ret === null) return;");
-            b.line("if (azulFFI.runtime === 'node-koffi') {");
-            b.indent();
             // Numeric returns (Update enum, etc.) → write as int32_t.
-            // Struct returns (AzDom from LayoutCallback, VirtualViewReturn
-            // from VirtualViewCallback) → encode through the registered
-            // koffi type so the bytes land in the out-pointer's target
-            // memory; otherwise the framework reads the pre-filled
-            // default value and the host's layout is dropped.
+            // Expressible on ALL three runtimes via the adapter's
+            // writeInt32 (koffi.encode / Bun toArrayBuffer / Deno
+            // UnsafePointerView.getArrayBuffer), so enum-returning
+            // callbacks (button on_click → Update) take effect on
+            // Bun/Deno too instead of being silently dropped.
+            //
+            // Struct returns (AzDom from LayoutCallback,
+            // VirtualViewReturn from VirtualViewCallback) → encode
+            // through the registered koffi type so the bytes land in
+            // the out-pointer's target memory; otherwise the framework
+            // reads the pre-filled default value and the host's layout
+            // is dropped. koffi-only: see the else-branch note below.
             b.line("if (typeof ret === 'number') {");
             b.indent();
-            b.line("azulFFI.koffi.encode(outPtr, 'int32_t', ret);");
+            b.line("azulFFI.writeInt32(outPtr, ret);");
             b.dedent();
             // For struct returns, the IR knows the exact type name
             // (e.g. "Dom"). The koffi-registered type name is
@@ -270,6 +278,8 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
             if let Some(koffi_type) = struct_branch_type {
                 b.line("} else if (typeof ret === 'object') {");
                 b.indent();
+                b.line("if (azulFFI.runtime === 'node-koffi') {");
+                b.indent();
                 // Unwrap wrapper-class instances back to their underlying
                 // koffi struct value. Users return `Dom.create_body().with_child(...)`
                 // which is a `Dom` wrapper instance; the koffi-side encode
@@ -289,12 +299,26 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
                 b.dedent();
                 b.line("}");
                 b.dedent();
+                b.line("} else if (!_structRetWarnedOnce) {");
+                b.indent();
+                b.line("// Bun/Deno: struct-by-value writeback is NOT expressible at");
+                b.line("// this FFI layer — struct-typed C calls collapse to plain");
+                b.line("// pointers (see toBunType/toDenoType in the loaders), so `ret`");
+                b.line("// carries no authentic struct bytes to copy into outPtr. The");
+                b.line("// native thunk pre-filled *outPtr with this kind's default");
+                b.line("// (core/src/host_invoker.rs), so the framework safely uses the");
+                b.line("// default — no memory corruption — but the host's return value");
+                b.line("// is dropped. Ownership therefore STAYS with the JS wrapper");
+                b.line("// (no unregister/null of _ptr here). Warn once.");
+                b.line("_structRetWarnedOnce = true;");
+                b.line("console.error('[azul] warning: struct-returning callbacks (layout/virtual-view) are not supported on ' + azulFFI.runtime + ' (experimental runtime); the framework default return is used instead. Use Node.js (koffi) for full callback support.');");
+                b.dedent();
+                b.line("}");
+                b.dedent();
                 b.line("}");
             } else {
                 b.line("}");
             }
-            b.dedent();
-            b.line("}");
         } else {
             b.line(&format!("fn({});", user_args.join(", ")));
         }
@@ -366,29 +390,37 @@ fn emit_catch_default_write(b: &mut CodeBuilder, ir: &CodegenIR, cb: &CallbackTy
         .map(|f| f.c_name.clone());
     b.line("// The native thunk pre-filled *outPtr with this kind's default,");
     b.line("// but a koffi.encode that threw halfway above may have left it");
-    b.line("// torn — re-write a complete safe default. (Bun/Deno never");
-    b.line("// encode, so there the native pre-fill always stands.)");
-    b.line("if (azulFFI.runtime === 'node-koffi') {");
-    b.indent();
+    b.line("// torn — re-write a complete safe default. (On Bun/Deno only the");
+    b.line("// 4-byte writeInt32 path writes, which cannot tear, so re-writing");
+    b.line("// the int default there is cheap belt-and-braces; struct encodes");
+    b.line("// never happen there and the native pre-fill stands.)");
     if unit_enum {
+        // Runtime-agnostic: writeInt32 exists on koffi/Bun/Deno alike, so
+        // the enum default (0 == first, DoNothing-style variant) is safely
+        // re-written on every runtime and cannot tear (single 4-byte store).
         b.line(&format!(
-            "try {{ azulFFI.koffi.encode(outPtr, 'int32_t', 0); }} catch (_e2) {{ /* pre-fill stands */ }} // 0 == {}.DoNothing-style first variant",
+            "try {{ azulFFI.writeInt32(outPtr, 0); }} catch (_e2) {{ /* pre-fill stands */ }} // 0 == {}.DoNothing-style first variant",
             rt
         ));
     } else if let Some(c_name) = default_factory {
+        // Struct default via koffi.encode — koffi-only. On Bun/Deno struct
+        // encodes never run in the success path (they collapse to pointers),
+        // so nothing can tear there and the native pre-fill already stands.
+        b.line("if (azulFFI.runtime === 'node-koffi') {");
+        b.indent();
         b.line(&format!(
             "try {{ azulFFI.koffi.encode(outPtr, '{}', lib.{}()); }} catch (_e2) {{ /* pre-fill stands */ }}",
             super::ffi_type_name(rt),
             c_name
         ));
+        b.dedent();
+        b.line("}");
     } else {
         b.line(&format!(
             "// No Az{}_default C export — rely on the native pre-filled default.",
             rt
         ));
     }
-    b.dedent();
-    b.line("}");
 }
 
 fn emit_register_callback(b: &mut CodeBuilder, ir: &CodegenIR) {

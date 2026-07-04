@@ -201,9 +201,33 @@ impl Drop for RefCount {
         }
         self.run_destructor = false;
 
-        // Atomically decrement and get the PREVIOUS value
+        // Take the inner pointer and NULL the field before doing anything
+        // else. The C ABI reaches this drop via `AzRefCount_delete` →
+        // `drop_in_place` on C-owned struct memory, and writes through
+        // `&mut self` persist in that memory. Nulling the pointer here
+        // (mirroring the `ptr = 0` convention the AZ_REFLECT C macros use
+        // for their downcast guards) makes a SECOND delete of the same
+        // struct — easy to hit in C example failure paths, and unguarded
+        // in pre-0.2.1 copies of azul.h — a safe no-op via the null check
+        // above, instead of a double-free of the RefCountInner allocation
+        // or a read through a dangling pointer.
+        let inner = self.ptr;
+        self.ptr = core::ptr::null();
+
+        // Atomically decrement and get the PREVIOUS value. `checked_sub`
+        // refuses to underflow: an unmatched decrement (e.g. a C caller
+        // deleting a byte-copied Ref struct twice) becomes a no-op instead
+        // of wrapping `num_copies` to `usize::MAX` and corrupting the
+        // reference count for the rest of the process.
         let current_copies = unsafe {
-            (*self.ptr).num_copies.fetch_sub(1, AtomicOrdering::SeqCst)
+            match (*inner).num_copies.fetch_update(
+                AtomicOrdering::SeqCst,
+                AtomicOrdering::SeqCst,
+                |n| n.checked_sub(1),
+            ) {
+                Ok(prev) => prev,
+                Err(_zero) => return,
+            }
         };
 
         // If previous value wasn't 1, other references still exist
@@ -213,7 +237,7 @@ impl Drop for RefCount {
 
         // We're the last reference! Clean up.
         // SAFETY: ptr came from Box::into_raw, and we're the last reference
-        let sharing_info = unsafe { Box::from_raw(self.ptr.cast_mut()) };
+        let sharing_info = unsafe { Box::from_raw(inner.cast_mut()) };
         let sharing_info = *sharing_info; // Box deallocates RefCountInner here
 
         // Get the data pointer
@@ -362,14 +386,25 @@ impl RefCount {
     ///
     /// Called when a `Ref<T>` is dropped, indicating the borrow is released.
     ///
+    /// # Underflow guard
+    ///
+    /// Saturates at 0: an unmatched decrement — e.g. a C caller running
+    /// `FooRef_delete` after a FAILED downcast with a pre-0.2.1 copy of
+    /// `azul.h` (whose macro did not skip the decrease), or a plain
+    /// double-delete — must not wrap `num_refs` to `usize::MAX`, which
+    /// would make `can_be_shared_mut()` return `false` for the rest of
+    /// the process (callbacks silently stop mutating state).
+    ///
     /// # Memory Ordering
     ///
     /// `SeqCst` ensures this decrement is immediately visible to other threads
     /// waiting to acquire a mutable borrow.
     pub fn decrease_ref(&self) {
-        self.downcast()
-            .num_refs
-            .fetch_sub(1, AtomicOrdering::SeqCst);
+        let _ = self.downcast().num_refs.fetch_update(
+            AtomicOrdering::SeqCst,
+            AtomicOrdering::SeqCst,
+            |n| n.checked_sub(1),
+        );
     }
 
     /// Increments the mutable borrow counter.
@@ -391,14 +426,23 @@ impl RefCount {
     ///
     /// Called when a `RefMut<T>` is dropped, releasing exclusive access.
     ///
+    /// # Underflow guard
+    ///
+    /// Saturates at 0 (see [`Self::decrease_ref`]): a double
+    /// `FooRefMut_delete` from C must not wrap `num_mutable_refs`, which
+    /// would corrupt the runtime borrow checker and let a second thread
+    /// or timer callback obtain an aliasing mutable borrow.
+    ///
     /// # Memory Ordering
     ///
     /// `SeqCst` ensures this decrement is immediately visible, allowing
     /// other threads to acquire borrows.
     pub fn decrease_refmut(&self) {
-        self.downcast()
-            .num_mutable_refs
-            .fetch_sub(1, AtomicOrdering::SeqCst);
+        let _ = self.downcast().num_mutable_refs.fetch_update(
+            AtomicOrdering::SeqCst,
+            AtomicOrdering::SeqCst,
+            |n| n.checked_sub(1),
+        );
     }
 }
 

@@ -557,12 +557,24 @@ impl RustGenerator {
 
         // as_str() - returns &str by reinterpreting the bytes
         builder.line("/// Returns the string as a `&str` slice.");
+        builder.line("///");
+        builder.line("/// The bytes are UTF-8-checked rather than blindly reinterpreted: an");
+        builder.line("/// `AzString` can legitimately carry non-UTF8 bytes (e.g.");
+        builder.line("/// `FilePath::as_string` for a non-UTF8 Linux filename, or a string");
+        builder.line("/// produced by another language binding sharing this libazul process),");
+        builder.line("/// and `from_utf8_unchecked` on those would be undefined behaviour. On");
+        builder.line("/// invalid input this falls back to the longest valid UTF-8 prefix.");
         builder.line("#[inline]");
         builder.line("pub fn as_str(&self) -> &str {");
         builder.indent();
-        builder.line("unsafe {");
+        builder.line("// SAFETY: ptr/len come from the library-owned AzString buffer.");
+        builder.line("let bytes = unsafe { core::slice::from_raw_parts(self.vec.ptr, self.vec.len) };");
+        builder.line("match core::str::from_utf8(bytes) {");
         builder.indent();
-        builder.line("core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.vec.ptr, self.vec.len))");
+        builder.line("Ok(s) => s,");
+        builder.line("// The prefix up to `valid_up_to()` is guaranteed valid UTF-8, so");
+        builder.line("// this checked re-parse never actually hits the `\"\"` fallback.");
+        builder.line("Err(e) => core::str::from_utf8(&bytes[..e.valid_up_to()]).unwrap_or(\"\"),");
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -723,6 +735,10 @@ impl RustGenerator {
 
         // Generate Option<T> convenience methods (into_option)
         self.generate_option_convenience_methods(&mut builder, ir, config);
+
+        // Generate Result<T, E> convenience methods (into_result), mirroring
+        // the Option helpers so Result enums aren't second-class.
+        self.generate_result_convenience_methods(&mut builder, ir, config);
 
         // Generate Vec<T> convenience methods
         self.generate_vec_convenience_methods(&mut builder, ir, config);
@@ -1132,6 +1148,191 @@ impl RustGenerator {
             builder.line("fn default() -> Self {");
             builder.indent();
             builder.line(&format!("{}::None", prefixed_name));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+
+    /// Generate convenience methods for Result types (into_result, is_ok,
+    /// is_err) plus `From`/`Into<Result>`, mirroring the Option helpers.
+    ///
+    /// Applies only to fieldful `Result`-shaped enums that carry the standard
+    /// `Ok` / `Err` variant pair (e.g. `AzResultU8VecEncodeImageError`,
+    /// `AzResultVoidString`). Enums that merely end in `Result` but lack that
+    /// pair — `AzBiometricResult`, `AzKeyringResult`, `AzFluentSyntaxCheckResult`
+    /// (whose error arm is `Errors`, not `Err`) — are skipped.
+    fn generate_result_convenience_methods(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        for enum_def in &ir.enums {
+            let ok_variant = match enum_def.variants.iter().find(|v| v.name == "Ok") {
+                Some(v) => v,
+                None => continue,
+            };
+            let err_variant = match enum_def.variants.iter().find(|v| v.name == "Err") {
+                Some(v) => v,
+                None => continue,
+            };
+
+            // Resolve each side's std payload type: a unit variant maps to
+            // `()`, a single-field tuple maps to the (prefixed) inner type.
+            // Multi-field / struct variants can't be a std Result payload.
+            let payload_ty = |v: &EnumVariantDef| -> Option<String> {
+                match &v.kind {
+                    EnumVariantKind::Unit => Some("()".to_string()),
+                    EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                        Some(config.apply_prefix(&types[0].0))
+                    }
+                    _ => None,
+                }
+            };
+            let ok_ty = match payload_ty(ok_variant) {
+                Some(t) => t,
+                None => continue,
+            };
+            let err_ty = match payload_ty(err_variant) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            let ok_unit = matches!(&ok_variant.kind, EnumVariantKind::Unit);
+            let err_unit = matches!(&err_variant.kind, EnumVariantKind::Unit);
+            let prefixed_name = config.apply_prefix(&enum_def.name);
+            // For `Copy` enums `mem::forget` is a no-op that lints; drop via
+            // `let _ = self;` instead (matches the Option codegen).
+            let is_copy = enum_def.derives.contains(&"Copy".to_string());
+
+            builder.line(&format!("impl {} {{", prefixed_name));
+            builder.indent();
+
+            // into_result() - converts to std Result<T, E>, consuming self.
+            builder.line(&format!(
+                "/// Converts to a Rust `Result<{}, {}>`, consuming self.",
+                ok_ty, err_ty
+            ));
+            builder.line("#[inline]");
+            builder.line(&format!(
+                "pub fn into_result(self) -> Result<{}, {}> {{",
+                ok_ty, err_ty
+            ));
+            builder.indent();
+            builder.line("match &self {");
+            builder.indent();
+            // Ok arm
+            if ok_unit {
+                builder.line(&format!("{}::Ok => Ok(()),", prefixed_name));
+            } else {
+                builder.line(&format!("{}::Ok(val) => {{", prefixed_name));
+                builder.indent();
+                builder.line("let v = unsafe { core::ptr::read(val) };");
+                if is_copy {
+                    builder.line("let _ = self;");
+                } else {
+                    builder.line("core::mem::forget(self);");
+                }
+                builder.line("Ok(v)");
+                builder.dedent();
+                builder.line("}");
+            }
+            // Err arm
+            if err_unit {
+                builder.line(&format!("{}::Err => Err(()),", prefixed_name));
+            } else {
+                builder.line(&format!("{}::Err(val) => {{", prefixed_name));
+                builder.indent();
+                builder.line("let v = unsafe { core::ptr::read(val) };");
+                if is_copy {
+                    builder.line("let _ = self;");
+                } else {
+                    builder.line("core::mem::forget(self);");
+                }
+                builder.line("Err(v)");
+                builder.dedent();
+                builder.line("}");
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // is_ok()
+            let ok_pat = if ok_unit {
+                format!("{}::Ok", prefixed_name)
+            } else {
+                format!("{}::Ok(_)", prefixed_name)
+            };
+            builder.line("/// Returns `true` if the result is an `Ok` value.");
+            builder.line("#[inline]");
+            builder.line("pub fn is_ok(&self) -> bool {");
+            builder.indent();
+            builder.line(&format!("matches!(self, {})", ok_pat));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // is_err()
+            let err_pat = if err_unit {
+                format!("{}::Err", prefixed_name)
+            } else {
+                format!("{}::Err(_)", prefixed_name)
+            };
+            builder.line("/// Returns `true` if the result is an `Err` value.");
+            builder.line("#[inline]");
+            builder.line("pub fn is_err(&self) -> bool {");
+            builder.indent();
+            builder.line(&format!("matches!(self, {})", err_pat));
+            builder.dedent();
+            builder.line("}");
+
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // From<Result<T, E>> for ResultTE
+            builder.line(&format!(
+                "impl From<Result<{}, {}>> for {} {{",
+                ok_ty, err_ty, prefixed_name
+            ));
+            builder.indent();
+            builder.line(&format!("fn from(r: Result<{}, {}>) -> Self {{", ok_ty, err_ty));
+            builder.indent();
+            builder.line("match r {");
+            builder.indent();
+            if ok_unit {
+                builder.line(&format!("Ok(_) => {}::Ok,", prefixed_name));
+            } else {
+                builder.line(&format!("Ok(v) => {}::Ok(v),", prefixed_name));
+            }
+            if err_unit {
+                builder.line(&format!("Err(_) => {}::Err,", prefixed_name));
+            } else {
+                builder.line(&format!("Err(e) => {}::Err(e),", prefixed_name));
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // Into<Result<T, E>> for ResultTE (mirrors the Option codegen's
+            // explicit Into impl; delegates to into_result()).
+            builder.line(&format!(
+                "impl Into<Result<{}, {}>> for {} {{",
+                ok_ty, err_ty, prefixed_name
+            ));
+            builder.indent();
+            builder.line(&format!("fn into(self) -> Result<{}, {}> {{", ok_ty, err_ty));
+            builder.indent();
+            builder.line("self.into_result()");
             builder.dedent();
             builder.line("}");
             builder.dedent();
