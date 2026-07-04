@@ -1411,12 +1411,26 @@ jobs:
         # the shipped lean build, so the E2E test binary must opt back in).
         run: cargo build --release -p azul-dll --features build-dll,debug-server
 
+      # Python's matrix row runs the real counter e2e only when a prebuilt,
+      # debug-server-enabled extension module exists (the SHIPPED azul.so is
+      # lean and would silently skip AZ_E2E — same trap as the dll). Built
+      # into its own target dir so it can't clobber the dll above. Linux/
+      # macOS only: the windows .pyd rename path is exercised by build_binaries.
+      - name: Build python extension (debug-server, for e2e)
+        if: matrix.os != 'windows-2022'
+        run: cargo build --release -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
+
       - name: Stage DLL + codegen artifact
         shell: bash
         run: |
           set -euo pipefail
           rm -rf e2e-dll && mkdir -p e2e-dll/release e2e-dll/codegen
           cp -a target/codegen/. e2e-dll/codegen/
+          if [ "${{ matrix.os }}" != "windows-2022" ]; then
+            # placed as examples/python/azul.so by the e2e_native consumer
+            cp target/pyext-e2e/release/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
+              || cp target/pyext-e2e/release/libazul.so e2e-dll/release/azul-pyext.so
+          fi
           # Per-OS native lib(s). Windows also needs the MSVC import lib so the
           # C / C++ families can link against azul.dll.lib.
           if [ "${{ matrix.os }}" = "macos-14" ]; then
@@ -1531,6 +1545,11 @@ jobs:
           mkdir -p target/release target/codegen
           cp -a e2e-dll/codegen/. target/codegen/
           cp -a e2e-dll/release/. target/release/
+          # Debug-server-enabled python extension → where the matrix's python
+          # row looks for it (absent on windows; the row SKIPs there).
+          if [ -f target/release/azul-pyext.so ]; then
+            mv target/release/azul-pyext.so examples/python/azul.so
+          fi
           ls -la target/release/
 
       - name: Resolve dynamic library path
