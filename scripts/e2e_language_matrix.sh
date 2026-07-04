@@ -83,9 +83,9 @@ cd "$REPO_ROOT" || { echo "FATAL: cannot cd to repo root $REPO_ROOT" >&2; exit 2
 # -----------------------------------------------------------------------------
 # Canonical list of the shipped language bindings (matches examples/<lang>/).
 # `go` (examples/go, cgo-based) has a real counter E2E and is included. `python`
-# is kept as a named entry but always SKIPs — examples/python has no AZ_E2E
-# counter example (the python-extension is a separate build). Order below is the
-# print order of the status board.
+# runs the real counter E2E when a prebuilt examples/python/azul.so is present
+# (the python-extension is a separate cargo build) and SKIPs otherwise. Order
+# below is the print order of the status board.
 # -----------------------------------------------------------------------------
 ALL_LANGS=(
   ada algol68 c cobol cpp csharp fortran freebasic go haskell java kotlin
@@ -105,14 +105,18 @@ ALL_LANGS=(
 #
 # The board prints each language's tier, and `--gate-shipped` fails only when a
 # SHIPPED binding FAILS. Because every recipe reports an absent toolchain (or a
-# binding that can't run on this OS — ocaml on Windows, python which has no
-# counter example) as SKIP, and SKIP never gates, the gate is per-OS aware
-# without an explicit per-(lang,OS) table.
+# binding that can't run on this OS — ocaml on Windows, python without its
+# separately-built azul.so) as SKIP, and SKIP never gates, the gate is per-OS
+# aware without an explicit per-(lang,OS) table.
 # -----------------------------------------------------------------------------
 SHIPPED_LANGS=(
   python c cpp rust csharp java kotlin lua ruby node ocaml
+  # Promoted 2026-07-04 (counter e2e green + truthful install steps + guide;
+  # see scripts/BINDINGS_REVIEW_2026_07_04.md and FRONTPAGE_LANGUAGES in
+  # doc/src/docgen/mod.rs -- keep the three lists in sync):
+  zig go pascal scala fortran haskell
 )
-BETA_LANGS=( go zig )
+BETA_LANGS=( )
 
 # tier_of <lang> -> "shipped" | "beta" | "alpha"
 tier_of() {
@@ -934,9 +938,9 @@ lang_pascal() {
 }
 
 # ---- Fortran -----------------------------------------------------------------
-# Toolchain: gfortran (CI: apt `gfortran` / brew `gcc`). README marks this as
-# SMOKE-ONLY (tagged-union codegen gap) -> the hello_world is a smoke test, not
-# the counter E2E, so this is expected to NOT print `test result: ok` (FAILS).
+# Toolchain: gfortran (CI: apt `gfortran` / brew `gcc`). Full counter E2E since
+# 2026-07-04: tagged unions are emitted as exact-size ABI blobs (lang_fortran::
+# layout) and hello_world.f90 is a full-GUI counter example -> expects WORKS.
 # Uses the generated Makefile.
 lang_fortran() {
   have gfortran || { skip fortran "gfortran not installed (apt: gfortran)"; return; }
@@ -1067,13 +1071,30 @@ lang_powershell() {
 }
 
 # ---- Python ------------------------------------------------------------------
-# NOTE: python is NOT one of the 26 counter-E2E bindings — examples/python has
-# no AZ_E2E hello-world counter (only a module-import demo + GUI examples that
-# open a real window). The python extension is a separate cargo feature
-# (python-extension) producing azul.so. We always SKIP with this note so the
-# board stays honest. (Kept as a named entry because the task lists it.)
+# The python extension is a SEPARATE cargo build (it cannot use $RELEASE_DIR's
+# libazul — pyo3 must be compiled in):
+#   cargo build --release -p azul-dll --features python-extension,debug-server \
+#     --target-dir target/pyext
+#   cp target/pyext/release/libazul.dylib examples/python/azul.so   # .so/.pyd per OS
+# When that prebuilt module sits in examples/python/, hello-world.py runs the
+# real counter E2E headless (verified 2026-07-04, 5→8 via AZ_DEBUG clicks).
+# Without it we SKIP — building a second full azul-dll here would double the
+# matrix's build time.
 lang_python() {
-  skip python "no AZ_E2E counter example (python-extension is a separate build; examples are GUI-only)"
+  local PY; PY="$(command -v python3 || command -v python || true)"
+  [ -n "$PY" ] || { skip python "python3 not installed"; return; }
+  if [ ! -f "$REPO_ROOT/examples/python/azul.so" ] \
+     && [ ! -f "$REPO_ROOT/examples/python/azul.pyd" ]; then
+    skip python "no prebuilt examples/python/azul.so (python-extension is a separate cargo build, see recipe comment)"
+    return
+  fi
+  local f; f="$(log_path python)"
+  (
+    set -x
+    cd "$REPO_ROOT/examples/python" || exit 1
+    "$PY" hello-world.py
+  ) >"$f" 2>&1
+  finish python "python run failed"
 }
 
 # ---- Ada ---------------------------------------------------------------------

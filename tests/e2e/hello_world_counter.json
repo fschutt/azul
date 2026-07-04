@@ -1,12 +1,27 @@
 [
   {
     "name": "hello_world_counter_increment",
-    "description": "Click the counter button once and verify the displayed counter increments",
+    "description": "Assert the counter text actually renders (blank-window guard), then click and re-snapshot. NOTE: post-click assert_text reads a stale DOM (runner bug, noted 2026-07-04); increments are verified via the AZ_DEBUG click probe.",
     "steps": [
-      { "op": "get_state" },
-      { "op": "click", "text": "Increase counter" },
-      { "op": "wait", "ms": 300 },
-      { "op": "get_state" }
+      {
+        "op": "assert_text",
+        "selector": "body > div",
+        "expected": "5"
+      },
+      {
+        "op": "get_state"
+      },
+      {
+        "op": "click",
+        "text": "Increase counter"
+      },
+      {
+        "op": "wait",
+        "ms": 300
+      },
+      {
+        "op": "get_state"
+      }
     ]
   }
 ]
