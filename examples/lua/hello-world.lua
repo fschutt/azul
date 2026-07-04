@@ -1,4 +1,5 @@
--- LD_LIBRARY_PATH=. luajit hello-world.lua
+-- macOS: DYLD_LIBRARY_PATH=. luajit hello-world.lua
+-- Linux: LD_LIBRARY_PATH=. luajit hello-world.lua
 
 local azul = require('azul')
 

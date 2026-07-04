@@ -351,12 +351,18 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     let has_dbg = s.traits.is_debug
         && ir.functions.iter().any(|f| f.c_name == dbg_sym)
         && s.name != "String";
+    // The AzString returned by value from toDbgString is never seen by
+    // a finalizer (LuaJIT arms __gc only for ffi.new cdata, not C-call
+    // returns), so it must be consumed here after ffi.string() copies
+    // the bytes — otherwise every tostring() leaks the heap buffer.
     let tostring_clause = if has_dbg {
         format!(
             ", __tostring = function(self) \
              local az = C.{}(self); \
-             if az.vec.ptr == nil or az.vec.len == 0 then return '' end; \
-             return ffi.string(az.vec.ptr, tonumber(az.vec.len)) \
+             local ok = az.vec.ptr ~= nil and az.vec.len > 0; \
+             local s = ok and ffi.string(az.vec.ptr, tonumber(az.vec.len)) or ''; \
+             C.AzString_delete(az); \
+             return s \
              end",
             dbg_sym
         )
@@ -566,6 +572,27 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 /// the class) and is supplied implicitly via `self`.
 fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &FunctionDef) {
     let lua_method = sanitize_lua_ident(lua_method);
+
+    // ThreadCallback guard (same rationale as emit_static_method):
+    // LuaJIT has no runtime lock, so a Lua fn invoked from a libazul
+    // worker thread corrupts the VM. Applies to instance methods like
+    // MapWidget:dom_with_fetch / VideoWidget:dom_with_decoder.
+    // scripts/BINDING_STRATEGY_PER_LANGUAGE.md:264.
+    let takes_thread_callback = func.args.iter().any(|a| {
+        a.callback_info
+            .as_ref()
+            .map(|c| c.callback_wrapper_name == "ThreadCallback")
+            .unwrap_or(false)
+    });
+    if takes_thread_callback {
+        out.push_str(&format!(
+            "    function {}_methods:{}(...)\n\
+             \x20       error('ThreadCallback from Lua is unsupported; use the writeback pattern', 2)\n\
+             \x20   end\n",
+            class, lua_method
+        ));
+        return;
+    }
 
     // Detect Owned `String` args. When present, we have to enumerate
     // args (can't use the `(...)` varargs passthrough) so we can route
@@ -934,6 +961,29 @@ fn emit_static_method(
 ) {
     let lua_method = sanitize_lua_ident(lua_method);
 
+    // ThreadCallback guard: LuaJIT is a single-threaded VM with no
+    // runtime lock — libazul would invoke a Lua ThreadCallback on a
+    // worker thread and corrupt the VM. Per
+    // scripts/BINDING_STRATEGY_PER_LANGUAGE.md:264, ThreadCallback
+    // host-code is NOT supported from Lua; only the writeback pattern
+    // is (the WriteBackCallback runs on the main thread). Emit a
+    // hard error instead of a VM-corrupting registration.
+    let takes_thread_callback = func.args.iter().any(|a| {
+        a.callback_info
+            .as_ref()
+            .map(|c| c.callback_wrapper_name == "ThreadCallback")
+            .unwrap_or(false)
+    });
+    if takes_thread_callback {
+        out.push_str(&format!(
+            "    {} = function(...)\n\
+             \x20       error('ThreadCallback from Lua is unsupported; use the writeback pattern', 2)\n\
+             \x20   end,\n",
+            lua_method
+        ));
+        return;
+    }
+
     // When the func has Owned `String` args, switch from the varargs
     // passthrough to an enumerated form so we can route each through
     // `azul._az_string`.
@@ -1143,26 +1193,26 @@ fn emit_callback_pin_lines(
             //     doesn't carry it. Functions in this shape need a
             //     special-case fixup elsewhere (see emit_static_method's
             //     WindowCreateOptions::create branch).
-            if abi_takes_wrapper {
-                out.push_str(&format!(
-                    "{indent}{n} = azul._register_callback('{w}', {n})\n",
-                    indent = indent,
-                    n = names[i],
-                    w = wrapper_name
-                ));
-            } else {
-                out.push_str(&format!(
-                    "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
-                    indent = indent,
-                    n = names[i],
-                    w = wrapper_name
-                ));
-                out.push_str(&format!(
-                    "{indent}{n} = _{n}_cb.cb\n",
-                    indent = indent,
-                    n = names[i]
-                ));
-            }
+            // The typed-callback API change made EVERY host-invoker-kind
+            // function arg a BARE fn pointer at the C ABI (verified against
+            // azul.h 2026-07-04: the only struct-taking exceptions,
+            // AzCallback_toCore / AzOptionCallback_some, carry no
+            // callback_info and never reach this branch). LuaJIT does not
+            // coerce struct→fnptr, so always pass `.cb`; `abi_takes_wrapper`
+            // (guessed from the arg name suffix) mispredicted the smart
+            // setters and broke e.g. Button:set_on_click at cdef call time.
+            let _ = abi_takes_wrapper;
+            out.push_str(&format!(
+                "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
+                indent = indent,
+                n = names[i],
+                w = wrapper_name
+            ));
+            out.push_str(&format!(
+                "{indent}{n} = _{n}_cb.cb\n",
+                indent = indent,
+                n = names[i]
+            ));
         } else {
             // Legacy path for callback kinds without a host-invoker yet.
             // Keeps the wrapper output well-formed; binding still loads,
