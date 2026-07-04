@@ -420,6 +420,33 @@ impl MacOSWindow {
         // Update hit test FIRST (required for scroll manager)
         self.update_hit_test(position);
 
+        // Trace the scroll-target resolution: the wheel only scrolls when the
+        // hover hit test exposes scroll_hit_test_nodes under the cursor.
+        if let Some(layout_window) = self.get_layout_window_mut() {
+            use azul_layout::managers::hover::InputPointId;
+            let (hovered, scrollable) = layout_window
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+                .map(|ht| {
+                    (
+                        ht.hovered_nodes
+                            .values()
+                            .map(|h| h.regular_hit_test_nodes.len())
+                            .sum::<usize>(),
+                        ht.hovered_nodes
+                            .values()
+                            .map(|h| h.scroll_hit_test_nodes.len())
+                            .sum::<usize>(),
+                    )
+                })
+                .unwrap_or((0, 0));
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[scrollWheel] hit test at ({:.1},{:.1}): {} hovered, {} scrollable",
+                position.x, position.y, hovered, scrollable
+            );
+        }
+
         // Queue scroll input for the physics timer instead of directly setting offsets.
         // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
         if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 {
@@ -466,6 +493,11 @@ impl MacOSWindow {
                         now,
                     )
                 {
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                        "[scrollWheel] queued for node {:?}/{:?}, start_timer={}",
+                        _dom_id, _node_id, start_timer
+                    );
                     should_start_timer = start_timer;
                     if start_timer {
                         input_queue_clone = Some(

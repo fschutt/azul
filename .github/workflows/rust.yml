@@ -1961,59 +1961,6 @@ jobs:
           if-no-files-found: error
 
       # -----------------------------------------------------------------------
-      # Self-hosted apt (dpkg) mirror — WIRING (build always, ACTIVATE on secret).
-      #
-      # Assembles a flat apt repository from the built .deb(s). The mirror is
-      # "activated" only when the AZUL_APT_GPG_KEY secret (a base64-encoded
-      # `gpg --export-secret-keys`) is present: then the Release file is signed
-      # (Release.gpg + InRelease) and the public key is exported as
-      # azul-archive-keyring.asc so users can `apt` from https://azul.rs/apt.
-      # Without the secret the repo is still built (unsigned) but apt clients
-      # using `signed-by=` won't trust it — i.e. inactive until you add the key.
-      # Mirrors the build-always/publish-if-secret pattern of the other registries.
-      - name: Assemble apt mirror (sign if AZUL_APT_GPG_KEY present)
-        shell: bash
-        env:
-          AZUL_APT_GPG_KEY: ${{ secrets.AZUL_APT_GPG_KEY }}
-        run: |
-          set -e
-          sudo apt-get update && sudo apt-get install -y dpkg-dev gnupg
-          DIST=apt-repo/dists/stable
-          POOL=apt-repo/pool/main
-          ARCHDIR="$DIST/main/binary-amd64"
-          mkdir -p "$POOL" "$ARCHDIR"
-          find target/packages target/packages-arch -name '*.deb' -exec cp -n {} "$POOL/" \; 2>/dev/null || true
-          ( cd apt-repo && dpkg-scanpackages --multiversion pool/main > dists/stable/main/binary-amd64/Packages )
-          gzip -kf "$ARCHDIR/Packages"
-          {
-            echo "Origin: Azul"; echo "Label: Azul"; echo "Suite: stable"
-            echo "Codename: stable"; echo "Architectures: amd64 arm64"
-            echo "Components: main"
-            echo "Description: Azul GUI framework apt repository (azul.rs)"
-            echo "SHA256:"
-            for f in main/binary-amd64/Packages main/binary-amd64/Packages.gz; do
-              echo " $(sha256sum "$DIST/$f" | cut -d' ' -f1) $(stat -c%s "$DIST/$f") $f"
-            done
-          } > "$DIST/Release"
-          if [ -n "${AZUL_APT_GPG_KEY:-}" ]; then
-            echo "::notice::AZUL_APT_GPG_KEY present — signing apt Release (mirror ACTIVE)"
-            echo "$AZUL_APT_GPG_KEY" | base64 -d | gpg --batch --import
-            gpg --batch --yes --armor --detach-sign -o "$DIST/Release.gpg" "$DIST/Release"
-            gpg --batch --yes --clearsign -o "$DIST/InRelease" "$DIST/Release"
-            gpg --batch --armor --export > apt-repo/azul-archive-keyring.asc
-          else
-            echo "::notice::AZUL_APT_GPG_KEY not set — apt repo built UNSIGNED (mirror inactive until the secret is added)."
-          fi
-
-      - name: Upload apt mirror
-        uses: actions/upload-artifact@v7
-        with:
-          name: apt-repo
-          path: apt-repo
-          retention-days: 30
-          if-no-files-found: warn
-
-      # -----------------------------------------------------------------------
       # Per-arch .deb/.rpm for every NON-amd64 binary that actually built.
       # Entirely non-blocking (continue-on-error). For each arch we stage its
       # libazul.so, write a per-arch copy of the generated nfpm.yaml with the
@@ -2109,6 +2056,82 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+      # -----------------------------------------------------------------------
+      # Self-hosted apt (dpkg) mirror -> deployed to https://azul.rs/ui/apt.
+      #
+      # MUST run AFTER the per-arch packaging step above so the arm64 .deb
+      # lands in the pool too (it used to run before it, so the pool only ever
+      # saw amd64). Layout:
+      #   pool/main/*.deb
+      #   dists/stable/main/binary-{amd64,arm64}/Packages(.gz)
+      #   dists/stable/Release (unsigned by default)
+      # UNSIGNED default means clients opt in explicitly:
+      #   echo "deb [trusted=yes] https://azul.rs/ui/apt stable main" | \
+      #     sudo tee /etc/apt/sources.list.d/azul.list
+      #   sudo apt update && sudo apt install azul
+      # When the AZUL_APT_GPG_KEY secret (base64 `gpg --export-secret-keys`) is
+      # present the Release is also signed (Release.gpg + InRelease) and the
+      # public key exported as azul-archive-keyring.asc for signed-by= setups.
+      - name: Assemble apt mirror (sign if AZUL_APT_GPG_KEY present)
+        if: always()
+        shell: bash
+        env:
+          AZUL_APT_GPG_KEY: ${{ secrets.AZUL_APT_GPG_KEY }}
+        run: |
+          set -e
+          sudo apt-get update && sudo apt-get install -y dpkg-dev gnupg
+          DIST=apt-repo/dists/stable
+          POOL=apt-repo/pool/main
+          mkdir -p "$POOL"
+          find target/packages target/packages-arch -name '*.deb' -exec cp -n {} "$POOL/" \; 2>/dev/null || true
+          if [ -z "$(ls -A "$POOL" 2>/dev/null)" ]; then
+            echo "::warning::no .deb packages present — skipping apt mirror assembly"
+            exit 0
+          fi
+          echo "pool contents:"; ls -la "$POOL"
+          # Per-arch Packages indices. dpkg-scanpackages --arch selects that
+          # arch (+ Architecture: all); an arch with no matching .deb yields an
+          # empty-but-valid Packages file, which apt accepts, so a missing
+          # arm64 build degrades gracefully instead of 404ing apt update.
+          for arch in amd64 arm64; do
+            mkdir -p "$DIST/main/binary-$arch"
+            # || true: an arch with zero matching debs must yield an EMPTY
+            # (valid) Packages file, not kill the step.
+            ( cd apt-repo && dpkg-scanpackages --arch "$arch" --multiversion pool/main > "dists/stable/main/binary-$arch/Packages" ) || true
+            gzip -kf "$DIST/main/binary-$arch/Packages"
+            echo "binary-$arch: $(grep -c '^Package:' "$DIST/main/binary-$arch/Packages" || true) package(s)"
+          done
+          {
+            echo "Origin: Azul"; echo "Label: Azul"; echo "Suite: stable"
+            echo "Codename: stable"; echo "Architectures: amd64 arm64"
+            echo "Components: main"
+            echo "Description: Azul GUI framework apt repository (azul.rs)"
+            echo "Date: $(date -Ru)"
+            echo "SHA256:"
+            for f in main/binary-amd64/Packages main/binary-amd64/Packages.gz \
+                     main/binary-arm64/Packages main/binary-arm64/Packages.gz; do
+              echo " $(sha256sum "$DIST/$f" | cut -d' ' -f1) $(stat -c%s "$DIST/$f") $f"
+            done
+          } > "$DIST/Release"
+          if [ -n "${AZUL_APT_GPG_KEY:-}" ]; then
+            echo "::notice::AZUL_APT_GPG_KEY present — signing apt Release"
+            echo "$AZUL_APT_GPG_KEY" | base64 -d | gpg --batch --import
+            gpg --batch --yes --armor --detach-sign -o "$DIST/Release.gpg" "$DIST/Release"
+            gpg --batch --yes --clearsign -o "$DIST/InRelease" "$DIST/Release"
+            gpg --batch --armor --export > apt-repo/azul-archive-keyring.asc
+          else
+            echo "::notice::AZUL_APT_GPG_KEY not set — apt repo built UNSIGNED (use [trusted=yes] in the sources.list entry)."
+          fi
+
+      - name: Upload apt mirror
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: apt-repo
+          path: apt-repo
+          retention-days: 30
+          if-no-files-found: warn
+
   build_website_skeleton:
     name: Build Website Skeleton
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
@@ -2192,7 +2215,13 @@ jobs:
     # publish a release whose shipped language bindings are red. SKIP (missing
     # toolchain / unrunnable-on-this-OS) never trips the gate, so per-OS gaps
     # don't block; only a real FAILS does.
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native]
+    # pypi/npm/rubygems/nuget/maven-central are in `needs` so their package
+    # artifacts are ready when this job lays out the self-hosted mirrors under
+    # azul.rs/ui/{pypi,npm,gems,nuget,maven}. All five (plus their shared
+    # build_dll_linux producer) are continue-on-error, so a packager failure
+    # can delay but never block the deploy; a missing artifact just makes the
+    # corresponding channel skip gracefully.
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
@@ -2502,9 +2531,11 @@ jobs:
           name: dependency-trees-windows-2022
           path: artifacts-deptree-windows
 
-      # Package artifacts for the self-hosted registry mirrors (azul.rs/maven,
-      # /pypi, /npm, /nuget, /gems, /rpm). Produced only by the run_mode==deploy
-      # packager jobs, so best-effort: a missing one just skips that registry.
+      # Package artifacts for the self-hosted registry mirrors (azul.rs/ui/maven,
+      # /ui/pypi, /ui/npm, /ui/nuget, /ui/gems, /ui/rpm). Produced by the
+      # packager jobs in BOTH run_mode==deploy and run_mode==website (they are
+      # in this job's needs), but still best-effort: a failed/missing one just
+      # skips that registry.
       - name: Download maven jar
         uses: actions/download-artifact@v8
         continue-on-error: true
@@ -2594,24 +2625,9 @@ jobs:
           # page links it as release/0.2.0/guide.pdf.
           find artifacts-pdf -name "azul-documentation.pdf" -exec cp {} "$RELEASE_DIR/guide.pdf" \; 2>/dev/null || true
 
-          # Self-hosted apt (dpkg) mirror → https://azul.rs/apt (top-level, version
-          # independent so `apt` sources stay stable across releases). Only carries
-          # a usable signature when the AZUL_APT_GPG_KEY secret activated signing in
-          # build_linux_packages; otherwise the tree is present but unsigned.
-          if [ -d artifacts-apt ] && [ -n "$(ls -A artifacts-apt 2>/dev/null)" ]; then
-            mkdir -p website/apt
-            cp -r artifacts-apt/. website/apt/
-          fi
-
-          # Self-hosted package-registry mirrors → azul.rs/{maven,pypi,npm,nuget,
-          # gems,rpm}, so the documented install commands work without the
-          # official registries. Inputs come from artifacts-registry/* (+ the
-          # already-downloaded artifacts-rpm); each is optional. createrepo_c
-          # makes the dnf repodata when present.
-          sudo apt-get install -y createrepo-c >/dev/null 2>&1 || true
-          mkdir -p artifacts-registry
-          cp -r artifacts-rpm artifacts-registry/artifacts-rpm 2>/dev/null || true
-          bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry || true
+          # NOTE: the self-hosted package channels (brew tap, apt repo, registry
+          # mirrors under azul.rs/ui/...) are built in the dedicated step BELOW
+          # this merge — they sha256 the real release files this step stages.
 
           # Prebuilt drop-in mobile libazul + link stubs → release/0.2.0/mobile/<label>/
           # (label = android-arm64 / android-x64 / ios-arm64 / ios-sim-arm64).
@@ -2879,6 +2895,57 @@ jobs:
           
           echo "=== Final release artifacts ==="
           ls -la "$RELEASE_DIR/"
+
+      # -----------------------------------------------------------------------
+      # SELF-HOSTED PACKAGE CHANNELS — served from the Pages site so installs
+      # never depend on external registries (no PyPI/npm/NuGet/Maven Central/
+      # homebrew-core accounts). IN ADDITION to the manual download links.
+      #
+      #   Homebrew  azul.rs/ui/homebrew-azul.git  real bare git repo (dumb HTTP):
+      #             brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+      #             brew install fschutt/azul/azul
+      #   apt       azul.rs/ui/apt   pool/ + dists/stable (amd64+arm64), unsigned:
+      #             deb [trusted=yes] https://azul.rs/ui/apt stable main
+      #   PyPI      azul.rs/ui/pypi/simple  PEP 503 index over the built wheels
+      #   Maven     azul.rs/ui/maven        maven2 layout (rs.azul:azul:<V>)
+      #   npm       azul.rs/ui/npm/azul/-/azul-<V>.tgz   stable tarball URL
+      #   NuGet     azul.rs/ui/nuget        static v3 feed (+ choco libazul)
+      #   RubyGems  azul.rs/ui/gems         hosted .gem (+ legacy index)
+      #   dnf/arch/apk  azul.rs/ui/{rpm,arch,alpine}
+      #
+      # MUST run AFTER "Merge real artifacts" (the brew formula embeds sha256s
+      # of the staged libazul.dylib / libazul.x86_64.dylib / azul.h and the
+      # choco package the staged azul.dll) and BEFORE upload-pages-artifact.
+      # Every channel skips gracefully when its input artifact is missing.
+      - name: Build self-hosted package channels (brew tap, apt, registry mirrors)
+        run: |
+          set -u
+          # apt mirror: assembled (and optionally signed) in build_linux_packages,
+          # downloaded above into artifacts-apt. /ui/apt is the documented
+          # endpoint; the legacy top-level /apt copy is kept for old sources.
+          if [ -d artifacts-apt ] && [ -n "$(ls -A artifacts-apt 2>/dev/null)" ]; then
+            mkdir -p website/apt website/ui/apt
+            cp -r artifacts-apt/. website/apt/
+            cp -r artifacts-apt/. website/ui/apt/
+            echo "[live] apt mirror -> /ui/apt (and legacy /apt)"
+          else
+            echo "[skip] apt mirror (no apt-repo artifact in this run)"
+          fi
+
+          # Registry mirrors + Homebrew tap. The script reads package inputs
+          # from artifacts-registry/* and the staged release files from
+          # website/ui/release/<V>/; each missing input skips its channel.
+          sudo apt-get install -y createrepo-c >/dev/null 2>&1 || true
+          mkdir -p artifacts-registry
+          cp -r artifacts-rpm artifacts-registry/artifacts-rpm 2>/dev/null || true
+          bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry || true
+
+          echo "=== self-hosted channel summary ==="
+          for d in website/ui/homebrew-azul.git website/ui/apt website/ui/pypi \
+                   website/ui/maven website/ui/npm website/ui/nuget \
+                   website/ui/gems website/ui/rpm website/ui/arch website/ui/alpine; do
+            if [ -d "$d" ]; then echo "[live] ${d#website/}"; else echo "[skip] ${d#website/}"; fi
+          done
 
       # Fold the real shared libraries + the compiled demo binaries into
       # examples.zip so the one download demonstrates the "one dll, many small
@@ -3422,7 +3489,9 @@ jobs:
   # ---------------------------------------------------------------------------
   pypi:
     name: PyPI (python wheel via maturin/cibuildwheel)
-    if: github.event.inputs.run_mode == 'deploy'
+    # website mode BUILDS the wheels too (they feed the self-hosted
+    # azul.rs/ui/pypi/simple index); publishing to pypi.org stays deploy-only.
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -3494,6 +3563,8 @@ jobs:
           retention-days: 7
 
       - name: Publish to PyPI
+        # NEVER publish externally in website mode (build-only for the mirror).
+        if: github.event.inputs.run_mode == 'deploy'
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
@@ -3524,7 +3595,11 @@ jobs:
   # ---------------------------------------------------------------------------
   build_dll_linux:
     name: Build libazul (linux, shared by binding packagers)
-    if: github.event.inputs.run_mode == 'deploy'
+    # Also runs in website mode: its consumers (npm/rubygems/nuget/maven) feed
+    # the self-hosted azul.rs/ui/* mirrors. continue-on-error so a packaging
+    # failure can never block the Pages deploy (which `needs` the consumers).
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    continue-on-error: true
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -3572,7 +3647,9 @@ jobs:
   npm:
     name: npm (node binding)
     needs: build_dll_linux
-    if: github.event.inputs.run_mode == 'deploy'
+    # website mode builds the tarball for azul.rs/ui/npm; npmjs publish stays
+    # deploy-only.
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -3637,6 +3714,8 @@ jobs:
           retention-days: 7
 
       - name: Publish to npm
+        # NEVER publish externally in website mode (build-only for the mirror).
+        if: github.event.inputs.run_mode == 'deploy'
         working-directory: target/package/npm
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -3657,7 +3736,9 @@ jobs:
   rubygems:
     name: RubyGems (ruby binding)
     needs: build_dll_linux
-    if: github.event.inputs.run_mode == 'deploy'
+    # website mode builds the .gem for azul.rs/ui/gems; rubygems.org push stays
+    # deploy-only.
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -3724,6 +3805,8 @@ jobs:
           retention-days: 7
 
       - name: Publish to RubyGems
+        # NEVER publish externally in website mode (build-only for the mirror).
+        if: github.event.inputs.run_mode == 'deploy'
         working-directory: target/package/ruby
         env:
           RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
@@ -3746,7 +3829,9 @@ jobs:
   nuget:
     name: NuGet (csharp binding)
     needs: build_dll_linux
-    if: github.event.inputs.run_mode == 'deploy'
+    # website mode builds the .nupkg for azul.rs/ui/nuget; nuget.org push stays
+    # deploy-only.
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -3800,6 +3885,8 @@ jobs:
           retention-days: 7
 
       - name: Publish to NuGet
+        # NEVER publish externally in website mode (build-only for the mirror).
+        if: github.event.inputs.run_mode == 'deploy'
         working-directory: target/package/nuget
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
@@ -3826,7 +3913,9 @@ jobs:
   maven-central:
     name: Maven Central (java / kotlin binding)
     needs: build_dll_linux
-    if: github.event.inputs.run_mode == 'deploy'
+    # website mode builds the jar for azul.rs/ui/maven; OSSRH deploy stays
+    # deploy-only.
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
@@ -3973,6 +4062,9 @@ jobs:
           retention-days: 7
 
       - name: Determine whether all Maven secrets are present
+        # deploy-only: in website mode ready is never set, so the OSSRH deploy
+        # steps below are skipped (build-only for the azul.rs/ui/maven mirror).
+        if: github.event.inputs.run_mode == 'deploy'
         id: mvncheck
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}

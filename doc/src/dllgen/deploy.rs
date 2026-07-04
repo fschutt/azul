@@ -1619,9 +1619,19 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <h3>apt (Debian / Ubuntu)</h3>
-              <pre><code class='language-bash'># install the .deb straight from the GitHub release (there is no apt repository):
+              <pre><code class='language-bash'># option 1: self-hosted apt repository (amd64 + arm64; unsigned, hence [trusted=yes])
+echo 'deb [trusted=yes] {HTML_ROOT}/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list
+sudo apt update
+sudo apt install azul
+
+# option 2: install the .deb straight from the GitHub release
 curl -LO https://github.com/fschutt/azul/releases/download/{version}/azul_{version}_amd64.deb
 sudo apt install ./azul_{version}_amd64.deb</code></pre>
+
+              <h3>Homebrew (macOS)</h3>
+              <pre><code class='language-bash'># self-hosted tap: a bare git repo served from azul.rs (installs libazul.dylib + azul.h)
+brew tap fschutt/azul {HTML_ROOT}/homebrew-azul.git
+brew install fschutt/azul/azul</code></pre>
 
               <h2 id='demos'>Demos</h2>
               <ul class='release-demos' id='demo-list'>
@@ -1635,8 +1645,32 @@ sudo apt install ./azul_{version}_amd64.deb</code></pre>
                 {binding_links}
               </div>
               <p class='release-note'>Azul is NOT published to PyPI, npm, RubyGems, NuGet, Maven Central or crates.io
-              (same-named packages there are unrelated projects). Every binding file is served
-              directly from this page instead:</p>
+              (same-named packages there are unrelated projects). Instead, azul.rs self-hosts
+              its own distribution channels, regenerated from this exact release by CI
+              (a channel whose package did not build in a given run is simply absent):</p>
+              <pre><code class='language-bash'># macOS - Homebrew tap (self-hosted bare git repo, see above)
+brew tap fschutt/azul {HTML_ROOT}/homebrew-azul.git
+brew install fschutt/azul/azul
+
+# Debian / Ubuntu - self-hosted apt repository (unsigned, hence [trusted=yes])
+echo 'deb [trusted=yes] {HTML_ROOT}/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list
+sudo apt update
+sudo apt install azul
+
+# Python - self-hosted PEP 503 index (NOT pypi.org)
+pip install azul --index-url {HTML_ROOT}/pypi/simple/
+
+# Java / Kotlin - self-hosted maven2 repository
+#   repository {HTML_ROOT}/maven + dependency rs.azul:azul:{version}
+
+# Node - install the npm tarball straight from its stable URL
+npm install {HTML_ROOT}/npm/azul/-/azul-{version}.tgz
+
+# C# / Ruby - stable file URLs (use as a local NuGet feed / local gem install)
+#   {HTML_ROOT}/nuget/flatcontainer/azul/{version}/azul.{version}.nupkg
+#   {HTML_ROOT}/gems/gems/azul-{version}.gem</code></pre>
+              <p class='release-note'>Every binding file is also served
+              directly from this page:</p>
               <pre><code class='language-bash'># grab one binding file directly (no examples.zip needed):
 curl -O {HTML_ROOT}/release/{version}/Azul.cs
 curl -O {HTML_ROOT}/release/{version}/Azul.hs

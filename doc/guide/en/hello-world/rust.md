@@ -67,8 +67,27 @@ curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul-0.2.0-1.
 sudo dnf install ./azul-0.2.0-1.x86_64.rpm
 ```
 
-There is currently no Homebrew tap, Chocolatey package, AUR or Alpine
-repository. On macOS and Windows, download the prebuilt DLL for your OS from
+Instead of downloading the `.deb` manually, Debian/Ubuntu users can also
+subscribe to the self-hosted apt repository served from azul.rs (it is
+unsigned, hence the explicit `[trusted=yes]`):
+
+```sh
+echo "deb [trusted=yes] https://azul.rs/ui/apt stable main" | sudo tee /etc/apt/sources.list.d/azul.list
+sudo apt update
+sudo apt install azul
+```
+
+On macOS, a self-hosted Homebrew tap (a real git repository served from
+azul.rs) installs `libazul.dylib` into the Homebrew prefix; point
+`AZ_LINK_PATH` at `$(brew --prefix)/lib/libazul.dylib`:
+
+```sh
+brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+brew install fschutt/azul/azul
+```
+
+There is currently no Chocolatey package, AUR or Alpine repository. On
+Windows, download the prebuilt DLL for your OS from
 the [release page](https://azul.rs/ui/release/0.2.0) instead:
 
 ```sh

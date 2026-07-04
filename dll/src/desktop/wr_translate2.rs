@@ -648,6 +648,76 @@ pub fn convert_cpu_hit_test_to_full(
         });
     }
 
+    // Scroll containers: the CPU hit tester reports only regular DOM nodes,
+    // so mirror the WR converter's TAG_TYPE_SCROLL_CONTAINER pass by rect
+    // containment. Without this, scroll_hit_test_nodes stays empty on the
+    // CPU-render path and wheel/trackpad scrolling never finds a target
+    // (a11y scrolling still worked - it targets nodes directly - which is
+    // how this stayed unnoticed).
+    for (dom_id, lr) in layout_results {
+        for (&scroll_id, &node_id) in &lr.scroll_id_to_node_id {
+            let Some(&layout_idx) = lr
+                .layout_tree
+                .dom_to_layout
+                .get(&node_id)
+                .and_then(|indices| indices.first())
+            else {
+                continue;
+            };
+            let Some(layout_node) = lr.layout_tree.get(layout_idx) else {
+                continue;
+            };
+            let node_pos = lr
+                .calculated_positions
+                .get(layout_idx)
+                .copied()
+                .unwrap_or_default();
+            let node_size = layout_node.used_size.unwrap_or_default();
+            let inside = cursor_position.x >= node_pos.x
+                && cursor_position.x <= node_pos.x + node_size.width
+                && cursor_position.y >= node_pos.y
+                && cursor_position.y <= node_pos.y + node_size.height;
+            if !inside {
+                continue;
+            }
+            let parent_rect = LogicalRect::new(node_pos, node_size);
+            let child_rect = compute_scroll_child_rect(lr, layout_idx, parent_rect);
+
+            use azul_core::hit_test::{OverflowingScrollNode, ScrollHitTestItem};
+            let scroll_node = OverflowingScrollNode {
+                parent_rect,
+                child_rect,
+                virtual_child_rect: child_rect,
+                // CPU path has no WebRender document; the pipeline half of the
+                // external id is only used for WR scroll-layer sync.
+                parent_external_scroll_id: azul_core::hit_test::ExternalScrollId(
+                    scroll_id,
+                    azul_core::hit_test::PipelineId(dom_id.inner as u32, 0),
+                ),
+                parent_dom_hash: azul_core::dom::DomNodeHash {
+                    inner: node_id.index() as u64,
+                },
+                scroll_tag_id: azul_core::dom::ScrollTagId {
+                    inner: azul_core::dom::TagId {
+                        inner: node_id.index() as u64,
+                    },
+                },
+            };
+            hovered_nodes
+                .entry(*dom_id)
+                .or_insert_with(HitTest::empty)
+                .scroll_hit_test_nodes
+                .insert(node_id, ScrollHitTestItem {
+                    point_in_viewport: cursor_position,
+                    point_relative_to_item: azul_core::geom::LogicalPosition::new(
+                        cursor_position.x - node_pos.x,
+                        cursor_position.y - node_pos.y,
+                    ),
+                    scroll_node,
+                });
+        }
+    }
+
     FullHitTest {
         hovered_nodes,
         focused_node,
@@ -830,6 +900,21 @@ pub fn fullhittest_new_webrender(
                         });
                 }
             }
+
+            // Trace the raw WebRender hit items: tag.1's high byte is the
+            // TAG_TYPE_* marker (0x0100 dom node, 0x0400 cursor, 0x0500
+            // scroll container...). Diagnoses "scrollable node under cursor
+            // never found" bugs at the source.
+            crate::log_debug!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Input,
+                "[wr-hit] {} items: {:?}",
+                wr_result.items.len(),
+                wr_result
+                    .items
+                    .iter()
+                    .map(|i| (i.tag.0, i.tag.1))
+                    .collect::<Vec<_>>()
+            );
 
             // First pass: Process scroll container tags (TAG_TYPE_SCROLL_CONTAINER = 0x0500)
             // These are hit-test areas for scrollable containers, enabling trackpad/wheel scrolling
