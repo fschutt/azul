@@ -1,10 +1,24 @@
 # Handoff — image / GPU-texture garbage collection (the 1 GB video leak)
 
-**Status: DESIGN ONLY. Do NOT implement blind.** This is the single largest
-runtime-RSS problem in the audit (§3.4) and it sits on the hot render path.
-It needs a windowed, multi-frame, leak-instrumented repro to land safely —
-exactly the kind of verification a headless code session cannot do. This
-document is the spec for whoever picks it up with a real display attached.
+**Status: IMAGE GC IMPLEMENTED (commit `df222b9`).** The aliasing prerequisite
+(§2d) and the image GC (Option C ids + Option B epoch delete, §4) are done and
+unit-tested headlessly (`dll/tests/image_lifecycle.rs::
+stale_image_is_deleted_after_retention_window`). This document is kept as the
+design rationale + the remaining work:
+
+- **Still open — FONT GC.** `FontRef` now has aliasing-safe ids too, but
+  `DeleteFont`/`DeleteFontInstance` are still never emitted (fonts leak, just
+  far more slowly — few, stable fonts vs. thousands of video frames). The
+  `RendererResources.last_frame_registered_fonts` field is the intended
+  two-frame-delayed delete hook; wire the same epoch-diff there.
+- **Still recommended — windowed verification.** The unit test proves the GC
+  *logic* (retention window, single DeleteImage, 3-map eviction). The §5
+  windowed, GPU-instrumented, 4-backend pass is still the right final gate
+  before trusting the numbers in production — a headless session can't watch
+  RSS/GPU memory plateau or confirm no on-screen image ever flickers.
+
+Original framing (kept for context): the single largest runtime-RSS problem
+in the audit (§3.4), on the hot render path.
 
 Written 2026-07-04. Line numbers are against commit `52f7af8`-era `master`
 (the size-diet branch). Re-grep before trusting any `file:line`.
