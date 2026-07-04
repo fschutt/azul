@@ -100,6 +100,20 @@ fn restrict_cdylib_exports(target: &str) {
         // underscore, so C `AzApp_new` is `_AzApp_new`. `*Azul*` keeps objc2's
         // per-class registration statics (__CLASS_Azul*, __IVAR_OFFSET_Azul*,
         // __DROP_FLAG_OFFSET_Azul*, __REGISTER_CLASS_Azul*).
+        // NB (verified on ld-1115 / ld-prime): -exported_symbols_list IS
+        // honoured (an all-miss list errors "symbol(s) not found"), and it
+        // localizes the bulk — the shipped cdylib goes from ~285 k global
+        // symbols to ~14 k, essentially just `Az*`. BUT ld-prime keeps a
+        // dependency's `#[no_mangle]` symbols exported regardless of the
+        // whitelist (rustc force-marks them no-dead-strip), and
+        // -unexported_symbols_list "cannot be used together with
+        // -exported_symbols_list", so ~121 turso/limbo SQLite loadable-
+        // extension entry points (`*VTabModule`, `time_*`, `uuid*`, …) +
+        // material-icons `icon_to_char` still leak on macOS. They are a
+        // non-issue there (Mach-O two-level namespace already scopes lookups)
+        // and are fully hidden on Linux, where the version-script below IS
+        // authoritative over dep `#[no_mangle]`. The CI export gate allows
+        // exactly this family set on macOS and demands zero strays on Linux.
         let patterns = "_Az*\n_az_*\n_PyInit_*\n*Azul*\n";
         let path = format!("{}/azul_exported_symbols.txt", out);
         fs::write(&path, patterns).expect("write exported symbols list");

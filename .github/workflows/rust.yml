@@ -1245,20 +1245,28 @@ jobs:
           done
 
       # The cdylib must export ONLY the azul C API — dll/build.rs restricts
-      # exports so ~120 stray turso/SQLite extension symbols (time_*, uuid*,
-      # *_VTabModule) + wasm-bindgen shims don't pollute the host's global
-      # dynamic namespace (audit §2.1). Assert the restriction actually took.
-      # Allowed: Az*/az_* (C API + host-invokers), PyInit_* + Py*/_Py*
-      # (python module + interposed weak stubs), and objc2 __*_Azul* class
-      # statics on macOS. Windows is skipped (build.rs doesn't restrict there).
+      # exports so the host's global dynamic namespace isn't polluted (audit
+      # §2.1). Allowed everywhere: Az*/az_* (C API + host-invokers), PyInit_* +
+      # Py*/_Py* (python module + interposed weak stubs), and objc2 __*_Azul*
+      # class statics (macOS). Linux's --version-script is authoritative → zero
+      # strays required. macOS ld-prime keeps a dep's `#[no_mangle]` symbols
+      # exported despite -exported_symbols_list (and -unexported_symbols_list
+      # can't be combined), so it retains ~121 turso/limbo SQLite loadable-
+      # extension entry points + material-icons icon_to_char — harmless under
+      # Mach-O two-level namespacing. Those specific families are allowed on
+      # macOS ONLY; anything else is a failure. Windows is skipped (no restrict).
       - name: Assert cdylib exports only the azul C API
         if: runner.os != 'Windows'
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "macOS" ]; then
             LIST() { nm -gU "$1" 2>/dev/null | awk '{print $NF}'; }
+            # ld-prime residual: dep #[no_mangle] SQLite-extension / icon symbols
+            # that -exported_symbols_list cannot localize (see dll/build.rs).
+            MACOS_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char)$'
           else
             LIST() { nm -D --defined-only "$1" 2>/dev/null | awk '{print $NF}'; }
+            MACOS_ALLOW='^$'  # Linux: version-script is authoritative, allow nothing extra
           fi
           rc=0
           for f in target/prod-release/libazul.so target/prod-release/libazul.dylib \
@@ -1268,13 +1276,14 @@ jobs:
               | grep -vE '^(Az|az_|Py|PyInit_|_Py)' \
               | grep -vE '^_?(_CLASS_|_IVAR_OFFSET_|_DROP_FLAG_OFFSET_|_REGISTER_CLASS_)Azul' \
               | grep -vE '^(__CLASS_|__IVAR_OFFSET_|__DROP_FLAG_OFFSET_|__REGISTER_CLASS_)Azul' \
+              | grep -vE "$MACOS_ALLOW" \
               || true)
             if [ -n "$STRAY" ]; then
               echo "::error::$f exports non-azul symbols (export restriction failed):"
               echo "$STRAY" | head -40
               rc=1
             else
-              echo "OK: $f exports only the azul C API ($(LIST "$f" | wc -l | tr -d ' ') symbols)"
+              echo "OK: $f exports only the azul C API + allowed residuals ($(LIST "$f" | wc -l | tr -d ' ') symbols)"
             fi
           done
           exit $rc
