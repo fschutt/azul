@@ -23,6 +23,24 @@ fn main() {
         configure_dynamic_linking(&target);
     }
 
+    // Restrict the cdylib's exported symbols to the azul C API. Without this
+    // the shipped libazul carries ~120 stray turso/SQLite extension exports
+    // (time_*, uuid*, dur_*, *_GenerateSeriesVTabModule — turso's proc-macros
+    // slap #[no_mangle] on every registered SQL function) plus a stray
+    // material-icons `icon_to_char`. Generic names like `time_parse` in the
+    // host's global dynamic namespace are a real symbol-clash risk on Linux's
+    // flat namespace, and bloat the export tables everywhere. Keeps every
+    // Az* (the C API + all host-invoker AzApp_set*Invoker /
+    // *_createFromHostHandle exports), az_* (az_purge_allocator), PyInit_*,
+    // and — on Linux python builds — Py*/_Py* so libpython can still interpose
+    // the weak stubs at import. Audit §2.1. Only affects the cdylib; the
+    // staticlib keeps all symbols for static consumers of db-sqlite.
+    if env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
+        || env::var("CARGO_FEATURE_PYTHON_EXTENSION").is_ok()
+    {
+        restrict_cdylib_exports(&target);
+    }
+
     #[cfg(feature = "web-transpiler-static")]
     if env::var("CARGO_FEATURE_WEB_TRANSPILER_STATIC").is_ok() {
         build_in_process_remill(&target);
@@ -60,6 +78,48 @@ fn main() {
     if target.contains("android") {
         configure_android();
     }
+}
+
+// ── Export restriction: keep only the azul C API in the cdylib ────────
+
+/// Emit a linker export list so the cdylib exports only the azul C API
+/// (Az*), az_* helpers, the python module init, and — on Linux python
+/// builds — the interposable Py* stubs. Everything else (turso SQL-function
+/// exports, material-icons `icon_to_char`, wasm-bindgen shims) is localized.
+/// See the call site for the rationale. Windows is intentionally skipped:
+/// DLL symbol resolution is not a flat namespace (no cross-DLL clash), and a
+/// .def would have to enumerate all ~13,900 Az names.
+fn restrict_cdylib_exports(target: &str) {
+    let out = env::var("OUT_DIR").expect("OUT_DIR");
+    let is_python = env::var("CARGO_FEATURE_PYTHON_EXTENSION").is_ok()
+        || env::var("CARGO_FEATURE_PYO3").is_ok();
+
+    if target.contains("apple") || target.contains("darwin") || target.contains("ios") {
+        // Mach-O: -exported_symbols_list KEEPS only matching globs; all other
+        // global symbols become private extern (localized). Mach-O prefixes an
+        // underscore, so C `AzApp_new` is `_AzApp_new`. `*Azul*` keeps objc2's
+        // per-class registration statics (__CLASS_Azul*, __IVAR_OFFSET_Azul*,
+        // __DROP_FLAG_OFFSET_Azul*, __REGISTER_CLASS_Azul*).
+        let patterns = "_Az*\n_az_*\n_PyInit_*\n*Azul*\n";
+        let path = format!("{}/azul_exported_symbols.txt", out);
+        fs::write(&path, patterns).expect("write exported symbols list");
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-exported_symbols_list,{path}");
+    } else if target.contains("linux") || target.contains("android") {
+        // ELF: a version script. `global:` keeps default visibility (stays in
+        // .dynsym); `local: *` hides everything else. On python builds Py*/_Py*
+        // must stay global — libpython interposes the strong symbols over
+        // azul's weak stubs at import via the global scope; localizing them
+        // would bind azul's own refs to the dead stubs and crash `import azul`.
+        let mut globals = String::from("    Az*;\n    az_*;\n    PyInit_*;\n");
+        if is_python {
+            globals.push_str("    Py*;\n    _Py*;\n");
+        }
+        let script = format!("{{\n  global:\n{globals}  local:\n    *;\n}};\n");
+        let path = format!("{}/azul_exports.map", out);
+        fs::write(&path, script).expect("write version script");
+        println!("cargo:rustc-cdylib-link-arg=-Wl,--version-script,{path}");
+    }
+    // Windows / other: no restriction (see doc comment).
 }
 
 // ── Python: weak Py* stubs (Linux, bug B1) ────────────────────────────

@@ -248,6 +248,32 @@ pub fn device_rects_to_present_rects(
 /// its composite to that total region, and reports it through the cell for
 /// swap-with-damage. Backends without buffer-age support pass `None` and get
 /// today's behavior unchanged.
+/// WebRender's `TextureCacheConfig::DEFAULT` sizes its shared atlases for a
+/// desktop-browser workload: 2048² color-linear + 2048² glyph + 2048²
+/// alpha-glyph slices, so the first glyph/image of each format reserves a
+/// 16 MB (RGBA) or 4 MB (alpha) atlas slice — ~37 MB of GPU/driver memory for
+/// even a hello-world window (audit §3.3b). Azul passes no config, so it
+/// inherits that. This picks smaller slice dimensions (~10 MB ceiling, and
+/// lazily grown — WR allocates additional shared textures on demand, so
+/// steady-state is far less). `AZ_WR_ATLAS_SIZE` overrides the large-atlas
+/// dimension: 2048 restores WR's default (for heavy scroll/zoom atlas churn),
+/// 512 gives a mobile profile. Clamped to [512, 4096] (WR requires ≥512).
+fn azul_texture_cache_config() -> webrender::TextureCacheConfig {
+    let big = std::env::var("AZ_WR_ATLAS_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .map(|v| v.clamp(512, 4096))
+        .unwrap_or(1024);
+    webrender::TextureCacheConfig {
+        color8_linear_texture_size: big,
+        color8_nearest_texture_size: 512,
+        color8_glyph_texture_size: big,
+        alpha8_texture_size: 512,
+        alpha8_glyph_texture_size: big,
+        alpha16_texture_size: 512,
+    }
+}
+
 pub fn default_renderer_options(
     options: &azul_layout::window_state::WindowCreateOptions,
     cached_programs: Option<Rc<webrender::ProgramCache>>,
@@ -307,6 +333,9 @@ pub fn default_renderer_options(
             partial_present: partial_present
                 .map(|p| Box::new(p) as Box<dyn webrender::PartialPresentCompositor>),
         },
+        // Smaller shared-atlas slices than WR's browser-tuned default (−~27 MB
+        // GPU memory on a hello-world window). See azul_texture_cache_config.
+        texture_cache_config: azul_texture_cache_config(),
         ..WrRendererOptions::default()
     }
 }
