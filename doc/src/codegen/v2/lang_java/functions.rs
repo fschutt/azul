@@ -201,10 +201,14 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
         }
         builder.line(" */");
     }
+    // Functions with a callback-wrapper arg bind the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the ByValue
+    // signature declared here). The raw `<c_name>` takes a bare fn ptr
+    // at the C ABI; declaring it with these args is an ABI mismatch.
     builder.line(&format!(
         "public static native {} {}({});",
         return_type,
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         args.join(", ")
     ));
     builder.blank();

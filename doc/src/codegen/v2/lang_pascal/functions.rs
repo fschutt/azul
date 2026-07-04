@@ -130,18 +130,31 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
         format!("({})", args.join("; "))
     };
 
+    // Functions with a callback-wrapper arg import the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the record
+    // args declared here) under the ORIGINAL Pascal identifier, so
+    // wrapper call sites don't change. The raw `<c_name>` takes a bare
+    // fn ptr at the C ABI; importing it with record args crashed on
+    // click.
+    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(func);
+    let external_clause = if c_symbol == func.c_name {
+        "external AzulLib".to_string()
+    } else {
+        format!("external AzulLib name '{}'", c_symbol)
+    };
+
     match &func.return_type {
         Some(ret) => {
             let pas_ret = map_type_to_pascal(ret, ir);
             builder.line(&format!(
-                "function {}{}: {}; cdecl; external AzulLib;",
-                func.c_name, args_str, pas_ret
+                "function {}{}: {}; cdecl; {};",
+                func.c_name, args_str, pas_ret, external_clause
             ));
         }
         None => {
             builder.line(&format!(
-                "procedure {}{}; cdecl; external AzulLib;",
-                func.c_name, args_str
+                "procedure {}{}; cdecl; {};",
+                func.c_name, args_str, external_clause
             ));
         }
     }

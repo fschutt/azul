@@ -100,17 +100,25 @@ fn emit_function_binding(b: &mut CodeBuilder, f: &FunctionDef, ir: &CodegenIR) {
 
     // Emit a koffi-style decl AND a parameters/returns triple. The
     // adapter in mod.rs picks whichever shape its runtime needs.
+    //
+    // Functions with a callback-wrapper arg bind the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the struct
+    // parameter spec built here). The raw `<c_name>` takes a bare fn
+    // ptr at the C ABI; binding it with these params crashed on click.
+    // The JS-side property name stays `lib.<c_name>` so wrappers don't
+    // change.
+    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(f);
     let decl_string = format!(
         "{} {}({})",
         return_spec,
-        f.c_name,
+        c_symbol,
         param_specs.join(", ")
     );
 
     b.line(&format!(
         "lib.{} = azulFFI.func({{ name: '{}', decl: '{}', parameters: [{}], returns: '{}' }});",
         sanitize_js_identifier(&f.c_name),
-        f.c_name,
+        c_symbol,
         decl_string.replace('\'', "\\'"),
         param_specs
             .iter()

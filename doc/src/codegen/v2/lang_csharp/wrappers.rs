@@ -1388,13 +1388,14 @@ fn emit_wrapper_method(
         return;
     }
 
-    // Use `func.c_name` directly (the C ABI symbol matches what
-    // NativeMethods declares). `func.method_name` is snake-case from
-    // api.json and produces e.g. `AzFoo_with_resolver` instead of the
-    // declared `AzFoo_withResolver`.
+    // Use `managed_c_symbol(func)` (the C ABI symbol NativeMethods
+    // declares — the `<c_name>Struct` triple-variant for functions
+    // with callback-wrapper args). `func.method_name` is snake-case
+    // from api.json and produces e.g. `AzFoo_with_resolver` instead
+    // of the declared `AzFoo_withResolver`.
     let call = format!(
         "NativeMethods.{}({})",
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
     );
 

@@ -1201,15 +1201,17 @@ fn emit_wrapper_method(
         builder.line(stmt);
     }
 
-    // Use `func.c_name` directly — it is already the camelCase native
-    // symbol name (`AzFoo_withCapacity`) that matches the AzulNative
-    // interface declarations. Reconstructing it from method_name yields
-    // snake_case (`AzFoo_with_capacity`) which drifts from the actual
-    // C ABI symbol the codegen registered.
+    // Use `managed_c_symbol(func)` — normally `func.c_name` verbatim
+    // (already the camelCase native symbol; reconstructing from
+    // method_name yields snake_case drift), but functions with a
+    // callback-wrapper arg bind the `<c_name>Struct` triple-variant,
+    // whose signature (whole wrapper struct by value) matches the
+    // ByValue args we pass here. Binding the raw `<c_name>` (bare
+    // fn ptr at the C ABI) with these args crashed on click.
     let call = format!(
         "{}.INSTANCE.{}({})",
         super::functions::native_class_for_func(func, ir),
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
     );
 

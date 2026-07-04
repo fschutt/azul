@@ -690,6 +690,12 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
     // Body: 8-space indent.
     emit_callback_pin_lines(out, "        ", &func.args[1..], &visible);
 
+    // Functions with a callback-wrapper arg call the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value; declared in the cdef via
+    // the C header's Struct-variant emit). The raw `<c_name>` takes a
+    // bare fn ptr at the C ABI, which would drop the host-handle ctx.
+    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(func);
+
     let mut call_args = vec!["self".to_string()];
     for (i, a) in func.args.iter().skip(1).enumerate() {
         if is_az_string_owned_arg(a) {
@@ -722,7 +728,7 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
         match unwrap_call {
             Some(uw) => out.push_str(&format!(
                 "        return (C.{}({})){}\n",
-                func.c_name,
+                c_symbol,
                 call_args.join(", "),
                 uw
             )),
@@ -731,14 +737,14 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
                 // the call as a statement, then return self for chaining.
                 out.push_str(&format!(
                     "        C.{}({})\n",
-                    func.c_name,
+                    c_symbol,
                     call_args.join(", ")
                 ));
                 out.push_str("        return self\n");
             }
             None => out.push_str(&format!(
                 "        return C.{}({})\n",
-                func.c_name,
+                c_symbol,
                 call_args.join(", ")
             )),
         }
@@ -747,7 +753,7 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
         match unwrap_call {
             Some(uw) => out.push_str(&format!(
                 "        local _ret = (C.{}({})){}\n",
-                func.c_name,
+                c_symbol,
                 call_args.join(", "),
                 uw
             )),
@@ -757,13 +763,13 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
                 // run the consume lines, then return self for chaining.
                 out.push_str(&format!(
                     "        C.{}({})\n",
-                    func.c_name,
+                    c_symbol,
                     call_args.join(", ")
                 ));
             }
             None => out.push_str(&format!(
                 "        local _ret = C.{}({})\n",
-                func.c_name,
+                c_symbol,
                 call_args.join(", ")
             )),
         }
@@ -1142,9 +1148,11 @@ fn emit_static_method(
             }
         })
         .collect();
+    // Functions with a callback-wrapper arg call the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value); see emit_method.
     out.push_str(&format!(
         "        return C.{}({})\n",
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         final_args.join(", ")
     ));
     out.push_str("    end,\n");
@@ -1182,37 +1190,46 @@ fn emit_callback_pin_lines(
             // returns the matching `AzCallback` / `AzLayoutCallback`
             // wrapper struct.
             //
-            // What we substitute for the variable depends on the C-ABI
-            // signature api.json declared:
-            //   * If the arg type is the *wrapper struct* (e.g. "Callback"),
-            //     pass the whole struct — its `.ctx` carries our host handle.
+            // What we substitute for the variable depends on the arg
+            // type api.json declared:
+            //   * If the arg type is the *wrapper struct* (e.g.
+            //     "ButtonOnClickCallback"), pass the WHOLE struct — the
+            //     wrapper call site binds the `<c_name>Struct` C symbol
+            //     (see `managed_c_symbol`), whose signature takes the
+            //     wrapper by value, so the `.ctx`/`.callable` host
+            //     handle survives the C boundary.
             //   * If the arg type is the *raw function pointer typedef*
-            //     (e.g. "CallbackType"), pass just `.cb`. The static thunk
-            //     in libazul still routes through the host invoker, but
-            //     ANY ctx is dropped at the C boundary because the C ABI
-            //     doesn't carry it. Functions in this shape need a
-            //     special-case fixup elsewhere (see emit_static_method's
-            //     WindowCreateOptions::create branch).
-            // The typed-callback API change made EVERY host-invoker-kind
-            // function arg a BARE fn pointer at the C ABI (verified against
-            // azul.h 2026-07-04: the only struct-taking exceptions,
-            // AzCallback_toCore / AzOptionCallback_some, carry no
-            // callback_info and never reach this branch). LuaJIT does not
-            // coerce struct→fnptr, so always pass `.cb`; `abi_takes_wrapper`
-            // (guessed from the arg name suffix) mispredicted the smart
-            // setters and broke e.g. Button:set_on_click at cdef call time.
-            let _ = abi_takes_wrapper;
+            //     (e.g. "CallbackType"), pass just `.cb`. The static
+            //     thunk in libazul still routes through the host
+            //     invoker, but ANY ctx is dropped at the C boundary
+            //     because the C ABI doesn't carry it. Functions in this
+            //     shape need a special-case fixup elsewhere (see
+            //     emit_static_method's WindowCreateOptions::create
+            //     branch).
+            // (2026-07-04: an interim revision always passed `.cb`
+            // because the cdef declared the raw fn-ptr symbol for the
+            // smart setters too — LuaJIT rightly rejected struct→fnptr.
+            // That silently no-op'd every host-invoker click. The
+            // Struct-variant C exports restore the wrapper path.)
             out.push_str(&format!(
                 "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
                 indent = indent,
                 n = names[i],
                 w = wrapper_name
             ));
-            out.push_str(&format!(
-                "{indent}{n} = _{n}_cb.cb\n",
-                indent = indent,
-                n = names[i]
-            ));
+            if abi_takes_wrapper {
+                out.push_str(&format!(
+                    "{indent}{n} = _{n}_cb\n",
+                    indent = indent,
+                    n = names[i]
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{indent}{n} = _{n}_cb.cb\n",
+                    indent = indent,
+                    n = names[i]
+                ));
+            }
         } else {
             // Legacy path for callback kinds without a host-invoker yet.
             // Keeps the wrapper output well-formed; binding still loads,

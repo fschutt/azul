@@ -139,10 +139,24 @@ fn emit_attach_function(
         .collect::<Vec<_>>()
         .join(", ");
 
-    builder.line(&format!(
-        "$Azul::ffi->attach('{}' => [{}] => '{}');",
-        c_name, arg_list, ret
-    ));
+    // Functions with a callback-wrapper arg attach the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the record arg
+    // types built above) under the ORIGINAL Perl sub name via
+    // Platypus's `[symbol => name]` aliasing, so wrapper call sites
+    // don't change. The raw `<c_name>` takes a bare fn ptr at the C
+    // ABI; attaching it with a record arg crashed on click.
+    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(func);
+    if c_symbol == *c_name {
+        builder.line(&format!(
+            "$Azul::ffi->attach('{}' => [{}] => '{}');",
+            c_name, arg_list, ret
+        ));
+    } else {
+        builder.line(&format!(
+            "$Azul::ffi->attach(['{}' => '{}'] => [{}] => '{}');",
+            c_symbol, c_name, arg_list, ret
+        ));
+    }
 }
 
 // ============================================================================

@@ -136,9 +136,16 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
 
     let signature = format!("{} @-> returning {}", atoms.join(" @-> "), return_view);
 
+    // Functions with a callback-wrapper arg bind the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the ctypes
+    // struct view built above). The raw `<c_name>` takes a bare fn ptr
+    // at the C ABI; binding it with a struct view crashed on click.
+    // The OCaml-side value name stays derived from the original c_name.
     builder.line(&format!(
         "let {} = foreign \"{}\" ({})",
-        ocaml_name, func.c_name, signature
+        ocaml_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
+        signature
     ));
 }
 

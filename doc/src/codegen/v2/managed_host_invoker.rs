@@ -127,6 +127,71 @@ pub fn callback_typedef_for(wrapper: &str) -> String {
     format!("{}Type", wrapper)
 }
 
+/// Does `func` have at least one callback-wrapper arg (per
+/// [`HOST_INVOKER_KINDS`]) that is NOT the receiver? Mirrors the
+/// dll-internal emitter's pair-pattern detection exactly: args named
+/// `self` or matching the class name in snake_case are the receiver
+/// and never the callback being registered.
+///
+/// Functions matching this predicate are exported from libazul as a
+/// TRIPLE, not with the literal api.json signature:
+///
+///   - `<c_name>(…, cb: Az<Kind>CallbackType)` — raw fn-ptr form
+///     (native C/C++/Zig/Go users; ctx = None).
+///   - `<c_name>WithCtx(…, cb: Az<Kind>CallbackType, cb_ctx:
+///     AzOptionRefAny)` — fn-ptr + host-handle ctx, destructured.
+///   - `<c_name>Struct(…, cb: Az<Kind>Callback)` — the WHOLE wrapper
+///     struct by value (the literal api.json shape). This is the form
+///     managed-FFI bindings must link: they receive the wrapper from
+///     `Az<Kind>Callback_createFromHostHandle` and pass it through
+///     without destructuring, so the host-handle ctx survives.
+///
+/// HISTORY (2026-07-04): every managed binding used to declare
+/// `<c_name>` with the wrapper-struct signature — an ABI mismatch
+/// (the C fn takes a bare fn ptr; on arm64 the by-value struct goes
+/// by pointer), so the DLL stored a heap pointer as the callback and
+/// clicking executed heap memory → EXC_BAD_ACCESS in every managed
+/// language. See `managed_c_symbol`.
+pub fn has_callback_wrapper_arg(func: &super::ir::FunctionDef) -> bool {
+    use super::ir::FunctionKind;
+    // Mirror the dll emitter's `should_substitute_callbacks` gate: only
+    // API functions get the pair/triple emit. Trait functions (Delete,
+    // DeepCopy, …) on the wrapper type itself and enum-variant
+    // constructors (OptionCallback::Some) keep their literal signature.
+    if !matches!(
+        func.kind,
+        FunctionKind::Constructor
+            | FunctionKind::StaticMethod
+            | FunctionKind::Method
+            | FunctionKind::MethodMut
+    ) {
+        return false;
+    }
+    let self_snake = to_snake_case(&func.class_name);
+    func.args.iter().any(|a| {
+        if a.name == "self" || a.name == self_snake {
+            return false;
+        }
+        is_callback_wrapper(&a.type_name)
+    })
+}
+
+/// The C symbol a managed-FFI binding must bind for `func`.
+///
+/// For functions with a callback-wrapper arg this is the
+/// `<c_name>Struct` variant (whole wrapper struct by value — matches
+/// the signature managed bindings already declare from api.json);
+/// everything else binds `<c_name>` unchanged. Language emitters keep
+/// their language-side method name derived from `c_name` so wrapper
+/// call sites don't churn — only the linked symbol differs.
+pub fn managed_c_symbol(func: &super::ir::FunctionDef) -> String {
+    if has_callback_wrapper_arg(func) {
+        format!("{}Struct", func.c_name)
+    } else {
+        func.c_name.clone()
+    }
+}
+
 /// Look up the ctx-equivalent field name for a callback wrapper struct.
 /// All wrappers in `HOST_INVOKER_KINDS` are `{ cb, <ctx_field> }`
 /// where the `<ctx_field>` has type `OptionRefAny` but its name is

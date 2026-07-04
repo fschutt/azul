@@ -288,9 +288,13 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
             builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
     }
+    // Functions with a callback-wrapper arg bind the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the ByValue
+    // args declared here). The raw `<c_name>` takes a bare fn ptr at
+    // the C ABI; declaring it with these args crashed on click.
     builder.line(&format!(
         "fun {}({}): {}",
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         args.join(", "),
         return_type
     ));

@@ -950,6 +950,34 @@ impl CGenerator {
             func.c_name,
             args_ctx.join(", ")
         ));
+
+        // Struct variant — the literal api.json signature (whole
+        // callback-wrapper struct by value). Managed-FFI bindings link
+        // this form so the host-handle ctx passes through undamaged.
+        let args_struct: Vec<String> = func
+            .args
+            .iter()
+            .map(|arg| {
+                let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
+                let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                    ArgRefKind::Owned => ("", ""),
+                    ArgRefKind::Ref => ("const ", "*"),
+                    ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
+                    ArgRefKind::Ptr => ("const ", "*"),
+                };
+                let escaped_name = escape_cpp_keyword_for_c(&arg.name);
+                format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name)
+            })
+            .collect();
+        builder.line(
+            "/* Struct variant — whole callback-wrapper struct by value (cb + ctx); managed-FFI hosts bind this. */",
+        );
+        builder.line(&format!(
+            "extern DLLIMPORT {} {}Struct({});",
+            return_type,
+            func.c_name,
+            args_struct.join(", ")
+        ));
     }
 
     /// Convert Rust type to C type

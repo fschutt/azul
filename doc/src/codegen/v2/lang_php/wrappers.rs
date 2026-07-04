@@ -463,7 +463,14 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
         "\\FFI::addr($this->ptr)"
     };
 
-    let mut call = format!("Azul::lib()->{}({}", f.c_name, self_expr);
+    // Callback-wrapper args bind the `<c_name>Struct` C symbol (whole
+    // wrapper struct by value — matches the cdata registerCallback
+    // returns). The raw `<c_name>` takes a bare fn ptr at the C ABI.
+    let mut call = format!(
+        "Azul::lib()->{}({}",
+        super::super::managed_host_invoker::managed_c_symbol(f),
+        self_expr
+    );
     if !user_call_args.is_empty() {
         call.push_str(", ");
         call.push_str(&user_call_args);
@@ -510,7 +517,10 @@ fn emit_instance_method_alias(out: &mut String, f: &FunctionDef, php_name: &str)
 
     emit_callback_register_lines(out, &user_args);
 
-    let mut call = format!("Azul::lib()->{}(\\FFI::addr($this->ptr)", f.c_name);
+    let mut call = format!(
+        "Azul::lib()->{}(\\FFI::addr($this->ptr)",
+        super::super::managed_host_invoker::managed_c_symbol(f)
+    );
     if !user_call_args.is_empty() {
         call.push_str(", ");
         call.push_str(&user_call_args);
@@ -567,7 +577,11 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
 
     emit_callback_register_lines(out, &user_args);
 
-    let call = format!("Azul::lib()->{}({})", f.c_name, user_call_args);
+    let call = format!(
+        "Azul::lib()->{}({})",
+        super::super::managed_host_invoker::managed_c_symbol(f),
+        user_call_args
+    );
     if returns_self {
         out.push_str(&format!("        return new self({});\n", call));
     } else if f.return_type.is_none() {

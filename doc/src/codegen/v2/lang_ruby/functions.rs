@@ -112,7 +112,13 @@ fn emit_attach_function(
     config: &CodegenConfig,
 ) {
     let ruby_name = ruby_attach_name(&func.c_name);
-    let c_name = &func.c_name;
+    // Functions with a callback-wrapper arg are exported as a raw/WithCtx/
+    // Struct triple; the literal api.json signature we declare below (whole
+    // wrapper struct by value) matches the `<c_name>Struct` symbol — binding
+    // the raw `<c_name>` (which takes a bare fn ptr) with this signature is
+    // an ABI mismatch that made clicks execute a heap pointer. The ruby-side
+    // name stays derived from the original c_name so wrappers don't change.
+    let c_name = super::super::managed_host_invoker::managed_c_symbol(func);
 
     // Build the argument list. Methods receive an implicit `self` pointer
     // first; the IR's argument list always includes it explicitly already

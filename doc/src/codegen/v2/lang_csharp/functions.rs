@@ -169,10 +169,14 @@ fn emit_dll_import(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR
         // Rust C ABI's `bool` (1 byte). Force I1.
         builder.line("[return: MarshalAs(UnmanagedType.I1)]");
     }
+    // Functions with a callback-wrapper arg bind the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the struct
+    // args declared here). The raw `<c_name>` takes a bare fn ptr at
+    // the C ABI; declaring it with these args crashed on click.
     builder.line(&format!(
         "public static extern {} {}({});",
         return_type,
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         args.join(", ")
     ));
     builder.blank();

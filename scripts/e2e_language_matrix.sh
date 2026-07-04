@@ -354,6 +354,35 @@ _timeout() {
 # skip <lang> <note>
 skip() { record "$1" "SKIP" "$2"; }
 
+# -----------------------------------------------------------------------------
+# jvm_classes_lock / jvm_classes_unlock: serialize access to
+# examples/java/target/classes between lang_java (mvn rewrites the classfiles)
+# and lang_scala (scalac READS them as its classpath). The parallel driver can
+# schedule both in the same batch; scalac reading a half-written classfile dies
+# with `java.lang.AssertionError: com.azul.<random class>` in dotty's
+# ClassfileParser (observed 2026-07-04 — a different classfile each run).
+#
+# mkdir-based spinlock (macOS bash 3.2 has no flock). PID-stamped so a holder
+# that was SIGKILLed by the watchdog doesn't wedge the other language: if the
+# holder PID is dead, the waiter steals the lock. Bounded wait (15 min ≥ the
+# per-lang timeout) so a bug here can never hang the matrix forever.
+JVM_CLASSES_LOCK="${TMPDIR:-/tmp}/azul-e2e-jvm-classes.lock"
+jvm_classes_lock() {
+  local waited=0
+  while ! mkdir "$JVM_CLASSES_LOCK" 2>/dev/null; do
+    local holder
+    holder="$(cat "$JVM_CLASSES_LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+      rm -rf "$JVM_CLASSES_LOCK" 2>/dev/null   # holder died — steal
+      continue
+    fi
+    sleep 2; waited=$((waited + 2))
+    [ "$waited" -ge 900 ] && { echo "jvm_classes_lock: timed out waiting for $JVM_CLASSES_LOCK (holder=$holder)" >&2; break; }
+  done
+  echo $$ > "$JVM_CLASSES_LOCK/pid" 2>/dev/null || true
+}
+jvm_classes_unlock() { rm -rf "$JVM_CLASSES_LOCK" 2>/dev/null; }
+
 # run_bt <cmd...>: run <cmd>; if it dies from a signal (segfault/abort/bus),
 # re-run it once under a debugger and print a full backtrace, so a native crash
 # is reported with a stack instead of a bare "Segmentation fault". MUST be called
@@ -703,6 +732,10 @@ lang_java() {
   local f; f="$(log_path java)"
   (
     set -x
+    # Serialize with lang_scala: scalac (and the scala app's lazy class
+    # loading) reads examples/java/target/classes while mvn rewrites it.
+    jvm_classes_lock
+    trap jvm_classes_unlock EXIT
     # Remove any stale generated-source copy so it isn't compiled twice.
     rm -rf "$REPO_ROOT/examples/java/com/azul"
     cp "$LIB_PATH" "$REPO_ROOT/examples/java/" 2>/dev/null || true
@@ -820,6 +853,11 @@ lang_scala() {
   local f; f="$(log_path scala)"
   (
     set -x
+    # Serialize with lang_java: mvn rewrites ../java/target/classes while
+    # scalac (and the running scala app) reads it — torn classfiles kill
+    # dotty with a random-per-run ClassfileParser AssertionError.
+    jvm_classes_lock
+    trap jvm_classes_unlock EXIT
     # Scala needs Java's compiled com.azul.* classes. Build them if missing —
     # via Maven's build-helper source root (target/codegen/java), NOT a copy
     # into com/azul/ (which double-compiles -> "duplicate class").
@@ -1075,7 +1113,12 @@ lang_powershell() {
 # libazul — pyo3 must be compiled in):
 #   cargo build --release -p azul-dll --features python-extension,debug-server \
 #     --target-dir target/pyext
+#   rm -f examples/python/azul.so   # macOS: cp OVER an existing .so leaves a stale
+#                                   # code-signature cache → dyld SIGKILLs the
+#                                   # importing python ("Code Signature Invalid");
+#                                   # delete first, then copy + ad-hoc re-sign:
 #   cp target/pyext/release/libazul.dylib examples/python/azul.so   # .so/.pyd per OS
+#   codesign -f -s - examples/python/azul.so                        # macOS only
 # When that prebuilt module sits in examples/python/, hello-world.py runs the
 # real counter E2E headless (verified 2026-07-04, 5→8 via AZ_DEBUG clicks).
 # Without it we SKIP — building a second full azul-dll here would double the

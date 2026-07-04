@@ -137,15 +137,23 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
 
     let is_function = func.return_type.is_some();
 
+    // Functions with a callback-wrapper arg bind the `<c_name>Struct`
+    // C symbol (whole wrapper struct by value — matches the derived-
+    // type `value` dummies declared below). The raw `<c_name>` takes a
+    // bare fn ptr at the C ABI; binding it with a struct dummy crashed
+    // on click. The Fortran alias stays derived from the original
+    // c_name so wrapper call sites don't change.
+    let c_symbol = super::super::managed_host_invoker::managed_c_symbol(func);
+
     if is_function {
         builder.line(&format!(
             "function {}({}) bind(C, name=\"{}\") result(r)",
-            alias, arg_list, func.c_name
+            alias, arg_list, c_symbol
         ));
     } else {
         builder.line(&format!(
             "subroutine {}({}) bind(C, name=\"{}\")",
-            alias, arg_list, func.c_name
+            alias, arg_list, c_symbol
         ));
     }
     builder.indent();

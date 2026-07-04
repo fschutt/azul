@@ -1176,15 +1176,15 @@ fn emit_static_factory(
         builder.line(stmt);
     }
 
-    // Use `func.c_name` to match the AzulNative interface (where
-    // functions are declared by their C ABI symbol with camelCase
-    // method portion) rather than `func.method_name` (raw snake-case
-    // from api.json) which produces e.g. `AzFoo_with_resolver` instead
-    // of the actual `AzFoo_withResolver`.
+    // Use `managed_c_symbol(func)` to match the AzulNative interface
+    // (declared by C ABI symbol with camelCase method portion, and the
+    // `<c_name>Struct` triple-variant for callback-wrapper args) rather
+    // than `func.method_name` (raw snake-case from api.json) which
+    // produces e.g. `AzFoo_with_resolver` instead of `AzFoo_withResolver`.
     let call = format!(
         "{}.INSTANCE.{}({})",
         super::super::lang_java::functions::native_class_for_func(func, ir),
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
     );
 
@@ -1406,15 +1406,15 @@ fn emit_instance_method(
         builder.line(stmt);
     }
 
-    // Use `func.c_name` to match the AzulNative interface (where
-    // functions are declared by their C ABI symbol with camelCase
-    // method portion) rather than `func.method_name` (raw snake-case
-    // from api.json) which produces e.g. `AzFoo_with_resolver` instead
-    // of the actual `AzFoo_withResolver`.
+    // Use `managed_c_symbol(func)` to match the AzulNative interface
+    // (declared by C ABI symbol with camelCase method portion, and the
+    // `<c_name>Struct` triple-variant for callback-wrapper args) rather
+    // than `func.method_name` (raw snake-case from api.json) which
+    // produces e.g. `AzFoo_with_resolver` instead of `AzFoo_withResolver`.
     let call = format!(
         "{}.INSTANCE.{}({})",
         super::super::lang_java::functions::native_class_for_func(func, ir),
-        func.c_name,
+        super::super::managed_host_invoker::managed_c_symbol(func),
         call_args.join(", ")
     );
 

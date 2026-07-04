@@ -3060,6 +3060,33 @@ impl RustGenerator {
             "pub unsafe extern \"C\" fn {}WithCtx({}){} {}",
             func.c_name, args_ctx, return_str, body_ctx
         ));
+
+        // Struct variant: c_name + "Struct", the LITERAL api.json
+        // signature — the whole callback-wrapper struct by value.
+        // This is the form managed-FFI bindings (Ruby/JNA/koffi/
+        // ctypes/Pascal/Fortran/…) link: they receive the wrapper from
+        // `Az<Kind>Callback_createFromHostHandle` and pass it through
+        // whole, so the host-handle ctx survives without per-language
+        // struct destructuring. (Binding the raw variant with a
+        // struct-by-value signature was an ABI mismatch that made
+        // clicks execute a heap pointer — 2026-07-04.)
+        let args_struct = self.format_function_args_for_cabi(func, ir, config);
+        builder.blank();
+        builder.line("// Pair-pattern Struct variant: takes the whole callback-wrapper");
+        builder.line("// struct by value (cb + ctx). Managed-FFI hosts bind THIS form;");
+        builder.line("// the wrapper from `Az<Kind>Callback_createFromHostHandle` passes");
+        builder.line("// through unmodified so the host-handle ctx survives.");
+        if is_export_only {
+            builder.line(&format!("#[cfg(feature = \"{export_feature}\")]"));
+        }
+        builder.line("#[allow(unused_variables)]");
+        builder.line(&format!(
+            "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
+        ));
+        builder.line(&format!(
+            "pub unsafe extern \"C\" fn {}Struct({}){} {}",
+            func.c_name, args_struct, return_str, body
+        ));
     }
 
     /// Splice `prologue` (a sequence of `let` statements) just inside
@@ -3401,6 +3428,14 @@ impl RustGenerator {
             builder.line(&format!(
                 "pub fn {}WithCtx({}){};",
                 func.c_name, args_ctx, return_str
+            ));
+            // Struct variant (whole wrapper struct by value) — the form
+            // managed-FFI bindings link; declared here so link-dynamic
+            // Rust consumers resolve it too.
+            let args_struct = self.format_function_args_for_cabi(func, ir, config);
+            builder.line(&format!(
+                "pub fn {}Struct({}){};",
+                func.c_name, args_struct, return_str
             ));
             return;
         }
