@@ -855,7 +855,24 @@ pub struct ImageRef {
     pub data: *const DecodedImage,
     /// How many copies does this image have (if 0, the font data will be deleted on drop)
     pub copies: *const AtomicUsize,
+    /// Process-unique, monotonically-assigned identity of the *decoded image*
+    /// (see [`ImageRefHash`]). Shared by shallow clones (they are the same
+    /// image), fresh for [`ImageRef::deep_copy`] and every `new_*` (a
+    /// different image). Unlike the old `data`-pointer identity this is drawn
+    /// from a never-reused counter, so freeing an image and reusing its heap
+    /// address can never make a *new* image collide with a stale key — the
+    /// prerequisite for image GC (see resources.rs `image_ref_get_hash`).
+    pub id: u64,
     pub run_destructor: bool,
+}
+
+/// Never-reused source of [`ImageRef::id`]. Starts at 1 so `id == 0` can flag
+/// an un-initialised / raw-reconstructed handle.
+static IMAGE_REF_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[must_use]
+fn next_image_ref_id() -> u64 {
+    IMAGE_REF_ID_COUNTER.fetch_add(1, AtomicOrdering::SeqCst)
 }
 
 impl ImageRef {
@@ -1062,6 +1079,7 @@ impl ImageRef {
         Self {
             data: Box::into_raw(Box::new(data)),
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            id: next_image_ref_id(),
             run_destructor: true,
         }
     }
@@ -1072,23 +1090,25 @@ impl ImageRef {
 unsafe impl Send for ImageRef {}
 unsafe impl Sync for ImageRef {}
 
+// Identity is the never-reused `id`, NOT the `data` pointer: two shallow
+// clones of one image share an `id` (equal); distinct images (incl. a
+// `deep_copy`) get distinct ids; a freed image's id is never handed to a
+// later image, so a reused heap address can't forge equality.
 impl PartialEq for ImageRef {
     fn eq(&self, rhs: &Self) -> bool {
-        core::ptr::eq(self.data, rhs.data)
+        self.id == rhs.id
     }
 }
 
 impl PartialOrd for ImageRef {
     fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-        Some((self.data as usize).cmp(&(other.data as usize)))
+        Some(self.id.cmp(&other.id))
     }
 }
 
 impl Ord for ImageRef {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        let self_data = self.data as usize;
-        let other_data = other.data as usize;
-        self_data.cmp(&other_data)
+        self.id.cmp(&other.id)
     }
 }
 
@@ -1099,8 +1119,7 @@ impl Hash for ImageRef {
     where
         H: Hasher,
     {
-        let self_data = self.data as usize;
-        self_data.hash(state);
+        self.id.hash(state);
     }
 }
 
@@ -1114,6 +1133,7 @@ impl Clone for ImageRef {
         Self {
             data: self.data,     // copy the pointer
             copies: self.copies, // copy the pointer
+            id: self.id,         // same image → same identity
             run_destructor: true,
         }
     }
@@ -1133,15 +1153,22 @@ impl Drop for ImageRef {
 }
 
 #[must_use] pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
+    // The identity is the never-reused `id`, not the freeable `data` pointer
+    // (see the `id` field docs). This is what makes an ImageKey safe to
+    // DeleteImage: once an image is dropped its id is retired forever, so a
+    // future image that reuses the same heap address gets a *different* key
+    // and is registered/uploaded correctly instead of aliasing the stale one.
     ImageRefHash {
-        inner: ir.data as usize,
+        inner: ir.id as usize,
     }
 }
 
 /// Convert a stable `ImageRefHash` directly to an `ImageKey`.
 ///
-/// `ImageKey.key` is a `u64`, so the pointer-derived `ImageRefHash.inner: usize`
-/// round-trips losslessly on both 32- and 64-bit platforms without any folding.
+/// `ImageKey.key` is a `u64` and `ImageRefHash.inner` is the `ImageRef` `id`
+/// (a `u64` counter) stored in a `usize`; on a 32-bit host that truncates the
+/// top 32 bits, which is fine — a run would need 4 billion live images for the
+/// low 32 bits to collide.
 #[must_use] pub const fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
     ImageKey {
         namespace,
@@ -1271,6 +1298,13 @@ pub struct RendererResources {
     pub currently_registered_images: OrderedMap<ImageRefHash, ResolvedImage>,
     /// Reverse lookup: `ImageKey` -> `ImageRefHash` for display list translation
     pub image_key_map: OrderedMap<ImageKey, ImageRefHash>,
+    /// Image GC bookkeeping: last epoch (as `u32`) each registered image was
+    /// seen referenced by a display list. An image absent for more than
+    /// `IMAGE_GC_KEEP_EPOCHS` frames is `DeleteImage`d and evicted — this is
+    /// what stops the unbounded texture growth of a window that swaps images
+    /// every frame (video / capture / animated charts). Safe because
+    /// `ImageRefHash` is now a never-reused id, not a freeable pointer.
+    pub image_last_seen_epoch: OrderedMap<ImageRefHash, u32>,
     /// All font keys currently active in the `RenderApi`
     pub currently_registered_fonts:
         OrderedMap<FontKey, (FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)>,

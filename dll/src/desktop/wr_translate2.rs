@@ -1256,10 +1256,16 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
 pub fn collect_image_resource_updates(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
-) -> Vec<(
-    azul_core::resources::ImageRefHash,
-    azul_core::resources::AddImageMsg,
-)> {
+) -> (
+    Vec<(
+        azul_core::resources::ImageRefHash,
+        azul_core::resources::AddImageMsg,
+    )>,
+    // The full set of image hashes referenced by ANY display list this frame —
+    // the authoritative "live set" for image GC (a superset of the returned
+    // AddImage messages, which only cover *newly*-seen images).
+    azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
+) {
     use azul_core::{
         resources::build_add_image_resource_updates,
         FastBTreeSet,
@@ -1290,6 +1296,12 @@ pub fn collect_image_resource_updates(
         }
     }
 
+    // The live set as hashes (identity), for the GC diff in the caller.
+    let live_hashes: FastBTreeSet<azul_core::resources::ImageRefHash> = images_in_display_list
+        .iter()
+        .map(azul_core::resources::image_ref_get_hash)
+        .collect();
+
     // Build AddImage messages for new images using our gl_texture_integration
     let image_updates = build_add_image_resource_updates(
         renderer_resources,
@@ -1306,7 +1318,7 @@ pub fn collect_image_resource_updates(
         image_updates.len()
     );
 
-    image_updates
+    (image_updates, live_hashes)
 }
 
 /// This scans all display lists for Text items, extracts their font_hashes,
@@ -1804,7 +1816,7 @@ fn register_frame_resources(
     }
 
     // --- Images ---
-    let image_updates =
+    let (image_updates, live_image_hashes) =
         collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
 
     // Update currently_registered_images + the reverse image_key_map lookup so
@@ -1826,6 +1838,24 @@ fn register_frame_resources(
             .insert(add_image_msg.0.key, *image_ref_hash);
     }
 
+    // --- Image GC: DeleteImage for images gone from every display list ---
+    // Without this the texture cache grows unboundedly for any window that
+    // swaps images each frame (the ~1 GB video leak, audit §3.4). We keep an
+    // image for IMAGE_GC_KEEP_EPOCHS frames after it was last referenced (so a
+    // one-frame blip during re-layout doesn't churn a delete+re-upload), then
+    // DeleteImage it and drop both registry entries. Aliasing-safe: ImageRefHash
+    // is a never-reused id, so a freed key can't collide with a future image.
+    let image_deletes = collect_stale_image_deletes(layout_window, &live_image_hashes);
+    if !image_deletes.is_empty() {
+        let wr_image_deletes: Vec<webrender::ResourceUpdate> = image_deletes
+            .into_iter()
+            .filter_map(|del| translate_resource_update(del))
+            .collect();
+        if !wr_image_deletes.is_empty() {
+            txn.update_resources(wr_image_deletes);
+        }
+    }
+
     if !image_updates.is_empty() {
         let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
             .into_iter()
@@ -1837,6 +1867,68 @@ fn register_frame_resources(
             txn.update_resources(wr_image_resources);
         }
     }
+}
+
+/// Number of frames an image may be absent from every display list before it
+/// is `DeleteImage`d. ≥2 mirrors the GL texture cache's "current + previous"
+/// double-buffer retention (`gl_texture_cache::remove_old_epochs`) so an image
+/// that flickers out for a frame isn't needlessly re-uploaded.
+const IMAGE_GC_KEEP_EPOCHS: u32 = 2;
+
+/// Mark this frame's live images, then return `DeleteImage`s for every
+/// registered image not seen for more than [`IMAGE_GC_KEEP_EPOCHS`] frames,
+/// evicting them from `currently_registered_images` / `image_key_map` /
+/// `image_last_seen_epoch` as it goes. `pub` so the image-lifecycle test can
+/// drive the GC without standing up a WebRender transaction.
+pub fn collect_stale_image_deletes(
+    layout_window: &mut LayoutWindow,
+    live_image_hashes: &azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
+) -> Vec<azul_core::resources::ResourceUpdate> {
+    use azul_core::resources::ResourceUpdate;
+
+    let now = layout_window.epoch.into_u32();
+    let rr = &mut layout_window.renderer_resources;
+
+    // Refresh the last-seen stamp for everything referenced this frame.
+    for hash in live_image_hashes.iter() {
+        rr.image_last_seen_epoch.insert(*hash, now);
+    }
+
+    // A registered image with no (or a too-old) stamp is stale. `now` wraps at
+    // ~u32::MAX (Epoch::increment), a ~2-year runtime at 60 fps; treat a
+    // last-seen that is *ahead* of `now` (only possible right after a wrap) as
+    // "just seen" so a wrap can't mass-delete live images.
+    let mut to_delete: Vec<azul_core::resources::ImageRefHash> = Vec::new();
+    for hash in rr.currently_registered_images.keys() {
+        if live_image_hashes.contains(hash) {
+            continue;
+        }
+        let stale = match rr.image_last_seen_epoch.get(hash) {
+            Some(&last) => now >= last && now.saturating_sub(last) > IMAGE_GC_KEEP_EPOCHS,
+            None => true, // registered but never stamped → from before GC existed
+        };
+        if stale {
+            to_delete.push(*hash);
+        }
+    }
+
+    let mut deletes = Vec::with_capacity(to_delete.len());
+    for hash in to_delete {
+        if let Some(resolved) = rr.currently_registered_images.remove(&hash) {
+            rr.image_key_map.remove(&resolved.key);
+            rr.image_last_seen_epoch.remove(&hash);
+            deletes.push(ResourceUpdate::DeleteImage(resolved.key));
+        }
+    }
+    if !deletes.is_empty() {
+        log_debug!(
+            LogCategory::Rendering,
+            "[image-gc] DeleteImage x{} (registered now {})",
+            deletes.len(),
+            layout_window.renderer_resources.currently_registered_images.len()
+        );
+    }
+    deletes
 }
 
 /// Generate a new WebRender frame

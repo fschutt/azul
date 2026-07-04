@@ -15,7 +15,7 @@ use core::{
     fmt,
     hash::{Hash, Hasher},
     num::ParseIntError,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering as AtomicOrdering},
 };
 
 #[cfg(feature = "parser")]
@@ -178,10 +178,26 @@ pub struct FontRef {
     pub parsed: *const c_void,
     /// Reference counter for memory management
     pub copies: *const AtomicUsize,
+    /// Process-unique, monotonically-assigned identity of this parsed font.
+    /// Shared by shallow clones (same font), fresh for each `new`. Used for
+    /// `Eq`/`Ord`/`Hash` instead of the `parsed` pointer so that freeing a
+    /// font and reusing its heap address can't forge identity — the same
+    /// aliasing fix applied to `ImageRef`. (Content-level dedup still uses the
+    /// separate content hash via `font_ref_get_hash`.)
+    pub id: u64,
     /// Whether to run the destructor on drop
     pub run_destructor: bool,
     /// Destructor function for the parsed data
     pub parsed_destructor: FontRefDestructorCallbackType,
+}
+
+/// Never-reused source of [`FontRef::id`]. Starts at 1 so `id == 0` can flag
+/// an un-initialised / raw-reconstructed handle.
+static FONT_REF_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[must_use]
+fn next_font_ref_id() -> u64 {
+    FONT_REF_ID_COUNTER.fetch_add(1, AtomicOrdering::SeqCst)
 }
 
 impl fmt::Debug for FontRef {
@@ -206,6 +222,7 @@ impl FontRef {
         Self {
             parsed,
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            id: next_font_ref_id(),
             run_destructor: true,
             parsed_destructor: destructor,
         }
@@ -225,25 +242,27 @@ impl_option!(
 );
 unsafe impl Send for FontRef {}
 unsafe impl Sync for FontRef {}
+// Identity is the never-reused `id`, NOT the `parsed` pointer (which is freed
+// when the last ref drops and whose address may be reused by a later font).
 impl PartialEq for FontRef {
     fn eq(&self, rhs: &Self) -> bool {
-        std::ptr::eq(self.parsed, rhs.parsed)
+        self.id == rhs.id
     }
 }
 impl PartialOrd for FontRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some((self.parsed as usize).cmp(&(other.parsed as usize)))
+        Some(self.id.cmp(&other.id))
     }
 }
 impl Ord for FontRef {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.parsed as usize).cmp(&(other.parsed as usize))
+        self.id.cmp(&other.id)
     }
 }
 impl Eq for FontRef {}
 impl Hash for FontRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.parsed as usize).hash(state);
+        self.id.hash(state);
     }
 }
 impl Clone for FontRef {
@@ -256,6 +275,7 @@ impl Clone for FontRef {
         Self {
             parsed: self.parsed,
             copies: self.copies,
+            id: self.id, // same font → same identity
             run_destructor: self.run_destructor,
             parsed_destructor: self.parsed_destructor,
         }
