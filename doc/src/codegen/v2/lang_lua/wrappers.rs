@@ -174,21 +174,36 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(out, class, &f.method_name, f);
+                emit_instance_method(out, class, &f.method_name, f, ir);
                 method_count += 1;
             }
             FunctionKind::DeepCopy => {
-                // Expose deep-copy as `:clone()`.
+                // Expose deep-copy as `:clone()`. The clone is a fresh
+                // owned value returned BY VALUE from C — LuaJIT never
+                // arms metatype __gc for C-call returns (only for
+                // ffi.new cdata), so arm the finalizer explicitly.
+                let ret_ty = f.return_type.as_deref().unwrap_or(class);
                 out.push_str(&format!(
-                    "    function {}_methods:clone() return C.{}(self) end\n",
-                    class, f.c_name
+                    "    function {}_methods:clone() return {} end\n",
+                    class,
+                    lua_arm(
+                        &format!("C.{}(self)", f.c_name),
+                        &lua_finalizer_for(ret_ty, ir)
+                    )
                 ));
                 method_count += 1;
             }
             FunctionKind::DebugToString => {
+                // Returns an owned AzString by value — arm it so
+                // dropping the result doesn't leak the heap buffer.
+                let ret_ty = f.return_type.as_deref().unwrap_or("String");
                 out.push_str(&format!(
-                    "    function {}_methods:toString() return C.{}(self) end\n",
-                    class, f.c_name
+                    "    function {}_methods:toString() return {} end\n",
+                    class,
+                    lua_arm(
+                        &format!("C.{}(self)", f.c_name),
+                        &lua_finalizer_for(ret_ty, ir)
+                    )
                 ));
                 method_count += 1;
             }
@@ -311,10 +326,15 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         if is_primitive {
             out.push_str("            t[i + 1] = self.ptr[i]\n");
         } else if has_clone {
+            // Each clone is an owned C-returned value: arm its
+            // finalizer so dropping the Lua table entry frees it.
             let elem_ty = elem_rust.as_deref().unwrap_or("");
             out.push_str(&format!(
-                "            t[i + 1] = C.Az{}_clone(self.ptr[i])\n",
-                elem_ty
+                "            t[i + 1] = {}\n",
+                lua_arm(
+                    &format!("C.Az{}_clone(self.ptr[i])", elem_ty),
+                    &lua_finalizer_for(elem_ty, ir)
+                )
             ));
         } else {
             out.push_str("            -- WARNING: element has no _clone — borrowed view dangles if the Vec is closed.\n");
@@ -435,13 +455,20 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(out, class, &f.method_name, f);
+                emit_instance_method(out, class, &f.method_name, f, ir);
                 method_count += 1;
             }
             FunctionKind::DeepCopy => {
+                // Owned C-returned clone: arm the finalizer (see the
+                // struct-wrapper DeepCopy branch for the rationale).
+                let ret_ty = f.return_type.as_deref().unwrap_or(class);
                 out.push_str(&format!(
-                    "    function {}_methods:clone() return C.{}(self) end\n",
-                    class, f.c_name
+                    "    function {}_methods:clone() return {} end\n",
+                    class,
+                    lua_arm(
+                        &format!("C.{}(self)", f.c_name),
+                        &lua_finalizer_for(ret_ty, ir)
+                    )
                 ));
                 method_count += 1;
             }
@@ -570,7 +597,13 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 /// Emit one instance method line (the do-block and `local Foo_methods = {}`
 /// are emitted by the caller). `func.args[0]` is the receiver (named after
 /// the class) and is supplied implicitly via `self`.
-fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &FunctionDef) {
+fn emit_instance_method(
+    out: &mut String,
+    class: &str,
+    lua_method: &str,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+) {
     let lua_method = sanitize_lua_ident(lua_method);
 
     // ThreadCallback guard (same rationale as emit_static_method):
@@ -633,6 +666,21 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
 
     let needs_consume = consumed_self || !consumed_arg_indices.is_empty();
 
+    // Ownership arming (see module docs): LuaJIT only arms metatype
+    // __gc for ffi.new-created cdata — structs RETURNED BY VALUE from
+    // C calls are collected WITHOUT running any finalizer. So every
+    // owned return must be armed explicitly via
+    // `ffi.gc(v, C.Az<T>_delete)` at the wrapper boundary. Auto-
+    // unwrapped Option/Result temps are exempt: `:to_opt()`/`:unwrap()`
+    // delete the shell themselves.
+    let ret_fin = if unwrap_call.is_some() {
+        None
+    } else {
+        func.return_type
+            .as_deref()
+            .and_then(|t| lua_finalizer_for(t, ir))
+    };
+
     // CC-6 (Lua): void-returning mutator methods that DON'T consume self
     // (e.g. `add_child`, `set_button_type`, `add_css_property`) currently
     // emit `return C.AzFoo_addX(self, ...)`, which yields nil at the Lua
@@ -653,8 +701,10 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
             ));
         } else {
             out.push_str(&format!(
-                "    function {}_methods:{}(...) return C.{}(self, ...) end\n",
-                class, lua_method, func.c_name
+                "    function {}_methods:{}(...) return {} end\n",
+                class,
+                lua_method,
+                lua_arm(&format!("C.{}(self, ...)", func.c_name), &ret_fin)
             ));
         }
         return;
@@ -690,6 +740,22 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
     // Body: 8-space indent.
     emit_callback_pin_lines(out, "        ", &func.args[1..], &visible);
 
+    // Auto-AzString conversion: reassign the visible variable instead
+    // of inlining `azul._az_string(x)` in the call args. The temp born
+    // inside `_az_string` is ARMED (owns its heap buffer); the C call
+    // consumes the bytes, so the post-call `azul._consume(x)` line —
+    // which targets the visible variable — must see the SAME cdata to
+    // disarm it. (The old inline form left an anonymous armed temp
+    // whose finalizer would double-free the now-Rust-owned buffer.)
+    for (i, a) in func.args.iter().skip(1).enumerate() {
+        if is_az_string_owned_arg(a) {
+            out.push_str(&format!(
+                "        {n} = azul._az_string({n})\n",
+                n = visible[i]
+            ));
+        }
+    }
+
     // Functions with a callback-wrapper arg call the `<c_name>Struct`
     // C symbol (whole wrapper struct by value; declared in the cdef via
     // the C header's Struct-variant emit). The raw `<c_name>` takes a
@@ -697,12 +763,8 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
     let c_symbol = super::super::managed_host_invoker::managed_c_symbol(func);
 
     let mut call_args = vec!["self".to_string()];
-    for (i, a) in func.args.iter().skip(1).enumerate() {
-        if is_az_string_owned_arg(a) {
-            call_args.push(format!("azul._az_string({})", visible[i]));
-        } else {
-            call_args.push(visible[i].clone());
-        }
+    for (i, _a) in func.args.iter().skip(1).enumerate() {
+        call_args.push(visible[i].clone());
     }
     // Phase I.5.5 (Lua): auto-unwrap Option/Result return at the body
     // end. Reused detection from above (varargs short-circuit path).
@@ -743,9 +805,11 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
                 out.push_str("        return self\n");
             }
             None => out.push_str(&format!(
-                "        return C.{}({})\n",
-                c_symbol,
-                call_args.join(", ")
+                "        return {}\n",
+                lua_arm(
+                    &format!("C.{}({})", c_symbol, call_args.join(", ")),
+                    &ret_fin
+                )
             )),
         }
     } else {
@@ -768,9 +832,11 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
                 ));
             }
             None => out.push_str(&format!(
-                "        local _ret = C.{}({})\n",
-                c_symbol,
-                call_args.join(", ")
+                "        local _ret = {}\n",
+                lua_arm(
+                    &format!("C.{}({})", c_symbol, call_args.join(", ")),
+                    &ret_fin
+                )
             )),
         }
         for line in &consume_lines {
@@ -803,6 +869,48 @@ fn lua_has_delete(option_ty: &str, ir: &CodegenIR) -> bool {
     ir.functions
         .iter()
         .any(|f| f.class_name == option_ty && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// The `C.Az<T>_delete` finalizer expression to arm on an owned by-value
+/// C return of type `ty`, or `None` when the type is Copy (no `_delete`
+/// export) or not an IR wrapper type (primitives / pointers / void).
+///
+/// Rationale: LuaJIT arms `ffi.metatype` `__gc` only for cdata created
+/// by `ffi.new` / ctype constructors — aggregates RETURNED BY VALUE from
+/// C calls are boxed WITHOUT a finalizer, so without explicit
+/// `ffi.gc(v, C.Az<T>_delete)` arming every builder/factory return leaks
+/// (verified empirically on LuaJIT 2.1, 2026-07-04).
+fn lua_finalizer_for(ty: &str, ir: &CodegenIR) -> Option<String> {
+    let t = ty.trim();
+    if lua_has_delete(t, ir) {
+        Some(format!("C.Az{}_delete", t))
+    } else {
+        None
+    }
+}
+
+/// Wrap `expr` in `ffi.gc(expr, <finalizer>)` when a finalizer applies.
+fn lua_arm(expr: &str, fin: &Option<String>) -> String {
+    match fin {
+        Some(f) => format!("ffi.gc({}, {})", expr, f),
+        None => expr.to_string(),
+    }
+}
+
+/// Owned-by-value args of deletable types: the C call transfers their
+/// bytes to Rust, so the (possibly armed) cdata must have its finalizer
+/// detached afterwards via `azul._consume`. Copy types and primitives
+/// are never armed, so they need no consume.
+fn lua_consumable_arg_indices(func: &FunctionDef, ir: &CodegenIR) -> Vec<usize> {
+    func.args
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| {
+            matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+                && lua_has_delete(a.type_name.trim(), ir)
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// True iff the IR's struct for `payload_ty` is `TypeCategory::String`.
@@ -866,11 +974,15 @@ fn emit_lua_to_opt_body(
         out.push_str("        return __out\n");
     } else if lua_has_clone(payload_ty, ir) {
         // Wrapper / cloneable payload — clone for an independent
-        // allocation, then delete the Option (drops the original
-        // payload's heap allocations).
+        // allocation (armed: it is an owned C-returned value), then
+        // delete the Option (drops the original payload's heap
+        // allocations).
         out.push_str(&format!(
-            "        local __cloned = C.Az{}_clone(self.Some.payload)\n",
-            payload_ty
+            "        local __cloned = {}\n",
+            lua_arm(
+                &format!("C.Az{}_clone(self.Some.payload)", payload_ty),
+                &lua_finalizer_for(payload_ty, ir)
+            )
         ));
         if has_delete {
             out.push_str(&delete_line);
@@ -899,8 +1011,14 @@ fn emit_lua_unwrap_body(
 ) {
     let result_name = format!("Az{}", class);
     let has_delete = lua_has_delete(class, ir);
+    // `azul._consume(self)` after the explicit delete: Result shells
+    // returned from static wrappers are ARMED, so without disarming
+    // the finalizer would re-run Az<R>_delete on the freed shell.
     let delete_line = if has_delete {
-        format!("        C.{}_delete(self)\n", result_name)
+        format!(
+            "        C.{}_delete(self)\n        azul._consume(self)\n",
+            result_name
+        )
     } else {
         String::new()
     };
@@ -929,8 +1047,11 @@ fn emit_lua_unwrap_body(
         out.push_str("        return __out\n");
     } else if lua_has_clone(payload_ty, ir) {
         out.push_str(&format!(
-            "        local __cloned = C.Az{}_clone(self.Ok.payload)\n",
-            payload_ty
+            "        local __cloned = {}\n",
+            lua_arm(
+                &format!("C.Az{}_clone(self.Ok.payload)", payload_ty),
+                &lua_finalizer_for(payload_ty, ir)
+            )
         ));
         if has_delete {
             out.push_str(&delete_line);
@@ -995,36 +1116,67 @@ fn emit_static_method(
     // `azul._az_string`.
     let has_az_string = func.args.iter().any(is_az_string_owned_arg);
 
-    if !has_callback_arg(func) && !has_az_string {
+    // Ownership plumbing (mirrors emit_instance_method):
+    // * armed return  — owned by-value C returns never see the metatype
+    //   __gc (LuaJIT arms it only for ffi.new cdata), so arm explicitly.
+    // * consumed args — owned by-value args of deletable types transfer
+    //   their bytes to Rust; disarm the (possibly armed) cdata after the
+    //   call so its finalizer can't double-free Rust-owned memory.
+    let ret_fin = func
+        .return_type
+        .as_deref()
+        .and_then(|t| lua_finalizer_for(t, ir));
+    let consumable = lua_consumable_arg_indices(func, ir);
+
+    if !has_callback_arg(func) && !has_az_string && consumable.is_empty() {
         out.push_str(&format!(
-            "    {} = function(...) return C.{}(...) end,\n",
-            lua_method, func.c_name
+            "    {} = function(...) return {} end,\n",
+            lua_method,
+            lua_arm(&format!("C.{}(...)", func.c_name), &ret_fin)
         ));
         return;
     }
 
-    if !has_callback_arg(func) && has_az_string {
-        // Enumerated form for auto-string-conversion only.
+    if !has_callback_arg(func) {
+        // Enumerated form: auto-string pre-assignment + post-call
+        // consume of every owned deletable arg + armed return. The
+        // string temps are reassigned onto the visible variable so the
+        // consume line disarms the SAME cdata the C call consumed.
         let visible: Vec<String> = func
             .args
             .iter()
             .map(|a| sanitize_lua_ident(&a.name))
             .collect();
-        let mut call_args: Vec<String> = Vec::new();
+        out.push_str(&format!(
+            "    {} = function({})\n",
+            lua_method,
+            visible.join(", ")
+        ));
         for (i, a) in func.args.iter().enumerate() {
             if is_az_string_owned_arg(a) {
-                call_args.push(format!("azul._az_string({})", visible[i]));
-            } else {
-                call_args.push(visible[i].clone());
+                out.push_str(&format!(
+                    "        {n} = azul._az_string({n})\n",
+                    n = visible[i]
+                ));
             }
         }
-        out.push_str(&format!(
-            "    {} = function({}) return C.{}({}) end,\n",
-            lua_method,
-            visible.join(", "),
-            func.c_name,
-            call_args.join(", "),
-        ));
+        let call = format!("C.{}({})", func.c_name, visible.join(", "));
+        if func.return_type.is_none() {
+            out.push_str(&format!("        {}\n", call));
+            for i in &consumable {
+                out.push_str(&format!("        azul._consume({})\n", visible[*i]));
+            }
+        } else {
+            out.push_str(&format!(
+                "        local _ret = {}\n",
+                lua_arm(&call, &ret_fin)
+            ));
+            for i in &consumable {
+                out.push_str(&format!("        azul._consume({})\n", visible[*i]));
+            }
+            out.push_str("        return _ret\n");
+        }
+        out.push_str("    end,\n");
         return;
     }
 
@@ -1112,7 +1264,18 @@ fn emit_static_method(
                 "        local _cb = azul._register_callback('{}', {})\n",
                 info.callback_wrapper, arg_name
             ));
-            out.push_str(&format!("        local _opts = C.{}()\n", info.default_c_name));
+            // `_opts` is an owned C-returned value — arm its finalizer.
+            // `_cb` is deliberately NOT armed (callback wrapper structs
+            // from `_register_callback` are process-lifetime pins; see
+            // managed.rs), so the byte-splice below creates no
+            // double-free pair.
+            out.push_str(&format!(
+                "        local _opts = {}\n",
+                lua_arm(
+                    &format!("C.{}()", info.default_c_name),
+                    &lua_finalizer_for(&func.class_name, ir)
+                )
+            ));
             out.push_str(&format!(
                 "        _opts.{} = _cb\n",
                 info.field_path.join(".")
@@ -1133,28 +1296,39 @@ fn emit_static_method(
     // Body: 8-space indent.
     emit_callback_pin_lines(out, "        ", &func.args[..], &visible);
 
-    // Route Owned `String` args through azul._az_string in line. The
-    // helper is a pass-through for non-string values, so it's safe to
-    // apply uniformly per-arg.
-    let final_args: Vec<String> = func
-        .args
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
-            if is_az_string_owned_arg(a) {
-                format!("azul._az_string({})", visible[i])
-            } else {
-                visible[i].clone()
-            }
-        })
-        .collect();
+    // Auto-AzString pre-assignment (see emit_instance_method: the temp
+    // is armed inside `_az_string`, so the post-call consume must see
+    // the same cdata via the visible variable).
+    for (i, a) in func.args.iter().enumerate() {
+        if is_az_string_owned_arg(a) {
+            out.push_str(&format!(
+                "        {n} = azul._az_string({n})\n",
+                n = visible[i]
+            ));
+        }
+    }
     // Functions with a callback-wrapper arg call the `<c_name>Struct`
     // C symbol (whole wrapper struct by value); see emit_method.
-    out.push_str(&format!(
-        "        return C.{}({})\n",
+    let call = format!(
+        "C.{}({})",
         super::super::managed_host_invoker::managed_c_symbol(func),
-        final_args.join(", ")
-    ));
+        visible.join(", ")
+    );
+    if func.return_type.is_none() {
+        out.push_str(&format!("        {}\n", call));
+        for i in &consumable {
+            out.push_str(&format!("        azul._consume({})\n", visible[*i]));
+        }
+    } else {
+        out.push_str(&format!(
+            "        local _ret = {}\n",
+            lua_arm(&call, &ret_fin)
+        ));
+        for i in &consumable {
+            out.push_str(&format!("        azul._consume({})\n", visible[*i]));
+        }
+        out.push_str("        return _ret\n");
+    }
     out.push_str("    end,\n");
 }
 

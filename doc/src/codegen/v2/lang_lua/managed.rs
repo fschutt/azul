@@ -163,6 +163,14 @@ fn emit_invoker_registration(out: &mut String, cb: &CallbackTypedefDef) {
             c_typename(ret)
         ));
         out.push_str("            end\n");
+        // Ownership transfer: the bytes of `ret` now live in `out_ptr`,
+        // which the framework (Rust) owns and will drop. If the user
+        // built `ret` from armed builders (every owned by-value C return
+        // is wired `ffi.gc(v, Az<T>_delete)` by the wrapper emitter),
+        // that finalizer would re-free memory Rust already owns → a
+        // double free the moment the Lua cdata is collected. Detach it.
+        // No-op for scalar (non-cdata) returns like Update.
+        out.push_str("            if type(ret) == 'cdata' then ffi.gc(ret, nil) end\n");
         out.push_str("        end\n");
     }
     out.push_str("    end)\n");
@@ -238,7 +246,13 @@ azul._make_string = _az_make_string
 --- Wrap an arbitrary Lua value in an AzRefAny.
 function azul.refany_create(value)
     local id = _alloc_handle(value)
-    return C.AzRefAny_newHostHandle(id)
+    -- The CALLER owns the returned RefAny. LuaJIT's metatype __gc does NOT
+    -- fire for by-value C returns, so arm the finalizer explicitly: a
+    -- dropped RefAny then decrements its refcount and — at zero — fires the
+    -- host-handle releaser, clearing _lua_handles[id] (no more leaked
+    -- handles across relayouts). Consumed by App.create / :set_on_click /
+    -- etc. via azul._consume, which detaches this finalizer on transfer.
+    return ffi.gc(C.AzRefAny_newHostHandle(id), C.AzRefAny_delete)
 end
 
 --- Recover the Lua value previously wrapped by `azul.refany_create`.
