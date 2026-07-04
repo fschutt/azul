@@ -1646,8 +1646,14 @@ impl WaylandWindow {
         //    (llvmpipe/swrast) drop it and render on the CPU — tiny-skia cpurender
         //    is faster than software GL and avoids desktop-GLSL shader issues.
         use crate::desktop::shell2::common::compositor::{AzBackend, GpuCheckResult};
-        let backend = AzBackend::resolve(options.renderer.as_option().map(|r| r.hw_accel));
-        let force_cpu = matches!(backend, AzBackend::Cpu);
+        let backend = AzBackend::resolve(
+            options
+                .renderer
+                .as_option()
+                .map(|r| r.hw_accel)
+                .or(Some(options.window_state.renderer_options.hw_accel)),
+        );
+        let force_cpu = matches!(backend, AzBackend::Cpu | AzBackend::Headless);
         let force_gpu = matches!(backend, AzBackend::Gpu);
 
         let render_mode = if force_cpu {

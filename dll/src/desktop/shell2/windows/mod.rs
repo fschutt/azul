@@ -283,14 +283,23 @@ impl Win32Window {
         // Initialize OpenGL context + WebRender (if hardware rendering requested)
         let mut gl_functions = GlFunctions::initialize();
 
-        // Determine renderer type from options
-        let should_use_hardware = match options.renderer.into_option() {
-            Some(r) => match r.hw_accel {
-                azul_core::window::HwAcceleration::Enabled => true,
-                azul_core::window::HwAcceleration::Disabled => false,
-                azul_core::window::HwAcceleration::DontCare => true, // Try hardware first
-            },
-            None => true, // Default to hardware
+        // Determine renderer type via the unified backend resolution
+        // (AZ_BACKEND env var > programmatic hw_accel > Auto). Auto/Gpu try
+        // hardware first; the shader probe below falls back to CPU when the
+        // driver is unusable. Previously this read only options.renderer and
+        // ignored AZ_BACKEND entirely (the env var worked on every OTHER
+        // backend).
+        let should_use_hardware = {
+            use crate::desktop::shell2::common::compositor::AzBackend;
+            let hw_accel = options
+                .renderer
+                .as_option()
+                .map(|r| r.hw_accel)
+                .or(Some(options.window_state.renderer_options.hw_accel));
+            !matches!(
+                AzBackend::resolve(hw_accel),
+                AzBackend::Cpu | AzBackend::Headless
+            )
         };
 
         // Get window size

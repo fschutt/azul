@@ -130,7 +130,11 @@ impl Default for RendererOptions {
         Self {
             vsync: Vsync::Enabled,
             srgb: Srgb::Disabled,
-            hw_accel: HwAcceleration::Disabled,
+            // DontCare resolves to AzBackend::Auto: try GPU first, fall back
+            // to CPU rendering on GL failure / blacklisted driver. Disabled
+            // here silently forced EVERY app that didn't set renderer options
+            // into CPU rendering on all platforms (the GL probe never ran).
+            hw_accel: HwAcceleration::DontCare,
         }
     }
 }

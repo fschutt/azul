@@ -1569,9 +1569,14 @@ impl X11Window {
         // compilation on software / weak GPUs such as nouveau.)
         let force_cpu = matches!(
             crate::desktop::shell2::common::compositor::AzBackend::resolve(
-                options.renderer.as_option().map(|r| r.hw_accel)
+                options
+                    .renderer
+                    .as_option()
+                    .map(|r| r.hw_accel)
+                    .or(Some(options.window_state.renderer_options.hw_accel))
             ),
             crate::desktop::shell2::common::compositor::AzBackend::Cpu
+                | crate::desktop::shell2::common::compositor::AzBackend::Headless
         );
         // Shared frame-ready signal: ONE Arc for both the WR Notifier and the
         // window field (they used to be two different Arcs — the notifier

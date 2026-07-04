@@ -8,8 +8,11 @@ needs so CI installs can be wired up.
 ## Prerequisites (the script does NOT build these)
 
 ```sh
-cargo build --release -p azul-dll --features build-dll   # target/release/libazul.{dylib,so}
-cargo run -r -p azul-doc codegen all                     # target/codegen/<lang files>
+# debug-server is REQUIRED: the AZ_E2E headless runner is compiled in only with
+# that feature (dll/src/desktop/shell2/run.rs). A lean build-dll-only lib
+# silently ignores AZ_E2E → every language "hangs" for 240s and FAILS.
+cargo build --release -p azul-dll --features build-dll,debug-server   # target/release/libazul.{dylib,so}
+cargo run -r -p azul-doc codegen all                                  # target/codegen/<lang files>
 ```
 
 The script auto-detects the OS and exports `AZ_LIB`, `AZ_LIB_DIR`, and the

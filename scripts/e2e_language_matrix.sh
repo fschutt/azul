@@ -508,11 +508,18 @@ lang_cpp() {
     cp "$CODEGEN_DIR/azul.h"    "$REPO_ROOT/examples/cpp/cpp20/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/cpp/cpp20" || exit 1
     if [ "$IS_MACOS" = 1 ]; then
-      # Pass the active SDK explicitly: a Command Line Tools install whose
-      # default libc++ header dir (.../usr/include/c++/v1) is missing still
-      # resolves <cstdint> etc. from the SDK's copy via -isysroot.
+      # Pass the active SDK explicitly. Apple clang only searches the
+      # TOOLCHAIN's libc++ headers (.../CommandLineTools/usr/include/c++/v1),
+      # NOT the SDK's copy — so on a partial CLT install where that dir is
+      # missing, <cstdint> fails even with -isysroot. Detect that and point
+      # -nostdinc++ at the SDK's own c++/v1 (verified working fallback).
       local SDK; SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
-      "$CXX" -g -O0 -std=c++20 ${SDK:+-isysroot "$SDK"} -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
+      local CXXHDR=""
+      local TOOLCHAIN_V1="$(dirname "$(dirname "$CXX")")/include/c++/v1"
+      if [ ! -d "$TOOLCHAIN_V1" ] && [ -n "$SDK" ] && [ -d "$SDK/usr/include/c++/v1" ]; then
+        CXXHDR="-nostdinc++ -isystem $SDK/usr/include/c++/v1"
+      fi
+      "$CXX" -g -O0 -std=c++20 ${SDK:+-isysroot "$SDK"} $CXXHDR -I. hello-world.cpp -L"$RELEASE_DIR" -lazul \
         -framework AppKit -framework OpenGL -framework CoreGraphics \
         -framework CoreText -framework CoreFoundation -o hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
