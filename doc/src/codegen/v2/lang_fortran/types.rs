@@ -11,15 +11,18 @@
 //!   a public `integer(c_int)` named alias so users can declare
 //!   `integer(c_int) :: my_button = AzButtonType_Primary`.
 //! - **Tagged-union enums** have no native equivalent in Fortran; we
-//!   emit a derived type with a `tag :: integer(c_int)` discriminant
-//!   plus a single `payload :: type(c_ptr)` field that the user
-//!   reinterprets manually with `c_f_pointer`. A SKIPPED comment
-//!   block documents this; it's a known soft-spot of the binding.
+//!   emit a derived type holding an ABI-opaque blob with the EXACT
+//!   size and alignment of the C `repr(C,u8)` union (computed by
+//!   `super::layout`). Anything else corrupts every struct that embeds
+//!   a union by value — see the 2026-07 e2e SIGSEGV post-mortem. The
+//!   `_TAG_*` enumerator constants are still emitted for reference.
 //! - **Callback typedefs** become `abstract interface` blocks plus a
 //!   `procedure(...), pointer :: AzFooCallbackType` alias. Fortran
 //!   procedure pointers with `bind(C)` are exactly C function pointers.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are
-//!   skipped with `! SKIPPED: <reason>` comments.
+//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** types
+//!   are emitted as ABI-opaque blob stand-ins when their layout is
+//!   computable (they ARE embedded by value — every `AzXVec` carries an
+//!   `AzXVecDestructor`), else skipped with a `! SKIPPED:` comment.
 
 use anyhow::Result;
 
@@ -29,6 +32,7 @@ use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
     MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
+use super::layout::{blob_field_decl, mono_layout, type_layout};
 use super::{
     ffi_type_name, map_type_to_fortran, sanitize_comment_line, sanitize_identifier,
     truncate_identifier,
@@ -49,9 +53,20 @@ pub fn generate_types(
     builder.blank();
 
     // 1. Unit (simple) enums first so they may appear in derived-type
-    //    field declarations as `integer(c_int)` aliases.
+    //    field declarations as `integer(c_int)` aliases. Skipped-category
+    //    tagged unions (DestructorOrClone etc.) are embedded BY VALUE in
+    //    regular structs (every AzXVec carries an AzXVecDestructor), so
+    //    they get an ABI-opaque blob stand-in here — mapping them to
+    //    `type(c_ptr)` shrank every embedding struct and corrupted all
+    //    by-value FFI calls (2026-07 Fortran e2e SIGSEGV root cause).
     for e in &ir.enums {
         if !should_include_enum(e, config) {
+            if e.is_union && e.generic_params.is_empty() {
+                if let Some(l) = type_layout(&e.name, ir) {
+                    emit_opaque_blob(builder, &e.name, l, e.category.description());
+                    continue;
+                }
+            }
             emit_skipped_enum(builder, e);
             continue;
         }
@@ -74,6 +89,16 @@ pub fn generate_types(
     let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
         if !should_include_struct(s, config) {
+            // Same ABI rule as skipped unions above: if the skipped
+            // struct is layout-computable, other structs may embed it by
+            // value (e.g. AzXmlNodeChild inside AzXmlNode), so emit an
+            // exact-size blob stand-in instead of collapsing to c_ptr.
+            if s.generic_params.is_empty() {
+                if let Some(l) = type_layout(&s.name, ir) {
+                    emit_opaque_blob(builder, &s.name, l, s.category.description());
+                    continue;
+                }
+            }
             emit_skipped_struct(builder, s);
             continue;
         }
@@ -158,6 +183,31 @@ fn emit_skipped_struct(builder: &mut CodeBuilder, s: &StructDef) {
     ));
 }
 
+/// Emit an ABI-opaque stand-in type: a single array component of the
+/// widest integer kind matching the C alignment, sized to the exact C
+/// byte size. Field-level access is impossible (Fortran has no unions),
+/// but embedding-by-value and pass-by-value are layout-exact — which is
+/// all the generated wrappers ever need for these types.
+fn emit_opaque_blob(
+    builder: &mut CodeBuilder,
+    name: &str,
+    l: super::layout::AbiLayout,
+    why: &str,
+) {
+    let ffi = truncate_identifier(&ffi_type_name(name));
+    builder.line(&format!(
+        "! ABI-opaque stand-in for {} ({}): exact C size/alignment ({} bytes, align {}).",
+        name, why, l.size, l.align
+    ));
+    builder.line(&format!("type, bind(C) :: {}", ffi));
+    builder.indent();
+    builder.line(&blob_field_decl(l));
+    builder.dedent();
+    builder.line(&format!("end type {}", ffi));
+    builder.line(&format!("public :: {}", ffi));
+    builder.blank();
+}
+
 fn emit_skipped_enum(builder: &mut CodeBuilder, e: &EnumDef) {
     builder.line(&format!(
         "! SKIPPED: enum {} ({})",
@@ -217,10 +267,10 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
 }
 
 // ============================================================================
-// Tagged-union enum (Fortran has no union — emit tag + opaque payload)
+// Tagged-union enum (Fortran has no union — emit exact-size ABI blob)
 // ============================================================================
 
-fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, _ir: &CodegenIR) {
+fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     if !e.doc.is_empty() {
         for d in &e.doc {
             builder.line(&format!("! {}", sanitize_comment_line(d)));
@@ -236,9 +286,11 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, _ir: &CodegenIR) {
     let tag_alias = format!("{}_TAG", ffi);
 
     // Tag enum block.
-    builder.line(&format!("! Tagged-union {}: tag + opaque payload pointer.", ffi));
-    builder.line("! Fortran has no native `union`; users cast `payload` via");
-    builder.line("! `c_f_pointer(self%payload, ...)` to the variant-specific type.");
+    builder.line(&format!(
+        "! Tagged-union {}: ABI-opaque blob (Fortran has no native union).",
+        ffi
+    ));
+    builder.line("! Construct/inspect values via the C-API helper functions only.");
     builder.line("enum, bind(C)");
     builder.indent();
     for (i, v) in e.variants.iter().enumerate() {
@@ -293,11 +345,24 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, _ir: &CodegenIR) {
         }
     }
 
-    // Derived type: tag + payload pointer.
+    // Derived type: ABI-opaque blob with the exact C size/alignment of
+    // the repr(C,u8) union. The old `{integer(c_int) tag; type(c_ptr)
+    // payload}` shape (16 bytes) mis-sized nearly every union (AzString
+    // 32 vs 40, AzWindowCreateOptions 824 vs 1336, ...) and stack-smashed
+    // every by-value FFI call — the 2026-07 Fortran e2e SIGSEGV.
     builder.line(&format!("type, bind(C) :: {}", truncate_identifier(&ffi)));
     builder.indent();
-    builder.line("integer(c_int) :: tag");
-    builder.line("type(c_ptr) :: payload");
+    match type_layout(&e.name, ir) {
+        Some(l) => builder.line(&blob_field_decl(l)),
+        None => {
+            // Layout not computable (should not happen for non-generic
+            // unions) — keep the legacy shape so the module still
+            // compiles, and say so loudly.
+            builder.line("! WARNING: union layout not computable; legacy tag+ptr shape");
+            builder.line("integer(c_int) :: tag");
+            builder.line("type(c_ptr) :: payload");
+        }
+    }
     builder.dedent();
     builder.line(&format!("end type {}", truncate_identifier(&ffi)));
     builder.line(&format!("public :: {}", truncate_identifier(&ffi)));
@@ -506,8 +571,8 @@ fn emit_monomorphized_alias(
         }
 
         // Tagged-union monomorphizations follow the same shape as
-        // `emit_tagged_union`: tag enum + per-variant payload comment +
-        // derived type with tag + opaque payload pointer.
+        // `emit_tagged_union`: tag enum constants + a derived type holding
+        // an ABI-opaque blob of the exact C union size/alignment.
         MonomorphizedKind::TaggedUnion { variants, .. } => {
             let tag_alias = format!("{}_TAG", ffi);
             builder.line(&format!("! Monomorphized tagged-union {}", ffi));
@@ -531,10 +596,17 @@ fn emit_monomorphized_alias(
                 ));
                 builder.line(&format!("public :: {}", vname));
             }
+            // ABI-opaque blob body — same rationale as emit_tagged_union.
             builder.line(&format!("type, bind(C) :: {}", ffi));
             builder.indent();
-            builder.line("integer(c_int) :: tag");
-            builder.line("type(c_ptr) :: payload");
+            match mono_layout(mono, ir, 0) {
+                Some(l) => builder.line(&blob_field_decl(l)),
+                None => {
+                    builder.line("! WARNING: union layout not computable; legacy tag+ptr shape");
+                    builder.line("integer(c_int) :: tag");
+                    builder.line("type(c_ptr) :: payload");
+                }
+            }
             builder.dedent();
             builder.line(&format!("end type {}", ffi));
             builder.line(&format!("public :: {}", ffi));

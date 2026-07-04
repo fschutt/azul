@@ -1,36 +1,49 @@
 # Azul — Fortran (F2003+)
 
-⊘ **Codegen rewrite needed.** Fortran's `emit_tagged_union` produces
-opaque `(tag: c_int + payload: c_ptr)` 12-byte structs instead of
-the inline `#[repr(C, u8)]` union the C ABI uses. Any function that
-takes/returns `AzOption<T>` / `AzResult<T,E>` by value gets corrupted
-struct layout. See `memory/fortran_codegen_2026_05_13.md`.
+✓ **Full counter E2E passing** (2026-07-04). The historical
+tagged-union codegen gap is fixed: `azul.f90` now emits every C
+`repr(C, u8)` union as an ABI-opaque blob with the exact C size and
+alignment (computed by `lang_fortran::layout`), so by-value struct
+passing matches `azul.h` for all types (clang-verified, 1551/1551).
+Unions are constructed/inspected via the C-API helper functions only —
+Fortran has no native `union`, so field-level variant access is not
+exposed.
 
 ## Status
 
-- Smoke test (AzString round-trip + refany_create) verified.
-- Full GUI: not reachable without the tagged-union codegen rewrite.
+- Full GUI counter example (`hello_world.f90`) passes the AZ_E2E
+  headless scenario: initial DOM renders "5", three clicks make it "8".
+- Callbacks go through the host-invoker dispatch layer
+  (`azul_register_<kind>()` + `bind(C)` module procedures).
 
 ## Requirements
 
 - GFortran (`brew install gcc` provides it on macOS)
 
-## Build + Run (smoke only)
+## Build + Run
 
 ```sh
 make
 DYLD_LIBRARY_PATH=. ./hello_world
 ```
 
+To run the headless counter E2E like CI does:
+
+```sh
+AZ_E2E=../../tests/e2e/hello_world_counter.json AZ_BACKEND=headless make run
+```
+
 ## Files
 
-- `hello_world.f90` — smoke test.
-- `azul.f90` — generated bindings.
-- `Makefile` — gfortran build.
+- `hello_world.f90` — full-GUI counter example (layout + click callback).
+- `azul.f90` — generated bindings (host-invoker layer included).
+- `Makefile` — gfortran build (generated as `Makefile.fortran`).
 - `libazul.dylib` — prebuilt native library.
 
-## Recent updates (2026-05-15/16)
+## Notes
 
-- **R11 consume mechanism** (commit `7f39e0c03`): `owned = .false.`
-  in the codegen-emitted consume helper disarms the F2003 finaliser
-  for by-value C calls. Mirrors the Pascal `FOwned := False` pattern.
+- Callbacks MUST live in a module (not as internal procedures) so
+  `c_funloc()` needs no executable-stack trampoline.
+- `owned = .false.` in the codegen-emitted consume helper disarms the
+  F2003 finaliser for by-value C calls (mirrors Pascal's
+  `FOwned := False` pattern).

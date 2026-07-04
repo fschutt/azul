@@ -35,8 +35,17 @@ pub fn generate_makefile() -> String {
 #
 # Override FC=ifort or FC=ifx to use the Intel Fortran compiler.
 
-FC      ?= gfortran
-FFLAGS  ?= -O2 -std=f2008 -fimplicit-none
+# NOT `FC ?=`: GNU make PREDEFINES FC=f77 as a builtin default, so `?=`
+# never fires and `make` tries the nonexistent f77. $(origin) tells the
+# builtin default apart from a real user override (env / command line).
+ifeq ($(origin FC),default)
+FC      = gfortran
+endif
+# -ffree-line-length-none: the generated azul.f90 has declaration lines
+# beyond the F2008 132-column limit (long widget/callback type names);
+# without it -std=f2008 truncates them into hard errors. Intel ifort/ifx
+# allows 7200-char lines by default, so the flag is gfortran-only anyway.
+FFLAGS  ?= -O2 -std=f2008 -ffree-line-length-none -fimplicit-none
 LDFLAGS ?= -L. -Wl,-rpath,'$$ORIGIN'
 LIBS    ?= -lazul
 

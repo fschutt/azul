@@ -282,7 +282,20 @@ fn emit_factory_body(
     ir: &CodegenIR,
 ) {
     let factory_suffix = if func.method_name == "new" || func.method_name == "create" {
-        "create".to_string()
+        // Both `new` and `create` normally map to the idiomatic `_create`,
+        // but Fortran has no overloading: when a class declares BOTH
+        // constructors (Accordion/ComboBox: `new(sections)` + `create()`),
+        // two identical specific names are a compile error. On collision the
+        // literal `create` keeps the idiomatic name and `new` stays `_new`.
+        let collides = func.method_name == "new"
+            && ir
+                .functions_for_class(&func.class_name)
+                .any(|f| f.kind == FunctionKind::Constructor && f.method_name == "create");
+        if collides {
+            "new".to_string()
+        } else {
+            "create".to_string()
+        }
     } else {
         sanitize_identifier(&func.method_name)
     };

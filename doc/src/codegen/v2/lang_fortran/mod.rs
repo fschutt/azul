@@ -5,9 +5,10 @@
 //! 1. Declares all C-ABI types as Fortran `type, bind(C)` derived types
 //!    (the Fortran spelling of a C struct), unit-only enums as
 //!    `enum, bind(C)` blocks (F2008) plus a matching `integer(c_int)`
-//!    type alias, and tagged unions as derived types with an
-//!    `integer(c_int) :: tag` discriminant plus a `type(c_ptr)` payload
-//!    (Fortran has no native `union` so users cast the payload manually).
+//!    type alias, and tagged unions as ABI-opaque blob types with the
+//!    exact C size/alignment (Fortran has no native `union`; the blob
+//!    keeps every embedding struct layout-identical to `azul.h` — see
+//!    [`layout`]).
 //! 2. Declares every C-API function inside an `interface ... end interface`
 //!    block, each with the verbatim C symbol carried via
 //!    `bind(C, name="AzFoo_create")`. Fortran is case-insensitive for
@@ -46,10 +47,9 @@
 //!     enumerator :: AzButtonType_Secondary = 1
 //!   end enum
 //!
-//!   ! --- Tagged unions: tag + payload pointer the user casts manually ---
+//!   ! --- Tagged unions: ABI-opaque blob, exact C size/alignment ---
 //!   type, bind(C) :: AzOptionI64
-//!     integer(c_int) :: tag
-//!     integer(c_int64_t) :: payload
+//!     integer(c_int64_t) :: opaque_(2)
 //!   end type AzOptionI64
 //!
 //!   ! --- C ABI interface block ---
@@ -111,6 +111,7 @@ use super::generator::CodeBuilder;
 use super::ir::CodegenIR;
 
 pub mod functions;
+pub(crate) mod layout;
 pub mod makefile;
 pub mod managed;
 pub mod types;
@@ -285,20 +286,26 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
         // module still compiles.
         _ => {
             if let Some(e) = ir.find_enum(trimmed) {
-                // Skipped enum categories produce no derived type;
-                // callers should treat them as opaque pointers.
-                if matches!(
-                    e.category,
-                    crate::codegen::v2::ir::TypeCategory::Recursive
-                        | crate::codegen::v2::ir::TypeCategory::VecRef
-                        | crate::codegen::v2::ir::TypeCategory::DestructorOrClone
-                        | crate::codegen::v2::ir::TypeCategory::GenericTemplate
-                ) || !e.generic_params.is_empty()
-                {
+                // Generic templates have no concrete layout — opaque ptr.
+                if !e.generic_params.is_empty() {
                     "type(c_ptr)".to_string()
                 } else if e.is_union {
-                    format!("type({})", ffi_type_name(trimmed))
+                    // ALL non-generic tagged unions get a `type, bind(C)`
+                    // block: included ones as an ABI-opaque blob (see
+                    // types.rs::emit_tagged_union), skipped-category ones
+                    // (DestructorOrClone etc.) as a blob stand-in emitted
+                    // by generate_types. Mapping them to `type(c_ptr)`
+                    // (8 bytes) here is what shrank every embedding
+                    // struct and corrupted all by-value calls.
+                    if layout::type_layout(trimmed, ir).is_some() {
+                        format!("type({})", ffi_type_name(trimmed))
+                    } else {
+                        "type(c_ptr)".to_string()
+                    }
                 } else {
+                    // Unit enums are C `enum`s (int-sized) — even the
+                    // skipped-category ones, whose enumerator constants
+                    // are simply not emitted.
                     "integer(c_int)".to_string()
                 }
             } else if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
@@ -321,20 +328,27 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
                 }
             } else if let Some(s) = ir.find_struct(trimmed) {
                 // Skipped struct categories (Recursive, VecRef,
-                // DestructorOrClone, GenericTemplate) have no `type,
-                // bind(C) :: AzFoo` declaration emitted, so referencing
-                // their derived-type name would dangle. Fall back to
-                // `type(c_ptr)` for those — callers treat them as
-                // opaque references.
-                if matches!(
+                // DestructorOrClone) get an ABI-opaque blob stand-in
+                // emitted by generate_types whenever their layout is
+                // computable, so `type(AzFoo)` is safe AND layout-exact
+                // (a bare `type(c_ptr)` is 8 bytes and would corrupt any
+                // struct embedding them by value, e.g. AzXmlNodeChild).
+                // Generic templates / layout-incomputable ones stay
+                // opaque pointers.
+                if !s.generic_params.is_empty() {
+                    "type(c_ptr)".to_string()
+                } else if matches!(
                     s.category,
                     crate::codegen::v2::ir::TypeCategory::Recursive
                         | crate::codegen::v2::ir::TypeCategory::VecRef
                         | crate::codegen::v2::ir::TypeCategory::DestructorOrClone
                         | crate::codegen::v2::ir::TypeCategory::GenericTemplate
-                ) || !s.generic_params.is_empty()
-                {
-                    "type(c_ptr)".to_string()
+                ) {
+                    if layout::type_layout(trimmed, ir).is_some() {
+                        format!("type({})", ffi_type_name(trimmed))
+                    } else {
+                        "type(c_ptr)".to_string()
+                    }
                 } else {
                     format!("type({})", ffi_type_name(trimmed))
                 }
