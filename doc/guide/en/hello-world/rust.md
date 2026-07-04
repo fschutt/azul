@@ -53,41 +53,36 @@ Rust code will recompile much faster and your binary size is now in the kilobyte
 
 ### Dynamic "DLL" linking
 
-Ideally, simply install `libazul` from your system package manager.
+First, get the prebuilt library. On Debian/Ubuntu and Fedora/RHEL you can
+install the `.deb` / `.rpm` package from the GitHub release (installs
+`/usr/lib/libazul.so`):
 
 ```sh
-# windows (choco source = the azul.rs nuget v3 feed)
-choco install libazul --source https://azul.rs/nuget/index.json
-# linux - Debian / Ubuntu (apt repo: https://azul.rs/apt)
-apt install libazul
-# linux - Fedora / RHEL (dnf/yum repo: https://azul.rs/rpm)
-dnf install libazul
-# linux - openSUSE (run once: zypper ar https://azul.rs/rpm azul)
-zypper install libazul
-# linux - Arch / Manjaro (add [azul] Server=https://azul.rs/arch/$arch to pacman.conf)
-pacman -S libazul
-# linux - Alpine (add https://azul.rs/alpine/x86_64 to /etc/apk/repositories)
-apk add libazul
-# macos (run once: brew tap fschutt/azul https://azul.rs/homebrew-azul.git)
-brew install libazul
+# linux - Debian / Ubuntu
+curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul_0.2.0_amd64.deb
+sudo apt install ./azul_0.2.0_amd64.deb
+
+# linux - Fedora / RHEL
+curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul-0.2.0-1.x86_64.rpm
+sudo dnf install ./azul-0.2.0-1.x86_64.rpm
 ```
 
-You will now only have one "Rust dependency" when executing `cargo tree`, as the code in the DLL is already precompiled.
-
-Download a prebuilt DLL for your OS from the [/releases](/releases) page
-
-Alternatively, download prebuilt DLL for your OS from the [/releases](/releases) page:
+There is currently no Homebrew tap, Chocolatey package, AUR or Alpine
+repository. On macOS and Windows, download the prebuilt DLL for your OS from
+the [release page](https://azul.rs/ui/release/0.2.0) instead:
 
 ```sh
 # windows
-curl.exe -L -O https://azul.rs/release/0.2.0/azul.dll
+curl.exe -L -O https://azul.rs/ui/release/0.2.0/azul.dll
 # linux
-curl -L -O https://azul.rs/release/0.2.0/libazul.so
-# macos
-curl -L -O https://azul.rs/release/0.2.0/libazul.dylib
+curl -L -O https://azul.rs/ui/release/0.2.0/libazul.so
+# macos (Apple Silicon; Intel: libazul.x86_64.dylib)
+curl -L -O https://azul.rs/ui/release/0.2.0/libazul.dylib
 ```
 
-In the latter case, you then have to export `AZ_LINK_PATH=/path/to/libazul.dylib` (or `.so` / `.dll`):
+You will then only have one "Rust dependency" when executing `cargo tree`, as the code in the DLL is already precompiled.
+
+If you downloaded the DLL manually (instead of the `.deb` / `.rpm`), export `AZ_LINK_PATH=/path/to/libazul.dylib` (or `.so` / `.dll`):
 
 ```sh
 # note: lenient DLL path discovery by build.rs
@@ -99,13 +94,18 @@ In the latter case, you then have to export `AZ_LINK_PATH=/path/to/libazul.dylib
 export AZ_LINK_PATH=/my/path/to/libazul.so
 ```
 
-Now, you only have to add the main crate (the API bindings) to your project:
+Now, you only have to add the main crate (the API bindings) to your project.
+Azul is not published on crates.io yet, so the bindings come straight from
+the GitHub repository (the package is named `azul-dll`; renaming it to `azul`
+gives you the usual `use azul::prelude::*` paths):
 
 ```sh
 # create new project
 cargo new --bin hello-azul
-# add api bindings from crates.io
-cargo add azul --version 0.3.0
+# add the API bindings from the GitHub repo at the 0.2.0 tag
+cargo add azul-dll --rename azul \
+    --git https://github.com/fschutt/azul --tag 0.2.0 \
+    --no-default-features --features link-dynamic
 ```
 
 The `build.rs` will then automatically configure cargo to link against that library 
@@ -114,30 +114,37 @@ libazul library or panic with a helpful message if your system isn't correctly c
 
 Now your application will only be a couple hundred KB large and (re-)compile very fast, 
 since rustc only has to recompile your couple of functions, not the azul library code. 
-This is the default option (enabled with `features = ["link-dynamic"]` by default).
+Note that dynamic linking is NOT the default feature set - you have to select it 
+with `default-features = false, features = ["link-dynamic"]`:
 
 ```toml
 [dependencies.azul]
-version = "0.3"
+package = "azul-dll"
+git = "https://github.com/fschutt/azul"
+tag = "0.2.0"
+default-features = false
 features = ["link-dynamic"]
 ```
 
 The `build.rs` system is relatively smart: if you have azul installed on your system, 
-but `AZ_DLL_PATH` is missing, it will link against the system library. So, a simple 
-`brew install libazul` followed by `cargo run` should work (if not, open a ticket).
+but `AZ_LINK_PATH` is missing, it will link against the system library. So, installing 
+the `.deb` / `.rpm` package (or downloading the DLL and exporting `AZ_LINK_PATH`) 
+followed by `cargo run` should work (if not, open a ticket).
 
 ### Static "Rust-native" linking
 
-The non-recommended, but still "easiest way" to "simply install" Azul is by enabling 
-the `link-static` feature, which does a full "build from source" build. Because it's 
-_really not recommended_ to do this, you have to enable it with `--features link-static`.
+The non-recommended, but still "easiest way" to "simply install" Azul is the 
+`link-static` feature, which does a full "build from source" build. It is part 
+of the crate's default feature set, so you get it by simply omitting the 
+`--no-default-features --features link-dynamic` flags from the `cargo add` above.
 
 ```toml
- # build from source from crates.io
- # not enabled by default: use dynamic linking
- # ideally use systems package manager
+ # build from source (the transitive
+ # dependencies come from crates.io)
 [dependencies.azul]
-version = "0.3"
+package = "azul-dll"
+git = "https://github.com/fschutt/azul"
+tag = "0.2.0"
 features = ["link-static"]
 ```
 

@@ -36,36 +36,21 @@ data class, a typed `LayoutCallback` that returns a `Dom`, and the wrapper-class
 
 You need **JDK 17+**, **Maven**, **JNA 5.14+**, and the native `libazul` library.
 
-### Recommended: Maven dependency
+There is no Maven artifact yet (neither on Maven Central nor on a custom
+repository) - install manually. Only JNA itself
+(`net.java.dev.jna:jna:5.14.0`) comes from Maven Central as usual.
 
-```xml
-<dependency>
-  <groupId>rs.azul</groupId>
-  <artifactId>azul</artifactId>
-  <version>0.2.0</version>
-</dependency>
-```
-
-> [!NOTE]
-> The 0.2.0 artifacts are hosted on the azul.rs Maven repository. Add it to your
-> `pom.xml` so Maven can resolve them:
-> ```xml
-> <repositories>
->   <repository>
->     <id>azul</id>
->     <url>https://azul.rs/maven</url>
->   </repository>
-> </repositories>
-> ```
-> JNA itself (`net.java.dev.jna:jna:5.14.0`) comes from Maven Central as usual.
-
-### Manual
-
-1. Download the native library from the [/releases](/releases) page (`libazul.dylib`
+1. Download the native library from the
+   [release page](https://azul.rs/ui/release/0.2.0) (`libazul.dylib`
    / `libazul.so` / `azul.dll`) and keep it in your working directory or pass
    `-Djna.library.path=.`.
-2. Add the generated `com/azul/*.java` wrappers (from the
-   [examples archive](/ui/release/0.2.0/examples.zip) under `java/`) to your project.
+2. Download the generated `com.azul` wrapper sources and unpack them into
+   your source tree:
+
+   ```sh
+   wget https://azul.rs/ui/release/0.2.0/azul-java.zip
+   unzip azul-java.zip -d src/main/java/com/azul/
+   ```
 
 ## Simple "Counter" Example
 

@@ -43,38 +43,40 @@ into an existing project and link like any other system library.
 
 ### Pre-built DLL (recommended)
 
-If your operating system has a package manager, that is the recommended path. You can 
-simply use your systems package manager to install `libazul`:
+On Debian/Ubuntu and Fedora/RHEL you can install the prebuilt package
+straight from the GitHub release:
 
 ```sh
-# windows (choco source = the azul.rs nuget v3 feed)
-choco install libazul --source https://azul.rs/nuget/index.json
-# linux - Debian / Ubuntu (apt repo: https://azul.rs/apt)
-apt install libazul
-# linux - Fedora / RHEL (dnf/yum repo: https://azul.rs/rpm)
-dnf install libazul
-# linux - openSUSE (run once: zypper ar https://azul.rs/rpm azul)
-zypper install libazul
-# linux - Arch / Manjaro (add [azul] Server=https://azul.rs/arch/$arch to pacman.conf)
-pacman -S libazul
-# linux - Alpine (add https://azul.rs/alpine/x86_64 to /etc/apk/repositories)
-apk add libazul
-# macos (run once: brew tap fschutt/azul https://azul.rs/homebrew-azul.git)
-brew install libazul
+# linux - Debian / Ubuntu (installs /usr/include/azul.h + /usr/lib/libazul.so)
+curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul_0.2.0_amd64.deb
+sudo apt install ./azul_0.2.0_amd64.deb
+
+# linux - Fedora / RHEL
+curl -L -O https://github.com/fschutt/azul/releases/download/0.2.0/azul-0.2.0-1.x86_64.rpm
+sudo dnf install ./azul-0.2.0-1.x86_64.rpm
 ```
 
-This installs `libazul.{so,dylib,dll}` plus the `azul.h` header into the standard system locations, so a plain `cc hello-world.c -lazul` will pick everything up. Alternatively, download the header and the DLL manually from the [/releases](/releases) page (or in your CI):
+ARM64 and other architectures are on the
+[GitHub releases page](https://github.com/fschutt/azul/releases/tag/0.2.0).
+The `.deb` / `.rpm` installs `libazul.so` plus the `azul.h` header into the
+standard system locations, so a plain `cc hello-world.c -lazul` will pick
+everything up.
+
+There is currently no Homebrew tap, Chocolatey package, AUR or Alpine
+repository. On macOS and Windows (and for CI on any platform), download the
+header and the library directly from the
+[release page](https://azul.rs/ui/release/0.2.0):
 
 ```sh
 # header (same file on every platform)
-curl -L -O https://azul.rs/release/0.2.0/azul.h
+curl -L -O https://azul.rs/ui/release/0.2.0/azul.h
 
-# windows
-curl.exe -L -O https://azul.rs/release/0.2.0/azul.dll
+# windows (plus azul.lib if you link with MSVC)
+curl.exe -L -O https://azul.rs/ui/release/0.2.0/azul.dll
 # linux
-curl -L -O https://azul.rs/release/0.2.0/libazul.so
-# macos
-curl -L -O https://azul.rs/release/0.2.0/libazul.dylib
+curl -L -O https://azul.rs/ui/release/0.2.0/libazul.so
+# macos (Apple Silicon; Intel: libazul.x86_64.dylib)
+curl -L -O https://azul.rs/ui/release/0.2.0/libazul.dylib
 ```
 
 You then either install both into a system path or pass `-I` and `-L` to the compiler.
@@ -254,7 +256,7 @@ Things we did not use that you may want to explore next.
 
 ## Build and run
 
-If you installed `libazul` through your system package manager, the
+If you installed `libazul` through the `.deb` / `.rpm` package, the
 header and the shared library live in standard locations and the
 compiler will find them on its own — one line is enough:
 
@@ -263,8 +265,8 @@ cc hello-world.c -lazul -o hello-world
 ./hello-world
 ```
 
-(On Windows with `chocolatey` / `vcpkg`, the equivalent is
-`cl hello-world.c azul.lib` once `azul.lib` is on the linker search path.)
+(On Windows the equivalent is `cl hello-world.c azul.lib` once the
+downloaded `azul.lib` is on the linker search path.)
 
 If you downloaded the header and DLL manually (or built from source),
 you have to point the compiler at them explicitly. `-I` / `-L` add

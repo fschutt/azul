@@ -320,29 +320,23 @@ img.showcase.windows { display: initial; }
 .install-step:last-child { margin-bottom: 0; }
 .install-step .command { flex: 1; min-width: 0; }
 
+/* Explicit-text copy buttons (user request 2026-07-04: "Copy", not an
+   icon) - shared look for install commands and example code panels. */
 .copy-btn {
     flex-shrink: 0;
-    background: transparent;
-    border: none;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.85);
     cursor: pointer;
-    padding: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 3px;
-    position: relative;
+    opacity: 0.85;
 }
-.copy-btn:hover { opacity: 1; }
-.copy-btn::before,
-.copy-btn::after {
-    content: '';
-    position: absolute;
-    width: 8px;
-    height: 8px;
-    opacity: 0.5;
-    border: 1.5px solid #888;
-}
-.copy-btn::before { top: 0; right: 0; background: transparent; }
-.copy-btn::after { bottom: 0; left: 0; background: #10131c; }
+.copy-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.22); }
 
 .example-code {
     position: relative;
@@ -378,10 +372,14 @@ img.showcase.windows { display: initial; }
     position: absolute;
     top: 12px;
     right: 12px;
-    opacity: 0.3;
+    /* light panel variant */
+    border: 1px solid var(--color-border);
+    background: white;
+    color: var(--color-text-light);
+    opacity: 0.8;
+    box-shadow: 0 1px 4px rgba(0, 4, 40, 0.08);
 }
-.example-code > .copy-btn::after { background: white; }
-.example-code > .copy-btn:hover { opacity: 1; }
+.example-code > .copy-btn:hover { opacity: 1; color: var(--color-text); }
 
 /* ---- Footer ---- */
 .ui-footer a { color: var(--color-accent); }

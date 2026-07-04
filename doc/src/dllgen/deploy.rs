@@ -1089,107 +1089,6 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
     Ok(())
 }
 
-pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> Result<()> {
-    println!("  Creating Git repository for version {}...", version);
-
-    // Create repository directory
-    let repo_dir = output_dir.join(format!("{}.git", version));
-    fs::create_dir_all(&repo_dir)?;
-
-    // Create basic repo structure
-    fs::create_dir_all(repo_dir.join("objects/info"))?;
-    fs::create_dir_all(repo_dir.join("objects/pack"))?;
-    fs::create_dir_all(repo_dir.join("refs/heads"))?;
-    fs::create_dir_all(repo_dir.join("refs/tags"))?;
-
-    // Create HEAD file
-    fs::write(repo_dir.join("HEAD"), "ref: refs/heads/master\n")?;
-
-    // Create config file
-    fs::write(
-        repo_dir.join("config"),
-        r#"[core]
-    repositoryformatversion = 0
-    filemode = false
-    bare = true
-    "#,
-    )?;
-
-    // Create description file
-    fs::write(
-        repo_dir.join("description"),
-        format!("Azul GUI Framework v{}", version),
-    )?;
-
-    // For demonstration, create the src directory structure with lib.rs
-    let src_dir = repo_dir.join("src");
-    fs::create_dir_all(&src_dir)?;
-    fs::write(src_dir.join("lib.rs"), lib_rs)?;
-
-    // Create Cargo.toml
-    fs::write(
-        repo_dir.join("Cargo.toml"),
-        format!(
-            r#"[package]
-        name = "azul"
-        version = "{}"
-        authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-        license = "MIT"
-        description = '''
-            Azul GUI is a free, functional, reactive GUI framework
-            for rapid development of desktop applications written in Rust and C,
-            using the Mozilla WebRender rendering engine.
-        '''
-        homepage = "https://azul.rs/"
-        keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]
-        categories = ["gui"]
-        repository = "https://github.com/fschutt/azul"
-        readme = "README.md"
-        exclude = ["assets/*", "doc/*", "examples/*"]
-        autoexamples = false
-        edition = "2021"
-        build = "build.rs"
-        links = "azul"
-
-        [dependencies]
-        serde = {{ version = "1", optional = true, default-features = false }}
-        serde_derive = {{ version = "1", optional = true, default-features = false }}
-
-        [features]
-        default = ["link-static"]
-        serde-support = ["serde_derive", "serde"]
-        docs_rs = ["link-static"]
-        link-dynamic = []
-        link-static = []
-
-        [package.metadata.docs.rs]
-        features = ["docs_rs"]
-    "#,
-            version
-        )
-        .lines()
-        .map(|s| s.trim())
-        .collect::<Vec<_>>()
-        .join("\r\n"),
-    )?;
-
-    // Create build.rs
-    fs::write(
-        repo_dir.join("build.rs"),
-        r#"fn main() {
-    // dynamically link azul.dll
-    #[cfg(all(feature = "link-dynamic", not(feature = "link-static")))]
-    {
-        println!("cargo:rustc-link-search={}", env!("AZ_LINK_PATH")); /* path to folder with azul.dll / libazul.so */
-    }
-}
-"#,
-    )?;
-
-    println!("  - Created Git repository structure");
-    Ok(())
-}
-
 /// Render an unconditional `<li>` link into the per-release artifact dir
 /// (`https://azul.rs/ui/release/{version}/{filename}`).
 ///
@@ -1720,10 +1619,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <h3>apt (Debian / Ubuntu)</h3>
-              <pre><code class='language-bash'># self-hosted mirror on azul.rs, no third-party PPA (active once the release is signed)
-curl -fsSL https://azul.rs/apt/azul-archive-keyring.asc | sudo tee /usr/share/keyrings/azul-archive-keyring.asc &gt;/dev/null
-echo \"deb [signed-by=/usr/share/keyrings/azul-archive-keyring.asc] https://azul.rs/apt stable main\" | sudo tee /etc/apt/sources.list.d/azul.list
-sudo apt update &amp;&amp; sudo apt install azul</code></pre>
+              <pre><code class='language-bash'># install the .deb straight from the GitHub release (there is no apt repository):
+curl -LO https://github.com/fschutt/azul/releases/download/{version}/azul_{version}_amd64.deb
+sudo apt install ./azul_{version}_amd64.deb</code></pre>
 
               <h2 id='demos'>Demos</h2>
               <ul class='release-demos' id='demo-list'>
@@ -1736,22 +1634,25 @@ sudo apt update &amp;&amp; sudo apt install azul</code></pre>
               <div class='docs-card-grid'>
                 {binding_links}
               </div>
-              <p class='release-note'>Want a single binding file without the whole examples archive, or to install without the official package registries? Everything is mirrored on azul.rs:</p>
+              <p class='release-note'>Azul is NOT published to PyPI, npm, RubyGems, NuGet, Maven Central or crates.io
+              (same-named packages there are unrelated projects). Every binding file is served
+              directly from this page instead:</p>
               <pre><code class='language-bash'># grab one binding file directly (no examples.zip needed):
+curl -O {HTML_ROOT}/release/{version}/Azul.cs
 curl -O {HTML_ROOT}/release/{version}/Azul.hs
-# Python: install from the azul.rs index instead of PyPI:
-pip install azul --index-url https://azul.rs/pypi/simple/
-# Java / Maven: add azul.rs as a repository, or grab the jar directly:
-curl -O https://azul.rs/maven/rs/azul/azul/{version}/azul-{version}.jar</code></pre>
+curl -LO {HTML_ROOT}/release/{version}/azul-java.zip</code></pre>
 
               <h3>Use Azul as a Rust dependency</h3>
-              <pre><code class='language-toml'># Cargo.toml
+              <pre><code class='language-toml'># Cargo.toml (azul is NOT on crates.io; the crate in the repo is azul-dll,
+# renamed to `azul` for use)
 [dependencies.azul]
-version = \"{version}\"
+package = \"azul-dll\"
+git = \"https://github.com/fschutt/azul\"
+tag = \"{version}\"
 
-# Dynamic linking:
-# export AZ_LINK_PATH=/path/to/azul.dll
-# features = ['link-dynamic']</code></pre>
+# Dynamic linking against a prebuilt azul.dll / libazul.so:
+# features = [\"link-dynamic\"], default-features = false
+# export AZ_LINK_PATH=/path/to/libazul</code></pre>
 
               <h2 id='docs-guide'>Docs &amp; guide</h2>
               <div class='docs-card-grid'>

@@ -71,14 +71,9 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         }
     }
 
-    // Primary CTA: GitHub Sponsors, when configured.
-    let cta = match &github_sponsors_url {
-        Some(url) => format!(
-            r#"          <p><a class="btn btn-primary" href="{url}" target="_blank" rel="noopener noreferrer">Sponsor on GitHub</a></p>
-"#
-        ),
-        None => String::new(),
-    };
+    // The GitHub Sponsors CARD in the grid is the (only) GitHub CTA - a
+    // separate .btn duplicated it ("Sponsor on GitHub twice" bug).
+    let _ = &github_sponsors_url;
 
     let main_html = format!(
         r#"    <section class="docs-hero">
@@ -94,10 +89,8 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
       <div class="container">
         <div class="docs-content">
           <p>Choose one of the options below to support the project:</p>
-{cta}        </div>
-        <div class="docs-card-grid">
-{donation_cards}        </div>
-        <div class="docs-content">
+          <div class="docs-card-grid">
+{donation_cards}          </div>
           <p>Thank you for considering supporting Azul! Every contribution helps the
           project grow.</p>
           <p>If you have any questions about donations, please reach out via

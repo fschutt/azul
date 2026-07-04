@@ -1150,7 +1150,27 @@ pub fn azlin_footer() -> String {
       <p>© 2026 Azul · MIT-licensed · <a href="https://github.com/fschutt/azul" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://azul.rs/ui/donate">Donate</a></p>
     </div>
   </footer>
-  <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>"#
+  <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
+  <script>
+  // Explicit "Copy" button on every code block (same affordance as the
+  // /ui landing examples).
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.docs-content pre').forEach(function (pre) {
+      var btn = document.createElement('button');
+      btn.className = 'docs-copy-btn';
+      btn.type = 'button';
+      btn.textContent = 'Copy';
+      btn.addEventListener('click', function () {
+        var code = pre.querySelector('code');
+        navigator.clipboard.writeText((code || pre).innerText).then(function () {
+          btn.textContent = 'Copied!';
+          setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+        });
+      });
+      pre.appendChild(btn);
+    });
+  });
+  </script>"#
         .to_string()
 }
 

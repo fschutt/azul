@@ -144,6 +144,7 @@ body.docs {
     padding: 2px 6px;
 }
 .docs-content pre {
+    position: relative;
     background: white;
     border: 1px solid var(--color-border);
     border-radius: 10px;
@@ -152,6 +153,24 @@ body.docs {
     margin: 0 0 24px;
     box-shadow: 0 4px 16px rgba(0, 4, 40, 0.05);
 }
+.docs-copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    background: white;
+    color: var(--color-text-light);
+    cursor: pointer;
+    opacity: 0.8;
+    box-shadow: 0 1px 4px rgba(0, 4, 40, 0.08);
+}
+.docs-copy-btn:hover { opacity: 1; color: var(--color-text); }
 .docs-content pre code {
     background: transparent;
     padding: 0;

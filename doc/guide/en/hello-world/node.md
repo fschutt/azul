@@ -36,29 +36,22 @@ object, a function per callback, and the smart `createWithLayout` factory.
 You need **Node.js 16+** (or Bun / Deno), the **`koffi`** package, and the native
 `libazul` library.
 
-### Recommended: npm
-
-```sh
-npm install azul
-```
-
-> [!NOTE]
-> The 0.2.0 package is hosted on azul.rs. If the npm registry does not yet resolve
-> it, install the tarball directly:
-> ```sh
-> npm install https://azul.rs/npm/azul-0.2.0.tgz
-> ```
-
-### Manual
+There is no `azul` package on the npm registry yet (the name is taken by an
+unrelated project - do not `npm install azul`). Install manually:
 
 ```sh
 npm install koffi
-# download the native library from /releases into the working dir:
-wget -O libazul.dylib https://azul.rs/release/0.2.0/libazul.dylib   # macOS
+# download the native library into the working dir:
+wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib   # macOS
+wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so      # linux
+# windows: download https://azul.rs/ui/release/0.2.0/azul.dll
 ```
 
-Drop the generated `azul.js` next to your script (it ships in the
-[examples archive](/ui/release/0.2.0/examples.zip) under `node/`).
+Then drop the generated `azul.js` binding next to your script:
+
+```sh
+wget https://azul.rs/ui/release/0.2.0/azul.js
+```
 
 ## Simple "Counter" Example
 

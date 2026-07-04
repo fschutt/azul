@@ -36,20 +36,20 @@ trampoline.
 
 You need **LuaJIT 2.1+** (vanilla Lua has no `ffi`) and the native `libazul` library.
 
-### Recommended: LuaRocks
+There is no LuaRocks package yet - install manually:
 
-```sh
-luarocks install azul --server=https://azul.rs/luarocks
-```
-
-### Manual
-
-1. Download the native library from the [/releases](/releases) page (`libazul.dylib`
+1. Download the native library from the
+   [release page](https://azul.rs/ui/release/0.2.0) (`libazul.dylib`
    / `libazul.so` / `azul.dll`).
-2. Put the generated `azul.lua` next to `hello-world.lua` (it ships in the
-   [examples archive](/ui/release/0.2.0/examples.zip) under `lua/`, and is produced by
-   `cargo run --bin azul-doc -- codegen all` into `target/codegen/azul.lua`), or point
-   `LUA_PATH` at it.
+2. Put the generated `azul.lua` next to `hello-world.lua`, or point
+   `LUA_PATH` at it:
+
+   ```sh
+   wget https://azul.rs/ui/release/0.2.0/azul.lua
+   ```
+
+   (It is also produced by `cargo run --bin azul-doc -- codegen all` into
+   `target/codegen/azul.lua` if you build from a checkout.)
 
 ## Simple "Counter" Example
 

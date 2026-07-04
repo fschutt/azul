@@ -36,36 +36,29 @@ returns a `Dom` — and the generated `Azul.cs` handles the marshalling. No
 
 You need **.NET 8+** and the native `libazul` library for your platform.
 
-### Recommended: NuGet package
+There is no NuGet package yet (neither on nuget.org nor on a custom feed) - 
+install manually:
 
-```sh
-dotnet add package Azul
-```
-
-> [!NOTE]
-> The 0.2.0 NuGet feed is hosted on azul.rs. If `nuget.org` does not yet resolve
-> the package, add the azul.rs source first:
-> ```sh
-> dotnet nuget add source https://azul.rs/nuget/index.json -n azul
-> ```
-> If a package is not yet published for your platform, use the manual route below.
-
-### Manual
-
-1. Download the native library for your OS from the [/releases](/releases) page and
+1. Download the native library for your OS from the
+   [release page](https://azul.rs/ui/release/0.2.0) and
    keep it next to your binary (or on the loader path):
 
    ```sh
-   # macOS
-   wget -O libazul.dylib https://azul.rs/release/0.2.0/libazul.dylib
+   # macOS (Apple Silicon; Intel: libazul.x86_64.dylib)
+   wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib
    # linux
-   wget -O libazul.so    https://azul.rs/release/0.2.0/libazul.so
+   wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so
    # windows
-   # download https://azul.rs/release/0.2.0/azul.dll
+   # download https://azul.rs/ui/release/0.2.0/azul.dll
    ```
 
-2. Add the generated `Azul.cs` bindings to your project (ships in the
-   [examples archive](/ui/release/0.2.0/examples.zip) under `csharp/`).
+2. Add the generated `Azul.cs` bindings to your project:
+
+   ```sh
+   wget https://azul.rs/ui/release/0.2.0/Azul.cs
+   # optional project scaffold:
+   wget https://azul.rs/ui/release/0.2.0/Azul.csproj
+   ```
 
 The native library must be discoverable at runtime via `DYLD_LIBRARY_PATH` (macOS),
 `LD_LIBRARY_PATH` (Linux), or `PATH` (Windows).

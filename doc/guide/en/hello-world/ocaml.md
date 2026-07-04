@@ -38,23 +38,24 @@ out-pointer.
 You need **OCaml 4.14+** with **dune**, the **`ctypes`** + **`ctypes-foreign`**
 packages, and the native `libazul` library.
 
-### Recommended: opam
-
-```sh
-opam repo add azul https://azul.rs/opam
-opam install azul
-```
-
-### Manual
+There is no opam package yet - install manually:
 
 ```sh
 opam install ctypes ctypes-foreign
-# download the native library from /releases into the project dir:
-wget -O libazul.dylib https://azul.rs/release/0.2.0/libazul.dylib   # macOS
+# download the native library into the project dir:
+wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib   # macOS
+wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so      # linux
 ```
 
-Add the generated `azul.ml` / `azul.mli` (from the
-[examples archive](/ui/release/0.2.0/examples.zip) under `ocaml/`) to your dune project.
+Add the generated `azul.ml` / `azul.mli` (plus optional dune scaffolding) to
+your dune project:
+
+```sh
+wget https://azul.rs/ui/release/0.2.0/azul.ml
+wget https://azul.rs/ui/release/0.2.0/azul.mli
+wget https://azul.rs/ui/release/0.2.0/dune
+wget https://azul.rs/ui/release/0.2.0/dune-project
+```
 
 ## Simple "Counter" Example
 

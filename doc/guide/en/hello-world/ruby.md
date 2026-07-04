@@ -36,22 +36,22 @@ factory — and the binding wraps your object and registers the callbacks for yo
 You need **Ruby 2.6+** (system Ruby on macOS works), the **`ffi` gem**, and the
 native `libazul` library.
 
-### Recommended: RubyGems
-
-```sh
-gem install azul --source https://azul.rs/gems
-```
-
-### Manual
+There is no `azul` gem on rubygems.org yet (the name is taken by an unrelated
+project - do not `gem install azul`). Install manually:
 
 ```sh
 gem install ffi          # the FFI runtime
-# download the native library from /releases:
-wget -O libazul.dylib https://azul.rs/release/0.2.0/libazul.dylib   # macOS
+# download the native library:
+wget -O libazul.dylib https://azul.rs/ui/release/0.2.0/libazul.dylib   # macOS
+wget -O libazul.so    https://azul.rs/ui/release/0.2.0/libazul.so      # linux
+# windows: download https://azul.rs/ui/release/0.2.0/azul.dll
 ```
 
-Then drop the generated `azul.rb` next to your script (it ships in the
-[examples archive](/ui/release/0.2.0/examples.zip) under `ruby/`) and run with `-I.`.
+Then drop the generated `azul.rb` binding next to your script and run with `-I.`:
+
+```sh
+wget https://azul.rs/ui/release/0.2.0/azul.rb
+```
 
 ## Simple "Counter" Example
 

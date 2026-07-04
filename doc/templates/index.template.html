@@ -274,12 +274,12 @@
         if (step.type === 'command') {
           html += '<div class="install-step">' +
             '<span class="command">' + escHtml(step.content) + '</span>' +
-            '<button class="copy-btn" onclick="copyText(\'' + escJs(step.content) + '\')"></button>' +
+            '<button class="copy-btn" onclick="copyText(\'' + escJs(step.content) + '\')">Copy</button>' +
             '</div>';
         } else if (step.type === 'code') {
           html += '<div class="install-step">' +
             '<pre style="margin:0;flex:1;">' + escHtml(step.content) + '</pre>' +
-            '<button class="copy-btn" onclick="copyText(\'' + escJs(step.content) + '\')"></button>' +
+            '<button class="copy-btn" onclick="copyText(\'' + escJs(step.content) + '\')">Copy</button>' +
             '</div>';
         } else if (step.type === 'text') {
           html += '<div class="install-step"><span class="command" style="color:#888;">' + escHtml(step.content) + '</span></div>';
@@ -319,7 +319,7 @@
 
         el.innerHTML = '';
         el.appendChild(preEl);
-        el.insertAdjacentHTML('beforeend', '<button class="copy-btn" onclick="copyExampleCode(\'' + id + '\')"></button>');
+        el.insertAdjacentHTML('beforeend', '<button class="copy-btn" onclick="copyExampleCode(\'' + id + '\')">Copy</button>');
 
         // Apply Prism highlighting
         if (typeof Prism !== 'undefined') {
@@ -334,11 +334,19 @@
       document.querySelectorAll('.showcase.' + cls).forEach(function(img) { img.style.display = 'block'; });
     }
 
+    function flashCopied(btn) {
+      if (!btn || btn.tagName !== 'BUTTON') return;
+      var prev = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function () { btn.textContent = prev; }, 1500);
+    }
     function copyText(t) {
       navigator.clipboard.writeText(t);
+      flashCopied(typeof event !== 'undefined' && event ? event.target : null);
     }
 
     function copyExampleCode(id) {
+      flashCopied(typeof event !== 'undefined' && event ? event.target : null);
       var ex = examples[id];
       if (!ex) return;
       var code = ex['code_' + currentLang];

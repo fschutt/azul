@@ -35,24 +35,30 @@ companion-object `App` factory — and the generated wrappers handle the FFI.
 
 You need **Kotlin 1.9+**, **JDK 17+**, **JNA 5.14+**, and the native `libazul` library.
 
-### Recommended: Gradle dependency
+There is no Maven/Gradle artifact yet (neither on Maven Central nor on a
+custom repository) - install manually. Only JNA itself
+(`net.java.dev.jna:jna:5.14.0`) comes from Maven Central as usual:
 
 ```kotlin
 repositories {
     mavenCentral()
-    maven { url = uri("https://azul.rs/maven") } // azul.rs-hosted artifacts
 }
 dependencies {
-    implementation("rs.azul:azul:0.2.0")
     implementation("net.java.dev.jna:jna:5.14.0")
 }
 ```
 
-### Manual
+1. Download the native library from the
+   [release page](https://azul.rs/ui/release/0.2.0) (`libazul.dylib`
+   / `libazul.so` / `azul.dll`).
+2. Add the generated `Azul.kt` bindings (plus optional Gradle scaffolding)
+   to your sources:
 
-1. Download the native library from the [/releases](/releases) page.
-2. Add the generated `Azul.kt` bindings (from the
-   [examples archive](/ui/release/0.2.0/examples.zip) under `kotlin/`) to your sources.
+   ```sh
+   wget https://azul.rs/ui/release/0.2.0/Azul.kt
+   wget https://azul.rs/ui/release/0.2.0/build.gradle.kts
+   wget https://azul.rs/ui/release/0.2.0/settings.gradle.kts
+   ```
 
 The native library must be discoverable via `-Djna.library.path` /
 `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` / `PATH`.

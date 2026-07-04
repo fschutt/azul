@@ -36,15 +36,26 @@ plain `str`, plain method calls — and the binding (uses Rusts `pyo3`) takes ca
 
 ## Installation
 
+Azul is not on PyPI yet (the `azul` package on PyPI is an unrelated project - 
+do not `pip install azul`). Instead, download the prebuilt extension module for 
+your platform from the [release page](https://azul.rs/ui/release/0.2.0) and put 
+it next to your script:
+
 ```sh
-pip install azul
+# macOS
+curl -L -o azul.so https://azul.rs/ui/release/0.2.0/azul.so
+# linux
+curl -L -o azul.so https://azul.rs/ui/release/0.2.0/azul.cpython.so
+# windows
+curl.exe -L -O https://azul.rs/ui/release/0.2.0/azul.pyd
 ```
 
-The wheel bundles the prebuilt native library, so there are no system dependencies 
-to worry about. Targets **Python 3.10+** - make sure you have the right version.
+The module bundles the prebuilt native library, so there are no further system 
+dependencies to worry about. Targets **Python 3.10+** - make sure you have the 
+right version.
 
 > [!NOTE]
-> If `pip install` does not yet have a wheel for your platform, 
+> If there is no prebuilt module for your platform, 
 > see "[Building the extension](#building-the-extension)" below for the 
 > manual route.
 
@@ -132,7 +143,7 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 
 ## Building the extension
 
-Only needed if `pip install azul` does not yet have a wheel for your platform, or if you want to track `master`. From a checkout:
+Only needed if there is no prebuilt module for your platform, or if you want to track `master`. From a checkout:
 
 ```sh
 # git clone https://github.com/fschutt/azul
@@ -141,15 +152,15 @@ cargo build -p azul-dll --release \
     --no-default-features --features python-extension
 ```
 
-The resulting library is `target/release/libazul_dll.{so,dylib,pyd}`. Python imports it as `azul`, so rename or symlink it:
+The resulting library is `target/release/libazul.{so,dylib}` (`azul.dll` on Windows). Python imports it as `azul`, so rename or symlink it:
 
 ```sh
 # macOS
-cp target/release/libazul_dll.dylib target/release/azul.so
+cp target/release/libazul.dylib target/release/azul.so
 # Linux
-cp target/release/libazul_dll.so target/release/azul.so
+cp target/release/libazul.so target/release/azul.so
 # Windows
-copy target\release\azul_dll.dll target\release\azul.pyd
+copy target\release\azul.dll target\release\azul.pyd
 ```
 
 Then either run Python from the directory containing the file, or prepend that path to `sys.path`:
@@ -163,7 +174,7 @@ import azul
 
 ## Common errors
 
-- **`ModuleNotFoundError: No module named 'azul'`** — `pip install azul` either failed silently or got installed into a different interpreter than the one you're running. Verify that `which python3` and `pip --version` point at the same Python install.
+- **`ModuleNotFoundError: No module named 'azul'`** — the downloaded `azul.so` / `azul.pyd` is not in the directory you are running from (or on `sys.path`). Run `python3` from the directory containing the file, or prepend that path to `sys.path`.
 - **Counter does not advance** — the click callback returned `Update.DoNothing`, or it implicitly returned `None` (which the binding treats as `DoNothing`). Always end a mutating handler with `return Update.RefreshDom`.
 - **`TypeError: layout() takes 0 positional arguments but 2 were given`** — your callback signature is wrong. `layout` and click handlers must accept exactly `(data, info)`.
 - **Mutation isn't sticking** — you mutated a *copy* of the model instead of the instance bound to the framework. The binding always passes the same instance back; check that you are not shadowing `data` with a fresh `DataModel(...)` somewhere inside the callback.
