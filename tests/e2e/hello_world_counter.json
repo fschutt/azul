@@ -1,15 +1,12 @@
 [
   {
     "name": "hello_world_counter_increment",
-    "description": "Assert the counter text actually renders (blank-window guard), then click and re-snapshot. NOTE: post-click assert_text reads a stale DOM (runner bug, noted 2026-07-04); increments are verified via the AZ_DEBUG click probe.",
+    "description": "Assert the counter text renders (blank-window guard), click three times, and assert the rendered text increments 5 -> 6 -> 8 (the runner yields after clicks and waits, so asserts see the refreshed DOM).",
     "steps": [
       {
         "op": "assert_text",
         "selector": "body > div",
         "expected": "5"
-      },
-      {
-        "op": "get_state"
       },
       {
         "op": "click",
@@ -20,7 +17,30 @@
         "ms": 300
       },
       {
-        "op": "get_state"
+        "op": "assert_text",
+        "selector": "body > div",
+        "expected": "6"
+      },
+      {
+        "op": "click",
+        "text": "Increase counter"
+      },
+      {
+        "op": "wait",
+        "ms": 300
+      },
+      {
+        "op": "click",
+        "text": "Increase counter"
+      },
+      {
+        "op": "wait",
+        "ms": 300
+      },
+      {
+        "op": "assert_text",
+        "selector": "body > div",
+        "expected": "8"
       }
     ]
   }

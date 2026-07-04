@@ -911,7 +911,12 @@ impl CallbackInfo {
         unsafe {
             (*self.changes).lock().is_ok_and(|changes| changes.iter().any(|c| matches!(c,
                     CallbackChange::ModifyWindowState { .. } |
-                    CallbackChange::ScrollTo { .. }
+                    CallbackChange::ScrollTo { .. } |
+                    // Synthetic input (E2E `click` = move/down/up applied one
+                    // state per frame): the runner MUST yield here, or every
+                    // post-click step executes against the pre-click DOM and
+                    // the queued states only apply after the test finishes.
+                    CallbackChange::QueueWindowStateSequence { .. }
                 )))
         }
     }

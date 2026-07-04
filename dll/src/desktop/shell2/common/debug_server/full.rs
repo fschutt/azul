@@ -2417,6 +2417,11 @@ struct E2eContinuation {
     /// `undo_app_state` / `redo_app_state` E2E step ops — exercises the same
     /// `RefAnyUndoManager` the app-level wiring uses, from outside via E2E JSON.
     undo_manager: azul_layout::json::RefAnyUndoManager,
+    /// Do not resume before this instant. Set by the `wait` step: sleeping
+    /// inline on the event-loop thread would BLOCK the queued synthetic-input
+    /// states and the relayout the wait exists to wait FOR — so `wait` yields
+    /// with a deadline instead, and frames keep processing meanwhile.
+    resume_not_before: Option<std::time::Instant>,
 }
 
 // ==================== Debug Server Handle ====================
@@ -3959,6 +3964,25 @@ fn resume_e2e_continuation(
             let step_start = std::time::Instant::now();
             let op = step.op.as_str();
 
+            // `wait` yields with a resume deadline instead of sleeping on the
+            // event-loop thread (an inline sleep would block the very relayout
+            // the wait is for; see resume_not_before).
+            if op == "wait" {
+                let ms = step.params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                cont.current_step_results.push(E2eStepResult {
+                    step_index, op: op.to_string(), status: "pass".into(),
+                    duration_ms: step_start.elapsed().as_millis() as u64,
+                    logs: vec![format!("waiting {} ms (yield)", ms)],
+                    screenshot: None, error: None, response: None,
+                });
+                cont.step_idx = step_index + 1;
+                cont.app_data = app_data;
+                cont.resume_not_before =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
+                *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+                return needs_update;
+            }
+
             // Assertion steps
             if op.starts_with("assert_") {
                 let result = evaluate_assertion(op, &step.params, callback_info, &app_data);
@@ -4166,8 +4190,16 @@ pub extern "C" fn debug_timer_callback(
 
     // Check for E2E continuation from a previous tick (resume after relayout)
     let mut needs_update = false;
-    let pending_continuation = E2E_CONTINUATION.lock().unwrap().take();
-    if let Some(continuation) = pending_continuation {
+    let mut pending_continuation = E2E_CONTINUATION.lock().unwrap().take();
+    // `wait` steps yield with a deadline — if it hasn't passed, put the
+    // continuation back and let this tick process queued input/relayout.
+    if let Some(cont) = pending_continuation.take_if(|c| {
+        c.resume_not_before.is_some_and(|t| std::time::Instant::now() < t)
+    }) {
+        *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+    }
+    if let Some(mut continuation) = pending_continuation {
+        continuation.resume_not_before = None;
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
@@ -9106,6 +9138,7 @@ fn process_debug_event(
             // This handles both straight-through execution and yield/resume
             // when a step (like resize) needs a relayout between steps.
             let cont = E2eContinuation {
+                resume_not_before: None,
                 response_tx: request.response_tx.clone(),
                 window_id: request.window_id.clone(),
                 tests: tests.clone(),
