@@ -60,6 +60,11 @@ pub struct WebServerState {
     pub window_state: FullWindowState,
     /// Compiled framework WASM module served at `/az/mini.{hash}.wasm`.
     pub mini_wasm: Vec<u8>,
+    /// Brotli-compressed `mini_wasm`, computed once at server construction so
+    /// the hot 5-25 MB module isn't re-compressed on every fetch. Served with
+    /// `Content-Encoding: br` when the client accepts it; `None` if the
+    /// encode failed (then the raw module is served). WEB_WASM_DIET_PLAN §2.2.
+    pub mini_wasm_br: Option<Vec<u8>>,
     /// Per-callback WASM modules served under `/az/cb/`.
     pub cb_wasms: Vec<CallbackWasm>,
     /// Per-layout-callback WASM modules served under `/az/layout/`
@@ -165,6 +170,7 @@ fn handle_connection(
     let mut content_length: usize = 0;
     let mut referer: Option<String> = None;
     let mut authorization: Option<String> = None;
+    let mut accept_encoding: Option<String> = None;
     loop {
         let mut header_line = String::new();
         reader.read_line(&mut header_line)
@@ -185,6 +191,9 @@ fn handle_connection(
             if let Some((_, value)) = trimmed.split_once(':') {
                 authorization = Some(value.trim().to_string());
             }
+        } else if let Some(val) = lower.strip_prefix("accept-encoding:") {
+            // Lowercased is fine — encoding tokens (br, gzip) are case-insensitive.
+            accept_encoding = Some(val.trim().to_string());
         }
     }
 
@@ -218,13 +227,21 @@ fn handle_connection(
             super::eventloop::AZ_WEB_FALLBACK_FONT_BYTES,
         ),
         ("GET", p) if p.starts_with("/az/mini.") && p.ends_with(".wasm") => {
-            send_response_cached(&mut stream, 200, "application/wasm", &state.mini_wasm)
+            // The big, hot module: served with the brotli computed once at
+            // startup (state.mini_wasm_br) so we never re-compress 5-25 MB
+            // per request.
+            send_wasm(
+                &mut stream,
+                &state.mini_wasm,
+                state.mini_wasm_br.as_deref(),
+                accept_encoding.as_deref(),
+            )
         }
         ("GET", p) if p.starts_with("/az/cb/") && p.ends_with(".wasm") => {
             let name = p.strip_prefix("/az/cb/").unwrap_or("")
                 .split('.').next().unwrap_or("");
             if let Some(cb) = state.cb_wasms.iter().find(|c| c.name == name) {
-                send_response_cached(&mut stream, 200, "application/wasm", &cb.wasm_bytes)
+                send_wasm(&mut stream, &cb.wasm_bytes, None, accept_encoding.as_deref())
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Callback not found")
             }
@@ -236,7 +253,7 @@ fn handle_connection(
             let name = p.strip_prefix("/az/layout/").unwrap_or("")
                 .split('.').next().unwrap_or("");
             if let Some(lw) = state.layout_wasms.iter().find(|l| l.name == name) {
-                send_response_cached(&mut stream, 200, "application/wasm", &lw.wasm_bytes)
+                send_wasm(&mut stream, &lw.wasm_bytes, None, accept_encoding.as_deref())
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Layout callback not found")
             }
@@ -248,7 +265,7 @@ fn handle_connection(
             let name = p.strip_prefix("/az/fn/").unwrap_or("")
                 .split('.').next().unwrap_or("");
             if let Some(bw) = state.boundary_wasms.iter().find(|b| b.canonical_name == name) {
-                send_response_cached(&mut stream, 200, "application/wasm", &bw.wasm_bytes)
+                send_wasm(&mut stream, &bw.wasm_bytes, None, accept_encoding.as_deref())
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Boundary shard not found")
             }
@@ -634,6 +651,99 @@ fn send_response_cached(
     body: &[u8],
 ) -> Result<(), String> {
     send_response_inner(stream, status, content_type, body, true)
+}
+
+/// Brotli-encode `data` at `quality` (0-11). Returns `None` on any error
+/// (caller then serves the raw body). lgwin 22 = the 4 MiB max window.
+pub(crate) fn brotli_compress(data: &[u8], quality: i32) -> Option<Vec<u8>> {
+    use std::io::Write;
+    let mut out = Vec::new();
+    {
+        let mut w = brotli::CompressorWriter::new(&mut out, 4096, quality as u32, 22);
+        w.write_all(data).ok()?;
+        w.flush().ok()?;
+    } // drop finishes the stream
+    Some(out)
+}
+
+/// True if the request's `Accept-Encoding` advertises brotli.
+fn accepts_br(accept_encoding: Option<&str>) -> bool {
+    accept_encoding
+        .map(|ae| {
+            ae.split(',')
+                .any(|tok| tok.trim().split(';').next().map(str::trim) == Some("br"))
+        })
+        .unwrap_or(false)
+}
+
+/// Serve an immutable wasm module, brotli-compressed on the wire when the
+/// client accepts it. Lifted wasm is extremely repetitive (State-struct
+/// load/store idioms) and brotli-compresses ~4-6x — a 25 MB mini.wasm goes
+/// out as ~4-6 MB (WEB_WASM_DIET_PLAN §2.2). `precompressed_br` is the
+/// brotli of `body` computed once at startup (used for the big, hot mini
+/// module); pass `None` for the smaller shards, which are compressed on the
+/// fly at a fast quality. Always falls back to the raw body.
+fn send_wasm(
+    stream: &mut TcpStream,
+    body: &[u8],
+    precompressed_br: Option<&[u8]>,
+    accept_encoding: Option<&str>,
+) -> Result<(), String> {
+    if accepts_br(accept_encoding) {
+        // Prefer the startup-precompressed bytes; otherwise compress the
+        // shard now (q=5 = fast, still ~3-4x on lifted wasm). Skip tiny
+        // bodies where framing overhead dominates.
+        let owned;
+        let br: Option<&[u8]> = match precompressed_br {
+            Some(b) => Some(b),
+            None if body.len() >= 4096 => {
+                owned = brotli_compress(body, 5);
+                owned.as_deref()
+            }
+            None => None,
+        };
+        if let Some(br) = br {
+            return send_response_encoded(
+                stream,
+                200,
+                "application/wasm",
+                br,
+                Some("br"),
+            );
+        }
+    }
+    send_response_cached(stream, 200, "application/wasm", body)
+}
+
+/// Like [`send_response_cached`] but with an explicit `Content-Encoding`
+/// (+ `Vary: Accept-Encoding` so caches key on it). `body` is already
+/// encoded; `Content-Length` is its encoded length.
+fn send_response_encoded(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+    encoding: Option<&str>,
+) -> Result<(), String> {
+    let status_text = match status {
+        200 => "OK",
+        _ => "Unknown",
+    };
+    let enc_header = match encoding {
+        Some(e) => format!("Content-Encoding: {}\r\nVary: Accept-Encoding\r\n", e),
+        None => String::new(),
+    };
+    let response = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
+         Cache-Control: public, max-age=31536000, immutable\r\n{}Connection: close\r\n\r\n",
+        status, status_text, content_type, body.len(), enc_header
+    );
+    stream.write_all(response.as_bytes())
+        .map_err(|e| format!("write error: {}", e))?;
+    stream.write_all(body)
+        .map_err(|e| format!("write body error: {}", e))?;
+    stream.flush().map_err(|e| format!("flush error: {}", e))?;
+    Ok(())
 }
 
 /// M10-D — emit the shard manifest as a JSON string.

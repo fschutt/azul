@@ -5638,13 +5638,24 @@ fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
     let out_path = input_path.with_extension("opt.wasm");
     let out_path_str = out_path.to_str()?;
     let in_path_str = input_path.to_str()?;
+    let in_len = std::fs::metadata(input_path).map(|m| m.len()).unwrap_or(0);
     let args: &[&str] = &[
-        // The lifted code emits `memory.copy`/`memory.fill` (from the
-        // LibcMemcpy `@llvm.memmove` body + memset lowering), which are
-        // bulk-memory ops. Without `--enable-bulk-memory` wasm-opt rejects
-        // the module ("requires bulk memory") and we fall back to un-opt'd
-        // wasm. Enable it (browsers have supported bulk-memory since 2020).
-        "--enable-bulk-memory",
+        // LLVM 21 / wasm-ld emit a module using several post-MVP wasm
+        // features by default. If wasm-opt's feature set doesn't include
+        // ALL of them it rejects the module ("<feature> is not enabled")
+        // and we silently fall back to the un-opt'd wasm — which is how the
+        // 25-27 MB mini.wasm numbers were recorded (WEB_WASM_DIET_PLAN §2.1).
+        // Enable the full set LLVM emits; every one has been baseline in all
+        // major browsers since ~2021, so enabling them does not restrict the
+        // client. (We list them explicitly rather than `--all-features` to
+        // keep the OUTPUT within this browser-verified feature set and never
+        // let wasm-opt introduce SIMD/threads/EH.)
+        "--enable-bulk-memory",      // memory.copy/fill (LibcMemcpy memmove, memset)
+        "--enable-sign-ext",         // i32.extend8_s etc. (LLVM default)
+        "--enable-nontrapping-float-to-int", // i32.trunc_sat_f* (LLVM default)
+        "--enable-mutable-globals",  // mutable global (stack pointer)
+        "--enable-multivalue",       // multi-value returns (sret lowering)
+        "--enable-reference-types",  // funcref table (indirect-call dispatch)
         "-Oz",
         "--strip-debug",
         "--strip-producers",
@@ -5654,11 +5665,35 @@ fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
         out_path_str,
     ];
     match run_tool(&wasm_opt, args, fn_name) {
-        Ok(()) => std::fs::read(&out_path).ok(),
+        Ok(()) => {
+            let bytes = std::fs::read(&out_path).ok()?;
+            // Log the win so "did wasm-opt actually run" is observable per
+            // module (the whole point of §2.1 — a silent fallback made every
+            // size number meaningless). Only for the big linked modules; the
+            // thousands of tiny per-cb shards would spam.
+            if in_len >= 256 * 1024 {
+                let pct = if in_len > 0 {
+                    100u64.saturating_sub(bytes.len() as u64 * 100 / in_len)
+                } else {
+                    0
+                };
+                eprintln!(
+                    "[azul-web]   wasm-opt {}: {} -> {} bytes (-{}%)",
+                    fn_name, in_len, bytes.len(), pct,
+                );
+            }
+            Some(bytes)
+        }
         Err(e) => {
+            // WARN, loudly: a fallback here means the served module is 2-5x
+            // larger than it should be. Point at the likely cause + fix.
             eprintln!(
-                "[azul-web]   wasm-opt failed for {}: {} (falling back to un-opt'd wasm)",
-                fn_name, e.reason,
+                "[azul-web] WARNING: wasm-opt FAILED for {} — serving UN-OPTIMIZED wasm \
+                 ({} bytes, ~2-5x too large). Reason: {}. Likely a binaryen too old for \
+                 the wasm features LLVM 21 emits; upgrade binaryen (see \
+                 third_party/WEB_LIFTER_INSTALL.md) or set AZ_REMILL_SKIP_WASM_OPT=1 to \
+                 silence intentionally.",
+                fn_name, in_len, e.reason,
             );
             None
         }

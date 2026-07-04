@@ -1271,6 +1271,23 @@ pub fn run_web(
     let bind_addr = web_config.bind;
     eprintln!("[azul-web] Listening on http://{}", bind_addr);
 
+    // Pre-compress the (immutable) mini module once, up front, at a high
+    // quality — it's served brotli on the wire to every client that accepts
+    // it (WEB_WASM_DIET_PLAN §2.2). q is size-aware: q=11 is worth the extra
+    // startup seconds for a normal (post-wasm-opt) module, but if the module
+    // is still huge (opt fell back) drop to q=9 so startup doesn't stall.
+    let mini_wasm_br = {
+        let q = if mini_wasm.len() <= 8 * 1024 * 1024 { 11 } else { 9 };
+        let br = server::brotli_compress(&mini_wasm, q);
+        if let Some(ref b) = br {
+            eprintln!(
+                "[azul-web] mini.wasm: {} bytes raw -> {} bytes brotli (q{}, served .br to clients that accept it)",
+                mini_wasm.len(), b.len(), q,
+            );
+        }
+        br
+    };
+
     let state = server::WebServerState {
         app_data: Arc::new(Mutex::new(app_data)),
         config,
@@ -1279,6 +1296,7 @@ pub fn run_web(
         font_registry,
         window_state,
         mini_wasm,
+        mini_wasm_br,
         cb_wasms,
         layout_wasms,
         boundary_wasms,
