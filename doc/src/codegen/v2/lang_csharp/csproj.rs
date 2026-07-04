@@ -27,7 +27,9 @@ pub fn generate_csproj() -> String {
        ===================================================================== -->
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <!-- Keep in sync with examples/csharp/Hello.csproj and
+         doc/guide/en/hello-world/csharp.md (single TFM story). -->
+    <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <LangVersion>10.0</LangVersion>
     <Nullable>disable</Nullable>

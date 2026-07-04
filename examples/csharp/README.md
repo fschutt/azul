@@ -4,20 +4,27 @@ C# bindings for the [Azul](https://azul.rs) GUI framework via P/Invoke.
 
 ## Status
 
-✅ **Full GUI E2E** — counter probe 5→8 via `AZ_DEBUG` verified.
+✅ **Full GUI E2E** — counter probe 5→8 via `AZ_DEBUG` verified
+(2026-05, `scripts/e2e_language_matrix.md`).
 
 ## Requirements
 
-- .NET 8+ (`dotnet`)
-- `libazul.dylib` (macOS) / `libazul.so` (Linux) / `azul.dll` (Windows) on `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` / `PATH`
+- .NET 10 SDK (`dotnet`) — `Hello.csproj` targets `net10.0`
+- `libazul.dylib` (macOS) / `libazul.so` (Linux) / `azul.dll` (Windows)
+  in this directory. The generated bindings install a
+  `DllImportResolver` that probes the app base directory and the
+  current working directory, so no `DYLD_LIBRARY_PATH` /
+  `LD_LIBRARY_PATH` dance is needed.
 
 ## Build + Run
 
 ```sh
-DYLD_LIBRARY_PATH=. dotnet run
+# copy the generated bindings next to Hello.csproj first:
+#   cp ../../target/codegen/Azul.cs .
+dotnet run
 ```
 
-`Azul.cs` is large (~120 K LOC, 11,696 P/Invoke `static extern`
+`Azul.cs` is large (~188 K LOC, 13,292 P/Invoke `static extern`
 declarations) but compiles fast — P/Invoke declarations have no
 method bodies, just metadata.
 
@@ -58,7 +65,9 @@ method bodies, just metadata.
 
 ## Files
 
-- `hello-world.cs` — 84-line Python-quality port.
-- `Azul.cs` — generated bindings (5.9 MB).
-- `*.csproj` — dotnet project config.
-- `libazul.dylib` — prebuilt native library.
+- `hello-world.cs` — 49-line counter example.
+- `Hello.csproj` — dotnet project config (`OutputType Exe`, `net10.0`).
+- `Azul.cs` — generated bindings (~8.6 MB). NOT committed (gitignored);
+  copy it from `target/codegen/Azul.cs` after running the generator.
+- `libazul.dylib` — prebuilt native library. Also gitignored; build it
+  or download from the release page.

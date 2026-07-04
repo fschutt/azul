@@ -394,6 +394,12 @@ fn emit_per_kind_invoker_init(
         builder.line("{");
         builder.indent();
         builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(__rvt, outPtr, false);");
+        // Ownership of the struct bytes moved to native via outPtr;
+        // neuter the wrapper (internal __Consume, reached via the same
+        // reflection handle) so its GC finalizer can't Az<X>_delete the
+        // heap pointers the framework now owns (double-free).
+        builder.line("var __consume = ret.GetType().GetMethod(\"__Consume\", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);");
+        builder.line("if (__consume != null) __consume.Invoke(ret, null);");
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -408,11 +414,25 @@ fn emit_per_kind_invoker_init(
     }
     builder.dedent();
     builder.line("}");
+    // DynamicInvoke wraps any user-callback exception in a
+    // TargetInvocationException whose own Message is the useless
+    // "Exception has been thrown by the target of an invocation." —
+    // unwrap InnerException and print its type + message + stack.
+    builder.line("catch (System.Reflection.TargetInvocationException tie)");
+    builder.line("{");
+    builder.indent();
+    builder.line("var __inner = tie.InnerException ?? (Exception)tie;");
+    builder.line(&format!(
+        "Console.Error.WriteLine($\"[azul] {} error: {{__inner.GetType().Name}}: {{__inner.Message}}\\n{{__inner.StackTrace}}\");",
+        wrapper
+    ));
+    builder.dedent();
+    builder.line("}");
     builder.line("catch (Exception e)");
     builder.line("{");
     builder.indent();
     builder.line(&format!(
-        "Console.Error.WriteLine($\"[azul] {} error: {{e.Message}}\");",
+        "Console.Error.WriteLine($\"[azul] {} error: {{e.GetType().Name}}: {{e.Message}}\\n{{e.StackTrace}}\");",
         wrapper
     ));
     builder.dedent();
@@ -620,11 +640,11 @@ fn emit_cs_data_typed_delegate(
                 ffi_ret
             ));
             builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(__raw, outPtr, false);");
-            // libazul takes ownership of the struct bytes via outPtr;
-            // the user's wrapper would otherwise double-drop on Dispose.
-            // Disposing here detaches the wrapper from the underlying
-            // resource the C side now owns.
-            builder.line("__result.Dispose();");
+            // libazul takes ownership of the struct bytes via outPtr.
+            // __Consume() marks the wrapper consumed WITHOUT calling
+            // Az<X>_delete (internal, same assembly). Dispose() would
+            // free the memory the framework now owns — use-after-free.
+            builder.line("__result.__Consume();");
         }
     }
     builder.dedent();
