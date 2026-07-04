@@ -53,7 +53,7 @@ Top 10 actions by impact (details in referenced sections):
 | 9 | `TextureCacheConfig` below WR defaults (esp. mobile) | −10–30 MB RSS | §3.3 |
 | 10 | armv7: build Thumb2 (`thumbv7neon-*`) — currently pure ARM mode | −4–6 MB on armv7 | §2.10 |
 | 11 | RELR packed relocs (needs glibc ≥ 2.36 floor), lld `--icf=all`, drop js_sys/wasm-bindgen from native, `--remap-path-prefix` | −2–6 MB per Linux artifact | §2.10 |
-| 12 | decide panic=unwind vs abort for dist artifacts (currently **unwind**, i686 pays 3.3 MB eh_frame) | 1–3.5 MB per ELF, behavior decision | §2.10 |
+| 12 | ~~decide panic=unwind vs abort~~ CORRECTED: dist already IS abort (misdiagnosis — see §2.10d); CI now asserts it | 0 (was misread) | §2.10 |
 | 13 | fix 38 dead links / missing artifacts on release page | correctness | §1.2 |
 
 ---
@@ -314,13 +314,19 @@ the ICU blob (`icu_macos` uses system ICU — its __const is 5.7 MiB).
 at runtime, trim the locale set, and prefer the dictionary segmenter over
 bundled ML models; −3–6 MB per Linux/Windows artifact.
 
-**(d) Dist artifacts are `panic=unwind`.** `_Unwind_Resume` imported
+**(d) Dist artifacts are `panic=unwind`.** ~~`_Unwind_Resume` imported
 everywhere; the workspace `[profile.release] panic="abort"` is evidently
-overridden for dll dist builds (likely for FFI `catch_unwind` in the
-host-invoker paths). Cost: eh_frame 0.55–1.5 MiB (i686: **3.27 MiB**) +
-landing pads inside .text. This is a *behavior* decision, not free —
-document it either way; if unwind-across-FFI isn't actually required,
-abort saves 1–3.5 MB per ELF.
+overridden for dll dist builds~~ — **CORRECTED 2026-07-04 (perf/release-size-diet):
+this was a misdiagnosis.** No shipped `.so` imports `_Unwind_RaiseException`
+(the throw primitive only the Rust `panic_unwind` runtime uses) — the dist
+artifacts ARE `panic=abort`. The observed `_Unwind_Resume` import comes from
+C++ deps (vk-mem) and is present in known-abort local builds too; the
+eh_frame bytes come from rustc's default `force-unwind-tables` (kept for
+crash backtraces + C++ exception safety), not from the panic strategy.
+CI now asserts abort stays true ("Assert panic=abort" step in rust.yml).
+The i686 3.27 MiB eh_frame could only be removed with
+`-C force-unwind-tables=no`, which risks C++ exception termination paths —
+rejected.
 
 **(e) Cheap linker/toolchain wins:**
 - RELR packed relocs (`-Wl,--pack-dyn-relocs=relr`): 99.7–99.9 % of

@@ -102,6 +102,13 @@ strip = false     # Don't strip symbols so samply can resolve them.
 lto = false       # No LTO for faster local builds.
 codegen-units = 16 # Parallel codegen for faster local builds (~60s → ~20s for azul-layout).
 panic = "abort"   # Removes stack unwinding code (drastic size reduction).
+                  # DELIBERATE for dist artifacts too (prod-release inherits
+                  # this): a Rust panic inside libazul aborts the host process
+                  # instead of unwinding across the FFI boundary (which is UB).
+                  # CI asserts the shipped artifacts stay abort ("Assert
+                  # panic=abort" step in rust.yml). eh_frame still present =
+                  # rustc's default force-unwind-tables (crash backtraces),
+                  # NOT a panic-strategy leak — see size audit §2.10d.
 
 # [g140 az-web-lift] TRIED + REVERTED: per-package opt-level=1 for azul-layout/core/css to
 # de-SROA the native code remill lifts. RESULT = NET REGRESSION: opt-1 produced different

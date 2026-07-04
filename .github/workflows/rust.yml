@@ -402,6 +402,20 @@ jobs:
         if: "!matrix.use_cross"
         run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
+      # Remove embedded ThinLTO bitcode + debug info from the staticlib before
+      # upload (56-89% of every shipped archive, audit §2.4). llvm-objcopy
+      # handles every cross arch — host binutils strip can't (it silently
+      # skipped the cross-ELF archives in past releases). Asserts no .llvmbc
+      # survives; machine code is untouched.
+      - name: Strip static lib (bitcode + debug)
+        if: ${{ success() || matrix.experimental }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          set -- target/${{ matrix.target }}/prod-release/*azul*.a \
+                 target/${{ matrix.target }}/prod-release/azul.lib
+          bash scripts/strip_staticlib.sh "$@"
+
       # Run even when an experimental build failed (success() || matrix.experimental)
       # so a partial build that produced a binary still ships; for experimental
       # targets a missing binary is a clean skip (if-no-files-found: ignore),
@@ -957,23 +971,33 @@ jobs:
       - name: Build DLL (for C/C++ examples)
         run: cargo build --profile prod-release -p azul-dll --features="build-dll"
 
-      # Strip debug + local symbols from the STATICLIB. cargo's profile `strip`
-      # only strips final linked outputs (.so/.dylib), never `.a` archives, so
-      # the archive would otherwise ship every object file's symbols. Combined
-      # with prod-release `debug = 0` this keeps libazul.a small (was ~1 GB).
-      - name: Strip static lib (.a)
-        if: runner.os != 'Windows'
+      # Strip the STATICLIB, in two layers:
+      #  1. scripts/strip_staticlib.sh removes the embedded ThinLTO bitcode
+      #     (.llvmbc/__LLVM,__bitcode — 56-89% of every shipped archive; a
+      #     prebuilt-lib consumer never runs Rust ThinLTO, so it is pure dead
+      #     weight) + debug sections, and ASSERTS none survived. Machine code
+      #     is untouched. Runs FIRST because Apple nm/ld can't even parse
+      #     members whose embedded bitcode is newer than Xcode's LLVM
+      #     ("Invalid attribute group entry"). Audit §2.4.
+      #  2. host strip drops local symbols (cargo's profile `strip` only
+      #     strips final linked outputs, never `.a` archives). Combined with
+      #     prod-release `debug = 0` this keeps libazul.a small (was ~1 GB).
+      - name: Strip static lib (.a/.lib)
         shell: bash
         run: |
-          A="target/prod-release/libazul.a"
-          [ -f "$A" ] || exit 0
-          echo "before: $(du -h "$A" | cut -f1)"
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            strip -S -x "$A" || true            # -S strip debug, -x strip locals
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            bash scripts/strip_staticlib.sh target/prod-release/azul.lib
           else
-            strip --strip-debug --strip-unneeded "$A" || true
+            A="target/prod-release/libazul.a"
+            [ -f "$A" ] || exit 0
+            bash scripts/strip_staticlib.sh "$A"
+            if [ "${{ runner.os }}" = "macOS" ]; then
+              strip -S -x "$A" || true            # -S strip debug, -x strip locals
+            else
+              strip --strip-debug --strip-unneeded "$A" || true
+            fi
+            echo "after local-symbol strip: $(du -h "$A" | cut -f1)"
           fi
-          echo "after:  $(du -h "$A" | cut -f1)"
 
       # macOS code signing. Without an Apple Developer ID (paid program) we can
       # only AD-HOC sign (`-`), which does not clear the download quarantine but
@@ -1196,6 +1220,29 @@ jobs:
             cp target/prod-release/azul.so examples/python/
             cd examples/python && python3 -c "import azul; print('Python extension loaded!')"
           fi
+
+      # Dist artifacts must be panic=abort ([profile.release] panic="abort",
+      # inherited by prod-release). _Unwind_RaiseException is the throw
+      # primitive that ONLY the Rust panic_unwind runtime imports — C++ deps
+      # (vk-mem) legitimately import _Unwind_Resume, so assert on the former.
+      # (2026-07-04 audit §2.10d misread those C++/uwtable artifacts as
+      # panic=unwind; verified all shipped 0.2.0 .so files are abort. This
+      # gate keeps it that way.) Runs after the python bake so it checks the
+      # exact files that ship.
+      - name: Assert panic=abort (no unwind runtime in dist artifacts)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          for f in target/prod-release/libazul.so  target/prod-release/libazuldbg.so \
+                   target/prod-release/libazul.dylib target/prod-release/libazuldbg.dylib \
+                   target/prod-release/azul.so; do
+            [ -f "$f" ] || continue
+            if { nm -D -u "$f" 2>/dev/null; nm -u "$f" 2>/dev/null; } | grep -qw "_Unwind_RaiseException"; then
+              echo "::error::$f imports _Unwind_RaiseException — the panic runtime is unwind; dist artifacts must be panic=abort (check [profile] inheritance)"
+              exit 1
+            fi
+            echo "OK: $f has no unwind panic runtime (panic=abort)"
+          done
 
       - name: Upload Screenshots
         uses: actions/upload-artifact@v7
@@ -1714,6 +1761,14 @@ jobs:
             else "$STRIP" --strip-debug --discard-all "$f" 2>/dev/null || true; fi
             echo "  stripped $f ($b -> $(wc -c < "$f") bytes)"
           done
+
+          # Belt with a hard failure mode (the loop above degrades to a no-op
+          # when llvm-strip is missing): strip embedded LLVM bitcode + any
+          # remaining debug info from the archive with llvm-objcopy, which
+          # handles cross-ELF/Mach-O, and ASSERT no .llvmbc survived. The
+          # shipped 0.2.0 android .a was 708 MB — 274 MB bitcode + 179 MB
+          # DWARF that host `strip` had silently skipped (audit §2.4/§2.6).
+          if [ -f "$OUT/libazul.a" ]; then bash scripts/strip_staticlib.sh "$OUT/libazul.a"; fi
 
           if [[ "${{ matrix.label }}" == android* ]]; then
             SYS="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${{ matrix.target }}/24"
