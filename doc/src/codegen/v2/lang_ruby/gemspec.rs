@@ -1,22 +1,16 @@
 //! `azul.gemspec` emission.
 //!
 //! The gemspec is content-light — every field is fixed at codegen time and
-//! the binding's source files are bundled directly. We don't yet thread an
-//! IR-derived version number through the v2 IR, so we hard-code `0.1.0`
-//! and let `scripts/api-json-additions/ruby.json` (and the publish step)
-//! override it later if needed.
+//! the binding's source files are bundled directly. The version comes from
+//! `ir.api_version` (the api.json release key), never hard-coded.
 //!
 //! The `s.files` list embeds prebuilt native libraries under
 //! `lib/native/<rid>/` so users can `gem install azul` and get a working
 //! binary for every supported platform without compiling. Add new RIDs
 //! here when we publish for additional platforms.
 
-/// Build the `azul.gemspec` file content.
-///
-/// We don't take the IR yet — none of its fields are referenced. The
-/// signature stays IR-agnostic so the call site doesn't need to change
-/// when we eventually want to surface a real version number.
-pub fn generate_gemspec() -> String {
+/// Build the `azul.gemspec` file content. `version` = `ir.api_version`.
+pub fn generate_gemspec(version: &str) -> String {
     let mut s = String::new();
 
     s.push_str("# frozen_string_literal: true\n");
@@ -24,7 +18,7 @@ pub fn generate_gemspec() -> String {
     s.push_str("\n");
     s.push_str("Gem::Specification.new do |s|\n");
     s.push_str("  s.name        = 'azul'\n");
-    s.push_str("  s.version     = '0.1.0'\n");
+    s.push_str(&format!("  s.version     = '{}'\n", version));
     s.push_str("  s.summary     = 'Ruby bindings for the Azul GUI framework'\n");
     s.push_str("  s.description = 'FFI bindings for libazul, generated from api.json. ");
     s.push_str("Loads the prebuilt native library at runtime via the standard ffi gem.'\n");
@@ -32,7 +26,9 @@ pub fn generate_gemspec() -> String {
     s.push_str("  s.email       = 'hello@azul.rs'\n");
     s.push_str("  s.homepage    = 'https://azul.rs'\n");
     s.push_str("  s.license     = 'MPL-2.0'\n");
-    s.push_str("  s.required_ruby_version = '>= 2.7'\n");
+    // Keep in sync with the guide/README claim of "Ruby 2.6+" (the ffi
+    // ~> 1.15 dependency still supports 2.6).
+    s.push_str("  s.required_ruby_version = '>= 2.6'\n");
     s.push_str("\n");
     s.push_str("  s.files = [\n");
     s.push_str("    'lib/azul.rb',\n");

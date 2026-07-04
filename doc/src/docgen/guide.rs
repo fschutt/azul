@@ -145,6 +145,32 @@ pub fn transform_german_quotes(content: &str) -> String {
 ///
 /// Output ordering: pages with `guide_order` come first (ascending),
 /// then everything else alphabetically.
+/// Latest release version from api.json (same pick as
+/// `ApiData::get_latest_version_str`), cached for the process lifetime.
+/// Guides write `$VERSION` in commands/URLs instead of hardcoding a
+/// release number; this substitutes it at load time.
+fn latest_api_version() -> &'static str {
+    use std::sync::OnceLock;
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION.get_or_init(|| {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let api_path = manifest_dir.join("..").join("api.json");
+        fs::read_to_string(&api_path)
+            .ok()
+            .and_then(|s| crate::api::ApiData::from_str(&s).ok())
+            .and_then(|d| d.get_latest_version_str().map(|v| v.to_string()))
+            .unwrap_or_else(|| "0.0.0".to_string())
+    })
+}
+
+/// Replace `$VERSION` (and `$$VERSION$$`) markers in guide markdown with
+/// the latest api.json release version. `$HOSTNAME` is left alone here —
+/// guides use absolute https://azul.rs URLs by convention.
+fn substitute_placeholders(content: &str) -> String {
+    let v = latest_api_version();
+    content.replace("$$VERSION$$", v).replace("$VERSION", v)
+}
+
 pub fn get_guide_list() -> Vec<Guide> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let lang_dir = manifest_dir.join("guide").join("en");
@@ -186,7 +212,7 @@ fn walk_collect(
             };
             let stem = rel.with_extension("");
             let file_name = stem.to_string_lossy().replace('\\', "/");
-            let content = fs::read_to_string(&p).unwrap_or_default();
+            let content = substitute_placeholders(&fs::read_to_string(&p).unwrap_or_default());
             let (title, body, guide_order, audience, description, default_search_keys) =
                 extract_metadata(&content, &file_name);
             out.push((

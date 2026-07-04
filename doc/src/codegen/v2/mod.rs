@@ -119,7 +119,9 @@ fn build_ir_from_api(api_data: &ApiData) -> Result<CodegenIR> {
         .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
 
     let ir_builder = IRBuilder::new(version_data);
-    ir_builder.build()
+    let mut ir = ir_builder.build()?;
+    ir.api_version = version_str.to_string();
+    Ok(ir)
 }
 
 // ============================================================================

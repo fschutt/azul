@@ -201,7 +201,7 @@ impl GenerationTargets {
             &codegen_dir.join("azul.rb"),
         )?;
         Self::write_string(
-            super::lang_ruby::gemspec::generate_gemspec(),
+            super::lang_ruby::gemspec::generate_gemspec(&ir.api_version),
             &codegen_dir.join("azul.gemspec"),
         )?;
 
@@ -211,9 +211,14 @@ impl GenerationTargets {
             super::lang_lua::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.lua"),
         )?;
+        // LuaRocks rejects a filename/content version mismatch, so the
+        // file name must stay `azul-<version>-<rev>.rockspec` in sync
+        // with the `version = "..."` inside generate_rockspec() — both
+        // derive from ir.api_version now. NOTE: doc/src/dllgen/deploy.rs
+        // copies this file by name and computes the same name dynamically.
         Self::write_string(
-            super::lang_lua::rockspec::generate_rockspec(),
-            &codegen_dir.join("azul-1-1.rockspec"),
+            super::lang_lua::rockspec::generate_rockspec(&ir.api_version),
+            &codegen_dir.join(format!("azul-{}-1.rockspec", ir.api_version)),
         )?;
 
         // 17. Pascal (FPC/Lazarus) bindings
@@ -405,7 +410,7 @@ impl GenerationTargets {
             &codegen_dir.join("azul.lisp"),
         )?;
         Self::write_string(
-            super::lang_lisp::asd::generate_asd(),
+            super::lang_lisp::asd::generate_asd(&ir.api_version),
             &codegen_dir.join("azul.asd"),
         )?;
 
@@ -456,7 +461,7 @@ impl GenerationTargets {
             &codegen_dir.join("node"),
         )?;
         Self::write_string(
-            super::lang_node::package_json::generate_package_json(),
+            super::lang_node::package_json::generate_package_json(&ir.api_version),
             &codegen_dir.join("node/package.json"),
         )?;
 

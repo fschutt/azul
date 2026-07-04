@@ -2,9 +2,11 @@
 //! generated `azul.js`.
 //!
 //! The npm package only contains the JS glue file. The native shared
-//! library (`libazul.{so,dylib,dll}`) is bundled separately and must
-//! be discoverable on the dynamic-loader search path or placed next
-//! to the JS file. We pin a single runtime dependency: `koffi`.
+//! library (`libazul.{so,dylib}` / `azul.dll`) is bundled separately;
+//! `azul.js` resolves it from `$AZ_LIB`, its own directory,
+//! `$AZ_LIB_DIR`, the working directory, or the dynamic-loader search
+//! path (see `mod.rs` `_resolveDllPath`). We pin a single runtime
+//! dependency: `koffi`.
 //! Bun and Deno consumers don't need any npm install at all because
 //! their FFI primitives are runtime-built-ins.
 //!
@@ -22,26 +24,26 @@
 //! `koffi.proto(...)` API used by our callback wrappers).
 
 /// Generate the `package.json` body as a String.
-pub fn generate_package_json() -> String {
-    String::from(
-        r#"{
+pub fn generate_package_json(version: &str) -> String {
+    format!(
+        r#"{{
     "name": "azul",
-    "version": "0.1.0",
+    "version": "{version}",
     "description": "JavaScript bindings for the Azul GUI framework (Node.js / Bun / Deno).",
     "main": "azul.js",
     "type": "commonjs",
-    "engines": {
+    "engines": {{
         "node": ">=16"
-    },
-    "dependencies": {
+    }},
+    "dependencies": {{
         "koffi": "^2.7.0"
-    },
+    }},
     "license": "MPL-2.0 OR MIT OR Apache-2.0",
     "homepage": "https://azul.rs",
-    "repository": {
+    "repository": {{
         "type": "git",
         "url": "https://github.com/maps4print/azul.git"
-    },
+    }},
     "keywords": [
         "azul",
         "gui",
@@ -56,7 +58,7 @@ pub fn generate_package_json() -> String {
         "azul.js",
         "README.md"
     ]
-}
+}}
 "#,
     )
 }

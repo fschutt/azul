@@ -43,6 +43,11 @@ pub struct CodegenIR {
 
     /// Module-level documentation from api.json (module name → first doc line)
     pub module_docs: BTreeMap<String, String>,
+
+    /// The api.json version these definitions came from (e.g. "0.2.0").
+    /// Version-bearing emitters (rockspec/gemspec/package.json/cabal/asd/
+    /// Perl $VERSION/…) MUST use this instead of hardcoding a release number.
+    pub api_version: String,
 }
 
 impl CodegenIR {
@@ -58,6 +63,7 @@ impl CodegenIR {
             type_to_module: BTreeMap::new(),
             type_to_external: BTreeMap::new(),
             module_docs: BTreeMap::new(),
+            api_version: String::new(),
         }
     }
 
