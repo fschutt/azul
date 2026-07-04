@@ -1,0 +1,82 @@
+[package]
+name = "allsorts-azul"
+# Vendored fork (third_party/allsorts): adds LocaGlyf::load_shared / GlyfBytes
+# so the ~20 MB `glyf` table can be a zero-copy view into already-resident
+# (mmap'd) font bytes instead of a per-font heap copy. See
+# scripts/RELEASE_SIZE_MEMORY_AUDIT_2026_07_04.md §3.3a. Version stays 0.16.5
+# so [patch.crates-io] REPLACES the crates.io crate in place — a bumped version
+# resolves as a SECOND copy, leaving dependents on the un-patched old one.
+# Upstream to fschutt/allsorts-azul + publish 0.16.6, then drop the [patch]
+# (same workflow as rust-fontconfig / printpdf).
+version = "0.16.5"
+authors = ["YesLogic Pty. Ltd. <info@yeslogic.com>", "Felix Schütt <felix.schuett@maps4print.com>"]
+edition = "2021"
+rust-version = "1.83"
+
+homepage = "https://github.com/fschutt/allsorts-azul"
+documentation = "https://docs.rs/crate/allsorts-azul"
+repository = "https://github.com/fschutt/allsorts-azul"
+
+readme = "README.md"
+license = "Apache-2.0"
+include = ["/LICENSE", "/README.md", "src/**/*"]
+
+description = "Azul's fork of the allsorts font parser / shaping engine / subsetter. Adds pixel-snap hinting fixes, slimmer direct dependencies (7 fewer than upstream), zero-copy shared `glyf` storage, + assorted bug fixes to YesLogic's upstream. Intended to be upstreamed — use the official `allsorts` crate if you can."
+keywords = ["font", "shaping", "opentype", "truetype", "parse"]
+categories = ["text-processing"]
+
+[dependencies]
+bitflags = "2.9.0"
+brotli-decompressor = "5.0"
+encoding_rs = "0.8.32"
+flate2 = { version = "1.0", default-features = false, optional = true }
+glyph-names = "0.2"
+log = "0.4"
+ouroboros = "0.17"
+pathfinder_geometry = { version = "0.5.1" }
+rustc-hash = "1.1.0"
+tinyvec = { version = "1", features = ["std", "rustc_1_57"] }
+ucd-trie = "0.1.5"
+unicode-canonical-combining-class = "1.0"
+unicode-general-category = "1.0"
+unicode-joining-type = "1.0"
+
+# specimen
+upon = { version = "0.8.1", default-features = false, optional = true }
+yeslogic-unicode-blocks = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+regex = "1.7.1"
+
+# criterion = "0.3"
+
+# [[bench]]
+# name = "bench-shape"
+# path = "criterion/bench-shape.rs"
+# harness = false
+
+# [[bench]]
+# name = "bench-read"
+# path = "criterion/bench-read.rs"
+# harness = false
+
+[features]
+default = ["flate2_zlib"]
+prince = []
+# This feature is present for backwards compatibility. It no longer has any effect
+outline = []
+specimen = ["dep:upon", "dep:yeslogic-unicode-blocks"]
+flate2_zlib = ["flate2/zlib"]
+flate2_rust = ["flate2/rust_backend"]
+flate2_zlib-rs = ["flate2/zlib-rs"]
+
+[package.metadata.docs.rs]
+# Enable all features when generating documentation on docs.rs
+all-features = true
+# Enable unstable doc_cfg feature on docs.rs to generate annotations
+# for items that are behind a feature.
+#
+# To use this locally, run:
+#
+# RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features
+rustdoc-args = ["--cfg", "docsrs"]

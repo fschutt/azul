@@ -1,0 +1,132 @@
+<h1 class="specimen-font">{{ family_name }}, {{ subfamily_name }}</h1>
+
+<div class="specimen-font">
+    {% if sample_uppercase %}<p class="sample">{{ sample_uppercase }}</p>{% endif %}
+    {% if sample_lowercase %}<p class="sample">{{ sample_lowercase }}</p>{% endif %}
+    {% if sample_digits_syms %}<p class="sample">{{ sample_digits_syms }}</p>{% endif %}
+</div>
+
+<div class="specimen-font sample-text">
+    <p class="sample" style="font-size: 6pt">{{ sample_text }}</p>
+    <p class="sample" style="font-size: 9pt">{{ sample_text }}</p>
+    <p class="sample" style="font-size: 12pt">{{ sample_text }}</p>
+    <p class="sample" style="font-size: 14pt">{{ sample_text }}</p>
+    <p class="sample" style="font-size: 18pt">{{ sample_text }}</p>
+    <p class="sample" style="font-size: 24pt">{{ sample_text }}</p>
+    <p class="sample" style="font-size: 36pt">{{ sample_text }}</p>
+    <p class="sample" style="font-size: 48pt">{{ sample_text }}</p>
+</div>
+
+<div class="information">
+    <h2>Information</h2>
+    <dl>
+        <dt>Name</dt>
+        <dd>{{ family_name }}</dd>
+
+        <dt>Style</dt>
+        <dd>{{ subfamily_name }}</dd>
+
+        <dt>Type</dt>
+        <dd>{{ font_type }}</dd>
+
+        <dt>Glyph Count</dt>
+        <dd>{{ glyph_count }}</dd>
+
+        <dt>Colour Glyphs</dt>
+        <dd>
+            {% if colour_glyphs %}
+            Yes
+            {% else %}
+            No
+            {% endif %}
+        </dd>
+
+        {% if version %}
+        <dt>Version</dt>
+        <dd>{{ version }}</dd>
+        {% endif %}
+
+        {% if copyright %}
+        <dt>Copyright</dt>
+        <dd>{{ copyright }}</dd>
+        {% endif %}
+
+        {% if manufacturer %}
+        <dt>Manufacturer</dt>
+        <dd>{{ manufacturer }}</dd>
+        {% endif %}
+
+        {% if designer %}
+        <dt>Designer</dt>
+        <dd>{{ designer }}</dd>
+        {% endif %}
+
+        {% if license %}
+        <dt>License</dt>
+        <dd class="license-text">{{ license }}</dd>
+        {% endif %}
+
+        {% if license_url %}
+        <dt>License Link</dt>
+        <dd><a href="{{ license_url }}">{{ license_url }}</a></dt>
+        {% endif %}
+    </dl>
+</div>
+
+<h2>Scripts</h2>
+<ul class="column-list">
+    {% if layout_info.scripts %}
+        {% for script in layout_info.scripts %}
+        <li>{{ script }}</li>
+        {% endfor %}
+    {% else %}
+        <li><em>None</em></li>
+    {% endif %}
+</ul>
+
+<h2>Languages</h2>
+<ul class="column-list">
+    {% if layout_info.langs %}
+        {% for lang in layout_info.langs %}
+        <li>{{ lang }}</li>
+        {% endfor %}
+    {% else %}
+        <li><em>None</em></li>
+    {% endif %}
+</ul>
+
+{% if layout_info.features %}
+    <h2>Layout Features</h2>
+    <ul class="column-list">
+        {% for feature in layout_info.features %}
+        <li>{{ feature }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+{% if variation_axes %}
+    <h2>Variation Axes</h2>
+    <ul class="column-list">
+        {% for axis in variation_axes %}
+        <li>{{ axis }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+{% if variation_instances %}
+    <h2>Named Styles</h2>
+    <ul class="column-list">
+        {% for instance in variation_instances %}
+        <li>{{ instance }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+<div class="glyph-coverage">
+    <h2>Glyph Coverage</h2>
+    <ul class="column-list">
+        {% for name, count in unicode_blocks %}
+        <li><span class="count">{{ count }}</span> <span class="unicode-block">{{ name }}</span></li>
+        {% endfor %}
+    </ul>
+</div>

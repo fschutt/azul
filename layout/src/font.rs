@@ -1435,7 +1435,14 @@ pub mod parsed {
                     if !provider.has_table(tag::GLYF) || !provider.has_table(tag::LOCA) {
                         return None;
                     }
-                    let new_arc = LocaGlyf::load(&provider)
+                    // Zero-copy: keep `glyf` as a view into the already-resident
+                    // (mmap'd) font bytes instead of copying the whole table
+                    // (~20 MB for a large font) onto the heap. `bytes` is the
+                    // exact buffer `provider` reads from, so load_shared can
+                    // anchor the glyf range inside it (falling back to an owned
+                    // copy if it ever can't). Audit §3.3a.
+                    let owner: Arc<dyn AsRef<[u8]> + Send + Sync> = bytes.clone();
+                    let new_arc = LocaGlyf::load_shared(&provider, owner)
                         .ok()
                         .map(|lg| Arc::new(std::sync::Mutex::new(lg)))?;
 

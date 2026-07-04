@@ -1,0 +1,46 @@
+<meta charset="utf-8">
+<title>{{ family_name }}, {{ subfamily_name }} - Font Specimen</title>
+<style>
+    @font-face {
+        src: url("{{ font_src }}");
+        font-family: "{{ family_name }}-{{ subfamily_name }}";
+    }
+    body {
+        font-family: sans-serif, "{{ family_name }}-{{ subfamily_name }}";
+        margin: 1em;
+    }
+    dt {
+        font-weight: bold;
+        text-transform: uppercase;
+        font-size: 12px;
+        letter-spacing: 0.3px;
+        margin: 1.5em 0 0.25em;
+        color: #444;
+    }
+    dd {
+        margin: 0;
+    }
+    dd, li {
+        line-height: 1.5;
+    }
+    .specimen-font {
+        font-family: "{{ family_name }}-{{ subfamily_name }}", sans-serif;
+    }
+    .sample-text {
+        margin-top: 1em;
+    }
+    .sample {
+        margin: 0.5em 0 0;
+        overflow-wrap: break-word;
+    }
+    .column-list {
+        padding-left: 20px;
+        margin-left: 0;
+        columns: 250px;
+        column-gap: 50px;
+    }
+    .count {
+        float: right;
+        margin-left: 1em;
+    }
+</style>

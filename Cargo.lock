@@ -207,8 +207,6 @@ checksum = "c583acf993cf4245c4acb0a2cc2ab1f9cc097de73411bb6d3647ff6af2b1013d"
 [[package]]
 name = "allsorts-azul"
 version = "0.16.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57b2116c9f1e188279c88bdee232fc3d71a107d419eab79fcd35e6f8cb6954e6"
 dependencies = [
  "bitflags 2.11.1",
  "brotli-decompressor",
@@ -4655,14 +4653,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5057362d82a08bc3c84e420c42939463aff5c3e21a91a41d8b7af94c8f061189"
 dependencies = [
  "geo-types",
- "geojson",
- "js-sys",
  "num-traits",
  "prost",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -6725,17 +6717,6 @@ checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
  "ordered-float",
  "serde",
-]
-
-[[package]]
-name = "serde-wasm-bindgen"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
-dependencies = [
- "js-sys",
- "serde",
- "wasm-bindgen",
 ]
 
 [[package]]

@@ -64,6 +64,14 @@ azul-layout = { path = "layout" }
 # DIAG (2026-06-24, REVERT): vendored rust-fontconfig 4.4.4 with gated find_unicode_fallbacks
 # markers (AZ_IN_WASM_SOLVE static) to isolate query_internal vs the coverage loop in the lifted wasm.
 rust-fontconfig = { path = "third_party/rust-fontconfig" }
+# Vendored allsorts-azul (third_party/allsorts, version kept at 0.16.5 so this
+# REPLACES the crates.io crate in place): adds LocaGlyf::load_shared + GlyfBytes
+# so the `glyf` table is a zero-copy view into already-resident (mmap'd) font
+# bytes instead of a per-font ~20 MB heap copy (audit §3.3a). Relative path
+# (CI / cargo metadata). Upstream to fschutt/allsorts-azul + publish 0.16.6,
+# then swap this for the crates.io version (same workflow as printpdf /
+# rust-fontconfig).
+allsorts-azul = { path = "third_party/allsorts" }
 # rev-pinned (azul-0.0.9-html tip 2026-06-11, kuchiki-free html feature) so
 # consumers build reproducibly without a printpdf crates.io release.
 printpdf = { git = "https://github.com/fschutt/printpdf", rev = "ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf" }
