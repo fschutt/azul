@@ -17,24 +17,29 @@ Java bindings for the [Azul](https://azul.rs) GUI framework via JNA.
 
 ```sh
 mvn package
-DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
-    -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar \
-    com.azul.HelloWorld
+java -XstartOnFirstThread -Djna.library.path=. -jar target/hello-world-1.0.0.jar
 ```
 
 macOS requires `-XstartOnFirstThread` so libazul's NSApplication
-loop pumps on the JVM main thread.
+loop pumps on the JVM main thread; drop it on Linux/Windows.
+The pom's `maven-shade-plugin` bundles JNA into the jar and the
+manifest sets `Main-Class: com.azul.HelloWorld`, so no explicit
+classpath is needed. Point `-Djna.library.path` at the directory
+holding the native library (`.` assumes it sits next to the pom).
 
 ## What's idiomatic
 
 - `WindowCreateOptions.create(layout)` smart factory hides the
   manual host-invoker register + bytes-splice.
 - `Button.create(...).withButtonType(...).onClick(data, fn)` for
-  clicks — `data` is any object, `fn` is a `CallbackInvokerCallback`
-  SAM (lambda).
+  clicks — `data` is any object, `fn` is the event's typed SAM
+  (`AzulNativeManaged.ButtonOnClickCallbackInvokerCallback` for
+  `Button.onClick`), written as a lambda.
 - `AzulString` decodes to a `java.lang.String` via `.toString()`.
-- `AzOption<T>.toNullable()`, `AzResult<T,E>.unwrap()`,
-  `AzVec<T>.toList()` accessors mirror Java collection idioms.
+- `toNullable()` / `unwrap()` / `toList()` accessors mirror Java
+  idioms, but live on the raw `Az*` JNA structs (e.g.
+  `AzOptionString.toNullable()`, `AzStringVec.toList()` →
+  `List<AzString>`), not on the high-level wrapper classes.
 - Typed `Data<T>` SAMs: `AzulHostInvoker.<Wrapper>WithData<T>` lets
   you write `(MyDataModel data, LayoutCallbackInfo info) -> Dom`
   instead of unpacking `Pointer dataPtr` yourself; register via
@@ -66,7 +71,13 @@ loop pumps on the JVM main thread.
 
 ## Files
 
-- `HelloWorld.java` — 86-line Python-quality port.
-- `com/azul/*.java` — 1000+ generated wrapper files (regen via `cargo run -p azul-doc -- codegen`).
-- `pom.xml` — Maven build config.
-- `libazul.dylib` — prebuilt native library.
+- `HelloWorld.java` — 51-line Python-quality port.
+- `pom.xml` — Maven build config. It pulls the generated bindings
+  (~6,800 flat `com.azul` `*.java` files) straight from
+  `../../target/codegen/java/` as an extra source root
+  (build-helper-maven-plugin) — they are NOT copied into this
+  directory. Regenerate via `cargo run -r -p azul-doc codegen all`;
+  override the location with `-Dazul.codegen.dir=...`.
+- `libazul.dylib` — prebuilt native library (git-ignored local
+  artifact; build via `cargo build -r -p azul-dll` or download from
+  the release page).

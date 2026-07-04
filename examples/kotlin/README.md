@@ -8,11 +8,27 @@ Kotlin bindings for the [Azul](https://azul.rs) GUI framework via JNA.
 
 ## Requirements
 
-- Kotlin 1.9+ (compiler `kotlinc`)
+- Kotlin 1.9+ (compiler `kotlinc`), or Gradle 9.x — recommended;
+  `build.gradle.kts` pins Kotlin Gradle plugin 2.3.21
 - JDK 17+
-- JNA 5.14+
+- JNA 5.14+ (fetched automatically by the Gradle build)
 
 ## Build + Run
+
+Recommended: the Gradle project in this directory. `gradle run`
+copies the generated `Azul.kt` from `../../target/codegen/kotlin/`,
+compiles with daemon caching (4 GB compiler heap preset in
+`gradle.properties`), pulls JNA from Maven Central, and wires
+`jna.library.path` (default `../../target/release`) onto the run
+task:
+
+```sh
+gradle run
+```
+
+Manual `kotlinc` path (`$JNA_JAR` = your `jna-5.14.0.jar` from
+Maven Central; `Azul.kt` copied from `../../target/codegen/kotlin/`
+or downloaded from the release page):
 
 ```sh
 kotlinc -J-Xmx4g -cp $JNA_JAR Azul.kt HelloWorld.kt \
@@ -21,7 +37,8 @@ DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
     -cp hello-world.jar:$JNA_JAR com.azul.HelloWorldKt
 ```
 
-macOS requires `-XstartOnFirstThread`.
+macOS requires `-XstartOnFirstThread` for windowed runs (Cocoa
+main-thread rule); drop it on Linux/Windows.
 
 ## What's idiomatic
 
@@ -71,6 +88,16 @@ Each interface stays well under cap (largest is `vec` at ~888 methods, ~45 KB).
 
 ## Files
 
-- `HelloWorld.kt` — 67-line Python-quality port.
-- `Azul.kt` — generated Kotlin bindings.
-- `libazul.dylib` — prebuilt native library.
+- `HelloWorld.kt` — 39-line Python-quality port.
+- `build.gradle.kts` / `settings.gradle.kts` / `gradle.properties` —
+  Gradle project; `gradle run` is the recommended workflow (see
+  Build + Run above).
+- `Azul.kt` — generated Kotlin bindings (single ~6.3 MB / ~136k-line file). NOT
+  checked in here: it is emitted to `../../target/codegen/kotlin/Azul.kt`
+  by `cargo run -r -p azul-doc codegen all` (or downloaded from the
+  release page). The Gradle build picks it up from there
+  automatically; the manual `kotlinc` path expects a copy in this
+  directory.
+- `libazul.dylib` — prebuilt native library (git-ignored local
+  artifact; build via `cargo build -r -p azul-dll` or download from
+  the release page).

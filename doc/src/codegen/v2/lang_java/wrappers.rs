@@ -1067,8 +1067,14 @@ fn emit_wrapper_method(
                 bytes = bytes_name,
                 raw = raw_name,
             ));
+            // JNA's Memory constructor throws IllegalArgumentException
+            // for size 0, so `Button.create("")` etc. must not allocate
+            // `new Memory(0)`. Allocate at least 1 byte; the native
+            // AzString_fromUtf8 (css corety.rs from_utf8) returns
+            // AzString::default() whenever len == 0, so the 1-byte
+            // buffer is never read and "" round-trips correctly.
             pre_call_lines.push(format!(
-                "com.sun.jna.Memory {mem} = new com.sun.jna.Memory({bytes}.length);",
+                "com.sun.jna.Memory {mem} = new com.sun.jna.Memory(Math.max(1, {bytes}.length));",
                 mem = mem_name,
                 bytes = bytes_name,
             ));

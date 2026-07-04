@@ -1,9 +1,13 @@
-// examples/scala/HelloWorld.scala — Python-quality Scala port.
+// examples/scala/HelloWorld.scala — idiomatic Scala port of the hello-world
+// counter, riding on the Java codegen's `com.azul.*` JNA bindings.
 //
-// Rides on the Java codegen's `com.azul.*` JNA bindings. The smart
-// `WindowCreateOptions.create(LAYOUT_INVOKER)` factory hides the
-// host-invoker plumbing; user code never has to touch `getByteArray`
-// or splice bytes through `Pointer.write`. Builds at ~50 LOC.
+// Everything goes through the non-prefixed wrapper classes (Dom, Button,
+// App, AppConfig, WindowCreateOptions) plus the AzulHostInvoker helpers.
+// The typed `AzulHostInvoker.LayoutCallback` SAM returns a `Dom` directly;
+// the host-invoker bridge does the struct-byte splice internally, so user
+// code never touches `Structure.newInstance` / `getByteArray`. The only
+// Az-prefixed names left are the enum types (AzUpdate, AzButtonType) —
+// the Java artifact keeps the Az prefix for enums.
 //
 // Build:  scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar
 // Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
@@ -14,15 +18,15 @@
 
 package com.azul
 
-import com.sun.jna.{Pointer, Structure}
+import com.sun.jna.Pointer
 
 object HelloWorld {
 
   class MyDataModel(var counter: Int)
   private val MODEL = new MyDataModel(5)
 
-  private val ON_CLICK: AzulNativeManaged.CallbackInvokerCallback =
-    new AzulNativeManaged.CallbackInvokerCallback {
+  private val ON_CLICK: AzulNativeManaged.ButtonOnClickCallbackInvokerCallback =
+    new AzulNativeManaged.ButtonOnClickCallbackInvokerCallback {
       override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
         AzulHostInvoker.refanyGet(dataPtr) match {
           case m: MyDataModel =>
@@ -33,40 +37,29 @@ object HelloWorld {
         }
     }
 
-  private def writeDom(outPtr: Pointer, dom: Dom): Unit = {
-    val raw = Structure.newInstance(classOf[AzDom.ByValue], dom.rawPointer())
-    raw.read()
-    outPtr.write(0, raw.getPointer().getByteArray(0, raw.size()), 0, raw.size())
-  }
-
-  private val LAYOUT: AzulNativeManaged.LayoutCallbackInvokerCallback =
-    new AzulNativeManaged.LayoutCallbackInvokerCallback {
-      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
+  private val LAYOUT: AzulHostInvoker.LayoutCallback =
+    new AzulHostInvoker.LayoutCallback {
+      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer): Dom =
         AzulHostInvoker.refanyGet(dataPtr) match {
           case m: MyDataModel =>
             val label = Dom.createDiv()
               .withCss("font-size: 32px;")
               .withChild(Dom.createText(String.valueOf(m.counter)))
-            val buttonDom = new Dom(
-              Button.create("Increase counter")
-                .withButtonType(AzButtonType.Primary.value)
-                .onClick(m, ON_CLICK)
-                .dom()
-                .rawPointer())
-            writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))
+            val buttonDom = Button.create("Increase counter")
+              .withButtonType(AzButtonType.Primary.value)
+              .onClick(m, ON_CLICK)
+              .dom()
+            Dom.createBody()
+              .withChild(label)
+              .withChild(buttonDom)
           case _ =>
-            writeDom(outPtr, Dom.createBody())
+            Dom.createBody()
         }
     }
 
   def main(args: Array[String]): Unit = {
-    // Smart factory: hides the host-invoker register + bytes-splice
-    // (compare with the pre-rewrite version's ~6 lines of boilerplate).
-    val wco = WindowCreateOptions.create(LAYOUT)
-    val rawWco = Structure.newInstance(classOf[AzWindowCreateOptions.ByValue], wco.rawPointer())
-    rawWco.read()
-    val app = AzulNativeApp.AzApp_create(AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create())
-    app.write()
-    AzulNativeApp.AzApp_run(app.getPointer(), rawWco)
+    val app = App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create())
+    try app.run(WindowCreateOptions.create(LAYOUT))
+    finally app.close()
   }
 }

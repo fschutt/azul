@@ -50,6 +50,14 @@ pub fn generate_pom_xml() -> String {
     </dependencies>
 
     <build>
+        <!-- azul-java.zip stores the generated .java sources FLAT at the
+             zip root (see doc/src/dllgen/deploy.rs), so an unpacked zip
+             has this pom.xml sitting next to ~6800 flat *.java files.
+             Point the source directory at the project root so `mvn
+             package` compiles them as unpacked; Maven's default
+             src/main/java would compile zero sources -> empty jar. -->
+        <sourceDirectory>.</sourceDirectory>
+
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -1,4 +1,4 @@
-// mvn package && java -Djna.library.path=. -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar com.azul.HelloWorld
+// mvn package && java -XstartOnFirstThread -Djna.library.path=. -jar target/hello-world-1.0.0.jar   (-XstartOnFirstThread is REQUIRED on macOS; drop it on Linux/Windows)
 
 package com.azul;
 

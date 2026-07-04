@@ -784,8 +784,14 @@ fn emit_kt_az_string_conv(
         bytes = bytes_name,
         raw = raw_name,
     ));
+    // JNA's Memory constructor throws IllegalArgumentException for
+    // size 0, so `Button.create("")` etc. must not allocate Memory(0).
+    // Allocate at least 1 byte; the native AzString_fromUtf8 (css
+    // corety.rs from_utf8) returns AzString::default() whenever
+    // len == 0, so the 1-byte buffer is never read and "" round-trips
+    // correctly. (Mirrors the lang_java emission.)
     pre_call_lines.push(format!(
-        "val {mem} = Memory({bytes}.size.toLong())",
+        "val {mem} = Memory(maxOf(1, {bytes}.size).toLong())",
         mem = mem_name,
         bytes = bytes_name,
     ));
@@ -829,7 +835,11 @@ fn emit_kt_equals_hashcode_if_supported(
         builder.line("override fun equals(other: Any?): Boolean {");
         builder.indent();
         builder.line(&format!("if (other !is {}) return false", class_name));
-        builder.line("if (this.ptr == null || other.ptr == null) return this.ptr === other.ptr");
+        // `ptr` is a non-nullable `val ptr: Pointer` — a null check here
+        // would be an always-false SENSELESS_COMPARISON warning in every
+        // user build. Guard on `closed` instead: never touch native
+        // memory whose ownership was already transferred/dropped.
+        builder.line("if (this.closed || other.closed) return this === other");
         builder.line(&format!(
             "return {}.INSTANCE.{}(this.ptr, other.ptr).toInt() != 0",
             native, eq_sym
@@ -843,7 +853,8 @@ fn emit_kt_equals_hashcode_if_supported(
         builder.line(&format!("/** Hash routed through {}. */", hash_sym));
         builder.line("override fun hashCode(): Int {");
         builder.indent();
-        builder.line("if (ptr == null) return 0");
+        // Non-nullable `ptr` — guard on `closed`, not a dead null check.
+        builder.line("if (closed) return 0");
         builder.line(&format!(
             "val h = {}.INSTANCE.{}(ptr)",
             native, hash_sym
@@ -855,7 +866,9 @@ fn emit_kt_equals_hashcode_if_supported(
     } else if has_eq {
         // equals/hashCode contract: when equals is overridden, hashCode
         // must be too. Fall back to identity.
-        builder.line("override fun hashCode(): Int = ptr?.hashCode() ?: 0");
+        // `ptr` is non-nullable — `ptr?.` would emit an
+        // UNNECESSARY_SAFE_CALL warning in every user build.
+        builder.line("override fun hashCode(): Int = ptr.hashCode()");
         builder.blank();
     }
 }
@@ -879,7 +892,9 @@ fn emit_kt_toString_if_supported(
     builder.line(&format!("/** String repr routed through {}. */", dbg_sym));
     builder.line("override fun toString(): kotlin.String {");
     builder.indent();
-    builder.line("if (ptr == null || closed) return super.toString()");
+    // Non-nullable `ptr` — the null half of the old guard was an
+    // always-false warning; `closed` is the real lifecycle gate.
+    builder.line("if (closed) return super.toString()");
     builder.line(&format!(
         "val __s = {}.INSTANCE.{}(ptr)",
         native, dbg_sym
