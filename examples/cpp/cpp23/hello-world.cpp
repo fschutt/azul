@@ -22,15 +22,16 @@ static bool homepage_ok() { return parse_homepage_url().has_value(); }
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_ref<MyDataModel>();
-    if (!d) return AzDom_createBody();
+    if (!d) return Dom::create_body();
 
     String css = homepage_ok()
         ? String(R"(body { background-color: #efefef; })")
         : String(R"(body { background-color: #ffaaaa; })");
 
     Dom body = Dom::create_body();
-    body = body.with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
-        .with_css("font-size: 50px;"sv));
+    body = body.with_child(Dom::create_div()
+        .with_css("font-size: 32px;"sv)
+        .with_child(Dom::create_text(String(std::to_string(d->counter).c_str()))));
     body = body.with_child(Button::create("Increase counter"sv)
         .with_button_type(AzButtonType_Primary)
         .with_on_click(data_wrapper.clone(), on_click)

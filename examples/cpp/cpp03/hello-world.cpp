@@ -2,7 +2,6 @@
 
 #include "azul03.hpp"
 #include <cstdio>
-#include <cstring>
 
 using namespace azul;
 
@@ -19,26 +18,23 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     azul::RefAny data_wrapper(data);
     const MyDataModel* d = MyDataModel_downcast_ref(data_wrapper);
-    if (!d) return AzDom_createBody();
+    if (!d) return Dom::create_body().release();
 
     char buffer[20];
-    int written = std::snprintf(buffer, sizeof(buffer), "%u", d->counter);
+    std::snprintf(buffer, sizeof(buffer), "%u", d->counter);
 
-    AzString label_text = AzString_copyFromBytes(
-        (const uint8_t*)buffer, 0, (size_t)written);
-    AzDom label = AzDom_createPWithText(label_text);
+    Dom label = Dom::create_div()
+        .with_css(String("font-size: 32px;"))
+        .with_child(Dom::create_text(String(buffer)));
 
-    const char* btn_label = "Increase counter";
-    AzString btn_label_str = AzString_copyFromBytes((const uint8_t*)btn_label, 0, strlen(btn_label));
-    AzButton button = AzButton_create(btn_label_str);
-    AzRefAny data_clone = AzRefAny_clone(&data);
-    AzButton_setOnClick(&button, data_clone, on_click);
-    AzDom button_dom = AzButton_dom(button);
+    Button button = Button::create(String("Increase counter"))
+        .with_button_type(AzButtonType_Primary)
+        .with_on_click(data_wrapper.clone(), on_click);
 
-    AzDom body = AzDom_createBody();
-    AzDom_addChild(&body, label);
-    AzDom_addChild(&body, button_dom);
-    return body;
+    return Dom::create_body()
+        .with_child(label)
+        .with_child(button.dom())
+        .release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
@@ -56,8 +52,8 @@ int main() {
     model.counter = 5;
     azul::RefAny data = MyDataModel_upcast(model);
 
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
-    AzApp app = AzApp_create(data.release(), AzAppConfig_default());
-    AzApp_run(&app, window);
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
+    App app = App::create(data, AppConfig::default_());
+    app.run(window);
     return 0;
 }

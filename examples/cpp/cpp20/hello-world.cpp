@@ -27,11 +27,12 @@ static size_t count_zero_bytes(std::span<const uint8_t> bytes) {
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_ref<MyDataModel>();
-    if (!d) return AzDom_createBody();
+    if (!d) return Dom::create_body();
 
     return Dom::create_body()
-        .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_css("font-size: 50px;"sv))
+        .with_child(Dom::create_div()
+            .with_css("font-size: 32px;"sv)
+            .with_child(Dom::create_text(String(std::to_string(d->counter).c_str()))))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)

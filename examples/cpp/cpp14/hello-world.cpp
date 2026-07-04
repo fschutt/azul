@@ -14,11 +14,12 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 auto layout(AzRefAny data, AzLayoutCallbackInfo info) -> AzDom {
     RefAny data_wrapper(data);
     auto d = data_wrapper.downcast_ref<MyDataModel>();
-    if (!d) return AzDom_createBody();
+    if (!d) return Dom::create_body().release();
 
     return Dom::create_body()
-        .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_css(String("font-size: 50px;")))
+        .with_child(Dom::create_div()
+            .with_css(String("font-size: 32px;"))
+            .with_child(Dom::create_text(String(std::to_string(d->counter).c_str()))))
         .with_child(Button::create("Increase counter")
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)

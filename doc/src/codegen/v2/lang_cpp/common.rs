@@ -1046,6 +1046,7 @@ pub fn generate_includes(standard: CppStandard) -> String {
         code.push_str("#include <cstdint>\r\n");
         code.push_str("#include <cstddef>\r\n");
         code.push_str("#include <cstring>\r\n");
+        code.push_str("#include <new>\r\n"); // placement new in RefAny::create
         code.push_str("#include <utility>\r\n");
         code.push_str("#include <stdexcept>\r\n");
         code.push_str("#include <string>\r\n");
@@ -1139,13 +1140,20 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("    namespace structName##_rtti { \\\r\n");
         code.push_str("        static const uint64_t type_id_storage = 0; \\\r\n");
         code.push_str("        inline uint64_t type_id() { return reinterpret_cast<uint64_t>(&type_id_storage); } \\\r\n");
-        code.push_str("        inline void destructor(void* ptr) { delete static_cast<structName*>(ptr); } \\\r\n");
+        // Destroy-in-place only: the pointer belongs to the Rust-side alloc,
+        // which Rust deallocates itself after invoking this destructor.
+        code.push_str("        inline void destructor(void* ptr) { static_cast<structName*>(ptr)->~structName(); } \\\r\n");
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static inline azul::RefAny structName##_upcast(structName model) { \\\r\n",
         );
-        code.push_str("        structName* heap = new structName(std::move(model)); \\\r\n");
-        code.push_str("        AzGlVoidPtrConst ptr = { heap, true }; \\\r\n");
+        // AzRefAny_newC memcpys the bytes into a Rust-side allocation that
+        // takes over ownership of the bits, so the temporary lives in stack
+        // storage and is deliberately not destroyed here (destroy-in-place
+        // happens once, via the destructor above, at last drop).
+        code.push_str("        alignas(structName) unsigned char storage_[sizeof(structName)]; \\\r\n");
+        code.push_str("        structName* tmp = ::new (static_cast<void*>(storage_)) structName(std::move(model)); \\\r\n");
+        code.push_str("        AzGlVoidPtrConst ptr = { tmp, true }; \\\r\n");
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
         code.push_str("        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), alignof(structName), \\\r\n");
         code.push_str("            structName##_rtti::type_id(), name, structName##_rtti::destructor, serializeFn, deserializeFn)); \\\r\n");
@@ -1170,15 +1178,26 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("#define AZ_REFLECT_FULL(structName, serializeFn, deserializeFn) \\\r\n");
         code.push_str("    static const uint64_t structName##_type_id_storage = 0; \\\r\n");
         code.push_str("    static uint64_t structName##_type_id() { return (uint64_t)(&structName##_type_id_storage); } \\\r\n");
-        code.push_str("    static void structName##_destructor(void* ptr) { delete (structName*)ptr; } \\\r\n");
+        // Destroy-in-place only: the pointer belongs to the Rust-side alloc,
+        // which Rust deallocates itself after invoking this destructor - a
+        // `delete` here would free the same pointer twice, across allocators.
+        code.push_str("    static void structName##_destructor(void* ptr) { ((structName*)ptr)->~structName(); } \\\r\n");
+        // C++03 has no alignas/placement-new-into-stack idiom, so the value is
+        // staged on the heap; AzRefAny_newC memcpys the bytes into a Rust-side
+        // allocation that takes over ownership of the bits, after which the
+        // staging block is returned raw via ::operator delete (matching the
+        // ::operator new inside `new`, WITHOUT running ~structName - the bits
+        // are destroyed exactly once, in place, at last drop).
         code.push_str("    static azul::RefAny structName##_upcast(structName model) { \\\r\n");
         code.push_str("        structName* heap = new structName(model); \\\r\n");
         code.push_str(
             "        AzGlVoidPtrConst ptr; ptr.ptr = heap; \\\r\n",
         );
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
-        code.push_str("        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), \\\r\n");
-        code.push_str("            sizeof(structName), structName##_type_id(), name, structName##_destructor, serializeFn, deserializeFn)); \\\r\n");
+        code.push_str("        azul::RefAny result(AzRefAny_newC(ptr, sizeof(structName), \\\r\n");
+        code.push_str("            AZ_ALIGNOF(structName), structName##_type_id(), name, structName##_destructor, serializeFn, deserializeFn)); \\\r\n");
+        code.push_str("        ::operator delete((void*)heap); \\\r\n");
+        code.push_str("        return result; \\\r\n");
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static structName const* structName##_downcast_ref(azul::RefAny& data) { \\\r\n",
@@ -1237,9 +1256,13 @@ pub fn generate_template_reflection(standard: CppStandard) -> String {
     code.push_str("    struct type_id_holder { static const uint64_t value; };\r\n");
     code.push_str("    template<class T>\r\n");
     code.push_str("    const uint64_t type_id_holder<T>::value = 0;\r\n\r\n");
+    code.push_str("    // Destroy-in-place ONLY: `ptr` points into a Rust-side allocation\r\n");
+    code.push_str("    // (AzRefAny_newC memcpys the model into its own alloc and deallocates\r\n");
+    code.push_str("    // that alloc itself right after invoking this destructor). A `delete`\r\n");
+    code.push_str("    // here would free the same pointer twice, across two allocators.\r\n");
     code.push_str("    template<class T>\r\n");
     code.push_str("    inline void type_destructor(void* ptr) noexcept {\r\n");
-    code.push_str("        delete static_cast<T*>(ptr);\r\n");
+    code.push_str("        static_cast<T*>(ptr)->~T();\r\n");
     code.push_str("    }\r\n");
     code.push_str("} // namespace detail\r\n\r\n");
 
@@ -1296,12 +1319,18 @@ pub fn generate_refany_template_members(standard: CppStandard) -> String {
         }
     }
 
-    code.push_str("    /// Move T into a heap allocation and wrap it as a RefAny. The Rust-side\r\n");
-    code.push_str("    /// equivalent of `RefAny::new(model)`.\r\n");
+    code.push_str("    /// Move T into a RefAny. The Rust-side equivalent of `RefAny::new(model)`.\r\n");
+    code.push_str("    ///\r\n");
+    code.push_str("    /// AzRefAny_newC memcpys the bytes into a Rust-side allocation that takes\r\n");
+    code.push_str("    /// over ownership of the bits, so the temporary lives in stack storage\r\n");
+    code.push_str("    /// and is deliberately NOT destroyed here: destroy-in-place happens\r\n");
+    code.push_str("    /// exactly once, via detail::type_destructor<T> on the Rust-side buffer,\r\n");
+    code.push_str("    /// when the last reference drops.\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("    static RefAny create(T model) {\r\n");
-    code.push_str("        T* heap = new T(std::move(model));\r\n");
-    code.push_str("        AzGlVoidPtrConst ptr = { heap, true };\r\n");
+    code.push_str("        alignas(T) unsigned char storage_[sizeof(T)];\r\n");
+    code.push_str("        T* tmp = ::new (static_cast<void*>(storage_)) T(std::move(model));\r\n");
+    code.push_str("        AzGlVoidPtrConst ptr = { tmp, true };\r\n");
     code.push_str("        AzString name = az_string_from_literal(\"\");\r\n");
     code.push_str("        return RefAny(AzRefAny_newC(\r\n");
     code.push_str("            ptr,\r\n");
@@ -1366,9 +1395,14 @@ pub fn generate_refany_freefn_downcasts(standard: CppStandard) -> String {
     code.push_str("\r\n// Free-function downcast helpers. Operate directly on the C struct\r\n");
     code.push_str("// `AzRefAny` so callback bodies can write\r\n");
     code.push_str("//     auto* d = azul::downcast_ref<MyData>(data);\r\n");
-    code.push_str("// without first wrapping the parameter. The C function-pointer\r\n");
-    code.push_str("// typedef fixes the parameter to `AzRefAny`, which has no methods of\r\n");
-    code.push_str("// its own; these free templates fill the gap.\r\n\r\n");
+    code.push_str("// The C function-pointer typedef fixes the parameter to `AzRefAny`,\r\n");
+    code.push_str("// which has no methods of its own; these free templates fill the gap.\r\n");
+    code.push_str("//\r\n");
+    code.push_str("// NOTE: these helpers only READ - they do not manage ownership. The\r\n");
+    code.push_str("// framework hands every callback an OWNED AzRefAny (a refcount+1\r\n");
+    code.push_str("// clone), so adopt the parameter into azul::RefAny (whose destructor\r\n");
+    code.push_str("// releases it) or call AzRefAny_delete(&data) before returning;\r\n");
+    code.push_str("// otherwise one strong reference leaks per callback invocation.\r\n\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("inline const T* downcast_ref(const AzRefAny& data) noexcept {\r\n");
     code.push_str("    const uint64_t tag = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
