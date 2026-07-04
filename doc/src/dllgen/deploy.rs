@@ -782,6 +782,11 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile { dst: "Azul.hs", src: "haskell/src/Azul.hs", source: BindingSource::Codegen },
     BindingFile { dst: "Azul/Types.hs", src: "haskell/src/Azul/Types.hs", source: BindingSource::Codegen },
     BindingFile { dst: "Azul/Internal/FFI.hs", src: "haskell/src/Azul/Internal/FFI.hs", source: BindingSource::Codegen },
+    // The cabal package's C shim (cbits/) — without it the downloaded
+    // package cannot build (azul.h is published separately at top level).
+    BindingFile { dst: "azul_shims.c", src: "haskell/cbits/azul_shims.c", source: BindingSource::Codegen },
+    BindingFile { dst: "HelloWorld.hs", src: "haskell/HelloWorld.hs", source: BindingSource::Examples },
+    BindingFile { dst: "azul-example.cabal", src: "haskell/azul-example.cabal", source: BindingSource::Examples },
     // --- lisp ---
     BindingFile { dst: "azul.asd", src: "azul.asd", source: BindingSource::Codegen },
     BindingFile { dst: "azul.lisp", src: "azul.lisp", source: BindingSource::Codegen },
@@ -817,7 +822,9 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile { dst: "azul.gemspec", src: "azul.gemspec", source: BindingSource::Codegen },
     // --- lua ---
     BindingFile { dst: "azul.lua", src: "azul.lua", source: BindingSource::Codegen },
-    BindingFile { dst: "azul-1-1.rockspec", src: "azul-1-1.rockspec", source: BindingSource::Codegen },
+    // NOTE: the LuaRocks rockspec is handled dynamically in
+    // copy_language_bindings() — its filename embeds the release version
+    // (`azul-<version>-1.rockspec`), which a const list cannot express.
     // --- node ---
     BindingFile { dst: "azul.js", src: "node/azul.js", source: BindingSource::Codegen },
     BindingFile { dst: "package.json", src: "node/package.json", source: BindingSource::Codegen },
@@ -830,6 +837,27 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile { dst: "Azul.kt", src: "kotlin/Azul.kt", source: BindingSource::Codegen },
     BindingFile { dst: "build.gradle.kts", src: "kotlin/build.gradle.kts", source: BindingSource::Codegen },
     BindingFile { dst: "settings.gradle.kts", src: "kotlin/settings.gradle.kts", source: BindingSource::Codegen },
+    // --- example drivers for the SHIPPED frontpage languages, so every file
+    //     the install steps compile/run can be curl'd from release/<v>/
+    //     (2026-07-04 review: several tabs referenced files no step obtains) ---
+    BindingFile { dst: "hello-world.c", src: "c/hello-world.c", source: BindingSource::Examples },
+    BindingFile { dst: "hello-world.cpp", src: "cpp/cpp20/hello-world.cpp", source: BindingSource::Examples },
+    // Azul.csproj above is the LIBRARY project; Hello.csproj is the runnable
+    // Exe scaffold `dotnet run` needs next to hello-world.cs.
+    BindingFile { dst: "hello-world.cs", src: "csharp/hello-world.cs", source: BindingSource::Examples },
+    BindingFile { dst: "Hello.csproj", src: "csharp/Hello.csproj", source: BindingSource::Examples },
+    BindingFile { dst: "HelloWorld.java", src: "java/HelloWorld.java", source: BindingSource::Examples },
+    BindingFile { dst: "pom.xml", src: "java/pom.xml", source: BindingSource::Examples },
+    BindingFile { dst: "HelloWorld.kt", src: "kotlin/HelloWorld.kt", source: BindingSource::Examples },
+    BindingFile { dst: "hello-world.js", src: "node/hello-world.js", source: BindingSource::Examples },
+    BindingFile { dst: "hello-world.rb", src: "ruby/hello-world.rb", source: BindingSource::Examples },
+    BindingFile { dst: "hello-world.lua", src: "lua/hello-world.lua", source: BindingSource::Examples },
+    BindingFile { dst: "hello_world.ml", src: "ocaml/hello_world.ml", source: BindingSource::Examples },
+    // --- promotion candidates (zig/go/fortran/scala) ---
+    BindingFile { dst: "hello-world.zig", src: "zig/hello-world.zig", source: BindingSource::Examples },
+    BindingFile { dst: "main.go", src: "go/main.go", source: BindingSource::Examples },
+    BindingFile { dst: "hello_world.f90", src: "fortran/hello_world.f90", source: BindingSource::Examples },
+    BindingFile { dst: "HelloWorld.scala", src: "scala/HelloWorld.scala", source: BindingSource::Examples },
 ];
 
 /// Copy every non-whitelist per-language binding + scaffolding file that the
@@ -873,6 +901,18 @@ pub fn copy_language_bindings(
         }
         fs::copy(&src, &dst)?;
         copied += 1;
+    }
+
+    // LuaRocks rockspec: filename embeds the release version
+    // (`azul-<version>-1.rockspec`, must match the `version = "..."` inside),
+    // so it can't live in the const BINDING_FILES list.
+    let rockspec = format!("azul-{}-1.rockspec", version);
+    let rockspec_src = codegen_dir.join(&rockspec);
+    if rockspec_src.exists() {
+        fs::copy(&rockspec_src, version_dir.join(&rockspec))?;
+        copied += 1;
+    } else {
+        missing.push(format!("{} (from {})", rockspec, rockspec_src.display()));
     }
 
     println!(
@@ -1299,11 +1339,13 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ("azul_{V}_ppc64.deb", ".deb (PowerPC64)"),
         ("azul_{V}_s390x.deb", ".deb (s390x)"),
         ("azul_{V}_riscv64.deb", ".deb (RISC-V 64)"),
-        ("azul-{V}.x86_64.rpm", ".rpm (x86-64)"),
-        ("azul-{V}.aarch64.rpm", ".rpm (ARM64)"),
-        ("azul-{V}.ppc64.rpm", ".rpm (PowerPC64)"),
-        ("azul-{V}.s390x.rpm", ".rpm (s390x)"),
-        ("azul-{V}.riscv64.rpm", ".rpm (RISC-V 64)"),
+        // nfpm emits rpms WITH the release suffix (`name-version-1.arch.rpm`);
+        // linking them without `-1` 404'd all five tiles (2026-07-04 audit).
+        ("azul-{V}-1.x86_64.rpm", ".rpm (x86-64)"),
+        ("azul-{V}-1.aarch64.rpm", ".rpm (ARM64)"),
+        ("azul-{V}-1.ppc64.rpm", ".rpm (PowerPC64)"),
+        ("azul-{V}-1.s390x.rpm", ".rpm (s390x)"),
+        ("azul-{V}-1.riscv64.rpm", ".rpm (RISC-V 64)"),
     ]
     .iter()
     .map(|(fname, desc)| release_card(version, &fname.replace("{V}", version), desc))
@@ -1737,14 +1779,51 @@ docker pull ghcr.io/fschutt/azul:{version}</code></pre>
     </section>"
     );
 
+    // Self-truthing download tiles (2026-07-04 audit: 38 dead links looked
+    // like normal downloads). Some artifacts are produced by OTHER CI jobs
+    // and merged into the published tree after this page is generated, so
+    // presence can't be known here — instead the page HEAD-probes its own
+    // same-origin tile links in the browser and marks 404s with the existing
+    // `is-missing` style. Cross-origin links (GitHub release assets) are
+    // skipped: CORS blocks HEAD, and those large assets are CI-uploaded in
+    // the same job that made this page, so they don't have the problem.
+    let linkcheck_script = r#"<script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var cards = Array.prototype.slice.call(
+        document.querySelectorAll('a.docs-card, .docs-card a, li a')
+      ).filter(function(a) {
+        return a.href && a.origin === location.origin &&
+               a.pathname.indexOf('/release/') !== -1 &&
+               !a.pathname.endsWith('/');
+      });
+      var queue = cards.slice(); var inflight = 0; var MAX = 6;
+      function pump() {
+        while (inflight < MAX && queue.length) {
+          (function(a) {
+            inflight++;
+            fetch(a.href, { method: 'HEAD' }).then(function(r) {
+              if (r.status === 404) {
+                var card = a.closest('.docs-card') || a.closest('li') || a;
+                card.classList.add('is-missing');
+                card.title = 'Not published for this release (yet)';
+              }
+            }).catch(function(){}).finally(function(){ inflight--; pump(); });
+          })(queue.shift());
+        }
+      }
+      pump();
+    });
+    </script>"#;
+
     // Sticky API search rail (user request 2026-07-04): the box stays on
     // screen while scrolling; results expand next to the content column.
     let page = crate::docgen::AzlinPage {
         title: format!("Azul GUI v{version} (git {git}) - Release Notes"),
         active_nav: "releases",
         head_extra: format!(
-            "{prism_script}\n{}",
-            crate::docgen::get_search_init(crate::docgen::PageKind::Other)
+            "{prism_script}\n{}\n{}",
+            crate::docgen::get_search_init(crate::docgen::PageKind::Other),
+            linkcheck_script
         ),
         page_css: Some(include_str!("../../templates/docs-release.css")),
         main_html,

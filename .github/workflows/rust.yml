@@ -982,6 +982,23 @@ jobs:
       # cert, hardened-runtime codesign, notarize, and staple. Users without a
       # notarized build clear quarantine via release/<v>/unquarantine.sh
       # (xattr -dr com.apple.quarantine).
+      # Normalize LC_ID_DYLIB BEFORE signing (editing after invalidates the
+      # signature). rustc's default id is the ABSOLUTE runner path
+      # (/Users/runner/work/.../deps/libazul.dylib): every user binary linking
+      # the downloaded dylib records that path and dies at dyld load. dll/build.rs
+      # now sets @rpath/libazul.dylib at link time; this step is belt-and-braces
+      # for artifacts produced by older build paths.
+      - name: Normalize macOS dylib install name
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          for f in target/prod-release/libazul.dylib; do
+            [ -f "$f" ] || continue
+            echo "before: $(otool -D "$f" | tail -1)"
+            install_name_tool -id @rpath/libazul.dylib "$f"
+            echo "after:  $(otool -D "$f" | tail -1)"
+          done
+
       - name: Codesign macOS artifacts
         if: runner.os == 'macOS'
         shell: bash
@@ -1030,6 +1047,9 @@ jobs:
           DST=target/prod-release
           if [ "${{ runner.os }}" = "macOS" ]; then
             cp "$SRC/libazul.dylib" "$DST/libazuldbg.dylib"
+            # Swap-in semantics: users RENAME this over libazul.dylib, so the
+            # id must stay @rpath/libazul.dylib (set before the ad-hoc sign).
+            install_name_tool -id @rpath/libazul.dylib "$DST/libazuldbg.dylib" || true
             codesign --force --sign - "$DST/libazuldbg.dylib" || true
           elif [ "${{ runner.os }}" = "Windows" ]; then
             cp "$SRC/azul.dll" "$DST/azuldbg.dll"

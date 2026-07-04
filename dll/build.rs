@@ -34,6 +34,16 @@ fn main() {
         println!("cargo:rustc-cdylib-link-arg=dynamic_lookup");
     }
 
+    // rustc's default LC_ID_DYLIB is the ABSOLUTE build path
+    // (…/target/release/deps/libazul.dylib). Every executable that links the
+    // downloaded dylib then records that build-machine path and dies at dyld
+    // load on the user's machine — the documented `-Wl,-rpath,@executable_path`
+    // install steps only work if the id is @rpath-relative. (CI e2e never
+    // catches this because it links and runs on the same machine.)
+    if target.contains("apple-darwin") {
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-install_name,@rpath/libazul.dylib");
+    }
+
     // B1: on Linux, bake weak Py* stubs into the cdylib (see
     // src/python_abi3_weak_stubs.c) so a SINGLE libazul.so serves both
     // `import azul` (libpython interposes) and C/C++ apps linking `-lazul`
@@ -417,7 +427,15 @@ fn build_remill_link_libs(remill_build: &Path, vcpkg_lib: &Path) -> Vec<PathBuf>
 
 fn check_generated_files() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let codegen_dir = Path::new(&manifest_dir).join("../target/codegen");
+    // AZ_CODEGEN_DIR: where to find the azul-doc-generated sources. Lets a
+    // consumer who depends on this crate from a read-only checkout (e.g. a
+    // cargo git dependency) point at a directory they ran `azul-doc codegen
+    // all` into, instead of the workspace-relative default.
+    println!("cargo:rerun-if-env-changed=AZ_CODEGEN_DIR");
+    let codegen_dir = match env::var("AZ_CODEGEN_DIR") {
+        Ok(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => Path::new(&manifest_dir).join("../target/codegen"),
+    };
 
     let checks: &[(&str, &str)] = &[
         ("CARGO_FEATURE_CABI_INTERNAL",    "dll_api_internal.rs"),
@@ -431,7 +449,12 @@ fn check_generated_files() {
             if !path.exists() {
                 panic!(
                     "\nMissing generated file: {}\n\
-                     Run: cargo run --release -p azul-doc -- codegen all\n",
+                     In a checkout of the azul repo, run:\n\
+                     \x20 cargo run --release -p azul-doc codegen all\n\
+                     Depending on azul-dll as a bare `--git` dependency cannot work\n\
+                     (these sources are generated, not committed) — clone the repo,\n\
+                     run the codegen line above, then depend on it by `--path`,\n\
+                     or set AZ_CODEGEN_DIR to a directory holding the generated files.\n",
                     filename,
                 );
             }
@@ -445,7 +468,8 @@ fn check_generated_files() {
         if !path.exists() {
             panic!(
                 "\nMissing generated file: reexports.rs\n\
-                 Run: cargo run --release -p azul-doc -- codegen all\n",
+                 Run: cargo run --release -p azul-doc codegen all\n\
+                 (or set AZ_CODEGEN_DIR — see the note above about git dependencies)\n",
             );
         }
         println!("cargo:rerun-if-changed={}", path.display());
@@ -485,6 +509,7 @@ fn probe_dir(dir: &Path, target: &str) -> bool {
 /// find it at runtime without setting `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`.
 fn configure_dynamic_linking(target: &str) {
     println!("cargo:rerun-if-env-changed=AZ_DLL_PATH");
+    println!("cargo:rerun-if-env-changed=AZ_LINK_PATH");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
@@ -509,16 +534,26 @@ fn configure_dynamic_linking(target: &str) {
     // Search paths: (directory, is_system)
     // - Local paths: ship dylib with app, use rpath to @loader_path/$ORIGIN
     // - System paths: dylib is installed globally, no rpath needed
-    let env_path = env::var("AZ_DLL_PATH").unwrap_or_default();
+    // AZ_LINK_PATH is the documented name (guide/README/release page);
+    // AZ_DLL_PATH predates it. Accept both, documented name first.
+    let env_path = env::var("AZ_LINK_PATH")
+        .or_else(|_| env::var("AZ_DLL_PATH"))
+        .unwrap_or_default();
     let mut dirs: Vec<(PathBuf, bool)> = Vec::new();
 
-    // 1. AZ_DLL_PATH (user override, comma-separated) — local
+    // 1. AZ_LINK_PATH / AZ_DLL_PATH (user override, comma-separated) — local.
+    // Entries may point at the dylib FILE itself; use its parent dir then.
     if !env_path.is_empty() {
         for entry in env_path.split(',') {
             let entry = entry.trim();
             if entry.is_empty() { continue; }
             let p = Path::new(entry);
             let resolved = if p.is_absolute() { p.to_path_buf() } else { workspace_root.join(p) };
+            let resolved = if resolved.is_file() {
+                resolved.parent().map(|d| d.to_path_buf()).unwrap_or(resolved)
+            } else {
+                resolved
+            };
             dirs.push((resolved, false));
         }
     }

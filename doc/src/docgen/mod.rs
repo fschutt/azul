@@ -123,8 +123,10 @@ pub fn generate_docs(
     Ok(docs)
 }
 
-/// Languages always shown inline (above the fold). We ship 11 solid bindings,
-/// so ALL of them are primary tabs now — there is no "more languages" overflow.
+/// Languages always shown inline (above the fold). The original 11 solid
+/// bindings stay flat; the languages promoted on 2026-07-04 (zig, go,
+/// pascal, scala, fortran, haskell) land in the "more languages…" overflow
+/// (any whitelisted language NOT in this list renders there).
 const PRIMARY_LANGUAGES: &[&str] = &[
     "rust", "python", "c", "cpp", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
 ];
@@ -147,6 +149,10 @@ const PRIMARY_LANGUAGES: &[&str] = &[
 /// stays restricted to this set.
 const FRONTPAGE_LANGUAGES: &[&str] = &[
     "python", "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
+    // Promoted 2026-07-04: hello-world counter e2e green on the matrix
+    // (scripts/e2e_language_matrix.sh), install steps verified truthful,
+    // guide pages present. See scripts/BINDINGS_REVIEW_2026_07_04.md.
+    "zig", "go", "pascal", "scala", "fortran", "haskell",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];

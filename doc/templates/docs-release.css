@@ -64,10 +64,19 @@
 }
 
 /* Tile for an artifact this release does not ship (kept in the grid so the
-   set of artifacts stays legible, but visibly inert). */
-.docs-card.is-missing {
+   set of artifacts stays legible, but visibly inert). Also applied to plain
+   list links by the client-side link checker when a HEAD probe 404s. */
+.docs-card.is-missing,
+li.is-missing,
+a.is-missing {
     opacity: 0.55;
     background: var(--color-bg);
+}
+li.is-missing::after,
+a.docs-card.is-missing .docs-card-file::after {
+    content: " — not published for this release (yet)";
+    font-size: 0.85em;
+    opacity: 0.8;
 }
 
 /* ---- Demos: nested OS-group lists ---- */
