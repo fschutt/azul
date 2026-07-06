@@ -1649,6 +1649,18 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # D: lang_d builds the C-ABI-direct binding (extern(C) declarations +
+      # extern(C) fn-ptr callbacks) + counter example, compiled with dmd.
+      # best-effort — if the action is unavailable the matrix row SKIPs
+      # (d is BETA, non-gating). Without this step dmd is absent and lang_d
+      # can never run on CI, so it can never be proven green cross-OS.
+      - name: Set up D (dmd)
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: dmd-latest
+
       # Racket: lang_racket builds the ffi/unsafe binding (libffi closures =
       # real C fn-ptrs). ALPHA/non-gating.
       - name: Set up Racket
@@ -1658,9 +1670,92 @@ jobs:
         with:
           version: 'stable'
 
+      # Swift: the macOS runner ships swiftc preinstalled, so lang_swift is
+      # already proven there. Linux has no system Swift, so install the swift.org
+      # toolchain (best-effort) — otherwise the ubuntu row can never prove swift
+      # green and swift stays macOS-only. Windows Swift needs the separate MSVC
+      # toolchain setup and is left for a follow-up (the row SKIPs there).
+      - name: Set up Swift (Linux)
+        if: matrix.family.key == 'scripting' && matrix.os == 'ubuntu-22.04'
+        continue-on-error: true
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '5.10'
+
+      # Swift (Windows): the swift.org Windows toolchain (compnerd's action wraps
+      # the official installer + Visual Studio integration). Best-effort — if it
+      # fails, swiftc is absent and lang_swift SKIPs on Windows (BETA/non-gating).
+      - name: Set up Swift (Windows)
+        if: matrix.family.key == 'scripting' && matrix.os == 'windows-2022'
+        continue-on-error: true
+        uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-5.10-release
+          tag: 5.10-RELEASE
+
+      # Zig: lang_zig builds the @cImport(azul.h) binding + counter (C-ABI-direct
+      # callbacks). SHIPPED — must prove green on all three OSes.
+      - name: Set up Zig
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      # Go on macOS: ubuntu/windows runners preinstall go, macOS does not.
+      - name: Set up Go (macOS)
+        if: matrix.family.key == 'scripting' && matrix.os == 'macos-14'
+        continue-on-error: true
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      # Scala (JVM binding): coursier installs the `scala`/`scalac` launchers.
+      # SHIPPED — must prove green on all three OSes.
+      - name: Set up Scala (coursier)
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: coursier/setup-action@v1
+        with:
+          jvm: temurin:17
+          apps: scala scalac
+
+      # Haskell on macOS: ubuntu/windows runners ship ghc/cabal; macOS does not.
+      # SHIPPED — must prove green on all three OSes.
+      - name: Set up Haskell (macOS)
+        if: matrix.family.key == 'scripting' && matrix.os == 'macos-14'
+        continue-on-error: true
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6'
+          cabal-version: '3.10'
+
+      # Crystal: lang_crystal builds the azul.cr binding + counter. BETA. Windows
+      # crystal is experimental; install-crystal targets ubuntu/macos only.
+      - name: Set up Crystal
+        if: matrix.family.key == 'scripting' && matrix.os != 'windows-2022'
+        continue-on-error: true
+        uses: crystal-lang/install-crystal@v1
+
+      # V (vlang): lang_v builds the azul.v subpackage binding + counter. BETA.
+      - name: Set up V (vlang)
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: vlang/setup-v@v1.4
+        with:
+          check-latest: true
+
+      # Julia: lang_julia builds the ccall binding + counter. BETA.
+      - name: Set up Julia
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+
       # Red (red-lang.org): no maintained GitHub Action for the Red toolchain,
-      # so `redc` is absent and lang_red SKIPs (ALPHA/non-gating). Wire a
-      # cache-download of the redc binary here once the counter is verified.
+      # and the binding is ALPHA/broken, so `redc` is intentionally NOT installed
+      # and lang_red SKIPs (ALPHA/non-gating).
 
       - name: Download prebuilt E2E DLL + codegen
         uses: actions/download-artifact@v8
@@ -1711,12 +1806,40 @@ jobs:
             # build NYIs on App_create's by-value AppConfig (LuaJIT x86-64 FFI
             # can't call by-value-aggregate C fns); the matrix script reports
             # that as SKIP. So just install apt's luajit for the toolchain.
+            #   luajit/php-cli/gfortran/gnucobol/fp-compiler/sbcl: language runtimes
+            #   gnat: Ada (GNAT-FSF)     gnu-smalltalk: smalltalk smoke (gst)
+            #   algol68g: Algol 68 Genie (niche; dialect-incompat but runs the row)
+            #   freebasic: fbc (x86_64 Linux)
+            #   libffi-dev: sbcl/cffi + racket/perl FFI trampolines
+            #   llvm-dev/libclang-dev/clang: bindgen/libclang for the php-extension
             sudo apt-get install -y --no-install-recommends \
-              luajit php-cli gfortran gnucobol fp-compiler sbcl 2>/dev/null || true
+              luajit php-cli gfortran gnucobol fp-compiler sbcl \
+              gnat gnu-smalltalk algol68g freebasic \
+              libffi-dev llvm-dev libclang-dev clang 2>/dev/null || true
           elif [ "${{ matrix.os }}" = "macos-14" ]; then
-            brew install luajit php fpc sbcl 2>/dev/null || true
+            #   fpc/luajit/php/sbcl: language runtimes  gnu-cobol: cobc
+            #   gnu-smalltalk: gst  gcc: provides gfortran on macOS
+            #   libffi: sbcl/cffi + perl FFI  llvm: libclang for the php-extension
+            #   (ada/gnat + freebasic have no arm64 brew formula -> those rows SKIP)
+            brew install luajit php fpc sbcl gnu-cobol gnu-smalltalk gcc libffi llvm 2>/dev/null || true
           else
-            choco install luajit -y 2>/dev/null || true
+            #   luajit + freepascal (fpc) + freebasic (x86_64 Windows fbc) + sbcl
+            #   via choco; msys2 mingw already installed for cgo/C (provides
+            #   gfortran). LLVM gives libclang for the php-extension.
+            choco install luajit freepascal freebasic sbcl llvm -y 2>/dev/null || true
+          fi
+          # Perl FFI::Platypus — perl is preinstalled on all three runners but the
+          # binding needs the Platypus FFI module. cpanm bootstraps it.
+          cpanm --notest FFI::Platypus 2>/dev/null \
+            || sudo cpanm --notest FFI::Platypus 2>/dev/null \
+            || curl -sL https://cpanmin.us | perl - --notest FFI::Platypus 2>/dev/null || true
+          # Quicklisp for SBCL (lang_lisp needs ~/quicklisp/setup.lisp). Idempotent:
+          # skip if already bootstrapped.
+          if command -v sbcl >/dev/null 2>&1 && [ ! -f "$HOME/quicklisp/setup.lisp" ]; then
+            curl -sO https://beta.quicklisp.org/quicklisp.lisp \
+              && sbcl --non-interactive \
+                   --load quicklisp.lisp \
+                   --eval '(quicklisp-quickstart:install)' 2>/dev/null || true
           fi
           # Ruby FFI gem — the azul.rb binding does `require 'ffi'`, which is NOT
           # preinstalled on the runners (LoadError -> ruby FAILS). Try user then

@@ -78,8 +78,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     functions::generate_functions(&mut b, ir, config);
     functions::generate_aliases(&mut b, ir, config);
 
+    emit_postlude(&mut b);
+
     b.blank();
-    b.line("export az_string, setfields");
+    b.line("export az_string, native_string, setfields");
     b.line("end # module Azul");
 
     Ok(b.finish())
@@ -148,6 +150,25 @@ fn emit_prelude(b: &mut CodeBuilder) {
     b.line("        vals[idx] = v");
     b.line("    end");
     b.line("    return T(vals...)");
+    b.line("end");
+    b.blank();
+}
+
+/// Emit helpers that reference generated `Az*` types in their signature.
+/// These MUST come after `generate_types` — Julia evaluates a method's
+/// argument-type annotation at definition time, so `AzString` has to
+/// already exist in the module scope.
+fn emit_postlude(b: &mut CodeBuilder) {
+    b.line("# --- convenience helpers (type-dependent) -----------------------------------");
+    b.line("\"\"\"");
+    b.line("    native_string(s::AzString) -> String");
+    b.line("");
+    b.line("Copy an AzString's UTF-8 bytes into a fresh Julia `String`. Borrows `s`");
+    b.line("(does NOT take ownership — the AzString still owns/frees its buffer).");
+    b.line("\"\"\"");
+    b.line("function native_string(s::AzString)");
+    b.line("    s.vec.ptr == C_NULL && return \"\"");
+    b.line("    return unsafe_string(Ptr{UInt8}(s.vec.ptr), s.vec.len)");
     b.line("end");
     b.blank();
 }

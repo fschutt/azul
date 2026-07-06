@@ -889,15 +889,21 @@ lang_zig() {
     cp "$CODEGEN_DIR/azul.zig" "$REPO_ROOT/examples/zig/" 2>/dev/null || true
     cp "$LIB_PATH"             "$REPO_ROOT/examples/zig/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/zig" || exit 1
+    local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
       zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . \
         -framework Foundation -framework AppKit -framework OpenGL \
         -framework CoreGraphics -framework CoreText -femit-bin=hello-world-e2e || exit 1
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      # MinGW/MSVC: link the MSVC import lib directly; the dll resolves from PATH.
+      BIN=./hello-world-e2e.exe
+      zig build-exe hello-world.zig -lc "$RELEASE_DIR/azul.dll.lib" -I. \
+        -femit-bin=hello-world-e2e.exe || exit 1
     else
       zig build-exe hello-world.zig -lc -lazul -L. -I. -rpath . \
         -femit-bin=hello-world-e2e || exit 1
     fi
-    ./hello-world-e2e
+    "$BIN"
   ) >"$f" 2>&1
   finish zig "zig build/run failed (@cImport azul.h)"
 }
@@ -938,12 +944,17 @@ lang_d() {
     cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" 2>/dev/null || true
     cp "$LIB_PATH"           "$REPO_ROOT/examples/d/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/d" || exit 1
+    local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
       dmd hello-world.d azul.d -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      # Link the MSVC import lib directly; the dll resolves from PATH.
+      BIN=./hello-world-e2e.exe
+      dmd hello-world.d azul.d "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
     else
       dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world-e2e || exit 1
     fi
-    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
+    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
   finish d "d build/run failed (dmd hello-world.d azul.d)"
 }
@@ -956,12 +967,17 @@ lang_crystal() {
     cp "$CODEGEN_DIR/azul.cr" "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
     cp "$LIB_PATH"            "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/crystal" || exit 1
+    local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
       crystal build hello-world.cr -o hello-world-e2e --link-flags "-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      # Link the MSVC import lib directly; the dll resolves from PATH.
+      BIN=./hello-world-e2e.exe
+      crystal build hello-world.cr -o hello-world-e2e --link-flags "$RELEASE_DIR/azul.dll.lib" || exit 1
     else
       crystal build hello-world.cr -o hello-world-e2e --link-flags "-L." || exit 1
     fi
-    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
+    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
   finish crystal "crystal build/run failed"
 }
@@ -991,12 +1007,17 @@ lang_swift() {
     cp "$CODEGEN_DIR/module.modulemap" "$REPO_ROOT/examples/swift/" 2>/dev/null || true
     cp "$LIB_PATH"                     "$REPO_ROOT/examples/swift/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/swift" || exit 1
+    local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
       swiftc -I. hello-world.swift azul.swift -L. -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      # Link the MSVC import lib directly; the dll resolves from PATH.
+      BIN=./hello-world-e2e.exe
+      swiftc -I. hello-world.swift azul.swift "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
     else
       swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world-e2e || exit 1
     fi
-    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
+    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
   finish swift "swift build/run failed (swiftc -I. + module.modulemap)"
 }

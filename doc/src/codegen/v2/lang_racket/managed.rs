@@ -151,6 +151,38 @@ pub fn emit_managed(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("  (define id (AzRefAny_getHostHandle refany-ptr))");
     builder.line("  (and (not (= id 0)) (hash-ref azul-handles id #f)))");
     builder.blank();
+
+    emit_string_helpers(builder);
+}
+
+/// Typed `AzString` <-> Racket `string` interop, so callers don't hand-roll
+/// the byte plumbing (the counter example otherwise defines its own `az-str`).
+/// Mirrors the Ruby binding's `AzString#to_s` / auto-convert ergonomics.
+///
+/// `AzString` is `{ vec: AzU8Vec }` and `AzU8Vec` is `{ ptr, len, cap, dtor }`;
+/// the `define-cstruct` layer emits the `AzString-vec` / `AzU8Vec-ptr` /
+/// `AzU8Vec-len` accessors these helpers read.
+fn emit_string_helpers(builder: &mut CodeBuilder) {
+    builder.line(";; ----------------------------------------------------------------------------");
+    builder.line(";; Typed AzString <-> Racket string helpers.");
+    builder.line(";; ----------------------------------------------------------------------------");
+    builder.blank();
+    builder.line(";; Build an AzString from a Racket string (copies the UTF-8 bytes into a");
+    builder.line(";; refcounted native buffer, so the source string may be a temporary).");
+    builder.line("(define (string->azul-string s)");
+    builder.line("  (define b (string->bytes/utf-8 s))");
+    builder.line("  (AzString_fromUtf8 b (bytes-length b)))");
+    builder.blank();
+    builder.line(";; Decode an AzString's wrapped UTF-8 bytes into a Racket string. Pass an");
+    builder.line(";; _AzString cstruct value (e.g. one returned by an Az*_toString call).");
+    builder.line("(define (azul-string->string az)");
+    builder.line("  (define vec (AzString-vec az))");
+    builder.line("  (define ptr (AzU8Vec-ptr vec))");
+    builder.line("  (define len (AzU8Vec-len vec))");
+    builder.line("  (if (or (not ptr) (= len 0))");
+    builder.line("      \"\"");
+    builder.line("      (bytes->string/utf-8 (make-sized-byte-string ptr len))))");
+    builder.blank();
 }
 
 /// The `_fun` invoker type for one callback kind: `_uint64` host handle id,

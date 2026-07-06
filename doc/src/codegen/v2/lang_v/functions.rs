@@ -44,6 +44,25 @@ pub fn generate_externs(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenCon
         emit_extern(b, func, ir);
     }
     b.blank();
+
+    emit_string_helpers(b);
+}
+
+/// Emit idiomatic String helpers into `module azul`. `AzString_fromUtf8`
+/// COPIES the bytes into a refcounted AzString, so passing a temporary V
+/// string is safe. These replace the hand-rolled `az_str` every driver
+/// would otherwise copy out of the example.
+fn emit_string_helpers(b: &mut CodeBuilder) {
+    b.line("// ----------------------------------------------------------------------------");
+    b.line("// Idiomatic String helper. AzString_fromUtf8 copies the bytes into a");
+    b.line("// refcounted AzString, so passing a temporary V string is safe.");
+    b.line("// ----------------------------------------------------------------------------");
+    b.blank();
+    b.line("// Copy a V string into a refcounted AzString.");
+    b.line("pub fn az_str(s string) AzString {");
+    b.line("\treturn C.AzString_fromUtf8(s.str, usize(s.len))");
+    b.line("}");
+    b.blank();
 }
 
 fn emit_extern(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {

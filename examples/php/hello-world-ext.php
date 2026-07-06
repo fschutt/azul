@@ -4,10 +4,13 @@
 // ──────────────────────────────────────────────────────────────────────
 // PHP EXTENSION SMOKE TEST (host-invoker tier)
 // ──────────────────────────────────────────────────────────────────────
-// Where `hello-world.php` exercises the legacy php-ffi binding (which
-// rejects closure-to-fnpointer and so caps out at the POD wrappers),
-// this script exercises the native PHP/Zend extension that lives in
-// `dll/src/php_extension.rs` under the `php-extension` Cargo feature.
+// `hello-world.php` is the full-GUI counter: it registers named PHP
+// callbacks and runs the event loop via App::run on the native Zend
+// extension. This script is the lower-level SMOKE test for the same
+// extension (`dll/src/php_extension.rs`, `php-extension` Cargo feature):
+// it round-trips the host-invoker primitives (version, RefAny handles,
+// register + invoke, Dom/App classes) WITHOUT entering the event loop,
+// which makes it the first thing to run when bringing the extension up.
 //
 // The extension is loaded by the Zend engine before script start, so
 // it can pin libffi closures and route user PHP callables back through

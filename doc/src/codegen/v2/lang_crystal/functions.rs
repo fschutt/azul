@@ -136,6 +136,23 @@ pub fn generate_type_aliases(b: &mut CodeBuilder, ir: &CodegenIR, config: &Codeg
         emit_alias(b, &mut seen, &cb.name);
     }
 
+    b.blank();
+    b.line("  # --------------------------------------------------------------------------");
+    b.line("  # Idiomatic String helpers. AzString_fromUtf8 COPIES the bytes into a");
+    b.line("  # refcounted AzString, so passing a temporary Crystal String is safe.");
+    b.line("  # --------------------------------------------------------------------------");
+    b.line("");
+    b.line("  # Copy a Crystal String into a refcounted AzString.");
+    b.line("  def self.az_str(s : String) : LibAzul::AzString");
+    b.line("    LibAzul.azString_fromUtf8(s.to_unsafe, LibC::SizeT.new(s.bytesize))");
+    b.line("  end");
+    b.line("");
+    b.line("  # Borrow an AzString's UTF-8 bytes into a fresh Crystal String (does NOT");
+    b.line("  # take ownership of `s` — the AzString still owns/frees its buffer).");
+    b.line("  def self.native_string(s : LibAzul::AzString) : String");
+    b.line("    String.new(s.vec.ptr, s.vec.len)");
+    b.line("  end");
+
     b.line("end");
     b.blank();
 }

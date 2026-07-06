@@ -40,6 +40,7 @@
 
 pub mod functions;
 pub mod types;
+pub mod wrappers;
 
 use std::collections::BTreeSet;
 
@@ -73,6 +74,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     types::generate_types(&mut b, ir, config, &mut emitted);
     functions::generate_extern_block(&mut b, ir, config);
     functions::generate_aliases(&mut b, ir, config);
+    wrappers::generate_wrappers(&mut b, ir, config);
 
     Ok(b.finish())
 }

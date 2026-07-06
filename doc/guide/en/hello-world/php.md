@@ -10,7 +10,7 @@ topic_only: false
 prerequisites: [hello-world]
 tracked_files:
   - api.json
-  - examples/php/hello-world-ext.php
+  - examples/php/hello-world.php
 default-search-keys:
   - App
   - AppConfig
@@ -26,15 +26,17 @@ default-search-keys:
 
 PHP has two binding paths, and only one supports callbacks:
 
-1. **`php-extension`** (`hello-world-ext.php`) — a native Zend extension
+1. **`php-extension`** (`hello-world.php`) — a native Zend extension
    compiled from Rust via [`ext-php-rs`](https://github.com/davidcole1340/ext-php-rs).
    The Zend engine can call a C function pointer back into PHP, so the
    host-invoker pattern (as used by Lua / Ruby / Perl / OCaml) works: libazul
-   fires a per-kind Rust invoker, which calls your PHP functions by name. **This
-   is the full-GUI path** and the one the counter demo uses.
-2. **`php-ffi`** (`hello-world.php`) — pure [`php-ffi`](https://www.php.net/manual/en/book.ffi.php).
+   fires a per-kind Rust invoker, which calls your PHP functions **by name**.
+   **This is the full-GUI path** and the one the counter demo uses.
+2. **`php-ffi`** — pure [`php-ffi`](https://www.php.net/manual/en/book.ffi.php).
    POD-only: `php-ffi` rejects closure-to-function-pointer conversion, so it can
-   render a static DOM but **cannot install callbacks**.
+   render a static DOM but **cannot install callbacks**. See
+   `examples/php/hello-world-ext.php` for a smoke test that exercises the
+   extension's round-trip primitives without running the event loop.
 
 ## Installation
 
@@ -64,45 +66,67 @@ Load the extension and run the driver:
 
 ```sh
 cd examples/php
-php -d extension=../../target/phpext/release/libazul.dylib hello-world-ext.php
+php -d extension=../../target/phpext/release/libazul.dylib hello-world.php
 ```
 
 ## The program
 
-`examples/php/hello-world-ext.php` builds a counter: a `32px` label showing the
-count and an "Increase counter" button that bumps it.
+`examples/php/hello-world.php` builds a counter: a label showing the count and
+a clickable "Increase counter" element that bumps it. Because the extension
+routes callbacks back into PHP **by function name**, the callbacks are
+top-level named functions (`on_click`, `layout`) — not closures.
 
 ```php
 <?php
-$model = ['counter' => 5];              // any PHP value works as the data model
+azul_counter_init();
 
-$on_click = function ($data, $info) {
-    $m = Azul\refany_get($data);
-    if ($m === null) return Azul\AzUpdate\DoNothing();
-    $m['counter']++;
-    Azul\refany_set($data, $m);         // write the mutated model back
-    return Azul\AzUpdate\RefreshDom();
-};
+// The model is JSON-encoded behind a host-handle id (Zvals are per-request
+// rooted, so a raw value can't be held in libazul's global handle table).
+$model_id = azul_refany_create(json_encode(['counter' => 5]));
 
-$layout = function ($data, $info) {
-    $m = Azul\refany_get($data);
-    $body = Azul\AzDom_createBody();
-    // ... build div{font-size:32px} > text(counter) + Button ...
-    return $body;                       // returns a raw AzDom record
-};
+$GLOBALS['azul_onclick_id'] = azul_register_callback('on_click');
+$layout_id                  = azul_register_layout_callback('layout');
+
+function on_click(int $data): int {
+    $m = json_decode(azul_refany_get($data), true);
+    $m['counter'] = ($m['counter'] ?? 0) + 1;
+    azul_refany_set($data, json_encode($m));   // write the mutated model back
+    return 1;                                  // Update::RefreshDom
+}
+
+function layout(int $data): \Azul\Dom {
+    $m   = json_decode(azul_refany_get($data), true);
+    $div = \Azul\Dom::createDiv();
+    $div->addChild(\Azul\Dom::createText((string) ($m['counter'] ?? 0)));
+
+    $btn = \Azul\Dom::createDiv();
+    $btn->addChild(\Azul\Dom::createText('Increase counter'));
+    $btn->onClick($data, $GLOBALS['azul_onclick_id']);
+
+    $body = \Azul\Dom::createBody();
+    $body->addChild($div);
+    $body->addChild($btn);
+    return $body;                              // returns an Azul\Dom object
+}
+
+$wco = \Azul\WindowCreateOptions::create($layout_id);
+$app = \Azul\App::create($model_id, \Azul\AppConfig::create());
+$app->run($wco);
 ```
 
 ### How callbacks work
 
-* **`Azul\refany_create($value)`** wraps a PHP value in an `AzRefAny` (an opaque
-  host handle); **`Azul\refany_get($data)`** recovers it inside a callback. Pass
-  the same model to the app and to the button so both see the same counter.
-* **`Azul\register_callback('<Kind>', $fn)`** returns the matching `Az<Kind>`
-  record. The generated invoker fires `$fn` and writes its return value back
-  through the callback out-pointer — a layout callback returns a `Dom`, an
-  on-click callback returns an `AzUpdate`.
-* The `LayoutCallback` is installed into `window_state.layout_callback` before
-  `App.run`.
+* **`azul_refany_create($json)`** stores a value behind an `AzRefAny` host
+  handle and returns its integer id; **`azul_refany_get($id)`** /
+  **`azul_refany_set($id, $json)`** read and write it inside a callback. Pass
+  the same id to the app and to the clickable node so both see the same counter.
+* **`azul_register_callback('<fn>')`** and
+  **`azul_register_layout_callback('<fn>')`** stash a named PHP function and
+  return its handle id. libazul fires a per-kind Rust invoker that calls that
+  PHP function through the Zend executor — the on-click function returns an
+  `int` (`Update`), the layout function returns an `Azul\Dom`.
+* The `LayoutCallback` id is threaded through
+  `\Azul\WindowCreateOptions::create($layout_id)` before `App::run`.
 
 ## Status
 

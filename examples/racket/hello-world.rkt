@@ -13,9 +13,10 @@
 ;; Mutable model; the same box is recovered inside callbacks via refany-get.
 (define model (box 5))
 
-(define (az-str s)
-  (define b (string->bytes/utf-8 s))
-  (AzString_copyFromBytes b 0 (bytes-length b)))
+;; azul.rkt provides the typed `string->azul-string` helper (copies the UTF-8
+;; bytes into a refcounted native AzString); alias it to the local name used
+;; throughout this example.
+(define az-str string->azul-string)
 
 ;; on-click returns an Update enum; we mutate the model box in place.
 (define (on-click data-ptr info-ptr)
