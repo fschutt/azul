@@ -875,6 +875,9 @@ const BINDING_FILES: &[BindingFile] = &[
     //     (2026-07-04 review: several tabs referenced files no step obtains) ---
     BindingFile { dst: "hello-world.c", src: "c/hello-world.c", source: BindingSource::Examples },
     BindingFile { dst: "hello-world.cpp", src: "cpp/cpp20/hello-world.cpp", source: BindingSource::Examples },
+    // python ships the wheel as a BinaryAsset; the driver was only in examples.zip
+    // before, so its `curl .../hello-world.py` install step 404'd. Ship it too.
+    BindingFile { dst: "hello-world.py", src: "python/hello-world.py", source: BindingSource::Examples },
     // Azul.csproj above is the LIBRARY project; Hello.csproj is the runnable
     // Exe scaffold `dotnet run` needs next to hello-world.cs.
     BindingFile { dst: "hello-world.cs", src: "csharp/hello-world.cs", source: BindingSource::Examples },

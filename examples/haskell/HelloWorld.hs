@@ -1,18 +1,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
--- cabal run hello-world
---
 -- Full-GUI counter hello-world for the Azul Haskell bindings.
+--   cabal run hello-world
 --
--- DOM shape (matches tests/e2e/hello_world_counter.json):
---   body
---   ├── div { font-size: 32px }
---   │   └── text("5")            -- the counter, increments on click
---   └── Button "Increase counter"
---
--- Callbacks use inbound trampolines: `mk_<X>_inner` makes a FunPtr, its
--- `set_inner` stores it, and libazul is handed the trampoline's address
--- (see README + Azul.Internal.FFI). App state lives in an IORef captured by
--- the closures, so the RefAny we pass is a zero-sized refcount placeholder.
+-- Callbacks use inbound trampolines: `mk_<X>_inner` makes a FunPtr, `set_inner`
+-- stores it, and libazul is handed the trampoline's address. App state lives in
+-- an IORef captured by the closures, so the RefAny we pass is a zero-sized
+-- refcount placeholder.
 --
 -- GOTCHA: build the DOM only with the raw `c_Az*_via` out-pointer primitives.
 -- The Storables for DOM-sized aggregates hold tagged-union placeholders whose
@@ -43,16 +36,15 @@ szApp       = 64    -- sizeof(AzApp)     = 16
 szOnClickCb = 64    -- sizeof(AzButtonOnClickCallback) = 40 (cb + OptionRefAny::None)
 
 -- | Write an owned AzString (copied from a Haskell String) into @out@.
--- ASCII-only content in this example, so the Latin-1 marshalling is
--- valid UTF-8.
+-- ASCII-only here, so the Latin-1 marshalling is valid UTF-8.
 mkAzString :: String -> Ptr T.AzString -> IO ()
 mkAzString s out =
   withCAStringLen s $ \(p, len) ->
     c_AzString_copyFromBytes_via (castPtr p) 0 (fromIntegral len :: CSize) out
 
--- | Build a zero-sized placeholder RefAny. State does NOT live here — it
--- lives in the IORef captured by the callback closures. libazul still
--- clones/drops this, so it must be a real refcounted RefAny.
+-- | Build a zero-sized placeholder RefAny. State lives in the IORef captured
+-- by the closures, but libazul still clones/drops this, so it must be a real
+-- refcounted RefAny.
 mkPlaceholderRefAny :: FunPtr () -> Ptr (T.RefAny ()) -> IO ()
 mkPlaceholderRefAny dtorTramp out =
   allocaBytes 16 $ \(gvp :: Ptr T.GlVoidPtrConst) -> do
@@ -63,8 +55,8 @@ mkPlaceholderRefAny dtorTramp out =
         poke dtorCell dtorTramp
         c_AzRefAny_newC_via gvp 0 1 0xBA5EBA11 typeName (castPtr dtorCell) 0 0 out
 
--- | The layout function: rebuilds the whole DOM from the counter value.
--- Writes the resulting AzDom directly into the trampoline's out-pointer.
+-- | Rebuild the whole DOM from the counter value, writing the AzDom directly
+-- into the trampoline's out-pointer.
 buildLayout :: IORef Int
             -> Ptr (T.RefAny ())            -- master placeholder RefAny (cloned per button)
             -> Ptr T.ButtonOnClickCallback  -- prepared { cb = trampoline, callable = None }
