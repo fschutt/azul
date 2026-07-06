@@ -6,7 +6,7 @@
 //!
 //! - Takes by-value aggregate args as `const T *` (Haskell allocates +
 //!   pokes; the shim dereferences before calling).
-//! - Takes by-value aggregate returns as a trailing `T *__out`
+//! - Takes by-value aggregate returns as a trailing `T *az_out`
 //!   (Haskell allocates; the shim writes the return through it; the
 //!   foreign-import returns `void`).
 //!
@@ -79,7 +79,7 @@ fn should_emit_inbound_trampoline(cb: &CallbackTypedefDef, config: &CodegenConfi
 ///
 /// ```c
 /// /* Inner sig (Haskell-friendly: by-pointer args, out-ptr return). */
-/// typedef void (*AzN_inner)(<ptr-args>, AzR *__out);
+/// typedef void (*AzN_inner)(<ptr-args>, AzR *az_out);
 /// static AzN_inner g_AzN_inner = 0;
 /// void AzN_set_inner(AzN_inner f) { g_AzN_inner = f; }
 /// /* Trampoline matches the C-ABI by-value signature. */
@@ -186,7 +186,7 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
             if matches!(t, "" | "void" | "()" | "c_void") {
                 ("void".to_string(), "void".to_string())
             } else if ret_is_aggregate {
-                // Inner signature gets a trailing `AzR *__out` and
+                // Inner signature gets a trailing `AzR *az_out` and
                 // returns void; trampoline returns `AzR` by value.
                 ("void".to_string(), c_typename(t))
             } else {
@@ -198,7 +198,7 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
 
     let mut inner_params_with_out = inner_params.clone();
     if ret_is_aggregate {
-        inner_params_with_out.push(format!("{} *__out", abi_ret_c));
+        inner_params_with_out.push(format!("{} *az_out", abi_ret_c));
     }
     let inner_params_str = if inner_params_with_out.is_empty() {
         "void".to_string()
@@ -466,9 +466,9 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
     if ret_aggregate {
         let r = func.return_type.as_deref().unwrap();
         let c_r = c_typename(r);
-        params.push(format!("{} *__out", c_r));
+        params.push(format!("{} *az_out", c_r));
         out.push_str(&format!(
-            "void {}_via({}) {{ *__out = {}({}); }}\n",
+            "void {}_via({}) {{ *az_out = {}({}); }}\n",
             func.c_name,
             params.join(", "),
             func.c_name,
