@@ -47,6 +47,15 @@ find_objcopy() {
 }
 
 OBJCOPY="$(find_objcopy)" || { echo "::error::strip_staticlib.sh: no llvm-objcopy found" >&2; exit 1; }
+# rust-objcopy (llvm-tools) is dynamically linked against the toolchain's
+# libLLVM.so (e.g. libLLVM.so.20.1-rust-1.88.0-stable), which lives in
+# `$sysroot/lib` but isn't on the loader path — without this it dies with
+# "error while loading shared libraries: libLLVM.so...: cannot open shared
+# object file". Prepend the toolchain lib dir so the strip step can run.
+_azul_sysroot="$(rustc --print sysroot 2>/dev/null || true)"
+if [ -n "$_azul_sysroot" ] && [ -d "$_azul_sysroot/lib" ]; then
+    export LD_LIBRARY_PATH="$_azul_sysroot/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 PYTHON="$(command -v python3 || command -v python)" || true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

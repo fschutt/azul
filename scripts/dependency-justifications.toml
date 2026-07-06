@@ -21,6 +21,7 @@ azul-layout = "azul's own crate: layout solver + text/font/image integration (wo
 azul-simplecss = "azul's own crate: minimal CSS selector parser used by the cascade (workspace member)."
 
 # === Layout engine ===
+proc-macro2-diagnostics = "Pretty compile-time diagnostics for the ouroboros derive macro (self-referential glyph tables in allsorts-azul); proc-macro/build-time only."
 taffy = "Flexbox/CSS-grid layout engine — azul-layout's block/flex/grid solver."
 grid = "2D grid storage backing taffy's grid layout algorithm."
 
@@ -112,6 +113,7 @@ ixdtf = "ISO-8601/RFC-3339 date-time string parser used by icu_time."
 # === ICU4X / zerocopy data plumbing (zerovec, yoke, tinystr) ===
 tinystr = "Small inline ASCII strings (locale subtags) used across ICU4X."
 litemap = "Flat sorted-slice map used as zero-copy storage in ICU4X."
+yansi = "Terminal colouring for proc-macro2-diagnostics error output; proc-macro/build-time only."
 zerovec = "Zero-copy vec/map serialization underpinning all ICU4X data."
 zerovec-derive = "derive macros for zerovec."
 yoke = "Zero-copy 'yoke' lifetime carrier for borrowed ICU4X data."
