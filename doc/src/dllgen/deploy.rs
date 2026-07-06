@@ -1391,11 +1391,13 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "statistics/cargo-deny.txt",
             "Supply-chain audit (cargo-deny: advisories, bans, licenses, sources)",
         ));
-        v.push(release_link_li(
-            version,
-            "statistics/cargo-geiger.txt",
-            "Unsafe-code audit (cargo-geiger)",
-        ));
+        // NOTE: cargo-geiger is intentionally NOT linked here. Its vendored
+        // cargo panics on this dependency graph (icu_experimental,
+        // `pending_ids.insert` assertion) both with and without --locked, so
+        // the artifact is an empty stub. The CI job still runs best-effort and
+        // posts to the run's step summary; re-add this tile once cargo-geiger
+        // upstream can resolve the graph (or a replacement unsafe-audit tool
+        // produces a real report).
         v.push(release_link_li(
             version,
             "statistics/clippy.txt",

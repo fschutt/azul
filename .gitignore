@@ -95,11 +95,15 @@ examples/ruby/azul.rb
 examples/ruby/lib/
 # Common Lisp
 examples/lisp/azul.lisp
+examples/lisp/azul.asd
+*.fasl
 # Perl
 examples/perl/lib/
 # Go
 examples/azul-go/
 examples/go/hello-world
+examples/go/hello-world-go-e2e
+examples/go/hello-world-idiomatic/hello-world-idiomatic
 # Haskell
 examples/azul-haskell/
 examples/haskell/dist-newstyle/
