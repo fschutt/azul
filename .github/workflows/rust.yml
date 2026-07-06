@@ -1564,7 +1564,7 @@ jobs:
           # scripting = everything else: the FFI shipped bindings + all beta/alpha
           # langs, so the per-OS board (concatenated in deploy) still covers them.
           - key: scripting
-            langs: "python lua ruby node csharp java kotlin ocaml go zig ada algol68 cobol fortran freebasic haskell lisp pascal perl php powershell scala smalltalk vb6"
+            langs: "python lua ruby node csharp java kotlin ocaml go zig odin nim racket red ada algol68 cobol fortran freebasic haskell lisp pascal perl php powershell scala smalltalk vb6"
     runs-on: ${{ matrix.os }}
     env:
       AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
@@ -1622,6 +1622,40 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      # Odin: lang_odin builds the C-ABI-direct binding + counter example.
+      # setup-odin downloads a prebuilt Odin (needs the token for GH releases);
+      # best-effort — if it fails the matrix row SKIPs (odin is BETA, non-gating).
+      - name: Set up Odin
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: latest
+
+      # Nim: lang_nim builds the C-ABI-direct binding (importc/dynlib, direct
+      # cdecl callbacks). ALPHA/non-gating — SKIPs if the action is unavailable.
+      - name: Set up Nim
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.0.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Racket: lang_racket builds the ffi/unsafe binding (libffi closures =
+      # real C fn-ptrs). ALPHA/non-gating.
+      - name: Set up Racket
+        if: matrix.family.key == 'scripting'
+        continue-on-error: true
+        uses: Bogdanp/setup-racket@v1.11
+        with:
+          version: 'stable'
+
+      # Red (red-lang.org): no maintained GitHub Action for the Red toolchain,
+      # so `redc` is absent and lang_red SKIPs (ALPHA/non-gating). Wire a
+      # cache-download of the redc binary here once the counter is verified.
 
       - name: Download prebuilt E2E DLL + codegen
         uses: actions/download-artifact@v8

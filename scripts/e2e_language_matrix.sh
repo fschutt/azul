@@ -89,8 +89,8 @@ cd "$REPO_ROOT" || { echo "FATAL: cannot cd to repo root $REPO_ROOT" >&2; exit 2
 # -----------------------------------------------------------------------------
 ALL_LANGS=(
   ada algol68 c cobol cpp csharp fortran freebasic go haskell java kotlin
-  lisp lua node ocaml pascal perl php powershell python ruby rust scala
-  smalltalk vb6 zig
+  lisp lua nim node ocaml odin pascal perl php powershell python racket red
+  ruby rust scala smalltalk vb6 zig
 )
 
 # -----------------------------------------------------------------------------
@@ -116,13 +116,16 @@ SHIPPED_LANGS=(
   # doc/src/docgen/mod.rs -- keep the three lists in sync):
   zig go pascal scala fortran haskell
 )
-BETA_LANGS=( )
+# odin: C-ABI-direct binding (proc "c" callbacks, no host-invoker), a real
+# counter E2E — but UNVERIFIED locally (no Odin toolchain here). Kept out of
+# SHIPPED until CI proves it green on all three OSes; BETA/ALPHA never gate CI.
+BETA_LANGS=( odin )
 
 # tier_of <lang> -> "shipped" | "beta" | "alpha"
 tier_of() {
   local l="$1" s
-  for s in "${SHIPPED_LANGS[@]}"; do [ "$l" = "$s" ] && { echo shipped; return; }; done
-  for s in "${BETA_LANGS[@]}";    do [ "$l" = "$s" ] && { echo beta;    return; }; done
+  for s in "${SHIPPED_LANGS[@]:-}"; do [ "$l" = "$s" ] && { echo shipped; return; }; done
+  for s in "${BETA_LANGS[@]:-}";    do [ "$l" = "$s" ] && { echo beta;    return; }; done
   echo alpha
 }
 
@@ -898,6 +901,88 @@ lang_zig() {
   finish zig "zig build/run failed (@cImport azul.h)"
 }
 
+# ---- Odin --------------------------------------------------------------------
+# Toolchain: odin (CI: laytan/setup-odin). The generated azul.odin is placed as
+# an `azul/` subpackage; hello-world.odin (package main) imports it via
+# `import azul "azul"`. Callbacks are C-direct proc "c" values (no host-invoker,
+# like zig/c). `foreign import azul "system:azul"` emits -lazul; we add -L. so
+# the local libazul is found. libazul already links the macOS frameworks, but we
+# pass them through -extra-linker-flags to mirror the zig/c link line.
+lang_odin() {
+  have odin || { skip odin "odin not installed (laytan/setup-odin)"; return; }
+  local f; f="$(log_path odin)"
+  (
+    set -x
+    mkdir -p "$REPO_ROOT/examples/odin/azul"
+    cp "$CODEGEN_DIR/azul.odin" "$REPO_ROOT/examples/odin/azul/azul.odin" 2>/dev/null || true
+    cp "$LIB_PATH"              "$REPO_ROOT/examples/odin/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/odin" || exit 1
+    if [ "$IS_MACOS" = 1 ]; then
+      odin build . -out:hello-world-e2e \
+        -extra-linker-flags:"-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
+    else
+      odin build . -out:hello-world-e2e \
+        -extra-linker-flags:"-L." || exit 1
+    fi
+    ./hello-world-e2e
+  ) >"$f" 2>&1
+  finish odin "odin build/run failed (import azul subpackage)"
+}
+
+# ---- Nim ---------------------------------------------------------------------
+# Toolchain: nim (CI: jiro4989/setup-nim-action). The example uses
+# {.importc, cdecl, dynlib: "libazul.so".}, so libazul is dlopen'd at run
+# time from the loader path the harness already exports (target/release).
+lang_nim() {
+  have nim || { skip nim "nim not installed (jiro4989/setup-nim-action)"; return; }
+  local f; f="$(log_path nim)"
+  (
+    set -x
+    cp "$CODEGEN_DIR/azul.nim" "$REPO_ROOT/examples/nim/" 2>/dev/null || true
+    cp "$LIB_PATH"             "$REPO_ROOT/examples/nim/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/nim" || exit 1
+    nim c -d:release --hints:off --warnings:off -o:hello-world-e2e hello-world.nim || exit 1
+    ./hello-world-e2e
+  ) >"$f" 2>&1
+  finish nim "nim c build/run failed (importc dynlib azul.nim)"
+}
+
+# ---- Racket ------------------------------------------------------------------
+# Toolchain: racket (CI: Bogdanp/setup-racket). ffi/unsafe is built in, so no
+# extra package install. Racket closures are real C fn-ptrs (archetype A);
+# callbacks are GC-retained by azul.rkt (module-level azul-handles + live-pins).
+lang_racket() {
+  have racket || { skip racket "racket not installed (Bogdanp/setup-racket, or apt/brew racket)"; return; }
+  local f; f="$(log_path racket)"
+  (
+    set -x
+    cp "$CODEGEN_DIR/azul.rkt" "$REPO_ROOT/examples/racket/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/info.rkt" "$REPO_ROOT/examples/racket/" 2>/dev/null || true
+    cp "$LIB_PATH"             "$REPO_ROOT/examples/racket/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/racket" || exit 1
+    AZ_LIB_DIR=. racket hello-world.rkt
+  ) >"$f" 2>&1
+  finish racket "racket build/run failed (see log)"
+}
+
+# ---- Red / Red/System (red-lang.org) -----------------------------------------
+# Toolchain: the Red toolchain `redc` (no apt/brew package; download the ~1 MB
+# binary from red-lang.org). ALPHA/unverified: constructed from the Red/System
+# spec, not yet compile-checked. Expected SKIP where redc is absent.
+lang_red() {
+  have redc || { skip red "redc not installed (download from red-lang.org)"; return; }
+  local f; f="$(log_path red)"
+  (
+    set -x
+    cp "$CODEGEN_DIR/azul.reds" "$REPO_ROOT/examples/red/" 2>/dev/null || true
+    cp "$LIB_PATH"              "$REPO_ROOT/examples/red/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/red" || exit 1
+    redc -r hello-world.red -o hello-world-e2e || exit 1
+    ( LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e )
+  ) >"$f" 2>&1
+  finish red "red ALPHA/unverified (constructed from spec; see RED_FFI_FINDINGS.md)"
+}
+
 # ---- OCaml -------------------------------------------------------------------
 # Toolchain: dune + ocaml + the ctypes / ctypes-foreign opam packages
 # (CI: ocaml/setup-ocaml, then `opam install dune ctypes ctypes-foreign`).
@@ -1031,7 +1116,10 @@ lang_lisp() {
     cp "$CODEGEN_DIR/azul.asd"  "$REPO_ROOT/examples/lisp/" 2>/dev/null || true
     cp "$LIB_PATH"              "$REPO_ROOT/examples/lisp/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/lisp" || exit 1
-    sbcl --non-interactive \
+    # --dynamic-space-size 8192: the generated azul.lisp is ~110k lines of
+    # defcstruct/defcfun; compiling it blows the default SBCL heap ("Heap
+    # exhausted, game over"). 8 GiB is comfortable headroom.
+    sbcl --dynamic-space-size 8192 --non-interactive \
       --eval "(load \"$HOME/quicklisp/setup.lisp\")" \
       --eval "(push (truename \".\") asdf:*central-registry*)" \
       --eval "(ql:quickload :azul-example)" \
@@ -1042,11 +1130,15 @@ lang_lisp() {
 
 # ---- Perl --------------------------------------------------------------------
 # Toolchain: perl + FFI::Platypus (CI: apt `perl` + cpanm FFI::Platypus, or
-# shogo82148/actions-setup-perl). README marks full GUI BLOCKED (invoker drops
-# out_ptr) -> expected FAILS.
+# shogo82148/actions-setup-perl). Full-GUI counter works: the host-invoker
+# closures are registered as sticky libffi trampolines (cast to C fn-ptrs), the
+# invoker writes each callback's return value back through the out-pointer using
+# the type's REAL C size, and the LayoutCallback is spliced into
+# window_state.layout_callback at its true C offset (found via a sentinel probe,
+# bypassing the over-sized Perl union records).
 lang_perl() {
   have perl || { skip perl "perl not installed (apt: perl + cpanm FFI::Platypus)"; return; }
-  # Probe FFI::Platypus presence — the smoke test needs it.
+  # Probe FFI::Platypus presence — the binding needs it.
   if ! perl -MFFI::Platypus -e1 >/dev/null 2>&1; then
     skip perl "FFI::Platypus not installed (cpanm FFI::Platypus)"; return
   fi
@@ -1059,25 +1151,58 @@ lang_perl() {
     cd "$REPO_ROOT/examples/perl" || exit 1
     perl -Ilib hello-world.pl
   ) >"$f" 2>&1
-  finish perl "perl smoke-only (README notes callback-return block)"
+  finish perl "perl run failed"
 }
 
 # ---- PHP ---------------------------------------------------------------------
-# Toolchain: php (CI: shivammathur/setup-php). The full path needs the
-# php-extension build (separate cargo feature); the plain php-ffi path is
-# POD-only (no callbacks) -> the counter E2E is expected to FAIL. We run the
-# php-ffi smoke (hello-world.php) which only needs `php` + ext-ffi.
+# Toolchain: php (CI: shivammathur/setup-php) + a php-extension cargo build.
+# The plain php-ffi binding (Azul.php) is POD-only — PHP's FFI extension can't
+# make a C-callable function pointer from a PHP callable, so it structurally
+# CANNOT do the counter callbacks. The full counter runs on the NATIVE Zend
+# extension (feature `php-extension`, ext-php-rs): libazul fires a per-kind
+# Rust invoker that calls the PHP layout/click functions back through the Zend
+# executor. hello-world.php uses the extension API (Azul\Dom + on_click node).
+#
+# The extension is a SEPARATE cargo build (link-static + ext-php-rs, macOS
+# needs `-undefined dynamic_lookup`) into its own target dir so it doesn't
+# clobber $RELEASE_DIR/libazul (built build-dll,debug-server for the other
+# langs). If that build fails/unavailable, we SKIP (toolchain gate), not FAIL.
 lang_php() {
   have php || { skip php "php not installed (shivammathur/setup-php)"; return; }
   local f; f="$(log_path php)"
+  local PHPEXT_DIR="$REPO_ROOT/target/phpext/release"
+  local EXT_LIB
+  case "$(uname -s)" in
+    Darwin) EXT_LIB="$PHPEXT_DIR/libazul.dylib" ;;
+    *)      EXT_LIB="$PHPEXT_DIR/libazul.so" ;;
+  esac
+
+  # Build the extension (debug-server so the AZ_E2E runner is compiled in).
   (
     set -x
-    cp "$CODEGEN_DIR/Azul.php" "$REPO_ROOT/examples/php/" 2>/dev/null || true
-    cp "$LIB_PATH"             "$REPO_ROOT/examples/php/" 2>/dev/null || true
-    cd "$REPO_ROOT/examples/php" || exit 1
-    php hello-world.php
+    cd "$REPO_ROOT" || exit 1
+    if [ "$(uname -s)" = "Darwin" ]; then
+      export LIBCLANG_PATH="${LIBCLANG_PATH:-/Library/Developer/CommandLineTools/usr/lib}"
+      export DYLD_FALLBACK_LIBRARY_PATH="$LIBCLANG_PATH"
+      export RUSTFLAGS="-C link-arg=-undefined -C link-arg=dynamic_lookup"
+    else
+      export RUSTFLAGS="-C link-arg=-Wl,--unresolved-symbols=ignore-in-object-files"
+    fi
+    cargo build --release -p azul-dll \
+      --features php-extension,debug-server --target-dir "$REPO_ROOT/target/phpext"
   ) >"$f" 2>&1
-  finish php "php smoke-only (php-ffi has no callbacks; needs php-extension)"
+  if [ ! -f "$EXT_LIB" ]; then
+    skip php "php-extension build unavailable (see log; needs libclang + ext-php-rs toolchain)"
+    return
+  fi
+
+  # Run the full counter e2e against the loaded extension.
+  (
+    set -x
+    cd "$REPO_ROOT/examples/php" || exit 1
+    php -d extension="$EXT_LIB" hello-world.php
+  ) >>"$f" 2>&1
+  finish php "php extension ran but counter e2e failed (see log)"
 }
 
 # ---- PowerShell --------------------------------------------------------------
