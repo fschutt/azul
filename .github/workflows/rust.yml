@@ -1738,6 +1738,10 @@ jobs:
             macos-14)     os_slug="macos" ;;
             windows-2022) os_slug="windows" ;;
           esac
+          # Kotlin (kotlinc) and Haskell (cabal update + GHC) compile the large
+          # generated binding and need room beyond the 240s default. RUST_BACKTRACE
+          # surfaces a panic backtrace if a binding aborts at runtime.
+          E2E_LANG_TIMEOUT=600 RUST_BACKTRACE=full \
           bash scripts/e2e_language_matrix.sh --gate-shipped ${{ matrix.family.langs }} \
             | tee "stats/language-bindings-${os_slug}-${{ matrix.family.key }}.txt"
 

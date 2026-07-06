@@ -1124,9 +1124,10 @@ lang_haskell() {
     # Windows CI runners ship cabal without a user config; `cabal build`
     # then aborts "Config file not found: C:\\cabal\\config".
     cabal user-config init --force >/dev/null 2>&1 || true
-    # -O0: GHC optimizing the ~110k-line generated binding blows past the 240s
-    # e2e budget; an unoptimized smoke build is enough. (No `cabal update` — the
-    # example only needs `base`, and the Hackage index download added minutes.)
+    # cabal needs the Hackage index to resolve even `base` ("package list does
+    # not exist" otherwise). -O0 keeps GHC from blowing the time budget on the
+    # ~110k-line generated binding (an unoptimized smoke build is enough).
+    cabal update >/dev/null 2>&1 || true
     cabal build --ghc-options=-O0 --extra-lib-dirs="$RELEASE_DIR" || exit 1
     cabal run hello-world --ghc-options=-O0 --extra-lib-dirs="$RELEASE_DIR"
   ) >"$f" 2>&1
