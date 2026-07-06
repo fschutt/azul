@@ -1402,13 +1402,17 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "statistics/cargo-deny.txt",
             "Supply-chain audit (cargo-deny: advisories, bans, licenses, sources)",
         ));
-        // NOTE: cargo-geiger is intentionally NOT linked here. Its vendored
-        // cargo panics on this dependency graph (icu_experimental,
-        // `pending_ids.insert` assertion) both with and without --locked, so
-        // the artifact is an empty stub. The CI job still runs best-effort and
-        // posts to the run's step summary; re-add this tile once cargo-geiger
-        // upstream can resolve the graph (or a replacement unsafe-audit tool
-        // produces a real report).
+        // cargo-geiger: the CI job now pre-fetches crates then runs geiger
+        // --offline (dodging the bundled-cargo `pending_ids.insert` panic on
+        // this dep graph) and validates the output is a real report, else
+        // ships an honest "unavailable" note — so the tile links a truthful
+        // artifact again (was dropped when geiger only produced a 287-byte
+        // panic stub).
+        v.push(release_link_li(
+            version,
+            "statistics/cargo-geiger.txt",
+            "Unsafe-code audit (cargo-geiger)",
+        ));
         v.push(release_link_li(
             version,
             "statistics/clippy.txt",
