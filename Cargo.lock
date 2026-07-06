@@ -207,6 +207,8 @@ checksum = "c583acf993cf4245c4acb0a2cc2ab1f9cc097de73411bb6d3647ff6af2b1013d"
 [[package]]
 name = "allsorts-azul"
 version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57b2116c9f1e188279c88bdee232fc3d71a107d419eab79fcd35e6f8cb6954e6"
 dependencies = [
  "bitflags 2.11.1",
  "brotli-decompressor",
@@ -214,9 +216,32 @@ dependencies = [
  "flate2",
  "glyph-names",
  "log",
- "ouroboros",
+ "ouroboros 0.17.2",
  "pathfinder_geometry",
  "rustc-hash 1.1.0",
+ "tinyvec",
+ "ucd-trie",
+ "unicode-canonical-combining-class",
+ "unicode-general-category",
+ "unicode-joining-type",
+]
+
+[[package]]
+name = "allsorts-azul"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a348db1c508c7ab2f1e1526e6d5fc2d4c2c803ab33c95cd55425b2bdff240fc"
+dependencies = [
+ "bitflags 2.11.1",
+ "brotli-decompressor",
+ "encoding_rs",
+ "enumflags2",
+ "flate2",
+ "glyph-names",
+ "log",
+ "ouroboros 0.18.5",
+ "pathfinder_geometry",
+ "rustc-hash 2.1.2",
  "tinyvec",
  "ucd-trie",
  "unicode-canonical-combining-class",
@@ -792,7 +817,7 @@ version = "0.0.9"
 dependencies = [
  "accesskit",
  "agg-rust-azul",
- "allsorts-azul",
+ "allsorts-azul 0.17.0",
  "azul-core",
  "azul-css",
  "base64 0.22.1",
@@ -3164,6 +3189,8 @@ dependencies = [
 [[package]]
 name = "gpu-video"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cef89763e3504bd4ebfd96335863dcbc1e81f02623cfd3001712a2c015aa80c4"
 dependencies = [
  "ash",
  "bytemuck",
@@ -5509,7 +5536,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2ba07320d39dfea882faa70554b4bd342a5f273ed59ba7c1c6b4c840492c954"
 dependencies = [
  "aliasable",
- "ouroboros_macro",
+ "ouroboros_macro 0.17.2",
+ "static_assertions",
+]
+
+[[package]]
+name = "ouroboros"
+version = "0.18.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e0f050db9c44b97a94723127e6be766ac5c340c48f2c4bb3ffa11713744be59"
+dependencies = [
+ "aliasable",
+ "ouroboros_macro 0.18.5",
  "static_assertions",
 ]
 
@@ -5522,6 +5560,19 @@ dependencies = [
  "heck 0.4.1",
  "proc-macro-error",
  "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "ouroboros_macro"
+version = "0.18.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c7028bdd3d43083f6d8d4d5187680d0d3560d54df4cc9d752005268b41e64d0"
+dependencies = [
+ "heck 0.4.1",
+ "proc-macro2",
+ "proc-macro2-diagnostics",
  "quote",
  "syn 2.0.117",
 ]
@@ -5935,10 +5986,11 @@ dependencies = [
 
 [[package]]
 name = "printpdf"
-version = "0.9.1"
-source = "git+https://github.com/fschutt/printpdf?rev=ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf#ed4a768e1fa3ff7ce19ba2e7991f07b3b813e0bf"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95e17a207ef3d7c9826f78ccad26e8fa1f5ce51d80aafbcf9b114f5ccb2e382f"
 dependencies = [
- "allsorts-azul",
+ "allsorts-azul 0.16.5",
  "azul-core",
  "azul-css",
  "azul-layout",
@@ -5998,6 +6050,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proc-macro2-diagnostics"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af066a9c399a26e020ada66a034357a868728e72cd426f3adcd35f80d88d88c8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+ "version_check",
+ "yansi",
 ]
 
 [[package]]
@@ -6434,8 +6499,10 @@ dependencies = [
 [[package]]
 name = "rust-fontconfig"
 version = "4.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43065fe29d0d6e295fa41528b48629bea90e6d1d5ddd12c1beec2bb4fa50df58"
 dependencies = [
- "allsorts-azul",
+ "allsorts-azul 0.16.5",
  "bincode 1.3.3",
  "dirs",
  "mmapio",
@@ -7120,7 +7187,8 @@ dependencies = [
 [[package]]
 name = "tfd"
 version = "0.1.2"
-source = "git+https://github.com/fschutt/tfd#b6cd043e8464b0224fdc7027ca80bf610c0fe5ef"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d974a520a8c470626f91d413605625b4fc814175e8b013ba7995b8f16863a78f"
 dependencies = [
  "jni 0.21.1",
  "objc2 0.6.4",
@@ -8631,6 +8699,12 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yoke"
