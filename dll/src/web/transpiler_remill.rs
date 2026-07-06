@@ -1384,6 +1384,11 @@ impl RemillTranspiler {
             })?;
             {
                 let mut opt_args: Vec<String> = vec![opt_flag_for(fn_name).to_string()];
+                // [AZ-DIAG] keep 128-bit vectors as native v128 through opt (don't
+                // scalarize to 2 i64 before llc's +simd128 codegen).
+                if std::env::var_os("AZ_LLC_NOSTOREMERGE").is_some() {
+                    opt_args.push("-mattr=+simd128".to_string());
+                }
                 if let Some(bisect) = opt_bisect_arg(fn_name) {
                     opt_args.push(bisect);
                 }
@@ -1603,18 +1608,37 @@ impl RemillTranspiler {
                 }
             }
 
-            run_tool(
-                tools.llc,
-                &[
-                    "-mtriple=wasm32-unknown-unknown",
-                    "-filetype=obj",
-                    opt_flag_for(fn_name),
-                    "-o",
-                    obj_path.to_str().expect("scratch path is utf-8"),
-                    opt_ir_path.to_str().expect("scratch path is utf-8"),
-                ],
-                fn_name,
-            )?;
+            // [AZ-DIAG REVERT 2026-06-26] TEST: AZ_LLC_O0 forces the wasm BACKEND to -O0
+            // (disable backend regalloc/scheduling/peephole opts) while keeping the
+            // opt -O2 IR unchanged. Decisive split: if the OOB disappears at backend
+            // -O0 => LLVM-17 wasm-backend codegen miscompile (NOT a remill semantic,
+            // since PCMPEQB/PMOVMSKB/MOVSS/MOVSD/MOVHPS/FWriteV are all verified correct
+            // and +simd128 did not fix it). If it persists => non-SSE semantic / isel.
+            let llc_opt: &str = if std::env::var_os("AZ_LLC_O0").is_some() {
+                "-O0"
+            } else if std::env::var_os("AZ_LLC_O1").is_some() {
+                // -O0 explodes wasm locals (RegStackify off → "local count too large").
+                // -O1 keeps RegStackify (local-reduction) but disables the -O2-specific
+                // backend opts → fits the local limit AND isolates an -O2 backend miscompile.
+                "-O1"
+            } else {
+                opt_flag_for(fn_name)
+            };
+            let mut llc_args: Vec<&str> = vec![
+                "-mtriple=wasm32-unknown-unknown",
+                "-filetype=obj",
+                llc_opt,
+                "-o",
+                obj_path.to_str().expect("scratch path is utf-8"),
+                opt_ir_path.to_str().expect("scratch path is utf-8"),
+            ];
+            if std::env::var_os("AZ_LLC_NOSTOREMERGE").is_some() {
+                // [AZ-DIAG] enable wasm SIMD so 128-bit XMM/fat-ptr values codegen as
+                // a NATIVE v128 (atomic) instead of legalizing to 2 i64 locals that
+                // RegColoring mis-coalesces (the class-B high-i64/LEN corruption).
+                llc_args.push("-mattr=+simd128");
+            }
+            run_tool(tools.llc, &llc_args, fn_name)?;
         }
 
         // S0 cache-v2a: persist the freshly produced object under its
@@ -8244,6 +8268,18 @@ define {ret_ty} @{export_as}({params}) {{
   ; ever taken of `%state_buf`), so opt -O2's SROA can promote it
   ; into individual scalar slots after the lifted body inlines.
   %state_buf = alloca [{state_size} x i8], align 16
+
+  ; [AZ-DIAG 2026-06-26 REVERT] publish %state_buf addr to 0x40A00 ONLY IF it is 0
+  ; (unset). The probe resets 0x40A00=0 right before solveLayoutReal, so the FIRST
+  ; wrapper after the reset (solveLayoutReal) wins and later callback/nested wrappers
+  ; can't clobber it. Branch-free via select. Breaks %state_buf SROA for small inlined
+  ; wrappers (perf only); the huge non-inlined solve wrapper is unaffected.
+  %az_cur = load volatile i32, ptr inttoptr (i32 264192 to ptr), align 4
+  %az_sbi = ptrtoint ptr %state_buf to i64
+  %az_sblo = trunc i64 %az_sbi to i32
+  %az_unset = icmp eq i32 %az_cur, 0
+  %az_new = select i1 %az_unset, i32 %az_sblo, i32 %az_cur
+  store volatile i32 %az_new, ptr inttoptr (i32 264192 to ptr), align 4
 
   call void @llvm.memset.p0.i64(ptr %state_buf, i8 0, i64 {state_size}, i1 false)
 

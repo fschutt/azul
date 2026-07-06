@@ -1,0 +1,78 @@
+[package]
+name = "rust-fontconfig"
+version = "4.4.4"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+edition = "2021"
+license = "MIT"
+description = "Pure-Rust alternative to font-loader and fontconfig w. minimal dependencies"
+repository = "https://github.com/fschutt/rust-fontconfig"
+keywords = ["fontconfig", "font-loader", "font", "system-fonts"]
+categories = ["gui"]
+readme = "README.md"
+
+[lib]
+name = "rust_fontconfig"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+allsorts = { package = "allsorts-azul", version = "0.16.4", default-features = false, features = ["flate2_rust"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+bincode = { version = "1", optional = true }
+dirs = { version = "6", optional = true }
+
+# Linux-only: fonts.conf XML parsing
+[target.'cfg(target_os="linux")'.dependencies]
+xmlparser = { version = "0.13.6", default-features = false }
+
+# Not available on WASM
+[target.'cfg(not(target_family="wasm"))'.dependencies]
+mmapio = { version = "0.9.1", default-features = false, optional = true }
+rayon = { version = "1.11.0", default-features = false, optional = true }
+
+# Feature layout as of v4.1:
+# - `std` is now *always* enabled; keeping the feature gate around is
+#   a no-op so existing `features = ["std"]` declarations keep working.
+#   The `no_std` build path was dropped when `FcFontCache` moved to an
+#   `Arc<RwLock<_>>` shared-state design that requires `std::sync`.
+# - All other features compose on top of std.
+[features]
+default = ["std"]
+std = ["mmapio"]
+multithreading = ["rayon"]
+parsing = ["allsorts", "std"]
+ffi = ["parsing", "std", "async-registry"]
+cache = ["serde", "bincode", "std", "dirs"]
+async-registry = ["std", "parsing"]
+# Replace the internal RwLock-backed `StLock` with a NO-ATOMIC UnsafeCell bypass.
+# UNSOUND in multi-threaded programs — enable ONLY in a known single-threaded environment
+# (e.g. the azul remill-lifted single-threaded-wasm web backend, where std's queue RwLock
+# `lock_contended` spins forever and hangs). Off by default.
+single-thread-unsafe-locks = []
+
+[[example]]
+name = "registry"
+required-features = ["async-registry"]
+
+[[example]]
+name = "getfont"
+required-features = ["parsing"]
+
+[[example]]
+name = "query"
+required-features = ["parsing"]
+
+[[example]]
+name = "character_resolution"
+required-features = ["parsing"]
+
+[[example]]
+name = "debug_azul_fonts"
+required-features = ["parsing"]
+
+[[example]]
+name = "integration_api"
+required-features = ["parsing"]
+
+[[example]]
+name = "unicode_aware_fonts"
+required-features = ["parsing"]

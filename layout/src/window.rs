@@ -974,6 +974,9 @@ impl LayoutWindow {
 
                 let loader = PathLoader::new();
                 crate::probe::sample_peak_rss("rss:before_font_load");
+                // [AZ-DIAG REVERT 2026-06-26] capture guest RSP before/after the sret-call to test RSP-drift
+                let __rsp_before: u64;
+                unsafe { core::arch::asm!("mov {}, rsp", out(reg) __rsp_before, options(nomem, nostack, preserves_flags)); }
                 let failed = {
                     let _p = crate::probe::Probe::span("font_load_missing");
                     self.font_manager.load_missing_for_chains(
@@ -981,7 +984,17 @@ impl LayoutWindow {
                         |bytes, index| loader.load_font_shared(bytes, index),
                     )
                 };
+                let __rsp_after: u64;
+                unsafe { core::arch::asm!("mov {}, rsp", out(reg) __rsp_after, options(nomem, nostack, preserves_flags)); }
                 crate::probe::sample_peak_rss("rss:after_font_load");
+                // [AZ-DIAG REVERT 2026-06-26] failed.len as window.rs sees it (the Vec that gets dropped → OOB)
+                unsafe {
+                    crate::az_mark(0x607D4, failed.len() as u32);
+                    crate::az_mark(0x607D8, failed.as_ptr() as usize as u32);
+                    crate::az_mark(0x607DC, __rsp_before as u32);  // guest RSP before load_missing call
+                    crate::az_mark(0x607E0, __rsp_after as u32);   // guest RSP after  (≠ before ⟹ RSP DRIFT)
+                    crate::az_mark(0x607E4, (&failed as *const _ as usize) as u32); // &failed (where caller reads)
+                }
                 if let Some(msgs) = debug_messages.as_mut() {
                     for (font_id, error) in &failed {
                         msgs.push(LayoutDebugMessage::warning(format!(

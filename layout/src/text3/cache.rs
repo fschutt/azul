@@ -1009,7 +1009,13 @@ impl<T: ParsedFontTrait> FontManager<T> {
         }
         let result = load_fonts_from_disk(&to_load, &self.fc_cache, load_fn);
         self.insert_fonts(result.loaded);
-        result.failed
+        // [AZ-DIAG REVERT 2026-06-26] failed.len as load_missing returns it (after result.failed extract)
+        let __rf = result.failed;
+        unsafe {
+            crate::az_mark(0x607CC, __rf.len() as u32);
+            crate::az_mark(0x607D0, __rf.as_ptr() as usize as u32);
+        }
+        __rf
     }
 
     /// Remove a font from the cache

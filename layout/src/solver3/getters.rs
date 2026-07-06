@@ -4261,13 +4261,21 @@ where
     let mut loaded = HashMap::new();
     let mut failed = Vec::new();
 
+    // [AZ-DIAG REVERT 2026-06-26] root-cause garbage failed.len (web-lift OOB)
+    let mut __dbg_iters: u32 = 0;
+    let mut __dbg_none: u32 = 0;
+    let mut __dbg_ok: u32 = 0;
+    let mut __dbg_err: u32 = 0;
+
     for font_id in font_ids {
+        __dbg_iters = __dbg_iters.wrapping_add(1);
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
         // rust_fontconfig's `shared_bytes` dedup.
         let font_bytes = match fc_cache.get_font_bytes(font_id) {
             Some(bytes) => bytes,
             None => {
+                __dbg_none = __dbg_none.wrapping_add(1);
                 failed.push((
                     *font_id,
                     format!("Could not get font bytes for {:?}", font_id),
@@ -4288,15 +4296,28 @@ where
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {
             Ok(font) => {
+                __dbg_ok = __dbg_ok.wrapping_add(1);
                 loaded.insert(*font_id, font);
             }
             Err(e) => {
+                __dbg_err = __dbg_err.wrapping_add(1);
                 failed.push((
                     *font_id,
                     format!("Failed to parse font {:?}: {:?}", font_id, e),
                 ));
             }
         }
+    }
+
+    // [AZ-DIAG REVERT 2026-06-26] capture loop stats + the (garbage?) failed Vec metadata
+    unsafe {
+        crate::az_mark(0x607B0, __dbg_iters);
+        crate::az_mark(0x607B4, __dbg_none);
+        crate::az_mark(0x607B8, __dbg_ok);
+        crate::az_mark(0x607BC, __dbg_err);
+        crate::az_mark(0x607C0, failed.len() as u32);
+        crate::az_mark(0x607C4, failed.capacity() as u32);
+        crate::az_mark(0x607C8, failed.as_ptr() as usize as u32);
     }
 
     FontLoadResult { loaded, failed }
