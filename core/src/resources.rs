@@ -876,7 +876,7 @@ fn next_image_ref_id() -> u64 {
 }
 
 impl ImageRef {
-    #[must_use] pub fn get_hash(&self) -> ImageRefHash {
+    #[must_use] pub const fn get_hash(&self) -> ImageRefHash {
         image_ref_get_hash(self)
     }
 }
@@ -884,7 +884,7 @@ impl ImageRef {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
 #[repr(C)]
 pub struct ImageRefHash {
-    pub inner: usize,
+    pub inner: u64,
 }
 
 impl_option!(
@@ -1152,14 +1152,14 @@ impl Drop for ImageRef {
     }
 }
 
-#[must_use] pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
+#[must_use] pub const fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
     // The identity is the never-reused `id`, not the freeable `data` pointer
     // (see the `id` field docs). This is what makes an ImageKey safe to
     // DeleteImage: once an image is dropped its id is retired forever, so a
     // future image that reuses the same heap address gets a *different* key
     // and is registered/uploaded correctly instead of aliasing the stale one.
     ImageRefHash {
-        inner: ir.id as usize,
+        inner: ir.id,
     }
 }
 
@@ -1172,7 +1172,7 @@ impl Drop for ImageRef {
 #[must_use] pub const fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
     ImageKey {
         namespace,
-        key: hash.inner as u64,
+        key: hash.inner,
     }
 }
 
@@ -2941,7 +2941,7 @@ pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
 /// produces the same identifiers everywhere.
 #[must_use] pub const fn image_ref_hash_to_external_image_id(hash: ImageRefHash) -> ExternalImageId {
     ExternalImageId {
-        inner: hash.inner as u64,
+        inner: hash.inner,
     }
 }
 
