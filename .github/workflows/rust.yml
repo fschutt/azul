@@ -3405,8 +3405,9 @@ jobs:
     name: Clippy
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    # NOT continue-on-error: the extreme-lints gate is meant to go RED so the
-    # outstanding lint debt is a visible failure to triage (2026-06-20).
+    # NOT continue-on-error: azul-core / azul-css / azul-layout are kept
+    # clippy-clean under the pedantic+nursery lint set, so this gate MUST stay
+    # green. A red here is a real regression to fix, not triage debt.
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
