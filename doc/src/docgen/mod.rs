@@ -165,6 +165,10 @@ const FRONTPAGE_LANGUAGES: &[&str] = &[
     // "Impl blindly, validate via CI" — kept OUT of the CI gate (SHIPPED_LANGS)
     // until their matrix rows go green cross-OS; guides marked experimental.
     "odin", "nim", "racket", "red",
+    // More archetype-A candidates (2026-07-06): d/crystal/julia redeclare the C
+    // ABI; swift/v consume the generated azul.h. Same CI-validated, non-gating
+    // status as the row above.
+    "d", "crystal", "v", "swift", "julia",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];

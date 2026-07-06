@@ -1,0 +1,7 @@
+// Exposes the generated C header `azul.h` to Swift as the `CAzul` Clang
+// module. `azul.swift` does `@_exported import CAzul`; the hello-world
+// driver imports it directly. Keep this file next to `azul.h`.
+module CAzul {
+    header "azul.h"
+    export *
+}

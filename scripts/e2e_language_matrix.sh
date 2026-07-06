@@ -91,6 +91,7 @@ ALL_LANGS=(
   ada algol68 c cobol cpp csharp fortran freebasic go haskell java kotlin
   lisp lua nim node ocaml odin pascal perl php powershell python racket red
   ruby rust scala smalltalk vb6 zig
+  crystal d julia swift v
 )
 
 # -----------------------------------------------------------------------------
@@ -119,7 +120,7 @@ SHIPPED_LANGS=(
 # odin: C-ABI-direct binding (proc "c" callbacks, no host-invoker), a real
 # counter E2E — but UNVERIFIED locally (no Odin toolchain here). Kept out of
 # SHIPPED until CI proves it green on all three OSes; BETA/ALPHA never gate CI.
-BETA_LANGS=( odin nim racket red )
+BETA_LANGS=( odin nim racket red d crystal v swift julia )
 
 # tier_of <lang> -> "shipped" | "beta" | "alpha"
 tier_of() {
@@ -927,6 +928,91 @@ lang_odin() {
     ./hello-world-e2e
   ) >"$f" 2>&1
   finish odin "odin build/run failed (import azul subpackage)"
+}
+
+lang_d() {
+  have dmd || { skip d "dmd not installed (D compiler)"; return; }
+  local f; f="$(log_path d)"
+  (
+    set -x
+    cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" 2>/dev/null || true
+    cp "$LIB_PATH"           "$REPO_ROOT/examples/d/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/d" || exit 1
+    if [ "$IS_MACOS" = 1 ]; then
+      dmd hello-world.d azul.d -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
+    else
+      dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world-e2e || exit 1
+    fi
+    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
+  ) >"$f" 2>&1
+  finish d "d build/run failed (dmd hello-world.d azul.d)"
+}
+
+lang_crystal() {
+  have crystal || { skip crystal "crystal not installed"; return; }
+  local f; f="$(log_path crystal)"
+  (
+    set -x
+    cp "$CODEGEN_DIR/azul.cr" "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
+    cp "$LIB_PATH"            "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/crystal" || exit 1
+    if [ "$IS_MACOS" = 1 ]; then
+      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
+    else
+      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L." || exit 1
+    fi
+    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
+  ) >"$f" 2>&1
+  finish crystal "crystal build/run failed"
+}
+
+lang_v() {
+  have v || { skip v "v not installed (vlang/setup-v)"; return; }
+  local f; f="$(log_path v)"
+  (
+    set -x
+    mkdir -p "$REPO_ROOT/examples/v/azul"
+    cp "$CODEGEN_DIR/azul.v" "$REPO_ROOT/examples/v/azul/azul.v" 2>/dev/null || true
+    cp "$LIB_PATH"           "$REPO_ROOT/examples/v/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/v" || exit 1
+    v -o hello-world-e2e . || exit 1
+    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
+  ) >"$f" 2>&1
+  finish v "v build/run failed (import azul subpackage)"
+}
+
+lang_swift() {
+  have swiftc || { skip swift "swiftc not installed"; return; }
+  local f; f="$(log_path swift)"
+  (
+    set -x
+    cp "$CODEGEN_DIR/azul.swift"       "$REPO_ROOT/examples/swift/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/azul.h"           "$REPO_ROOT/examples/swift/" 2>/dev/null || true
+    cp "$CODEGEN_DIR/module.modulemap" "$REPO_ROOT/examples/swift/" 2>/dev/null || true
+    cp "$LIB_PATH"                     "$REPO_ROOT/examples/swift/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/swift" || exit 1
+    if [ "$IS_MACOS" = 1 ]; then
+      swiftc -I. hello-world.swift azul.swift -L. -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
+    else
+      swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world-e2e || exit 1
+    fi
+    LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
+  ) >"$f" 2>&1
+  finish swift "swift build/run failed (swiftc -I. + module.modulemap)"
+}
+
+lang_julia() {
+  have julia || { skip julia "julia not installed"; return; }
+  local f; f="$(log_path julia)"
+  (
+    set -x
+    mkdir -p "$REPO_ROOT/examples/julia/azul"
+    cp "$CODEGEN_DIR/azul.jl" "$REPO_ROOT/examples/julia/azul/azul.jl" 2>/dev/null || true
+    cp "$LIB_PATH"            "$REPO_ROOT/examples/julia/" 2>/dev/null || true
+    cd "$REPO_ROOT/examples/julia" || exit 1
+    AZUL_LIB="$PWD/$(basename "$LIB_PATH")" julia hello-world.jl
+  ) >"$f" 2>&1
+  finish julia "julia run failed (AZUL_LIB=<lib> julia hello-world.jl)"
 }
 
 # ---- Nim ---------------------------------------------------------------------

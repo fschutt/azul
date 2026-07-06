@@ -304,6 +304,39 @@ impl GenerationTargets {
             &codegen_dir.join("azul.reds"),
         )?;
 
+        // 20f. More candidate archetype-A bindings (d/crystal/v/swift/julia) —
+        //      C-ABI-direct, off-frontpage, CI-validated. Swift also emits a
+        //      static module.modulemap and reuses the generated azul.h.
+        println!("[20f/35] Generating D bindings...");
+        Self::write_string(
+            super::lang_d::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.d"),
+        )?;
+        println!("[20g/35] Generating Crystal bindings...");
+        Self::write_string(
+            super::lang_crystal::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.cr"),
+        )?;
+        println!("[20h/35] Generating V bindings...");
+        Self::write_string(
+            super::lang_v::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.v"),
+        )?;
+        println!("[20i/35] Generating Swift bindings...");
+        Self::write_string(
+            super::lang_swift::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.swift"),
+        )?;
+        Self::write_string(
+            super::lang_swift::module_map(),
+            &codegen_dir.join("module.modulemap"),
+        )?;
+        println!("[20j/35] Generating Julia bindings...");
+        Self::write_string(
+            super::lang_julia::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.jl"),
+        )?;
+
         // 21. PowerShell module — embeds the C# generator's output via Add-Type.
         println!("[21/35] Generating PowerShell bindings...");
         Self::write_string(

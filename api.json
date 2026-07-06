@@ -28,7 +28,12 @@
         "odin",
         "nim",
         "racket",
-        "red"
+        "red",
+        "d",
+        "crystal",
+        "v",
+        "swift",
+        "julia"
       ],
       "dialects": {
         "cpp": {
@@ -3201,6 +3206,406 @@
               ]
             }
           }
+        },
+        "d": {
+          "displayName": "D",
+          "platforms": {
+            "linux": {
+              "description": "Download the native library, the generated azul.d and the hello-world driver, then compile both together with dmd (or ldc2)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.d"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.d"
+                },
+                {
+                  "type": "command",
+                  "content": "dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world"
+                },
+                {
+                  "type": "command",
+                  "content": "LD_LIBRARY_PATH=. ./hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download the native library, the generated azul.d and the hello-world driver, then compile both together with dmd (or ldc2)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.d"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.d"
+                },
+                {
+                  "type": "command",
+                  "content": "dmd hello-world.d azul.d -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world"
+                },
+                {
+                  "type": "command",
+                  "content": "DYLD_LIBRARY_PATH=. ./hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download the native library, the generated azul.d and the hello-world driver, then compile both together with dmd (or ldc2)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.d"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.d"
+                },
+                {
+                  "type": "command",
+                  "content": "dmd hello-world.d azul.d -L/LIBPATH:. azul.lib -of=hello-world.exe"
+                },
+                {
+                  "type": "command",
+                  "content": "hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "crystal": {
+          "displayName": "Crystal",
+          "platforms": {
+            "linux": {
+              "description": "Download the native library, the generated azul.cr and the hello-world driver, then build with crystal",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.cr"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cr"
+                },
+                {
+                  "type": "command",
+                  "content": "crystal build hello-world.cr --link-flags \"-L.\""
+                },
+                {
+                  "type": "command",
+                  "content": "LD_LIBRARY_PATH=. ./hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download the native library, the generated azul.cr and the hello-world driver, then build with crystal",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.cr"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cr"
+                },
+                {
+                  "type": "command",
+                  "content": "crystal build hello-world.cr --link-flags \"-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText\""
+                },
+                {
+                  "type": "command",
+                  "content": "DYLD_LIBRARY_PATH=. ./hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download the native library, the generated azul.cr and the hello-world driver, then build with crystal",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.cr"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cr"
+                },
+                {
+                  "type": "command",
+                  "content": "crystal build hello-world.cr --link-flags \"/LIBPATH:.\""
+                },
+                {
+                  "type": "command",
+                  "content": "hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "v": {
+          "displayName": "V",
+          "platforms": {
+            "linux": {
+              "description": "Download the native library, the generated azul.v (into an azul/ subpackage) and the hello-world driver, then run with v",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl --create-dirs -o azul/azul.v $HOSTNAME/ui/release/$VERSION/azul/azul.v"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.v"
+                },
+                {
+                  "type": "command",
+                  "content": "LD_LIBRARY_PATH=. v run ."
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download the native library, the generated azul.v (into an azul/ subpackage) and the hello-world driver, then run with v",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl --create-dirs -o azul/azul.v $HOSTNAME/ui/release/$VERSION/azul/azul.v"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.v"
+                },
+                {
+                  "type": "command",
+                  "content": "DYLD_LIBRARY_PATH=. v run ."
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download the native library, the generated azul.v (into an azul/ subpackage) and the hello-world driver, then run with v",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl --create-dirs -o azul/azul.v $HOSTNAME/ui/release/$VERSION/azul/azul.v"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.v"
+                },
+                {
+                  "type": "command",
+                  "content": "v run ."
+                }
+              ]
+            }
+          }
+        },
+        "swift": {
+          "displayName": "Swift",
+          "platforms": {
+            "linux": {
+              "description": "Download the native library, the generated azul.h + azul.swift, the module.modulemap and the hello-world driver, then compile with swiftc",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.swift"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/module.modulemap"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.swift"
+                },
+                {
+                  "type": "command",
+                  "content": "swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world"
+                },
+                {
+                  "type": "command",
+                  "content": "LD_LIBRARY_PATH=. ./hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download the native library, the generated azul.h + azul.swift, the module.modulemap and the hello-world driver, then compile with swiftc",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.swift"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/module.modulemap"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.swift"
+                },
+                {
+                  "type": "command",
+                  "content": "swiftc -I. hello-world.swift azul.swift -L. -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world"
+                },
+                {
+                  "type": "command",
+                  "content": "DYLD_LIBRARY_PATH=. ./hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download the native library, the generated azul.h + azul.swift, the module.modulemap and the hello-world driver, then compile with swiftc",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.swift"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/module.modulemap"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.swift"
+                },
+                {
+                  "type": "command",
+                  "content": "swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world.exe"
+                },
+                {
+                  "type": "command",
+                  "content": "hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "julia": {
+          "displayName": "Julia",
+          "platforms": {
+            "linux": {
+              "description": "Download the native library, the generated azul.jl (into an azul/ subdirectory) and the hello-world driver, then run with julia (libazul is dlopen'd at call time; AZUL_LIB points ccall at it)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl --create-dirs -o azul/azul.jl $HOSTNAME/ui/release/$VERSION/azul/azul.jl"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.jl"
+                },
+                {
+                  "type": "command",
+                  "content": "AZUL_LIB=$PWD/libazul.so julia hello-world.jl"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download the native library, the generated azul.jl (into an azul/ subdirectory) and the hello-world driver, then run with julia (libazul is dlopen'd at call time; AZUL_LIB points ccall at it)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl --create-dirs -o azul/azul.jl $HOSTNAME/ui/release/$VERSION/azul/azul.jl"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.jl"
+                },
+                {
+                  "type": "command",
+                  "content": "AZUL_LIB=$PWD/libazul.dylib julia hello-world.jl"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download the native library, the generated azul.jl (into an azul/ subdirectory) and the hello-world driver, then run with julia (libazul is dlopen'd at call time; AZUL_LIB points ccall at it)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl --create-dirs -o azul/azul.jl $HOSTNAME/ui/release/$VERSION/azul/azul.jl"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.jl"
+                },
+                {
+                  "type": "command",
+                  "content": "$env:AZUL_LIB = \"$PWD\\azul.dll\"; julia hello-world.jl"
+                }
+              ]
+            }
+          }
         }
       }
     },
@@ -3308,7 +3713,12 @@
           "odin": "odin/hello-world.odin",
           "nim": "nim/hello-world.nim",
           "racket": "racket/hello-world.rkt",
-          "red": "red/hello-world.red"
+          "red": "red/hello-world.red",
+          "d": "d/hello-world.d",
+          "crystal": "crystal/hello-world.cr",
+          "v": "v/hello-world.v",
+          "swift": "swift/hello-world.swift",
+          "julia": "julia/hello-world.jl"
         },
         "screenshot": {
           "windows": "hello-world.mac.png",

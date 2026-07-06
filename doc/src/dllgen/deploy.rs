@@ -824,6 +824,24 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile { dst: "hello-world.rkt", src: "racket/hello-world.rkt", source: BindingSource::Examples },
     BindingFile { dst: "azul.reds", src: "azul.reds", source: BindingSource::Codegen },
     BindingFile { dst: "hello-world.red", src: "red/hello-world.red", source: BindingSource::Examples },
+    // --- more candidate archetype-A bindings (d/crystal/v/swift/julia) ---
+    // d: `module azul`, compiled alongside the driver (top-level, no subdir).
+    BindingFile { dst: "azul.d", src: "azul.d", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.d", src: "d/hello-world.d", source: BindingSource::Examples },
+    // crystal: single `lib LibAzul`, required as a sibling `./azul`.
+    BindingFile { dst: "azul.cr", src: "azul.cr", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.cr", src: "crystal/hello-world.cr", source: BindingSource::Examples },
+    // v: `azul/` subpackage + `module main` driver.
+    BindingFile { dst: "azul/azul.v", src: "azul.v", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.v", src: "v/hello-world.v", source: BindingSource::Examples },
+    // swift: thin layer over azul.h via a Clang module map (needs azul.h + modulemap).
+    BindingFile { dst: "azul.swift", src: "azul.swift", source: BindingSource::Codegen },
+    BindingFile { dst: "module.modulemap", src: "module.modulemap", source: BindingSource::Codegen },
+    BindingFile { dst: "azul.h", src: "azul.h", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.swift", src: "swift/hello-world.swift", source: BindingSource::Examples },
+    // julia: `azul/` subdir the driver `include`s; libazul dlopen'd via AZUL_LIB.
+    BindingFile { dst: "azul/azul.jl", src: "azul.jl", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.jl", src: "julia/hello-world.jl", source: BindingSource::Examples },
     // --- csharp (the main-page FFI tabs below ship the generated binding so the
     //     install steps `curl` it from azul.rs instead of cloning + codegen) ---
     BindingFile { dst: "Azul.cs", src: "Azul.cs", source: BindingSource::Codegen },

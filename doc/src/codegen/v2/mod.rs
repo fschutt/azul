@@ -94,6 +94,15 @@ pub mod lang_rust;
 pub mod lang_smalltalk;
 pub mod lang_vb6;
 pub mod lang_zig;
+// Candidate archetype-A bindings (2026-07-06, genericity thesis) — C-ABI-direct
+// emitters modeled on lang_odin (real C fn pointers, no host-invoker). Swift and
+// V consume the generated azul.h layout; d/crystal/julia redeclare the ABI. Off
+// the CI gate until their matrix rows go green cross-OS.
+pub mod lang_crystal;
+pub mod lang_d;
+pub mod lang_julia;
+pub mod lang_swift;
+pub mod lang_v;
 pub mod managed_host_invoker;
 pub mod managed_lang_helpers;
 pub mod rust;
@@ -276,6 +285,53 @@ pub fn generate_red(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();
     lang_red::generate(&ir, &config)
+}
+
+/// Generate D bindings as String. Returns `azul.d` (explicit `module azul`
+/// FFI translation; callbacks are C-direct `extern(C)` fn pointers).
+pub fn generate_d(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_d::generate(&ir, &config)
+}
+
+/// Generate Crystal bindings as String. Returns `azul.cr` (a single
+/// `lib LibAzul` C-ABI translation; callbacks are C-direct non-capturing procs).
+pub fn generate_crystal(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_crystal::generate(&ir, &config)
+}
+
+/// Generate V (vlang) bindings as String. Returns `azul.v` (explicit
+/// `module azul` FFI translation; a top-level V `fn` is a real C fn pointer).
+pub fn generate_v(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_v::generate(&ir, &config)
+}
+
+/// Generate Swift bindings as String. Returns `azul.swift` (a thin idiomatic
+/// layer over the C header, imported via a Clang module map; callbacks are
+/// C-direct `@convention(c)` fn pointers). Pair with [`generate_swift_modulemap`].
+pub fn generate_swift(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_swift::generate(&ir, &config)
+}
+
+/// The static `module.modulemap` that exposes `azul.h` as the `CAzul` module
+/// for the Swift binding.
+pub fn generate_swift_modulemap() -> String {
+    lang_swift::module_map()
+}
+
+/// Generate Julia (ccall/@cfunction) bindings as String. Returns `azul.jl`
+/// (`module Azul`; callbacks are C-direct `@cfunction` pointers).
+pub fn generate_julia(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_julia::generate(&ir, &config)
 }
 
 /// Generate PowerShell module as String. Returns `Azul.psm1` source which
