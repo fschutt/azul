@@ -813,6 +813,17 @@ const BINDING_FILES: &[BindingFile] = &[
     // --- zig ---
     BindingFile { dst: "azul.zig", src: "azul.zig", source: BindingSource::Codegen },
     BindingFile { dst: "build.zig", src: "build.zig", source: BindingSource::Codegen },
+    // --- odin (azul.odin is imported as the `azul/` subpackage; hello-world.odin
+    //     is the `package main` driver next to it) ---
+    BindingFile { dst: "azul/azul.odin", src: "azul.odin", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.odin", src: "odin/hello-world.odin", source: BindingSource::Examples },
+    // --- candidate bindings (nim/racket/red): off-frontpage, CI-validated ---
+    BindingFile { dst: "azul.nim", src: "azul.nim", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.nim", src: "nim/hello-world.nim", source: BindingSource::Examples },
+    BindingFile { dst: "azul.rkt", src: "azul.rkt", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.rkt", src: "racket/hello-world.rkt", source: BindingSource::Examples },
+    BindingFile { dst: "azul.reds", src: "azul.reds", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.red", src: "red/hello-world.red", source: BindingSource::Examples },
     // --- csharp (the main-page FFI tabs below ship the generated binding so the
     //     install steps `curl` it from azul.rs instead of cloning + codegen) ---
     BindingFile { dst: "Azul.cs", src: "Azul.cs", source: BindingSource::Codegen },

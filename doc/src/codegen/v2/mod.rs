@@ -76,8 +76,12 @@ pub mod lang_java; // declared before lang_kotlin (Kotlin re-exports Java helper
 pub mod lang_kotlin;
 pub mod lang_lisp;
 pub mod lang_lua;
+pub mod lang_nim;
 pub mod lang_node;
 pub mod lang_ocaml;
+pub mod lang_odin;
+pub mod lang_racket;
+pub mod lang_red;
 pub mod lang_pascal;
 pub mod lang_perl;
 pub mod lang_php;
@@ -242,6 +246,36 @@ pub fn generate_zig(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let config = CodegenConfig::c_header();
     lang_zig::generate(&ir, &config)
+}
+
+/// Generate Odin bindings as String. Returns `azul.odin` source (an
+/// explicit `package azul` FFI translation; callbacks are C-direct
+/// `proc "c"` values, no host-invoker).
+pub fn generate_odin(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_odin::generate(&ir, &config)
+}
+
+/// Generate Nim (importc/dynlib) bindings as String. Returns `azul.nim`.
+pub fn generate_nim(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_nim::generate(&ir, &config)
+}
+
+/// Generate Racket (ffi/unsafe) bindings as String. Returns `azul.rkt`.
+pub fn generate_racket(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_racket::generate(&ir, &config)
+}
+
+/// Generate Red/System (red-lang.org) bindings as String. Returns `azul.reds`.
+pub fn generate_red(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_red::generate(&ir, &config)
 }
 
 /// Generate PowerShell module as String. Returns `Azul.psm1` source which

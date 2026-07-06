@@ -275,6 +275,35 @@ impl GenerationTargets {
             &codegen_dir.join("build.zig"),
         )?;
 
+        // 20b. Odin bindings — explicit `package azul` FFI translation
+        //      (no C-header importer); callbacks are C-direct `proc "c"`.
+        //      Consumed as an `azul/` subpackage (import azul "azul").
+        println!("[20b/35] Generating Odin bindings...");
+        Self::write_string(
+            super::lang_odin::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.odin"),
+        )?;
+
+        // 20c. Candidate C-ABI-direct / host-invoker bindings (nim/racket/red)
+        //      — off-frontpage, CI-validated. Nim: importc/dynlib direct
+        //      cdecl callbacks. Racket: ffi/unsafe libffi closures. Red:
+        //      Red/System #import + host-invoker.
+        println!("[20c/35] Generating Nim bindings...");
+        Self::write_string(
+            super::lang_nim::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.nim"),
+        )?;
+        println!("[20d/35] Generating Racket bindings...");
+        Self::write_string(
+            super::lang_racket::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.rkt"),
+        )?;
+        println!("[20e/35] Generating Red bindings...");
+        Self::write_string(
+            super::lang_red::generate(ir, &CodegenConfig::c_header())?,
+            &codegen_dir.join("azul.reds"),
+        )?;
+
         // 21. PowerShell module — embeds the C# generator's output via Add-Type.
         println!("[21/35] Generating PowerShell bindings...");
         Self::write_string(
