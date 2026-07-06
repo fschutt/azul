@@ -2687,8 +2687,15 @@ pub fn get_style_properties(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(normalized) = cc.get_line_height(dom_id.index()) {
+                    // The compact cache stores `normalized() * 1000` as i16, and
+                    // get_line_height decodes it as `stored / 10`, i.e. this
+                    // `normalized` value equals `PercentageValue::normalized() * 100`.
+                    // Per the parser convention a NEGATIVE normalized() means an
+                    // absolute pixel line-height (CSS line-height cannot be negative),
+                    // so decode with the same rule fc.rs / the slow path use.
+                    let n = normalized / 100.0;
                     fast_lh = Some(crate::text3::cache::LineHeight::Px(
-                        normalized / 100.0 * font_size,
+                        if n < 0.0 { -n } else { n * font_size },
                     ));
                 } else {
                     // Sentinel in compact cache = "normal" (CSS default).
@@ -2703,7 +2710,12 @@ pub fn get_style_properties(
                 cache
                     .get_line_height(node_data, &dom_id, node_state)
                     .and_then(|v| v.get_property().copied())
-                    .map_or(crate::text3::cache::LineHeight::Normal, |v| crate::text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
+                    .map_or(crate::text3::cache::LineHeight::Normal, |v| {
+                        // Negative normalized() = absolute px value (parser convention
+                        // for "50px" etc.); positive = multiple of font-size.
+                        let n = v.inner.normalized();
+                        crate::text3::cache::LineHeight::Px(if n < 0.0 { -n } else { n * font_size })
+                    })
             })
         }
     };
@@ -2794,7 +2806,7 @@ pub fn get_style_properties(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_letter_spacing(dom_id.index()) {
-                    fast_ls = Some(crate::text3::cache::Spacing::Px(px_val.round() as i32));
+                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val));
                 }
             }
         }
@@ -2806,7 +2818,7 @@ pub fn get_style_properties(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::Px(px_value.round() as i32)
+                    crate::text3::cache::Spacing::PxF(px_value)
                 })
                 .unwrap_or_default()
         })
@@ -2819,7 +2831,7 @@ pub fn get_style_properties(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_word_spacing(dom_id.index()) {
-                    fast_ws = Some(crate::text3::cache::Spacing::Px(px_val.round() as i32));
+                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val));
                 }
             }
         }
@@ -2831,7 +2843,7 @@ pub fn get_style_properties(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::Px(px_value.round() as i32)
+                    crate::text3::cache::Spacing::PxF(px_value)
                 })
                 .unwrap_or_default()
         })

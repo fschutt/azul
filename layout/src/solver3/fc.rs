@@ -2543,10 +2543,33 @@ fn layout_ifc<T: ParsedFontTrait>(
     // text from the cached `inline_layout_result` (display_list.rs), so a
     // content change at a same-width constraint MUST overwrite it or the old
     // glyphs keep rendering (#11 stale display list).
+    // Phase 2 (translate early): resolve the container-level (IFC) constraints now,
+    // so the Phase 2d cache-reuse decision below can key on them too. Reuse was keyed
+    // on available width + per-run content hash only; a change to a container-level
+    // property (text-align, text-align-last, text-indent, direction, line-height,
+    // white-space, columns) — which is NOT covered by the per-run content hash — would
+    // otherwise silently reuse a stale, differently-aligned/indented cached layout.
+    let text3_constraints =
+        translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
+
     let current_content_hash = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         inline_content.hash(&mut h);
+        // Fold the constraint-relevant container properties into the validity key.
+        text3_constraints.text_align.hash(&mut h);
+        text3_constraints.text_align_last.hash(&mut h);
+        text3_constraints.white_space_mode.hash(&mut h);
+        text3_constraints.direction.hash(&mut h);
+        text3_constraints.columns.hash(&mut h);
+        text3_constraints.text_indent.to_bits().hash(&mut h);
+        match text3_constraints.line_height {
+            text3::cache::LineHeight::Normal => 0u64.hash(&mut h),
+            text3::cache::LineHeight::Px(v) => {
+                1u64.hash(&mut h);
+                v.to_bits().hash(&mut h);
+            }
+        }
         h.finish()
     };
 
@@ -2675,10 +2698,8 @@ fn layout_ifc<T: ParsedFontTrait>(
         }
     }
 
-    // Phase 2: Translate constraints and define a single layout fragment for text3.
-    let text3_constraints =
-        translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
-
+    // Phase 2: text3_constraints was resolved early (above) so the cache-reuse key
+    // could include container-level properties.
     // Clone constraints for caching (before they're moved into fragments)
     let cached_constraints = text3_constraints.clone();
 

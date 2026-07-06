@@ -676,7 +676,30 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // 24% of total CPU on the text_2000 stress fixture. Shaping is cached
         // at the per-item level (keyed on text+style), so the subsequent real
         // layout_flow call for this content gets pure cache hits for stages 1–3.
-        let constraints = UnifiedConstraints::default();
+        // Populate the measurement constraints from the IFC root's real white-space
+        // mode instead of always using defaults. With the default (Normal) the scan
+        // treats every space as a break opportunity, so a white-space:nowrap / pre
+        // element reports a min-content SMALLER than its true unbreakable width and
+        // the flex/shrink-to-fit algorithm clips it.
+        let mut constraints = UnifiedConstraints::default();
+        if let Some(dom_id) = tree.get(node_index).and_then(|n| n.dom_node_id) {
+            use crate::solver3::getters::{get_white_space_property, MultiValue};
+            use azul_css::props::style::text::StyleWhiteSpace;
+            let node_state =
+                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+            let ws = match get_white_space_property(self.ctx.styled_dom, dom_id, node_state) {
+                MultiValue::Exact(v) => v,
+                _ => StyleWhiteSpace::Normal,
+            };
+            constraints.white_space_mode = match ws {
+                StyleWhiteSpace::Normal => crate::text3::cache::WhiteSpaceMode::Normal,
+                StyleWhiteSpace::Nowrap => crate::text3::cache::WhiteSpaceMode::Nowrap,
+                StyleWhiteSpace::Pre => crate::text3::cache::WhiteSpaceMode::Pre,
+                StyleWhiteSpace::PreWrap => crate::text3::cache::WhiteSpaceMode::PreWrap,
+                StyleWhiteSpace::PreLine => crate::text3::cache::WhiteSpaceMode::PreLine,
+                StyleWhiteSpace::BreakSpaces => crate::text3::cache::WhiteSpaceMode::BreakSpaces,
+            };
+        }
         // [g79 DIAG] Probe the font state at shaping time, then convert the downstream shape_text
         // HANG (g47 hashbrown empty-map loop) → trap so the harness RETURNS and these markers are
         // readable (can't read markers from a hung wasm call). Tests the #4→#3 coupling: if
@@ -1207,13 +1230,17 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Resolve CSS width - use explicit value if set, otherwise fall back to intrinsic
             let used_width = match css_width {
                 MultiValue::Exact(LayoutWidth::Px(px)) => {
-                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
                     // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to intrinsic contribution (css-sizing-3 §5.2.1)
                     // +spec:containing-block:5246c0 - cyclic percentage: when containing block size depends on this box's intrinsic contribution, percentages fall back to intrinsic size
                     // +spec:containing-block:598124 - cyclic percentage contributions use intrinsic size
                     // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size as contribution during intrinsic sizing
                     // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto for intrinsic contributions (cyclic percentage)
-                    super::calc::resolve_pixel_value_no_percent(&px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    // Resolve em/rem against the element's OWN font-size and the root
+                    // font-size, NOT a hard-coded 16px — otherwise `width: 5em` on a
+                    // font-size:24px inline-block sizes to 80px instead of 120px.
+                    let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
+                    let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
+                    super::calc::resolve_pixel_value_no_percent(&px, em, rem)
                         .unwrap_or(intrinsic_sizes.max_content_width)
                 }
                 MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
@@ -1230,10 +1257,12 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Resolve CSS height - use explicit value if set, otherwise fall back to intrinsic
             let used_height = match css_height {
                 MultiValue::Exact(LayoutHeight::Px(px)) => {
-                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
                     // +spec:containing-block:7d5e79 - percentages behave as auto when containing block height is auto (cyclic percentage contribution)
                     // +spec:height-calculation:7d807b - css-sizing-3 §5.2.1: percentage heights behave as auto during intrinsic sizing (cyclic percentage contribution)
-                    super::calc::resolve_pixel_value_no_percent(&px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    // Resolve em/rem against the element's own + root font-size (see width above).
+                    let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
+                    let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
+                    super::calc::resolve_pixel_value_no_percent(&px, em, rem)
                         .unwrap_or(intrinsic_sizes.max_content_height)
                 }
                 // is equivalent to automatic size

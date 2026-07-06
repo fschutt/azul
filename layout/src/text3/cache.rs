@@ -3305,7 +3305,12 @@ pub type FourCc = [u8; 4];
 // Enum for relative or absolute spacing
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum Spacing {
-    Px(i32), // Use integer pixels to simplify hashing and equality
+    Px(i32), // Whole-pixel spacing (kept for hashing/equality convenience)
+    /// Sub-pixel resolved pixel spacing. `letter-spacing`/`word-spacing` accumulate
+    /// once per glyph, so quantizing to whole pixels (the `Px(i32)` variant) multiplies
+    /// the rounding error across a run. The CSS resolution path emits this variant to
+    /// preserve the exact sub-pixel value (e.g. `letter-spacing: 0.4px`).
+    PxF(f32),
     Em(f32),
 }
 
@@ -3322,7 +3327,7 @@ impl Hash for Spacing {
             Self::Px(val) => val.hash(state),
             // For hashing floats, convert them to their raw bit representation.
             // This ensures that identical float values produce identical hashes.
-            Self::Em(val) => val.to_bits().hash(state),
+            Self::PxF(val) | Self::Em(val) => val.to_bits().hash(state),
         }
     }
 }
@@ -3330,6 +3335,18 @@ impl Hash for Spacing {
 impl Default for Spacing {
     fn default() -> Self {
         Self::Px(0)
+    }
+}
+
+impl Spacing {
+    /// Resolve this spacing to pixels given the element's font size (for `Em`).
+    #[must_use]
+    pub fn resolve_px(self, font_size_px: f32) -> f32 {
+        match self {
+            Self::Px(px) => px as f32,
+            Self::PxF(px) => px,
+            Self::Em(em) => em * font_size_px,
+        }
     }
 }
 
@@ -3469,7 +3486,10 @@ impl StyleProperties {
 
         // Font selection (affects shaping and metrics)
         self.font_stack.hash(&mut hasher);
-        (self.font_size_px.round() as isize).hash(&mut hasher);
+        // Hash the EXACT font size bits, not a rounded integer: two styles differing
+        // by <0.5px must not share a shaping-cache entry / coalesce, or one run gets
+        // shaped at the other's size (wrong advances/metrics).
+        self.font_size_px.to_bits().hash(&mut hasher);
         self.font_features.hash(&mut hasher);
         // font_variations affects glyph outlines
         for (tag, value) in &self.font_variations {
@@ -4382,20 +4402,77 @@ impl UnifiedLayout {
         // 4. Handle single-line selection.
         if start_item.line_index == end_item.line_index {
             if let Some(line_bounds) = get_line_bounds(start_item.line_index) {
-                let start_x = get_cursor_x(start_item, start_cursor.affinity);
-                let end_x = get_cursor_x(end_item, end_cursor.affinity);
+                // Walk the selected clusters in VISUAL order and group them into
+                // segments by bidi direction + visual contiguity, emitting one rect
+                // per segment. A single endpoint-to-endpoint span over-covers (and can
+                // under-cover) bidi selections, whose logically-contiguous clusters are
+                // NOT visually contiguous. Pure-LTR/RTL contiguous runs collapse to a
+                // single rect, matching browser/CoreText behavior.
+                let mut segments: Vec<(f32, f32, BidiDirection)> = Vec::new();
+                for item in &self.items {
+                    if item.line_index != start_item.line_index {
+                        continue;
+                    }
+                    let Some(c) = item.item.as_cluster() else {
+                        continue;
+                    };
+                    let id = c.source_cluster_id;
+                    // A cluster is selected when it lies within the (affinity-aware)
+                    // logical range: the start cluster is included only if the start
+                    // cursor sits on its leading edge; the end cluster only if the end
+                    // cursor sits on its trailing edge.
+                    let after_start = id > start_cursor.cluster_id
+                        || (id == start_cursor.cluster_id
+                            && start_cursor.affinity == CursorAffinity::Leading);
+                    let before_end = id < end_cursor.cluster_id
+                        || (id == end_cursor.cluster_id
+                            && end_cursor.affinity == CursorAffinity::Trailing);
+                    if !(after_start && before_end) {
+                        continue;
+                    }
+                    let x0 = item.position.x;
+                    let x1 = item.position.x + get_item_measure(&item.item, false);
+                    let (lo, hi) = (x0.min(x1), x0.max(x1));
+                    if let Some(last) = segments.last_mut() {
+                        let contiguous = lo <= last.1 + 0.5 && hi >= last.0 - 0.5;
+                        if last.2 == c.direction && contiguous {
+                            last.0 = last.0.min(lo);
+                            last.1 = last.1.max(hi);
+                            continue;
+                        }
+                    }
+                    segments.push((lo, hi, c.direction));
+                }
 
-                // Use min/max and abs to correctly handle selections made from right-to-left.
-                rects.push(LogicalRect {
-                    origin: LogicalPosition {
-                        x: start_x.min(end_x),
-                        y: line_bounds.origin.y,
-                    },
-                    size: LogicalSize {
-                        width: (end_x - start_x).abs(),
-                        height: line_bounds.size.height,
-                    },
-                });
+                if segments.is_empty() {
+                    // No glyph-bearing clusters (e.g. zero-advance selection):
+                    // fall back to the endpoint span so a caret-width rect still shows.
+                    let start_x = get_cursor_x(start_item, start_cursor.affinity);
+                    let end_x = get_cursor_x(end_item, end_cursor.affinity);
+                    rects.push(LogicalRect {
+                        origin: LogicalPosition {
+                            x: start_x.min(end_x),
+                            y: line_bounds.origin.y,
+                        },
+                        size: LogicalSize {
+                            width: (end_x - start_x).abs(),
+                            height: line_bounds.size.height,
+                        },
+                    });
+                } else {
+                    for (lo, hi, _dir) in segments {
+                        rects.push(LogicalRect {
+                            origin: LogicalPosition {
+                                x: lo,
+                                y: line_bounds.origin.y,
+                            },
+                            size: LogicalSize {
+                                width: hi - lo,
+                                height: line_bounds.size.height,
+                            },
+                        });
+                    }
+                }
             }
         }
         // 5. Handle multi-line selection.
@@ -6057,7 +6134,18 @@ impl TextShapingCache {
             let advance = match item {
                 ShapedItem::Cluster(c) => {
                     let total_kerning: f32 = c.glyphs.iter().map(|g| g.kerning).sum();
-                    c.advance + total_kerning
+                    let mut a = c.advance + total_kerning;
+                    // Match position_line_items exactly: letter-spacing is added after
+                    // every non-cursive cluster and word-spacing on word separators.
+                    // Omitting them here under-measures a shrink-to-fit box, so the
+                    // laid-out (spaced) text overflows its own min/max-content width.
+                    if !is_cursive_script_cluster(c) {
+                        a += c.style.letter_spacing.resolve_px(c.style.font_size_px);
+                    }
+                    if is_word_separator(item) {
+                        a += c.style.word_spacing.resolve_px(c.style.font_size_px);
+                    }
+                    a
                 }
                 ShapedItem::CombinedBlock { bounds, .. }
                 | ShapedItem::Object { bounds, .. }
@@ -6077,6 +6165,15 @@ impl TextShapingCache {
                 if cur_word > max_word {
                     max_word = cur_word;
                 }
+                // A break opportunity that is itself a rendered unit (a CJK
+                // ideograph in normal mode, or any cluster under break-all /
+                // overflow-wrap:anywhere) still forms a minimal unbreakable unit
+                // of its own advance; only true separators (spaces) contribute 0.
+                // Without this, pure-CJK / break-all text measures min-content = 0
+                // and the box collapses to zero inline width.
+                if !is_word_separator(item) && adv > max_word {
+                    max_word = adv;
+                }
                 cur_word = 0.0;
             } else {
                 cur_word += adv;
@@ -6086,8 +6183,18 @@ impl TextShapingCache {
             max_word = cur_word;
         }
 
+        // white-space:nowrap forbids soft-wrap opportunities entirely, so the
+        // min-content width equals the max-content width (one unbreakable line).
+        // Without this the scan resets cur_word at each space and reports a
+        // too-small min-content, letting flex/shrink-to-fit clip the text.
+        let min_content_width = if matches!(constraints.white_space_mode, WhiteSpaceMode::Nowrap) {
+            total
+        } else {
+            max_word
+        };
+
         Ok(IntrinsicTextSizes {
-            min_content_width: max_word,
+            min_content_width,
             max_content_width: total,
             max_content_height: max_line_height,
         })
@@ -6694,6 +6801,11 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
 ) -> Vec<(usize, usize, FontId)> {
     let mut segments: Vec<(usize, usize, FontId)> = Vec::new();
 
+    // Deterministic "last resort" face for characters no font covers: the lowest
+    // FontId among the loaded fonts. Used so an uncovered codepoint still emits a
+    // .notdef (tofu) segment instead of being silently dropped (zero glyphs/advance).
+    let notdef_font_id = loaded_fonts.iter().map(|(id, _)| *id).min();
+
     for (byte_idx, ch) in text.char_indices() {
         let char_end = byte_idx + ch.len_utf8();
         // Primary: the resolved fallback chain. Its coverage comes from
@@ -6708,12 +6820,20 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
             // so OS/2-vs-cmap gaps render instead of being silently dropped.
             // The covering CJK face is already loaded (Han/Kana resolved to it),
             // so this reuses it for Hangul rather than mixing in another font.
+            // Iterate in a STABLE order (lowest FontId first) so the chosen face is
+            // deterministic across processes — a raw HashMap `.find` is seeded per
+            // process and would pick different faces run-to-run.
             .or_else(|| {
                 loaded_fonts
                     .iter()
-                    .find(|(_, font)| font.has_glyph(ch as u32))
+                    .filter(|(_, font)| font.has_glyph(ch as u32))
                     .map(|(id, _)| *id)
-            });
+                    .min()
+            })
+            // Last resort: no font advertises OR covers this codepoint. Assign it to
+            // the primary loaded face so the shaper emits a visible .notdef box and
+            // the byte range is preserved (following text is not shifted).
+            .or(notdef_font_id);
         if let Some(font_id) = font_id {
             match segments.last_mut() {
                 Some(last) if last.2 == font_id && last.1 == byte_idx => {
@@ -7144,14 +7264,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     // For now, approximate space advance as 0.5 * font_size (typical for Latin fonts).
                     let space_advance_approx = style.font_size_px * SPACE_WIDTH_RATIO;
                     // +spec:text-alignment-spacing:5a5efd - tab-size includes letter-spacing and word-spacing
-                    let ls = match style.letter_spacing {
-                        Spacing::Px(px) => px as f32,
-                        Spacing::Em(em) => em * style.font_size_px,
-                    };
-                    let ws = match style.word_spacing {
-                        Spacing::Px(px) => px as f32,
-                        Spacing::Em(em) => em * style.font_size_px,
-                    };
+                    let ls = style.letter_spacing.resolve_px(style.font_size_px);
+                    let ws = style.word_spacing.resolve_px(style.font_size_px);
                     // Tab stop interval: tab_size * (space advance + letter-spacing + word-spacing)
                     let tab_interval = style.tab_size * (space_advance_approx + ls + ws);
                     // Calculate current advance to find next tab stop
@@ -8431,8 +8545,14 @@ pub fn break_one_line<T: ParsedFontTrait>(
     // CSS Text Module Level 3 § 4.1.2: At the beginning of a line, white space
     // is collapsed away. Skip leading whitespace at line start.
     // https://www.w3.org/TR/css-text-3/#white-space-phase-2
-    let break_spaces = white_space_mode == WhiteSpaceMode::BreakSpaces;
-    if !break_spaces {
+    // Per CSS Text 3 §4.1.1/§4.1.2, leading white space at line start is collapsed
+    // ONLY for the collapsing white-space modes. Pre / pre-wrap / break-spaces must
+    // preserve leading indentation, so only strip for Normal / Nowrap / Pre-line.
+    let strip_leading = matches!(
+        white_space_mode,
+        WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
+    );
+    if strip_leading {
         while !cursor.is_done() {
             let next_unit = cursor.peek_next_unit();
             if next_unit.is_empty() {
@@ -8488,7 +8608,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
 
         let unit_width: f32 = next_unit
             .iter()
-            .map(|item| get_item_measure(item, is_vertical))
+            .map(|item| get_item_measure_with_spacing(item, is_vertical))
             .sum();
         let available_width = line_constraints.total_available - current_width;
 
@@ -8536,7 +8656,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                         // overflow-wrap is anywhere/break-word.
                         let avail = line_constraints.total_available;
                         for item in &next_unit {
-                            let item_w = get_item_measure(item, is_vertical);
+                            let item_w = get_item_measure_with_spacing(item, is_vertical);
                             // Break BEFORE this item if adding it would overflow,
                             // but only if we already have at least one item on the
                             // line (must always make progress).
@@ -8559,9 +8679,11 @@ pub fn break_one_line<T: ParsedFontTrait>(
                         cursor.consume(consumed);
                     }
                     OverflowWrap::Normal => {
-                        // No emergency breaking — just force one item to prevent infinite loop
-                        line_items.push(next_unit[0].clone());
-                        cursor.consume(1);
+                        // overflow-wrap:normal keeps an unbreakable word intact and
+                        // lets it overflow the line box — it must NOT be shredded one
+                        // grapheme per line. Place the whole unit on this (empty) line.
+                        line_items.extend_from_slice(&next_unit);
+                        cursor.consume(next_unit.len());
                     }
                 }
             }
@@ -8575,11 +8697,20 @@ pub fn break_one_line<T: ParsedFontTrait>(
     // as well as any trailing U+1680 OGHAM SPACE MARK whose white-space is normal/nowrap/pre-line.
     // Note: pre-wrap and break-spaces have different handling (hanging/preserving)
     // which is not yet implemented here.
-    while let Some(last) = line_items.last() {
-        if is_collapsible_whitespace(last) {
-            line_items.pop();
-        } else {
-            break;
+    // Trailing collapsible white space is trimmed only for the collapsing modes.
+    // Pre keeps significant trailing spaces; pre-wrap hangs them (handled in
+    // position_one_line); break-spaces must never drop them.
+    let strip_trailing = matches!(
+        white_space_mode,
+        WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
+    );
+    if strip_trailing {
+        while let Some(last) = line_items.last() {
+            if is_collapsible_whitespace(last) {
+                line_items.pop();
+            } else {
+                break;
+            }
         }
     }
 
@@ -9298,18 +9429,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
                     // +spec:text-alignment-spacing:8dbb78 - zero letter-spacing behaves as normal (Px(0) adds no spacing)
                     // +spec:text-alignment-spacing:456643 - skip letter-spacing for cursive scripts
                     if !is_cursive_script_cluster(c) {
-                    let letter_spacing_px = match c.style.letter_spacing {
-                        Spacing::Px(px) => px as f32,
-                        Spacing::Em(em) => em * c.style.font_size_px,
-                    };
+                    let letter_spacing_px = c.style.letter_spacing.resolve_px(c.style.font_size_px);
                     main_axis_pen += letter_spacing_px;
                     }
                     // +spec:width-calculation:9447d1 - word-spacing only applied to word separators; zero-width chars like U+200B are excluded
                     if is_word_separator(&item) {
-                        let word_spacing_px = match c.style.word_spacing {
-                            Spacing::Px(px) => px as f32,
-                            Spacing::Em(em) => em * c.style.font_size_px,
-                        };
+                        let word_spacing_px = c.style.word_spacing.resolve_px(c.style.font_size_px);
                         main_axis_pen += word_spacing_px;
                         main_axis_pen += extra_word_spacing;
                     }
@@ -9331,9 +9456,11 @@ fn calculate_alignment_offset(
 ) -> f32 {
     // Simplified to use the first segment for alignment.
     if let Some(segment) = line_constraints.segments.first() {
+        // Include letter/word-spacing so center/right alignment matches the width the
+        // text is actually positioned at (position_one_line adds the spacing).
         let total_width: f32 = items
             .iter()
-            .map(|item| get_item_measure(item, is_vertical))
+            .map(|item| get_item_measure_with_spacing(item, is_vertical))
             .sum();
 
         let available_width = if constraints.segment_alignment == SegmentAlignment::Total {
@@ -9842,6 +9969,31 @@ const fn classify_character(codepoint: u32) -> CharacterClass {
     }
 }
 
+/// Like [`get_item_measure`] but ALSO includes the per-cluster letter-spacing and
+/// per-separator word-spacing that `position_one_line` adds after each cluster.
+///
+/// Line breaking and center/right alignment must measure the SAME width the text is
+/// finally positioned at; `get_item_measure` alone omits letter/word-spacing, so a run
+/// that "just fits" without spacing overflows its box (or mis-aligns) once the spacing
+/// is applied. Selection/caret geometry must NOT include the trailing spacing, so those
+/// callers keep using the bare `get_item_measure`.
+#[must_use]
+pub fn get_item_measure_with_spacing(item: &ShapedItem, is_vertical: bool) -> f32 {
+    let base = get_item_measure(item, is_vertical);
+    if let ShapedItem::Cluster(c) = item {
+        let mut extra = 0.0;
+        if !is_cursive_script_cluster(c) {
+            extra += c.style.letter_spacing.resolve_px(c.style.font_size_px);
+        }
+        if is_word_separator(item) {
+            extra += c.style.word_spacing.resolve_px(c.style.font_size_px);
+        }
+        base + extra
+    } else {
+        base
+    }
+}
+
 /// Calculates the available horizontal segments for a line at a given vertical position,
 /// considering both shape boundaries and exclusions.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
@@ -10299,6 +10451,18 @@ fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
 // +spec:line-breaking:65ab41 - word-break: normal/break-all/keep-all break opportunity rules
 // +spec:line-breaking:7eca16 - U+200B ZERO WIDTH SPACE is always a break opportunity, even with keep-all
 fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
+    // No-break spaces (UAX#14 class GL/WJ) are word separators for word-spacing
+    // purposes but must NOT offer a soft-wrap opportunity. This is the segmentation
+    // path used by BreakCursor::peek_next_unit, so it must suppress them the same way
+    // the dedicated is_break_opportunity() does; otherwise "10\u{00A0}km" wrongly wraps.
+    if let ShapedItem::Cluster(c) = item {
+        if c.text
+            .chars()
+            .any(|ch| matches!(ch, '\u{00A0}' | '\u{202F}' | '\u{2060}' | '\u{FEFF}'))
+        {
+            return false;
+        }
+    }
     // Break after spaces or explicit break items (always, regardless of word-break).
     if is_word_separator(item) {
         return true;
