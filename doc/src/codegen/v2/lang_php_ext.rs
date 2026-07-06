@@ -81,6 +81,7 @@ pub fn generate(ir: &CodegenIR) -> Result<String> {
     emit_releaser(&mut builder);
 
     emit_primitive_functions(&mut builder);
+    emit_counter_glue(&mut builder);
     emit_ir_classes(&mut builder, ir);
 
     for cb in host_invoker_kinds(ir) {
@@ -126,20 +127,20 @@ fn emit_handle_table(builder: &mut CodeBuilder) {
 /// JSON snapshot doesn't leak. Also clears `CALLBACKS` since they
 /// share `NEXT_HANDLE_ID`.
 fn emit_releaser(builder: &mut CodeBuilder) {
-    builder.line("/// Drop the handle table entries for `id`. Called by libazul on");
-    builder.line("/// the last-clone destructor of a host-handle RefAny.");
-    builder.line("unsafe extern \"C\" fn host_handle_releaser(id: u64) {");
+    builder.line("/// Called by libazul when a host-handle RefAny's refcount hits zero.");
+    builder.line("///");
+    builder.line("/// NOTE: intentionally a no-op. PHP host-handle ids are *stable keys*");
+    builder.line("/// the user holds in plain PHP `int` variables ($model_id, $onclick_id,");
+    builder.line("/// …) for the whole script, and the SAME id is re-minted into a fresh");
+    builder.line("/// independent RefAny on every (re)layout (via `AzRefAny_newHostHandle`).");
+    builder.line("/// Those independent RefAnys don't share a refcount, so an eager remove");
+    builder.line("/// here would clear the model / callback the moment the *first* relayout");
+    builder.line("/// drops its copy — breaking the counter after one click. Pinning the");
+    builder.line("/// tables for the process lifetime is the correct lifetime story for the");
+    builder.line("/// JSON-snapshot model; a CLI GUI app leaks only a handful of entries.");
+    builder.line("unsafe extern \"C\" fn host_handle_releaser(_id: u64) {");
     builder.indent();
-    builder.line("if let Ok(mut tbl) = HANDLES.lock() {");
-    builder.indent();
-    builder.line("tbl.remove(&id);");
-    builder.dedent();
-    builder.line("}");
-    builder.line("if let Ok(mut tbl) = CALLBACKS.lock() {");
-    builder.indent();
-    builder.line("tbl.remove(&id);");
-    builder.dedent();
-    builder.line("}");
+    builder.line("// no-op — see doc comment.");
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -287,6 +288,159 @@ fn emit_primitive_functions(builder: &mut CodeBuilder) {
     builder.blank();
 }
 
+/// Emit the full-GUI counter host-invoker bridge: the typed per-kind
+/// LayoutCallback + generic Callback invokers (Rust fns that call back into
+/// PHP through the Zend executor), plus `azul_counter_init` / `azul_refany_set`.
+///
+/// These are the same `AzApp_set<Kind>Invoker` slots the Lua binding registers
+/// libffi closures into. The layout invoker splices the PHP-returned
+/// `Azul\Dom` into the out-pointer; the generic Callback invoker (used by
+/// `Azul\Dom::on_click`) returns an `Update` int.
+///
+/// NOTE: the counter uses a plain `Azul\Dom::on_click` node, NOT the `Button`
+/// widget — the widget's `.dom()` output triggers a heap corruption on drop
+/// in the php-extension dylib build (link-static + ext-php-rs + macOS
+/// `-undefined dynamic_lookup`); plain DOM nodes are unaffected.
+fn emit_counter_glue(builder: &mut CodeBuilder) {
+    builder.raw(COUNTER_GLUE);
+    builder.blank();
+}
+
+/// Verbatim Rust source for the counter host-invoker bridge. Kept as a raw
+/// literal (rather than per-line `builder.line`) because it is hand-authored,
+/// self-contained, and not derived from the IR.
+const COUNTER_GLUE: &str = r####"
+// ========================================================================
+// COUNTER GLUE (mirrored from lang_php_ext.rs::emit_counter_glue)
+// ------------------------------------------------------------------------
+// Real per-kind host-invoker bridge for the full-GUI counter example. The
+// generic-invoker smoke path above only round-trips a `kind` string; the
+// counter needs libazul's typed per-kind invokers so the layout callback
+// can return an `Azul\Dom` and a plain-node click can return an `Update`.
+// These are the same `AzApp_set<Kind>Invoker` slots the Lua binding
+// registers libffi closures into — here the closures are Rust fns that call
+// back into PHP through the Zend executor.
+// ------------------------------------------------------------------------
+extern "C" {
+    /// libazul per-kind invoker setter (LayoutCallback → returns AzDom).
+    fn AzApp_setLayoutCallbackInvoker(
+        f: unsafe extern "C" fn(
+            u64,
+            *const crate::dll::AzRefAny,
+            *const ::core::ffi::c_void,
+            *mut crate::dll::AzDom,
+        ),
+    );
+    /// Mint a LayoutCallback wrapper struct bound to host-handle `id`.
+    fn AzLayoutCallback_createFromHostHandle(id: u64) -> crate::dll::AzLayoutCallback;
+    /// libazul per-kind invoker setter (generic Callback → returns AzUpdate).
+    fn AzApp_setCallbackInvoker(
+        f: unsafe extern "C" fn(
+            u64,
+            *const crate::dll::AzRefAny,
+            *const ::core::ffi::c_void,
+            *mut crate::dll::AzUpdate,
+        ),
+    );
+    /// Mint a generic Callback wrapper struct bound to host-handle `id`.
+    fn AzCallback_createFromHostHandle(id: u64) -> crate::dll::AzCallback;
+}
+
+/// Extract the host-handle id from a callback's `data` RefAny pointer.
+unsafe fn az_refany_host_id(data: *const crate::dll::AzRefAny) -> u64 {
+    if data.is_null() { return 0; }
+    ::azul_core::host_invoker::AzRefAny_getHostHandle(
+        data as *const ::azul_core::refany::RefAny,
+    )
+}
+
+/// LayoutCallback invoker. Called by libazul on every (re)layout. Looks up
+/// the PHP callable stashed under `handle`, calls it with the data
+/// host-handle id (an `int` PHP can pass to `azul_refany_get`), and splices
+/// the returned `Azul\Dom` object's inner AzDom into `out`. The PHP object
+/// keeps ownership of its own copy (its Drop frees it); we hand libazul an
+/// independent clone.
+unsafe extern "C" fn php_layout_invoker(
+    handle: u64,
+    data: *const crate::dll::AzRefAny,
+    _info: *const ::core::ffi::c_void,
+    out: *mut crate::dll::AzDom,
+) {
+    let name = match CALLBACKS.lock() { Ok(t) => t.get(&handle).cloned(), Err(_) => None };
+    let name = match name { Some(n) => n, None => return };
+    let data_id = az_refany_host_id(data);
+    let callable = match ::ext_php_rs::types::ZendCallable::try_from_name(&name) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let ret = match callable.try_call(vec![&(data_id as i64)]) {
+        Ok(z) => z,
+        Err(_) => return,
+    };
+    // The PHP layout function returns an `Azul\Dom`; splice a clone of its
+    // inner AzDom into `out` (the PHP object keeps ownership of its own copy).
+    if let Some(dom_ref) = ret.extract::<&AzulDom>() {
+        let cloned = crate::dll::AzDom_clone(&dom_ref.inner);
+        ::core::ptr::write(out, cloned);
+    }
+}
+
+/// Generic `Callback`-kind invoker (Hover MouseUp etc. attached to plain DOM
+/// nodes via `AzulDom::on_click`). Calls the PHP handler with the data
+/// host-handle id and returns an Update int
+/// (0 = DoNothing, 1 = RefreshDom, 2 = RefreshDomAllWindows).
+unsafe extern "C" fn php_callback_invoker(
+    handle: u64,
+    data: *const crate::dll::AzRefAny,
+    _info: *const ::core::ffi::c_void,
+    out: *mut crate::dll::AzUpdate,
+) {
+    let name = match CALLBACKS.lock() { Ok(t) => t.get(&handle).cloned(), Err(_) => None };
+    let name = match name { Some(n) => n, None => return };
+    let data_id = az_refany_host_id(data);
+    let callable = match ::ext_php_rs::types::ZendCallable::try_from_name(&name) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let ret = match callable.try_call(vec![&(data_id as i64)]) {
+        Ok(z) => z,
+        Err(_) => return,
+    };
+    let upd = match ret.long().unwrap_or(0) {
+        1 => crate::dll::AzUpdate::RefreshDom,
+        2 => crate::dll::AzUpdate::RefreshDomAllWindows,
+        _ => crate::dll::AzUpdate::DoNothing,
+    };
+    ::core::ptr::write(out, upd);
+}
+
+/// PHP function: `azul_counter_init() : void`. Registers the per-kind layout
+/// invoker + the generic `Callback` invoker (used by `Azul\Dom::on_click`)
+/// and the host-handle releaser. Idempotent — call once at startup.
+#[::ext_php_rs::prelude::php_function]
+pub fn azul_counter_init() {
+    unsafe {
+        AzApp_setHostHandleReleaser(Some(host_handle_releaser));
+        AzApp_setLayoutCallbackInvoker(php_layout_invoker);
+        AzApp_setCallbackInvoker(php_callback_invoker);
+    }
+}
+
+/// PHP function: `azul_refany_set(int $id, string $json) : bool`. Overwrite
+/// the JSON snapshot stored under `$id` (the model-mutation path used by
+/// click handlers). Returns false if the id is unknown/released.
+#[::ext_php_rs::prelude::php_function]
+pub fn azul_refany_set(id: u64, value: String) -> bool {
+    let mut tbl = match HANDLES.lock() { Ok(t) => t, Err(_) => return false };
+    if let Some(slot) = tbl.get_mut(&id) {
+        *slot = value;
+        true
+    } else {
+        false
+    }
+}
+"####;
+
 /// Per callback kind, emit `azul_register_<wrapper>_callback(string $name)`
 /// that stashes the named PHP function in `CALLBACKS` and returns its
 /// new handle id. The user then calls libazul-side
@@ -370,6 +524,8 @@ fn emit_get_module(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line(".function(::ext_php_rs::wrap_function!(azul_version))");
     builder.line(".function(::ext_php_rs::wrap_function!(azul_refany_create))");
     builder.line(".function(::ext_php_rs::wrap_function!(azul_refany_get))");
+    builder.line(".function(::ext_php_rs::wrap_function!(azul_refany_set))");
+    builder.line(".function(::ext_php_rs::wrap_function!(azul_counter_init))");
     builder.line(".function(::ext_php_rs::wrap_function!(azul_host_invoker_init))");
     builder.line(".function(::ext_php_rs::wrap_function!(azul_invoke_callback))");
     for cb in host_invoker_kinds(ir) {
@@ -501,10 +657,82 @@ fn emit_class(builder: &mut CodeBuilder, struct_def: &StructDef, ir: &CodegenIR)
         skipped = skipped,
     ));
 
+    // Hand-written host-invoker methods the IR marshaller can't derive
+    // (callback wrapper structs / layout-callback splice).
+    emit_class_extras(builder, bare);
+
     builder.dedent();
     builder.line("}");
     builder.blank();
 }
+
+/// Emit the hand-written counter methods for specific classes:
+/// * `Azul\Dom::on_click(data_handle, cb_handle)` — attach a Hover
+///   left-mouse-up callback (generic `Callback` kind) to a plain DOM node.
+/// * `Azul\WindowCreateOptions::create(cb_handle)` — build window options
+///   whose `window_state.layout_callback` is the LayoutCallback wrapper for
+///   `cb_handle`.
+/// Emitted INSIDE the class's `#[php_impl]` block (caller is at method indent).
+fn emit_class_extras(builder: &mut CodeBuilder, bare: &str) {
+    match bare {
+        "Dom" => builder.raw(DOM_ON_CLICK_METHOD),
+        "WindowCreateOptions" => builder.raw(WCO_CREATE_METHOD),
+        _ => {}
+    }
+}
+
+const DOM_ON_CLICK_METHOD: &str = r####"
+    /// Attach a click handler (Hover → left-mouse-up) to this DOM node.
+    /// `data_handle` is the model host-handle id; `cb_handle` is a generic
+    /// `Callback` host-handle id from `azul_register_callback`. Builds the
+    /// CoreCallbackData directly and splices it into the node via
+    /// `AzDom_withCallbacks` (swap-consume so the value-by-move C-ABI is
+    /// satisfied without leaking/double-freeing the receiver).
+    pub fn on_click(&mut self, data_handle: i64, cb_handle: i64) {
+        unsafe {
+            // AzCallback impls Drop, so move its fields out via ptr::read +
+            // forget (moving `ctx` by value while leaving the wrapper's Drop
+            // from double-dropping it).
+            let cb = AzCallback_createFromHostHandle(cb_handle as u64);
+            let cb_fn = cb.cb;
+            let cb_ctx = ::core::ptr::read(&cb.ctx);
+            ::core::mem::forget(cb);
+            let data = ::core::mem::transmute::<_, crate::dll::AzRefAny>(
+                ::azul_core::host_invoker::AzRefAny_newHostHandle(data_handle as u64),
+            );
+            let event = crate::dll::AzEventFilter_hover(
+                crate::dll::AzHoverEventFilter_leftMouseUp(),
+            );
+            let core_cb = crate::dll::AzCoreCallback {
+                cb: cb_fn as *const () as usize,
+                ctx: cb_ctx,
+            };
+            let ccd = crate::dll::AzCoreCallbackData {
+                event,
+                callback: core_cb,
+                refany: data,
+            };
+            let vec = crate::dll::AzCoreCallbackDataVec_fromItem(ccd);
+            let taken = crate::dll::AzDom_swapWithDefault(&mut self.inner);
+            self.inner = crate::dll::AzDom_withCallbacks(taken, vec);
+        }
+    }
+"####;
+
+const WCO_CREATE_METHOD: &str = r####"
+    /// Build window options whose layout callback is the PHP function stashed
+    /// under `cb_handle` (from `azul_register_layout_callback`). Splices the
+    /// LayoutCallback wrapper struct into `window_state.layout_callback`, the
+    /// same slot the Lua binding writes.
+    pub fn create(cb_handle: i64) -> Self {
+        unsafe {
+            let mut inner = crate::dll::AzWindowCreateOptions_default();
+            inner.window_state.layout_callback =
+                AzLayoutCallback_createFromHostHandle(cb_handle as u64);
+            AzulWindowCreateOptions { inner }
+        }
+    }
+"####;
 
 /// Function kinds we know how to emit. The auto-derived trait helpers
 /// (delete/clone/eq/...) are handled by the class scaffolding above

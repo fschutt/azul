@@ -228,12 +228,25 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 
     // Per-variant payload structs: each carries the tag as its first slot
     // followed by the payload, exactly like the C-ABI memory layout.
+    //
+    // The tag slot is typed as the PLAIN underlying integer, NOT the
+    // `*-tag` defcenum. When CFFI translates a by-value struct that
+    // contains a tagged union (e.g. every Vec's destructor, or an
+    // AzRefAny's type_name String), it walks EVERY overlapping union
+    // variant and validates each enum-typed slot — but an inactive
+    // variant's bytes aren't a valid tag value, so a keyword-typed slot
+    // raises "N is not a value for enum AZ-…-TAG" and the whole
+    // translation aborts. Reading the tag as a raw integer keeps the same
+    // byte width/layout while skipping validation (nothing in the binding
+    // consumes the tag keyword anyway). The `defcenum` above is still
+    // emitted for documentation / potential manual use.
+    let tag_slot_ty = enum_underlying_type(e);
     for v in &e.variants {
         let variant_struct =
             format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
         builder.line(&format!("(defcstruct {}", variant_struct));
         builder.indent();
-        builder.line(&format!("(tag {})", tag_name));
+        builder.line(&format!("(tag {})", tag_slot_ty));
         match &v.kind {
             EnumVariantKind::Unit => {
                 // No payload.
@@ -405,12 +418,16 @@ fn emit_monomorphized_alias(
             builder.dedent();
             builder.blank();
 
+            // See emit_tagged_union: the tag slot is a plain integer (not
+            // the `*-tag` defcenum) so CFFI never validates it while
+            // translating a by-value struct that overlaps this union.
+            let tag_slot_ty = underlying;
             for v in variants {
                 let variant_struct =
                     format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
                 builder.line(&format!("(defcstruct {}", variant_struct));
                 builder.indent();
-                builder.line(&format!("(tag {})", tag_name));
+                builder.line(&format!("(tag {})", tag_slot_ty));
                 if let Some(ref payload_ty) = v.payload_type {
                     let cffi_ty = ref_kind_field_type(payload_ty, &v.payload_ref_kind, ir);
                     builder.line(&format!("(payload {})", cffi_ty));

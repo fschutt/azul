@@ -439,6 +439,35 @@ pub fn return_c_typename(cb: &CallbackTypedefDef) -> Option<String> {
     }
 }
 
+/// Real C-ABI byte size (LP64) of a callback kind's RETURN type.
+///
+/// Managed bindings that write the callback return value back through the
+/// invoker's out-pointer (e.g. Perl's `_writeback`) must copy the type's TRUE
+/// C struct size — a host record can be larger than the C struct (over-sized
+/// tagged-union payload fields), and copying `sizeof(host_record)` bytes
+/// overflows the out-pointer and smashes the callback frame.
+///
+/// Returns `None` for `void`-returning kinds (no writeback). Every return type
+/// used by [`HOST_INVOKER_KINDS`] is covered; a new callback kind whose typedef
+/// returns an aggregate must add its size here. Sizes are the repr(C) LP64
+/// layout of the wrapper struct (computed from `api.json`/the C header).
+pub fn return_c_size(cb: &CallbackTypedefDef) -> Option<usize> {
+    let rt = return_c_typename(cb)?;
+    Some(match rt.as_str() {
+        "AzDom" => 240,
+        "AzVirtualViewReturn" => 280,
+        "AzOnTextInputReturn" => 8,
+        // AzUpdate and every other repr(C) fieldless enum return -> C int.
+        "AzUpdate" => 4,
+        // Fallback for any not-yet-catalogued aggregate return: a fieldless
+        // enum is 4 bytes; anything larger MUST be added above (an under-copy
+        // truncates the return, an over-copy would overflow). We choose the
+        // conservative enum size so a mistake fails loudly (wrong value) rather
+        // than corrupting memory.
+        _ => 4,
+    })
+}
+
 /// A stable name for the i-th positional arg of a callback. Falls back to
 /// `_arg{i}` when the IR didn't carry one (rare; some legacy entries had
 /// empty names).

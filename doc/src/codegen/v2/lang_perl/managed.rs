@@ -57,6 +57,25 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line(
         "$Azul::ffi->attach('AzRefAny_getHostHandle' => ['AzRefAny'] => 'uint64');",
     );
+    // Pointer-typed alias of the SAME C symbol: the per-kind invokers receive
+    // `data` as a raw *const AzRefAny pointer (an integer address / opaque),
+    // not a record object, so `refany_get` needs a variant that accepts an
+    // opaque pointer directly (the record-typed attach above rejects a bare
+    // integer address).
+    builder.line(
+        "# Pointer-typed alias of the same C symbol: the per-kind invokers receive",
+    );
+    builder.line(
+        "# `data` as a raw *const AzRefAny pointer (opaque), not a record object.",
+    );
+    builder.line(
+        "$Azul::ffi->attach(['AzRefAny_getHostHandle' => 'Azul::FFI::AzRefAny_getHostHandlePtr'] => ['opaque'] => 'uint64');",
+    );
+    // FFI::Platypus::Memory (memcpy) + ::Buffer (scalar_to_buffer) power the
+    // callback-return writeback; `require` them so the symbols resolve.
+    builder.line("# Runtime deps for the callback-return writeback (see Azul::_writeback).");
+    builder.line("require FFI::Platypus::Memory;");
+    builder.line("require FFI::Platypus::Buffer;");
 
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
@@ -88,7 +107,54 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}");
     builder.blank();
 
-    // Releaser closure — pinned in @_live_pins.
+    // Writeback helper: place a callback's return value into the invoker's
+    // out-pointer. CRITICAL: copy the type's REAL C size, not the Perl record
+    // size (Perl over-sizes tagged-union payloads, so length($$rec) can exceed
+    // the C struct and overflow the thunk frame).
+    builder.line("# Write a user callback's return value through the invoker's out-pointer.");
+    builder.line("# The static thunk in libazul pre-fills `out` with the kind's default, then");
+    builder.line("# hands us `out` (a raw pointer) as the invoker's trailing arg; the callback");
+    builder.line("# return value must be memcpy'd into it or the thunk returns the default.");
+    builder.line("#   * record return (AzDom, ...): the value is a FFI::Platypus::Record whose");
+    builder.line("#     backing scalar ($$ret) holds the struct bytes. We copy exactly $size");
+    builder.line("#     bytes (the TRUE C struct size); the Perl record is often larger");
+    builder.line("#     (over-sized tagged-union payload blobs) so copying length($$rec) would");
+    builder.line("#     overflow `out`. This MOVES the struct into libazul; raw records carry");
+    builder.line("#     no destructor so nothing double-frees the moved-out heap pointers.");
+    builder.line("#   * scalar return (AzUpdate and other repr(C) enums): packed to $size bytes.");
+    builder.line("sub Azul::_writeback {");
+    builder.indent();
+    builder.line("my ($out, $ret, $size) = @_;");
+    builder.line("return unless defined $out && defined $ret && $size;");
+    builder.line("my $bytes;");
+    builder.line("if (ref $ret) {");
+    builder.indent();
+    builder.line("my $rec = (Scalar::Util::blessed($ret) && $ret->can('ptr')) ? $ret->ptr : $ret;");
+    builder.line("return unless ref $rec;");
+    builder.line("$bytes = substr($$rec, 0, $size);");
+    builder.line("# Neutralize a high-level wrapper's destructor: the struct has moved");
+    builder.line("# into libazul, so its _delete must not fire on scope exit.");
+    builder.line("if (Scalar::Util::blessed($ret) && $ret->can('ptr')) { eval { $$ret = undef }; }");
+    builder.dedent();
+    builder.line("} else {");
+    builder.indent();
+    builder.line("$bytes = ($size == 8) ? pack('q', $ret)");
+    builder.line("       : ($size == 2) ? pack('s', $ret)");
+    builder.line("       : ($size == 1) ? pack('c', $ret)");
+    builder.line("       :                pack('l', $ret);");
+    builder.dedent();
+    builder.line("}");
+    builder.line("my ($sp, $sl) = FFI::Platypus::Buffer::scalar_to_buffer($bytes);");
+    builder.line("FFI::Platypus::Memory::memcpy($out, $sp, length $bytes);");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    // Releaser closure — pinned in @_live_pins AND marked ->sticky so its
+    // libffi trampoline outlives this call (libazul stores and invokes it
+    // later). Registered by casting the closure to its C function pointer:
+    // passing a FFI::Platypus::Closure to an 'opaque' parameter does NOT hand
+    // C a callable trampoline.
     builder.line("{");
     builder.indent();
     builder.line("my $releaser = $Azul::ffi->closure(sub {");
@@ -96,9 +162,10 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("my ($id) = @_;");
     builder.line("delete $_handles{$id};");
     builder.dedent();
-    builder.line("});");
+    builder.line("}, ['uint64'] => 'void');");
     builder.line("push @_live_pins, $releaser;");
-    builder.line("Azul::FFI::AzApp_setHostHandleReleaser($releaser);");
+    builder.line("$releaser->sticky;");
+    builder.line("Azul::FFI::AzApp_setHostHandleReleaser($Azul::ffi->cast('(uint64)->void', 'opaque', $releaser));");
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -121,12 +188,17 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}");
     builder.blank();
 
-    builder.line("# Recover the Perl value previously wrapped via refany_create. Pass");
-    builder.line("# a pointer to an AzRefAny (Perl-side: scalar holding the address).");
+    builder.line("# Recover the Perl value previously wrapped via refany_create. Accepts");
+    builder.line("# either the AzRefAny record returned by refany_create (user code) OR a");
+    builder.line("# raw *const AzRefAny pointer (an integer address, as the per-kind");
+    builder.line("# invokers receive `data`).");
     builder.line("sub Azul::refany_get {");
     builder.indent();
-    builder.line("my ($refany_ptr) = @_;");
-    builder.line("my $id = Azul::FFI::AzRefAny_getHostHandle($refany_ptr);");
+    builder.line("my ($refany) = @_;");
+    builder.line("return undef unless defined $refany;");
+    builder.line("my $id = ref($refany)");
+    builder.line("    ? Azul::FFI::AzRefAny_getHostHandle($refany)");
+    builder.line("    : Azul::FFI::AzRefAny_getHostHandlePtr($refany);");
     builder.line("return undef if $id == 0;");
     builder.line("return $_handles{$id};");
     builder.dedent();
@@ -187,23 +259,24 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
     builder.line("my $sub = $_handles{$id};");
     builder.line("return unless defined $sub;");
     if has_ret {
-        // B.5.1 fix: pass out_ptr to the user sub so primitive returns
-        // (AzUpdate u32 etc.) can be written back via `pack`. The user
-        // sub signature now includes the trailing `$out_ptr` arg; a
-        // typical AzUpdate handler does
-        //     pack_into('uint32', $out_ptr, 0, $val)
-        // or the Platypus equivalent. Struct returns (AzDom) still need
-        // a record-to-pointer memcpy primitive from the spike in B.5.2.
+        // Call the user sub with (data, info, extras) only. The invoker itself
+        // writes the return value through the out-pointer ($_[n_args+1]) using
+        // the return type's REAL C size — the user sub just returns a value
+        // (a record for aggregate returns, an integer for AzUpdate enums).
         let out_arg = format!("$_[{}]", n_args + 1);
-        let mut full_args = user_args_list.clone();
-        full_args.push(out_arg);
+        let ret_size = super::super::managed_host_invoker::return_c_size(cb)
+            .unwrap_or(4);
         builder.line(&format!(
             "my $ret = eval {{ $sub->({}) }};",
-            full_args.join(", ")
+            user_args_list.join(", ")
         ));
         builder.line(&format!(
             "if ($@) {{ warn \"[azul] {} invoker error: $@\"; return; }}",
             wrapper
+        ));
+        builder.line(&format!(
+            "Azul::_writeback({}, $ret, {});",
+            out_arg, ret_size
         ));
         builder.line("return;");
     } else {
@@ -217,11 +290,25 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
         ));
     }
     builder.dedent();
-    builder.line(&format!("}}, [{}] => 'void');", sig_parts.join(", ")));
+    let sig_joined = sig_parts.join(", ");
+    builder.line(&format!("}}, [{}] => 'void');", sig_joined));
     builder.line("push @_live_pins, $invoker;");
+    // ->sticky keeps the libffi trampoline alive for the process (libazul
+    // stores and invokes it later). Register the C function-pointer via cast:
+    // passing a FFI::Platypus::Closure to an 'opaque' parameter does NOT hand
+    // C a callable trampoline (the slot ends up holding a junk address).
+    builder.line("$invoker->sticky;");
+    let closure_type = format!(
+        "({})->void",
+        sig_parts
+            .iter()
+            .map(|p| p.trim_matches('\'').to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
     builder.line(&format!(
-        "Azul::FFI::AzApp_set{}Invoker($invoker);",
-        wrapper
+        "Azul::FFI::AzApp_set{}Invoker($Azul::ffi->cast('{}', 'opaque', $invoker));",
+        wrapper, closure_type
     ));
     builder.dedent();
     builder.line("}");

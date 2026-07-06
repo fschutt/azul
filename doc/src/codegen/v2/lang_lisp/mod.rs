@@ -104,7 +104,14 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     //     isn't yet interned in the :azul package, the read fails with
     //     "Symbol REGISTER-CALLBACK not found in the AZUL package".
     managed::emit_user_facing_helpers(&mut builder, ir);
-    builder.line("(export '(register-callback refany-create refany-get) :azul)");
+    // The export MUST run at compile-time (:compile-toplevel) so that the
+    // symbols become EXTERNAL before the reader reads the wrapper forms
+    // below, which reference them with a single-colon qualifier
+    // (`azul:register-callback`). A single colon demands an external symbol;
+    // a plain top-level `(export ...)` does not run until load-time, so the
+    // read of the first wrapper form would fail with "not external".
+    builder.line("(eval-when (:compile-toplevel :load-toplevel :execute)");
+    builder.line("  (export '(register-callback refany-create refany-get) :azul))");
     builder.blank();
 
     wrappers::generate_wrappers(&mut builder, ir, config)?;

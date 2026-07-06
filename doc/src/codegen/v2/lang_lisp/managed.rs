@@ -195,19 +195,25 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::Callb
         builder.line("              ((integerp ret)");
         builder.line("               (setf (cffi:mem-ref out :int32) ret))");
         if let Some((class_kebab, struct_kebab)) = ret_info {
-            // Wrapper instance: pointer accessor is `<class>-ptr` (e.g.
-            // `dom-ptr`), CFFI struct type is `(:struct az-<...>)`.
+            // Wrapper instance: the `<class>-ptr` accessor (e.g. `dom-ptr`)
+            // holds the CFFI-TRANSLATED struct value (a plist), NOT a raw
+            // foreign pointer — every `%az-*` constructor returns a
+            // `(:struct …)` by value, which CFFI translates to a plist and
+            // the CLOS wrapper stashes in its `:ptr` slot. So we can't
+            // memcpy from it (it isn't a pointer). Instead write it back
+            // through `out` with `setf mem-ref`, which translates the plist
+            // into the caller's return slot.
+            // The invoker is emitted in :azul-internal, but the CLOS
+            // wrapper class and its `<class>-ptr` accessor live in :azul —
+            // qualify both, else `(typep ret 'dom)` fails with "unknown
+            // type specifier: AZUL-INTERNAL::DOM".
             builder.line(&format!(
-                "              ((and ret (typep ret '{}))",
+                "              ((and ret (typep ret 'azul::{}))",
                 class_kebab
             ));
             builder.line(&format!(
-                "               (let ((src ({}-ptr ret)))",
-                class_kebab
-            ));
-            builder.line(&format!(
-                "                 (cffi:foreign-funcall \"memcpy\" :pointer out :pointer src :size (cffi:foreign-type-size '(:struct {})) :pointer)))",
-                struct_kebab
+                "               (setf (cffi:mem-ref out '(:struct {})) (azul::{}-ptr ret)))",
+                struct_kebab, class_kebab
             ));
         }
         builder.line("              (t nil)))");

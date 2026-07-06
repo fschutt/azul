@@ -15,6 +15,7 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
+use super::super::managed_host_invoker::managed_c_symbol;
 use super::{ident_to_kebab, map_type_to_cffi, raw_fn_name};
 
 pub fn generate_defcfuns(
@@ -76,6 +77,14 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
 
 fn emit_defcfun(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     let lisp_name = raw_fn_name(&func.c_name);
+    // The LINKED C symbol may differ from func.c_name: functions taking a
+    // callback-wrapper struct by value must bind the `<c_name>Struct`
+    // export (whole wrapper struct → preserves the host-handle ctx).
+    // Binding the bare `<c_name>` (which takes a fn-ptr `...Type`) makes
+    // the DLL store a heap pointer as the callback and clicking jumps into
+    // heap memory (EXC_BAD_ACCESS). The Lisp-side symbol name (lisp_name)
+    // stays derived from c_name so wrapper call sites don't churn.
+    let c_symbol = managed_c_symbol(func);
 
     let return_cffi = func
         .return_type
@@ -92,7 +101,7 @@ fn emit_defcfun(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     if func.args.is_empty() {
         builder.line(&format!(
             "(defcfun (\"{}\" {}) {})",
-            func.c_name, lisp_name, return_cffi
+            c_symbol, lisp_name, return_cffi
         ));
         builder.blank();
         return;
@@ -104,7 +113,7 @@ fn emit_defcfun(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     //     (config :pointer))
     builder.line(&format!(
         "(defcfun (\"{}\" {}) {}",
-        func.c_name, lisp_name, return_cffi
+        c_symbol, lisp_name, return_cffi
     ));
     builder.indent();
 
