@@ -25,6 +25,9 @@ pub mod f26dot6;
 pub mod graphics_state;
 pub mod interpreter;
 
+#[cfg(test)]
+mod tests;
+
 pub use f26dot6::{F26Dot6, F2Dot14};
 pub use interpreter::{HintError, Interpreter, Point, Zone};
 
