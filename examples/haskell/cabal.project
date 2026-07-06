@@ -4,11 +4,14 @@
 packages: .
           ../azul-haskell
 
--- Find the native dylib via absolute paths (cabal/ghc-pkg rejects
--- relative paths during package registration). Override with
--- `cabal build --extra-lib-dirs=...` if your checkout lives elsewhere.
-package azul
-  extra-lib-dirs: /Users/fschutt/Development/azul/examples/azul-haskell
-
-package azul-example
-  extra-lib-dirs: /Users/fschutt/Development/azul/examples/azul-haskell
+-- The native azul.dll / libazul.so / libazul.dylib is located at build
+-- time via `--extra-lib-dirs=<ABSOLUTE path to target/release>` passed on
+-- the cabal command line (scripts/e2e_language_matrix.sh does this
+-- automatically; pass it yourself for a bare `cabal build`).
+--
+-- Do NOT hardcode an absolute extra-lib-dirs here. Besides being
+-- machine-specific, a Unix-style path (/Users/... , /home/...) is rejected
+-- by ghc-pkg on WINDOWS as a "relative path which makes no sense" during
+-- package registration (no drive letter) -> the whole build fails. The
+-- command-line --extra-lib-dirs is an OS-correct absolute path on every
+-- platform, so registration succeeds cross-OS.
