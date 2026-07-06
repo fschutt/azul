@@ -859,13 +859,13 @@ pyo3_logger = ["pyo3-log", "logging"]
 # -----------------------------------------------------------------------------
 
 # Python extension module.
-# `dep:cc` builds the Linux weak-Py*-symbol stubs (src/python_abi3_weak_stubs.c)
-# into the cdylib so a SINGLE libazul.so serves BOTH `import azul` (libpython
-# interposes the real symbols at load, via the RTLD_GLOBAL global scope being
-# searched before libazul's own weak defs) AND C/C++ apps that link `-lazul`
-# (the weak stubs satisfy the linker; they are never called without a Python
-# interpreter). See dll/build.rs::compile_python_weak_stubs.
-python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static", "dep:cc"]
+# The Linux Py*-symbol fallback stubs (src/python_abi3_stubs.rs) are a crate
+# `#[no_mangle]` module, so a SINGLE libazul.so serves BOTH `import azul` (the
+# interpreter interposes the real symbols at load, its `.dynsym` being searched
+# before libazul's own GLOBAL defs) AND C/C++ apps that link `-lazul` (the stubs
+# satisfy the linker; never called without a Python interpreter). They must be
+# crate exports, not a C archive — see src/python_abi3_stubs.rs for why.
+python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static"]
 
 # PHP extension module (Zend engine native extension via ext-php-rs).
 # Unlike the standard php-ffi path, this loads through the Zend engine

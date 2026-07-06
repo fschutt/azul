@@ -62,15 +62,15 @@ fn main() {
         println!("cargo:rustc-cdylib-link-arg=-Wl,-install_name,@rpath/libazul.dylib");
     }
 
-    // B1: on Linux, bake weak Py* stubs into the cdylib (see
-    // src/python_abi3_weak_stubs.c) so a SINGLE libazul.so serves both
-    // `import azul` (libpython interposes) and C/C++ apps linking `-lazul`
-    // (the weak stubs satisfy the linker, never called). macOS/Windows use
-    // their own mechanism, so this is Linux-only.
-    #[cfg(feature = "python-extension")]
-    if target.contains("linux") {
-        compile_python_weak_stubs();
-    }
+    // B1: on Linux, the cdylib bakes in fallback definitions of every `Py*`
+    // symbol pyo3's `extension-module` leaves undefined, so a SINGLE libazul.so
+    // serves both `import azul` (the interpreter interposes) and C/C++ apps
+    // linking `-lazul`. These live in `src/python_abi3_stubs.rs` (a crate
+    // `#[no_mangle]` module) rather than a linked C archive: rustc's cdylib
+    // version script localizes archive symbols (`local: *`), and a LOCAL stub is
+    // not interposable — it crashed `import azul`. Crate exports land in the
+    // version script's `global:` section, staying preemptible. No build step
+    // needed here; the module is `cfg`-gated to Linux in lib.rs.
 
     if target.contains("ios") {
         configure_ios();
@@ -149,28 +149,13 @@ fn restrict_cdylib_exports(target: &str) {
     // Windows / other: no restriction (see doc comment).
 }
 
-// ── Python: weak Py* stubs (Linux, bug B1) ────────────────────────────
-
-/// Compile `src/python_abi3_weak_stubs.c` into the cdylib so that the single
-/// shipped `libazul.so` carries WEAK definitions of every `Py*` symbol pyo3
-/// leaves undefined (extension-module does not link libpython). C/C++ apps can
-/// then link `-lazul`; a real interpreter interposes the strong symbols at
-/// import via the RTLD_GLOBAL global scope. `--whole-archive` forces all stubs
-/// in regardless of static-link order; `rustc-cdylib-link-arg` keeps them out of
-/// the staticlib (`libazul.a` stays lean for C static linking).
-#[cfg(feature = "python-extension")]
-fn compile_python_weak_stubs() {
-    println!("cargo:rerun-if-changed=src/python_abi3_weak_stubs.c");
-    cc::Build::new()
-        .file("src/python_abi3_weak_stubs.c")
-        .opt_level(0)
-        .cargo_metadata(false) // we link it ourselves, whole-archive, cdylib-only
-        .compile("azul_pyabi3_stubs");
-    let out = env::var("OUT_DIR").unwrap();
-    println!("cargo:rustc-cdylib-link-arg=-Wl,--whole-archive");
-    println!("cargo:rustc-cdylib-link-arg={}/libazul_pyabi3_stubs.a", out);
-    println!("cargo:rustc-cdylib-link-arg=-Wl,--no-whole-archive");
-}
+// ── Python: Py* fallback stubs (Linux, bug B1) ────────────────────────
+//
+// The fallback `Py*` definitions now live in `src/python_abi3_stubs.rs` as a
+// crate `#[no_mangle]` module (Linux + python-extension only). They must be
+// crate exports, not a linked C archive: rustc's cdylib version script
+// localizes archive symbols, and a LOCAL stub is not interposable — it crashed
+// `import azul`. No build step is required here.
 
 // ── Android setup ─────────────────────────────────────────────────────
 

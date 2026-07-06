@@ -261,6 +261,14 @@ mod python {
 #[cfg(feature = "python-extension")]
 pub use python::azul;
 
+// Fallback definitions of the `Py*` symbols pyo3's `extension-module` leaves
+// undefined, so a single libazul.so serves both `import azul` and C `-lazul`
+// (bug B1). MUST be a crate `#[no_mangle]` module — not a linked C archive —
+// so rustc exports them GLOBAL; a localized stub is not interposable and crashes
+// import. Linux/ELF only. See the module docs for the full rationale.
+#[cfg(all(target_os = "linux", feature = "python-extension"))]
+mod python_abi3_stubs;
+
 // PHP extension entry point (Zend engine). Loaded via
 // `php -d extension=/path/to/libazul.dylib`.
 #[cfg(feature = "php-extension")]
