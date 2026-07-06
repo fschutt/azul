@@ -117,6 +117,8 @@ pub const BSLN: u32 = tag!(b"bsln");
 pub const C2SC: u32 = tag!(b"c2sc");
 /// `calt`
 pub const CALT: u32 = tag!(b"calt");
+/// `case`
+pub const CASE: u32 = tag!(b"case");
 /// `CBDT`
 pub const CBDT: u32 = tag!(b"CBDT");
 /// `CBLC`
@@ -139,6 +141,10 @@ pub const CMAP: u32 = tag!(b"cmap");
 pub const COLR: u32 = tag!(b"COLR");
 /// `CPAL`
 pub const CPAL: u32 = tag!(b"CPAL");
+/// `cpsp`
+pub const CPSP: u32 = tag!(b"cpsp");
+/// `cswh`
+pub const CSWH: u32 = tag!(b"cswh");
 /// `curs`
 pub const CURS: u32 = tag!(b"curs");
 /// `cvar`
@@ -225,6 +231,8 @@ pub const HDMX: u32 = tag!(b"hdmx");
 pub const HEAD: u32 = tag!(b"head");
 /// `hhea`
 pub const HHEA: u32 = tag!(b"hhea");
+/// `hist`
+pub const HIST: u32 = tag!(b"hist");
 /// `hlig`
 pub const HLIG: u32 = tag!(b"hlig");
 /// `hmtx`
@@ -283,6 +291,8 @@ pub const MKMK: u32 = tag!(b"mkmk");
 pub const MLM2: u32 = tag!(b"mlm2");
 /// `mlym`
 pub const MLYM: u32 = tag!(b"mlym");
+/// `mong`
+pub const MONG: u32 = tag!(b"mong");
 /// `mort`
 pub const MORT: u32 = tag!(b"mort");
 /// `morx`
@@ -369,6 +379,8 @@ pub const TEL2: u32 = tag!(b"tel2");
 pub const TELU: u32 = tag!(b"telu");
 /// `thai`
 pub const THAI: u32 = tag!(b"thai");
+/// `tibt`
+pub const TIBT: u32 = tag!(b"tibt");
 /// `tiff`
 pub const TIFF: u32 = tag!(b"tiff");
 /// `tml2`

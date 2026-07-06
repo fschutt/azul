@@ -83,7 +83,6 @@ a set of tools that exercise Allsorts font parsing, shaping, and subsetting.
 
 We don't currently support:
 
-* Shaping Mongolian, and Tibetan.
 * Unicode normalisation.
 
 Known limitations:

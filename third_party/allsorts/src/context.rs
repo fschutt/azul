@@ -162,7 +162,12 @@ impl MatchType {
                 (glyph_class != 3) || (mark_attach_class == u16::from(keep_class))
             }
             IgnoreMarks::IgnoreMarksInSet(index) => {
-                gdef::glyph_is_mark_in_set(opt_gdef_table, glyph.get_glyph_index(), index.into())
+                (glyph_class != 3)
+                    || gdef::glyph_is_mark_in_set(
+                        opt_gdef_table,
+                        glyph.get_glyph_index(),
+                        index.into(),
+                    )
             }
         }
     }

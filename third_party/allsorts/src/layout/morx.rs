@@ -5,16 +5,17 @@ use tinyvec::{tiny_vec, TinyVec};
 
 use crate::error::ParseError;
 use crate::glyph_position::TextDirection;
-use crate::gsub::{FeatureMask, Features, GlyphOrigin, RawGlyph, RawGlyphFlags};
+use crate::gsub::{Feature, FeatureMask, GlyphOrigin, RawGlyph, RawGlyphFlags};
 use crate::scripts::horizontal_text_direction;
 use crate::tables::aat::{
     CLASS_CODE_DELETED, CLASS_CODE_EOT, CLASS_CODE_OOB, DELETED_GLYPH, MAX_LEN, MAX_OPS,
 };
 use crate::tables::morx::{
-    self, Chain, ClassLookupTable, ContextualEntryFlags, ContextualSubtable, InsertionSubtable,
-    LigatureEntryFlags, LigatureSubtable, LookupTable, MorxTable, NonContextualSubtable,
-    RearrangementSubtable, RearrangementVerb, StxTable, Subtable, SubtableHeader, SubtableType,
+    self, Chain, ClassLookupTable, ContextualSubtable, InsertionSubtable, LigatureSubtable,
+    LookupTable, MorxTable, NonContextualSubtable, RearrangementSubtable, RearrangementVerb,
+    StxTable, Subtable, SubtableHeader, SubtableType,
 };
+use crate::tables::morx::{ContextualEntryFlag, LigatureEntryFlag};
 
 /// Perform a lookup in a class lookup table.
 fn lookup(glyph: u16, lookup_table: &ClassLookupTable<'_>) -> Option<u16> {
@@ -264,7 +265,7 @@ impl<'a> ContextualSubstitution<'a> {
                 }
             }
 
-            if entry.flags.contains(ContextualEntryFlags::SET_MARK) {
+            if entry.flags.contains(ContextualEntryFlag::SET_MARK) {
                 self.mark_index = Some(i);
             }
 
@@ -273,7 +274,7 @@ impl<'a> ContextualSubstitution<'a> {
             }
 
             self.max_ops -= 1;
-            if !entry.flags.contains(ContextualEntryFlags::DONT_ADVANCE) || self.max_ops <= 0 {
+            if !entry.flags.contains(ContextualEntryFlag::DONT_ADVANCE) || self.max_ops <= 0 {
                 i += 1;
             }
         }
@@ -310,7 +311,7 @@ impl<'a> LigatureSubstitution<'a> {
             let entry = get_entry(class, self.next_state, ligature_subtable)?;
             self.next_state = entry.next_state_index;
 
-            if entry.flags.contains(LigatureEntryFlags::SET_COMPONENT) {
+            if entry.flags.contains(LigatureEntryFlag::SET_COMPONENT) {
                 if class == CLASS_CODE_EOT {
                     // `i` points to one past the buffer, so don't push it.
                 } else if self.component_stack.last() == Some(&i) {
@@ -320,7 +321,7 @@ impl<'a> LigatureSubstitution<'a> {
                 }
             }
 
-            if entry.flags.contains(LigatureEntryFlags::PERFORM_ACTION) {
+            if entry.flags.contains(LigatureEntryFlag::PERFORM_ACTION) {
                 let mut action_index = usize::from(entry.lig_action_index);
                 let mut ligature_list_index = 0;
 
@@ -392,7 +393,7 @@ impl<'a> LigatureSubstitution<'a> {
             }
 
             self.max_ops -= 1;
-            if !entry.flags.contains(LigatureEntryFlags::DONT_ADVANCE) || self.max_ops <= 0 {
+            if !entry.flags.contains(LigatureEntryFlag::DONT_ADVANCE) || self.max_ops <= 0 {
                 i += 1;
             }
         }
@@ -539,11 +540,11 @@ impl<'a> Insertion<'a> {
 pub fn apply(
     morx_table: &MorxTable<'_>,
     glyphs: &mut Vec<RawGlyph<()>>,
-    features: &Features,
+    feature_mask: FeatureMask,
     script_tag: u32,
 ) -> Result<(), ParseError> {
     for chain in morx_table.chains.iter() {
-        apply_chain(chain, glyphs, features, script_tag)?;
+        apply_chain(chain, glyphs, feature_mask, script_tag)?;
     }
     Ok(())
 }
@@ -551,10 +552,10 @@ pub fn apply(
 fn apply_chain(
     chain: &Chain<'_>,
     glyphs: &mut Vec<RawGlyph<()>>,
-    features: &Features,
+    feature_mask: FeatureMask,
     script_tag: u32,
 ) -> Result<(), ParseError> {
-    let subfeatureflags: u32 = subfeatureflags(chain, features)?;
+    let subfeatureflags: u32 = subfeatureflags(chain, feature_mask)?;
 
     for subtable in chain.subtables.iter() {
         if subfeatureflags & subtable.subtable_header.sub_feature_flags != 0 {
@@ -632,26 +633,18 @@ fn reverse_glyphs(subtable_header: &SubtableHeader, script_tag: u32) -> bool {
     }
 }
 
-fn subfeatureflags(chain: &Chain<'_>, features: &Features) -> Result<u32, ParseError> {
+fn subfeatureflags(chain: &Chain<'_>, feature_mask: FeatureMask) -> Result<u32, ParseError> {
     let mut subfeature_flags = chain.chain_header.default_flags;
 
     for entry in chain.feature_array.iter() {
-        match features {
-            Features::Custom(_features_list) => {
-                return Ok(subfeature_flags);
-            }
-            Features::Mask(feature_mask) => {
-                if should_apply_feature(entry, feature_mask) {
-                    subfeature_flags =
-                        (subfeature_flags & entry.disable_flags) | entry.enable_flags;
-                }
-            }
+        if should_apply_feature(entry, feature_mask) {
+            subfeature_flags = (subfeature_flags & entry.disable_flags) | entry.enable_flags;
         }
     }
     Ok(subfeature_flags)
 }
 
-fn should_apply_feature(entry: morx::Feature, mask: &FeatureMask) -> bool {
+fn should_apply_feature(entry: morx::Feature, mask: FeatureMask) -> bool {
     // Feature type:
     const LIGATURE_TYPE: u16 = 1;
     // Feature selectors:
@@ -703,28 +696,28 @@ fn should_apply_feature(entry: morx::Feature, mask: &FeatureMask) -> bool {
     const UPPERCASE_SMALL_CAPS: u16 = 1;
 
     match (entry.feature_type, entry.feature_setting) {
-        (NUMBER_CASE_TYPE, LINING_NUMBERS) => mask.contains(FeatureMask::LNUM),
-        (NUMBER_CASE_TYPE, OLD_STYLE_NUMBERS) => mask.contains(FeatureMask::ONUM),
-        (NUMBER_SPACING_TYPE, PROPORTIONAL_NUMBERS) => mask.contains(FeatureMask::PNUM),
-        (NUMBER_SPACING_TYPE, TABULAR_NUMBERS) => mask.contains(FeatureMask::TNUM),
-        (FRACTION_TYPE, FRACTIONS_DIAGONAL) => mask.contains(FeatureMask::FRAC),
-        (FRACTION_TYPE, FRACTIONS_STACKED) => mask.contains(FeatureMask::AFRC),
+        (NUMBER_CASE_TYPE, LINING_NUMBERS) => mask.contains(Feature::LNUM),
+        (NUMBER_CASE_TYPE, OLD_STYLE_NUMBERS) => mask.contains(Feature::ONUM),
+        (NUMBER_SPACING_TYPE, PROPORTIONAL_NUMBERS) => mask.contains(Feature::PNUM),
+        (NUMBER_SPACING_TYPE, TABULAR_NUMBERS) => mask.contains(Feature::TNUM),
+        (FRACTION_TYPE, FRACTIONS_DIAGONAL) => mask.contains(Feature::FRAC),
+        (FRACTION_TYPE, FRACTIONS_STACKED) => mask.contains(Feature::AFRC),
         (FRACTION_TYPE, NO_FRACTIONS) => {
-            !mask.contains(FeatureMask::FRAC) && !mask.contains(FeatureMask::AFRC)
+            !mask.contains(Feature::FRAC) && !mask.contains(Feature::AFRC)
         }
-        (VERTICAL_POSITION_TYPE, ORDINALS) => mask.contains(FeatureMask::ORDN),
-        (TYPOGRAPHIC_EXTRAS_TYPE, SLASHED_ZERO_ON) => mask.contains(FeatureMask::ZERO),
-        (TYPOGRAPHIC_EXTRAS_TYPE, SLASHED_ZERO_OFF) => !mask.contains(FeatureMask::ZERO),
+        (VERTICAL_POSITION_TYPE, ORDINALS) => mask.contains(Feature::ORDN),
+        (TYPOGRAPHIC_EXTRAS_TYPE, SLASHED_ZERO_ON) => mask.contains(Feature::ZERO),
+        (TYPOGRAPHIC_EXTRAS_TYPE, SLASHED_ZERO_OFF) => !mask.contains(Feature::ZERO),
         (LOWERCASE_TYPE, LOWERCASE_SMALL_CAPS) => {
-            mask.contains(FeatureMask::SMCP) || mask.contains(FeatureMask::C2SC)
+            mask.contains(Feature::SMCP) || mask.contains(Feature::C2SC)
         }
-        (UPPERCASE_TYPE, UPPERCASE_SMALL_CAPS) => mask.contains(FeatureMask::C2SC),
-        (LIGATURE_TYPE, COMMON_LIGATURES_ON) => mask.contains(FeatureMask::LIGA),
-        (LIGATURE_TYPE, COMMON_LIGATURES_OFF) => !mask.contains(FeatureMask::LIGA),
-        (LIGATURE_TYPE, HISTORICAL_LIGATURES_ON) => mask.contains(FeatureMask::HLIG),
-        (LIGATURE_TYPE, HISTORICAL_LIGATURES_OFF) => !mask.contains(FeatureMask::HLIG),
-        (LIGATURE_TYPE, CONTEXTUAL_LIGATURES_ON) => mask.contains(FeatureMask::CLIG),
-        (LIGATURE_TYPE, CONTEXTUAL_LIGATURES_OFF) => !mask.contains(FeatureMask::CLIG),
+        (UPPERCASE_TYPE, UPPERCASE_SMALL_CAPS) => mask.contains(Feature::C2SC),
+        (LIGATURE_TYPE, COMMON_LIGATURES_ON) => mask.contains(Feature::LIGA),
+        (LIGATURE_TYPE, COMMON_LIGATURES_OFF) => !mask.contains(Feature::LIGA),
+        (LIGATURE_TYPE, HISTORICAL_LIGATURES_ON) => mask.contains(Feature::HLIG),
+        (LIGATURE_TYPE, HISTORICAL_LIGATURES_OFF) => !mask.contains(Feature::HLIG),
+        (LIGATURE_TYPE, CONTEXTUAL_LIGATURES_ON) => mask.contains(Feature::CLIG),
+        (LIGATURE_TYPE, CONTEXTUAL_LIGATURES_OFF) => !mask.contains(Feature::CLIG),
         _ => false,
     }
 }
@@ -733,6 +726,7 @@ fn should_apply_feature(entry: morx::Feature, mask: &FeatureMask) -> bool {
 mod tests {
     use super::*;
     use crate::font::MatchingPresentation;
+    use crate::gsub::FeatureMaskExt;
     use crate::tables::{FontTableProvider, MaxpTable, OpenTypeFont};
     use crate::tests::read_fixture;
     use crate::{binary::read::ReadScope, tag, Font};
@@ -931,8 +925,8 @@ mod tests {
         // Map text to glyphs and then apply font shaping
         let script = tag!(b"latn");
         let mut glyphs = font.map_glyphs("ptgffigpfl", script, MatchingPresentation::NotRequired);
-        let features = Features::Mask(FeatureMask::default());
-        apply(&morx, &mut glyphs, &features, script)?;
+        let feature_mask = FeatureMask::default_mask();
+        apply(&morx, &mut glyphs, feature_mask, script)?;
 
         let expected = [
             (585, "p"),
@@ -957,8 +951,8 @@ mod tests {
         assert_eq!(actual, expected);
 
         let mut glyphs = font.map_glyphs("ptpfgffigpfl", script, MatchingPresentation::NotRequired);
-        let features = Features::Mask(FeatureMask::default());
-        apply(&morx, &mut glyphs, &features, script)?;
+        let feature_mask = FeatureMask::default_mask();
+        apply(&morx, &mut glyphs, feature_mask, script)?;
 
         let expected = [
             (585, "p"),
@@ -986,8 +980,8 @@ mod tests {
 
         // There is a ligature for the whole string Zapfino
         let mut glyphs = font.map_glyphs("Zapfino", script, MatchingPresentation::NotRequired);
-        let features = Features::Mask(FeatureMask::default());
-        apply(&morx, &mut glyphs, &features, script)?;
+        let feature_mask = FeatureMask::default_mask();
+        apply(&morx, &mut glyphs, feature_mask, script)?;
 
         let expected = [
             (1059, "Zapfino"),

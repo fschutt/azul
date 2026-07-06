@@ -3,7 +3,7 @@
 use log::debug;
 
 use crate::error::{ComplexScriptError, ParseError, ShapingError};
-use crate::gsub::{self, FeatureMask, GlyphData, GlyphOrigin, RawGlyph, RawGlyphFlags};
+use crate::gsub::{self, Feature, FeatureMask, GlyphData, GlyphOrigin, RawGlyph, RawGlyphFlags};
 use crate::layout::{FeatureTableSubstitution, GDEFTable, LayoutCache, LayoutTable, GSUB};
 use crate::scripts::syllable::*;
 use crate::tinyvec::tiny_vec;
@@ -37,14 +37,14 @@ impl BasicFeature {
         BasicFeature::Pstf,
     ];
 
-    fn mask(self) -> FeatureMask {
+    fn feature(self) -> Feature {
         match self {
-            BasicFeature::Locl => FeatureMask::LOCL,
-            BasicFeature::Ccmp => FeatureMask::CCMP,
-            BasicFeature::Rphf => FeatureMask::RPHF,
-            BasicFeature::Pref => FeatureMask::PREF,
-            BasicFeature::Blwf => FeatureMask::BLWF,
-            BasicFeature::Pstf => FeatureMask::PSTF,
+            BasicFeature::Locl => Feature::LOCL,
+            BasicFeature::Ccmp => Feature::CCMP,
+            BasicFeature::Rphf => Feature::RPHF,
+            BasicFeature::Pref => Feature::PREF,
+            BasicFeature::Blwf => Feature::BLWF,
+            BasicFeature::Pstf => Feature::PSTF,
         }
     }
 
@@ -638,6 +638,7 @@ pub fn gsub_apply_myanmar<'a>(
     gdef_table: Option<&'a GDEFTable>,
     lang_tag: Option<u32>,
     feature_variations: Option<&'a FeatureTableSubstitution<'a>>,
+    extra_features: FeatureMask,
     glyphs: &mut Vec<RawGlyph<()>>,
 ) -> Result<(), ShapingError> {
     if glyphs.is_empty() {
@@ -659,9 +660,13 @@ pub fn gsub_apply_myanmar<'a>(
 
     for i in 0..syllables.len() {
         let (syllable, syllable_type) = &mut syllables[i];
-        if let Err(err) =
-            shape_syllable(dotted_circle_index, &shaping_data, syllable, *syllable_type)
-        {
+        if let Err(err) = shape_syllable(
+            dotted_circle_index,
+            &shaping_data,
+            syllable,
+            *syllable_type,
+            extra_features,
+        ) {
             debug!("gsub apply myanmar: {}", err);
         }
     }
@@ -680,6 +685,7 @@ fn shape_syllable(
     shaping_data: &MyanmarShapingData<'_>,
     syllable: &mut Vec<RawGlyphMyanmar>,
     syllable_type: Syllable,
+    extra_features: FeatureMask,
 ) -> Result<(), ShapingError> {
     let max_glyphs = syllable.len().saturating_mul(gsub::MAX_GLYPHS_FACTOR);
 
@@ -694,7 +700,7 @@ fn shape_syllable(
         Syllable::Valid | Syllable::Broken => {
             initial_reorder_consonant_syllable(shaping_data, syllable)?;
             apply_basic_features(shaping_data, syllable, max_glyphs)?;
-            apply_presentation_features(shaping_data, syllable, max_glyphs)?;
+            apply_presentation_features(shaping_data, syllable, max_glyphs, extra_features)?;
         }
     }
 
@@ -900,12 +906,12 @@ fn apply_basic_features(
     max_glyphs: usize,
 ) -> Result<(), ParseError> {
     for feature in BasicFeature::ALL {
-        let index = shaping_data.get_lookups_cache_index(feature.mask())?;
+        let index = shaping_data.get_lookups_cache_index(feature.feature().mask())?;
         let lookups = &shaping_data.gsub_cache.cached_lookups.lock().unwrap()[index];
 
         for &(lookup_index, feature_tag) in lookups {
             shaping_data.apply_lookup(lookup_index, feature_tag, glyphs, max_glyphs, |g| {
-                feature.is_global() || g.has_mask(feature.mask())
+                feature.is_global() || g.has_mask(feature.feature().mask())
             })?;
         }
     }
@@ -925,13 +931,15 @@ fn apply_presentation_features(
     shaping_data: &MyanmarShapingData<'_>,
     glyphs: &mut Vec<RawGlyphMyanmar>,
     max_glyphs: usize,
+    extra_features: FeatureMask,
 ) -> Result<(), ParseError> {
-    let features = FeatureMask::PRES
-        | FeatureMask::ABVS
-        | FeatureMask::BLWS
-        | FeatureMask::PSTS
-        | FeatureMask::LIGA
-        | FeatureMask::RLIG;
+    let features = Feature::PRES
+        | Feature::ABVS
+        | Feature::BLWS
+        | Feature::PSTS
+        | Feature::LIGA
+        | Feature::RLIG
+        | extra_features;
 
     let index = shaping_data.get_lookups_cache_index(features)?;
     let lookups = &shaping_data.gsub_cache.cached_lookups.lock().unwrap()[index];
@@ -1396,6 +1404,7 @@ mod tests {
             gdef_table.as_ref(),
             lang_tag,
             feature_variations,
+            FeatureMask::empty(),
             &mut glyphs,
         )?;
         Ok(glyphs)

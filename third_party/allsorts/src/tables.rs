@@ -16,7 +16,6 @@ pub mod variable_fonts;
 use std::borrow::Cow;
 use std::fmt::{self, Formatter};
 
-use bitflags::bitflags;
 use encoding_rs::Encoding;
 
 use crate::binary::read::{
@@ -169,20 +168,23 @@ pub struct HeadTable {
     pub glyph_data_format: i16,
 }
 
-bitflags! {
-    /// macStyle field in `head`
-    #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-    pub struct MacStyle: u16 {
-        const BOLD = 1 << 0;
-        const ITALIC = 1 << 1;
-        const UNDERLINE = 1 << 2;
-        const OUTLINE = 1 << 3;
-        const SHADOW = 1 << 4;
-        const CONDENSED = 1 << 5;
-        const EXTENDED = 1 << 6;
-        // Bits 7–15: Reserved (set to 0).
-    }
+/// macStyle field in `head`
+#[enumflags2::bitflags]
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[allow(non_camel_case_types)]
+pub enum MacStyleFlag {
+    BOLD = 1 << 0,
+    ITALIC = 1 << 1,
+    UNDERLINE = 1 << 2,
+    OUTLINE = 1 << 3,
+    SHADOW = 1 << 4,
+    CONDENSED = 1 << 5,
+    EXTENDED = 1 << 6,
+    // Bits 7–15: Reserved (set to 0).
 }
+
+pub type MacStyle = enumflags2::BitFlags<MacStyleFlag>;
 
 /// `hhea` horizontal header table
 ///
@@ -672,11 +674,11 @@ impl HeadTable {
     // Bits 7–15: Reserved (set to 0).
     // https://docs.microsoft.com/en-us/typography/opentype/spec/head
     pub fn is_bold(&self) -> bool {
-        self.mac_style.contains(MacStyle::BOLD)
+        self.mac_style.contains(MacStyleFlag::BOLD)
     }
 
     pub fn is_italic(&self) -> bool {
-        self.mac_style.contains(MacStyle::ITALIC)
+        self.mac_style.contains(MacStyleFlag::ITALIC)
     }
 }
 

@@ -8,8 +8,8 @@ use pathfinder_geometry::vector::{vec2f, Vector2F};
 use crate::error::ParseError;
 use crate::tables::glyf::{
     calculate_phantom_points, BoundingBox, ComponentOffsets, CompositeGlyph,
-    CompositeGlyphArgument, CompositeGlyphComponent, CompositeGlyphFlag, EmptyGlyph, GlyfRecord,
-    GlyfTable, Glyph, PhantomPoints, Point, SimpleGlyph, SimpleGlyphFlag,
+    CompositeGlyphArgument, CompositeGlyphComponent, CompositeGlyphFlag, CompositeGlyphFlagExt,
+    EmptyGlyph, GlyfRecord, GlyfTable, Glyph, PhantomPoints, Point, SimpleGlyph, SimpleGlyphFlags,
 };
 use crate::tables::os2::Os2;
 use crate::tables::variable_fonts::gvar::{GvarTable, NumPoints};
@@ -441,7 +441,7 @@ fn infer_delta(
     target: usize,
     (prev_number, prev_delta): (&u32, &(i16, i16)),
     (next_number, next_delta): (&u32, &(i16, i16)),
-    coordinates: &[(SimpleGlyphFlag, Point)],
+    coordinates: &[(SimpleGlyphFlags, Point)],
 ) -> Result<Vector2F, ParseError> {
     // https://learn.microsoft.com/en-us/typography/opentype/spec/gvar#inferred-deltas-for-un-referenced-point-numbers
     let prev_coord = coordinates
@@ -525,7 +525,7 @@ mod tests {
     use crate::binary::read::ReadScope;
     use crate::error::ReadWriteError;
     use crate::font_data::FontData;
-    use crate::tables::glyf::GlyfTable;
+    use crate::tables::glyf::{GlyfTable, SimpleGlyphFlag};
     use crate::tables::loca::LocaTable;
     use crate::tables::variable_fonts::avar::AvarTable;
     use crate::tables::variable_fonts::fvar::FvarTable;

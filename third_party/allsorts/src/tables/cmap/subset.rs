@@ -156,25 +156,25 @@ impl owned::CmapSubtableFormat4 {
         // Group the mappings into contiguous ranges, there can be holes in the ranges
         let mut glyph_ids = Vec::new();
         let mut id_range_offset_fixup_indices = Vec::new();
-        // NOTE(unwrap): safe as mappings is non-empty
-        let (start, gid) = mappings.iter().next().unwrap();
-        let mut segment = CmapSubtableFormat4Segment::new(start.as_u32(), gid, &mut glyph_ids);
-        for (ch, gid) in mappings.iter().skip(1) {
-            if !segment.add(ch.as_u32(), gid) {
-                table.add_segment(segment, &mut id_range_offset_fixup_indices);
-                segment = CmapSubtableFormat4Segment::new(ch.as_u32(), gid, &mut glyph_ids);
+        if let Some((start, gid)) = mappings.iter().next() {
+            let mut segment = CmapSubtableFormat4Segment::new(start.as_u32(), gid, &mut glyph_ids);
+            for (ch, gid) in mappings.iter().skip(1) {
+                if !segment.add(ch.as_u32(), gid) {
+                    table.add_segment(segment, &mut id_range_offset_fixup_indices);
+                    segment = CmapSubtableFormat4Segment::new(ch.as_u32(), gid, &mut glyph_ids);
+                }
             }
-        }
 
-        // Add final range
-        table.add_segment(segment, &mut id_range_offset_fixup_indices);
+            // Add final range
+            table.add_segment(segment, &mut id_range_offset_fixup_indices);
+        }
 
         // Final start code and endCode values must be 0xFFFF. This segment need not contain any
         // valid mappings. (It can just map the single character code 0xFFFF to missingGlyph).
         // However, the segment must be present.
         //
         // — https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-4-segment-mapping-to-delta-values
-        segment = CmapSubtableFormat4Segment::new(0xFFFF, 0, &mut glyph_ids);
+        let segment = CmapSubtableFormat4Segment::new(0xFFFF, 0, &mut glyph_ids);
         table.add_segment(segment, &mut id_range_offset_fixup_indices);
 
         // Fix up the id_range_offsets now that all segments have been added
@@ -224,29 +224,29 @@ impl owned::CmapSubtableFormat4 {
 
 impl owned::CmapSubtableFormat12 {
     fn from_mappings(mappings: &MappingsToKeep<NewIds>) -> owned::CmapSubtableFormat12 {
-        // NOTE(unwrap): safe as mappings is non-empty
-        let (start, gid) = mappings.iter().next().unwrap();
-        let mut segment = SequentialMapGroup {
-            start_char_code: start.as_u32(),
-            end_char_code: start.as_u32(),
-            start_glyph_id: u32::from(gid),
-        };
         let mut segments = Vec::new();
-        let mut prev_gid = gid;
-        for (ch, gid) in mappings.iter().skip(1) {
-            if ch.as_u32() == segment.end_char_code + 1 && gid == prev_gid + 1 {
-                segment.end_char_code += 1
-            } else {
-                segments.push(segment);
-                segment = SequentialMapGroup {
-                    start_char_code: ch.as_u32(),
-                    end_char_code: ch.as_u32(),
-                    start_glyph_id: u32::from(gid),
-                };
+        if let Some((start, gid)) = mappings.iter().next() {
+            let mut segment = SequentialMapGroup {
+                start_char_code: start.as_u32(),
+                end_char_code: start.as_u32(),
+                start_glyph_id: u32::from(gid),
+            };
+            let mut prev_gid = gid;
+            for (ch, gid) in mappings.iter().skip(1) {
+                if ch.as_u32() == segment.end_char_code + 1 && gid == prev_gid + 1 {
+                    segment.end_char_code += 1
+                } else {
+                    segments.push(segment);
+                    segment = SequentialMapGroup {
+                        start_char_code: ch.as_u32(),
+                        end_char_code: ch.as_u32(),
+                        start_glyph_id: u32::from(gid),
+                    };
+                }
+                prev_gid = gid;
             }
-            prev_gid = gid;
+            segments.push(segment);
         }
-        segments.push(segment);
 
         owned::CmapSubtableFormat12 {
             language: 0,
@@ -540,6 +540,17 @@ mod tests {
             ],
         };
         assert_eq!(sub_table, expected);
+    }
+
+    #[test]
+    fn test_format12_subtable_empty_mappings() {
+        let mappings = MappingsToKeep {
+            mappings: BTreeMap::new(),
+            plane: CharExistence::BasicMultilingualPlane,
+            _ids: PhantomData,
+        };
+        let sub_table = owned::CmapSubtableFormat12::from_mappings(&mappings);
+        assert!(sub_table.groups.is_empty());
     }
 
     #[test]

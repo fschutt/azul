@@ -9,7 +9,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
-use bitflags::bitflags;
 use self::lut::{XYTriplet, COORD_LUT, KNOWN_TABLE_TAGS};
 
 /// Sum type that lets a function return one of two iterator shapes
@@ -40,7 +39,7 @@ use crate::binary::{write, I16Be, U16Be, U8};
 use crate::error::{ParseError, ReadWriteError};
 use crate::tables::glyf::{
     BoundingBox, CompositeGlyph, CompositeGlyphs, GlyfRecord, GlyfTable, Glyph, Point, SimpleGlyph,
-    SimpleGlyphFlag,
+    SimpleGlyphFlag, SimpleGlyphFlags,
 };
 use crate::tables::loca::{owned, LocaTable};
 use crate::tables::{
@@ -134,13 +133,16 @@ struct TransformedGlyphTable<'a> {
     instruction_scope: ReadScope<'a>,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct HmtxTableFlag: u8 {
-        const LSB_ABSENT = 0b01;
-        const LEFT_SIDE_BEARING_ABSENT = 0b10;
-    }
+#[enumflags2::bitflags]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum HmtxTableFlag {
+    LSB_ABSENT = 0b01,
+    LEFT_SIDE_BEARING_ABSENT = 0b10,
 }
+
+pub type HmtxTableFlags = enumflags2::BitFlags<HmtxTableFlag>;
 
 pub enum Woff2GlyfTable {}
 pub enum Woff2LocaTable {}
@@ -524,7 +526,7 @@ impl ReadBinaryDep for Woff2HmtxTable {
         (hmtx_entry, glyf, num_glyphs, num_h_metrics): Self::Args<'a>,
     ) -> Result<Self::HostType<'a>, ParseError> {
         if hmtx_entry.transform_length.is_some() {
-            let flags = ctxt.read::<HmtxTableFlag>()?;
+            let flags = ctxt.read::<HmtxTableFlags>()?;
             let advance_width_stream = ctxt.read_array::<U16Be>(num_h_metrics)?;
 
             let lsb = if flags.lsb_is_present() {
@@ -652,11 +654,11 @@ impl ReadBinary for U32Base128 {
     }
 }
 
-impl ReadFrom for HmtxTableFlag {
+impl ReadFrom for HmtxTableFlags {
     type ReadType = U8;
 
     fn read_from(flag: u8) -> Self {
-        HmtxTableFlag::from_bits_truncate(flag)
+        HmtxTableFlags::from_bits_truncate(flag)
     }
 }
 
@@ -685,12 +687,12 @@ impl WoffFlag {
     }
 }
 
-impl From<WoffFlag> for SimpleGlyphFlag {
+impl From<WoffFlag> for SimpleGlyphFlags {
     fn from(woff_flag: WoffFlag) -> Self {
         if woff_flag.is_on_curve_point() {
-            SimpleGlyphFlag::ON_CURVE_POINT
+            SimpleGlyphFlag::ON_CURVE_POINT.into()
         } else {
-            SimpleGlyphFlag::empty()
+            SimpleGlyphFlags::empty()
         }
     }
 }
@@ -790,13 +792,18 @@ impl TableDirectoryEntry {
     }
 }
 
-impl HmtxTableFlag {
-    pub fn lsb_is_present(self) -> bool {
-        self & Self::LSB_ABSENT == Self::empty()
+pub trait HmtxTableFlagExt {
+    fn lsb_is_present(self) -> bool;
+    fn left_side_bearing_is_present(self) -> bool;
+}
+
+impl HmtxTableFlagExt for HmtxTableFlags {
+    fn lsb_is_present(self) -> bool {
+        !self.contains(HmtxTableFlag::LSB_ABSENT)
     }
 
-    pub fn left_side_bearing_is_present(self) -> bool {
-        self & Self::LEFT_SIDE_BEARING_ABSENT == Self::empty()
+    fn left_side_bearing_is_present(self) -> bool {
+        !self.contains(HmtxTableFlag::LEFT_SIDE_BEARING_ABSENT)
     }
 }
 

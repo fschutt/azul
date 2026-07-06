@@ -6,7 +6,7 @@
 use unicode_joining_type::{get_joining_type, JoiningType};
 
 use crate::error::{ParseError, ShapingError};
-use crate::gsub::{self, FeatureMask, GlyphData, GlyphOrigin, RawGlyph};
+use crate::gsub::{self, Feature, FeatureMask, GlyphData, GlyphOrigin, RawGlyph};
 use crate::layout::{FeatureTableSubstitution, GDEFTable, LayoutCache, LayoutTable, GSUB};
 use crate::tag;
 use crate::unicode::mcc::{
@@ -103,6 +103,7 @@ pub fn gsub_apply_arabic(
     script_tag: u32,
     lang_tag: Option<u32>,
     feature_variations: Option<&FeatureTableSubstitution<'_>>,
+    extra_features: FeatureMask,
     raw_glyphs: &mut Vec<RawGlyph<()>>,
     max_glyphs: usize,
 ) -> Result<(), ShapingError> {
@@ -120,7 +121,7 @@ pub fn gsub_apply_arabic(
     // 1. Compound character composition and decomposition
 
     apply_lookups(
-        FeatureMask::CCMP,
+        Feature::CCMP.mask(),
         gsub_cache,
         gsub_table,
         gdef_table,
@@ -165,20 +166,20 @@ pub fn gsub_apply_arabic(
 
     // 4. Applying the language-form substitution features from GSUB
 
-    const LANGUAGE_FEATURES: &[(FeatureMask, bool)] = &[
-        (FeatureMask::LOCL, true),
-        (FeatureMask::ISOL, false),
-        (FeatureMask::FINA, false),
-        (FeatureMask::MEDI, false),
-        (FeatureMask::INIT, false),
-        (FeatureMask::RLIG, true),
-        (FeatureMask::RCLT, true),
-        (FeatureMask::CALT, true),
+    const LANGUAGE_FEATURES: &[(Feature, bool)] = &[
+        (Feature::LOCL, true),
+        (Feature::ISOL, false),
+        (Feature::FINA, false),
+        (Feature::MEDI, false),
+        (Feature::INIT, false),
+        (Feature::RLIG, true),
+        (Feature::RCLT, true),
+        (Feature::CALT, true),
     ];
 
-    for &(feature_mask, is_global) in LANGUAGE_FEATURES {
+    for &(feature, is_global) in LANGUAGE_FEATURES {
         apply_lookups(
-            feature_mask,
+            feature.mask(),
             gsub_cache,
             gsub_table,
             gdef_table,
@@ -192,26 +193,21 @@ pub fn gsub_apply_arabic(
     }
 
     // 5. Applying the typographic-form substitution features from GSUB
-    //
-    // Note that we skip `GSUB`'s `DLIG` and `CSWH` features as results would differ from other
-    // Arabic shapers
 
-    const TYPOGRAPHIC_FEATURES: &[FeatureMask] = &[FeatureMask::LIGA, FeatureMask::MSET];
+    let typographic_features = Feature::LIGA | Feature::MSET;
 
-    for &feature_mask in TYPOGRAPHIC_FEATURES {
-        apply_lookups(
-            feature_mask,
-            gsub_cache,
-            gsub_table,
-            gdef_table,
-            script_tag,
-            lang_tag,
-            feature_variations,
-            arabic_glyphs,
-            max_glyphs,
-            |_, _| true,
-        )?;
-    }
+    apply_lookups(
+        typographic_features | extra_features,
+        gsub_cache,
+        gsub_table,
+        gdef_table,
+        script_tag,
+        lang_tag,
+        feature_variations,
+        arabic_glyphs,
+        max_glyphs,
+        |_, _| true,
+    )?;
 
     // 6. Mark reordering
     //

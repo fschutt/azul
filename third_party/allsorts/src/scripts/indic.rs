@@ -4,7 +4,7 @@ use log::debug;
 use unicode_general_category::GeneralCategory;
 
 use crate::error::{ComplexScriptError, ParseError, ShapingError};
-use crate::gsub::{self, FeatureMask, GlyphData, GlyphOrigin, RawGlyph, RawGlyphFlags};
+use crate::gsub::{self, Feature, FeatureMask, GlyphData, GlyphOrigin, RawGlyph, RawGlyphFlags};
 use crate::layout::{FeatureTableSubstitution, GDEFTable, LangSys, LayoutCache, LayoutTable, GSUB};
 use crate::scripts::syllable::*;
 use crate::tinyvec::tiny_vec;
@@ -227,21 +227,21 @@ impl BasicFeature {
         }
     }
 
-    fn mask(self) -> FeatureMask {
+    fn feature(self) -> Feature {
         match self {
-            BasicFeature::Locl => FeatureMask::LOCL,
-            BasicFeature::Nukt => FeatureMask::NUKT,
-            BasicFeature::Akhn => FeatureMask::AKHN,
-            BasicFeature::Rphf => FeatureMask::RPHF,
-            BasicFeature::Rkrf => FeatureMask::RKRF,
-            BasicFeature::Pref => FeatureMask::PREF,
-            BasicFeature::Blwf => FeatureMask::BLWF,
-            BasicFeature::Abvf => FeatureMask::ABVF,
-            BasicFeature::Half => FeatureMask::HALF,
-            BasicFeature::Pstf => FeatureMask::PSTF,
-            BasicFeature::Vatu => FeatureMask::VATU,
-            BasicFeature::Cjct => FeatureMask::CJCT,
-            BasicFeature::Cfar => FeatureMask::CFAR,
+            BasicFeature::Locl => Feature::LOCL,
+            BasicFeature::Nukt => Feature::NUKT,
+            BasicFeature::Akhn => Feature::AKHN,
+            BasicFeature::Rphf => Feature::RPHF,
+            BasicFeature::Rkrf => Feature::RKRF,
+            BasicFeature::Pref => Feature::PREF,
+            BasicFeature::Blwf => Feature::BLWF,
+            BasicFeature::Abvf => Feature::ABVF,
+            BasicFeature::Half => Feature::HALF,
+            BasicFeature::Pstf => Feature::PSTF,
+            BasicFeature::Vatu => Feature::VATU,
+            BasicFeature::Cjct => Feature::CJCT,
+            BasicFeature::Cfar => Feature::CFAR,
         }
     }
 
@@ -1070,6 +1070,7 @@ pub fn gsub_apply_indic<'a>(
     indic1_tag: u32,
     lang_tag: Option<u32>,
     feature_variations: Option<&'a FeatureTableSubstitution<'a>>,
+    extra_features: FeatureMask,
     glyphs: &mut Vec<RawGlyph<()>>,
 ) -> Result<(), ShapingError> {
     if glyphs.is_empty() {
@@ -1144,6 +1145,7 @@ pub fn gsub_apply_indic<'a>(
             syllable,
             syllable_type,
             is_first_syllable,
+            extra_features,
         ) {
             debug!("gsub apply indic: {}", err);
         }
@@ -1164,6 +1166,7 @@ fn shape_syllable(
     syllable: &mut Vec<RawGlyphIndic>,
     syllable_type: &Option<Syllable>,
     is_first_syllable: bool,
+    extra_features: FeatureMask,
 ) -> Result<(), ShapingError> {
     let max_glyphs = syllable.len().saturating_mul(gsub::MAX_GLYPHS_FACTOR);
 
@@ -1185,7 +1188,13 @@ fn shape_syllable(
             initial_reorder_consonant_syllable(shaping_data, syllable)?;
             apply_basic_features(shaping_data, syllable, max_glyphs)?;
             final_reorder_consonant_syllable(shaping_data, syllable);
-            apply_presentation_features(shaping_data, is_first_syllable, syllable, max_glyphs)?;
+            apply_presentation_features(
+                shaping_data,
+                is_first_syllable,
+                extra_features,
+                syllable,
+                max_glyphs,
+            )?;
         }
         Some(Syllable::Symbol) | None => {}
     }
@@ -1476,19 +1485,19 @@ fn initial_reorder_consonant_syllable_with_base(
 
     // Set the appropriate feature masks
     for glyph in glyphs.iter_mut() {
-        let mask = match glyph.pos() {
-            Some(Pos::RaToBecomeReph) => BasicFeature::Rphf.mask(),
+        let mask: FeatureMask = match glyph.pos() {
+            Some(Pos::RaToBecomeReph) => BasicFeature::Rphf.feature().mask(),
             Some(Pos::PrebaseConsonant) => {
                 if shaping_data.shaping_model != ShapingModel::Indic1
                     && shaping_data.script.blwf_mode() == BlwfMode::PreAndPost
                 {
-                    BasicFeature::Half.mask() | BasicFeature::Blwf.mask()
+                    BasicFeature::Half.feature() | BasicFeature::Blwf.feature()
                 } else {
-                    BasicFeature::Half.mask()
+                    BasicFeature::Half.feature().mask()
                 }
             }
-            Some(Pos::BelowbaseConsonant) => BasicFeature::Blwf.mask(),
-            Some(Pos::PostbaseConsonant) => BasicFeature::Pstf.mask(),
+            Some(Pos::BelowbaseConsonant) => BasicFeature::Blwf.feature().mask(),
+            Some(Pos::PostbaseConsonant) => BasicFeature::Pstf.feature().mask(),
             _ => FeatureMask::empty(),
         };
 
@@ -1513,7 +1522,7 @@ fn initial_reorder_consonant_syllable_with_base(
     if let Some(last_explicit_half_form_index) = last_explicit_half_form_index {
         glyphs[..=last_explicit_half_form_index]
             .iter_mut()
-            .for_each(|g| g.remove_mask(BasicFeature::Blwf.mask()));
+            .for_each(|g| g.remove_mask(BasicFeature::Blwf.feature().mask()));
     }
 
     // ...except non-initial, pre-base "Ra, Halant" sequences in Devanagari
@@ -1535,7 +1544,7 @@ fn initial_reorder_consonant_syllable_with_base(
             }
         }
 
-        let mask = BasicFeature::Blwf.mask();
+        let mask: FeatureMask = BasicFeature::Blwf.feature().mask();
         for i in ra_indices {
             glyphs[i].add_mask(mask);
             glyphs[i + 1].add_mask(mask);
@@ -1563,7 +1572,7 @@ fn initial_reorder_consonant_syllable_with_base(
                 glyphs_post_base,
                 prebase_reordering_ra_index,
             )? {
-                let mask = BasicFeature::Pref.mask();
+                let mask: FeatureMask = BasicFeature::Pref.feature().mask();
                 glyphs_post_base[prebase_reordering_ra_index].add_mask(mask);
                 glyphs_post_base[prebase_reordering_ra_index + 1].add_mask(mask);
             }
@@ -1621,9 +1630,9 @@ fn initial_reorder_consonant_syllable_without_base(
     // NOTE: Our GSUB implementation is such that the remaining glyphs
     // that constitute the Reph do not need to be tagged or masked.
     for glyph in glyphs.iter_mut() {
-        let mask = match glyph.pos() {
-            Some(Pos::RaToBecomeReph) => BasicFeature::Rphf.mask(),
-            _ => BasicFeature::Half.mask(),
+        let mask: FeatureMask = match glyph.pos() {
+            Some(Pos::RaToBecomeReph) => BasicFeature::Rphf.feature().mask(),
+            _ => BasicFeature::Half.feature().mask(),
         };
 
         glyph.add_mask(mask);
@@ -1898,12 +1907,12 @@ fn apply_basic_features(
     max_glyphs: usize,
 ) -> Result<(), ParseError> {
     for feature in BasicFeature::ALL {
-        let index = shaping_data.get_lookups_cache_index(feature.mask())?;
+        let index = shaping_data.get_lookups_cache_index(feature.feature().mask())?;
         let lookups = &shaping_data.gsub_cache.cached_lookups.lock().unwrap()[index];
 
         for &(lookup_index, feature_tag) in lookups {
             shaping_data.apply_lookup(lookup_index, feature_tag, glyphs, max_glyphs, |g| {
-                feature.is_global() || g.has_mask(feature.mask())
+                feature.is_global() || g.has_mask(feature.feature().mask())
             })?;
         }
     }
@@ -1993,7 +2002,7 @@ fn final_reorder_consonant_syllable(
         let mut pref_glyphs = glyphs
             .iter()
             .enumerate()
-            .filter(|(_, g)| g.has_mask(BasicFeature::Pref.mask()));
+            .filter(|(_, g)| g.has_mask(BasicFeature::Pref.feature().mask()));
         let pref_glyphs_count = pref_glyphs.clone().count();
 
         // Check that only one glyph has the PREF feature
@@ -2192,20 +2201,22 @@ fn final_reph_index(
 fn apply_presentation_features(
     shaping_data: &IndicShapingData<'_>,
     is_first_syllable: bool,
+    extra_features: FeatureMask,
     glyphs: &mut Vec<RawGlyphIndic>,
     max_glyphs: usize,
 ) -> Result<(), ParseError> {
-    let mut features = FeatureMask::PRES
-        | FeatureMask::ABVS
-        | FeatureMask::BLWS
-        | FeatureMask::PSTS
-        | FeatureMask::HALN
-        | FeatureMask::CALT;
+    let mut features = Feature::PRES
+        | Feature::ABVS
+        | Feature::BLWS
+        | Feature::PSTS
+        | Feature::HALN
+        | Feature::CALT
+        | extra_features;
 
     if let Some(glyph) = glyphs.first_mut() {
         if is_first_syllable && glyph.has_pos(Pos::PrebaseMatra) {
-            glyph.add_mask(FeatureMask::INIT);
-            features |= FeatureMask::INIT;
+            glyph.add_mask(Feature::INIT.mask());
+            features |= Feature::INIT;
         }
     }
     let index = shaping_data.get_lookups_cache_index(features)?;
@@ -2213,7 +2224,7 @@ fn apply_presentation_features(
 
     for &(lookup_index, feature_tag) in lookups {
         shaping_data.apply_lookup(lookup_index, feature_tag, glyphs, max_glyphs, |g| {
-            feature_tag != tag::INIT || g.has_mask(FeatureMask::INIT)
+            feature_tag != tag::INIT || g.has_mask(Feature::INIT.mask())
         })?;
     }
 

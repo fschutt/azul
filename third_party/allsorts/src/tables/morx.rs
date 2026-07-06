@@ -1,8 +1,6 @@
 //! Binary reading of the `morx` table.
 use std::convert::TryInto;
 
-use bitflags::bitflags;
-
 use crate::binary::read::{
     ReadArray, ReadBinary, ReadBinaryDep, ReadCtxt, ReadFrom, ReadUnchecked,
 };
@@ -519,16 +517,19 @@ pub struct ContextualEntry {
     pub current_index: u16,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct ContextualEntryFlags: u16 {
-        /// If set, make the current glyph the marked glyph.
-        const SET_MARK = 0x8000;
-        /// If set, don't advance to the next glyph before going to the new state.
-        const DONT_ADVANCE = 0x4000;
-        // 0x3FFF 	reserved 	These bits are reserved and should be set to 0.
-    }
+#[enumflags2::bitflags]
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum ContextualEntryFlag {
+    /// If set, make the current glyph the marked glyph.
+    SET_MARK = 0x8000,
+    /// If set, don't advance to the next glyph before going to the new state.
+    DONT_ADVANCE = 0x4000,
+    // 0x3FFF 	reserved 	These bits are reserved and should be set to 0.
 }
+
+pub type ContextualEntryFlags = enumflags2::BitFlags<ContextualEntryFlag>;
 
 impl ReadFrom for ContextualEntry {
     type ReadType = (U16Be, U16Be, U16Be, U16Be);
@@ -634,18 +635,21 @@ pub struct LigatureEntry {
     pub lig_action_index: u16,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct LigatureEntryFlags: u16 {
-        /// Push this glyph onto the component stack for eventual processing.
-        const SET_COMPONENT = 0x8000;
-        /// Leave the glyph pointer at this glyph for the next iteration.
-        const DONT_ADVANCE = 0x4000;
-        /// Use the ligActionIndex to process a ligature group.
-        const PERFORM_ACTION = 0x2000;
-        // 0x1FFF   RESERVED    Reserved; set to zero.
-    }
+#[enumflags2::bitflags]
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum LigatureEntryFlag {
+    /// Push this glyph onto the component stack for eventual processing.
+    SET_COMPONENT = 0x8000,
+    /// Leave the glyph pointer at this glyph for the next iteration.
+    DONT_ADVANCE = 0x4000,
+    /// Use the ligActionIndex to process a ligature group.
+    PERFORM_ACTION = 0x2000,
+    // 0x1FFF   RESERVED    Reserved; set to zero.
 }
+
+pub type LigatureEntryFlags = enumflags2::BitFlags<LigatureEntryFlag>;
 
 impl ReadFrom for LigatureEntry {
     type ReadType = (U16Be, U16Be, U16Be);

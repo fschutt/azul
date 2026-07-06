@@ -4,8 +4,6 @@
 //!
 //! <https://learn.microsoft.com/en-us/typography/opentype/spec/cpal>
 
-use bitflags::bitflags;
-
 use crate::binary::read::{ReadArray, ReadBinary, ReadCtxt, ReadFrom};
 use crate::binary::{U16Be, U32Be, U8};
 use crate::error::ParseError;
@@ -29,16 +27,20 @@ pub struct CpalTable<'a> {
     palette_entry_labels_array: Option<ReadArray<'a, U16Be>>,
 }
 
-bitflags! {
-    /// Flags describing features of a palette.
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct PaletteFlags: u32 {
-        /// Palette is appropriate to use when displaying the font on a light background such as white.
-        const USABLE_WITH_LIGHT_BACKGROUND = 0b00000001;
-        /// Palette is appropriate to use when displaying the font on a dark background such as black.
-        const USABLE_WITH_DARK_BACKGROUND  = 0b00000010;
-    }
+/// Flags describing features of a palette.
+#[enumflags2::bitflags]
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum PaletteFlag {
+    /// Palette is appropriate to use when displaying the font on a light background such as white.
+    USABLE_WITH_LIGHT_BACKGROUND = 0b00000001,
+    /// Palette is appropriate to use when displaying the font on a dark background such as black.
+    USABLE_WITH_DARK_BACKGROUND = 0b00000010,
 }
+
+/// A set of `PaletteFlag` flags.
+pub type PaletteFlags = enumflags2::BitFlags<PaletteFlag>;
 
 impl<'data> CpalTable<'data> {
     /// Obtain the palette at `index`.

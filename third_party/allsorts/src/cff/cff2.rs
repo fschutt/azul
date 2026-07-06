@@ -30,7 +30,7 @@ use crate::glyph_info::GlyphNames;
 use crate::post::PostTable;
 use crate::subset::SubsetError;
 use crate::tables::cmap::{Cmap, CmapSubtable};
-use crate::tables::os2::{FsSelection, Os2};
+use crate::tables::os2::{FsSelectionFlag, Os2};
 use crate::tables::variable_fonts::{ItemVariationStore, OwnedTuple};
 use crate::tables::{
     Fixed, FontTableProvider, HeadTable, HheaTable, HmtxTable, MaxpTable, NameTable,
@@ -450,8 +450,8 @@ impl<'a> CFF2<'a> {
                 }
             })
             .unwrap_or_else(|| {
-                let bold = os2.fs_selection.contains(FsSelection::BOLD);
-                let italic = os2.fs_selection.contains(FsSelection::ITALIC);
+                let bold = os2.fs_selection.contains(FsSelectionFlag::BOLD);
+                let italic = os2.fs_selection.contains(FsSelectionFlag::ITALIC);
                 match (bold, italic) {
                     (true, true) => String::from("Unknown Bold Italic"),
                     (true, false) => String::from("Unknown Bold"),

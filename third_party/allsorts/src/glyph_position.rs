@@ -362,7 +362,7 @@ mod tests {
     use crate::binary::read::ReadScope;
     use crate::font::MatchingPresentation;
     use crate::font_data::FontData;
-    use crate::gsub::{FeatureMask, Features};
+    use crate::gsub::{Feature, FeatureMask, FeatureMaskExt};
     use crate::tag;
     use crate::tests::read_fixture;
 
@@ -378,7 +378,7 @@ mod tests {
             font,
             script,
             lang,
-            &Features::Mask(FeatureMask::default()),
+            FeatureMask::default_mask(),
             direction,
             false,
         )
@@ -389,7 +389,7 @@ mod tests {
         font: &str,
         script: u32,
         lang: u32,
-        features: &Features,
+        feature_mask: FeatureMask,
         direction: TextDirection,
         vertical: bool,
     ) -> Result<Vec<GlyphPosition>, Box<dyn Error>> {
@@ -403,7 +403,7 @@ mod tests {
         // Map text to glyphs and then apply font shaping
         let glyphs = font.map_glyphs(text, script, MatchingPresentation::NotRequired);
         let infos = font
-            .shape(glyphs, script, Some(lang), features, None, true)
+            .shape(glyphs, script, Some(lang), feature_mask, &[], None, true)
             .map_err(|(err, _info)| err)?;
 
         let mut layout = GlyphLayout::new(&mut font, &infos, direction, vertical);
@@ -478,7 +478,7 @@ mod tests {
     fn ltr_attach_distance() -> Result<(), Box<dyn Error>> {
         let script = tag!(b"latn");
         let lang = tag!(b"ENG ");
-        let features = Features::Mask(FeatureMask::default() | FeatureMask::FRAC);
+        let feature_mask = FeatureMask::default_mask() | Feature::FRAC;
         // '⁄' is U+2044 FRACTION SLASH, which when the `frac` GPOS feature is enabled is
         // positioned to be under the previous character and above the next.
         let positions = get_positions_with_gpos_features(
@@ -486,7 +486,7 @@ mod tests {
             "opentype/SourceCodePro-Regular.otf",
             script,
             lang,
-            &features,
+            feature_mask,
             TextDirection::LeftToRight,
             false,
         )?;

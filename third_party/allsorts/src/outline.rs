@@ -18,7 +18,7 @@
 //! use allsorts::binary::read::ReadScope;
 //! use allsorts::cff::outline::CFFOutlines;
 //! use allsorts::cff::CFF;
-//! use allsorts::font::{GlyphTableFlags, MatchingPresentation};
+//! use allsorts::font::{GlyphTableFlag, MatchingPresentation};
 //! use allsorts::font_data::FontData;
 //! use allsorts::gsub::RawGlyph;
 //! use allsorts::outline::{OutlineBuilder, OutlineSink};
@@ -88,14 +88,14 @@
 //!     let glyphs = font.map_glyphs("+", script, MatchingPresentation::NotRequired);
 //!
 //!     // Visit the outlines of each glyph. Read tables depending on the type of font
-//!     if font.glyph_table_flags.contains(GlyphTableFlags::CFF)
+//!     if font.glyph_table_flags.contains(GlyphTableFlag::CFF)
 //!         && font.font_table_provider.sfnt_version() == tag::OTTO
 //!     {
 //!         let cff_data = font.font_table_provider.read_table_data(tag::CFF)?;
 //!         let cff = ReadScope::new(&cff_data).read::<CFF<'_>>()?;
 //!         let mut cff_outlines = CFFOutlines { table: &cff };
 //!         sink.glyphs_to_path(&mut cff_outlines, &glyphs)?;
-//!     } else if font.glyph_table_flags.contains(GlyphTableFlags::GLYF) {
+//!     } else if font.glyph_table_flags.contains(GlyphTableFlag::GLYF) {
 //!         let loca_data = font.font_table_provider.read_table_data(tag::LOCA)?;
 //!         let loca = ReadScope::new(&loca_data).read_dep::<LocaTable<'_>>((
 //!             font.maxp_table.num_glyphs,

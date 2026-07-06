@@ -14,7 +14,6 @@ mod variation;
 use std::mem;
 use std::sync::Arc;
 
-use bitflags::bitflags;
 use log::warn;
 use pathfinder_geometry::transform2d::Matrix2x2F;
 use pathfinder_geometry::vector::Vector2F;
@@ -43,69 +42,79 @@ pub use subset::SubsetGlyph;
 #[allow(unused)]
 const COMPOSITE_GLYPH_RECURSION_LIMIT: u8 = 6;
 
-bitflags! {
-    /// Flags for [simple glyphs](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#simple-glyph-description)
-    #[rustfmt::skip]
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct SimpleGlyphFlag: u8 {
-        #[allow(missing_docs)]
-        const ON_CURVE_POINT                       = 0b00000001;
-        #[allow(missing_docs)]
-        const X_SHORT_VECTOR                       = 0b00000010;
-        #[allow(missing_docs)]
-        const Y_SHORT_VECTOR                       = 0b00000100;
-        #[allow(missing_docs)]
-        const REPEAT_FLAG                          = 0b00001000;
-        #[allow(missing_docs)]
-        const X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0b00010000;
-        #[allow(missing_docs)]
-        const Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0b00100000;
-    }
+/// Flags for [simple glyphs](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#simple-glyph-description)
+#[enumflags2::bitflags]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum SimpleGlyphFlag {
+    /// Bit 0: If set, the point is on the curve; otherwise, it is off the curve.
+    ON_CURVE_POINT = 0b00000001,
+    /// Bit 1: If set, the corresponding x-coordinate is 1 byte long, and the sign is determined
+    /// by the `X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR` flag.
+    X_SHORT_VECTOR = 0b00000010,
+    /// Bit 2: If set, the corresponding y-coordinate is 1 byte long, and the sign is determined
+    /// by the `Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR` flag.
+    Y_SHORT_VECTOR = 0b00000100,
+    /// Bit 3: If set, the next byte (or bytes) specifies the number of additional times this
+    /// flag byte is to be repeated — the number of additional logical flags inserted after this flag.
+    REPEAT_FLAG = 0b00001000,
+    /// Bit 4: This flag has two meanings, depending on the `X_SHORT_VECTOR` flag.
+    X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0b00010000,
+    /// Bit 5: This flag has two meanings, depending on the `Y_SHORT_VECTOR` flag.
+    Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0b00100000,
 }
 
-bitflags! {
-    /// Flags for [composite glyphs](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#composite-glyph-description)
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct CompositeGlyphFlag: u16 {
-        /// Bit 0: If this is set, the arguments are 16-bit (uint16 or int16); otherwise, they are
-        /// bytes (uint8 or int8).
-        const ARG_1_AND_2_ARE_WORDS = 0x0001;
-        /// Bit 1: If this is set, the arguments are signed xy values; otherwise, they are unsigned
-        /// point numbers.
-        const ARGS_ARE_XY_VALUES = 0x0002;
-        /// Bit 2: For the xy values if the preceding is true.
-        const ROUND_XY_TO_GRID = 0x0004;
-        /// Bit 3: This indicates that there is a simple scale for the component.
-        ///
-        /// Otherwise, scale = 1.0.
-        const WE_HAVE_A_SCALE = 0x0008;
-        /// Bit 4: Reserved, set to 0
-        /// Bit 5: Indicates at least one more glyph after this one.
-        const MORE_COMPONENTS = 0x0020;
-        /// Bit 6: The x direction will use a different scale from the y direction.
-        const WE_HAVE_AN_X_AND_Y_SCALE = 0x0040;
-        /// Bit 7: There is a 2 by 2 transformation that will be used to scale the component.
-        const WE_HAVE_A_TWO_BY_TWO = 0x0080;
-        /// Bit 8: Following the last component are instructions for the composite character.
-        const WE_HAVE_INSTRUCTIONS = 0x0100;
-        /// Bit 9: If set, this forces the aw and lsb (and rsb) for the composite to be equal to
-        /// those from this original glyph. This works for hinted and unhinted characters.
-        const USE_MY_METRICS = 0x0200;
-        /// Bit 10: If set, the components of the compound glyph overlap.
-        ///
-        /// Use of this flag is not required in OpenType — that is, it is valid to have components
-        /// overlap without having this flag set. It may affect behaviors in some platforms,
-        /// however. (See Apple’s specification for details regarding behavior in Apple platforms.)
-        /// When used, it must be set on the flag word for the first component. See additional
-        /// remarks, above, for the similar OVERLAP_SIMPLE flag used in simple-glyph descriptions.
-        const OVERLAP_COMPOUND = 0x0400;
-        /// Bit 11: The composite is designed to have the component offset scaled.
-        const SCALED_COMPONENT_OFFSET = 0x0800;
-        /// Bit 12: The composite is designed not to have the component offset scaled.
-        const UNSCALED_COMPONENT_OFFSET = 0x1000;
-        // 0xE010 	Reserved 	Bits 4, 13, 14 and 15 are reserved: set to 0.
-    }
+/// A set of `SimpleGlyphFlag` flags.
+pub type SimpleGlyphFlags = enumflags2::BitFlags<SimpleGlyphFlag>;
+
+/// Flags for [composite glyphs](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#composite-glyph-description)
+#[enumflags2::bitflags]
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum CompositeGlyphFlag {
+    /// Bit 0: If this is set, the arguments are 16-bit (uint16 or int16); otherwise, they are
+    /// bytes (uint8 or int8).
+    ARG_1_AND_2_ARE_WORDS = 0x0001,
+    /// Bit 1: If this is set, the arguments are signed xy values; otherwise, they are unsigned
+    /// point numbers.
+    ARGS_ARE_XY_VALUES = 0x0002,
+    /// Bit 2: For the xy values if the preceding is true.
+    ROUND_XY_TO_GRID = 0x0004,
+    /// Bit 3: This indicates that there is a simple scale for the component.
+    ///
+    /// Otherwise, scale = 1.0.
+    WE_HAVE_A_SCALE = 0x0008,
+    /// Bit 4: Reserved, set to 0
+    /// Bit 5: Indicates at least one more glyph after this one.
+    MORE_COMPONENTS = 0x0020,
+    /// Bit 6: The x direction will use a different scale from the y direction.
+    WE_HAVE_AN_X_AND_Y_SCALE = 0x0040,
+    /// Bit 7: There is a 2 by 2 transformation that will be used to scale the component.
+    WE_HAVE_A_TWO_BY_TWO = 0x0080,
+    /// Bit 8: Following the last component are instructions for the composite character.
+    WE_HAVE_INSTRUCTIONS = 0x0100,
+    /// Bit 9: If set, this forces the aw and lsb (and rsb) for the composite to be equal to
+    /// those from this original glyph. This works for hinted and unhinted characters.
+    USE_MY_METRICS = 0x0200,
+    /// Bit 10: If set, the components of the compound glyph overlap.
+    ///
+    /// Use of this flag is not required in OpenType — that is, it is valid to have components
+    /// overlap without having this flag set. It may affect behaviors in some platforms,
+    /// however. (See Apple’s specification for details regarding behavior in Apple platforms.)
+    /// When used, it must be set on the flag word for the first component. See additional
+    /// remarks, above, for the similar OVERLAP_SIMPLE flag used in simple-glyph descriptions.
+    OVERLAP_COMPOUND = 0x0400,
+    /// Bit 11: The composite is designed to have the component offset scaled.
+    SCALED_COMPONENT_OFFSET = 0x0800,
+    /// Bit 12: The composite is designed not to have the component offset scaled.
+    UNSCALED_COMPONENT_OFFSET = 0x1000,
+    // 0xE010 	Reserved 	Bits 4, 13, 14 and 15 are reserved: set to 0.
 }
+
+/// A set of `CompositeGlyphFlag` flags.
+pub type CompositeGlyphFlags = enumflags2::BitFlags<CompositeGlyphFlag>;
 
 /// `glyf` table
 ///
@@ -261,7 +270,7 @@ pub struct SimpleGlyph {
     /// Hinting instruction byte code
     pub instructions: Box<[u8]>,
     /// Contour point coordinates
-    pub coordinates: Vec<(SimpleGlyphFlag, Point)>,
+    pub coordinates: Vec<(SimpleGlyphFlags, Point)>,
     /// Phantom points, only populated when applying glyph variation deltas
     pub phantom_points: Option<Box<PhantomPoints>>,
 }
@@ -283,7 +292,7 @@ pub struct CompositeGlyph {
 #[derive(Debug, PartialEq, Clone)]
 pub struct CompositeGlyphComponent {
     /// Flags for this component
-    pub flags: CompositeGlyphFlag,
+    pub flags: CompositeGlyphFlags,
     /// The index of the child glyph for this component
     pub glyph_index: u16,
     /// First argument
@@ -629,7 +638,7 @@ impl SimpleGlyph {
     }
 
     /// Iterator over the contours of this glyph
-    pub fn contours(&self) -> impl Iterator<Item = &[(SimpleGlyphFlag, Point)]> {
+    pub fn contours(&self) -> impl Iterator<Item = &[(SimpleGlyphFlags, Point)]> {
         self.end_pts_of_contours.iter().scan(0, move |i, &end| {
             let start = *i;
             let end = usize::from(end);
@@ -666,7 +675,7 @@ impl ReadBinaryDep for SimpleGlyph {
         // Read all the flags
         let mut coordinates = Vec::with_capacity(number_of_coordinates);
         while coordinates.len() < number_of_coordinates {
-            let flag = ctxt.read::<SimpleGlyphFlag>()?;
+            let flag = ctxt.read::<SimpleGlyphFlags>()?;
             if flag.is_repeated() {
                 let count = usize::from(ctxt.read::<U8>()?) + 1; // + 1 to include the current entry
                 let repeat = std::iter::repeat_n((flag, Point::zero()), count);
@@ -757,11 +766,11 @@ impl WriteBinary for SimpleGlyph {
     }
 }
 
-impl ReadFrom for SimpleGlyphFlag {
+impl ReadFrom for SimpleGlyphFlags {
     type ReadType = U8;
 
     fn read_from(flag: u8) -> Self {
-        SimpleGlyphFlag::from_bits_truncate(flag)
+        SimpleGlyphFlags::from_bits_truncate(flag)
     }
 }
 
@@ -772,7 +781,7 @@ impl ReadBinary for CompositeGlyphs {
         let mut have_instructions = false;
         let mut glyphs = Vec::new();
         loop {
-            let flags = ctxt.read::<CompositeGlyphFlag>()?;
+            let flags = ctxt.read::<CompositeGlyphFlags>()?;
             let data = ctxt.read_dep::<CompositeGlyphComponent>(flags)?;
 
             if flags.we_have_instructions() {
@@ -836,24 +845,35 @@ impl WriteBinary for CompositeGlyph {
 }
 
 #[allow(missing_docs)]
-impl SimpleGlyphFlag {
-    pub fn is_on_curve(self) -> bool {
-        self & Self::ON_CURVE_POINT == Self::ON_CURVE_POINT
+pub trait SimpleGlyphFlagExt {
+    fn is_on_curve(self) -> bool;
+    fn x_is_short(self) -> bool;
+    fn y_is_short(self) -> bool;
+    fn is_repeated(self) -> bool;
+    fn x_short_sign(self) -> i16;
+    fn y_short_sign(self) -> i16;
+    fn x_is_same_or_positive(self) -> bool;
+    fn y_is_same_or_positive(self) -> bool;
+}
+
+impl SimpleGlyphFlagExt for SimpleGlyphFlags {
+    fn is_on_curve(self) -> bool {
+        self.contains(SimpleGlyphFlag::ON_CURVE_POINT)
     }
 
-    pub fn x_is_short(self) -> bool {
-        self & Self::X_SHORT_VECTOR == Self::X_SHORT_VECTOR
+    fn x_is_short(self) -> bool {
+        self.contains(SimpleGlyphFlag::X_SHORT_VECTOR)
     }
 
-    pub fn y_is_short(self) -> bool {
-        self & Self::Y_SHORT_VECTOR == Self::Y_SHORT_VECTOR
+    fn y_is_short(self) -> bool {
+        self.contains(SimpleGlyphFlag::Y_SHORT_VECTOR)
     }
 
-    pub fn is_repeated(self) -> bool {
-        self & Self::REPEAT_FLAG == Self::REPEAT_FLAG
+    fn is_repeated(self) -> bool {
+        self.contains(SimpleGlyphFlag::REPEAT_FLAG)
     }
 
-    pub fn x_short_sign(self) -> i16 {
+    fn x_short_sign(self) -> i16 {
         if self.x_is_same_or_positive() {
             1
         } else {
@@ -861,7 +881,7 @@ impl SimpleGlyphFlag {
         }
     }
 
-    pub fn y_short_sign(self) -> i16 {
+    fn y_short_sign(self) -> i16 {
         if self.y_is_same_or_positive() {
             1
         } else {
@@ -869,27 +889,25 @@ impl SimpleGlyphFlag {
         }
     }
 
-    pub fn x_is_same_or_positive(self) -> bool {
-        self & Self::X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR
-            == Self::X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR
+    fn x_is_same_or_positive(self) -> bool {
+        self.contains(SimpleGlyphFlag::X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR)
     }
 
-    pub fn y_is_same_or_positive(self) -> bool {
-        self & Self::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR
-            == Self::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR
+    fn y_is_same_or_positive(self) -> bool {
+        self.contains(SimpleGlyphFlag::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR)
     }
 }
 
-impl ReadFrom for CompositeGlyphFlag {
+impl ReadFrom for CompositeGlyphFlags {
     type ReadType = U16Be;
 
     fn read_from(flag: u16) -> Self {
-        CompositeGlyphFlag::from_bits_truncate(flag)
+        CompositeGlyphFlags::from_bits_truncate(flag)
     }
 }
 
 impl ReadBinaryDep for CompositeGlyphArgument {
-    type Args<'a> = CompositeGlyphFlag;
+    type Args<'a> = CompositeGlyphFlags;
     type HostType<'a> = Self;
 
     fn read_dep(ctxt: &mut ReadCtxt<'_>, flags: Self::Args<'_>) -> Result<Self, ParseError> {
@@ -918,7 +936,7 @@ impl WriteBinary for CompositeGlyphArgument {
 }
 
 impl ReadBinaryDep for CompositeGlyphComponent {
-    type Args<'a> = CompositeGlyphFlag;
+    type Args<'a> = CompositeGlyphFlags;
     type HostType<'a> = Self;
 
     fn read_dep(ctxt: &mut ReadCtxt<'_>, flags: Self::Args<'_>) -> Result<Self, ParseError> {
@@ -1284,7 +1302,7 @@ impl GlyfRecord<'_> {
                     // Composite glyph
                     let mut count = 0;
                     loop {
-                        let flags = ctxt.read::<CompositeGlyphFlag>()?;
+                        let flags = ctxt.read::<CompositeGlyphFlags>()?;
                         let _composite_glyph = ctxt.read_dep::<CompositeGlyphComponent>(flags)?;
                         count += 1;
                         if !flags.more_components() {
@@ -1334,44 +1352,55 @@ impl EmptyGlyph {
 }
 
 #[allow(missing_docs)]
-impl CompositeGlyphFlag {
-    pub fn arg_1_and_2_are_words(self) -> bool {
-        self & Self::ARG_1_AND_2_ARE_WORDS == Self::ARG_1_AND_2_ARE_WORDS
+pub trait CompositeGlyphFlagExt {
+    fn arg_1_and_2_are_words(self) -> bool;
+    fn args_are_xy_values(self) -> bool;
+    fn we_have_a_scale(self) -> bool;
+    fn we_have_an_x_and_y_scale(self) -> bool;
+    fn we_have_a_two_by_two(self) -> bool;
+    fn more_components(self) -> bool;
+    fn we_have_instructions(self) -> bool;
+    fn component_offsets(self) -> ComponentOffsets;
+}
+
+impl CompositeGlyphFlagExt for CompositeGlyphFlags {
+    fn arg_1_and_2_are_words(self) -> bool {
+        self.contains(CompositeGlyphFlag::ARG_1_AND_2_ARE_WORDS)
     }
 
-    pub fn args_are_xy_values(self) -> bool {
-        self & Self::ARGS_ARE_XY_VALUES == Self::ARGS_ARE_XY_VALUES
+    fn args_are_xy_values(self) -> bool {
+        self.contains(CompositeGlyphFlag::ARGS_ARE_XY_VALUES)
     }
 
-    pub fn we_have_a_scale(self) -> bool {
-        self & Self::WE_HAVE_A_SCALE == Self::WE_HAVE_A_SCALE
+    fn we_have_a_scale(self) -> bool {
+        self.contains(CompositeGlyphFlag::WE_HAVE_A_SCALE)
     }
 
-    pub fn we_have_an_x_and_y_scale(self) -> bool {
-        self & Self::WE_HAVE_AN_X_AND_Y_SCALE == Self::WE_HAVE_AN_X_AND_Y_SCALE
+    fn we_have_an_x_and_y_scale(self) -> bool {
+        self.contains(CompositeGlyphFlag::WE_HAVE_AN_X_AND_Y_SCALE)
     }
 
-    pub fn we_have_a_two_by_two(self) -> bool {
-        self & Self::WE_HAVE_A_TWO_BY_TWO == Self::WE_HAVE_A_TWO_BY_TWO
+    fn we_have_a_two_by_two(self) -> bool {
+        self.contains(CompositeGlyphFlag::WE_HAVE_A_TWO_BY_TWO)
     }
 
-    pub fn more_components(self) -> bool {
-        self & Self::MORE_COMPONENTS == Self::MORE_COMPONENTS
+    fn more_components(self) -> bool {
+        self.contains(CompositeGlyphFlag::MORE_COMPONENTS)
     }
 
-    pub fn we_have_instructions(self) -> bool {
-        self & Self::WE_HAVE_INSTRUCTIONS == Self::WE_HAVE_INSTRUCTIONS
+    fn we_have_instructions(self) -> bool {
+        self.contains(CompositeGlyphFlag::WE_HAVE_INSTRUCTIONS)
     }
 
-    pub fn component_offsets(self) -> ComponentOffsets {
+    fn component_offsets(self) -> ComponentOffsets {
         // The SCALED_COMPONENT_OFFSET and UNSCALED_COMPONENT_OFFSET flags are used to determine
         // how x and y offset values are to be interpreted when the component glyph is scaled. If
         // the SCALED_COMPONENT_OFFSET flag is set, then the x and y offset values are deemed to be
-        // in the component glyph’s coordinate system, and the scale transformation is applied to
+        // in the component glyph's coordinate system, and the scale transformation is applied to
         // both values.
         //
         // If the UNSCALED_COMPONENT_OFFSET flag is set, then the x and y offset values are deemed
-        // to be in the current glyph’s coordinate system, and the scale transformation is not
+        // to be in the current glyph's coordinate system, and the scale transformation is not
         // applied to either value.
         //
         // If neither flag is set, then the rasterizer will apply a default behavior. On Microsoft
@@ -1379,8 +1408,8 @@ impl CompositeGlyphFlag {
         // UNSCALED_COMPONENT_OFFSET flag is set; this behavior is recommended for all rasterizer
         // implementations. If a font has both flags set, this is invalid; the rasterizer should use
         // its default behavior for this case.
-        let scaled = self & Self::SCALED_COMPONENT_OFFSET == Self::SCALED_COMPONENT_OFFSET;
-        let unscaled = self & Self::UNSCALED_COMPONENT_OFFSET == Self::UNSCALED_COMPONENT_OFFSET;
+        let scaled = self.contains(CompositeGlyphFlag::SCALED_COMPONENT_OFFSET);
+        let unscaled = self.contains(CompositeGlyphFlag::UNSCALED_COMPONENT_OFFSET);
         match (scaled, unscaled) {
             (true, false) => ComponentOffsets::Scaled,
             (false, true) => ComponentOffsets::Unscaled,

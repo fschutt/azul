@@ -60,9 +60,12 @@ azul-layout = { path = "layout" }
 # its only functional delta was a web_lift-only hashbrown workaround). Deps
 # bumped to 4.4.4 in core/ + layout/.
 #
-# allsorts-azul 0.17.0 (crates.io, no [patch] needed): fork rebased onto
-# upstream allsorts v0.17.0 + the zero-copy glyf fix (LocaGlyf::load_shared +
-# GlyfBytes, ~20 MB/app RSS saved). layout/ depends on allsorts-azul "0.17".
+# allsorts-azul: vendored fork tree (= published 0.17.0: rebase onto upstream
+# allsorts v0.17.0 + zero-copy glyf fix + TrueType hinting interpreter),
+# patched in so text3/hinting fixes are hackable in-repo. printpdf and
+# rust-fontconfig still resolve allsorts-azul 0.16.5 from the registry (the
+# patch only matches layout/'s ^0.17 requirement).
+allsorts-azul = { path = "third_party/allsorts" }
 # turso (SQLite engine for db-sqlite) pulls io-uring on Linux, which has no
 # prebuilt bindings for i686/armv7/s390x. Fork gates io-uring to 64-bit Linux
 # (falls back to UnixIO elsewhere); upstream "io-uring optional" later. All six

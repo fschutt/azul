@@ -6,8 +6,6 @@
 
 use std::convert::TryInto;
 
-use bitflags::bitflags;
-
 use crate::binary::read::{ReadBinaryDep, ReadCtxt};
 use crate::binary::write::{WriteBinary, WriteContext};
 use crate::binary::{I16Be, U16Be, U32Be};
@@ -85,44 +83,47 @@ pub struct Version5 {
     pub us_upper_optical_point_size: u16,
 }
 
-bitflags! {
-    /// fsSelection field in `OS/2`
-    ///
-    /// ```text
-    /// Bit #  macStyle bit  C definition     Description
-    /// 0      bit 1         ITALIC           Font contains italic or oblique glyphs, otherwise
-    ///                                       they are upright.
-    /// 1                    UNDERSCORE       glyphs are underscored.
-    /// 2                    NEGATIVE         glyphs have their foreground and background reversed.
-    /// 3                    OUTLINED         Outline (hollow) glyphs, otherwise they are solid.
-    /// 4                    STRIKEOUT        glyphs are overstruck.
-    /// 5      bit 0         BOLD             glyphs are emboldened.
-    /// 6                    REGULAR          glyphs are in the standard weight/style for the font.
-    /// 7                    USE_TYPO_METRICS If set, it is strongly recommended that applications
-    ///                                       use OS/2.sTypoAscender - OS/2.sTypoDescender +
-    ///                                       OS/2.sTypoLineGap as the default line spacing for
-    ///                                       this font.
-    /// 8                    WWS              The font has 'name' table strings consistent with a
-    ///                                       weight/width/slope family without requiring use of
-    ///                                       name IDs 21 and 22.
-    /// 9                    OBLIQUE          Font contains oblique glyphs.
-    /// 10–15                <reserved>       Reserved; set to 0.
-    /// ```
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct FsSelection: u16 {
-        const ITALIC = 1 << 0;
-        const UNDERSCORE = 1 << 1;
-        const NEGATIVE = 1 << 2;
-        const OUTLINED = 1 << 3;
-        const STRIKEOUT = 1 << 4;
-        const BOLD = 1 << 5;
-        const REGULAR = 1 << 6;
-        const USE_TYPO_METRICS = 1 << 7;
-        const WWS = 1 << 8;
-        const OBLIQUE = 1 << 9;
-        // 10–15 Reserved; set to 0.
-    }
+/// fsSelection field in `OS/2`
+///
+/// ```text
+/// Bit #  macStyle bit  C definition     Description
+/// 0      bit 1         ITALIC           Font contains italic or oblique glyphs, otherwise
+///                                       they are upright.
+/// 1                    UNDERSCORE       glyphs are underscored.
+/// 2                    NEGATIVE         glyphs have their foreground and background reversed.
+/// 3                    OUTLINED         Outline (hollow) glyphs, otherwise they are solid.
+/// 4                    STRIKEOUT        glyphs are overstruck.
+/// 5      bit 0         BOLD             glyphs are emboldened.
+/// 6                    REGULAR          glyphs are in the standard weight/style for the font.
+/// 7                    USE_TYPO_METRICS If set, it is strongly recommended that applications
+///                                       use OS/2.sTypoAscender - OS/2.sTypoDescender +
+///                                       OS/2.sTypoLineGap as the default line spacing for
+///                                       this font.
+/// 8                    WWS              The font has 'name' table strings consistent with a
+///                                       weight/width/slope family without requiring use of
+///                                       name IDs 21 and 22.
+/// 9                    OBLIQUE          Font contains oblique glyphs.
+/// 10–15                <reserved>       Reserved; set to 0.
+/// ```
+#[enumflags2::bitflags]
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum FsSelectionFlag {
+    ITALIC = 1 << 0,
+    UNDERSCORE = 1 << 1,
+    NEGATIVE = 1 << 2,
+    OUTLINED = 1 << 3,
+    STRIKEOUT = 1 << 4,
+    BOLD = 1 << 5,
+    REGULAR = 1 << 6,
+    USE_TYPO_METRICS = 1 << 7,
+    WWS = 1 << 8,
+    OBLIQUE = 1 << 9,
+    // 10–15 Reserved; set to 0.
 }
+
+pub type FsSelection = enumflags2::BitFlags<FsSelectionFlag>;
 
 impl Os2 {
     /// Map a width value to an OS/2 width class

@@ -1,10 +1,12 @@
 pub mod arabic;
 pub mod indic;
 pub mod khmer;
+pub mod mongolian;
 pub mod myanmar;
 mod syllable;
 pub mod syriac;
 pub mod thai_lao;
+pub mod tibetan;
 
 use crate::glyph_position::TextDirection;
 use crate::gsub::{GlyphOrigin, RawGlyph};
@@ -18,9 +20,11 @@ pub enum ScriptType {
     Default,
     Indic,
     Khmer,
+    Mongolian,
     Myanmar,
     Syriac,
     ThaiLao,
+    Tibetan,
 }
 
 impl From<u32> for ScriptType {
@@ -41,11 +45,13 @@ impl From<u32> for ScriptType {
             tag::MLYM => ScriptType::Indic,
             tag::SINH => ScriptType::Indic,
             tag::KHMR => ScriptType::Khmer,
+            tag::MONG => ScriptType::Mongolian,
             tag::MYMR => ScriptType::Myanmar,
             tag::MYM2 => ScriptType::Myanmar,
             tag::SYRC => ScriptType::Syriac,
             tag::THAI => ScriptType::ThaiLao,
             tag::LAO => ScriptType::ThaiLao,
+            tag::TIBT => ScriptType::Tibetan,
             _ => ScriptType::Default,
         }
     }
@@ -66,9 +72,11 @@ pub fn preprocess_text(cs: &mut Vec<char>, script_tag: u32) {
         ScriptType::Default => sort_by_modified_combining_class(cs),
         ScriptType::Indic => indic::preprocess_indic(cs, script_tag),
         ScriptType::Khmer => khmer::preprocess_khmer(cs),
+        ScriptType::Mongolian => sort_by_modified_combining_class(cs),
         ScriptType::Myanmar => {}
-        ScriptType::Syriac => sort_by_modified_combining_class(cs),
+        ScriptType::Syriac => arabic::reorder_marks(cs),
         ScriptType::ThaiLao => thai_lao::reorder_marks(cs),
+        ScriptType::Tibetan => tibetan::preprocess_tibetan(cs),
     }
 }
 

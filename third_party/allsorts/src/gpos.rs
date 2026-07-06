@@ -12,7 +12,7 @@ use unicode_general_category::GeneralCategory;
 use crate::context::{ContextLookupHelper, Glyph, LookupFlag, MatchType};
 use crate::error::ParseError;
 use crate::gdef::gdef_is_mark;
-use crate::gsub::{FeatureInfo, Features, RawGlyph};
+use crate::gsub::{FeatureInfo, FeatureMask, FeatureMaskExt, RawGlyph};
 use crate::layout::{
     chain_context_lookup_info, context_lookup_info, Adjust, Anchor, ChainContextLookup,
     ContextLookup, CursivePos, GDEFTable, LangSys, LayoutCache, LayoutTable, LookupList,
@@ -33,7 +33,8 @@ pub fn apply(
     opt_gdef_table: Option<&GDEFTable>,
     kern_table: Option<KernTable<'_>>,
     kerning: bool,
-    features: &Features,
+    feature_mask: FeatureMask,
+    custom_features: &[FeatureInfo],
     tuple: Option<Tuple<'_>>,
     script_tag: u32,
     opt_lang_tag: Option<u32>,
@@ -66,6 +67,7 @@ pub fn apply(
 
     let base_features: &[u32] = match script_type {
         ScriptType::Arabic => &[tag::CURS, tag::KERN, tag::MARK, tag::MKMK],
+        ScriptType::Mongolian => &[tag::CURS, tag::KERN, tag::MARK, tag::MKMK],
         ScriptType::Indic => &[
             tag::ABVM,
             tag::BLWM,
@@ -86,6 +88,7 @@ pub fn apply(
         ],
         ScriptType::Myanmar => &[tag::DIST, tag::ABVM, tag::BLWM, tag::MARK, tag::MKMK],
         ScriptType::Syriac => &[tag::CURS, tag::KERN, tag::MARK, tag::MKMK],
+        ScriptType::Tibetan => &[tag::KERN, tag::ABVM, tag::BLWM, tag::MARK, tag::MKMK],
         ScriptType::ThaiLao => &[tag::KERN, tag::MARK, tag::MKMK],
         ScriptType::Default if kerning => &[tag::DIST, tag::KERN, tag::MARK, tag::MKMK],
         ScriptType::Default => &[tag::DIST, tag::MARK, tag::MKMK],
@@ -105,30 +108,31 @@ pub fn apply(
         script_tag,
         infos,
     )?;
-    match features {
-        Features::Custom(custom) => apply_features(
+    apply_features(
+        gpos_cache,
+        gpos_table,
+        opt_gdef_table,
+        kern_table,
+        langsys,
+        feature_mask.features(),
+        tuple,
+        script_tag,
+        infos,
+    )?;
+    if !custom_features.is_empty() {
+        apply_features(
             gpos_cache,
             gpos_table,
             opt_gdef_table,
             kern_table,
             langsys,
-            custom.iter().copied(),
+            custom_features.iter().copied(),
             tuple,
             script_tag,
             infos,
-        ),
-        Features::Mask(mask) => apply_features(
-            gpos_cache,
-            gpos_table,
-            opt_gdef_table,
-            kern_table,
-            langsys,
-            mask.features(),
-            tuple,
-            script_tag,
-            infos,
-        ),
+        )?;
     }
+    Ok(())
 }
 
 /// Apply glyph positioning using specified OpenType features.

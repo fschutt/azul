@@ -1,7 +1,7 @@
 use tinyvec::tiny_vec;
 
 use crate::error::{ParseError, ShapingError};
-use crate::gsub::{self, FeatureMask, GlyphData, GlyphOrigin, RawGlyph, RawGlyphFlags};
+use crate::gsub::{self, Feature, FeatureMask, GlyphData, GlyphOrigin, RawGlyph, RawGlyphFlags};
 use crate::layout::{FeatureTableSubstitution, GDEFTable, LayoutCache, LayoutTable, GSUB};
 use crate::scripts::syllable::*;
 use crate::tag;
@@ -245,15 +245,15 @@ impl BasicFeature {
         BasicFeature::Cfar,
     ];
 
-    fn mask(self) -> FeatureMask {
+    fn feature(self) -> Feature {
         match self {
-            BasicFeature::Locl => FeatureMask::LOCL,
-            BasicFeature::Ccmp => FeatureMask::CCMP,
-            BasicFeature::Pref => FeatureMask::PREF,
-            BasicFeature::Blwf => FeatureMask::BLWF,
-            BasicFeature::Abvf => FeatureMask::ABVF,
-            BasicFeature::Pstf => FeatureMask::PSTF,
-            BasicFeature::Cfar => FeatureMask::CFAR,
+            BasicFeature::Locl => Feature::LOCL,
+            BasicFeature::Ccmp => Feature::CCMP,
+            BasicFeature::Pref => Feature::PREF,
+            BasicFeature::Blwf => Feature::BLWF,
+            BasicFeature::Abvf => Feature::ABVF,
+            BasicFeature::Pstf => Feature::PSTF,
+            BasicFeature::Cfar => Feature::CFAR,
         }
     }
 
@@ -326,6 +326,7 @@ pub fn gsub_apply_khmer(
     script_tag: u32,
     lang_tag: Option<u32>,
     feature_variations: Option<&FeatureTableSubstitution<'_>>,
+    extra_features: FeatureMask,
     glyphs: &mut Vec<RawGlyph<()>>,
 ) -> Result<(), ShapingError> {
     let mut syllables = to_khmer_syllables(dotted_circle_index, glyphs);
@@ -338,6 +339,7 @@ pub fn gsub_apply_khmer(
             script_tag,
             lang_tag,
             feature_variations,
+            extra_features,
             syllable,
             *syllable_type,
         )?;
@@ -418,6 +420,7 @@ fn shape_syllable(
     script_tag: u32,
     lang_tag: Option<u32>,
     feature_variations: Option<&FeatureTableSubstitution<'_>>,
+    extra_features: FeatureMask,
     syllable: &mut Vec<RawGlyphKhmer>,
     syllable_type: Syllable,
 ) -> Result<(), ShapingError> {
@@ -443,6 +446,7 @@ fn shape_syllable(
                 script_tag,
                 lang_tag,
                 feature_variations,
+                extra_features,
                 syllable,
                 max_glyphs,
             )?;
@@ -464,17 +468,17 @@ fn reorder_and_mask_syllable(glyphs: &mut [RawGlyphKhmer]) -> Result<(), Shaping
         // CFAR is applied to glyphs occurring after a (Sign Coeng, Ro) sequence.
         glyphs[(ra_i + 1)..]
             .iter_mut()
-            .for_each(|g| g.add_mask(BasicFeature::Cfar.mask()));
+            .for_each(|g| g.add_mask(BasicFeature::Cfar.feature().mask()));
         // A (Sign Coeng, Ro) sequence is reordered to before the base consonant.
         // (The syllable matcher should ensure that a Sign Coeng precedes a Ro.)
         glyphs[base_i..=ra_i].rotate_right(2);
         base_i += 2;
-        glyphs[base_i - 1].add_mask(BasicFeature::Pref.mask());
-        glyphs[base_i - 2].add_mask(BasicFeature::Pref.mask());
+        glyphs[base_i - 1].add_mask(BasicFeature::Pref.feature().mask());
+        glyphs[base_i - 2].add_mask(BasicFeature::Pref.feature().mask());
     }
 
     let post_base_masks =
-        BasicFeature::Blwf.mask() | BasicFeature::Abvf.mask() | BasicFeature::Pstf.mask();
+        BasicFeature::Blwf.feature() | BasicFeature::Abvf.feature() | BasicFeature::Pstf.feature();
     glyphs[(base_i + 1)..]
         .iter_mut()
         .for_each(|g| g.add_mask(post_base_masks));
@@ -512,7 +516,7 @@ fn apply_basic_features(
     // causing regressions in others.
     let features = BasicFeature::ALL
         .iter()
-        .fold(FeatureMask::empty(), |acc, f| acc | f.mask());
+        .fold(FeatureMask::empty(), |acc, f| acc | f.feature());
     let index = gsub::get_lookups_cache_index(
         gsub_cache,
         script_tag,
@@ -544,7 +548,7 @@ fn apply_basic_features(
             max_glyphs,
             0,
             glyphs.len(),
-            |g| feature.is_global() || g.has_mask(feature.mask()),
+            |g| feature.is_global() || g.has_mask(feature.feature().mask()),
         )?;
     }
 
@@ -558,16 +562,18 @@ fn apply_remaining_features(
     script_tag: u32,
     lang_tag: Option<u32>,
     feature_variations: Option<&FeatureTableSubstitution<'_>>,
+    extra_features: FeatureMask,
     glyphs: &mut Vec<RawGlyphKhmer>,
     max_glyphs: usize,
 ) -> Result<(), ParseError> {
-    let features = FeatureMask::ABVS
-        | FeatureMask::BLWS
-        | FeatureMask::CALT
-        | FeatureMask::CLIG
-        | FeatureMask::LIGA
-        | FeatureMask::PRES
-        | FeatureMask::PSTS;
+    let features = Feature::ABVS
+        | Feature::BLWS
+        | Feature::CALT
+        | Feature::CLIG
+        | Feature::LIGA
+        | Feature::PRES
+        | Feature::PSTS
+        | extra_features;
 
     let index = gsub::get_lookups_cache_index(
         gsub_cache,

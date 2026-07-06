@@ -13,8 +13,8 @@ use crate::tables::{FontTableProvider, HheaTable, HmtxTable, MaxpTable};
 use crate::tag;
 
 use super::{
-    CompositeGlyphComponent, CompositeGlyphScale, Glyph, LocaGlyf, SimpleGlyph,
-    COMPOSITE_GLYPH_RECURSION_LIMIT,
+    CompositeGlyphComponent, CompositeGlyphFlagExt, CompositeGlyphScale, Glyph, LocaGlyf,
+    SimpleGlyph, COMPOSITE_GLYPH_RECURSION_LIMIT,
 };
 
 use contour::{Contour, CurvePoint};
@@ -449,11 +449,11 @@ fn visit_simple_glyph_outline<S: OutlineSink>(
 }
 
 mod contour {
-    use crate::tables::glyf::{Point, SimpleGlyphFlag};
+    use crate::tables::glyf::{Point, SimpleGlyphFlagExt, SimpleGlyphFlags};
     use pathfinder_geometry::vector::Vector2F;
 
     pub struct Contour<'points> {
-        points_and_flags: &'points [(SimpleGlyphFlag, Point)],
+        points_and_flags: &'points [(SimpleGlyphFlags, Point)],
     }
 
     #[derive(Debug, PartialEq)]
@@ -470,7 +470,7 @@ mod contour {
     }
 
     impl<'points> Contour<'points> {
-        pub fn new(points_and_flags: &'points [(SimpleGlyphFlag, Point)]) -> Self {
+        pub fn new(points_and_flags: &'points [(SimpleGlyphFlags, Point)]) -> Self {
             assert!(!points_and_flags.is_empty());
             Contour { points_and_flags }
         }
@@ -579,7 +579,7 @@ mod tests {
     use crate::binary::read::ReadScope;
     use crate::binary::write::{WriteBinaryDep, WriteBuffer};
     use crate::tables::glyf::tests::{composite_glyph_fixture, simple_glyph_fixture};
-    use crate::tables::glyf::{GlyfRecord, GlyfTable, Point, SimpleGlyphFlag};
+    use crate::tables::glyf::{GlyfRecord, GlyfTable, Point, SimpleGlyphFlag, SimpleGlyphFlags};
     use crate::tables::variable_fonts::avar::AvarTable;
     use crate::tables::variable_fonts::fvar::FvarTable;
     use crate::tables::{Fixed, IndexToLocFormat, OpenTypeFont};
@@ -648,11 +648,11 @@ mod tests {
 
     #[test]
     fn iter_points() {
-        let points_and_flags = &[
-            (SimpleGlyphFlag::ON_CURVE_POINT, Point::zero()),
-            (SimpleGlyphFlag::empty(), Point(10, 40)), // control
-            (SimpleGlyphFlag::empty(), Point(30, 40)), // control
-            (SimpleGlyphFlag::ON_CURVE_POINT, Point(40, 10)),
+        let points_and_flags: &[(SimpleGlyphFlags, Point)] = &[
+            (SimpleGlyphFlag::ON_CURVE_POINT.into(), Point::zero()),
+            (SimpleGlyphFlags::empty(), Point(10, 40)), // control
+            (SimpleGlyphFlags::empty(), Point(30, 40)), // control
+            (SimpleGlyphFlag::ON_CURVE_POINT.into(), Point(40, 10)),
         ];
         let contour = Contour::new(points_and_flags);
         let points = contour.points().collect::<Vec<_>>();

@@ -12,8 +12,6 @@
 
 use std::fmt;
 
-use bitflags::bitflags;
-
 use crate::binary::read::{
     ReadArray, ReadBinary, ReadBinaryDep, ReadCtxt, ReadFixedSizeDep, ReadFrom, ReadScope,
     ReadUnchecked,
@@ -176,24 +174,28 @@ pub struct AxisValue {
     pub value: Fixed,
 }
 
-bitflags! {
-    /// Flags for axis value tables.
-    ///
-    /// <https://learn.microsoft.com/en-us/typography/opentype/spec/stat#flags>
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    pub struct AxisValueTableFlags: u16 {
-        /// If set, this axis value table provides axis value information that is applicable to
-        /// other fonts within the same font family. This is used if the other fonts were released
-        /// earlier and did not include information about values for some axis. If newer versions
-        /// of the other fonts include the information themselves and are present, then this table
-        /// is ignored.
-        const OLDER_SIBLING_FONT_ATTRIBUTE = 0x0001;
-        /// If set, it indicates that the axis value represents the “normal” value for the axis and
-        /// may be omitted when composing name strings.
-        const ELIDABLE_AXIS_VALUE_NAME = 0x0002;
-        // 0xFFFC 	Reserved 	Reserved for future use — set to zero.
-    }
+/// Flags for axis value tables.
+///
+/// <https://learn.microsoft.com/en-us/typography/opentype/spec/stat#flags>
+#[enumflags2::bitflags]
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum AxisValueTableFlag {
+    /// If set, this axis value table provides axis value information that is applicable to
+    /// other fonts within the same font family. This is used if the other fonts were released
+    /// earlier and did not include information about values for some axis. If newer versions
+    /// of the other fonts include the information themselves and are present, then this table
+    /// is ignored.
+    OLDER_SIBLING_FONT_ATTRIBUTE = 0x0001,
+    /// If set, it indicates that the axis value represents the “normal” value for the axis and
+    /// may be omitted when composing name strings.
+    ELIDABLE_AXIS_VALUE_NAME = 0x0002,
+    // 0xFFFC 	Reserved 	Reserved for future use — set to zero.
 }
+
+/// A set of `AxisValueTableFlag` flags.
+pub type AxisValueTableFlags = enumflags2::BitFlags<AxisValueTableFlag>;
 
 /// Boolean value to indicate to [StatTable::name_for_axis_value] whether names
 /// from tables with the `ELIDABLE_AXIS_VALUE_NAME` flag set should be included
@@ -426,7 +428,7 @@ impl AxisValueTable<'_> {
     /// for the axis and may be omitted when composing name strings.
     pub fn is_elidable(&self) -> bool {
         self.flags()
-            .contains(AxisValueTableFlags::ELIDABLE_AXIS_VALUE_NAME)
+            .contains(AxisValueTableFlag::ELIDABLE_AXIS_VALUE_NAME)
     }
 }
 
