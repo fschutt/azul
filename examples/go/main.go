@@ -34,12 +34,8 @@ import (
 	"unsafe"
 )
 
-// ── Data model ────────────────────────────────────────────────────────
-//
-// Mirrors the C macro `AZ_REFLECT_JSON(MyDataModel, ...)`: a compile-
-// time-unique type id (the address of a package var), an `upcast` that
-// wraps the struct in an `AzRefAny`, and a `downcast` that recovers a
-// typed pointer back from the refany.
+// Compile-time-unique type id: the address of a package var. upcast wraps
+// the struct in an AzRefAny; downcast recovers a typed pointer.
 
 type myDataModel struct {
 	counter C.uint32_t
@@ -118,9 +114,8 @@ func goLayout(data C.AzRefAny, _ C.AzLayoutCallbackInfo) C.AzDom {
 	C.AzDom_addCssProperty(&labelWrapper, cond)
 	C.AzDom_addChild(&labelWrapper, label)
 
-	// Increment button. `AzCallback_create` wraps the Go-exported
-	// fn-pointer in a `{ cb, ctx=None }` struct; the C ABI takes
-	// `AzCallback` for setOnClick.
+	// AzButton_setOnClick takes the bare fn-pointer typedef; the C helper
+	// casts the //export'd goOnClick to AzCallbackType (see the preamble).
 	btnLabelBytes := []byte("Increase counter")
 	btnLabel := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&btnLabelBytes[0])), C.size_t(len(btnLabelBytes)))
 	button := C.AzButton_create(btnLabel)

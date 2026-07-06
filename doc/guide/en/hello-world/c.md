@@ -292,8 +292,9 @@ cc hello-world.c -lazul -o hello-world
 ./hello-world
 ```
 
-(On Windows the equivalent is `cl hello-world.c azul.lib` once the
-downloaded `azul.lib` is on the linker search path.)
+(On Windows the equivalent is `cl hello-world.c azul.dll.lib` once the
+downloaded MSVC import library `azul.dll.lib` is on the linker search path,
+with `azul.dll` next to the resulting `.exe` at run time.)
 
 If you downloaded the header and DLL manually (or built from source),
 you have to point the compiler at them explicitly. `-I` / `-L` add
@@ -321,7 +322,7 @@ cc hello-world.c \
 
 # Windows (MSVC) — drop azul.dll next to the .exe at run time
 cl hello-world.c /I path\to\azul-headers ^
-   /link /LIBPATH:path\to\azul-lib azul.lib
+   /link /LIBPATH:path\to\azul-lib azul.dll.lib
 ```
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.

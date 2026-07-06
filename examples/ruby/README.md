@@ -18,10 +18,11 @@ vendored copy before running, so the pass tracks the live artifact).
 ## Build + Run
 
 ```sh
-ruby -I. hello-world.rb
+AZ_LIB_DIR=. ruby -I. hello-world.rb
 ```
 
-(`-I.` tells Ruby to look in the current dir for `azul.rb`.)
+(`-I.` tells Ruby to look in the current dir for `azul.rb`; `AZ_LIB_DIR=.`
+points the loader at `libazul.dylib`/`libazul.so` in the working directory.)
 
 ## What's idiomatic
 

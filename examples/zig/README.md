@@ -9,14 +9,19 @@ Zig bindings for the [Azul](https://azul.rs) GUI framework via
 
 ## Requirements
 
-- Zig 0.11+
-- `libazul.dylib` available at link time
+- Zig 0.14+ (the example uses lowercase `callconv(.c)` / `@intFromPtr`)
+- `libazul.{so,dylib}` / `azul.dll` available at link/run time
 
 ## Build + Run
 
+The example ships with a generated `build.zig` that links `libazul` and
+imports `azul.zig`, so the release-tab flow is just:
+
 ```sh
-zig build-exe hello-world.zig -lc -lazul -L. -rpath . -framework Foundation
-DYLD_LIBRARY_PATH=. ./hello-world
+# linux
+LD_LIBRARY_PATH=. zig build run
+# macos
+DYLD_LIBRARY_PATH=. zig build run
 ```
 
 ## What's idiomatic
@@ -41,8 +46,9 @@ the host-managed data lifecycle without a side handle table.
 
 ## Files
 
-- `hello-world.zig` — 133-line reference implementation.
-- `libazul.dylib` — prebuilt native library.
+- `hello-world.zig` — the counter reference implementation.
+- `azul.zig` / `build.zig` — generated binding + build script.
+- `libazul.{so,dylib}` / `azul.dll` — prebuilt native library.
 
 ## Recent updates (2026-05-15/16)
 

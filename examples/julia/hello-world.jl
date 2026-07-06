@@ -1,25 +1,16 @@
 # Azul counter example — Julia.
 #
-# Run (with libazul.{so,dylib}/azul.dll on the loader path and the
-# generated binding in ./azul/azul.jl):
+# Run:  AZUL_LIB=$PWD/libazul.so julia hello-world.jl
+# See README.md for the per-OS library name and PowerShell invocation.
 #
-#   AZUL_LIB=$PWD/libazul.so julia hello-world.jl        # linux
-#   AZUL_LIB=$PWD/libazul.dylib julia hello-world.jl     # macos
-#
-# Callbacks are C-direct: `@cfunction` mints a real C function pointer
-# from `on_click` / `layout`, passed straight to the C-ABI setters — no
-# host-invoker, exactly like the Odin / C bindings. The counter callbacks
-# fire on the main event-loop thread, so no cross-thread `@cfunction`
-# care is needed.
+# `@cfunction` mints real C function pointers from on_click/layout, passed
+# C-direct to the setters — no host-invoker.
 
 include(joinpath(@__DIR__, "azul", "azul.jl"))
 using .Azul
 
-# ── Data model ────────────────────────────────────────────────────────
-#
-# An isbits struct plus a compile-time-unique type id (the address of a
-# module-global `Ref` we never read/write). Plain old data → empty
-# destructor.
+# isbits model + a runtime-unique type id: the address of a module-global
+# `Ref` we never read or write. POD model → no-op destructor.
 
 struct MyDataModel
     counter::UInt32
@@ -35,12 +26,10 @@ my_data_destructor(::Ptr{Cvoid})::Cvoid = nothing
 # A raw void pointer to the storage of a `Ref` (valid under GC.@preserve).
 vptr(r::Ref) = Ptr{Cvoid}(pointer_from_objref(r))
 
-# ── Upcast / downcast ─────────────────────────────────────────────────
-
 function my_data_upcast(model::MyDataModel)
     # AzRefAny_newC copies the bytes into its own heap allocation, so a
-    # pointer to a Ref-boxed local is fine; run_destructor=false means
-    # libazul won't free the caller's pointer.
+    # pointer to a Ref-boxed local is fine; run_destructor=false ⇒ libazul
+    # won't free ours.
     local_ref = Ref(model)
     return GC.@preserve local_ref begin
         wrapper = Azul.AzGlVoidPtrConst(vptr(local_ref), false)
@@ -106,9 +95,7 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
         Azul.AzDom_addChild(vptr(label_wrapper), label)
     end
 
-    # Increment button. The typed AzButton_setOnClick takes the bare
-    # fn-pointer typedef directly — `on_click` becomes a real C pointer
-    # via `@cfunction`.
+    # AzButton_setOnClick takes the bare fn-pointer typedef directly.
     button = Ref(Azul.AzButton_create(Azul.az_string("Increase counter")))
     on_click_ptr = @cfunction(on_click, Azul.AzUpdate, (Azul.AzRefAny, Azul.AzCallbackInfo))
     button_dom = GC.@preserve button dref begin
@@ -144,8 +131,8 @@ function main()
             title = Azul.az_string("Hello World"),
             size = Azul.setfields(ws.size;
                 dimensions = Azul.setfields(ws.size.dimensions; width = 400.0f0, height = 300.0f0)),
-            # NoTitleAutoInject: OS draws close/min/max buttons; the
-            # framework auto-injects a Titlebar with drag support.
+            # NoTitleAutoInject: OS draws the window buttons; framework
+            # injects a draggable Titlebar.
             flags = Azul.setfields(ws.flags;
                 decorations = Azul.AzWindowDecorations_NoTitleAutoInject,
                 background_material = Azul.AzWindowBackgroundMaterial_Sidebar)))

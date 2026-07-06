@@ -9,7 +9,9 @@ an empty default WCO — libazul-side, not codegen. See
 
 ## What works
 
-- Build (`fpc -Mobjfpc -Sh -Fl. -k-L. -k-lazul hello-world.pas`).
+- Build (`fpc -Mobjfpc -Sh -Fl. hello-world.pas`; `azul.pas` carries
+  `{$linklib azul}`, so no `-k-lazul` is needed — only `-Fl.` for the
+  library search path).
 - Host-invoker init (refany round-trip, releaser registration).
 - Struct layouts match the C ABI byte-for-byte (cbool→ByteBool,
   repr(C, u8) tag width, DestructorOrClone field inclusion all

@@ -9,10 +9,10 @@
 // are unprefixed too (Update, ButtonType) — nothing Az-prefixed remains
 // in user code.
 //
-// Build:  scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar
-// Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
-//             -cp HelloWorld.jar:../java/target/classes:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB \
-//             com.azul.HelloWorld
+// Build the JNA bindings, then run with the Scala 3 runner:
+//   javac -cp jna.jar -d classes azul-java/*.java
+//   scala run HelloWorld.scala --class-path classes:jna.jar \
+//       --java-opt -Djna.library.path=. --java-opt -XstartOnFirstThread
 //
 // macOS requires `-XstartOnFirstThread` (Cocoa main-thread rule).
 

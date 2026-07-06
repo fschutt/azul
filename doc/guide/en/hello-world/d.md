@@ -109,11 +109,12 @@ ulong my_data_type_id() {
 extern(C) void my_data_destructor(void* ptr) {
 }
 
+AzString azString(string s) {
+    return AzString_fromUtf8(cast(ubyte*) s.ptr, s.length);
+}
+
 AzRefAny my_data_upcast(MyDataModel model) {
     MyDataModel local = model;
-    string type_name_bytes = "MyDataModel";
-    AzString type_name = AzString_fromUtf8(
-        cast(ubyte*) type_name_bytes.ptr, type_name_bytes.length);
     AzGlVoidPtrConst ptr_wrapper;
     ptr_wrapper.ptr = &local;
     ptr_wrapper.run_destructor = false;
@@ -122,7 +123,7 @@ AzRefAny my_data_upcast(MyDataModel model) {
         MyDataModel.sizeof,
         MyDataModel.alignof,
         my_data_type_id(),
-        type_name,
+        azString("MyDataModel"),
         &my_data_destructor,
         0, 0,
     );
@@ -162,10 +163,7 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addCssProperty(&label_wrapper, cond);
     AzDom_addChild(&label_wrapper, label);
 
-    string btn_label_bytes = "Increase counter";
-    AzString btn_label = AzString_fromUtf8(
-        cast(ubyte*) btn_label_bytes.ptr, btn_label_bytes.length);
-    AzButton button = AzButton_create(btn_label);
+    AzButton button = AzButton_create(azString("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType.Primary);
     AzRefAny data_clone = AzRefAny_clone(&d);
     AzButton_setOnClick(&button, data_clone, &on_click);
@@ -183,9 +181,7 @@ void main() {
     AzRefAny data = my_data_upcast(model);
 
     AzWindowCreateOptions window = AzWindowCreateOptions_create(&layout);
-    string title_bytes = "Hello World";
-    window.window_state.title = AzString_fromUtf8(
-        cast(ubyte*) title_bytes.ptr, title_bytes.length);
+    window.window_state.title = azString("Hello World");
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
     window.window_state.flags.decorations = AzWindowDecorations.NoTitleAutoInject;

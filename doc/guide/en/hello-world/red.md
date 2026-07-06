@@ -99,8 +99,8 @@ curl -O https://azul.rs/ui/release/$VERSION/hello-world.red
 `hello-world.red` `#include`s `azul.reds`, so you compile a single file:
 
 ```sh
-redc -r hello-world.red     # -r = release build
-./hello-world               # libazul must be on the loader path (e.g. LD_LIBRARY_PATH=.)
+redc -r hello-world.red -o hello-world   # -r = release build
+LD_LIBRARY_PATH=. ./hello-world          # libazul must be on the loader path
 ```
 
 `#import` loads `libazul` at executable startup, so the library must be findable

@@ -93,7 +93,7 @@ curl -L -O https://azul.rs/ui/release/$VERSION/azul17.hpp
 # the C header - every azul<NN>.hpp does #include "azul.h"
 curl -L -O https://azul.rs/ui/release/$VERSION/azul.h
 
-# windows (plus azul.lib if you link with MSVC)
+# windows (plus azul.dll.lib, the MSVC import library, if you link with MSVC)
 curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll
 # linux
 curl -L -O https://azul.rs/ui/release/$VERSION/libazul.so
@@ -331,8 +331,9 @@ g++ -std=c++17 hello-world.cpp -lazul -o hello-world
 ```
 
 (On Windows the equivalent is
-`cl /std:c++17 /EHsc hello-world.cpp azul.lib` once the downloaded
-`azul.lib` is on the linker search path.)
+`cl /std:c++17 /EHsc hello-world.cpp azul.dll.lib` once the downloaded
+MSVC import library `azul.dll.lib` is on the linker search path, with
+`azul.dll` next to the resulting `.exe` at run time.)
 
 If you downloaded the wrappers and DLL manually (or built from source),
 you have to point the compiler at them explicitly. `-I` / `-L` add
@@ -359,7 +360,7 @@ g++ -std=c++17 hello-world.cpp \
 
 # Windows (MSVC) — drop azul.dll next to the .exe at run time
 cl /std:c++17 /EHsc hello-world.cpp /I path\to\azul-headers ^
-   /link /LIBPATH:path\to\azul-lib azul.lib
+   /link /LIBPATH:path\to\azul-lib azul.dll.lib
 
 # C++03 - same DLL, different wrapper
 g++ -std=c++03 hello-world.cpp -I/path/to/azul-headers \

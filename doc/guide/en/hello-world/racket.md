@@ -65,6 +65,7 @@ library. There is no `raco pkg` catalogue entry yet — install manually:
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
 curl -O https://azul.rs/ui/release/$VERSION/azul.rkt
+curl -O https://azul.rs/ui/release/$VERSION/hello-world.rkt
 AZ_LIB_DIR=. racket hello-world.rkt
 ```
 
@@ -73,6 +74,7 @@ AZ_LIB_DIR=. racket hello-world.rkt
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
 curl -O https://azul.rs/ui/release/$VERSION/azul.rkt
+curl -O https://azul.rs/ui/release/$VERSION/hello-world.rkt
 AZ_LIB_DIR=. racket hello-world.rkt
 ```
 
@@ -81,6 +83,7 @@ AZ_LIB_DIR=. racket hello-world.rkt
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 curl -O https://azul.rs/ui/release/$VERSION/azul.rkt
+curl -O https://azul.rs/ui/release/$VERSION/hello-world.rkt
 racket hello-world.rkt
 ```
 

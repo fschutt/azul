@@ -1,24 +1,15 @@
+# Azul counter example — Nim.
+#
 # nim c -d:release hello-world.nim && LD_LIBRARY_PATH=. ./hello-world
 #   (macOS: DYLD_LIBRARY_PATH=. ./hello-world ; Windows: azul.dll in cwd)
 #
-# azul.nim imports libazul through `{.importc, cdecl, dynlib: azulLib.}`, so
-# the library is dlopen'd at run time — no link flags are required, the .so /
-# .dylib / .dll just has to be discoverable (hence the *_LIBRARY_PATH=.).
-#
-# Nim is C-ABI-direct: a top-level `proc (...) {.cdecl.}` is a real C function
-# pointer, so `onClick` / `layout` below are handed straight to Azul with no
-# trampoline, host-invoker, or handle table. This mirrors examples/zig and
-# examples/c one-for-one.
+# azul.nim dlopens libazul via `{.dynlib.}`, so no link flags are needed — the
+# .so / .dylib / .dll just has to be discoverable at run time.
 
 import azul
 
-# ── Data model ────────────────────────────────────────────────────────────
-#
-# Same shape as the C `AZ_REFLECT_JSON(MyDataModel, ...)` macro:
-#   1. a compile-time-unique type id (the address of a global we never read),
-#   2. an `upcast` that copies the struct into an AzRefAny,
-#   3. a `downcast` that recovers a typed pointer from the refany.
-# Plain old data → empty destructor.
+# Data model wrapped in an AzRefAny: a process-unique type id (address of a
+# global we never read), an upcast that copies the struct in, and a downcast.
 
 type
   MyDataModel = object
@@ -37,10 +28,8 @@ proc azStr(s: string): AzString =
     AzString_fromUtf8(cast[ptr uint8](s.cstring), csize_t(s.len))
 
 proc myDataUpcast(model: MyDataModel): AzRefAny =
-  # AzRefAny_newC copies `len` bytes out of `ptr.ptr` into its own heap
-  # allocation, so handing it a stack pointer is fine. run_destructor = false
-  # means libazul won't try to free the caller's pointer — only the heap copy
-  # is released (via myDataDestructor) when the last clone drops.
+  # newC copies the bytes into its own allocation, so a stack pointer is fine;
+  # run_destructor = false means libazul won't free the caller's pointer.
   var local = model
   let blob = AzGlVoidPtrConst(`ptr`: cast[pointer](addr local), run_destructor: false)
   AzRefAny_newC(
@@ -87,9 +76,7 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
   AzDom_addCssProperty(addr labelWrapper, cond)
   AzDom_addChild(addr labelWrapper, label)
 
-  # Increment button. The typed AzButton_setOnClick takes the bare
-  # AzButtonOnClickCallbackType fn pointer directly — `onClick` is exactly
-  # that, so it passes straight through.
+  # Increment button. AzButton_setOnClick takes the bare fn pointer directly.
   var button = AzButton_create(azStr("Increase counter"))
   AzButton_setButtonType(addr button, AzButtonType_Primary)
   let dataClone = AzRefAny_clone(addr d)
@@ -111,8 +98,7 @@ proc main() =
   window.window_state.title = azStr("Hello World")
   window.window_state.size.dimensions.width = 400.0'f32
   window.window_state.size.dimensions.height = 300.0'f32
-  # NoTitleAutoInject: the OS draws the close/min/max buttons and the framework
-  # auto-injects a draggable titlebar.
+  # NoTitleAutoInject: the OS draws the window buttons; the framework injects a draggable titlebar.
   window.window_state.flags.decorations = AzWindowDecorations_NoTitleAutoInject
   window.window_state.flags.background_material = AzWindowBackgroundMaterial_Sidebar
 

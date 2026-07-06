@@ -9,21 +9,14 @@
 --   │   └── text("5")            -- the counter, increments on click
 --   └── Button "Increase counter"
 --
--- Callback mechanism: the Haskell binding uses inbound TRAMPOLINES.
--- cbits/azul_shims.c holds one static C function per callback typedef
--- (Az<X>Type_trampoline) plus a global "inner" slot (Az<X>Type_set_inner).
--- We create a Haskell FunPtr with the codegen's `mk_<X>_inner` wrapper,
--- store it in the slot, and hand libazul the trampoline's address.
--- Because the inner is a Haskell *closure*, application state lives in a
--- plain IORef captured by the closures — no downcast through RefAny needed
--- (the RefAny we pass around is a zero-sized placeholder that satisfies
--- libazul's refcounting).
+-- Callbacks use inbound trampolines: `mk_<X>_inner` makes a FunPtr, its
+-- `set_inner` stores it, and libazul is handed the trampoline's address
+-- (see README + Azul.Internal.FFI). App state lives in an IORef captured by
+-- the closures, so the RefAny we pass is a zero-sized refcount placeholder.
 --
--- NOTE on style: the DOM is built exclusively with the raw `c_Az*_via`
--- out-pointer primitives (writing straight into C-provided buffers).
--- The generated struct Storables for DOM-sized aggregates contain
--- tagged-union placeholders whose peek/poke intentionally `error` out, so
--- value-level round-trips through `T.Dom` must be avoided.
+-- GOTCHA: build the DOM only with the raw `c_Az*_via` out-pointer primitives.
+-- The Storables for DOM-sized aggregates hold tagged-union placeholders whose
+-- peek/poke intentionally `error` out, so never round-trip through `T.Dom`.
 
 module Main where
 

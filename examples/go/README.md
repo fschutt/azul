@@ -8,14 +8,26 @@ Go bindings for the [Azul](https://azul.rs) GUI framework via cgo.
 
 ## Requirements
 
-- Go 1.20+
-- C compiler reachable to cgo (`clang` on macOS, `gcc` on Linux)
-- `libazul.dylib` in the working directory or via `CGO_LDFLAGS`
+- Go 1.21+, with `CGO_ENABLED=1` (the default on native builds)
+- C compiler reachable to cgo (`clang` on macOS, `gcc` on Linux, MinGW on Windows)
+- `libazul.{so,dylib}` / `azul.dll` in the working directory
 
 ## Build + Run
 
+cgo's own preamble only says `-lazul`, so the include path, library path,
+and platform link flags come from the environment (see the
+[guide](../../doc/guide/en/hello-world/go.md) for the full per-OS command):
+
 ```sh
-DYLD_LIBRARY_PATH=. go run main.go
+# macos
+CGO_CFLAGS="-I." \
+CGO_LDFLAGS="-L. -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation" \
+  go build -o hello-world .
+DYLD_LIBRARY_PATH=. ./hello-world
+
+# linux
+CGO_CFLAGS="-I." CGO_LDFLAGS="-L. -lazul -lpthread -lm -ldl" go build -o hello-world .
+LD_LIBRARY_PATH=. ./hello-world
 ```
 
 ## What's idiomatic

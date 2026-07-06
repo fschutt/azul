@@ -3,12 +3,14 @@
 PHP bindings for the [Azul](https://azul.rs) GUI framework. Two paths
 coexist:
 
-1. **php-extension** (`hello-world-ext.php`) — native Zend extension
-   compiled from Rust via `ext-php-rs`. Supports closures, host-invoker
-   callbacks, the full thing.
-2. **php-ffi** (`hello-world.php`) — pure `php-ffi`. POD-only;
-   `php-ffi` rejects closures-to-fnpointer, so no callback support.
-   Kept as a smoke test.
+1. **php-extension** (`hello-world-ext.php`, and currently also
+   `hello-world.php`) — native Zend extension compiled from Rust via
+   `ext-php-rs`. Supports closures, host-invoker callbacks, the full
+   counter demo. Run with `php -d extension=<libazul> hello-world-ext.php`.
+2. **php-ffi** — pure `php-ffi` is POD-only (`php-ffi` rejects
+   closures-to-fnpointer, so no callback support). There is no runnable
+   php-ffi counter driver today; the ffi path only reaches the POD
+   wrappers in `Azul.php`.
 
 ## Status
 
@@ -64,8 +66,9 @@ php -d extension=./libazul-ext.dylib hello-world-ext.php
 
 ## Files
 
-- `hello-world-ext.php` — extension-path smoke test.
-- `hello-world.php` — legacy php-ffi smoke test.
+- `hello-world-ext.php` — extension-path counter demo.
+- `hello-world.php` — extension-path counter demo (uses the generic
+  `Callback` node kind rather than the Button widget).
 - `Azul.php` — generated PHP class shims (6.3 MB).
 - `composer.json` — composer metadata.
 - `libazul-ext.dylib` — prebuilt extension (91 MB; debug build).

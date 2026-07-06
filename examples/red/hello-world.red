@@ -1,29 +1,18 @@
 Red/System [
     Title:   "Azul full-GUI hello-world (counter)"
-    Purpose: {Counter label + "Increase counter" button, driven from Red/System.
-
-              Red is a full-stack language: this program is written in the
-              low-level Red/System dialect, which is where Red's external-library
-              FFI (#import) lives. It compiles with the ordinary Red toolchain to
-              a single dependency-free native executable:
+    Purpose: {Counter label + "Increase counter" button, driven from Red/System
+              (the dialect where Red's #import FFI lives). Build:
 
                   redc -r hello-world.red      # then run ./hello-world
 
-              A high-level Red (.red with `Red [...]` header) program would reach
-              the same bindings through `routine!` / `#system-global` wrappers;
-              see doc/guide/en/hello-world/red.md.
-
-              NOTE: ALPHA / unverified — constructed from the Red/System spec
-              without a local Red toolchain to compile-check. See
-              scripts/RED_FFI_FINDINGS.md.}
+              ALPHA / unverified — constructed from the Red/System spec without a
+              local Red toolchain to compile-check. See scripts/RED_FFI_FINDINGS.md.}
 ]
 
-;; Pull in the generated bindings (azul.reds sits next to this file).
+;; Generated bindings (azul.reds sits next to this file).
 #include %azul.reds
 
-;; ---------------------------------------------------------------------------
 ;; App model: a single counter, starting at 5.
-;; ---------------------------------------------------------------------------
 model!: alias struct! [
     counter [integer!]
 ]
@@ -31,20 +20,12 @@ model!: alias struct! [
 the-model: declare model!
 the-model/counter: 5
 
-;; ---------------------------------------------------------------------------
-;; Small helper: build an AzString from a Red/System c-string!.
-;; AzString_fromUtf8 copies the bytes, so a transient buffer is fine.
-;; ---------------------------------------------------------------------------
+;; Build an AzString from a c-string! (AzString_fromUtf8 copies the bytes).
 mk-str: func [s [c-string!] return: [AzString! value]][
     AzString_fromUtf8 as byte-ptr! s length? s
 ]
 
-;; ---------------------------------------------------------------------------
-;; ButtonOnClick user callback.
-;;   arg0 = AzRefAny*  (model handle)
-;;   arg1 = CallbackInfo*
-;;   out  = AzUpdate*
-;; ---------------------------------------------------------------------------
+;; ButtonOnClick callback: arg0 = AzRefAny*, out = AzUpdate*.
 on-click: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     /local praw [byte-ptr!] m [model!] up [int-ptr!]
 ][
@@ -59,12 +40,8 @@ on-click: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     ]
 ]
 
-;; ---------------------------------------------------------------------------
-;; Layout callback: body > [ div.font-size-32 > text(counter), button ]
-;;   arg0 = AzRefAny*  (model handle)
-;;   arg1 = LayoutCallbackInfo*
-;;   out  = AzDom*
-;; ---------------------------------------------------------------------------
+;; Layout callback: body > [ div{font-size:32} > text(counter), button ].
+;; arg0 = AzRefAny*, out = AzDom*.
 on-layout: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     /local praw   [byte-ptr!]
            m      [model!]
@@ -101,9 +78,6 @@ on-layout: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     ]
 ]
 
-;; ---------------------------------------------------------------------------
-;; main
-;; ---------------------------------------------------------------------------
 main: func [
     /local app-data  [AzRefAny! value]
            layout-cb [AzLayoutCallback! value]

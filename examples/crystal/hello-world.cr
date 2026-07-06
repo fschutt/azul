@@ -1,28 +1,18 @@
 # Azul counter example — Crystal.
 #
-# Build (with libazul.{so,dylib}/azul.dll on the link path and the
-# generated binding as ./azul.cr next to this file):
-#
+# Build (libazul on the link path, generated ./azul.cr next to this file):
 #   crystal build hello-world.cr --link-flags "-L."
 #   LD_LIBRARY_PATH=. ./hello-world      # linux
 #
-# Callbacks are C-direct: ON_CLICK and LAYOUT are plain non-capturing
-# `->(...) { ... }` procs passed straight to the C-ABI setters — no
-# host-invoker, exactly like the C / Zig / Odin bindings.
+# The callbacks (ON_CLICK, LAYOUT) live on the `MyData` module and reach
+# their helpers through *constant* lookups, never capturing an outer local.
+# That keeps them non-closure procs — a hard requirement for passing a
+# Crystal proc as a bare C function pointer.
 
 require "./azul"
 
-# ── Data model ────────────────────────────────────────────────────────
-#
-# A compile-time-unique type id (the address of a one-byte heap token we
-# never read/write), plus upcast/downcast to/from an AzRefAny. Plain old
-# data → empty destructor. Everything lives on the `MyData` module so the
-# callbacks can reach it through a *constant* lookup (never capturing an
-# outer local), which keeps the procs non-closure — a requirement for
-# passing them as bare C function pointers.
-
 module MyData
-  # 4-byte plain-old-data application state.
+  # Plain-old-data application state.
   struct Model
     property counter : UInt32
 
@@ -37,13 +27,12 @@ module MyData
     TOKEN.address.to_u64
   end
 
-  # Empty destructor: the model is plain old data.
+  # Empty destructor: Model is plain old data.
   DESTRUCTOR = ->(_ptr : Void*) { }
 
   def self.upcast(model : Model) : LibAzul::AzRefAny
-    # AzRefAny_newC copies the bytes into its own heap allocation, so a
-    # stack local is fine here; run_destructor=false means libazul won't
-    # free the caller's pointer.
+    # AzRefAny_newC copies the bytes into its own allocation, so a stack
+    # local is fine; run_destructor=false = don't free the caller's ptr.
     local = model
     type_name = "Model"
     name = LibAzul.azString_fromUtf8(type_name.to_unsafe, LibC::SizeT.new(type_name.bytesize))
@@ -72,8 +61,7 @@ module MyData
   end
 end
 
-# ── Callback: button click ────────────────────────────────────────────
-
+# Non-capturing proc → bare C function pointer.
 ON_CLICK = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzCallbackInfo) : LibAzul::AzUpdate {
   d = data
   m = MyData.downcast(pointerof(d))
@@ -81,8 +69,6 @@ ON_CLICK = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzCallbackInfo) : LibAz
   m.value.counter += 1
   LibAzul::AzUpdate::RefreshDom
 }
-
-# ── Layout callback ───────────────────────────────────────────────────
 
 LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : LibAzul::AzDom {
   d = data
@@ -101,8 +87,7 @@ LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : L
   LibAzul.azDom_addCssProperty(pointerof(label_wrapper), cond)
   LibAzul.azDom_addChild(pointerof(label_wrapper), label)
 
-  # Increment button. The typed AzButton_setOnClick takes the bare
-  # fn-pointer typedef directly — ON_CLICK is a plain non-capturing proc.
+  # AzButton_setOnClick takes the bare fn-pointer typedef directly.
   btn_label = "Increase counter"
   button = LibAzul.azButton_create(
     LibAzul.azString_fromUtf8(btn_label.to_unsafe, LibC::SizeT.new(btn_label.bytesize))
@@ -112,14 +97,11 @@ LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : L
   LibAzul.azButton_setOnClick(pointerof(button), data_clone, ON_CLICK)
   button_dom = LibAzul.azButton_dom(button)
 
-  # Body.
   body = LibAzul.azDom_createBody
   LibAzul.azDom_addChild(pointerof(body), label_wrapper)
   LibAzul.azDom_addChild(pointerof(body), button_dom)
   body
 }
-
-# ── Main ──────────────────────────────────────────────────────────────
 
 model = MyData::Model.new(5_u32)
 data = MyData.upcast(model)
@@ -130,8 +112,8 @@ window.window_state.title = LibAzul.azString_fromUtf8(title.to_unsafe, LibC::Siz
 window.window_state.size.dimensions.width = 400.0_f32
 window.window_state.size.dimensions.height = 300.0_f32
 
-# NoTitleAutoInject: OS draws close/min/max buttons; framework
-# auto-injects a Titlebar with drag support.
+# NoTitleAutoInject: OS draws the window buttons; the framework
+# auto-injects a draggable titlebar.
 window.window_state.flags.decorations = LibAzul::AzWindowDecorations::NoTitleAutoInject
 window.window_state.flags.background_material = LibAzul::AzWindowBackgroundMaterial::Sidebar
 

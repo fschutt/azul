@@ -1,23 +1,14 @@
 // Azul counter example — Odin.
 //
-// Build (with libazul.{so,dylib}/azul.dll on the link path and the
-// generated binding in ./azul/azul.odin):
-//
-//   odin build . -out:hello-world -extra-linker-flags:"-L."
-//
-// Callbacks are C-direct: `on_click` and `layout` are plain
-// `proc "c"` values passed straight to the C-ABI setters — no
-// host-invoker, exactly like the C / Zig bindings.
+// Build: odin build . -out:hello-world -extra-linker-flags:"-L."
+// (needs libazul on the link path and the generated binding in ./azul/azul.odin)
 
 package main
 
 import azul "azul"
 
-// ── Data model ────────────────────────────────────────────────────────
-//
-// A compile-time-unique type id (the address of a package global we
-// never read/write), plus upcast/downcast to/from an AzRefAny. Plain
-// old data → empty destructor.
+// Data model wrapped in an AzRefAny: a process-unique type id (address of a
+// global we never read), an upcast that copies the struct in, and a downcast.
 
 MyDataModel :: struct {
 	counter: u32,
@@ -33,9 +24,8 @@ my_data_destructor :: proc "c" (_: rawptr) {
 }
 
 my_data_upcast :: proc(model: MyDataModel) -> azul.AzRefAny {
-	// AzRefAny_newC copies the bytes into its own heap allocation, so a
-	// stack pointer is fine here; run_destructor=false means libazul
-	// won't free the caller's pointer.
+	// newC copies the bytes into its own allocation, so a stack pointer is
+	// fine; run_destructor=false means libazul won't free the caller's pointer.
 	local := model
 	type_name_bytes := "MyDataModel"
 	type_name := azul.AzString_fromUtf8(raw_data(type_name_bytes), uint(len(type_name_bytes)))
@@ -63,7 +53,7 @@ my_data_downcast :: proc "contextless" (refany: ^azul.AzRefAny) -> ^MyDataModel 
 	return cast(^MyDataModel)ptr
 }
 
-// ── Callback: button click ────────────────────────────────────────────
+// Click callback — must be `proc "c"` so it is a bare C function pointer.
 
 on_click :: proc "c" (data: azul.AzRefAny, info: azul.AzCallbackInfo) -> azul.AzUpdate {
 	d := data
@@ -75,10 +65,7 @@ on_click :: proc "c" (data: azul.AzRefAny, info: azul.AzCallbackInfo) -> azul.Az
 	return azul.AzUpdate.RefreshDom
 }
 
-// ── Layout callback ───────────────────────────────────────────────────
-
-// Contextless u32 -> decimal, written into `buf`; returns the length.
-// Keeps `layout` free of any Odin `context` requirement.
+// Contextless u32 -> decimal, so `layout` needs no Odin `context`.
 u32_write :: proc "contextless" (n: u32, buf: []u8) -> int {
 	if n == 0 {
 		buf[0] = '0'
@@ -100,6 +87,7 @@ u32_write :: proc "contextless" (n: u32, buf: []u8) -> int {
 	return i
 }
 
+// Layout callback — `proc "c"`, re-run on every RefreshDom.
 layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azul.AzDom {
 	d := data
 	m := my_data_downcast(&d)
@@ -120,8 +108,7 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 	azul.AzDom_addCssProperty(&label_wrapper, cond)
 	azul.AzDom_addChild(&label_wrapper, label)
 
-	// Increment button. The typed AzButton_setOnClick takes the bare
-	// fn-pointer typedef directly — `on_click` is a plain proc "c".
+	// Increment button. AzButton_setOnClick takes the bare fn pointer directly.
 	btn_label_bytes := "Increase counter"
 	btn_label := azul.AzString_fromUtf8(raw_data(btn_label_bytes), uint(len(btn_label_bytes)))
 	button := azul.AzButton_create(btn_label)
@@ -130,14 +117,11 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 	azul.AzButton_setOnClick(&button, data_clone, on_click)
 	button_dom := azul.AzButton_dom(button)
 
-	// Body.
 	body := azul.AzDom_createBody()
 	azul.AzDom_addChild(&body, label_wrapper)
 	azul.AzDom_addChild(&body, button_dom)
 	return body
 }
-
-// ── Main ──────────────────────────────────────────────────────────────
 
 main :: proc() {
 	model := MyDataModel{ counter = 5 }
@@ -149,8 +133,7 @@ main :: proc() {
 	window.window_state.size.dimensions.width = 400.0
 	window.window_state.size.dimensions.height = 300.0
 
-	// NoTitleAutoInject: OS draws close/min/max buttons; framework
-	// auto-injects a Titlebar with drag support.
+	// NoTitleAutoInject: OS draws the window buttons; framework injects a draggable titlebar.
 	window.window_state.flags.decorations = azul.AzWindowDecorations.NoTitleAutoInject
 	window.window_state.flags.background_material = azul.AzWindowBackgroundMaterial.Sidebar
 

@@ -1,34 +1,23 @@
 // Azul counter example — V (vlang).
 //
-// Build (with libazul.{so,dylib}/azul.dll on the link path and the
-// generated binding in ./azul/azul.v):
-//
+// Build (libazul on the link path, generated binding in ./azul/azul.v):
 //   v run .
-//
-// Callbacks are C-direct: `on_click` and `layout` are plain top-level V
-// functions (which compile to real C functions) passed straight to the
-// C-ABI setters — no host-invoker, exactly like the C / Zig / Odin
-// bindings.
 
 module main
 
 import azul
-
-// ── Data model ────────────────────────────────────────────────────────
-//
-// A process-stable type id (any fixed, unique u64 works — the C
-// AZ_REFLECT macro uses the address of a global; a constant is simpler in
-// V and just as valid), plus upcast/downcast to/from an AzRefAny. Plain
-// old data → empty destructor.
 
 struct MyDataModel {
 mut:
 	counter u32
 }
 
+// Any fixed, process-unique u64 works as the RefAny type id (the C
+// AZ_REFLECT macro uses a global's address; a constant is simpler in V).
 const my_data_type_id = u64(0x617a756c5f6d646d) // "azul_mdm"
 
 fn my_data_destructor(ptr voidptr) {
+	// MyDataModel is plain old data: nothing to free.
 }
 
 // Build an AzString from a V string (copies the bytes into libazul).
@@ -37,9 +26,8 @@ fn az_str(s string) azul.AzString {
 }
 
 fn my_data_upcast(model MyDataModel) azul.AzRefAny {
-	// AzRefAny_newC copies the bytes into its own heap allocation, so a
-	// stack pointer is fine here; run_destructor = false means libazul
-	// won't free the caller's pointer.
+	// AzRefAny_newC copies the bytes into its own allocation, so a stack
+	// pointer is fine; run_destructor = false = don't free the caller's ptr.
 	mut local := model
 	type_name := az_str('MyDataModel')
 	blob := azul.AzGlVoidPtrConst{
@@ -69,8 +57,8 @@ fn my_data_downcast(refany &azul.AzRefAny) &MyDataModel {
 	return unsafe { &MyDataModel(ptr) }
 }
 
-// ── Callback: button click ────────────────────────────────────────────
-
+// Top-level V fns compile to real C functions, so their addresses go
+// straight to the C-ABI setters — no host-invoker.
 fn on_click(data azul.AzRefAny, info azul.AzCallbackInfo) azul.AzUpdate {
 	mut d := data
 	m := my_data_downcast(&d)
@@ -82,8 +70,6 @@ fn on_click(data azul.AzRefAny, info azul.AzCallbackInfo) azul.AzUpdate {
 	}
 	return azul.AzUpdate.RefreshDom
 }
-
-// ── Layout callback ───────────────────────────────────────────────────
 
 fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	mut d := data
@@ -104,8 +90,7 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	C.AzDom_addCssProperty(&label_wrapper, cond)
 	C.AzDom_addChild(&label_wrapper, label)
 
-	// Increment button. The raw AzButton_setOnClick takes the bare
-	// fn-pointer typedef directly — `on_click` is a plain V fn.
+	// AzButton_setOnClick takes the bare fn-pointer typedef directly.
 	btn_label := az_str('Increase counter')
 	mut button := C.AzButton_create(btn_label)
 	C.AzButton_setButtonType(&button, azul.AzButtonType.Primary)
@@ -113,14 +98,11 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	C.AzButton_setOnClick(&button, data_clone, on_click)
 	button_dom := C.AzButton_dom(button)
 
-	// Body.
 	mut body := C.AzDom_createBody()
 	C.AzDom_addChild(&body, label_wrapper)
 	C.AzDom_addChild(&body, button_dom)
 	return body
 }
-
-// ── Main ──────────────────────────────────────────────────────────────
 
 fn main() {
 	model := MyDataModel{
@@ -133,8 +115,8 @@ fn main() {
 	window.window_state.size.dimensions.width = 400.0
 	window.window_state.size.dimensions.height = 300.0
 
-	// NoTitleAutoInject: OS draws close/min/max buttons; framework
-	// auto-injects a Titlebar with drag support.
+	// NoTitleAutoInject: OS draws the window buttons; the framework
+	// auto-injects a draggable titlebar.
 	window.window_state.flags.decorations = azul.AzWindowDecorations.NoTitleAutoInject
 	window.window_state.flags.background_material = azul.AzWindowBackgroundMaterial.Sidebar
 

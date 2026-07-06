@@ -787,9 +787,11 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile { dst: "azul_shims.c", src: "haskell/cbits/azul_shims.c", source: BindingSource::Codegen },
     BindingFile { dst: "HelloWorld.hs", src: "haskell/HelloWorld.hs", source: BindingSource::Examples },
     BindingFile { dst: "azul-example.cabal", src: "haskell/azul-example.cabal", source: BindingSource::Examples },
-    // --- lisp ---
+    // --- lisp (ships the ASDF driver system + example so the quickload flow works) ---
     BindingFile { dst: "azul.asd", src: "azul.asd", source: BindingSource::Codegen },
     BindingFile { dst: "azul.lisp", src: "azul.lisp", source: BindingSource::Codegen },
+    BindingFile { dst: "azul-example.asd", src: "lisp/azul-example.asd", source: BindingSource::Examples },
+    BindingFile { dst: "hello-world.lisp", src: "lisp/hello-world.lisp", source: BindingSource::Examples },
     // --- pascal ---
     BindingFile { dst: "azul.pas", src: "azul.pas", source: BindingSource::Codegen },
     BindingFile { dst: "hello-world.pas", src: "pascal/hello-world.pas", source: BindingSource::Examples },
@@ -797,9 +799,11 @@ const BINDING_FILES: &[BindingFile] = &[
     BindingFile { dst: "Azul.pm", src: "Azul.pm", source: BindingSource::Codegen },
     BindingFile { dst: "cpanfile", src: "cpanfile", source: BindingSource::Codegen },
     BindingFile { dst: "hello-world.pl", src: "perl/hello-world.pl", source: BindingSource::Examples },
-    // --- php ---
+    // --- php (ships both the php-ffi driver and the native-extension driver) ---
     BindingFile { dst: "Azul.php", src: "Azul.php", source: BindingSource::Codegen },
     BindingFile { dst: "composer.json", src: "composer.json", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.php", src: "php/hello-world.php", source: BindingSource::Examples },
+    BindingFile { dst: "hello-world-ext.php", src: "php/hello-world-ext.php", source: BindingSource::Examples },
     // --- powershell ---
     BindingFile { dst: "Azul.psd1", src: "Azul.psd1", source: BindingSource::Codegen },
     BindingFile { dst: "Azul.psm1", src: "Azul.psm1", source: BindingSource::Codegen },

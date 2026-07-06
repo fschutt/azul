@@ -1,7 +1,6 @@
 // g++ -std=c++20 -o hello-world hello-world.cpp -lazul
 
 #include "azul20.hpp"
-#include <span>
 #include <string>
 #include <string_view>
 
@@ -15,14 +14,6 @@ struct MyDataModel {
 static_assert(ReflectableModel<MyDataModel>);
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
-
-static size_t count_zero_bytes(std::span<const uint8_t> bytes) {
-    size_t n = 0;
-    for (auto b : bytes) {
-        if (b == 0) ++n;
-    }
-    return n;
-}
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
@@ -52,9 +43,6 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 int main() {
     MyDataModel model = { 5 };
     RefAny data = RefAny::create(std::move(model));
-
-    U8Vec bytes = U8Vec::from_item(0);
-    (void)count_zero_bytes(bytes);
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(std::move(data), AppConfig::default_());

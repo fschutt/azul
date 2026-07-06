@@ -1,23 +1,12 @@
 // Azul counter example — Swift.
 //
-// Build (with libazul.{so,dylib}/azul.dll, azul.h, module.modulemap and the
-// generated azul.swift in this directory):
-//
-//   swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world
-//   DYLD_LIBRARY_PATH=. ./hello-world      # macos
-//
-// Callbacks are C-direct: `onClick` and `layout` are plain Swift funcs whose
-// C-compatible signatures convert to `@convention(c)` function pointers and
-// are passed straight to the C-ABI setters — no host-invoker, exactly like
-// the C / Zig / Odin bindings.
+// Build:  swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world
+// See README.md for the per-OS invocation and library-path prefix.
 
 import CAzul
 
-// ── Data model ────────────────────────────────────────────────────────
-//
-// A process-unique type id (the address of a one-byte heap allocation we
-// never read/write), plus upcast/downcast to/from an AzRefAny. Plain old
-// data → empty destructor.
+// Process-unique type id: the address of a one-byte heap allocation we
+// never read or write. POD model → no-op destructor.
 
 struct MyDataModel {
     var counter: UInt32
@@ -26,12 +15,10 @@ struct MyDataModel {
 private let myDataToken = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
 private let myDataTypeId = UInt64(UInt(bitPattern: myDataToken))
 
-func myDataDestructor(_ ptr: UnsafeMutableRawPointer?) {
-    // Plain old data — nothing to free.
-}
+func myDataDestructor(_ ptr: UnsafeMutableRawPointer?) {}
 
-// Convert a Swift String to an AzString (copies the bytes into a
-// refcounted heap buffer, so a temporary source buffer is fine).
+// AzString copies the bytes into a refcounted heap buffer, so a temporary
+// source buffer is fine.
 func azString(_ s: String) -> AzString {
     let bytes = Array(s.utf8)
     return bytes.withUnsafeBufferPointer { AzString_fromUtf8($0.baseAddress, $0.count) }
@@ -39,8 +26,7 @@ func azString(_ s: String) -> AzString {
 
 func myDataUpcast(_ model: MyDataModel) -> AzRefAny {
     // AzRefAny_newC copies the bytes into its own heap allocation, so a
-    // stack pointer is fine here; run_destructor=false means libazul won't
-    // free the caller's pointer.
+    // stack pointer is fine; run_destructor=false ⇒ libazul won't free ours.
     var local = model
     let typeName = azString("MyDataModel")
     return withUnsafePointer(to: &local) { p in
@@ -68,7 +54,8 @@ func myDataDowncast(_ refany: inout AzRefAny) -> UnsafeMutablePointer<MyDataMode
     return UnsafeMutableRawPointer(mutating: ptr).assumingMemoryBound(to: MyDataModel.self)
 }
 
-// ── Callback: button click ────────────────────────────────────────────
+// A plain (non-capturing) top-level func converts to a `@convention(c)`
+// pointer, so onClick/layout are passed C-direct — no host-invoker.
 
 func onClick(_ data: AzRefAny, _ info: AzCallbackInfo) -> AzUpdate {
     var d = data
@@ -78,8 +65,6 @@ func onClick(_ data: AzRefAny, _ info: AzCallbackInfo) -> AzUpdate {
     m.pointee.counter += 1
     return AzUpdate_RefreshDom
 }
-
-// ── Layout callback ───────────────────────────────────────────────────
 
 func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     var d = data
@@ -98,8 +83,7 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     AzDom_addCssProperty(&labelWrapper, cond)
     AzDom_addChild(&labelWrapper, label)
 
-    // Increment button. AzButton_setOnClick takes the bare fn-pointer
-    // typedef — `onClick` (a plain func) converts to `@convention(c)`.
+    // AzButton_setOnClick takes the bare fn-pointer typedef directly.
     var button = AzButton_create(azString("Increase counter"))
     AzButton_setButtonType(&button, AzButtonType_Primary)
     let dataClone = AzRefAny_clone(&d)
@@ -113,12 +97,9 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     return body
 }
 
-// ── Main ──────────────────────────────────────────────────────────────
-//
-// `@main` provides the entry point. (A plain top-level `AzApp_run(...)` is
-// only allowed in a file literally named `main.swift`; `@main` lets the
-// driver keep its `hello-world.swift` name while compiling alongside
-// `azul.swift` as one module.)
+// `@main` supplies the entry point — top-level statements are only allowed
+// in a file literally named `main.swift`, and this compiles alongside
+// `azul.swift` as one module.
 
 @main
 struct HelloWorld {
@@ -131,8 +112,8 @@ struct HelloWorld {
         window.window_state.size.dimensions.width = 400.0
         window.window_state.size.dimensions.height = 300.0
 
-        // NoTitleAutoInject: OS draws close/min/max buttons; framework
-        // auto-injects a Titlebar with drag support.
+        // NoTitleAutoInject: OS draws the window buttons; framework injects a
+        // draggable Titlebar.
         window.window_state.flags.decorations = AzWindowDecorations_NoTitleAutoInject
         window.window_state.flags.background_material = AzWindowBackgroundMaterial_Sidebar
 

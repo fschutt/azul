@@ -17,22 +17,20 @@ codegen.
 
 ## Build + Run
 
-```sh
-./build.sh
-```
-
-The script handles the JDK/Scala library classpath. Direct invocation:
+Compile the generated Java bindings into `classes/`, then let the Scala 3
+runner build and launch `HelloWorld.scala` (this is the release-download
+flow the install steps use — no repo clone required):
 
 ```sh
-JNA_JAR=$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
-SCALA_LIB=/opt/homebrew/Cellar/scala/3.8.3/libexec/maven2/org/scala-lang/scala-library/3.8.3/scala-library-3.8.3.jar
-SCALA3_LIB=/opt/homebrew/Cellar/scala/3.8.3/libexec/maven2/org/scala-lang/scala3-library_3/3.8.3/scala3-library_3-3.8.3.jar
-
-scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar
-DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
-    -cp HelloWorld.jar:../java/target/classes:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB \
-    com.azul.HelloWorld
+# `azul-java.zip` is the same generated-bindings archive the Java guide ships.
+javac -cp jna.jar -d classes azul-java/*.java
+scala run HelloWorld.scala --class-path classes:jna.jar \
+    --java-opt -Djna.library.path=. --java-opt -XstartOnFirstThread   # macOS
 ```
+
+Drop `--java-opt -XstartOnFirstThread` on Linux/Windows. Inside the repo you
+can instead run `./build.sh`, which reuses `../java/target/classes` and wires
+the JDK/Scala classpath for you.
 
 ## What's idiomatic
 

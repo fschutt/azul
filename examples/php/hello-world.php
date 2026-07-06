@@ -1,28 +1,12 @@
 <?php
-// examples/php/hello-world.php
+// Full-GUI counter on the native PHP/Zend extension (feature `php-extension`,
+// ext-php-rs) — NOT php-ffi. The Zend engine can call a C fn-ptr back into
+// PHP, so the host-invoker pattern (as in Lua / Ruby / Perl / OCaml) works:
+// libazul fires a per-kind Rust invoker that calls these PHP functions by name.
 //
-// Full-GUI counter, built on the NATIVE PHP/Zend extension (feature
-// `php-extension`, ext-php-rs) — NOT the legacy php-ffi binding. The Zend
-// engine can call a C function pointer back into PHP, so the host-invoker
-// pattern (used by Lua / Ruby / Perl / OCaml / …) works here: libazul fires
-// a per-kind Rust invoker, which calls these PHP functions by name.
-//
-// Build the extension (SEPARATE target dir so it doesn't clobber the
-// desktop dll the other examples use):
-//
-//     LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib \
-//     DYLD_FALLBACK_LIBRARY_PATH=$LIBCLANG_PATH \
-//     RUSTFLAGS="-C link-arg=-undefined -C link-arg=dynamic_lookup" \
-//       cargo build --release -p azul-dll \
-//         --features php-extension,debug-server --target-dir target/phpext
-//
-// Run (desktop):
-//
-//     php -d extension=/abs/path/to/target/phpext/release/libazul.dylib \
-//         hello-world.php
-//
-// On Linux swap .dylib for .so and use
-//     RUSTFLAGS="-C link-arg=-Wl,--unresolved-symbols=ignore-in-object-files"
+// Build the extension into a SEPARATE target dir (so it doesn't clobber the
+// desktop dll the other examples use) and load it via `php -d extension=...`;
+// see the PHP guide / README for the exact build + run commands.
 
 declare(strict_types=1);
 

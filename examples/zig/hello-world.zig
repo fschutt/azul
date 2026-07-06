@@ -4,17 +4,8 @@ const std = @import("std");
 const azul = @import("azul.zig");
 const C = azul.C;
 
-// ── Data model ────────────────────────────────────────────────────────
-//
-// Mirrors the C macro `AZ_REFLECT_JSON(MyDataModel, ...)`:
-//
-//   1. A compile-time-unique type id (the address of a `var` we'll
-//      never read or write).
-//   2. An `upcast` that wraps the struct in an `AzRefAny`.
-//   3. A `downcast` that recovers a typed pointer back from the
-//      refany.
-//
-// Plain old data → empty destructor.
+// Compile-time-unique type id: the address of a `var` we never read or
+// write. POD model → no-op destructor.
 
 const MyDataModel = struct {
     counter: u32,
@@ -28,11 +19,8 @@ fn myDataTypeId() u64 {
 fn myDataDestructor(_: ?*anyopaque) callconv(.c) void {}
 
 fn myDataUpcast(model: MyDataModel) C.AzRefAny {
-    // `AzRefAny_newC` copies the bytes into its own heap allocation,
-    // so handing it a stack pointer is fine. `run_destructor=false`
-    // means libazul won't try to free the caller's pointer when it
-    // copies — only the heap copy is freed (via myDataDestructor +
-    // libazul's internal free) when the last clone drops.
+    // AzRefAny_newC copies the bytes into its own heap allocation, so a
+    // stack pointer is fine; run_destructor=false ⇒ libazul won't free ours.
     var local = model;
     const type_name_bytes = "MyDataModel";
     const type_name = C.AzString_fromUtf8(type_name_bytes.ptr, type_name_bytes.len);
@@ -82,9 +70,8 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     C.AzDom_addCssProperty(&label_wrapper, cond);
     C.AzDom_addChild(&label_wrapper, label);
 
-    // Increment button. The typed `AzButton_setOnClick` takes the bare
-    // `AzButtonOnClickCallbackType` fn pointer directly — no AzCallback
-    // struct wrapping needed since the typed-callback API change.
+    // AzButton_setOnClick takes the bare fn-pointer typedef directly.
+    // `onClick` is comptime-known + `callconv(.c)`, so it passes C-direct.
     const btn_label_bytes = "Increase counter";
     const btn_label = C.AzString_fromUtf8(btn_label_bytes.ptr, btn_label_bytes.len);
     var button = C.AzButton_create(btn_label);
@@ -112,8 +99,8 @@ pub fn main() !void {
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 
-    // NoTitleAutoInject: OS draws close/min/max buttons; framework
-    // auto-injects a Titlebar with drag support.
+    // NoTitleAutoInject: OS draws the window buttons; framework injects a
+    // draggable Titlebar.
     window.window_state.flags.decorations = C.AzWindowDecorations_NoTitleAutoInject;
     window.window_state.flags.background_material = C.AzWindowBackgroundMaterial_Sidebar;
 
