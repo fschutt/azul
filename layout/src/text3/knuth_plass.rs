@@ -162,10 +162,29 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 let mut current_word_clusters = vec![cluster.clone()];
                 while let Some(peeked_item) = item_iter.peek() {
                     if let ShapedItem::Cluster(next_cluster) = peeked_item {
+                        // Stop collecting *before* any soft-wrap boundary so the outer
+                        // loop can emit the correct node for it. Word separators are
+                        // shaped as ordinary Clusters (text " "), so without these guards
+                        // the greedy collection would absorb every space into one giant
+                        // "word" and the paragraph could never break — it would collapse
+                        // onto a single line. Boundaries handled by the outer loop:
+                        //   * word separator     -> Glue + Penalty (soft wrap)
+                        //   * zero-width space    -> Penalty (soft wrap)
+                        //   * cluster ending '-'  -> Box + zero-width Penalty
+                        //     (+spec:line-breaking:2d3674 — U+002D/U+2010 are UAX#14
+                        //     class BA break opportunities AFTER the hyphen; a hyphen
+                        //     occurs mid-word, e.g. "well-being").
+                        if is_word_separator(peeked_item)
+                            || is_zero_width_space(peeked_item)
+                            || next_cluster.text.ends_with('\u{002D}')
+                            || next_cluster.text.ends_with('\u{2010}')
+                        {
+                            break;
+                        }
                         current_word_clusters.push(next_cluster.clone());
                         item_iter.next(); // Consume the peeked item
                     } else {
-                        // Stop if we hit a non-cluster item (space, object, etc.)
+                        // Stop if we hit a non-cluster item (object, tab, break, etc.)
                         break;
                     }
                 }
@@ -268,6 +287,28 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
         }
     }
 
+    // Anchor the end of the paragraph. Standard Knuth-Plass appends a finishing
+    // forced break so the final line is broken at the paragraph end. Without it,
+    // a paragraph that ends in an ordinary word (its final nodes are Box, not a
+    // Penalty) never sets breakpoints[n] in the DP, so the backtrack collapses
+    // the entire paragraph onto a single line. A forced break at the end makes
+    // n a legal breakpoint regardless of the last node's type; the forced-break
+    // scoring in find_optimal_breakpoints already exempts a short last line from
+    // any badness, so no finishing glue is required. The penalty carries no item,
+    // so it contributes nothing to the positioned output.
+    if !nodes.is_empty()
+        && !matches!(
+            nodes.last(),
+            Some(LayoutNode::Penalty { penalty, .. }) if *penalty <= -INFINITY_BADNESS
+        )
+    {
+        nodes.push(LayoutNode::Penalty {
+            item: None,
+            width: 0.0,
+            penalty: -INFINITY_BADNESS,
+        });
+    }
+
     nodes
 }
 
@@ -275,18 +316,36 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
+    // For MinContent (intrinsic min-content sizing), CSS wants the width of the
+    // widest unbreakable unit (word). Break at EVERY legal opportunity so each
+    // word lands on its own line; the widest resulting line then equals the
+    // widest word. The optimizing DP below cannot express this: with an
+    // effectively infinite width it puts the whole paragraph on one line, making
+    // min-content == max-content. Every Penalty node is a legal break point.
+    if matches!(constraints.available_width, AvailableSpace::MinContent) {
+        let mut breaks = Vec::new();
+        for (i, node) in nodes.iter().enumerate() {
+            if matches!(node, LayoutNode::Penalty { .. }) {
+                breaks.push(i + 1);
+            }
+        }
+        // Ensure the final segment (which may end in Box nodes) forms a line.
+        if breaks.last() != Some(&nodes.len()) {
+            breaks.push(nodes.len());
+        }
+        return breaks;
+    }
+
     // For Knuth-Plass, we need a definite line width.
     //
     // For MaxContent, use a very large value (no line breaks unless forced).
-    // For MinContent, we also use a large value but will break at every word boundary.
     // The actual min-content width is determined by the widest resulting line.
 
     let line_width = match constraints.available_width {
         AvailableSpace::Definite(w) => w,
         AvailableSpace::MaxContent => f32::MAX / 2.0,
-        // For MinContent: use a large width and let the greedy line breaker
-        // break after each word. We DON'T use 0.0 because that breaks after
-        // every character (including mid-word).
+        // MinContent is handled by the early return above; keep a large width as
+        // a defensive fallback so this arm never breaks after every character.
         AvailableSpace::MinContent => f32::MAX / 2.0,
     };
 
@@ -376,13 +435,23 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
                 if shrink > 0.0 {
                     (effective_line_width - current_width) / shrink
                 } else {
-                    INFINITY_BADNESS // Cannot shrink
+                    // Overfull with nothing to shrink: this line physically cannot
+                    // fit, so it is INFEASIBLE — not merely "loose". Marking it with a
+                    // large negative ratio makes the `ratio < -1.0` guard below reject
+                    // it, exactly like an over-shrunk line. Using +INFINITY_BADNESS
+                    // here (a positive ratio) was a bug: it let an overflowing line
+                    // survive the feasibility guard and then be rewarded by the forced
+                    // end-of-paragraph break, so the DP preferred one overflowing line
+                    // over a legal break (e.g. after a mid-word hyphen). Overlong
+                    // unbreakable content is intentionally left to the greedy path.
+                    -INFINITY_BADNESS
                 }
             } else {
                 0.0 // Perfect fit
             };
 
-            // Lines that must shrink too much are invalid.
+            // Lines that must shrink too much (or that overflow with no shrink) are
+            // invalid and cannot start an optimal path.
             if ratio < -1.0 {
                 continue;
             }
@@ -446,7 +515,7 @@ fn position_lines_from_breaks(
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
 
-        let line_items: Vec<ShapedItem> = line_nodes
+        let mut line_items: Vec<ShapedItem> = line_nodes
             .iter()
             .filter_map(|node| match node {
                 LayoutNode::Box(item, _) => Some(item.clone()),
@@ -454,6 +523,17 @@ fn position_lines_from_breaks(
                 LayoutNode::Penalty { item, .. } => item.clone(),
             })
             .collect();
+
+        // +spec CSS Text 3 §4.1.2: a line's trailing (line-terminating) spaces
+        // "hang" — they are removed before measuring the line and are not counted
+        // as justification opportunities. The break index sits just past the
+        // Penalty following the trailing Glue, so that space is the last item
+        // here. Drop trailing word separators so line_width, the justification
+        // space count, and positioning all exclude them (matching the greedy
+        // break_one_line path, which trims trailing spaces).
+        while line_items.last().is_some_and(is_word_separator) {
+            line_items.pop();
+        }
 
         // Note: Calculate spacing, do not mutate items
         let mut extra_per_space = 0.0;
@@ -603,4 +683,124 @@ fn position_lines_from_breaks(
     let bounds = layout.bounds();
     layout.overflow.unclipped_bounds = bounds;
     layout
+}
+
+#[cfg(test)]
+mod kp_fix_tests {
+    use super::*;
+    use crate::text3::cache::{ShapedCluster, StyleProperties, UnifiedConstraints};
+    use azul_core::selection::{ContentIndex, GraphemeClusterId};
+    use azul_css::props::basic::FontRef;
+    use std::sync::Arc;
+
+    fn cl(text: &str, advance: f32) -> ShapedItem {
+        ShapedItem::Cluster(ShapedCluster {
+            text: text.to_string(),
+            source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+            source_content_index: ContentIndex { run_index: 0, item_index: 0 },
+            source_node_id: None,
+            glyphs: smallvec::SmallVec::new(),
+            advance,
+            direction: BidiDirection::Ltr,
+            style: Arc::new(StyleProperties::default()),
+            marker_position_outside: None,
+            is_first_fragment: true,
+            is_last_fragment: true,
+        })
+    }
+
+    fn nodes_for(text: &str) -> Vec<LayoutNode> {
+        // Build per-grapheme clusters like the real shaper. 12px letters, 6px '-', 5px space.
+        let items: Vec<ShapedItem> = text
+            .chars()
+            .map(|c| {
+                let s = c.to_string();
+                let adv = match c {
+                    ' ' => 5.0,
+                    '-' => 6.0,
+                    _ => 12.0,
+                };
+                cl(&s, adv)
+            })
+            .collect();
+        let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
+        convert_items_to_nodes(&items, None, &fonts)
+    }
+
+    #[test]
+    fn bug1_terminal_break_wraps_word_ending_paragraph() {
+        // "aaaa aaaa" (ends in a Box, no trailing space) must wrap at width 60.
+        let nodes = nodes_for("aaaa aaaa");
+        assert!(matches!(nodes.last(), Some(LayoutNode::Penalty { penalty, .. }) if *penalty <= -INFINITY_BADNESS),
+            "a terminal forced break must be appended");
+        let c = UnifiedConstraints { available_width: AvailableSpace::Definite(60.0), ..Default::default() };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        assert!(breaks.len() >= 2, "must break into >=2 lines, got {breaks:?}");
+        assert_eq!(*breaks.last().unwrap(), nodes.len(), "final break at n");
+    }
+
+    #[test]
+    fn bug2_hyphen_is_break_opportunity() {
+        // "aaaa-aaaa": a zero-width penalty must follow the '-' Box.
+        let nodes = nodes_for("aaaa-aaaa");
+        // find the '-' box and assert the next node is a zero-width penalty
+        let mut found = false;
+        for (i, n) in nodes.iter().enumerate() {
+            if let LayoutNode::Box(ShapedItem::Cluster(cc), _) = n {
+                if cc.text == "-" {
+                    match nodes.get(i + 1) {
+                        Some(LayoutNode::Penalty { penalty, width, .. }) => {
+                            assert!(*width == 0.0 && *penalty > -INFINITY_BADNESS,
+                                "hyphen must be followed by a zero-width soft penalty");
+                            found = true;
+                        }
+                        other => panic!("expected penalty after hyphen, got {other:?}"),
+                    }
+                }
+            }
+        }
+        assert!(found, "hyphen box must exist");
+        // and it must actually enable a wrap at width 60
+        let c = UnifiedConstraints { available_width: AvailableSpace::Definite(60.0), ..Default::default() };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        assert!(breaks.len() >= 2, "hyphenated token must wrap, got {breaks:?}");
+    }
+
+    #[test]
+    fn bug4_min_content_breaks_every_word() {
+        // "aaaa aaaa" min-content: two words => two content lines (widest = one word).
+        let nodes = nodes_for("aaaa aaaa");
+        let c = UnifiedConstraints { available_width: AvailableSpace::MinContent, ..Default::default() };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        // there must be a break after the first word's trailing space penalty,
+        // i.e. more than one break -> not a single spanning line.
+        assert!(breaks.len() >= 2, "min-content must break per word, got {breaks:?}");
+    }
+
+    #[test]
+    fn bug3_trailing_space_trimmed_from_line() {
+        // "aaaa aaaa" @60 wraps to [.., 6, 11]; line 0 = "aaaa" + trailing space.
+        let nodes = nodes_for("aaaa aaaa");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        // The line-terminating space must not be positioned on line 0.
+        let line0_spaces = layout
+            .items
+            .iter()
+            .filter(|it| it.line_index == 0 && is_word_separator(&it.item))
+            .count();
+        assert_eq!(line0_spaces, 0, "trailing space must be trimmed from line 0");
+        // Rightmost cluster edge on line 0 == 4*12 = 48px (not 53 incl. the space).
+        let max_x = layout
+            .items
+            .iter()
+            .filter(|it| it.line_index == 0)
+            .filter_map(|it| it.item.as_cluster().map(|cc| it.position.x + cc.advance))
+            .fold(0.0f32, f32::max);
+        assert!((max_x - 48.0).abs() < 0.01, "line 0 right edge {max_x} should be 48px");
+    }
 }
