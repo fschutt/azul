@@ -97,9 +97,12 @@ fn restrict_cdylib_exports(target: &str) {
     if target.contains("apple") || target.contains("darwin") || target.contains("ios") {
         // Mach-O: -exported_symbols_list KEEPS only matching globs; all other
         // global symbols become private extern (localized). Mach-O prefixes an
-        // underscore, so C `AzApp_new` is `_AzApp_new`. `*Azul*` keeps objc2's
-        // per-class registration statics (__CLASS_Azul*, __IVAR_OFFSET_Azul*,
-        // __DROP_FLAG_OFFSET_Azul*, __REGISTER_CLASS_Azul*).
+        // underscore, so C `AzApp_new` is `_AzApp_new`. The objc2 per-class
+        // registration statics (__CLASS_Azul*, __IVAR_OFFSET_Azul*,
+        // __DROP_FLAG_OFFSET_Azul*, __REGISTER_CLASS_Azul*) are kept by the
+        // SPECIFIC globs below — not a broad `*Azul*`, which also exported
+        // azul's own mangled `_ZN..AzulPixmap..` / `..AzulMenuTarget..` methods
+        // and tripped the CI export gate (which allows exactly these statics).
         // NB (verified on ld-1115 / ld-prime): -exported_symbols_list IS
         // honoured (an all-miss list errors "symbol(s) not found"), and it
         // localizes the bulk — the shipped cdylib goes from ~285 k global
@@ -114,7 +117,9 @@ fn restrict_cdylib_exports(target: &str) {
         // and are fully hidden on Linux, where the version-script below IS
         // authoritative over dep `#[no_mangle]`. The CI export gate allows
         // exactly this family set on macOS and demands zero strays on Linux.
-        let patterns = "_Az*\n_az_*\n_PyInit_*\n*Azul*\n";
+        let patterns = "_Az*\n_az_*\n_PyInit_*\n\
+                        *_CLASS_Azul*\n*_IVAR_OFFSET_Azul*\n\
+                        *_DROP_FLAG_OFFSET_Azul*\n*_REGISTER_CLASS_Azul*\n";
         let path = format!("{}/azul_exported_symbols.txt", out);
         fs::write(&path, patterns).expect("write exported symbols list");
         println!("cargo:rustc-cdylib-link-arg=-Wl,-exported_symbols_list,{path}");
