@@ -153,6 +153,12 @@ const FRONTPAGE_LANGUAGES: &[&str] = &[
     // (scripts/e2e_language_matrix.sh), install steps verified truthful,
     // guide pages present. See scripts/BINDINGS_REVIEW_2026_07_04.md.
     "zig", "go", "pascal", "scala", "fortran", "haskell",
+    // Promoted 2026-07-06: counter e2e green on the merged dll (perl/lisp
+    // host-invoker; php via the ext-php-rs native extension). Truthful
+    // install steps + guides. Kept OUT of the CI gate (SHIPPED_LANGS) until
+    // their fragile toolchains — FFI::Platypus, quicklisp+cffi-libffi, the
+    // ext-php-rs build — are confirmed on the CI runners.
+    "perl", "lisp", "php",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];
