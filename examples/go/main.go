@@ -3,7 +3,9 @@
 package main
 
 /*
-#cgo LDFLAGS: -lazul
+#cgo linux,darwin LDFLAGS: -lazul
+// On Windows the MSVC import lib (azul.dll.lib) is linked via CGO_LDFLAGS
+// instead; a bare -lazul has no libazul.a/azul.lib to resolve there.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

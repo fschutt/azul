@@ -1121,6 +1121,10 @@ lang_haskell() {
     cd "$REPO_ROOT/examples/haskell" || exit 1
     # Override the hardcoded extra-lib-dirs (points at a foreign checkout) so the
     # linker finds libazul in our release dir.
+    # Windows CI runners ship cabal without a user config; `cabal build`
+    # then aborts "Config file not found: C:\\cabal\\config".
+    cabal user-config init --force >/dev/null 2>&1 || true
+    cabal update >/dev/null 2>&1 || true
     cabal build --extra-lib-dirs="$RELEASE_DIR" || exit 1
     cabal run hello-world --extra-lib-dirs="$RELEASE_DIR"
   ) >"$f" 2>&1
