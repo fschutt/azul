@@ -1802,6 +1802,9 @@ pub mod parsed {
             // bytecode hinting. LocaGlyf caches the `Arc<Glyph>`
             // internally so this lookup is cheap after the first call.
             if let Ok(glyph_arc) = loca_glyf.glyph(gid) {
+                // `is_on_curve` moved onto the `SimpleGlyphFlagExt` trait in
+                // allsorts 0.17 (SimpleGlyphFlags is now a BitFlags alias).
+                use allsorts::tables::glyf::SimpleGlyphFlagExt;
                 if let allsorts::tables::glyf::Glyph::Simple(sg) = glyph_arc.as_ref() {
                     record.raw_points = Some(
                         sg.coordinates.iter().map(|(_, pt)| (pt.0, pt.1)).collect(),

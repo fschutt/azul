@@ -27,7 +27,7 @@ image                   = { version = "0.25", default-features = false, optional
 # Explicit override to disable SIMD features that were broken in older versions
 # See: https://github.com/image-rs/image/issues/2705
 zune-jpeg               = { version = "0.5", default-features = false, features = ["std"], optional = true }
-rust-fontconfig = { version = "4.4.3", default-features = false, optional = true }
+rust-fontconfig = { version = "4.4.4", default-features = false, optional = true }
 libc                    = { version = "0.2", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
 brotli-decompressor     = { version = "5", default-features = false, features = ["std"], optional = true }
@@ -48,7 +48,7 @@ thiserror = { version = "2.0.17", default-features = false }
 hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_all"], optional = true }
 unicode-segmentation    = { version = "1.12.0", default-features = false, optional = true }
 unicode-normalization   = { version = "0.1.24",  default-features = false, optional = true }
-allsorts = { package = "allsorts-azul", version = "0.16.5", default-features = false, features = ["flate2_rust"], optional = true }
+allsorts = { package = "allsorts-azul", version = "0.17", default-features = false, features = ["flate2_rust"], optional = true }
 lru = { version = "0.16.1", default-features = false }
 taffy = { version = "0.10", default-features = false, features = ["std", "flexbox", "grid", "alloc", "taffy_tree", "block_layout", "calc", "content_size", "detailed_layout_info"] }
 base64 = "0.22.1"

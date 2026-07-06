@@ -11,7 +11,7 @@ use std::{path::Path, sync::Arc};
 
 use allsorts::{
     gpos,
-    gsub::{self, FeatureInfo, FeatureMask, Features},
+    gsub::{self, Feature, FeatureInfo, FeatureMask, FeatureMaskExt},
 };
 use azul_core::geom::LogicalSize;
 use azul_css::props::basic::FontRef;
@@ -416,16 +416,16 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
     use Script::{Arabic, Devanagari, Bengali, Gujarati, Gurmukhi, Kannada, Malayalam, Oriya, Tamil, Telugu, Myanmar, Khmer, Thai, Hebrew, Hangul, Ethiopic, Latin, Greek, Cyrillic, Georgian, Hiragana, Katakana, Mandarin, Sinhala};
 
     // Start with common features that apply to most scripts
-    let mut mask = FeatureMask::default(); // Includes: CALT, CCMP, CLIG, LIGA, LOCL, RLIG
+    let mut mask = FeatureMask::default_mask(); // Includes: CALT, CCMP, CLIG, LIGA, LOCL, RLIG
 
     // Add script-specific features
     match script {
         // Arabic and related scripts - require positional forms
         Arabic => {
-            mask |= FeatureMask::INIT; // Initial forms (at start of word)
-            mask |= FeatureMask::MEDI; // Medial forms (middle of word)
-            mask |= FeatureMask::FINA; // Final forms (end of word)
-            mask |= FeatureMask::ISOL; // Isolated forms (standalone)
+            mask |= Feature::INIT; // Initial forms (at start of word)
+            mask |= Feature::MEDI; // Medial forms (middle of word)
+            mask |= Feature::FINA; // Final forms (end of word)
+            mask |= Feature::ISOL; // Isolated forms (standalone)
                                        // Note: RLIG (required ligatures) already in default for
                                        // lam-alef ligatures
         }
@@ -433,32 +433,32 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
         // Indic scripts - require complex conjunct formation and reordering
         Devanagari | Bengali | Gujarati | Gurmukhi | Kannada | Malayalam | Oriya | Tamil
         | Telugu => {
-            mask |= FeatureMask::NUKT; // Nukta forms
-            mask |= FeatureMask::AKHN; // Akhand ligatures
-            mask |= FeatureMask::RPHF; // Reph form
-            mask |= FeatureMask::RKRF; // Rakar form
-            mask |= FeatureMask::PREF; // Pre-base forms
-            mask |= FeatureMask::BLWF; // Below-base forms
-            mask |= FeatureMask::ABVF; // Above-base forms
-            mask |= FeatureMask::HALF; // Half forms
-            mask |= FeatureMask::PSTF; // Post-base forms
-            mask |= FeatureMask::VATU; // Vattu variants
-            mask |= FeatureMask::CJCT; // Conjunct forms
+            mask |= Feature::NUKT; // Nukta forms
+            mask |= Feature::AKHN; // Akhand ligatures
+            mask |= Feature::RPHF; // Reph form
+            mask |= Feature::RKRF; // Rakar form
+            mask |= Feature::PREF; // Pre-base forms
+            mask |= Feature::BLWF; // Below-base forms
+            mask |= Feature::ABVF; // Above-base forms
+            mask |= Feature::HALF; // Half forms
+            mask |= Feature::PSTF; // Post-base forms
+            mask |= Feature::VATU; // Vattu variants
+            mask |= Feature::CJCT; // Conjunct forms
         }
 
         // Myanmar (Burmese) - has complex reordering
         Myanmar => {
-            mask |= FeatureMask::PREF; // Pre-base forms
-            mask |= FeatureMask::BLWF; // Below-base forms
-            mask |= FeatureMask::PSTF; // Post-base forms
+            mask |= Feature::PREF; // Pre-base forms
+            mask |= Feature::BLWF; // Below-base forms
+            mask |= Feature::PSTF; // Post-base forms
         }
 
         // Khmer - has complex reordering and stacking
         Khmer => {
-            mask |= FeatureMask::PREF; // Pre-base forms
-            mask |= FeatureMask::BLWF; // Below-base forms
-            mask |= FeatureMask::ABVF; // Above-base forms
-            mask |= FeatureMask::PSTF; // Post-base forms
+            mask |= Feature::PREF; // Pre-base forms
+            mask |= Feature::BLWF; // Below-base forms
+            mask |= Feature::ABVF; // Above-base forms
+            mask |= Feature::PSTF; // Post-base forms
         }
 
         // Thai - has tone marks and vowel reordering
@@ -509,9 +509,9 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
 
         // Sinhala - Indic-derived but simpler
         Sinhala => {
-            mask |= FeatureMask::AKHN; // Akhand ligatures
-            mask |= FeatureMask::RPHF; // Reph form
-            mask |= FeatureMask::VATU; // Vattu variants
+            mask |= Feature::AKHN; // Akhand ligatures
+            mask |= Feature::RPHF; // Reph form
+            mask |= Feature::VATU; // Vattu variants
         }
     }
 
@@ -783,11 +783,15 @@ fn shape_text_internal(
     }
 
     if let Some(gsub) = parsed_font.gsub() {
-        let features = if user_features.is_empty() {
-            Features::Mask(build_feature_mask_for_script(script))
-        } else {
-            Features::Custom(user_features.clone())
-        };
+        // Preserve the original mutually-exclusive Mask/Custom behavior:
+        // when the user supplies explicit features, apply only those (empty
+        // script mask); otherwise use the script-specific feature mask.
+        let (feature_mask, custom_features): (FeatureMask, &[FeatureInfo]) =
+            if user_features.is_empty() {
+                (build_feature_mask_for_script(script), &[])
+            } else {
+                (FeatureMask::empty(), user_features.as_slice())
+            };
 
         let dotted_circle_index = parsed_font
             .lookup_glyph_index(allsorts::DOTTED_CIRCLE as u32)
@@ -798,7 +802,8 @@ fn shape_text_internal(
             opt_gdef,
             script_tag,
             Some(lang_tag),
-            &features,
+            feature_mask,
+            custom_features,
             None,
             parsed_font.num_glyphs(),
             &mut raw_glyphs,
@@ -819,7 +824,8 @@ fn shape_text_internal(
             opt_gdef,
             kern_table,
             apply_kerning,
-            &Features::Custom(user_features),
+            FeatureMask::empty(),
+            &user_features,
             None,
             script_tag,
             Some(lang_tag),
