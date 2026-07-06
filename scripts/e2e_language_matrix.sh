@@ -119,7 +119,7 @@ SHIPPED_LANGS=(
 # odin: C-ABI-direct binding (proc "c" callbacks, no host-invoker), a real
 # counter E2E — but UNVERIFIED locally (no Odin toolchain here). Kept out of
 # SHIPPED until CI proves it green on all three OSes; BETA/ALPHA never gate CI.
-BETA_LANGS=( odin )
+BETA_LANGS=( odin nim racket red )
 
 # tier_of <lang> -> "shipped" | "beta" | "alpha"
 tier_of() {

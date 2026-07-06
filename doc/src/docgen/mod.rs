@@ -159,6 +159,12 @@ const FRONTPAGE_LANGUAGES: &[&str] = &[
     // their fragile toolchains — FFI::Platypus, quicklisp+cffi-libffi, the
     // ext-php-rs build — are confirmed on the CI runners.
     "perl", "lisp", "php",
+    // Promoted 2026-07-06 (genericity thesis): candidate bindings emitted by
+    // codegen v2 + examples + guides. Two archetypes proven — C-ABI-direct
+    // (odin, nim: real C fn-ptrs) and the host-invoker path (racket, red).
+    // "Impl blindly, validate via CI" — kept OUT of the CI gate (SHIPPED_LANGS)
+    // until their matrix rows go green cross-OS; guides marked experimental.
+    "odin", "nim", "racket", "red",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];
