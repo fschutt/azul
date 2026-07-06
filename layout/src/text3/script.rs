@@ -474,7 +474,12 @@ fn detect_latin_language(text: &str) -> Language {
 }
 
 #[must_use] pub const fn is_katakana(ch: char) -> bool {
-    matches!(ch, '\u{30A0}'..='\u{30FF}')
+    matches!(ch,
+        '\u{30A0}'..='\u{30FF}'
+        // Halfwidth Katakana (part of the Halfwidth and Fullwidth Forms block).
+        // U+FF66..=FF9F are katakana; U+FF61..=FF65 are halfwidth CJK punctuation.
+        | '\u{FF66}'..='\u{FF9F}'
+    )
 }
 
 // Hangul is Korean Alphabet. Unicode ranges are taken from: https://en.wikipedia.org/wiki/Hangul
@@ -483,10 +488,14 @@ fn detect_latin_language(text: &str) -> Language {
         '\u{AC00}'..='\u{D7AF}'
         | '\u{1100}'..='\u{11FF}'
         | '\u{3130}'..='\u{318F}'
-        | '\u{3200}'..='\u{32FF}'
         | '\u{A960}'..='\u{A97F}'
         | '\u{D7B0}'..='\u{D7FF}'
-        | '\u{FF00}'..='\u{FFEF}'
+        // Halfwidth Hangul variants only. The rest of the Halfwidth and Fullwidth
+        // Forms block (U+FF00..=FF60 fullwidth ASCII/Latin, U+FF61..=FF9F halfwidth
+        // katakana/punct, U+FFE0..=FFEF fullwidth/halfwidth symbols) and Enclosed CJK
+        // Letters and Months (U+3200..=32FF) are NOT Hangul and were previously
+        // swallowed here, misclassifying halfwidth kana and fullwidth Latin as Hangul.
+        | '\u{FFA0}'..='\u{FFDC}'
     )
 }
 
@@ -548,4 +557,34 @@ fn detect_latin_language(text: &str) -> Language {
 // Based on: https://en.wikipedia.org/wiki/Khmer_alphabet
 #[must_use] pub const fn is_khmer(ch: char) -> bool {
     matches!(ch, '\u{1780}'..='\u{17FF}' | '\u{19E0}'..='\u{19FF}')
+}
+
+#[cfg(test)]
+mod script_class_tests {
+    use super::{detect_script, is_hangul, is_katakana, Script};
+
+    #[test]
+    fn halfwidth_katakana_is_not_hangul() {
+        // U+FF71..FF73 = halfwidth katakana ｱｲｳ — must classify as Katakana, not Hangul.
+        for ch in ['\u{FF71}', '\u{FF72}', '\u{FF73}'] {
+            assert!(!is_hangul(ch), "{ch:?} wrongly matched is_hangul");
+            assert!(is_katakana(ch), "{ch:?} should match is_katakana");
+        }
+        assert_eq!(detect_script("\u{FF71}\u{FF72}\u{FF73}"), Some(Script::Katakana));
+    }
+
+    #[test]
+    fn fullwidth_latin_is_not_hangul() {
+        // U+FF21..FF23 = fullwidth ＡＢＣ — must not be classified as Hangul.
+        for ch in ['\u{FF21}', '\u{FF22}', '\u{FF23}'] {
+            assert!(!is_hangul(ch), "{ch:?} wrongly matched is_hangul");
+        }
+        assert_ne!(detect_script("\u{FF21}\u{FF22}\u{FF23}"), Some(Script::Hangul));
+    }
+
+    #[test]
+    fn real_hangul_still_detected() {
+        assert!(is_hangul('\u{AC00}')); // 가
+        assert_eq!(detect_script("\u{AC00}\u{AC01}"), Some(Script::Hangul));
+    }
 }

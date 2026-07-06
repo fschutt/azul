@@ -765,33 +765,40 @@ fn shape_text_internal(
             let Some(ch) = text[ci..].chars().next() else {
                 break;
             };
-            let cluster = ci;
             let glyph_index = parsed_font.lookup_glyph_index(ch as u32).unwrap_or(0);
-            if u16::try_from(cluster).is_ok() {
-                raw_glyphs.push(gsub::RawGlyph {
-                    unicodes: tinyvec::tiny_vec![[char; 1] => ch],
-                    glyph_index,
-                    liga_component_pos: cluster as u16,
-                    glyph_origin: gsub::GlyphOrigin::Char(ch),
-                    flags: gsub::RawGlyphFlags::empty(),
-                    extra_data: (),
-                    variation: None,
-                });
-            }
+            // NOTE: `liga_component_pos` MUST be left at allsorts' managed default (0)
+            // here. It is a GPOS ligature-COMPONENT index, and mark-to-mark /
+            // mark-to-ligature attachment (gpos::forall_mark_mark_glyph_pairs,
+            // gpos::markligpos) is gated on equality of this field between glyphs.
+            // Overloading it with the source byte offset (as an earlier version did)
+            // made every glyph carry a distinct value, silently disabling mkmk stacking
+            // and mis-selecting ligature-component anchors. Source byte offsets are
+            // instead reconstructed after shaping from each glyph's `unicodes` (see the
+            // read-back loop below), which also removes the old u16 byte-offset cap that
+            // dropped every glyph past byte 65535.
+            raw_glyphs.push(gsub::RawGlyph {
+                unicodes: tinyvec::tiny_vec![[char; 1] => ch],
+                glyph_index,
+                liga_component_pos: 0,
+                glyph_origin: gsub::GlyphOrigin::Char(ch),
+                flags: gsub::RawGlyphFlags::empty(),
+                extra_data: (),
+                variation: None,
+            });
             ci += ch.len_utf8();
         }
     }
 
     if let Some(gsub) = parsed_font.gsub() {
-        // Preserve the original mutually-exclusive Mask/Custom behavior:
-        // when the user supplies explicit features, apply only those (empty
-        // script mask); otherwise use the script-specific feature mask.
-        let (feature_mask, custom_features): (FeatureMask, &[FeatureInfo]) =
-            if user_features.is_empty() {
-                (build_feature_mask_for_script(script), &[])
-            } else {
-                (FeatureMask::empty(), user_features.as_slice())
-            };
+        // Always start from the script's default feature mask (LIGA, CLIG, CALT,
+        // CCMP, LOCL, RLIG + script-specific shaping features) and additively layer
+        // any user-supplied features on top. gsub::apply applies the mask AND the
+        // custom features, so these are NOT mutually exclusive. The previous code
+        // replaced the mask with `empty()` whenever ANY font-feature/font-variant
+        // was set, which silently disabled default ligatures/contextual-alternates
+        // for Latin-family text (ScriptType::Default only re-adds CCMP|RLIG|LOCL).
+        let feature_mask = build_feature_mask_for_script(script);
+        let custom_features: &[FeatureInfo] = user_features.as_slice();
 
         let dotted_circle_index = parsed_font
             .lookup_glyph_index(allsorts::DOTTED_CIRCLE as u32)
@@ -854,18 +861,42 @@ fn shape_text_internal(
     let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));
 
     let mut shaped_glyphs = Vec::new();
+    // Reconstruct source byte spans by walking the source text in logical order,
+    // consuming each glyph's `unicodes`. This replaces the removed liga_component_pos
+    // byte-offset overload. A ligature glyph carries ALL of its component chars in
+    // `unicodes`, so its span covers every merged component (fixing the ligature
+    // logical_byte_len that previously reported only the first component's length).
+    // Multiple-substitution duplicates (MULTI_SUBST_DUP) and unicode-less inserted
+    // glyphs share the current cursor position and do not advance it.
+    let mut byte_cursor = 0usize;
     for info in &infos {
-        let cluster = u32::from(info.glyph.liga_component_pos);
-        let source_char = text
-            .get(cluster as usize..)
-            .and_then(|s| s.chars().next())
+        let uni_len: usize = info.glyph.unicodes.iter().map(|c| c.len_utf8()).sum();
+        let (byte_index, byte_len) = if info.glyph.multi_subst_dup() || uni_len == 0 {
+            (byte_cursor.min(text.len()), 0)
+        } else {
+            let start = byte_cursor.min(text.len());
+            byte_cursor = (byte_cursor + uni_len).min(text.len());
+            (start, uni_len)
+        };
+        let cluster = byte_index as u32;
+        let source_char = info
+            .glyph
+            .unicodes
+            .first()
+            .copied()
+            .or_else(|| text.get(byte_index..).and_then(|s| s.chars().next()))
             .unwrap_or('\u{FFFD}');
 
         let base_advance = parsed_font.get_horizontal_advance(info.glyph.glyph_index);
-        // Use hinted advance width when available (matches FreeType/Chrome behavior)
-        let ppem = font_size.round() as u16;
+        // Use hinted advance width when available (matches FreeType/Chrome behavior).
+        // Hinting grid-fits at an INTEGER ppem, so rescale the result back to the exact
+        // (fractional) font size to keep the advance on the SAME size basis as the GPOS
+        // offsets and kerning below (which use the unrounded scale_factor). Otherwise a
+        // run at e.g. 14.4px would pair a 14px-basis advance with 14.4px-basis positioning.
+        let ppem = font_size.round().max(1.0) as u16;
         let advance = parsed_font
             .get_hinted_advance_px(info.glyph.glyph_index, ppem)
+            .map(|hinted| hinted * font_size / f32::from(ppem))
             .unwrap_or_else(|| f32::from(base_advance) * scale_factor);
         let kerning = f32::from(info.kerning) * scale_factor;
 
@@ -886,8 +917,8 @@ fn shape_text_internal(
             font_metrics,
             style: Arc::clone(&style_arc),
             source: GlyphSource::Char,
-            logical_byte_index: cluster as usize,
-            logical_byte_len: source_char.len_utf8(),
+            logical_byte_index: byte_index,
+            logical_byte_len: byte_len,
             content_index: 0,
             cluster,
             advance,

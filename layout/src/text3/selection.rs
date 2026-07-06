@@ -114,28 +114,47 @@ fn find_cluster_at_cursor<'a>(
     })
 }
 
-/// Extract text and cluster ID mapping from all clusters on the same line.
+/// Extract text and cluster ID mapping for the cursor's logical run.
 ///
 /// Returns concatenated text and a vec of (`cluster_id`, `byte_length`) pairs
 /// so byte offsets can be mapped back to cluster IDs.
+///
+/// Clusters are gathered by their logical run (`source_run`) and concatenated in
+/// LOGICAL byte order — NOT visual (`layout.items`) order, and NOT restricted to a
+/// single visual line. This makes word segmentation correct in two cases the old
+/// per-visual-line code broke:
+///   * bidi text, where visual order differs from logical order, so word boundaries
+///     computed on the visual concatenation mapped back to the wrong clusters, and
+///   * a word split across a soft wrap, where filtering to one `line_index` only
+///     selected the fragment on the clicked line.
 fn extract_line_text_and_clusters(
     item_idx: usize,
     layout: &UnifiedLayout,
 ) -> (String, Vec<(GraphemeClusterId, usize)>) {
-    let line_index = layout.items[item_idx].line_index;
+    let Some(source_run) = layout.items[item_idx]
+        .item
+        .as_cluster()
+        .map(|c| c.source_cluster_id.source_run)
+    else {
+        return (String::new(), Vec::new());
+    };
+
+    // Gather every cluster of this logical run across all visual lines, then sort
+    // into logical order so segmentation runs on the real character sequence.
+    let mut clusters: Vec<&ShapedCluster> = layout
+        .items
+        .iter()
+        .filter_map(|item| item.item.as_cluster())
+        .filter(|c| c.source_cluster_id.source_run == source_run)
+        .collect();
+    clusters.sort_by_key(|c| c.source_cluster_id.start_byte_in_run);
 
     let mut text = String::new();
     let mut cluster_map = Vec::new();
-
-    for item in &layout.items {
-        if item.line_index != line_index {
-            continue;
-        }
-        if let Some(c) = item.item.as_cluster() {
-            let s = c.text.as_str();
-            cluster_map.push((c.source_cluster_id, s.len()));
-            text.push_str(s);
-        }
+    for c in clusters {
+        let s = c.text.as_str();
+        cluster_map.push((c.source_cluster_id, s.len()));
+        text.push_str(s);
     }
 
     (text, cluster_map)

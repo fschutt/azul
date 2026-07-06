@@ -75,6 +75,32 @@ fn adjust_cursors(
     }
 }
 
+/// Shifts the `source_run` index of every already-processed cursor that sits in a
+/// run AFTER `boundary_run`, by `run_count_change` (negative when runs were removed
+/// or merged), clamping so it never drops to or below the surviving boundary run.
+///
+/// Needed because edits do not only change byte offsets within a run — a multi-run
+/// delete (or a cross-run backspace/forward-delete, or removing an inline image)
+/// changes the NUMBER of runs. Since cursors are processed back-to-front, a
+/// previously-processed (later-in-document) cursor whose run comes after the edit
+/// would otherwise keep a stale `source_run` pointing one-or-more runs too high —
+/// landing on the wrong run or going out of bounds entirely.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+fn adjust_cursor_runs(selections: &mut [Selection], boundary_run: u32, run_count_change: i32) {
+    if run_count_change == 0 {
+        return;
+    }
+    for sel in selections.iter_mut() {
+        if let Selection::Cursor(cursor) = sel {
+            if cursor.cluster_id.source_run > boundary_run {
+                let shifted = (cursor.cluster_id.source_run as i32 + run_count_change)
+                    .max(boundary_run as i32);
+                cursor.cluster_id.source_run = shifted as u32;
+            }
+        }
+    }
+}
+
 /// Byte length of the text in the run at `run_idx`, or 0 for non-text / missing runs.
 fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
     match content.get(run_idx as usize) {
@@ -111,13 +137,18 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
         // previously-processed cursors by the ACTUAL byte delta. The old code
         // hardcoded -1 for any delete, which mis-tracked multi-byte graphemes.
         let old_run_len = run_text_len(&new_content, edit_run);
+        let old_run_count = new_content.len();
         let (temp_content, new_cursor) =
             apply_edit_to_selection(&new_content, &selection, edit);
         let new_run_len = run_text_len(&temp_content, edit_run);
         let byte_offset_change = new_run_len as i32 - old_run_len as i32;
+        let run_count_change = temp_content.len() as i32 - old_run_count as i32;
 
         // Adjust all previously-processed cursors in the same run that come after this position
         adjust_cursors(&mut new_selections, edit_run, edit_byte, byte_offset_change);
+        // If the edit changed the run COUNT (multi-run delete / cross-run delete /
+        // image removal), reindex later cursors whose run sits after this edit.
+        adjust_cursor_runs(&mut new_selections, edit_run, run_count_change);
 
         new_content = temp_content;
         new_selections.push(Selection::Cursor(new_cursor));
@@ -239,6 +270,19 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
                     affinity: CursorAffinity::Leading,
                 };
             }
+        } else if start_run_idx < new_content.len() && range.start != range.end {
+            // The selection covers a single NON-text run (inline image / object /
+            // shape). A byte-offset drain can't remove it; delete the whole item and
+            // collapse the caret to its former index. `range.start != range.end`
+            // guards against a zero-width (collapsed) selection deleting the item.
+            new_content.remove(start_run_idx);
+            cursor_after = TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: start_run_idx as u32,
+                    start_byte_in_run: 0,
+                },
+                affinity: CursorAffinity::Leading,
+            };
         }
     } else {
         // Multi-run deletion.
@@ -396,6 +440,47 @@ pub fn delete_backward(
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
+    // Non-text run (inline image / object / shape) under the cursor. A grapheme
+    // drain can't act on it, so handle it explicitly instead of silently no-op'ing.
+    if new_content.get(run_idx).is_some()
+        && !matches!(new_content.get(run_idx), Some(InlineContent::Text(_)))
+    {
+        return match cursor.affinity {
+            // Caret sits AFTER the item — Backspace removes the item itself.
+            CursorAffinity::Trailing => {
+                new_content.remove(run_idx);
+                (
+                    new_content,
+                    TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: run_idx as u32,
+                            start_byte_in_run: 0,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    },
+                )
+            }
+            // Caret sits BEFORE the item — Backspace acts on the previous run.
+            CursorAffinity::Leading if run_idx > 0 => {
+                let prev_byte = match content.get(run_idx - 1) {
+                    Some(InlineContent::Text(r)) => r.text.len() as u32,
+                    _ => 0,
+                };
+                delete_backward(
+                    content,
+                    &TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: (run_idx - 1) as u32,
+                            start_byte_in_run: prev_byte,
+                        },
+                        affinity: CursorAffinity::Trailing,
+                    },
+                )
+            }
+            CursorAffinity::Leading => (content.to_vec(), *cursor),
+        };
+    }
+
     if let Some(InlineContent::Text(run)) = new_content.get_mut(run_idx) {
         // Calculate the actual cursor byte offset based on affinity
         let byte_offset = match cursor.affinity {
@@ -412,7 +497,7 @@ pub fn delete_backward(
                 }
             },
         };
-        
+
         if byte_offset > 0 {
             let prev_grapheme_start = run.text[..byte_offset]
                 .grapheme_indices(true)
@@ -429,28 +514,44 @@ pub fn delete_backward(
             };
             return (new_content, new_cursor);
         } else if run_idx > 0 {
-            // Handle deleting across run boundaries (merge with previous run)
-            if let Some(InlineContent::Text(prev_run)) = content.get(run_idx - 1).cloned() {
-                let mut merged_text = prev_run.text;
-                let new_cursor_byte_offset = merged_text.len();
-                merged_text.push_str(&run.text);
+            // Handle deleting across run boundaries.
+            match content.get(run_idx - 1).cloned() {
+                // Previous run is text — merge the two runs.
+                Some(InlineContent::Text(prev_run)) => {
+                    let mut merged_text = prev_run.text;
+                    let new_cursor_byte_offset = merged_text.len();
+                    merged_text.push_str(&run.text);
 
-                new_content[run_idx - 1] = InlineContent::Text(StyledRun {
-                    text: merged_text,
-                    style: prev_run.style,
-                    logical_start_byte: prev_run.logical_start_byte,
-                    source_node_id: prev_run.source_node_id,
-                });
-                new_content.remove(run_idx);
+                    new_content[run_idx - 1] = InlineContent::Text(StyledRun {
+                        text: merged_text,
+                        style: prev_run.style,
+                        logical_start_byte: prev_run.logical_start_byte,
+                        source_node_id: prev_run.source_node_id,
+                    });
+                    new_content.remove(run_idx);
 
-                let new_cursor = TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: (run_idx - 1) as u32,
-                        start_byte_in_run: new_cursor_byte_offset as u32,
-                    },
-                    affinity: CursorAffinity::Leading,
-                };
-                return (new_content, new_cursor);
+                    let new_cursor = TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: (run_idx - 1) as u32,
+                            start_byte_in_run: new_cursor_byte_offset as u32,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    };
+                    return (new_content, new_cursor);
+                }
+                // Previous run is a non-text item — Backspace removes it.
+                Some(_) => {
+                    new_content.remove(run_idx - 1);
+                    let new_cursor = TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: (run_idx - 1) as u32,
+                            start_byte_in_run: 0,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    };
+                    return (new_content, new_cursor);
+                }
+                None => {}
             }
         }
     }
@@ -474,6 +575,40 @@ pub fn delete_forward(
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
+    // Non-text run (inline image / object / shape) under the cursor.
+    if new_content.get(run_idx).is_some()
+        && !matches!(new_content.get(run_idx), Some(InlineContent::Text(_)))
+    {
+        return match cursor.affinity {
+            // Caret sits BEFORE the item — Delete removes the item itself.
+            CursorAffinity::Leading => {
+                new_content.remove(run_idx);
+                (
+                    new_content,
+                    TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: run_idx as u32,
+                            start_byte_in_run: 0,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    },
+                )
+            }
+            // Caret sits AFTER the item — Delete acts on the next run.
+            CursorAffinity::Trailing if run_idx + 1 < content.len() => delete_forward(
+                content,
+                &TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: (run_idx + 1) as u32,
+                        start_byte_in_run: 0,
+                    },
+                    affinity: CursorAffinity::Leading,
+                },
+            ),
+            CursorAffinity::Trailing => (content.to_vec(), *cursor),
+        };
+    }
+
     if let Some(InlineContent::Text(run)) = new_content.get_mut(run_idx) {
         // Calculate the actual cursor byte offset based on affinity
         let byte_offset = match cursor.affinity {
@@ -490,7 +625,7 @@ pub fn delete_forward(
                 }
             },
         };
-        
+
         if byte_offset < run.text.len() {
             let next_grapheme_end = run.text[byte_offset..]
                 .grapheme_indices(true)
@@ -508,20 +643,29 @@ pub fn delete_forward(
             };
             return (new_content, new_cursor);
         } else if run_idx < content.len() - 1 {
-            // Handle deleting across run boundaries (merge with next run)
-            if let Some(InlineContent::Text(next_run)) = content.get(run_idx + 1).cloned() {
-                let mut merged_text = run.text.clone();
-                merged_text.push_str(&next_run.text);
+            // Handle deleting across run boundaries.
+            match content.get(run_idx + 1).cloned() {
+                // Next run is text — merge the two runs.
+                Some(InlineContent::Text(next_run)) => {
+                    let mut merged_text = run.text.clone();
+                    merged_text.push_str(&next_run.text);
 
-                new_content[run_idx] = InlineContent::Text(StyledRun {
-                    text: merged_text,
-                    style: run.style.clone(),
-                    logical_start_byte: run.logical_start_byte,
-                    source_node_id: run.source_node_id,
-                });
-                new_content.remove(run_idx + 1);
+                    new_content[run_idx] = InlineContent::Text(StyledRun {
+                        text: merged_text,
+                        style: run.style.clone(),
+                        logical_start_byte: run.logical_start_byte,
+                        source_node_id: run.source_node_id,
+                    });
+                    new_content.remove(run_idx + 1);
 
-                return (new_content, *cursor);
+                    return (new_content, *cursor);
+                }
+                // Next run is a non-text item — Delete removes it.
+                Some(_) => {
+                    new_content.remove(run_idx + 1);
+                    return (new_content, *cursor);
+                }
+                None => {}
             }
         }
     }
@@ -581,12 +725,15 @@ pub fn delete_forward(
         let edit_byte = selection_start_byte(selection);
 
         let old_run_len = run_text_len(&new_content, edit_run);
+        let old_run_count = new_content.len();
         let (temp_content, new_cursor) =
             apply_edit_to_selection(&new_content, selection, &edit);
         let new_run_len = run_text_len(&temp_content, edit_run);
         let byte_offset_change = new_run_len as i32 - old_run_len as i32;
+        let run_count_change = temp_content.len() as i32 - old_run_count as i32;
 
         adjust_cursors(&mut new_selections, edit_run, edit_byte, byte_offset_change);
+        adjust_cursor_runs(&mut new_selections, edit_run, run_count_change);
 
         new_content = temp_content;
         new_selections.push(Selection::Cursor(new_cursor));

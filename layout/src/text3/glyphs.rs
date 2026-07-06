@@ -141,11 +141,18 @@ pub struct SimpleGlyphRun {
                 process_glyphs(&cluster.glyphs, item.position.x, writing_mode, cluster.source_node_id);
             }
             ShapedItem::CombinedBlock { glyphs, .. } => {
-                for g in glyphs {
-                    let writing_mode = g.style.writing_mode;
-                    // CombinedBlock is for tate-chu-yoko, use None for source_node_id
-                    process_glyphs(&[g.clone()], item.position.x, writing_mode, None);
-                }
+                // CombinedBlock (tate-chu-yoko) carries raw per-glyph advances/GPOS
+                // offsets, NOT pre-accumulated pen positions. Feed the WHOLE slice to
+                // `process_glyphs` in ONE call so the pen advances between glyphs;
+                // calling it once per glyph reset pen_x each time and stacked every
+                // glyph at the same x (mirrors get_glyph_positions). Use None for
+                // source_node_id (tate-chu-yoko has no single source node).
+                let writing_mode = glyphs
+                    .first()
+                    .map_or(crate::text3::cache::WritingMode::default(), |g| {
+                        g.style.writing_mode
+                    });
+                process_glyphs(glyphs, item.position.x, writing_mode, None);
             }
             _ => {}
         }
