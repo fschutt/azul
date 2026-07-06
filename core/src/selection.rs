@@ -458,9 +458,22 @@ impl MultiCursorState {
                             });
                         }
                     } else {
-                        // Collapse to the moved end
-                        let new_cursor = move_fn(&r.end);
-                        sel.selection = Selection::Cursor(new_cursor);
+                        // Bare arrow with an active selection collapses the caret
+                        // to the selection boundary in the arrow's direction WITHOUT
+                        // advancing a character (standard editor behavior). Running
+                        // move_fn on the focus and using that as the caret would step
+                        // one unit past the edge. We don't get the arrow direction
+                        // here, so probe it: apply move_fn to the focus and compare —
+                        // a forward move collapses to the max boundary, a backward
+                        // move to the min boundary.
+                        let (lo, hi) = if r.start <= r.end {
+                            (r.start, r.end)
+                        } else {
+                            (r.end, r.start)
+                        };
+                        let probe = move_fn(&r.end);
+                        let collapsed = if probe >= r.end { hi } else { lo };
+                        sel.selection = Selection::Cursor(collapsed);
                     }
                 }
             }

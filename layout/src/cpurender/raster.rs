@@ -2192,8 +2192,13 @@ fn render_text(
         return;
     }
 
-    let scale = (font_size_px * dpi_factor) / units_per_em;
-    let ppem = (font_size_px * dpi_factor).round() as u16;
+    let effective_px = font_size_px * dpi_factor;
+    let scale = effective_px / units_per_em;
+    let ppem = effective_px.round() as u16;
+    // A hinted outline is produced at the integer `ppem`. `hint_correction`
+    // rescales it back to the true (possibly fractional) effective size so hinted
+    // glyphs match unhinted fallbacks and animate smoothly instead of snapping.
+    let hint_correction = if ppem > 0 { effective_px / f32::from(ppem) } else { 1.0 };
 
     // Set up the rasterizer pipeline once, reuse for all glyphs
     let w = pixmap.width;
@@ -2249,6 +2254,7 @@ fn render_text(
             glyph_baseline_y,
             scale,
             is_hinted,
+            hint_correction,
         ) else {
             continue;
         };

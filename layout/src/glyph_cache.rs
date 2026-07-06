@@ -151,6 +151,13 @@ impl GlyphCache {
     /// - `glyph_x`, `glyph_y`: final pixel position (used for sub-pixel quantization)
     /// - `scale`: font-unit→pixel scale (0.0 for hinted glyphs)
     /// - `is_hinted`: whether the path is in pixel coords (hinted) or font units
+    /// - `hint_correction`: `effective_px / ppem` for hinted glyphs (1.0 otherwise).
+    ///   A hinted outline is built at the *integer* ppem; when the requested
+    ///   effective size (`font_size * dpi`) is fractional this rescales it back to
+    ///   the true target size so hinted glyphs match their unhinted neighbours and
+    ///   animate smoothly instead of snapping between integer ppems. When the
+    ///   effective size is already integral this is 1.0 and the hinted glyph keeps
+    ///   its pixel-grid-snapped placement.
     ///
     /// Returns the cached cells and the integer pixel offset to apply.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
@@ -163,22 +170,33 @@ impl GlyphCache {
         glyph_y: f32,
         scale: f32,
         is_hinted: bool,
+        hint_correction: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
         if self.cells.len() >= MAX_CELL_ENTRIES {
             self.cells.clear();
         }
-        let subpx_x = if is_hinted { 0 } else { quantize_subpx(glyph_x) };
-        let subpx_y = if is_hinted { 0 } else { quantize_subpx(glyph_y) };
+        // Hinted outline built at integer ppem needs rescaling only when the
+        // effective size is fractional (hint_correction != 1). Otherwise it stays
+        // pixel-grid-snapped (sub-pixel 0, rounded placement) as hinting intends.
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
+        let grid_snapped = is_hinted && !rescale_hinted;
+
+        let subpx_x = if grid_snapped { 0 } else { quantize_subpx(glyph_x) };
+        let subpx_y = if grid_snapped { 0 } else { quantize_subpx(glyph_y) };
         debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {scale}");
-        let scale_fixed = if is_hinted { 0 } else { (scale * 65536.0) as u32 };
+        let scale_fixed = if is_hinted {
+            if rescale_hinted { (hint_correction * 65536.0) as u32 } else { 0 }
+        } else {
+            (scale * 65536.0) as u32
+        };
 
         let cell_key = GlyphCellKey {
             font_hash, glyph_id, ppem, scale_fixed, subpx_x, subpx_y,
         };
 
         // Integer pixel offset — the cells are at sub-pixel origin, offset by int part
-        let int_x = if is_hinted { glyph_x.round() as i32 } else { glyph_x.floor() as i32 };
-        let int_y = if is_hinted { glyph_y.round() as i32 } else { glyph_y.floor() as i32 };
+        let int_x = if grid_snapped { glyph_x.round() as i32 } else { glyph_x.floor() as i32 };
+        let int_y = if grid_snapped { glyph_y.round() as i32 } else { glyph_y.floor() as i32 };
 
         if !self.cells.contains_key(&cell_key) {
             // Build cells from cached path
@@ -196,7 +214,13 @@ impl GlyphCache {
                 ras.filling_rule(FillingRule::NonZero);
 
                 let transform = if is_hinted {
-                    TransAffine::new_translation(frac_x, frac_y)
+                    if rescale_hinted {
+                        let mut t = TransAffine::new_scaling_uniform(f64::from(hint_correction));
+                        t.multiply(&TransAffine::new_translation(frac_x, frac_y));
+                        t
+                    } else {
+                        TransAffine::new_translation(frac_x, frac_y)
+                    }
                 } else {
                     let mut t = TransAffine::new_scaling_uniform(f64::from(scale));
                     t.multiply(&TransAffine::new_translation(frac_x, frac_y));
@@ -263,10 +287,13 @@ fn build_hinted_path(
     // Scale advance width to F26Dot6 for phantom points
     let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
 
-    // Run hinting with unscaled orus for precise IUP interpolation
-    let Ok(hinted) = hint.hint_glyph_with_orus(
+    // Run hinting and capture the POST-hinting on-curve flags. FLIPPT/FLIPRGON/
+    // FLIPRGOFF can flip a point between on-curve and off-curve during the glyph
+    // program; the contour builder must use the updated flags, not the original
+    // raw_on_curve, or it treats a flipped control point as a line endpoint (and
+    // vice versa), kinking the outline.
+    let Ok((hinted, hinted_on_curve)) = hint.hint_glyph_with_flags(
         &points_f26dot6,
-        Some(raw_points.as_slice()),
         raw_on_curve,
         raw_contour_ends,
         instructions,
@@ -277,7 +304,7 @@ fn build_hinted_path(
     drop(hint);
 
     // Build path from hinted points using TrueType quadratic contour conventions
-    build_path_from_contours(&hinted, raw_on_curve, raw_contour_ends)
+    build_path_from_contours(&hinted, &hinted_on_curve, raw_contour_ends)
 }
 
 /// Build an agg `PathStorage` from TrueType contour data (points in `F26Dot6`).
