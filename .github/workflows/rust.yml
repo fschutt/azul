@@ -1259,14 +1259,19 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          # dep #[no_mangle] residuals that neither macOS -exported_symbols_list
+          # nor rustc's Linux cdylib export control can localize (turso/limbo
+          # SQLite loadable-extension entry points, material-icons, chrono/time
+          # helpers) — see dll/build.rs. Harmless symbol-table bloat, allow-listed
+          # on both platforms (Linux can't restrict without hiding azul-core's
+          # own host-invoker Az* exports).
+          RESIDUAL_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char)$'
           if [ "${{ runner.os }}" = "macOS" ]; then
             LIST() { nm -gU "$1" 2>/dev/null | awk '{print $NF}'; }
-            # ld-prime residual: dep #[no_mangle] SQLite-extension / icon symbols
-            # that -exported_symbols_list cannot localize (see dll/build.rs).
-            MACOS_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char)$'
+            MACOS_ALLOW="$RESIDUAL_ALLOW"
           else
             LIST() { nm -D --defined-only "$1" 2>/dev/null | awk '{print $NF}'; }
-            MACOS_ALLOW='^$'  # Linux: version-script is authoritative, allow nothing extra
+            MACOS_ALLOW="$RESIDUAL_ALLOW"
           fi
           rc=0
           for f in target/prod-release/libazul.so target/prod-release/libazul.dylib \

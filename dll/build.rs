@@ -124,29 +124,27 @@ fn restrict_cdylib_exports(target: &str) {
         fs::write(&path, patterns).expect("write exported symbols list");
         println!("cargo:rustc-cdylib-link-arg=-Wl,-exported_symbols_list,{path}");
     } else if target.contains("linux") || target.contains("android") {
-        // ELF: hide symbols that come from static-archive dependencies (the
-        // rlibs) so dep `#[no_mangle]` strays — turso/limbo SQLite loadable-
-        // extension entry points (`*VTabModule`, `time_*`, `uuid*`, …),
-        // material-icons `icon_to_char`, … — don't leak into `.dynsym`.
-        // `--exclude-libs,ALL` localizes every symbol brought in from an
-        // archive; azul-dll's OWN C-ABI exports (`Az*`, `az_*`, `PyInit_azul`)
-        // are compiled into the final cdylib (not an archive) so they stay
-        // exported, and rustc's own cdylib version script keeps them in
-        // `.dynsym` while hiding mangled Rust symbols.
-        //
-        // We deliberately do NOT emit a `--version-script` here. rustc already
-        // passes an anonymous version node for the cdylib, and GNU ld rejects
-        // "anonymous version tag cannot be combined with other version tags"
-        // when a second script is added (this was the Linux link failure).
-        // `--exclude-libs` is a separate mechanism (archive symbol visibility)
-        // that composes cleanly with rustc's version script.
-        //
-        // Python: `PyInit_azul` lives in azul-dll (stays exported); `Py*`/`_Py*`
-        // are undefined imports resolved from the already-loaded libpython at
-        // module import, which `--exclude-libs` does not touch — so no special
-        // casing is needed.
+        // ELF: rely on rustc's OWN cdylib export control (an anonymous
+        // version node that exports the reachable `#[no_mangle]`/`#[export_name]`
+        // symbols and hides mangled Rust symbols). We must NOT add our own
+        // export restriction here:
+        //   * a second `--version-script` fails — GNU ld rejects "anonymous
+        //     version tag cannot be combined with other version tags".
+        //   * `--exclude-libs,ALL` localizes ALL static-archive symbols, which
+        //     hides azul's C-ABI exports that live in the azul-core/azul-layout
+        //     rlibs — most importantly the host-invoker surface
+        //     (`AzApp_setHostHandleReleaser`, `AzRefAny_newHostHandle`, …) that
+        //     every scripting binding (python/lua/ruby/…) needs. Hiding those
+        //     breaks the whole host-invoker family at runtime with
+        //     "undefined symbol".
+        // So rustc's default is authoritative: it exports azul's `Az*`/`az_*`/
+        // `PyInit_*` (wherever they are defined) plus a handful of dependency
+        // `#[no_mangle]` strays (turso/limbo SQLite entry points, material-icons
+        // `icon_to_char`, …). Those strays are harmless symbol-table bloat and
+        // are allow-listed by the "Assert cdylib exports" CI gate, same as on
+        // macOS. Mangled Rust symbols are not `#[no_mangle]`, so rustc already
+        // keeps them out of `.dynsym`.
         let _ = is_python;
-        println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-libs,ALL");
     }
     // Windows / other: no restriction (see doc comment).
 }
