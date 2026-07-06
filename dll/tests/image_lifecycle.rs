@@ -112,9 +112,9 @@ fn image_ref_hash_round_trips_losslessly() {
 
     assert_eq!(key.namespace, namespace);
     assert_eq!(
-        key.key as usize, hash.inner,
+        key.key, hash.inner,
         "ImageKey.key must preserve every bit of ImageRefHash.inner \
-         (u64 key + usize hash, no folding/truncation)"
+         (both u64, no folding/truncation)"
     );
 }
 
