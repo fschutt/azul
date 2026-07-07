@@ -2123,23 +2123,24 @@ fn render_rect(
 
 }
 
-/// Default for the RGB LCD subpixel-AA text path: **OFF**.
+/// Default for the RGB LCD subpixel-AA text path: **ON**.
 ///
 /// LCD rendering distributes glyph coverage across the R/G/B stripes of each
-/// physical pixel; it is correct only on an OPAQUE background with a
-/// horizontal-RGB subpixel panel, and changes black text into the familiar
-/// faintly-fringed subpixel look. Because those preconditions are
-/// display-specific, the grayscale path is the default and LCD is opt-in via
-/// `AZ_TEXT_LCD=1`.
-pub const TEXT_LCD_DEFAULT: bool = false;
+/// physical pixel, giving crisper text on the common case. It ASSUMES a
+/// **horizontal-RGB subpixel order** and an **opaque background** (a BGR panel
+/// would need the R/B taps swapped, and text composited onto a transparent layer
+/// must use the grayscale path — see `render_text_shadow`, which forces it). It
+/// also turns black text into the familiar faintly-fringed subpixel look. Set
+/// `AZ_TEXT_LCD=0` to force the grayscale path.
+pub const TEXT_LCD_DEFAULT: bool = true;
 
-/// Whether to render text via the RGB LCD subpixel-AA path. Off by default (see
-/// [`TEXT_LCD_DEFAULT`]); set `AZ_TEXT_LCD=1` to enable. Read once.
+/// Whether to render text via the RGB LCD subpixel-AA path. On by default (see
+/// [`TEXT_LCD_DEFAULT`]); set `AZ_TEXT_LCD=0` to disable. Read once.
 fn text_lcd_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         std::env::var("AZ_TEXT_LCD")
-            .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+            .map(|s| !(s == "0" || s.eq_ignore_ascii_case("false")))
             .unwrap_or(TEXT_LCD_DEFAULT)
     })
 }
@@ -3624,8 +3625,10 @@ mod text_shadow_tests {
             ..Default::default()
         };
         render_display_list(&dl_plain, &mut no_shadow, 1.0, &rr, None, &mut gc).unwrap();
+        // Baseline red-pixel count. With grayscale text this is 0; with LCD
+        // subpixel AA (now the default) black glyph edges carry faint red/blue
+        // fringes, so the shadow must add red BEYOND this baseline (checked below).
         let red_plain = count_red(&no_shadow);
-        assert_eq!(red_plain, 0, "baseline render should have no red pixels");
 
         // Render WITH a red shadow offset +24px right, no blur.
         let shadow = StyleBoxShadow {
@@ -3651,8 +3654,9 @@ mod text_shadow_tests {
         let red_shadow = count_red(&with_shadow);
 
         assert!(
-            red_shadow > 20,
-            "text-shadow must paint red shadow pixels (got {red_shadow})"
+            red_shadow > red_plain + 20,
+            "text-shadow must paint red shadow pixels beyond the baseline \
+             (plain {red_plain}, shadow {red_shadow})"
         );
 
         // The shadow must be OFFSET to the right of the glyphs: there must be red
