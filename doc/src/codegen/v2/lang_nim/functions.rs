@@ -19,12 +19,14 @@ use super::super::generator::CodeBuilder;
 use super::super::ir::{CodegenIR, FunctionDef, TypeCategory};
 use super::map_type_to_nim;
 use super::sanitize_identifier;
-use super::types::arg_type;
+use super::types::nim_arg_type;
+use super::ProcDedup;
 
 pub fn generate_externals(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    procs: &mut ProcDedup,
 ) -> Result<()> {
     builder.line("# ============================================================================");
     builder.line("# Raw C-ABI layer — every libazul function, imported verbatim.");
@@ -35,7 +37,7 @@ pub fn generate_externals(
         if !should_emit_function(func, ir, config) {
             continue;
         }
-        emit_external(builder, func, ir);
+        emit_external(builder, func, ir, procs);
     }
 
     Ok(())
@@ -75,21 +77,28 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     true
 }
 
-fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
+fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, procs: &mut ProcDedup) {
     for d in &func.doc {
         builder.line(&format!("# {}", super::sanitize_comment(d)));
     }
 
+    let arg_types: Vec<String> = func
+        .args
+        .iter()
+        .map(|a| nim_arg_type(a, ir))
+        .collect();
     let args: Vec<String> = func
         .args
         .iter()
-        .map(|a| {
-            let nim_ty = arg_type(a.ref_kind, &a.type_name, ir);
-            format!("{}: {}", sanitize_identifier(&a.name), nim_ty)
-        })
+        .zip(&arg_types)
+        .map(|(a, nim_ty)| format!("{}: {}", sanitize_identifier(&a.name), nim_ty))
         .collect();
 
     let arg_str = args.join(", ");
+    // Nim proc name may differ from the C symbol when two symbols collide
+    // under style-insensitivity (see `ProcDedup`); the `importc` string
+    // below always carries the true, unchanged C symbol.
+    let proc_name = procs.unique_external(&func.c_name, &arg_types.join(","));
     let pragma = format!(
         "{{.importc: \"{}\", cdecl, dynlib: azulLib.}}",
         func.c_name
@@ -100,11 +109,11 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
             let nim_ret = map_type_to_nim(ret, ir);
             builder.line(&format!(
                 "proc {}*({}): {} {}",
-                func.c_name, arg_str, nim_ret, pragma
+                proc_name, arg_str, nim_ret, pragma
             ));
         }
         _ => {
-            builder.line(&format!("proc {}*({}) {}", func.c_name, arg_str, pragma));
+            builder.line(&format!("proc {}*({}) {}", proc_name, arg_str, pragma));
         }
     }
 }

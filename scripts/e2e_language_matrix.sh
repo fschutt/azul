@@ -947,10 +947,19 @@ lang_odin() {
       # `foreign import azul "system:azul"` makes Odin ask the MSVC linker for
       # azul.lib (NOT -lazul as on unix), so give it the import lib under that
       # name on the lib search path; azul.dll resolves from cwd at run time.
+      #
+      # Do NOT hand azul.lib's directory to Odin via -extra-linker-flags: when
+      # any -extra-linker-flags is present, Odin mis-quotes its OWN
+      # auto-detected MSVC / Windows-Kits lib paths (which live under
+      # "C:\Program Files ...") and the MSVC linker splits them at the first
+      # space -> `LNK1181: cannot open input file 'C:\Program.obj'`
+      # (odin-lang/Odin#2741). Instead expose the local azul.lib to link.exe
+      # through the LIB environment variable, which the MSVC linker searches
+      # natively and Odin never re-quotes. Needs Windows-host validation.
       BIN=./hello-world-e2e.exe
       cp "$RELEASE_DIR/azul.dll.lib" ./azul.lib 2>/dev/null || true
-      odin build . -out:hello-world-e2e.exe \
-        -extra-linker-flags:"/LIBPATH:." || exit 1
+      local ODIN_LIBDIR; ODIN_LIBDIR="$(pwd -W 2>/dev/null || pwd)"
+      LIB="${ODIN_LIBDIR};${LIB:-}" odin build . -out:hello-world-e2e.exe || exit 1
     else
       odin build . -out:hello-world-e2e \
         -extra-linker-flags:"-L." || exit 1

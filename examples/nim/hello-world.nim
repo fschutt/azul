@@ -56,9 +56,9 @@ proc onClick(data: AzRefAny, info: AzCallbackInfo): AzUpdate {.cdecl.} =
   var d = data
   let m = myDataDowncast(addr d)
   if m == nil:
-    return AzUpdate_DoNothing
+    return AzUpdate.DoNothing
   m.counter += 1
-  return AzUpdate_RefreshDom
+  return AzUpdate.RefreshDom
 
 # ── Layout callback ───────────────────────────────────────────────────────
 
@@ -78,8 +78,9 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
 
   # Increment button. AzButton_setOnClick takes the bare fn pointer directly.
   var button = AzButton_create(azStr("Increase counter"))
-  AzButton_setButtonType(addr button, AzButtonType_Primary)
+  AzButton_setButtonType(addr button, AzButtonType.Primary)
   let dataClone = AzRefAny_clone(addr d)
+  # AzButton_setOnClick takes the bare {.cdecl.} fn pointer directly.
   AzButton_setOnClick(addr button, dataClone, onClick)
   let buttonDom = AzButton_dom(button)
 
@@ -99,8 +100,8 @@ proc main() =
   window.window_state.size.dimensions.width = 400.0'f32
   window.window_state.size.dimensions.height = 300.0'f32
   # NoTitleAutoInject: the OS draws the window buttons; the framework injects a draggable titlebar.
-  window.window_state.flags.decorations = AzWindowDecorations_NoTitleAutoInject
-  window.window_state.flags.background_material = AzWindowBackgroundMaterial_Sidebar
+  window.window_state.flags.decorations = AzWindowDecorations.NoTitleAutoInject
+  window.window_state.flags.background_material = AzWindowBackgroundMaterial.Sidebar
 
   var app = AzApp_create(data, AzAppConfig_create())
   AzApp_run(addr app, window)

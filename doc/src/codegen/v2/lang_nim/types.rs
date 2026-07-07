@@ -7,11 +7,17 @@
 //!
 //! Strategy:
 //!
-//! - **Unit (simple) enums** -> `AzFoo* {.size: 4.} = enum` with each
-//!   member pinned to its explicit ordinal (`AzFoo_A = 0`). A C `enum`
+//! - **Unit (simple) enums** -> `AzFoo* {.pure, size: 4.} = enum` with
+//!   each member pinned to its explicit ordinal (`A = 0`). A C `enum`
 //!   is `int`-wide (4 bytes) — matching Rust `#[repr(C)]` — so we pin the
-//!   size at 4. Members carry the full `AzFoo_` prefix so they never
-//!   clash across enums.
+//!   size at 4. The enum is `{.pure.}` so its members are scoped under the
+//!   type (`AzFoo.A`) and never injected into the top-level namespace.
+//!   This is load-bearing: Nim identifiers are style-insensitive (case-
+//!   and underscore-insensitive after the first char), so an un-pure
+//!   member `AzShape_Ellipse` would collide with the payload struct
+//!   `AzShapeEllipse` (`Az<Enum>_<Variant>` == `Az<Enum><Variant>`).
+//!   Scoping the members removes the top-level `AzFoo_Bar` identifier
+//!   entirely, so no such clash can exist. Call sites use `AzFoo.Bar`.
 //! - **Tagged-union enums** -> one `{.bycopy.} object` per variant, each
 //!   starting with a `tag*: uint8` field (mirroring the C header's
 //!   `uint8_t tag;`) followed by the payload fields, grouped under a
@@ -31,9 +37,11 @@ use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
+use std::collections::HashSet;
+
 use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef,
+    FunctionArg, MonomorphizedKind, StructDef, TypeAliasDef,
 };
 use super::{
     ffi_type_name, map_type_to_nim, ptr_type_for, sanitize_comment, sanitize_identifier,
@@ -79,7 +87,159 @@ pub fn generate_types(
         }
     }
 
+    // --- Type aliases -------------------------------------------------------
+    // Simple aliases (`ScanCode = u32`) and monomorphized generics
+    // (`CaretColorValue = CssPropertyValue<CaretColor>`) are referenced by
+    // name (`AzScanCode`, `AzCaretColorValue`) from included structs /
+    // functions but are neither structs nor enums, so they must be emitted
+    // here or the whole `azul.nim` fails to compile with an undeclared
+    // identifier. Skip any whose FFI name a struct/enum already claims.
+    builder.line("# --- Type aliases -------------------------------------------------------");
+    let mut emitted: HashSet<String> = HashSet::new();
+    for e in &ir.enums {
+        emitted.insert(ffi_type_name(&e.name));
+    }
+    for s in &ir.structs {
+        emitted.insert(ffi_type_name(&s.name));
+    }
+    for cb in &ir.callback_typedefs {
+        emitted.insert(ffi_type_name(&cb.name));
+    }
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let name = ffi_type_name(&ta.name);
+        if !emitted.insert(name.clone()) {
+            continue;
+        }
+        emit_type_alias(builder, ta, ir);
+    }
+
     Ok(())
+}
+
+// ============================================================================
+// Type alias (simple `= T` or monomorphized generic record/enum/union)
+// ============================================================================
+
+fn emit_type_alias(builder: &mut CodeBuilder, ta: &TypeAliasDef, ir: &CodegenIR) {
+    for d in &ta.doc {
+        builder.line(&format!("# {}", sanitize_comment(d)));
+    }
+    let t = ffi_type_name(&ta.name);
+
+    match &ta.monomorphized_def {
+        None => {
+            // Plain alias — map the target type token straight through.
+            let target = map_type_to_nim(&ta.target, ir);
+            builder.line(&format!("{}* = {}", t, target));
+        }
+        Some(mono) => match &mono.kind {
+            MonomorphizedKind::SimpleEnum { variants, .. } => {
+                if variants.is_empty() {
+                    builder.line(&format!("{}* = uint32", t));
+                    return;
+                }
+                builder.line(&format!("{}* {{.pure, size: 4.}} = enum", t));
+                builder.indent();
+                for (i, v) in variants.iter().enumerate() {
+                    builder.line(&format!("{} = {}", sanitize_identifier(v), i));
+                }
+                builder.dedent();
+            }
+            MonomorphizedKind::Struct { fields } => {
+                if fields.is_empty() {
+                    builder.line(&format!("{}* {{.bycopy.}} = object", t));
+                    return;
+                }
+                builder.line(&format!("{}* {{.bycopy.}} = object", t));
+                builder.indent();
+                for f in fields {
+                    emit_struct_field(builder, f, ir);
+                }
+                builder.dedent();
+            }
+            MonomorphizedKind::TaggedUnion { variants, .. } => {
+                // Per-variant `{tag: uint8, payload…}` structs + `{.union.}`
+                // overlay — the same shape `emit_tagged_union` produces for a
+                // real enum (azul data enums are all `#[repr(C, u8)]`, so the
+                // discriminant is a single byte).
+                for v in variants {
+                    let variant_ty = format!("{}Variant_{}", t, v.name);
+                    builder.line(&format!("{}* {{.bycopy.}} = object", variant_ty));
+                    builder.indent();
+                    builder.line("tag*: uint8");
+                    if let Some(payload_ty) = &v.payload_type {
+                        builder.line(&format!(
+                            "payload*: {}",
+                            field_type_for_ref_kind(payload_ty, &v.payload_ref_kind, ir)
+                        ));
+                    }
+                    builder.dedent();
+                }
+                builder.line(&format!("{}* {{.bycopy, union.}} = object", t));
+                builder.indent();
+                for v in variants {
+                    let member = sanitize_identifier(&v.name);
+                    let variant_ty = format!("{}Variant_{}", t, v.name);
+                    builder.line(&format!("{}*: {}", member, variant_ty));
+                }
+                builder.dedent();
+            }
+        },
+    }
+}
+
+/// Collect every top-level *type* identifier `generate_types` emits, in the
+/// exact shape it emits them. Seeds [`ProcDedup`] so a proc whose name would
+/// collide (style-insensitively) with a type — e.g. the variant constructor
+/// `AzShape_ellipse` vs the payload struct `AzShapeEllipse` — is renamed
+/// (Nim forbids a routine and a type sharing a name). Must mirror the
+/// emission below.
+pub fn collect_type_names(ir: &CodegenIR, config: &CodegenConfig) -> Vec<String> {
+    let mut names = Vec::new();
+
+    for e in &ir.enums {
+        if !should_include_enum(e, config) {
+            continue;
+        }
+        let t = ffi_type_name(&e.name);
+        if e.is_union {
+            for v in &e.variants {
+                names.push(format!("{}Variant_{}", t, v.name));
+            }
+        }
+        names.push(t);
+    }
+
+    for cb in &ir.callback_typedefs {
+        names.push(ffi_type_name(&cb.name));
+    }
+
+    for s in &ir.structs {
+        if !should_include_struct(s, config) {
+            continue;
+        }
+        names.push(ffi_type_name(&s.name));
+    }
+
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let t = ffi_type_name(&ta.name);
+        if let Some(mono) = &ta.monomorphized_def {
+            if let MonomorphizedKind::TaggedUnion { variants, .. } = &mono.kind {
+                for v in variants {
+                    names.push(format!("{}Variant_{}", t, v.name));
+                }
+            }
+        }
+        names.push(t);
+    }
+
+    names
 }
 
 // ============================================================================
@@ -145,13 +305,20 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
     // A C `enum` is `int`-wide (4 bytes) under every mainstream ABI, which
     // is what the prebuilt libazul was compiled against. Pin the size so
     // Nim agrees regardless of how it would otherwise pack the enum.
-    builder.line(&format!("{}* {{.size: 4.}} = enum", t));
+    //
+    // `{.pure.}`: members live in the enum's own scope (`AzFoo.Bar`), not
+    // the top level. Without it, the top-level member `AzFoo_Bar` would
+    // collide, under Nim's case/underscore-insensitive identifier rules,
+    // with any payload struct named `AzFooBar` (pervasive for tagged
+    // unions whose variants also exist as standalone `#[repr(C)]` structs,
+    // e.g. `AzShape_Ellipse` vs `AzShapeEllipse`).
+    builder.line(&format!("{}* {{.pure, size: 4.}} = enum", t));
     builder.indent();
     for (i, v) in e.variants.iter().enumerate() {
-        // Fully-prefixed member (`AzFoo_Bar`) — one compound identifier, so
-        // the raw variant name is used verbatim (it is never a bare keyword
-        // here) and the prefix keeps it unique across every enum.
-        builder.line(&format!("{}_{} = {}", t, v.name, i));
+        // Bare member name, scoped by the `{.pure.}` enum. Sanitize so a
+        // variant that happens to be a Nim keyword (or an illegal leading
+        // char) is stropped into a legal identifier.
+        builder.line(&format!("{} = {}", sanitize_identifier(&v.name), i));
     }
     builder.dedent();
 }
@@ -270,16 +437,13 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         .enumerate()
         .map(|(i, arg)| {
             let nim_ty = arg_type(arg.ref_kind, &arg.type_name, ir);
-            // Callback typedef args are unnamed in the IR; Nim's proc-type
-            // syntax rejects a bare `: T` (empty param name), so synthesize a
-            // positional name (`a0`, `a1`, ...) when none is present.
-            let raw = sanitize_identifier(&arg.name);
-            let name = if raw.trim().is_empty() {
-                format!("a{}", i)
-            } else {
-                raw
-            };
-            format!("{}: {}", name, nim_ty)
+            // Callback typedef args are unnamed in the IR. Proc-*type* param
+            // names are purely cosmetic (they are never referenced), but Nim
+            // still requires each to be a distinct, legal identifier — two
+            // `: T` params both sanitizing to the same fallback (`field`)
+            // trip "attempt to redefine: 'field'". A positional name
+            // (`a0`, `a1`, ...) is unique by construction, so always use it.
+            format!("a{}: {}", i, nim_ty)
         })
         .collect();
 
@@ -318,6 +482,25 @@ pub(crate) fn field_type_for_ref_kind(
         | FieldRefKind::Boxed
         | FieldRefKind::OptionBoxed => ptr_type_for(type_name, ir),
     }
+}
+
+/// Map a function argument to its Nim parameter type.
+///
+/// Callback-wrapper arguments (those carrying `callback_info`) are declared
+/// in api.json as the *wrapper struct* (e.g. `ButtonOnClickCallback`, a
+/// `{cb, callable}` record), but the real C entry point takes the bare
+/// function-pointer typedef (`AzButtonOnClickCallbackType`) — see e.g.
+/// `AzButton_setOnClick(..., AzButtonOnClickCallbackType)` in `azul.h`
+/// (the struct-taking variant is a *separate* `_setOnClickStruct` symbol).
+/// Passing the multi-word wrapper struct where libazul expects a single
+/// pointer register is an ABI mismatch that crashes at the first call, so
+/// lower these args to the fn-pointer type, exactly as the C/Zig/Odin
+/// backends do. A caller then passes a plain `{.cdecl.}` proc directly.
+pub(crate) fn nim_arg_type(arg: &FunctionArg, ir: &CodegenIR) -> String {
+    if let Some(info) = &arg.callback_info {
+        return map_type_to_nim(&info.callback_typedef_name, ir);
+    }
+    arg_type(arg.ref_kind, &arg.type_name, ir)
 }
 
 /// Map a `(ArgRefKind, type_name)` pair to the Nim argument type.

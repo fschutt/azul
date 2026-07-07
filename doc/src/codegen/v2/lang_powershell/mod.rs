@@ -129,6 +129,17 @@ fn generate_csharp_embed(builder: &mut CodeBuilder, csharp: &str) {
     builder.line("# variables inside, so any $-prefixed identifiers in the C# survive.");
     builder.line("# --------------------------------------------------------------------------");
     builder.line("$AzulCSharpSource = @'");
+    // Enable the nullable *annotation* context (NOT the warning context) for the
+    // whole embed. `Add-Type` compiles this C# with the nullable context OFF by
+    // default (there is no .csproj `<Nullable>` here), so the generated
+    // nullable-reference annotations — `object?` on Equals overrides and the
+    // `RefAny?` / `File?` / `Json?` wrapper returns from AsNullable/Lookup/etc. —
+    // would each be rejected with `error CS8632: The annotation for nullable
+    // reference types should only be used within a '#nullable' annotations
+    // context`. `annotations` (as opposed to `enable`) legalises the `?` syntax
+    // without turning on nullable-flow analysis, so no new nullable warnings are
+    // introduced. Must precede any C# code in the embed.
+    builder.raw("#nullable enable annotations\n");
     // The here-string terminator must sit at column 0. CodeBuilder
     // applies indentation only via `line`; raw() emits without
     // indentation, which is what we need for the embed.

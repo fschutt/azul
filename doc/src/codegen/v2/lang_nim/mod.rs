@@ -46,6 +46,8 @@
 //! this module is threaded in centrally by `generator.rs`; the entry
 //! point is [`generate`].
 
+use std::collections::{HashMap, HashSet};
+
 use anyhow::Result;
 
 use super::config::CodegenConfig;
@@ -74,12 +76,21 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.dedent();
     builder.blank();
 
+    // Shared across the raw layer and the wrappers: both live in the one
+    // module scope, so a proc name emitted by either must be unique under
+    // Nim's style-insensitive identifier rules — and must not collide with
+    // any type identifier emitted above.
+    let mut procs = ProcDedup::new();
+    for name in types::collect_type_names(ir, config) {
+        procs.reserve_type(&name);
+    }
+
     // Raw C-ABI `importc` proc declarations.
-    functions::generate_externals(&mut builder, ir, config)?;
+    functions::generate_externals(&mut builder, ir, config, &mut procs)?;
     builder.blank();
 
     // Idiomatic wrappers (drop the `Az` prefix).
-    wrappers::generate_wrappers(&mut builder, ir, config)?;
+    wrappers::generate_wrappers(&mut builder, ir, config, &mut procs)?;
 
     Ok(builder.finish())
 }
@@ -94,7 +105,10 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("#   * C structs  -> `{.bycopy.} object`  (plain objects have no hidden");
     b.line("#     RTTI field, so the layout matches Rust's #[repr(C)] one-for-one)");
     b.line("#   * C unions   -> `{.union.} object`");
-    b.line("#   * C enums    -> size-pinned Nim enums (`{.size: 4.}`)");
+    b.line("#   * C enums    -> size-pinned `{.pure.}` Nim enums (`{.pure, size: 4.}`);");
+    b.line("#     members are scoped, so reference them as `AzUpdate.RefreshDom`");
+    b.line("#     (NOT `AzUpdate_RefreshDom`). `{.pure.}` avoids Nim's style-");
+    b.line("#     insensitive clash between `AzShape_Ellipse` and struct `AzShapeEllipse`.");
     b.line("#   * functions  -> `{.importc, cdecl, dynlib: azulLib.}` procs");
     b.line("#");
     b.line("# A top-level `proc (...) {.cdecl.}` is a real C function pointer, so");
@@ -364,6 +378,104 @@ pub fn to_pascal_case(s: &str) -> String {
         }
     }
     out
+}
+
+/// Collapse an identifier to the form Nim compares for equality: the first
+/// character verbatim, the rest lower-cased with underscores removed. Two
+/// spellings that collapse to the same string are the *same* identifier to
+/// Nim (e.g. `getRawImage` and `getRawimage`, or `AzShape_Ellipse` and
+/// `AzShapeEllipse`).
+pub fn nim_normalize_ident(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let rest: String = chars
+                .filter(|c| *c != '_')
+                .flat_map(|c| c.to_lowercase())
+                .collect();
+            format!("{}{}", first, rest)
+        }
+    }
+}
+
+/// De-duplicates emitted proc names under Nim's style-insensitivity.
+///
+/// A `proc` may share a *name* with another proc as long as their parameter
+/// types differ — that is an ordinary Nim overload (the wrapper layer leans
+/// on this to reuse method names like `dom` across `self` types). Only a
+/// genuine *redefinition* — same normalized name AND same parameter-type
+/// list — is illegal. This tracks `(normalized_name, param_types)` pairs and
+/// hands back a numerically-suffixed name whenever a true redefinition would
+/// occur, so both real C symbols (e.g. `AzImageRef_getRawImage` and
+/// `AzImageRef_getRawimage`, which differ only by case) stay callable. The
+/// raw layer keeps the exact C symbol in its `importc` string regardless, so
+/// only the Nim-visible alias of the *second* colliding proc changes.
+pub struct ProcDedup {
+    seen: HashSet<String>,
+    /// Normalized names of emitted *types*. A type occupies its identifier
+    /// for every signature, so any proc that normalizes to one of these must
+    /// be renamed (Nim forbids a routine sharing a name with a type).
+    type_names: HashSet<String>,
+    /// Maps a raw external's true C symbol to the (possibly renamed)
+    /// Nim-visible proc name, so the wrapper layer forwards to the exact
+    /// proc it means rather than silently binding to the first same-named
+    /// overload.
+    externals: HashMap<String, String>,
+}
+
+impl ProcDedup {
+    pub fn new() -> Self {
+        ProcDedup {
+            seen: HashSet::new(),
+            type_names: HashSet::new(),
+            externals: HashMap::new(),
+        }
+    }
+
+    /// Reserve an emitted type identifier so no proc may share its name.
+    pub fn reserve_type(&mut self, name: &str) {
+        self.type_names.insert(nim_normalize_ident(name));
+    }
+
+    /// Return a Nim-unique spelling for `name` given its `param_types`
+    /// signature (a stable, order-preserving join of the parameter type
+    /// tokens). Usually returns `name` unchanged; on a true redefinition it
+    /// appends `_2`, `_3`, … until the pair is free.
+    pub fn unique(&mut self, name: &str, param_types: &str) -> String {
+        let mut candidate = name.to_string();
+        let mut n = 1;
+        loop {
+            let norm = nim_normalize_ident(&candidate);
+            // A candidate is free only if no *type* claims its normalized
+            // name and no already-emitted proc shares the (name, signature).
+            if !self.type_names.contains(&norm)
+                && self.seen.insert(format!("{}|{}", norm, param_types))
+            {
+                return candidate;
+            }
+            n += 1;
+            candidate = format!("{}_{}", name, n);
+        }
+    }
+
+    /// Like [`unique`], but for a raw external: also records the mapping from
+    /// the true C symbol to the emitted proc name so wrappers can look it up.
+    pub fn unique_external(&mut self, c_name: &str, param_types: &str) -> String {
+        let name = self.unique(c_name, param_types);
+        self.externals.insert(c_name.to_string(), name.clone());
+        name
+    }
+
+    /// The Nim-visible name a raw external's C symbol was emitted under.
+    /// Falls back to the symbol itself (externals are always emitted before
+    /// wrappers, so a hit is expected for any wrapped function).
+    pub fn external_name(&self, c_name: &str) -> String {
+        self.externals
+            .get(c_name)
+            .cloned()
+            .unwrap_or_else(|| c_name.to_string())
+    }
 }
 
 /// Sanitize a doc comment so it sits safely inside a Nim `#` line

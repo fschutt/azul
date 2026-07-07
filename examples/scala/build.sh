@@ -38,7 +38,15 @@ done
 echo "[scala] compiling HelloWorld.scala"
 scalac -cp "$JAVA_CLASSES:$JNA_JAR" HelloWorld.scala -d HelloWorld.jar
 
-echo "[scala] running (DYLD_LIBRARY_PATH=. -XstartOnFirstThread)"
-exec java -XstartOnFirstThread -Djna.library.path=. \
+# -XstartOnFirstThread is a macOS-only JVM flag (needed there for libazul's
+# NSApplication loop). HotSpot on Linux/Windows rejects it outright with
+# "Unrecognized option ... Could not create the Java Virtual Machine", so gate
+# it on the OS. Mirrors lang_java() in scripts/e2e_language_matrix.sh.
+FIRST_THREAD=()
+if [ "$(uname -s)" = "Darwin" ]; then
+    FIRST_THREAD=(-XstartOnFirstThread)
+fi
+echo "[scala] running (DYLD_LIBRARY_PATH=. ${FIRST_THREAD[*]})"
+exec java "${FIRST_THREAD[@]}" -Djna.library.path=. \
     -cp "HelloWorld.jar:$JAVA_CLASSES:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB" \
     com.azul.HelloWorld

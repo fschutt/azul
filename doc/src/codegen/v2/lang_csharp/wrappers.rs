@@ -765,7 +765,11 @@ fn emit_cs_equals_hashcode_if_supported(
             "/// <summary>Equality routed through {}.</summary>",
             eq_sym
         ));
-        builder.line("public override bool Equals(object? other)");
+        // Plain `object` (not `object?`): PowerShell's Add-Type embeds this
+        // C# without a `#nullable` context, so the nullable-reference
+        // annotation `object?` trips CS8632. Mirrors managed.rs's handle-store
+        // signatures. `dotnet`/csc accept plain `object` in both contexts.
+        builder.line("public override bool Equals(object other)");
         builder.line("{");
         builder.indent();
         builder.line(&format!("if (other is not {} o) return false;", class_name));

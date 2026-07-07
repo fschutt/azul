@@ -28,13 +28,15 @@ use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory,
 };
-use super::types::arg_type;
+use super::types::nim_arg_type;
+use super::ProcDedup;
 use super::{ffi_type_name, map_type_to_nim, sanitize_identifier, to_lower_camel, to_pascal_case};
 
 pub fn generate_wrappers(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    procs: &mut ProcDedup,
 ) -> Result<()> {
     builder.line("# ============================================================================");
     builder.line("# Idiomatic wrappers — drop the `Az` prefix, forward to the raw layer.");
@@ -48,9 +50,11 @@ pub fn generate_wrappers(
             continue;
         }
         match func.kind {
-            FunctionKind::Method | FunctionKind::MethodMut => emit_method_wrapper(builder, func, ir),
+            FunctionKind::Method | FunctionKind::MethodMut => {
+                emit_method_wrapper(builder, func, ir, procs)
+            }
             FunctionKind::Constructor | FunctionKind::StaticMethod => {
-                emit_static_wrapper(builder, func, ir)
+                emit_static_wrapper(builder, func, ir, procs)
             }
             _ => {}
         }
@@ -99,14 +103,20 @@ fn wrappable_struct(s: &StructDef) -> bool {
 // Instance-method wrapper
 // ============================================================================
 
-fn emit_method_wrapper(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
+fn emit_method_wrapper(
+    builder: &mut CodeBuilder,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    procs: &mut ProcDedup,
+) {
     let class_ffi = ffi_type_name(&func.class_name);
     let self_idx = self_arg_index(func);
-    let name = sanitize_identifier(&to_lower_camel(&func.method_name));
+    let desired = sanitize_identifier(&to_lower_camel(&func.method_name));
 
     // Build the wrapper parameter list (self first, then user args in
     // their original positions) and the forwarded call argument list.
     let mut params: Vec<String> = Vec::new();
+    let mut param_types: Vec<String> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();
 
     // `self` param — mutable so we can take `addr` when the C fn wants a
@@ -120,8 +130,10 @@ fn emit_method_wrapper(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codeg
     );
     if self_by_ptr {
         params.push(format!("self: var {}", class_ffi));
+        param_types.push(format!("var {}", class_ffi));
     } else {
         params.push(format!("self: {}", class_ffi));
+        param_types.push(class_ffi.clone());
     }
 
     for (i, a) in func.args.iter().enumerate() {
@@ -136,37 +148,47 @@ fn emit_method_wrapper(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codeg
         // Non-self args keep the raw layer's type (already `ptr AzFoo` for
         // pointer kinds) and forward straight through — no `addr`, which
         // would be illegal on an immutable proc parameter.
-        let nim_ty = arg_type(a.ref_kind, &a.type_name, ir);
+        let nim_ty = nim_arg_type(a, ir);
         let pname = sanitize_identifier(&a.name);
         params.push(format!("{}: {}", pname, nim_ty));
+        param_types.push(nim_ty);
         call_args.push(pname);
     }
 
-    emit_forwarder(builder, &name, &params, func, ir, &call_args);
+    let name = procs.unique(&desired, &param_types.join(","));
+    emit_forwarder(builder, &name, &params, func, ir, &call_args, procs);
 }
 
 // ============================================================================
 // Constructor / static-method wrapper
 // ============================================================================
 
-fn emit_static_wrapper(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
+fn emit_static_wrapper(
+    builder: &mut CodeBuilder,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    procs: &mut ProcDedup,
+) {
     // `<classLowerCamel><MethodPascal>` — globally unique.
-    let name = sanitize_identifier(&format!(
+    let desired = sanitize_identifier(&format!(
         "{}{}",
         to_lower_camel(&func.class_name),
         to_pascal_case(&func.method_name)
     ));
 
     let mut params: Vec<String> = Vec::new();
+    let mut param_types: Vec<String> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();
     for a in &func.args {
-        let nim_ty = arg_type(a.ref_kind, &a.type_name, ir);
+        let nim_ty = nim_arg_type(a, ir);
         let pname = sanitize_identifier(&a.name);
         params.push(format!("{}: {}", pname, nim_ty));
+        param_types.push(nim_ty);
         call_args.push(pname);
     }
 
-    emit_forwarder(builder, &name, &params, func, ir, &call_args);
+    let name = procs.unique(&desired, &param_types.join(","));
+    emit_forwarder(builder, &name, &params, func, ir, &call_args, procs);
 }
 
 // ============================================================================
@@ -180,9 +202,12 @@ fn emit_forwarder(
     func: &FunctionDef,
     ir: &CodegenIR,
     call_args: &[String],
+    procs: &ProcDedup,
 ) {
     let param_str = params.join(", ");
-    let call = format!("{}({})", func.c_name, call_args.join(", "));
+    // Forward to the raw external under the exact name it was emitted as —
+    // which may be a de-collided alias, not the bare C symbol.
+    let call = format!("{}({})", procs.external_name(&func.c_name), call_args.join(", "));
 
     match &func.return_type {
         Some(ret) if ret.trim() != "void" && ret.trim() != "()" => {
