@@ -27,9 +27,9 @@ use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
-    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
-    UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
+    AvailableSpace, BidiDirection, BreakCursor, BreakType, ClearType, FontChainKey, FontStack,
+    InlineBreak, InlineContent, LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun,
+    UnicodeBidi, UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
 };
 use azul_layout::text3::edit::{delete_backward, edit_text, insert_text, TextEdit};
 use azul_layout::text3::selection::select_word_at_cursor;
@@ -237,20 +237,36 @@ fn empty_line_reserves_a_line_box() {
     // the paragraphs; the second "aa" is therefore pushed to y = 2*line-height.
     // pins spec: blank line between two forced breaks reserves a 20px line box.
     let font_ref = fake_font_ref();
+    let style = Arc::new(StyleProperties {
+        font_stack: FontStack::Ref(font_ref.clone()),
+        font_size_px: FONT_SIZE,
+        ..StyleProperties::default()
+    });
+    let content = vec![
+        InlineContent::Text(StyledRun { text: "aa".into(), style: Arc::clone(&style), logical_start_byte: 0, source_node_id: None }),
+        InlineContent::LineBreak(InlineBreak { break_type: BreakType::Hard, clear: ClearType::None, content_index: 0 }),
+        InlineContent::LineBreak(InlineBreak { break_type: BreakType::Hard, clear: ClearType::None, content_index: 1 }),
+        InlineContent::Text(StyledRun { text: "aa".into(), style: Arc::clone(&style), logical_start_byte: 4, source_node_id: None }),
+    ];
     let l = layout_content(
-        &make_content("aa\n\naa", &font_ref),
+        &content,
         &font_ref,
         &UnifiedConstraints {
             available_width: AvailableSpace::MaxContent,
             white_space_mode: WhiteSpaceMode::Pre,
+            strut_ascent: FONT_SIZE * 0.8,
+            strut_descent: FONT_SIZE * 0.2,
             ..UnifiedConstraints::default()
         },
     );
+    // The second "aa" is the 4th content item (source_run 3), after the two Hard
+    // breaks. Its y must be 2*line-height = 40px: line 0 = "aa", line 1 = the empty
+    // strut line box (20px), line 2 = "aa".
     let second_aa_y = l
         .items
         .iter()
         .filter_map(|it| match &it.item {
-            ShapedItem::Cluster(c) if c.source_cluster_id.start_byte_in_run >= 4 => {
+            ShapedItem::Cluster(c) if c.source_cluster_id.source_run == 3 => {
                 Some(it.position.y)
             }
             _ => None,
