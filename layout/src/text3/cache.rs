@@ -4370,11 +4370,16 @@ impl UnifiedLayout {
 
         let mut rects = Vec::new();
 
-        // Helper to get the absolute visual X coordinate of a cursor.
+        // Helper to get the absolute visual X coordinate of a cursor. The logical
+        // start (Leading) edge is the cluster's LEFT for LTR but its RIGHT for RTL;
+        // Trailing is the mirror.
         let get_cursor_x = |item: &PositionedItem, affinity: CursorAffinity| -> f32 {
-            match affinity {
-                CursorAffinity::Leading => item.position.x,
-                CursorAffinity::Trailing => item.position.x + get_item_measure(&item.item, false),
+            let left = item.position.x;
+            let right = item.position.x + get_item_measure(&item.item, false);
+            let rtl = item.item.as_cluster().is_some_and(|c| c.direction.is_rtl());
+            match (affinity, rtl) {
+                (CursorAffinity::Leading, false) | (CursorAffinity::Trailing, true) => left,
+                (CursorAffinity::Trailing, false) | (CursorAffinity::Leading, true) => right,
             }
         };
 
@@ -4496,17 +4501,22 @@ impl UnifiedLayout {
         }
         // 5. Handle multi-line selection.
         else {
-            // Rectangle for the start line (from cursor to end of line).
+            // Rectangle for the start line (from the start cursor to the line's end
+            // in READING order). For an LTR line that is rightward (to the line's
+            // right content edge); for an RTL line it is leftward (to the left edge).
             if let Some(start_line_bounds) = get_line_bounds(start_item.line_index) {
                 let start_x = get_cursor_x(start_item, start_cursor.affinity);
-                let line_end_x = start_line_bounds.origin.x + start_line_bounds.size.width;
+                let line_left = start_line_bounds.origin.x;
+                let line_right = start_line_bounds.origin.x + start_line_bounds.size.width;
+                let rtl = start_item.item.as_cluster().is_some_and(|c| c.direction.is_rtl());
+                let (lo, hi) = if rtl { (line_left, start_x) } else { (start_x, line_right) };
                 rects.push(LogicalRect {
                     origin: LogicalPosition {
-                        x: start_x,
+                        x: lo,
                         y: start_line_bounds.origin.y,
                     },
                     size: LogicalSize {
-                        width: line_end_x - start_x,
+                        width: hi - lo,
                         height: start_line_bounds.size.height,
                     },
                 });
@@ -4519,17 +4529,22 @@ impl UnifiedLayout {
                 }
             }
 
-            // Rectangle for the end line (from start of line to cursor).
+            // Rectangle for the end line (from the line's start in READING order to
+            // the end cursor). For an LTR line that starts at the left content edge;
+            // for an RTL line it starts at the right edge.
             if let Some(end_line_bounds) = get_line_bounds(end_item.line_index) {
-                let line_start_x = end_line_bounds.origin.x;
                 let end_x = get_cursor_x(end_item, end_cursor.affinity);
+                let line_left = end_line_bounds.origin.x;
+                let line_right = end_line_bounds.origin.x + end_line_bounds.size.width;
+                let rtl = end_item.item.as_cluster().is_some_and(|c| c.direction.is_rtl());
+                let (lo, hi) = if rtl { (end_x, line_right) } else { (line_left, end_x) };
                 rects.push(LogicalRect {
                     origin: LogicalPosition {
-                        x: line_start_x,
+                        x: lo,
                         y: end_line_bounds.origin.y,
                     },
                     size: LogicalSize {
-                        width: end_x - line_start_x,
+                        width: hi - lo,
                         height: end_line_bounds.size.height,
                     },
                 });
@@ -4548,9 +4563,17 @@ impl UnifiedLayout {
                 if cluster.source_cluster_id == cursor.cluster_id {
                     // Exact match
                     let line_height = item.item.bounds().height;
+                    // The logical-start (Leading) caret edge is the glyph's LEFT side for
+                    // an LTR cluster but its RIGHT side for an RTL cluster; Trailing is the
+                    // mirror. Resolve the edges from the cluster's own bidi direction.
+                    let (lead_x, trail_x) = if cluster.direction.is_rtl() {
+                        (item.position.x + cluster.advance, item.position.x)
+                    } else {
+                        (item.position.x, item.position.x + cluster.advance)
+                    };
                     let cursor_x = match cursor.affinity {
-                        CursorAffinity::Leading => item.position.x,
-                        CursorAffinity::Trailing => item.position.x + cluster.advance,
+                        CursorAffinity::Leading => lead_x,
+                        CursorAffinity::Trailing => trail_x,
                     };
                     return Some(LogicalRect {
                         origin: LogicalPosition {
@@ -4572,9 +4595,16 @@ impl UnifiedLayout {
                 && cursor.cluster_id.start_byte_in_run >= cluster.source_cluster_id.start_byte_in_run
             {
                 let line_height = item.item.bounds().height;
+                // Past the logical end of the run: the caret sits after the last cluster,
+                // which is its RIGHT edge for LTR but its LEFT edge for RTL.
+                let past_end_x = if cluster.direction.is_rtl() {
+                    item.position.x
+                } else {
+                    item.position.x + cluster.advance
+                };
                 return Some(LogicalRect {
                     origin: LogicalPosition {
-                        x: item.position.x + cluster.advance,
+                        x: past_end_x,
                         y: item.position.y,
                     },
                     size: LogicalSize {
@@ -4613,200 +4643,125 @@ impl UnifiedLayout {
         None
     }
 
-    /// Moves a cursor one visual unit to the left, handling line wrapping and Bidi text.
+    /// Logical sequence of caret-stop grapheme clusters, sorted by
+    /// `(source_run, start_byte_in_run)` and de-duplicated, with combining-mark
+    /// continuations folded into their base (UAX#29). Left/right caret motion
+    /// advances over THIS sequence so a base and its combining marks move as one
+    /// unit, and so the document start/end are always reachable.
+    fn grapheme_stops(&self) -> Vec<GraphemeClusterId> {
+        let mut stops: Vec<(GraphemeClusterId, &str)> = self
+            .items
+            .iter()
+            .filter_map(|it| {
+                it.item
+                    .as_cluster()
+                    .map(|c| (c.source_cluster_id, c.text.as_str()))
+            })
+            .collect();
+        stops.sort_by(|a, b| {
+            (a.0.source_run, a.0.start_byte_in_run).cmp(&(b.0.source_run, b.0.start_byte_in_run))
+        });
+        stops.dedup_by_key(|(id, _)| *id);
+        stops
+            .into_iter()
+            .filter(|(_, text)| !Self::cluster_is_grapheme_continuation(text))
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// True if `text`'s leading char is a grapheme extender (combining mark,
+    /// variation selector, …) — a cluster that merges into a preceding base and
+    /// therefore must not be a standalone caret stop (UAX#29).
+    fn cluster_is_grapheme_continuation(text: &str) -> bool {
+        let Some(first) = text.chars().next() else {
+            return false;
+        };
+        // Probe with a dummy base letter: if `x` + first collapses to a single
+        // grapheme, `first` extends the preceding grapheme.
+        let mut probe = String::with_capacity(1 + first.len_utf8());
+        probe.push('x');
+        probe.push(first);
+        probe.graphemes(true).count() == 1
+    }
+
+    /// Caret offset of `cursor` within `stops` (0..=len): the index of its
+    /// grapheme, plus 1 for a Trailing affinity. A cursor addressing a folded
+    /// combining mark (or otherwise between stops) maps to the nearest preceding
+    /// stop.
+    fn grapheme_caret_offset(stops: &[GraphemeClusterId], cursor: &TextCursor) -> Option<usize> {
+        let trailing = usize::from(cursor.affinity == CursorAffinity::Trailing);
+        if let Some(idx) = stops.iter().position(|id| *id == cursor.cluster_id) {
+            return Some(idx + trailing);
+        }
+        let key = (cursor.cluster_id.source_run, cursor.cluster_id.start_byte_in_run);
+        let idx = stops
+            .iter()
+            .rposition(|id| (id.source_run, id.start_byte_in_run) <= key)?;
+        Some(idx + trailing)
+    }
+
+    /// Canonical cursor for a grapheme-stop `offset` (0..=len): interior/first
+    /// offsets are the Leading edge of the stop that begins there; `len` is the
+    /// Trailing edge of the last stop (the document end).
+    fn cursor_from_grapheme_offset(stops: &[GraphemeClusterId], offset: usize) -> TextCursor {
+        let n = stops.len();
+        if offset >= n {
+            TextCursor { cluster_id: stops[n - 1], affinity: CursorAffinity::Trailing }
+        } else {
+            TextCursor { cluster_id: stops[offset], affinity: CursorAffinity::Leading }
+        }
+    }
+
+    /// Moves a cursor one visible position to the left (the previous grapheme
+    /// boundary). Affinity is consulted so each press moves exactly one stop and
+    /// the document start (first grapheme, Leading) is reachable; combining marks
+    /// move together with their base.
     pub fn move_cursor_left(
         &self,
         cursor: TextCursor,
         debug: &mut Option<Vec<String>>,
     ) -> TextCursor {
-        if let Some(d) = debug {
-            d.push(format!(
-                "[Cursor] move_cursor_left: starting at byte {}, affinity {:?}",
-                cursor.cluster_id.start_byte_in_run, cursor.affinity
-            ));
+        let stops = self.grapheme_stops();
+        if stops.is_empty() {
+            return cursor;
         }
-
-        // Find current item
-        let current_item_pos = self.items.iter().position(|i| {
-            i.item
-                .as_cluster()
-                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
-        });
-
-        let Some(current_pos) = current_item_pos else {
-            if let Some(d) = debug {
-                d.push(format!(
-                    "[Cursor] move_cursor_left: cursor not found, staying at byte {}",
-                    cursor.cluster_id.start_byte_in_run
-                ));
-            }
+        let Some(offset) = Self::grapheme_caret_offset(&stops, &cursor) else {
             return cursor;
         };
-
-        // Skip the Trailing→Leading affinity flip for simple cursor movement.
-        // Each left arrow press should move to the previous visible character position.
-
-        // Move to previous cluster's trailing edge
-        // Search backwards for a cluster on the same line, or any cluster if at line start
-        let current_line = self.items[current_pos].line_index;
-
+        let moved = Self::cursor_from_grapheme_offset(&stops, offset.saturating_sub(1));
         if let Some(d) = debug {
             d.push(format!(
-                "[Cursor] move_cursor_left: at leading edge, current line {current_line}"
+                "[Cursor] move_cursor_left: byte {} -> byte {}",
+                cursor.cluster_id.start_byte_in_run, moved.cluster_id.start_byte_in_run
             ));
         }
-
-        // First, try to find previous item on same line
-        for i in (0..current_pos).rev() {
-            if let Some(cluster) = self.items[i].item.as_cluster() {
-                if self.items[i].line_index == current_line {
-                    if let Some(d) = debug {
-                        d.push(format!(
-                            "[Cursor] move_cursor_left: found previous cluster on same line, byte \
-                             {}",
-                            cluster.source_cluster_id.start_byte_in_run
-                        ));
-                    }
-                    return TextCursor {
-                        cluster_id: cluster.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    };
-                }
-            }
-        }
-
-        // If no previous item on same line, try to move to end of previous line
-        if current_line > 0 {
-            let prev_line = current_line - 1;
-            if let Some(d) = debug {
-                d.push(format!(
-                    "[Cursor] move_cursor_left: trying previous line {prev_line}"
-                ));
-            }
-            for i in (0..current_pos).rev() {
-                if let Some(cluster) = self.items[i].item.as_cluster() {
-                    if self.items[i].line_index == prev_line {
-                        if let Some(d) = debug {
-                            d.push(format!(
-                                "[Cursor] move_cursor_left: found cluster on previous line, byte \
-                                 {}",
-                                cluster.source_cluster_id.start_byte_in_run
-                            ));
-                        }
-                        return TextCursor {
-                            cluster_id: cluster.source_cluster_id,
-                            affinity: CursorAffinity::Trailing,
-                        };
-                    }
-                }
-            }
-        }
-
-        // At start of text, can't move further
-        if let Some(d) = debug {
-            d.push(format!(
-                "[Cursor] move_cursor_left: at start of text, staying at byte {}",
-                cursor.cluster_id.start_byte_in_run
-            ));
-        }
-        cursor
+        moved
     }
 
-    /// Moves a cursor one visual unit to the right.
+    /// Moves a cursor one visible position to the right (the next grapheme
+    /// boundary). Affinity is consulted so each press moves exactly one stop and
+    /// the document end (last grapheme, Trailing) is reachable; combining marks
+    /// move together with their base.
     pub fn move_cursor_right(
         &self,
         cursor: TextCursor,
         debug: &mut Option<Vec<String>>,
     ) -> TextCursor {
-        if let Some(d) = debug {
-            d.push(format!(
-                "[Cursor] move_cursor_right: starting at byte {}, affinity {:?}",
-                cursor.cluster_id.start_byte_in_run, cursor.affinity
-            ));
+        let stops = self.grapheme_stops();
+        if stops.is_empty() {
+            return cursor;
         }
-
-        // Find current item
-        let current_item_pos = self.items.iter().position(|i| {
-            i.item
-                .as_cluster()
-                .is_some_and(|c| c.source_cluster_id == cursor.cluster_id)
-        });
-
-        let Some(current_pos) = current_item_pos else {
-            if let Some(d) = debug {
-                d.push(format!(
-                    "[Cursor] move_cursor_right: cursor not found, staying at byte {}",
-                    cursor.cluster_id.start_byte_in_run
-                ));
-            }
+        let Some(offset) = Self::grapheme_caret_offset(&stops, &cursor) else {
             return cursor;
         };
-
-        // Skip the Leading→Trailing affinity flip for simple cursor movement.
-        // The affinity distinction matters for selection extension and bidi text,
-        // but for basic left/right navigation, the user expects each press to move
-        // the cursor to the next/previous visible character position.
-        // If at Leading, go directly to the next cluster's Leading.
-
-        // We're at leading or trailing edge, move to next cluster's leading edge
-        let current_line = self.items[current_pos].line_index;
-
+        let moved = Self::cursor_from_grapheme_offset(&stops, (offset + 1).min(stops.len()));
         if let Some(d) = debug {
             d.push(format!(
-                "[Cursor] move_cursor_right: at trailing edge, current line {current_line}"
+                "[Cursor] move_cursor_right: byte {} -> byte {}",
+                cursor.cluster_id.start_byte_in_run, moved.cluster_id.start_byte_in_run
             ));
         }
-
-        // First, try to find next item on same line
-        for i in (current_pos + 1)..self.items.len() {
-            if let Some(cluster) = self.items[i].item.as_cluster() {
-                if self.items[i].line_index == current_line {
-                    if let Some(d) = debug {
-                        d.push(format!(
-                            "[Cursor] move_cursor_right: found next cluster on same line, byte {}",
-                            cluster.source_cluster_id.start_byte_in_run
-                        ));
-                    }
-                    return TextCursor {
-                        cluster_id: cluster.source_cluster_id,
-                        affinity: CursorAffinity::Leading,
-                    };
-                }
-            }
-        }
-
-        // If no next item on same line, try to move to start of next line
-        let next_line = current_line + 1;
-        if let Some(d) = debug {
-            d.push(format!(
-                "[Cursor] move_cursor_right: trying next line {next_line}"
-            ));
-        }
-        for i in (current_pos + 1)..self.items.len() {
-            if let Some(cluster) = self.items[i].item.as_cluster() {
-                if self.items[i].line_index == next_line {
-                    if let Some(d) = debug {
-                        d.push(format!(
-                            "[Cursor] move_cursor_right: found cluster on next line, byte {}",
-                            cluster.source_cluster_id.start_byte_in_run
-                        ));
-                    }
-                    return TextCursor {
-                        cluster_id: cluster.source_cluster_id,
-                        affinity: CursorAffinity::Leading,
-                    };
-                }
-            }
-        }
-
-        // At end of text, can't move further
-        if let Some(d) = debug {
-            d.push(format!(
-                "[Cursor] move_cursor_right: at end of text, staying at byte {}",
-                cursor.cluster_id.start_byte_in_run
-            ));
-        }
-        cursor
+        moved
     }
 
     /// Moves a cursor up one line, attempting to preserve the horizontal column.
@@ -10636,10 +10591,11 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
     // +spec:line-breaking:05e09a - U+002D HYPHEN-MINUS / U+2010 HYPHEN always create a
     // soft-wrap opportunity AFTER them (UAX#14 class HY/BA), independent of the hyphens
     // property (they are NOT hyphenation opportunities — no extra glyph is inserted).
-    // Mirrors is_break_opportunity(); this predicate drives the greedy BreakCursor path,
-    // which previously never broke after a plain hyphen.
+    // U+002F SOLIDUS (UAX#14 class SY) likewise offers a break AFTER it (URLs/paths),
+    // matching browser practice. Mirrors is_break_opportunity(); this predicate drives
+    // the greedy BreakCursor path, which previously never broke after a plain hyphen/slash.
     if let ShapedItem::Cluster(c) = item {
-        if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') {
+        if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') || c.text.ends_with('\u{002F}') {
             return true;
         }
     }

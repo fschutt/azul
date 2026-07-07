@@ -162,9 +162,6 @@ fn text_of(content: &[InlineContent]) -> String {
 // ===========================================================================
 
 #[test]
-#[ignore = "BUG(text3): base + combining mark are shaped as SEPARATE ShapedClusters, so \
-            arrow-right lands mid-grapheme (byte 1) instead of skipping 'á'; cluster grouping \
-            keys on the per-char shaper cluster id, not the UAX#29 grapheme (cache.rs:7659)"]
 fn caret_right_skips_over_combining_mark() {
     // UAX#29: 'a'+U+0301 is one grapheme cluster (bytes 0..2). Arrow-right from its
     // start must land on the NEXT grapheme ('b' at byte 3), never the mark byte 1.
@@ -174,9 +171,6 @@ fn caret_right_skips_over_combining_mark() {
 }
 
 #[test]
-#[ignore = "BUG(text3): base + combining mark are shaped as SEPARATE ShapedClusters, so \
-            arrow-left lands on the mark (byte 1) instead of the 'á' base; cluster grouping \
-            keys on the per-char shaper cluster id, not the UAX#29 grapheme (cache.rs:7659)"]
 fn caret_left_skips_over_combining_mark() {
     // UAX#29: Arrow-left from 'b' (byte 3) lands on the base 'á' cluster (byte 0),
     // never the interior combining-mark byte 1.
@@ -353,6 +347,99 @@ fn delete_then_relayout_narrows_by_removed_advance() {
     let (edited, _c) = delete_backward(&content, &cursor_at(1, CursorAffinity::Trailing));
     assert_eq!(text_of(&edited), "aa");
     assert_px(before - max_content_width(&edited, &font_ref), 12.0);
+}
+
+// ===========================================================================
+// Direction-aware caret geometry & one-press-one-position motion
+// ===========================================================================
+
+#[test]
+fn cursor_rect_rtl_leading_sits_at_glyph_right_edge() {
+    // For an RTL cluster the logical-start (Leading) caret edge is the glyph's
+    // RIGHT side. In "אבג" the first logical char א is the visually-rightmost
+    // glyph (x 22..33), so a Leading caret on it sits at x=33, not the left x=22.
+    let l = layout_rtl("אבג");
+    let rect = l.get_cursor_rect(&cursor_at(0, CursorAffinity::Leading)).expect("rect");
+    assert_px(rect.origin.x, 33.0);
+    // Its Trailing (logical-end) edge is the mirror: the glyph's LEFT side.
+    let trail = l.get_cursor_rect(&cursor_at(0, CursorAffinity::Trailing)).expect("rect");
+    assert_px(trail.origin.x, 22.0);
+}
+
+#[test]
+fn multiline_rtl_selection_fills_lines_in_reading_order() {
+    // A multi-line RTL selection must fill the START line LEFTWARD from the start
+    // cursor to the line's left edge, and the END line from the line's right edge
+    // to the end cursor. The old LTR assumption collapsed the start-line rect to
+    // zero width. "אבג אבג" @40px wraps to two words, one per line (each x 0..33).
+    let font_ref = fake_font_ref();
+    let content = make_content("אבג אבג", &font_ref);
+    let l = layout_content(
+        &content,
+        &font_ref,
+        &UnifiedConstraints {
+            available_width: AvailableSpace::Definite(40.0),
+            direction: Some(BidiDirection::Rtl),
+            ..UnifiedConstraints::default()
+        },
+    );
+    let rects = l.get_selection_rects(&SelectionRange {
+        start: cursor_at(0, CursorAffinity::Leading),
+        end: cursor_at(11, CursorAffinity::Trailing),
+    });
+    assert_eq!(rects.len(), 2, "adjacent 2-line selection => start-line + end-line rect");
+    // Start line: filled from the start cursor (right edge, x=33) leftward to x=0.
+    assert_px(rects[0].origin.x, 0.0);
+    assert_px(rects[0].size.width, 33.0);
+    // End line: filled to the end cursor (left edge, x=0) — a full word too.
+    assert_px(rects[1].origin.x, 0.0);
+    assert_px(rects[1].size.width, 33.0);
+    assert!((rects[0].origin.y - rects[1].origin.y).abs() > 1.0, "the two rects span two lines");
+}
+
+#[test]
+fn caret_right_reaches_document_end_and_left_returns_to_start() {
+    // Each Left/Right press moves exactly one grapheme stop, and BOTH the document
+    // end (after the last glyph = last cluster Trailing) and start (before the
+    // first = first cluster Leading) are reachable — previously Right could never
+    // reach the end nor Left the start, and a press could be silently swallowed.
+    let l = layout("abc", AvailableSpace::MaxContent);
+    let start = cursor_at(0, CursorAffinity::Leading);
+    let mut c = start;
+    let forward: Vec<(u32, CursorAffinity)> = (0..3)
+        .map(|_| {
+            c = l.move_cursor_right(c, &mut None);
+            (c.cluster_id.start_byte_in_run, c.affinity)
+        })
+        .collect();
+    assert_eq!(
+        forward,
+        vec![
+            (1, CursorAffinity::Leading),
+            (2, CursorAffinity::Leading),
+            (2, CursorAffinity::Trailing),
+        ],
+        "three Rights reach byte1, byte2, then the document end (byte2 Trailing)"
+    );
+    assert_eq!(l.move_cursor_right(c, &mut None), c, "Right at the document end is a no-op");
+    let mut c = c;
+    let backward: Vec<(u32, CursorAffinity)> = (0..3)
+        .map(|_| {
+            c = l.move_cursor_left(c, &mut None);
+            (c.cluster_id.start_byte_in_run, c.affinity)
+        })
+        .collect();
+    assert_eq!(
+        backward,
+        vec![
+            (2, CursorAffinity::Leading),
+            (1, CursorAffinity::Leading),
+            (0, CursorAffinity::Leading),
+        ],
+        "three Lefts return through byte2, byte1, to the document start (byte0 Leading)"
+    );
+    assert_eq!(c, start, "walking right to the end then left returns to the start");
+    assert_eq!(l.move_cursor_left(c, &mut None), c, "Left at the document start is a no-op");
 }
 
 #[test]

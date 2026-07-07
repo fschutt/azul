@@ -275,8 +275,6 @@ fn breaks_at_last_hyphen_that_fits() {
 }
 
 #[test]
-#[ignore = "BUG(text3): no soft-wrap opportunity after U+002F SOLIDUS (UAX#14 class SY); \
-            cache.rs::is_break_opportunity_with_word_break only handles U+002D/U+2010 (cache.rs:10642)"]
 fn slash_offers_a_soft_wrap_opportunity() {
     // UAX#14 class SY: a break is allowed after U+002F SOLIDUS (non-numeric context).
     // "aaaa/aaaa" (102px) should wrap after the slash in a 60px box, keeping "aaaa/"
