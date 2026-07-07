@@ -3905,6 +3905,17 @@ jobs:
             (apt-get update && apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev);
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
+          # Install each built wheel into a fresh env and prove it actually
+          # imports + tears down — the regressions THIS release fixed:
+          #   import azul        -> abi3 dso_local Py* stub SIGILL / OOM (undefined-Py* fix)
+          #   ColorU create/del  -> pyclass teardown SIGSEGV (stub-folding dealloc)
+          #   AppConfig create/del -> codegen double-drop (#16/#29, field-glue delegation)
+          # Headless (pure-data ops, no GL/display). A broken wheel fails HERE and is
+          # never uploaded, so the self-hosted index only ever serves an importable wheel.
+          CIBW_TEST_COMMAND: >
+            python -c "import azul; c = azul.ColorU.create(1, 2, 3, 4); del c;
+            a = azul.AppConfig.create(); del a;
+            print('wheel import + pyclass teardown OK')"
         with:
           output-dir: dist
 
