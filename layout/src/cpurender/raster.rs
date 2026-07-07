@@ -1556,6 +1556,7 @@ pub fn render_single_item(
                 dpi_factor,
                 glyph_cache,
                 (scroll_dx, scroll_dy),
+                false,
             );
         }
         DisplayListItem::TextLayout {
@@ -2277,6 +2278,11 @@ fn render_text(
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
+    // When true, force the grayscale path even if LCD is enabled. Used for the
+    // text-shadow offscreen, which is transparent: the LCD per-channel path
+    // assumes an opaque background and forces per-pixel alpha to 255, which
+    // corrupts a shadow composited from a transparent layer.
+    force_grayscale: bool,
 ) {
     if color.a == 0 || glyphs.is_empty() {
         return;
@@ -2344,7 +2350,7 @@ fn render_text(
     // RGB LCD subpixel-AA path (opt-in, `AZ_TEXT_LCD=1`; off by default). Renders
     // at 3× horizontal resolution with a 5-tap FIR + per-channel blend. The
     // grayscale path below is left byte-for-byte identical when the flag is off.
-    if text_lcd_enabled() {
+    if text_lcd_enabled() && !force_grayscale {
         render_glyphs_lcd(
             pixmap, clip, glyphs, parsed_font, font_hash, ppem, scale,
             hint_correction, color, dpi_factor, scroll_offset, glyph_cache,
@@ -2506,6 +2512,9 @@ fn render_text_shadow(
         dpi_factor,
         glyph_cache,
         scroll_offset,
+        // Always grayscale: the shadow offscreen is transparent, so the LCD
+        // per-channel path (which assumes an opaque bg) would corrupt it.
+        true,
     );
 
     // Blur the offscreen (in device pixels).
