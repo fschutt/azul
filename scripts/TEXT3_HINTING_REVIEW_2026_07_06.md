@@ -347,4 +347,24 @@ Ran `scripts/coretext_regression.sh`. Result: **333/333 DIVERGENT** (MATCH 0 / C
 
 > **Our hinted glyphs render near-bilevel hard-black stems; CoreText renders soft gamma-corrected gray anti-aliasing.** The diff heatmap is red-dominated (we over-ink: solid black where CoreText is mid-gray) with blue side-fringes (CoreText distributes coverage to neighbor pixels we leave white). `bboxΔ` shows our small glyphs ~1–2px narrower (`H`,`m`) and `W` ~3–5px taller.
 
-**This is a rasterizer issue, not a hinting-interpreter issue** — the interpreter is verified correct (17/17 golden) and grid-fits stems as intended; `cpurender/raster.rs::render_scanlines_aa_solid` then converts the hinted outline with **linear agg coverage and no text gamma**, so edges come out harsh. **Next loop iteration (deliberately NOT done blind overnight — it changes ALL text rendering and needs review):** add a gamma-correct coverage LUT (CoreText applies a text gamma even with smoothing off) and soften hinted-edge AA, then re-run and compare `metrics.jsonl` (the script auto-diffs prev→now MATCH/CLOSE/DIVERGENT). Worst offenders and per-ppem histogram are in `SUMMARY.md`; upscaled panels are named `NNpx_<case>_<bucket>_rmsX.png`.
+The interpreter is verified correct (17/17 golden) and grid-fits stems as intended. The initial hypothesis was a rasterizer coverage/gamma gap — **the grind disproved that** (see below).
+
+### CoreText grind — iteration 1 (RESOLVED: light hinting, not gamma) — commit `30cd362b`
+Drove the autoregression loop empirically. Findings:
+- **Gamma is NOT the fix.** Added a tunable coverage-gamma LUT to the rasterizer and swept it via the harness (both directions, on top of light hinting): `gamma = 1.0` (no transform) is optimal; any gamma makes it *worse*. The rasterizer coverage curve was never the problem. The gamma code was dropped.
+- **The real cause is the hinting, measured through the harness:** our hinted ink was only **83%** of CoreText's (`23553` vs `28237` inked-coverage), while the *unhinted* path already matched CoreText's bbox. Full bytecode grid-fitting snaps vertical stems to whole pixels → thinner + harder (fully-black) stems; CoreText leaves the X axis sub-pixel so stems anti-alias to soft gray.
+- **Fix = CoreText-style light hinting** (`glyph_cache.rs::build_hinted_path`, default on, `AZ_HINT_LIGHT=0` to opt out): keep the grid-fitted **Y** (baseline / x-height / horizontal-stem heights stay crisp) but restore the **unhinted fractional X**. The interpreter still runs fully (its Y output + FLIP'd on-curve flags are used) — no hinting correctness lost.
+
+Result (Arial, 9–24px, 333 cases):
+
+| metric | full hinting (baseline) | light hinting (shipped) |
+|---|---|---|
+| mean rms_raw | 58.30 | **29.62** |
+| mean rms_aligned | 105.24 | **47.52** |
+| ink ours / ct | 23553 / 28237 (83%) | **27352 / 28237 (97%)** |
+| MATCH / CLOSE / DIVERGENT | 0 / 0 / 333 | **13 / 15 / 305** |
+| `H@11px` rms_raw | 130.64 | **15.37** (visually near-identical; residual = 1px crossbar) |
+
+Regressions: none — brutal batteries steady at 57/3, `azul-layout` build clean, `e2e_pixel_diff` + `cpurender_image_probe` pass.
+
+**Next iterations (the loop stays open):** 305 still `DIVERGENT` by the strict `<8` rms bucket, now from *finer* causes — a ~1px vertical crossbar/baseline rounding (glyph-origin `round()` in `build_hinted_path` / `build_path_from_contours` Y-flip) and CoreText's exact sub-pixel AA. Re-run `scripts/coretext_regression.sh` (it auto-diffs prev→now); worst offenders + per-ppem histogram in `SUMMARY.md`; panels named `NNpx_<case>_<bucket>_rmsX.png`.
