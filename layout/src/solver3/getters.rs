@@ -2907,7 +2907,24 @@ pub fn get_style_properties(
         })
     };
 
-    
+    // Get text-transform from CSS (uppercase / lowercase / capitalize / full-width).
+    // Applied to the run text before shaping (fc.rs::apply_text_transform) so that
+    // intrinsic widths reflect the transformed glyphs.
+    let text_transform = cache
+        .get_text_transform(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .map(|t| {
+            use azul_css::props::style::text::StyleTextTransform as Css;
+            use crate::text3::cache::TextTransform as T3;
+            match t {
+                Css::None => T3::None,
+                Css::Uppercase => T3::Uppercase,
+                Css::Lowercase => T3::Lowercase,
+                Css::Capitalize => T3::Capitalize,
+                Css::FullWidth => T3::FullWidth,
+            }
+        })
+        .unwrap_or_default();
 
     StyleProperties {
         font_stack,
@@ -2921,8 +2938,9 @@ pub fn get_style_properties(
         word_spacing,
         text_decoration,
         tab_size,
+        text_transform,
         // These still use defaults - could be extended in future:
-        // font_features, font_variations, text_transform, writing_mode,
+        // font_features, font_variations, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
         ..Default::default()
     }

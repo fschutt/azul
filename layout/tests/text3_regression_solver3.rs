@@ -133,9 +133,6 @@ fn has_box(cache: &Solver3LayoutCache, w: f32, h: f32) -> bool {
 // ===========================================================================
 
 #[test]
-#[ignore = "BUG(text3): text-transform is never wired from CSS into StyleProperties; \
-            getters.rs leaves it at TextTransform::None (documented TODO), so \
-            fc.rs::apply_text_transform never runs (getters.rs:2925)"]
 fn text_transform_uppercase_widens_to_56() {
     // CSS Text §2.1: text-transform:uppercase maps "aaaa" (48px) to "AAAA"
     // (4 * 14px = 56px) BEFORE shaping, in the DOM layer.
@@ -149,9 +146,6 @@ fn text_transform_uppercase_widens_to_56() {
 }
 
 #[test]
-#[ignore = "BUG(text3): text-transform is never wired from CSS into StyleProperties; \
-            getters.rs leaves it at TextTransform::None (documented TODO), so \
-            fc.rs::apply_text_transform never runs (getters.rs:2925)"]
 fn text_transform_lowercase_narrows_to_48() {
     // CSS Text §2.1: text-transform:lowercase maps "AAAA" (56px) to "aaaa" (48px).
     let html = format!(

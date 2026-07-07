@@ -583,6 +583,8 @@ impl FormatAsRustCode for StyleAspectRatio {
 impl_enum_fmt!(StyleTextOrientation, Mixed, Upright, Sideways);
 impl_enum_fmt!(StyleTextAlignLast, Auto, Start, End, Left, Right, Center, Justify);
 
+impl_enum_fmt!(StyleTextTransform, None, Capitalize, Uppercase, Lowercase, FullWidth);
+
 impl_enum_fmt!(StyleDirection, Ltr, Rtl);
 
 impl_enum_fmt!(StyleWhiteSpace, Normal, Pre, Nowrap, PreWrap, PreLine, BreakSpaces);

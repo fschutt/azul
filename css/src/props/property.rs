@@ -80,7 +80,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 178] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 179] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -107,6 +107,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 178] = [
     (CssPropertyType::AspectRatio, "aspect-ratio"),
     (CssPropertyType::TextOrientation, "text-orientation"),
     (CssPropertyType::TextAlignLast, "text-align-last"),
+    (CssPropertyType::TextTransform, "text-transform"),
     (CssPropertyType::Direction, "direction"),
     (CssPropertyType::UserSelect, "user-select"),
     (CssPropertyType::TextDecoration, "text-decoration"),
@@ -377,6 +378,7 @@ pub type StyleObjectPositionValue = CssPropertyValue<StyleObjectPosition>;
 pub type StyleAspectRatioValue = CssPropertyValue<StyleAspectRatio>;
 pub type StyleTextOrientationValue = CssPropertyValue<StyleTextOrientation>;
 pub type StyleTextAlignLastValue = CssPropertyValue<StyleTextAlignLast>;
+pub type StyleTextTransformValue = CssPropertyValue<StyleTextTransform>;
 pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
 pub type StyleUserSelectValue = CssPropertyValue<StyleUserSelect>;
 pub type StyleTextDecorationValue = CssPropertyValue<StyleTextDecoration>;
@@ -623,6 +625,7 @@ pub enum CssProperty {
     AspectRatio(StyleAspectRatioValue),
     TextOrientation(StyleTextOrientationValue),
     TextAlignLast(StyleTextAlignLastValue),
+    TextTransform(StyleTextTransformValue),
     Direction(StyleDirectionValue),
     UserSelect(StyleUserSelectValue),
     TextDecoration(StyleTextDecorationValue),
@@ -874,6 +877,7 @@ pub enum CssPropertyType {
     AspectRatio,
     TextOrientation,
     TextAlignLast,
+    TextTransform,
     Direction,
     UserSelect,
     TextDecoration,
@@ -1061,6 +1065,7 @@ impl CssPropertyType {
         Self::AspectRatio,
         Self::TextOrientation,
         Self::TextAlignLast,
+        Self::TextTransform,
         Self::Direction,
         Self::UserSelect,
         Self::TextDecoration,
@@ -1387,6 +1392,7 @@ impl CssPropertyType {
             Self::AspectRatio => "aspect-ratio",
             Self::TextOrientation => "text-orientation",
             Self::TextAlignLast => "text-align-last",
+            Self::TextTransform => "text-transform",
             Self::Direction => "direction",
             Self::UserSelect => "user-select",
             Self::TextDecoration => "text-decoration",
@@ -1430,14 +1436,14 @@ impl CssPropertyType {
     /// Reference: <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Inheritance>
     // +spec:display-property:b4cf6d - unicode-bidi does not inherit (removed from inheritable set)
     #[must_use] pub const fn is_inheritable(&self) -> bool {
-        use self::CssPropertyType::{FontFamily, FontSize, FontWeight, FontStyle, LineHeight, LetterSpacing, WordSpacing, TextIndent, TextColor, TextAlign, TextJustify, TextDecoration, WhiteSpace, Direction, Hyphens, TabSize, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HangingPunctuation, TextCombineUpright, HyphenationLanguage, ListStyleType, ListStylePosition, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, Visibility, Cursor, Widows, Orphans, WritingMode, UserSelect};
+        use self::CssPropertyType::{FontFamily, FontSize, FontWeight, FontStyle, LineHeight, LetterSpacing, WordSpacing, TextIndent, TextColor, TextAlign, TextJustify, TextDecoration, WhiteSpace, Direction, Hyphens, TabSize, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextTransform, TextOrientation, HangingPunctuation, TextCombineUpright, HyphenationLanguage, ListStyleType, ListStylePosition, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, Visibility, Cursor, Widows, Orphans, WritingMode, UserSelect};
         match self {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
 
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
-            WordBreak | OverflowWrap | LineBreak | TextAlignLast |
+            WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextTransform |
             TextOrientation |
             HangingPunctuation | TextCombineUpright | HyphenationLanguage |
 
@@ -1755,6 +1761,7 @@ pub enum CssParsingError<'a> {
     AspectRatio(StyleAspectRatioParseError<'a>),
     TextOrientation(StyleTextOrientationParseError<'a>),
     TextAlignLast(StyleTextAlignLastParseError<'a>),
+    TextTransform(StyleTextTransformParseError<'a>),
     Direction(StyleDirectionParseError<'a>),
     UserSelect(StyleUserSelectParseError<'a>),
     TextDecoration(StyleTextDecorationParseError<'a>),
@@ -1924,6 +1931,7 @@ pub enum CssParsingErrorOwned {
     AspectRatio(StyleAspectRatioParseErrorOwned),
     TextOrientation(StyleTextOrientationParseErrorOwned),
     TextAlignLast(StyleTextAlignLastParseErrorOwned),
+    TextTransform(StyleTextTransformParseErrorOwned),
     Direction(StyleDirectionParseErrorOwned),
     UserSelect(StyleUserSelectParseErrorOwned),
     TextDecoration(StyleTextDecorationParseErrorOwned),
@@ -2127,6 +2135,7 @@ impl_display! { CssParsingError<'a>, {
     AspectRatio(e) => format!("Invalid aspect-ratio: {}", e),
     TextOrientation(e) => format!("Invalid text-orientation: {}", e),
     TextAlignLast(e) => format!("Invalid text-align-last: {}", e),
+    TextTransform(e) => format!("Invalid text-transform: {}", e),
     Direction(e) => format!("Invalid direction: {}", e),
     UserSelect(e) => format!("Invalid user-select: {}", e),
     TextDecoration(e) => format!("Invalid text-decoration: {}", e),
@@ -2398,6 +2407,10 @@ impl_from!(
 impl_from!(
     StyleTextAlignLastParseError<'a>,
     CssParsingError::TextAlignLast
+);
+impl_from!(
+    StyleTextTransformParseError<'a>,
+    CssParsingError::TextTransform
 );
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
 impl_from!(StyleUserSelectParseError<'a>, CssParsingError::UserSelect);
@@ -2682,6 +2695,9 @@ impl CssParsingError<'_> {
             CssParsingError::TextAlignLast(e) => {
                 CssParsingErrorOwned::TextAlignLast(e.to_contained())
             }
+            CssParsingError::TextTransform(e) => {
+                CssParsingErrorOwned::TextTransform(e.to_contained())
+            }
             CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
             CssParsingError::UserSelect(e) => CssParsingErrorOwned::UserSelect(e.to_contained()),
             CssParsingError::TextDecoration(e) => {
@@ -2916,6 +2932,7 @@ impl CssParsingErrorOwned {
                 CssParsingError::TextOrientation(e.to_shared())
             }
             Self::TextAlignLast(e) => CssParsingError::TextAlignLast(e.to_shared()),
+            Self::TextTransform(e) => CssParsingError::TextTransform(e.to_shared()),
             Self::Direction(e) => CssParsingError::Direction(e.to_shared()),
             Self::UserSelect(e) => CssParsingError::UserSelect(e.to_shared()),
             Self::TextDecoration(e) => {
@@ -3065,6 +3082,7 @@ pub fn parse_css_property(
             CssPropertyType::AspectRatio => parse_style_aspect_ratio(value)?.into(),
             CssPropertyType::TextOrientation => parse_style_text_orientation(value)?.into(),
             CssPropertyType::TextAlignLast => parse_style_text_align_last(value)?.into(),
+            CssPropertyType::TextTransform => parse_style_text_transform(value)?.into(),
             CssPropertyType::Direction => parse_style_direction(value)?.into(),
             CssPropertyType::UserSelect => parse_style_user_select(value)?.into(),
             CssPropertyType::TextDecoration => parse_style_text_decoration(value)?.into(),
@@ -4329,6 +4347,7 @@ impl_from_css_prop!(StyleObjectPosition, CssProperty::ObjectPosition);
 impl_from_css_prop!(StyleAspectRatio, CssProperty::AspectRatio);
 impl_from_css_prop!(StyleTextOrientation, CssProperty::TextOrientation);
 impl_from_css_prop!(StyleTextAlignLast, CssProperty::TextAlignLast);
+impl_from_css_prop!(StyleTextTransform, CssProperty::TextTransform);
 impl_from_css_prop!(StyleDirection, CssProperty::Direction);
 impl_from_css_prop!(StyleWhiteSpace, CssProperty::WhiteSpace);
 impl_from_css_prop!(PageBreak, CssProperty::BreakBefore);
@@ -4515,6 +4534,7 @@ impl CssProperty {
             Self::AspectRatio(v) => v.get_css_value_fmt(),
             Self::TextOrientation(v) => v.get_css_value_fmt(),
             Self::TextAlignLast(v) => v.get_css_value_fmt(),
+            Self::TextTransform(v) => v.get_css_value_fmt(),
             Self::Direction(v) => v.get_css_value_fmt(),
             Self::UserSelect(v) => v.get_css_value_fmt(),
             Self::TextDecoration(v) => v.get_css_value_fmt(),
@@ -4991,6 +5011,7 @@ impl CssProperty {
             Self::AspectRatio(_) => CssPropertyType::AspectRatio,
             Self::TextOrientation(_) => CssPropertyType::TextOrientation,
             Self::TextAlignLast(_) => CssPropertyType::TextAlignLast,
+            Self::TextTransform(_) => CssPropertyType::TextTransform,
             Self::Direction(_) => CssPropertyType::Direction,
             Self::UserSelect(_) => CssPropertyType::UserSelect,
             Self::TextDecoration(_) => CssPropertyType::TextDecoration,
@@ -6228,6 +6249,12 @@ impl CssProperty {
             _ => None,
         }
     }
+    #[must_use] pub const fn as_text_transform(&self) -> Option<&StyleTextTransformValue> {
+        match self {
+            Self::TextTransform(f) => Some(f),
+            _ => None,
+        }
+    }
     #[must_use] pub const fn as_text_align_last(&self) -> Option<&StyleTextAlignLastValue> {
         match self {
             Self::TextAlignLast(f) => Some(f),
@@ -6502,7 +6529,7 @@ impl CssProperty {
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn is_initial(&self) -> bool {
-        use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
+        use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
         match self {
             CaretColor(c) => c.is_initial(),
             CaretWidth(c) => c.is_initial(),
@@ -6649,6 +6676,7 @@ impl CssProperty {
             AspectRatio(c) => c.is_initial(),
             TextOrientation(c) => c.is_initial(),
             TextAlignLast(c) => c.is_initial(),
+            TextTransform(c) => c.is_initial(),
             BreakBefore(c) => c.is_initial(),
             BreakAfter(c) => c.is_initial(),
             BreakInside(c) => c.is_initial(),
@@ -7510,6 +7538,10 @@ impl CssProperty {
         CssProperty::TextAlignLast(p) => format!(
             "CssProperty::TextAlignLast({})",
             print_css_property_value(p, tabs, "StyleTextAlignLast")
+        ),
+        CssProperty::TextTransform(p) => format!(
+            "CssProperty::TextTransform({})",
+            print_css_property_value(p, tabs, "StyleTextTransform")
         ),
         CssProperty::Direction(p) => format!(
             "CssProperty::Direction({})",

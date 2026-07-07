@@ -438,6 +438,44 @@ impl PrintAsCssValue for StyleTextAlignLast {
     }
 }
 
+// -- StyleTextTransform --
+
+/// Controls capitalization of a text run (applied before shaping).
+///
+/// CSS Text Level 3 §2.1: <https://www.w3.org/TR/css-text-3/#text-transform-property>
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+#[derive(Default)]
+pub enum StyleTextTransform {
+    /// No capitalization effect.
+    #[default]
+    None,
+    /// Uppercase the first typographic letter unit of each word.
+    Capitalize,
+    /// Uppercase every typographic letter unit.
+    Uppercase,
+    /// Lowercase every typographic letter unit.
+    Lowercase,
+    /// Map to the full-width form where available.
+    FullWidth,
+}
+impl_option!(
+    StyleTextTransform,
+    OptionStyleTextTransform,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleTextTransform {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::None => "none",
+            Self::Capitalize => "capitalize",
+            Self::Uppercase => "uppercase",
+            Self::Lowercase => "lowercase",
+            Self::FullWidth => "full-width",
+        })
+    }
+}
+
 // -- StyleDirection --
 
 /// Text direction.
@@ -1930,6 +1968,62 @@ pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, St
         "center" => Ok(StyleTextAlignLast::Center),
         "justify" => Ok(StyleTextAlignLast::Justify),
         other => Err(StyleTextAlignLastParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
+// -- StyleTextTransform parse --
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq, Eq)]
+pub enum StyleTextTransformParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleTextTransformParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleTextTransformParseError<'a>, {
+    InvalidValue(e) => format!("Invalid text-transform value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleTextTransformParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum StyleTextTransformParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextTransformParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleTextTransformParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleTextTransformParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextTransformParseErrorOwned {
+    #[must_use] pub fn to_shared(&self) -> StyleTextTransformParseError<'_> {
+        match self {
+            Self::InvalidValue(e) => StyleTextTransformParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-transform` value.
+pub fn parse_style_text_transform(input: &str) -> Result<StyleTextTransform, StyleTextTransformParseError<'_>> {
+    match input.trim() {
+        "none" => Ok(StyleTextTransform::None),
+        "capitalize" => Ok(StyleTextTransform::Capitalize),
+        "uppercase" => Ok(StyleTextTransform::Uppercase),
+        "lowercase" => Ok(StyleTextTransform::Lowercase),
+        "full-width" => Ok(StyleTextTransform::FullWidth),
+        other => Err(StyleTextTransformParseError::InvalidValue(InvalidValueErr(other))),
     }
 }
 

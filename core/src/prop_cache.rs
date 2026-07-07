@@ -95,7 +95,7 @@ use azul_css::{
             StyleAspectRatioValue, StyleObjectFitValue, StyleObjectPositionValue,
             StyleOpacityValue, StylePerspectiveOriginValue,
             StyleScrollbarColorValue, StyleOverflowWrapValue, StyleTabSizeValue,
-            StyleTextAlignLastValue, StyleTextOrientationValue,
+            StyleTextAlignLastValue, StyleTextOrientationValue, StyleTextTransformValue,
             StyleTextAlignValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleUnicodeBidiValue,
             StyleTextBoxTrimValue, StyleTextBoxEdgeValue,
@@ -2375,6 +2375,8 @@ impl CssPropertyCache {
     impl_get_prop!(get_line_break, StyleLineBreakValue, LineBreak, as_line_break);
 
     impl_get_prop!(get_text_align_last, StyleTextAlignLastValue, TextAlignLast, as_text_align_last);
+
+    impl_get_prop!(get_text_transform, StyleTextTransformValue, TextTransform, as_text_transform);
 
     impl_get_prop!(get_object_fit, StyleObjectFitValue, ObjectFit, as_object_fit);
 
