@@ -649,6 +649,11 @@ pub const FAKE_FAMILY: &str = "FakeTest";
 /// * `68..=71` — `你 好 世 界`
 /// * `72..=74` — `א ב ג`
 /// * `75` — U+0301 combining acute accent
+/// * `76` — `'/'` solidus (300u => 6px)
+/// * `77` — `'@'` wide at-sign (900u => 18px)
+/// * `78` — U+200B ZERO WIDTH SPACE (0 advance, empty)
+/// * `79` — U+00AD SOFT HYPHEN (0 advance, empty)
+/// * `80` — `'\t'` TAB (250u => 5px, empty)
 pub fn simple_test_font() -> Vec<u8> {
     let mut b = FakeFontBuilder::new(FAKE_FAMILY, 1000).metrics(800, -200, 0);
 
@@ -780,9 +785,106 @@ pub fn simple_test_font() -> Vec<u8> {
         },
     );
 
+    // '/' solidus (300u => 6px). A visible break-after candidate (UAX#14 class SY).
+    b.add_glyph(
+        Some('/'),
+        FakeGlyph {
+            advance: 300,
+            lsb: 50,
+            bbox: Some((100, 0, 200, 700)),
+            instructions: Vec::new(),
+        },
+    );
+
+    // '@' wide at-sign (900u => 18px) — a broad glyph distinct from every other width.
+    b.add_glyph(
+        Some('@'),
+        FakeGlyph {
+            advance: 900,
+            lsb: 50,
+            bbox: Some((50, -100, 850, 700)),
+            instructions: Vec::new(),
+        },
+    );
+
+    // U+200B ZERO WIDTH SPACE: zero advance, empty. An explicit soft-wrap opportunity
+    // (UAX#14 class ZW) that is honored even under word-break: keep-all.
+    b.add_glyph(
+        Some('\u{200B}'),
+        FakeGlyph {
+            advance: 0,
+            lsb: 0,
+            bbox: None,
+            instructions: Vec::new(),
+        },
+    );
+
+    // U+00AD SOFT HYPHEN: zero advance, empty. A conditional (manual) break opportunity
+    // (UAX#14 class BA) active only when the `hyphens` property is not `none`.
+    b.add_glyph(
+        Some('\u{00AD}'),
+        FakeGlyph {
+            advance: 0,
+            lsb: 0,
+            bbox: None,
+            instructions: Vec::new(),
+        },
+    );
+
+    // '\t' TAB (250u => 5px, empty). The text3 model routes real tab stops through
+    // `InlineContent::Tab`; this cmap entry just lets a literal tab shape without
+    // falling back to `.notdef`.
+    b.add_glyph(
+        Some('\t'),
+        FakeGlyph {
+            advance: 250,
+            lsb: 0,
+            bbox: None,
+            instructions: Vec::new(),
+        },
+    );
+
     // Kern pairs A/V and V/A (tighter).
     b.add_kern(gid_a, gid_v, -100);
     b.add_kern(gid_v, gid_a, -100);
+
+    b.build()
+}
+
+/// The family name used by [`simple_fallback_font`].
+pub const FAKE_FALLBACK_FAMILY: &str = "FakeFallback";
+
+/// A second, independent 1000-upem test font whose cmap is DISJOINT from
+/// [`simple_test_font`]: it maps Greek `α β γ δ` and `'#'`, none of which the
+/// primary font covers. Every mapped glyph advances 800u (=> 16px at font-size
+/// 20), a width shared by no glyph in the primary font, so a fallback glyph is
+/// unmistakable in the measured output.
+///
+/// Glyph ids: `0` .notdef, `1..=4` `α β γ δ` (U+03B1..=U+03B4), `5` `'#'`.
+pub fn simple_fallback_font() -> Vec<u8> {
+    let mut b = FakeFontBuilder::new(FAKE_FALLBACK_FAMILY, 1000).metrics(800, -200, 0);
+
+    for &c in &['\u{03B1}', '\u{03B2}', '\u{03B3}', '\u{03B4}'] {
+        b.add_glyph(
+            Some(c),
+            FakeGlyph {
+                advance: 800,
+                lsb: 50,
+                bbox: Some((50, 0, 750, 700)),
+                instructions: Vec::new(),
+            },
+        );
+    }
+
+    b.add_glyph(
+        Some('#'),
+        FakeGlyph {
+            advance: 800,
+            lsb: 50,
+            bbox: Some((50, 0, 750, 700)),
+            instructions: Vec::new(),
+        },
+    );
 
     b.build()
 }
@@ -879,7 +981,7 @@ mod selfcheck {
     #[test]
     fn expected_glyph_count() {
         // .notdef + 26 + 26 + 10 + space + nbsp + '-' + '.' + ',' + 4 CJK
-        // + 3 Hebrew + combining = 76 glyphs.
+        // + 3 Hebrew + combining + '/' + '@' + ZWSP + SHY + TAB = 81 glyphs.
         let b = FakeFontBuilder::new(FAKE_FAMILY, 1000);
         assert_eq!(b.glyphs.len(), 1); // just .notdef so far
     }
