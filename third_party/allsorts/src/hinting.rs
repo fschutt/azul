@@ -375,6 +375,10 @@ impl HintInstance {
     ///
     /// FLIPPT/FLIPRGON/FLIPRGOFF instructions can change on-curve flags during hinting.
     /// The path builder MUST use the returned flags, not the original raw_on_curve.
+    ///
+    /// This convenience form places phantom point pp1 at x = 0 (the common
+    /// `lsb == xMin` case). Callers that know the horizontal metrics should use
+    /// [`Self::hint_glyph_with_flags_pp1`] and pass the scaled `xMin - lsb`.
     pub fn hint_glyph_with_flags(
         &mut self,
         points_f26dot6: &[(i32, i32)],
@@ -382,6 +386,24 @@ impl HintInstance {
         contour_ends: &[u16],
         instructions: &[u8],
         advance_width_f26dot6: i32,
+    ) -> Result<(Vec<(i32, i32)>, Vec<bool>), HintError> {
+        self.hint_glyph_with_flags_pp1(
+            points_f26dot6, on_curve, contour_ends, instructions, advance_width_f26dot6, 0,
+        )
+    }
+
+    /// Like [`Self::hint_glyph_with_flags`] but with an explicit phantom point
+    /// pp1 x-origin. Per the TrueType spec pp1.x = (xMin - lsb) scaled to
+    /// F26Dot6 and pp2.x = pp1.x + advance; getting pp1.x right matters for
+    /// glyph programs that grid-fit the left side bearing relative to pp1.
+    pub fn hint_glyph_with_flags_pp1(
+        &mut self,
+        points_f26dot6: &[(i32, i32)],
+        on_curve: &[bool],
+        contour_ends: &[u16],
+        instructions: &[u8],
+        advance_width_f26dot6: i32,
+        phantom_pp1_x: i32,
     ) -> Result<(Vec<(i32, i32)>, Vec<bool>), HintError> {
         if instructions.is_empty() || !self.fpgm_executed {
             return Ok((points_f26dot6.to_vec(), on_curve.to_vec()));
@@ -393,8 +415,8 @@ impl HintInstance {
             .iter()
             .map(|&(x, y)| Point { x, y })
             .collect();
-        points.push(Point { x: 0, y: 0 });
-        points.push(Point { x: advance_width_f26dot6, y: 0 });
+        points.push(Point { x: phantom_pp1_x, y: 0 });                     // pp1: origin (xMin - lsb)
+        points.push(Point { x: phantom_pp1_x + advance_width_f26dot6, y: 0 }); // pp2: advance
         points.push(Point { x: 0, y: 0 });
         points.push(Point { x: 0, y: 0 });
 

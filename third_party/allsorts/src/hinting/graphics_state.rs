@@ -195,13 +195,15 @@ impl GraphicsState {
             );
         }
 
-        // Phase (bits 5-4)
+        // Phase (bits 5-4): derived from the actual period (period*{0,1/4,1/2,3/4}),
+        // NOT hardcoded 16/32/48 which is only correct when period == 64.
+        let period = self.super_round_period.0;
         let phase_bits = (n >> 4) & 0x03;
         self.super_round_phase = match phase_bits {
             0 => F26Dot6::ZERO,
-            1 => F26Dot6(16), // 1/4 period (approximation: period/4)
-            2 => F26Dot6(32), // 1/2 period
-            3 => F26Dot6(48), // 3/4 period
+            1 => F26Dot6(period / 4),
+            2 => F26Dot6(period / 2),
+            3 => F26Dot6(period * 3 / 4),
             _ => unreachable!(),
         };
 

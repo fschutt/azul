@@ -133,7 +133,7 @@ impl GlyphCache {
             .or_insert_with(|| {
                 // Try hinted path first if ppem > 0
                 if ppem > 0 {
-                    if let Some(path) = build_hinted_path(glyph_data, parsed_font, ppem) {
+                    if let Some(path) = build_hinted_path(glyph_id, glyph_data, parsed_font, ppem) {
                         return Some((path, true));
                     }
                 }
@@ -244,7 +244,34 @@ impl GlyphCache {
 ///
 /// The returned path is in pixel coordinates (1 unit = 1 pixel at the given ppem).
 /// Returns `None` if the glyph has no raw hinting data or hinting fails.
+/// Read a glyph's left side bearing (font units) straight from the `hmtx`
+/// table. Mirrors the FreeType `TT_Get_HMetrics` lookup used to place phantom
+/// point pp1 at `xMin - lsb`. Returns `None` if hmtx is unavailable.
+fn glyph_lsb(parsed_font: &ParsedFont, glyph_id: u16) -> Option<i16> {
+    let (off, len) = parsed_font.hmtx_range;
+    if len == 0 {
+        return None;
+    }
+    let bytes = parsed_font.original_bytes.as_ref()?;
+    let hmtx = bytes.as_ref().get(off..off + len)?;
+    let num = usize::from(parsed_font.hhea_table.num_h_metrics);
+    if num == 0 {
+        return None;
+    }
+    let gid = usize::from(glyph_id);
+    // longHorMetric[i] = { advanceWidth: u16, lsb: i16 } (4 bytes) for i < num;
+    // trailing leftSideBearing: i16 array for the remaining glyphs.
+    let lsb_off = if gid < num {
+        gid * 4 + 2
+    } else {
+        num * 4 + (gid - num) * 2
+    };
+    let b = hmtx.get(lsb_off..lsb_off + 2)?;
+    Some(i16::from_be_bytes([b[0], b[1]]))
+}
+
 fn build_hinted_path(
+    glyph_id: u16,
     glyph: &OwnedGlyph,
     parsed_font: &ParsedFont,
     ppem: u16,
@@ -287,17 +314,26 @@ fn build_hinted_path(
     // Scale advance width to F26Dot6 for phantom points
     let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
 
+    // Phantom point pp1.x = (xMin - lsb) scaled (FreeType tt_loader_set_pp).
+    // Threading the real lsb makes left-side-bearing grid-fitting match FreeType
+    // for fonts where lsb != xMin; when lsb is unavailable, fall back to xMin
+    // (i.e. lsb == xMin => pp1.x = 0, the previous hardcoded behaviour).
+    let x_min = i32::from(glyph.bounding_box.min_x);
+    let lsb = glyph_lsb(parsed_font, glyph_id).map_or(x_min, i32::from);
+    let pp1_x_f26dot6 = F26Dot6::from_funits(x_min - lsb, scale).to_bits();
+
     // Run hinting and capture the POST-hinting on-curve flags. FLIPPT/FLIPRGON/
     // FLIPRGOFF can flip a point between on-curve and off-curve during the glyph
     // program; the contour builder must use the updated flags, not the original
     // raw_on_curve, or it treats a flipped control point as a line endpoint (and
     // vice versa), kinking the outline.
-    let Ok((hinted, hinted_on_curve)) = hint.hint_glyph_with_flags(
+    let Ok((hinted, hinted_on_curve)) = hint.hint_glyph_with_flags_pp1(
         &points_f26dot6,
         raw_on_curve,
         raw_contour_ends,
         instructions,
         adv_f26dot6,
+        pp1_x_f26dot6,
     ) else {
         return None;
     };

@@ -289,9 +289,12 @@ impl Interpreter {
         max_twilight_points: u16,
         units_per_em: u16,
     ) -> Self {
+        // FreeType sizes the stack to maxStackElements + 32 so under-declared
+        // fonts (whose real high-water mark exceeds maxp) don't lose all hinting.
+        let max_stack = max_stack_elements as usize + 32;
         Interpreter {
-            stack: Vec::with_capacity(max_stack_elements as usize),
-            max_stack: max_stack_elements as usize,
+            stack: Vec::with_capacity(max_stack),
+            max_stack,
             cvt: Vec::new(),
             cvt_original: Vec::new(),
             cvt_deltac_accum: Vec::new(),
@@ -482,6 +485,9 @@ impl Interpreter {
         self.gs.zp0 = 1;
         self.gs.zp1 = 1;
         self.gs.zp2 = 1;
+        // FreeType TT_Run_Context resets round_state to RTG (1) before every
+        // glyph, so a non-grid round mode left active by prep does not leak in.
+        self.gs.round_state = RoundState::Grid;
 
         self.stack.clear();
         self.instruction_count = 0;
@@ -988,6 +994,11 @@ impl Interpreter {
                 let idx = self.pop()? as u32;
                 let i = idx as usize;
                 if i >= self.cvt.len() {
+                    // Bounds-check like WS/RS: an out-of-range (negative/huge)
+                    // index must not trigger a multi-GB resize/OOM.
+                    if i > 10_000 {
+                        return Err(HintError::InvalidCvtIndex(idx));
+                    }
                     self.cvt.resize(i + 1, 0);
                 }
                 self.cvt[i] = val;
@@ -1204,6 +1215,9 @@ impl Interpreter {
                 let scaled = F26Dot6::from_funits(val, self.scale).to_bits();
                 let i = idx as usize;
                 if i >= self.cvt.len() {
+                    if i > 10_000 {
+                        return Err(HintError::InvalidCvtIndex(idx));
+                    }
                     self.cvt.resize(i + 1, 0);
                 }
                 self.cvt[i] = scaled;
@@ -1289,9 +1303,13 @@ impl Interpreter {
                 // FLIPRGON
                 let hi = self.pop()? as usize;
                 let lo = self.pop()? as usize;
-                for i in lo..=hi {
-                    if let Some(flags) = self.zones[1].flags.get_mut(i) {
-                        flags.insert(PointFlags::ON_CURVE);
+                // Clamp the range to the glyph zone so a huge/negative index
+                // (e.g. -1 -> usize::MAX) does not spin an unbounded loop.
+                let len = self.zones[1].flags.len();
+                if lo < len {
+                    let hi = hi.min(len - 1);
+                    for i in lo..=hi {
+                        self.zones[1].flags[i].insert(PointFlags::ON_CURVE);
                     }
                 }
             }
@@ -1299,9 +1317,11 @@ impl Interpreter {
                 // FLIPRGOFF
                 let hi = self.pop()? as usize;
                 let lo = self.pop()? as usize;
-                for i in lo..=hi {
-                    if let Some(flags) = self.zones[1].flags.get_mut(i) {
-                        flags.remove(PointFlags::ON_CURVE);
+                let len = self.zones[1].flags.len();
+                if lo < len {
+                    let hi = hi.min(len - 1);
+                    for i in lo..=hi {
+                        self.zones[1].flags[i].remove(PointFlags::ON_CURVE);
                     }
                 }
             }
@@ -1621,9 +1641,9 @@ impl Interpreter {
             + 0x2000)
             >> 14;
 
-        if dot == 0 {
-            return;
-        }
+        // FreeType guarantees F_dot_P is never zero: when it computes to 0 it
+        // substitutes 0x4000 (1.0) so the point is still displaced and touched.
+        let dot = if dot == 0 { 0x4000 } else { dot };
 
         // displacement = distance * freedom_vector / (freedom_vector · projection_vector)
         // Use FreeType-compatible signed division: convert to absolute values,
@@ -1962,9 +1982,11 @@ impl Interpreter {
             }
         }
 
-        // CVT cut-in: if actual distance is too far from CVT value, use actual
+        // CVT cut-in: if actual distance is too far from CVT value, use actual.
+        // FreeType applies this only when reference and target share a zone
+        // (gep0 == gep1) and independently of the rounding bit.
         let cvt_ci = self.gs.control_value_cut_in.to_bits();
-        if do_round && (dist - orig_dist).abs() > cvt_ci {
+        if zp0 == zp1 && (dist - orig_dist).abs() > cvt_ci {
             dist = orig_dist;
         }
 
@@ -2168,10 +2190,31 @@ impl Interpreter {
             y: rp_cur.y - rp_orig.y,
         });
 
+        // FreeType's Ins_SHZ shifts the whole zone via Move_Zp2_Point(..., FALSE):
+        // the points are moved but NOT marked touched, so a later IUP still
+        // re-interpolates them. Mirror move_point's freedom-vector math inline
+        // (F_dot_P clamped like FreeType) without inserting the touch flags.
+        let (fx, fy) = self.gs.freedom_vector;
+        let (px, py) = self.gs.projection_vector;
+        let dot = {
+            let d = (fx.to_bits() as i64 * px.to_bits() as i64
+                + fy.to_bits() as i64 * py.to_bits() as i64
+                + 0x2000)
+                >> 14;
+            if d == 0 {
+                0x4000
+            } else {
+                d
+            }
+        };
+        let dx = ft_muldiv(displacement as i64, fx.to_bits() as i64, dot) as i32;
+        let dy = ft_muldiv(displacement as i64, fy.to_bits() as i64, dot) as i32;
+
         let z = zone_idx as usize;
         let n = self.zones[z].len();
         for i in 0..n {
-            self.move_point(z, i, displacement);
+            self.zones[z].current[i].x += dx;
+            self.zones[z].current[i].y += dy;
         }
         Ok(())
     }
@@ -2487,13 +2530,19 @@ impl Interpreter {
         let dby = (pb1.y - pb0.y) as i64;
 
         let denom = dax * dby - day * dbx;
+        // FreeType Ins_ISECT rejects grazing (near-parallel) intersections with
+        // a RELATIVE test: discriminant ∝ |da||db|sin(angle) (== denom here) and
+        // dotproduct ∝ |da||db|cos(angle). When 19*|discriminant| <= |dotproduct|
+        // the angle is too shallow, so snap to the midpoint instead of
+        // extrapolating a far-off point from a tiny nonzero determinant.
+        let dotproduct = dax * dbx + day * dby;
 
         let zp2 = self.gs.zp2 as usize;
         let i = p as usize;
         self.zones[zp2].ensure_capacity(i + 1);
 
-        if denom.abs() < 1 {
-            // Lines are parallel; use midpoint of endpoints
+        if 19 * denom.abs() <= dotproduct.abs() {
+            // Lines are parallel or near-parallel; use midpoint of endpoints
             self.zones[zp2].current[i].x = (pa0.x + pa1.x + pb0.x + pb1.x) / 4;
             self.zones[zp2].current[i].y = (pa0.y + pa1.y + pb0.y + pb1.y) / 4;
         } else {
@@ -2530,7 +2579,9 @@ impl Interpreter {
     // ── Delta instructions ───────────────────────────────────────────
     //
     // Spec: Apple TrueType Reference Manual §5, Table 5 (magnitude encoding).
-    // Stack pop order: n, then n pairs of (arg, point/cvt) — arg is on top.
+    // Stack pop order: n, then n pairs — the point/cvt index is on TOP (popped
+    // first), the arg (ppem/magnitude) byte is below it (FreeType Ins_DELTAP:
+    // point = stack[args+1], spec byte = stack[args]).
     // Magnitude encoding: bits 3-0 of arg:
     //   0=-8 steps, 1=-7, ..., 7=-1, 8=+1, 9=+2, ..., 15=+8
     // Step size: 1 / (1 << delta_shift) pixels (typically 1/8 px at shift=3).
@@ -2558,8 +2609,9 @@ impl Interpreter {
         };
 
         for _ in 0..n {
-            let arg = self.pop()? as u32;
+            // Point index is on top of the stack (FreeType Ins_DELTAP), then arg.
             let point_idx = self.pop()? as u32;
+            let arg = self.pop()? as u32;
 
             let ppem_offset = ((arg >> 4) & 0x0F) as i32;
             let target_ppem = delta_base + range_offset + ppem_offset;
