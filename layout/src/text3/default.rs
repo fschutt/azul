@@ -839,6 +839,17 @@ fn shape_text_internal(
             &mut infos,
         )
         .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+    } else {
+        // No GPOS table: apply the legacy `kern` table (and fallback mark
+        // positioning) directly, so fonts that ship only a legacy `kern` table
+        // still kern — matching CoreText/HarfBuzz behavior. Without this,
+        // GPOS-less fonts got zero kerning.
+        let kern_table = parsed_font
+            .opt_kern_table
+            .as_ref()
+            .map(|kt| kt.as_borrowed());
+        gpos::apply_fallback(kern_table, script_tag, &mut infos)
+            .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
     }
 
     let font_size = style.font_size_px;
