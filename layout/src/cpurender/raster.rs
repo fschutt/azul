@@ -2122,7 +2122,148 @@ fn render_rect(
 
 }
 
+/// Default for the RGB LCD subpixel-AA text path: **OFF**.
+///
+/// LCD rendering distributes glyph coverage across the R/G/B stripes of each
+/// physical pixel; it is correct only on an OPAQUE background with a
+/// horizontal-RGB subpixel panel, and changes black text into the familiar
+/// faintly-fringed subpixel look. Because those preconditions are
+/// display-specific, the grayscale path is the default and LCD is opt-in via
+/// `AZ_TEXT_LCD=1`.
+pub const TEXT_LCD_DEFAULT: bool = false;
+
+/// Whether to render text via the RGB LCD subpixel-AA path. Off by default (see
+/// [`TEXT_LCD_DEFAULT`]); set `AZ_TEXT_LCD=1` to enable. Read once.
+fn text_lcd_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("AZ_TEXT_LCD")
+            .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+            .unwrap_or(TEXT_LCD_DEFAULT)
+    })
+}
+
+/// RGB LCD subpixel-AA glyph run. Rasterizes each glyph at **3× horizontal
+/// resolution** (one sub-sample per R/G/B stripe), then lets [`PixfmtRgba32Lcd`]
+/// run a 5-tap FIR (the `FreeType` default "light" filter `[08 4D 56 4D 08]`, which
+/// sums to 256) over the sub-samples to produce PER-CHANNEL coverage and blend
+/// it into the buffer. Black text on white therefore shows the characteristic
+/// R/B subpixel fringes instead of a single grey coverage.
+///
+/// Assumptions / limitations (documented, since this is opt-in):
+/// - **Horizontal RGB** subpixel order. A BGR panel would need the R/B taps
+///   swapped; a vertical panel would need a transposed (3× vertical) variant.
+/// - **Opaque background.** The pixfmt writes per-channel and forces the touched
+///   pixel's alpha to 255, so subpixel text composited onto a transparent layer
+///   is wrong — as it is for every LCD text pipeline. The default flat render
+///   path fills the frame opaque white, which is the intended target.
+/// - Uses the glyph **path** cache (`get_or_build`), not the pre-rasterized cell
+///   cache, since the cells are 1× horizontal; LCD is thus a little slower.
+///
+/// The Y baseline is grid-snapped (crisp vertical) and X is placed at true
+/// fractional position (1/3-px LCD precision) when `AZ_TEXT_SUBPIXEL` is on, or
+/// snapped to an integer pixel when it is off — matching the grayscale path's
+/// sub-pixel-positioning policy.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::too_many_arguments)] // mirrors render_text's font/metric plumbing
+fn render_glyphs_lcd(
+    pixmap: &mut AzulPixmap,
+    clip: Option<AzRect>,
+    glyphs: &[GlyphInstance],
+    parsed_font: &ParsedFont,
+    font_hash: FontHash,
+    ppem: u16,
+    scale: f32,
+    hint_correction: f32,
+    color: ColorU,
+    dpi_factor: f32,
+    scroll_offset: (f32, f32),
+    glyph_cache: &mut GlyphCache,
+) {
+    use agg_rust::pixfmt_lcd::{LcdDistributionLut, PixfmtRgba32Lcd};
+
+    let agg_color = Rgba8::new(
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
+    );
+    let subpx = crate::glyph_cache::text_subpixel_enabled();
+
+    // Accumulate every glyph outline (at 3× horizontal resolution) into one
+    // rasterizer, then sweep once — same batching as the grayscale path.
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(FillingRule::NonZero);
+
+    for glyph in glyphs {
+        let glyph_index = glyph.index as u16;
+        let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
+            continue;
+        };
+        let Some(cached) = glyph_cache.get_or_build(
+            font_hash.font_hash,
+            glyph_index,
+            &glyph_data,
+            parsed_font,
+            ppem,
+        ) else {
+            continue;
+        };
+        let is_hinted = cached.is_hinted;
+
+        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
+        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
+        // Crisp vertical: grid-snap the baseline. Soft horizontal: keep the true
+        // fractional x (LCD gives 1/3-px precision) unless sub-pixel is disabled.
+        let px = if subpx { glyph_x } else { glyph_x.round() };
+        let py = glyph_baseline_y.round();
+
+        // Path units → pixels: hinted-at-integer-ppem is already pixel-space
+        // (scale 1), a fractional effective size rescales by hint_correction, and
+        // an unhinted outline is in font units (scale = px/upem). Mirrors
+        // `GlyphCache::get_or_build_cells`.
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
+        let path_scale = if is_hinted {
+            if rescale_hinted { f64::from(hint_correction) } else { 1.0 }
+        } else {
+            f64::from(scale)
+        };
+
+        // Map the path to its absolute pixel position, then triple the X axis so
+        // the rasterizer runs at 3 sub-samples per pixel:
+        //   final_subpixel_x = 3*(path_scale*path_x + px),  final_y = path_scale*path_y + py
+        // (scale-then-translate: `TransAffine::multiply` post-concatenates).
+        let mut transform = TransAffine::new_scaling(3.0 * path_scale, path_scale);
+        transform.multiply(&TransAffine::new_translation(3.0 * f64::from(px), f64::from(py)));
+        ras.add_path_vertices_transformed(cached.path.vertices(), &transform);
+    }
+
+    // Blend via the LCD pixel format. It reports width*3, so the rasterizer's 3×
+    // x-coordinates address individual R/G/B stripes; the clip box X is likewise
+    // in sub-pixel space.
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
+    // FreeType default "light" 5-tap FIR: primary 0x56, secondary 0x4D, tertiary
+    // 0x08 (0x08+0x4D+0x56+0x4D+0x08 = 256); the LUT normalizes prim+2·sec+2·tert.
+    let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
+    let pf = PixfmtRgba32Lcd::new(&mut ra, &lut);
+    let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        rb.clip_box_i(
+            (c.x as i32) * 3,
+            c.y as i32,
+            ((c.x + c.width) as i32) * 3 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
+    let mut sl = ScanlineU8::new();
+    render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(clippy::too_many_lines)] // large but cohesive: font lookup + grayscale/LCD dispatch + glyph loop
 fn render_text(
     glyphs: &[GlyphInstance],
     font_hash: FontHash,
@@ -2199,6 +2340,17 @@ fn render_text(
     // rescales it back to the true (possibly fractional) effective size so hinted
     // glyphs match unhinted fallbacks and animate smoothly instead of snapping.
     let hint_correction = if ppem > 0 { effective_px / f32::from(ppem) } else { 1.0 };
+
+    // RGB LCD subpixel-AA path (opt-in, `AZ_TEXT_LCD=1`; off by default). Renders
+    // at 3× horizontal resolution with a 5-tap FIR + per-channel blend. The
+    // grayscale path below is left byte-for-byte identical when the flag is off.
+    if text_lcd_enabled() {
+        render_glyphs_lcd(
+            pixmap, clip, glyphs, parsed_font, font_hash, ppem, scale,
+            hint_correction, color, dpi_factor, scroll_offset, glyph_cache,
+        );
+        return;
+    }
 
     // Set up the rasterizer pipeline once, reuse for all glyphs
     let w = pixmap.width;

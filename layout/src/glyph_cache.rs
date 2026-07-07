@@ -177,11 +177,21 @@ impl GlyphCache {
         }
         // Hinted outline built at integer ppem needs rescaling only when the
         // effective size is fractional (hint_correction != 1). Otherwise it stays
-        // pixel-grid-snapped (sub-pixel 0, rounded placement) as hinting intends.
+        // pixel-grid-snapped (rounded placement) as hinting intends.
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
         let grid_snapped = is_hinted && !rescale_hinted;
 
-        let subpx_x = if grid_snapped { 0 } else { quantize_subpx(glyph_x) };
+        // Sub-pixel HORIZONTAL positioning (default ON): even a grid-snapped
+        // (hinted-at-integer-ppem) glyph places its ORIGIN at a 1/4-pixel X
+        // bucket, so advances accumulate smoothly and the run lands where
+        // CoreText (fractional-x) puts it, instead of each origin rounding to a
+        // whole pixel. The grid-fitted OUTLINE is unchanged — only where we drop
+        // it horizontally shifts — so vertical stems stay crisp. The Y baseline
+        // stays grid-snapped (`subpx_y == 0` for grid_snapped). With
+        // `AZ_TEXT_SUBPIXEL=0` the grid_snapped case reverts to integer X
+        // (sub-pixel 0, rounded origin), the previous behaviour.
+        let subpx_x_snap = grid_snapped && !text_subpixel_enabled();
+        let subpx_x = if subpx_x_snap { 0 } else { quantize_subpx(glyph_x) };
         let subpx_y = if grid_snapped { 0 } else { quantize_subpx(glyph_y) };
         debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {scale}");
         let scale_fixed = if is_hinted {
@@ -194,8 +204,10 @@ impl GlyphCache {
             font_hash, glyph_id, ppem, scale_fixed, subpx_x, subpx_y,
         };
 
-        // Integer pixel offset — the cells are at sub-pixel origin, offset by int part
-        let int_x = if grid_snapped { glyph_x.round() as i32 } else { glyph_x.floor() as i32 };
+        // Integer pixel offset — the cells are at sub-pixel origin, offset by int
+        // part. `int_x + subpx_x*0.25` must reconstruct `glyph_x`, so the floor
+        // pairs with the quantized fraction; only the integer-X-snap case rounds.
+        let int_x = if subpx_x_snap { glyph_x.round() as i32 } else { glyph_x.floor() as i32 };
         let int_y = if grid_snapped { glyph_y.round() as i32 } else { glyph_y.floor() as i32 };
 
         if !self.cells.contains_key(&cell_key) {
@@ -369,6 +381,25 @@ fn hint_light_enabled() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         std::env::var("AZ_HINT_LIGHT")
+            .map(|s| !(s == "0" || s.eq_ignore_ascii_case("false")))
+            .unwrap_or(true)
+    })
+}
+
+/// Whether to place each glyph ORIGIN at a sub-pixel HORIZONTAL position (a
+/// 1/4-pixel X bucket) instead of snapping it to a whole pixel.
+///
+/// ON by default. This is the horizontal half of the light-hinting philosophy
+/// (crisp vertical, soft/sub-pixel horizontal): the grid-fitted glyph *outline*
+/// still snaps its stems and baseline to the pixel grid, but the pen advances
+/// accumulate at fractional precision so a run of glyphs lands where CoreText
+/// (which positions glyphs at fractional x) puts them, rather than each origin
+/// rounding to an integer pixel and drifting the whole line. Set
+/// `AZ_TEXT_SUBPIXEL=0` (or `false`) to force integer X placement. Read once.
+pub(crate) fn text_subpixel_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("AZ_TEXT_SUBPIXEL")
             .map(|s| !(s == "0" || s.eq_ignore_ascii_case("false")))
             .unwrap_or(true)
     })
