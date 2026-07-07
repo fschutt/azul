@@ -1252,9 +1252,16 @@ impl Clone for ComponentFieldTypeBox {
 
 impl Drop for ComponentFieldTypeBox {
     fn drop(&mut self) {
-        if !self.ptr.is_null() {
+        // Null the pointer as we free it, so a *second* drop is a no-op instead
+        // of a double free. This type is a by-value payload of the
+        // `ComponentFieldType` enum, whose codegen FFI mirror gets
+        // `impl Drop { _delete }` (= drop_in_place of the real type) AND Rust
+        // field drop-glue — dropping each by-value field twice. Without this
+        // take-and-null the second drop would `Box::from_raw` a dangling pointer.
+        let ptr = core::mem::replace(&mut self.ptr, core::ptr::null_mut());
+        if !ptr.is_null() {
             unsafe {
-                drop(Box::from_raw(self.ptr));
+                drop(Box::from_raw(ptr));
             }
         }
     }
@@ -1338,9 +1345,12 @@ impl Clone for ComponentFieldValueBox {
 
 impl Drop for ComponentFieldValueBox {
     fn drop(&mut self) {
-        if !self.ptr.is_null() {
+        // Take-and-null so a second drop (codegen FFI double-drop of a by-value
+        // field, see `ComponentFieldTypeBox`) is a no-op, not a double free.
+        let ptr = core::mem::replace(&mut self.ptr, core::ptr::null_mut());
+        if !ptr.is_null() {
             unsafe {
-                drop(Box::from_raw(self.ptr));
+                drop(Box::from_raw(ptr));
             }
         }
     }
