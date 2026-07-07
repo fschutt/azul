@@ -3982,12 +3982,20 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 text3::cache::JustifyContent::InterCharacter
             }
         },
-        // +spec:line-height:79f3aa - line-height resolved: normal defaults to 1.2, <number>/<percentage> × font-size
+        // +spec:line-height:79f3aa - line-height resolved: `normal` uses the font's real
+        // metrics (ascent - descent + line_gap), <number>/<percentage> × font-size.
+        // When line-height is NOT declared the computed value is `normal`; pass
+        // LineHeight::Normal through so text3 resolves it against the run's actual
+        // font metrics (CoreText/Chrome parity) instead of a synthetic 1.2 ratio.
         // Negative normalized() = absolute px value (convention from parser for "50px" etc.)
-        line_height: text3::cache::LineHeight::Px({
-            let n = line_height_value.inner.normalized();
-            if n < 0.0 { -n } else { n * font_size }
-        }),
+        line_height: if dom_declared & DOM_HAS_LINE_HEIGHT == 0 {
+            text3::cache::LineHeight::Normal
+        } else {
+            text3::cache::LineHeight::Px({
+                let n = line_height_value.inner.normalized();
+                if n < 0.0 { -n } else { n * font_size }
+            })
+        },
         // Strut metrics for the container's first available font, approximated as
         // 80%/20%/50% of font_size (typical Latin ratios).
         // TODO(superplan): use the resolved primary font's real OS/2 metrics

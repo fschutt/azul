@@ -1380,8 +1380,17 @@ impl UnifiedConstraints {
     /// Resolve `line_height` to a pixel value using the strut metrics as a font-size proxy.
     /// `strut_ascent + strut_descent` approximates `font_size` (the block container's font).
     #[must_use] pub fn resolved_line_height(&self) -> f32 {
-        let font_size_approx = self.strut_ascent + self.strut_descent;
-        self.line_height.resolve(font_size_approx, 0.0, 0.0, 0.0, 0)
+        match self.line_height {
+            // `line-height: normal` — the minimum line-box height is the block's
+            // first-available-font metrics, approximated here by the strut's
+            // ascent + descent. Resolving `Normal` with no real metrics fell back
+            // to `font_size * 1.2`, which inflated every non-last line's advance
+            // ~20% (block auto-heights came out too tall). The real per-line box
+            // height (from each run's actual glyph metrics) is folded in via
+            // `.max()` at the call sites, so this strut value is the correct floor.
+            LineHeight::Normal => self.strut_ascent + self.strut_descent,
+            LineHeight::Px(px) => px,
+        }
     }
     fn direction(&self, fallback: BidiDirection) -> BidiDirection {
         self.writing_mode.map_or(fallback, |s| s.get_direction().unwrap_or(fallback))
