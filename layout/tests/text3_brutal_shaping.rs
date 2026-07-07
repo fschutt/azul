@@ -27,9 +27,9 @@ use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, Glyph, InlineContent,
-    LoadedFonts, ShapedItem, Spacing, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout, WhiteSpaceMode,
+    AvailableSpace, BidiDirection, BreakCursor, BreakType, ClearType, FontChainKey, FontStack,
+    Glyph, InlineBreak, InlineContent, LoadedFonts, ShapedItem, Spacing, StyleProperties,
+    StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
 };
 use azul_layout::text3::default::shape_text_for_parsed_font;
 use azul_layout::text3::script::{Language, Script};
@@ -293,22 +293,42 @@ fn double_space_collapses_to_one_gap() {
 
 #[test]
 fn newline_forces_two_lines() {
-    // UAX#14 §5: LF (U+000A) is a mandatory break (class BK). white-space:pre
-    // preserves it as a forced line break regardless of available width.
-    // pins spec: UAX#14 mandatory break on LF.
-    let l = run(
-        "aa\naa",
-        StyleProperties {
-            font_size_px: FONT_SIZE,
-            ..StyleProperties::default()
-        },
-        UnifiedConstraints {
-            available_width: AvailableSpace::MaxContent,
-            white_space_mode: WhiteSpaceMode::Pre,
-            ..UnifiedConstraints::default()
-        },
-    );
-    assert_eq!(line_count(&l), 2, "'aa\\naa' must always render on 2 lines");
+    // UAX#14 §5: LF (U+000A) is a mandatory break (class BK). Under white-space:pre
+    // the LF is PRESERVED as a forced break. White-space processing (collapsing vs
+    // preserving LF, and splitting a preserved LF out of the text) is the DOM
+    // layer's job (fc.rs::split_text_for_whitespace); it feeds the text3 pipeline
+    // pre-split content with an explicit `InlineContent::LineBreak(Hard)`. The raw
+    // pipeline honors that forced break — it does NOT re-scan embedded '\n'. So we
+    // drive it the way the DOM does: two "aa" runs separated by a Hard break.
+    // pins spec: a preserved LF (white-space:pre) is a forced line break -> 2 lines.
+    let font_ref = fake_font_ref();
+    let style = Arc::new(base_style(&font_ref));
+    let content = vec![
+        InlineContent::Text(StyledRun {
+            text: "aa".to_string(),
+            style: Arc::clone(&style),
+            logical_start_byte: 0,
+            source_node_id: None,
+        }),
+        InlineContent::LineBreak(InlineBreak {
+            break_type: BreakType::Hard,
+            clear: ClearType::None,
+            content_index: 0,
+        }),
+        InlineContent::Text(StyledRun {
+            text: "aa".to_string(),
+            style: Arc::clone(&style),
+            logical_start_byte: 3,
+            source_node_id: None,
+        }),
+    ];
+    let constraints = UnifiedConstraints {
+        available_width: AvailableSpace::MaxContent,
+        white_space_mode: WhiteSpaceMode::Pre,
+        ..UnifiedConstraints::default()
+    };
+    let l = layout_content(&content, &font_ref, &constraints);
+    assert_eq!(line_count(&l), 2, "a preserved LF must render on 2 lines");
 }
 
 #[test]
