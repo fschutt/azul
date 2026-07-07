@@ -3970,6 +3970,11 @@ jobs:
   # ---------------------------------------------------------------------------
   build_dll_linux:
     name: Build libazul (linux, shared by binding packagers)
+    # Needs build_binaries for the macOS .dylib (arm64) + Windows .dll (x64)
+    # artifacts, so the binding packages ship all three platforms — not just the
+    # Linux .so this job builds. build_binaries is already required for the Pages
+    # deploy, so this adds no new hard gate.
+    needs: build_binaries
     # Also runs in website mode: its consumers (npm/rubygems/nuget/maven) feed
     # the self-hosted azul.rs/ui/* mirrors. continue-on-error so a packaging
     # failure can never block the Pages deploy (which `needs` the consumers).
@@ -4005,6 +4010,37 @@ jobs:
           rm -rf dll-share && mkdir -p dll-share
           cp -a target/codegen dll-share/codegen
           cp target/release/libazul.so dll-share/libazul.so
+
+      # Pull the other-platform native libs built by build_binaries so the
+      # binding packages are cross-platform. Best-effort: a missing platform
+      # just drops that slot (the package still ships whatever built).
+      - name: Download macOS native lib (arm64)
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: azul-macos-amd64
+          path: native-macos
+      - name: Download Windows native lib (x64)
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: azul-windows-amd64
+          path: native-windows
+      - name: Stage macOS + Windows native libs into the shared dir
+        run: |
+          set -u
+          if [ -f native-macos/libazul.dylib ]; then
+            cp native-macos/libazul.dylib dll-share/libazul.dylib
+            echo "[dll-share] + libazul.dylib (macOS arm64)"
+          else
+            echo "[dll-share] no macOS dylib — package will be Linux/Windows only"
+          fi
+          if [ -f native-windows/azul.dll ]; then
+            cp native-windows/azul.dll dll-share/azul.dll
+            echo "[dll-share] + azul.dll (Windows x64)"
+          else
+            echo "[dll-share] no Windows dll — package will omit the win slot"
+          fi
 
       - name: Upload shared libazul + codegen
         uses: actions/upload-artifact@v7
@@ -4063,9 +4099,11 @@ jobs:
           cp target/codegen/node/azul.js "$pkg/azul.js"
           cp target/codegen/node/package.json "$pkg/package.json"
           cp examples/node/README.md "$pkg/README.md" || echo "(no node README)"
-          # Bundle the native lib (Linux build here; release CI publishes the
-          # multi-platform set). koffi loads it from alongside azul.js.
+          # Bundle every built native lib alongside azul.js — koffi loads the
+          # platform-appropriate one (libazul.so / libazul.dylib / azul.dll).
           cp target/release/libazul.so "$pkg/libazul.so"
+          [ -f dll-share/libazul.dylib ] && cp dll-share/libazul.dylib "$pkg/libazul.dylib" && echo "npm: + libazul.dylib" || true
+          [ -f dll-share/azul.dll ] && cp dll-share/azul.dll "$pkg/azul.dll" && echo "npm: + azul.dll" || true
           # Sync version + ensure the native lib ships in the tarball.
           node -e '
             const fs=require("fs"), p="'"$pkg"'/package.json";
@@ -4145,16 +4183,16 @@ jobs:
         run: |
           set -euo pipefail
           pkg=target/package/ruby
-          rm -rf "$pkg" && mkdir -p "$pkg/lib/native/x86_64-linux"
+          rm -rf "$pkg" && mkdir -p "$pkg/lib"
           cp target/codegen/azul.gemspec "$pkg/azul.gemspec"
           cp target/codegen/azul.rb "$pkg/lib/azul.rb"
           cp examples/ruby/README.md "$pkg/README.md" || true
-          # Native lib in the layout the generated gemspec lists (Linux slot;
-          # release CI fills the other RIDs). Missing slots are skipped by
-          # `gem build` only if the gemspec tolerates them — so create empty
-          # placeholders for the other RIDs the gemspec references is NOT done
-          # (would ship junk); instead rewrite files to what we actually have.
-          cp target/release/libazul.so "$pkg/lib/native/x86_64-linux/libazul.so"
+          # azul.rb searches its OWN dir (lib/) by filename, so put every built
+          # native lib flat next to it and FFI loads the platform-appropriate one.
+          # (The old lib/native/<rid>/ path was never on azul.rb's search path.)
+          cp target/release/libazul.so "$pkg/lib/libazul.so"
+          [ -f dll-share/libazul.dylib ] && cp dll-share/libazul.dylib "$pkg/lib/libazul.dylib" && echo "ruby: + libazul.dylib" || true
+          [ -f dll-share/azul.dll ] && cp dll-share/azul.dll "$pkg/lib/azul.dll" && echo "ruby: + azul.dll" || true
           # Pin version + restrict files to what exists so `gem build` passes.
           ruby -e '
             v = ENV["AZUL_VERSION"]
@@ -4242,10 +4280,12 @@ jobs:
           cp target/codegen/Azul.csproj "$pkg/Azul.csproj"
           cp target/codegen/Azul.cs "$pkg/Azul.cs"
           cp examples/csharp/README.md "$pkg/README.md" || true
-          # Native runtime payload for this build's RID. The generated csproj
-          # includes each runtimes/<rid>/native/<lib> only `Condition="Exists()"`,
-          # so missing RIDs are simply not packed (release CI fills the rest).
+          # Native runtime payloads. The csproj lists win-x64/linux-x64/osx-x64/
+          # osx-arm64 each Condition="Exists()", so drop in whatever built and
+          # .NET picks the right RID at runtime. (The macOS runner is arm64.)
           cp target/release/libazul.so "$pkg/runtimes/linux-x64/native/libazul.so"
+          if [ -f dll-share/libazul.dylib ]; then mkdir -p "$pkg/runtimes/osx-arm64/native"; cp dll-share/libazul.dylib "$pkg/runtimes/osx-arm64/native/libazul.dylib"; echo "nuget: + osx-arm64"; fi
+          if [ -f dll-share/azul.dll ]; then mkdir -p "$pkg/runtimes/win-x64/native"; cp dll-share/azul.dll "$pkg/runtimes/win-x64/native/azul.dll"; echo "nuget: + win-x64"; fi
 
       - name: Pack (always — validates packaging)
         working-directory: target/package/nuget
@@ -4323,15 +4363,20 @@ jobs:
         run: |
           set -euo pipefail
           pkg=target/package/maven
-          # JNA resource folder name for linux x86-64.
+          # JNA resource folder name for linux x86-64 (Platform.RESOURCE_PREFIX).
           res="$pkg/src/main/resources/linux-x86-64"
           src="$pkg/src/main/java"
           rm -rf "$pkg" && mkdir -p "$res" "$src/com/azul"
           # Generated Java bindings (flat *.java in package com.azul).
           cp target/codegen/java/*.java "$src/com/azul/" 2>/dev/null || \
             echo "::warning::no generated java sources found"
-          # Native lib as a JNA-resolvable resource.
+          # Native libs as JNA-resolvable resources: one folder per
+          # Platform.RESOURCE_PREFIX; JNA loads the one matching the host at
+          # runtime. maven packs everything under src/main/resources/ into the
+          # jar, so no pom change is needed. (The macOS runner is arm64.)
           cp target/release/libazul.so "$res/libazul.so"
+          if [ -f dll-share/libazul.dylib ]; then mkdir -p "$pkg/src/main/resources/darwin-aarch64"; cp dll-share/libazul.dylib "$pkg/src/main/resources/darwin-aarch64/libazul.dylib"; echo "maven: + darwin-aarch64"; fi
+          if [ -f dll-share/azul.dll ]; then mkdir -p "$pkg/src/main/resources/win32-x86-64"; cp dll-share/azul.dll "$pkg/src/main/resources/win32-x86-64/azul.dll"; echo "maven: + win32-x86-64"; fi
           # Self-contained publishing pom (signing + OSSRH staging plugins).
           cat > "$pkg/pom.xml" <<POM
           <?xml version="1.0" encoding="UTF-8"?>
