@@ -125,6 +125,159 @@ fn main() -> anyhow::Result<()> {
             autofix::autofix_api(&api_data, &project_root, &output_dir, true)?;
             return Ok(());
         }
+        ["check"] | ["check", "layout"] => {
+            // Fast, COMPILE-FREE layout / ABI-safety lint. Replaces the need to
+            // compile the ~150k-line generated `memtest` crate just to guarantee
+            // api.json stays in sync with the source repr(C) layout — which was
+            // slow and OOM-prone. Pure analysis over the scanned worktree + api.json.
+            let api_data = load_api_json(&api_path)?;
+            let (diff, index, _warnings) =
+                autofix::diff::analyze_api_diff(&project_root, &api_data, false)?;
+            let mut problems = 0usize;
+
+            // Lint 1: api.json <-> source layout desync. repr(C) layout is
+            // field-ORDER-sensitive, so any modification here (field reorder /
+            // type change / add / remove) is a real ABI mismatch — the class of
+            // bug that silently corrupts `transmute` between the FFI mirror and
+            // the source type. The diff compares fields in declaration order.
+            let sync = diff.modifications.len()
+                + diff.additions.len()
+                + diff.removals.len()
+                + diff.path_fixes.len();
+            if sync > 0 {
+                eprintln!("[FAIL] api.json <-> source desync ({} type(s)):", sync);
+                for m in &diff.modifications {
+                    eprintln!("    field/layout changed: {}", m.type_name);
+                }
+                for a in &diff.additions {
+                    eprintln!("    in source, missing from api.json: {}", a.type_name);
+                }
+                for r in &diff.removals {
+                    eprintln!("    in api.json, missing from source: {}", r);
+                }
+                for p in &diff.path_fixes {
+                    eprintln!("    path changed: {}", p.type_name);
+                }
+                problems += sync;
+            } else {
+                println!("[ok] api.json layout matches source (field order + types in sync)");
+            }
+
+            // Lint 2: drop-guard gaps. A struct that owns raw heap (a `*ptr` or
+            // `Box` field) but has NO `run_destructor` / `destructor` guard field
+            // double-frees when nested by value inside another FFI struct: the
+            // codegen emits `impl Drop { AzX_delete(self) }` (= drop_in_place of
+            // the real type, dropping every field once) AND Rust then runs field
+            // drop-glue (dropping every FFI field again). Self-guarding types
+            // (azul Vec/String via `destructor`, hand-written via `run_destructor`)
+            // no-op the second drop; an unguarded raw-heap field double-frees.
+            // This lint makes such a gap impossible to introduce accidentally.
+            // Only types EXPOSED via api.json get the codegen `impl Drop {_delete}`
+            // + by-value nesting, so only they can hit the double-drop. Build the
+            // set of exposed source paths from api.json `external` entries.
+            let mut exposed: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for (_ver, vd) in &api_data.0 {
+                for (_mod, md) in &vd.api {
+                    for (_cls, cd) in &md.classes {
+                        if let Some(ext) = &cd.external {
+                            exposed.insert(ext.as_str());
+                        }
+                    }
+                }
+            }
+            use autofix::type_index::TypeDefKind;
+            use autofix::types::RefKind;
+            let mut gaps: Vec<(String, String)> = Vec::new();
+            let mut non_repr_c: Vec<(String, String)> = Vec::new();
+            let mut names: Vec<_> = index.iter_all().collect();
+            names.sort_by_key(|(n, _)| *n);
+            for (name, defs) in names {
+                for def in defs {
+                    if !exposed.contains(def.full_path.as_str()) {
+                        continue; // internal / external-C-binding type: not codegen-dropped
+                    }
+                    if let TypeDefKind::Struct {
+                        fields,
+                        is_tuple_struct,
+                        custom_impls,
+                        repr,
+                        ..
+                    } = &def.kind
+                    {
+                        // Lint 3: an FFI-exposed struct MUST be `#[repr(C)]`. Default
+                        // Rust struct layout is unspecified (fields may be reordered),
+                        // so `transmute` between the FFI mirror and the source type is
+                        // undefined behaviour / silent corruption.
+                        if !repr.as_deref().is_some_and(|r| r.contains('C')) {
+                            non_repr_c.push((name.clone(), def.full_path.clone()));
+                        }
+                        if *is_tuple_struct {
+                            continue;
+                        }
+                        // Owns heap that the codegen `Drop` will free (and thus
+                        // double-free if nested by value): a direct Rust `Box<>` /
+                        // `Option<Box<>>` field, OR a raw `*ptr` field on a type with
+                        // a hand-written `Drop` (the `GlContextPtr`/`InstantPtr` /
+                        // `ComponentFieldTypeBox` pattern). A bare `*ptr` with no
+                        // custom `Drop` is a borrow (`*VecRef`) or an external-C
+                        // mirror — not owned, so skip. NB: the TypeIndex normalizes
+                        // `Box<T>` in a struct field to `c_void`/`mutptr`, erasing the
+                        // ownership signal, so detect the owned `Box` from the struct
+                        // source text (a `Vec<Box<_>>` self-guards via the Vec, so we
+                        // only match a *direct* `: Box<` / `: Option<Box<` field).
+                        let src_ns: String =
+                            def.source_code.split_whitespace().collect();
+                        let has_box =
+                            src_ns.contains(":Box<") || src_ns.contains(":Option<Box<");
+                        let has_raw_ptr = fields.values().any(|f| {
+                            matches!(f.ref_kind, RefKind::ConstPtr | RefKind::MutPtr)
+                        });
+                        let has_custom_drop = custom_impls.iter().any(|s| s == "Drop");
+                        if !(has_box || (has_raw_ptr && has_custom_drop)) {
+                            continue;
+                        }
+                        let guarded = fields.contains_key("run_destructor")
+                            || fields.contains_key("destructor");
+                        if !guarded {
+                            gaps.push((name.clone(), def.full_path.clone()));
+                        }
+                    }
+                }
+            }
+            if !gaps.is_empty() {
+                eprintln!(
+                    "[FAIL] {} struct(s) own raw heap (ptr/Box) but lack a \
+                     `run_destructor`/`destructor` guard (double-free risk when \
+                     nested by value):",
+                    gaps.len()
+                );
+                for (n, p) in &gaps {
+                    eprintln!("    {}  ({})", n, p);
+                }
+                problems += gaps.len();
+            } else {
+                println!("[ok] every heap-owning struct has a destructor guard");
+            }
+
+            if !non_repr_c.is_empty() {
+                eprintln!(
+                    "[FAIL] {} FFI-exposed struct(s) are not `#[repr(C)]` (transmute UB):",
+                    non_repr_c.len()
+                );
+                for (n, p) in &non_repr_c {
+                    eprintln!("    {}  ({})", n, p);
+                }
+                problems += non_repr_c.len();
+            } else {
+                println!("[ok] all FFI-exposed structs are #[repr(C)]");
+            }
+
+            if problems > 0 {
+                anyhow::bail!("azul-doc check failed: {} problem(s)", problems);
+            }
+            println!("\nazul-doc check: PASSED");
+            return Ok(());
+        }
         ["autotest", rest @ ..] => {
             // Adversarial-test-generation harness: enumerate + categorize functions,
             // emit per-function strategies + a subagent task manifest.
