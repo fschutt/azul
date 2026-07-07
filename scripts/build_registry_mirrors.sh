@@ -3,7 +3,7 @@
 # so the azul.rs install commands work without the official registries:
 #
 #   Maven    azul.rs/ui/maven       (maven2 layout: rs/azul/azul/<V>/azul-<V>.jar+pom)
-#   PyPI     azul.rs/ui/pypi/simple  (PEP 503 simple index + hosted wheels/sdists)
+#   PyPI     azul.rs/ui            (PEP 503 index root; pip fetches /ui/azul/)
 #   npm      azul.rs/ui/npm/azul     (registry metadata doc + hosted .tgz)
 #   NuGet    azul.rs/ui/nuget        (v3 service index + flat-container + nupkg)
 #   RubyGems azul.rs/ui/gems         (flat: hosted .gem + a human index; see note)
@@ -117,13 +117,15 @@ META
 }
 
 # --------------------------------------------------------------------------
-# PyPI — PEP 503 "simple" index + hosted distributions.
-#   pip install azul --index-url https://azul.rs/ui/pypi/simple/
+# PyPI — PEP 503 index (root = /ui) + hosted distributions under /ui/azul/.
+#   pip install azul --index-url https://azul.rs/ui
 # --------------------------------------------------------------------------
 build_pypi() {
   local files; files=$(ls -1 "$ART"/pypi-dist/* 2>/dev/null)
   [ -n "$files" ] || { echo "  [pypi] no dist artifacts — skip"; return; }
-  local pkgdir="$SITE/ui/pypi/simple/azul"
+  # PEP 503 index ROOT is /ui itself; pip fetches <index-url>/azul/, so the
+  # per-project page lives at /ui/azul/. (pip install azul --index-url .../ui)
+  local pkgdir="$SITE/ui/azul"
   mkdir -p "$pkgdir"
   local links="" f base h
   for f in "$ART"/pypi-dist/*; do
@@ -133,14 +135,13 @@ build_pypi() {
     h="$(sha256_of "$f")"
     links="$links    <a href=\"$base#sha256=$h\">$base</a><br>\n"
   done
-  # per-project page
+  # per-project page: /ui/azul/index.html
   printf '<!DOCTYPE html><html><head><meta name="pypi:repository-version" content="1.0"><title>Links for azul</title></head><body><h1>Links for azul</h1>\n%b</body></html>\n' "$links" \
     > "$pkgdir/index.html"
-  # root simple index
-  mkdir -p "$SITE/ui/pypi/simple"
-  printf '<!DOCTYPE html><html><head><title>Simple index</title></head><body><a href="azul/">azul</a><br></body></html>\n' \
-    > "$SITE/ui/pypi/simple/index.html"
-  echo "  [pypi] built simple/azul/ ($(ls -1 "$pkgdir" | grep -vc index.html) dists)"
+  # No root simple index (/ui/index.html is the site's mirror landing page).
+  # pip/uv/poetry fetch <root>/azul/ directly for a known package, so the root
+  # listing is unnecessary and writing one here would clobber that landing page.
+  echo "  [pypi] built ui/azul/ ($(ls -1 "$pkgdir" | grep -vc index.html) dists)"
 }
 
 # --------------------------------------------------------------------------
@@ -152,9 +153,11 @@ build_npm() {
   local tgz; tgz="$(ls -1 "$ART"/npm-package/*.tgz 2>/dev/null | head -1)"
   [ -n "$tgz" ] || { echo "  [npm] no tarball artifact — skip"; return; }
   local pkgdir="$SITE/ui/npm/azul"
-  mkdir -p "$pkgdir/-"
-  cp "$tgz" "$pkgdir/-/azul-$V.tgz"
-  local tarball="$BASE/ui/npm/azul/-/azul-$V.tgz"
+  mkdir -p "$pkgdir"
+  # Flat tarball URL (npm install <url> just fetches this file; the /azul/-/
+  # registry nesting isn't needed and a static --registry can't work on Pages).
+  cp "$tgz" "$SITE/ui/npm/azul-$V.tgz"
+  local tarball="$BASE/ui/npm/azul-$V.tgz"
   local integrity; integrity="$(integrity_of "$tgz")"
   local shasum; shasum="$(sha1_of "$tgz")"
   # Minimal but valid registry metadata doc (npm reads dist-tags + versions).

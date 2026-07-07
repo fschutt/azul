@@ -2860,7 +2860,7 @@ jobs:
           path: artifacts-deptree-windows
 
       # Package artifacts for the self-hosted registry mirrors (azul.rs/ui/maven,
-      # /ui/pypi, /ui/npm, /ui/nuget, /ui/gems, /ui/rpm). Produced by the
+      # /ui/azul, /ui/npm, /ui/nuget, /ui/gems, /ui/rpm). Produced by the
       # packager jobs in BOTH run_mode==deploy and run_mode==website (they are
       # in this job's needs), but still best-effort: a failed/missing one just
       # skips that registry.
@@ -3234,9 +3234,9 @@ jobs:
       #             brew install fschutt/azul/azul
       #   apt       azul.rs/ui/apt   pool/ + dists/stable (amd64+arm64), unsigned:
       #             deb [trusted=yes] https://azul.rs/ui/apt stable main
-      #   PyPI      azul.rs/ui/pypi/simple  PEP 503 index over the built wheels
+      #   PyPI      azul.rs/ui              PEP 503 index; wheels under /ui/azul/
       #   Maven     azul.rs/ui/maven        maven2 layout (rs.azul:azul:<V>)
-      #   npm       azul.rs/ui/npm/azul/-/azul-<V>.tgz   stable tarball URL
+      #   npm       azul.rs/ui/npm/azul-<V>.tgz          stable tarball URL
       #   NuGet     azul.rs/ui/nuget        static v3 feed (+ choco libazul)
       #   RubyGems  azul.rs/ui/gems         hosted .gem (+ legacy index)
       #   dnf/arch/apk  azul.rs/ui/{rpm,arch,alpine}
@@ -3269,7 +3269,7 @@ jobs:
           bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry || true
 
           echo "=== self-hosted channel summary ==="
-          for d in website/ui/homebrew-azul.git website/ui/apt website/ui/pypi \
+          for d in website/ui/homebrew-azul.git website/ui/apt website/ui/azul \
                    website/ui/maven website/ui/npm website/ui/nuget \
                    website/ui/gems website/ui/rpm website/ui/arch website/ui/alpine; do
             if [ -d "$d" ]; then echo "[live] ${d#website/}"; else echo "[skip] ${d#website/}"; fi
@@ -3854,7 +3854,7 @@ jobs:
   pypi:
     name: PyPI (python wheel via maturin/cibuildwheel)
     # website mode BUILDS the wheels too (they feed the self-hosted
-    # azul.rs/ui/pypi/simple index); publishing to pypi.org stays deploy-only.
+    # azul.rs/ui index, wheels at /ui/azul/); publishing to pypi.org stays deploy-only.
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     continue-on-error: true

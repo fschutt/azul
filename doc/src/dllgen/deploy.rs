@@ -1741,14 +1741,14 @@ echo 'deb [trusted=yes] {HTML_ROOT}/apt stable main' | sudo tee /etc/apt/sources
 sudo apt update
 sudo apt install azul
 
-# Python - self-hosted PEP 503 index (NOT pypi.org)
-pip install azul --index-url {HTML_ROOT}/pypi/simple/
+# Python - self-hosted PEP 503 index (NOT pypi.org); pip fetches {HTML_ROOT}/azul/
+pip install azul --index-url {HTML_ROOT}
 
 # Java / Kotlin - self-hosted maven2 repository
 #   repository {HTML_ROOT}/maven + dependency rs.azul:azul:{version}
 
 # Node - install the npm tarball straight from its stable URL
-npm install {HTML_ROOT}/npm/azul/-/azul-{version}.tgz
+npm install {HTML_ROOT}/npm/azul-{version}.tgz
 
 # C# / Ruby - stable file URLs (use as a local NuGet feed / local gem install)
 #   {HTML_ROOT}/nuget/flatcontainer/azul/{version}/azul.{version}.nupkg
