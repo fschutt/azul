@@ -3966,6 +3966,12 @@ pub struct VisualItem {
     pub script: Script,
     /// The text content for this specific visual run.
     pub text: String,
+    /// Byte offset of this visual run's `text` within its source logical run's
+    /// text. When bidi splits one logical run into several visual runs, each
+    /// shaped cluster's `start_byte_in_run` is produced relative to this visual
+    /// run's `text`; adding `run_byte_offset` re-bases it to the logical run so
+    /// cluster IDs stay unique and match caret/selection byte positions.
+    pub run_byte_offset: usize,
 }
 
 // --- Stage 3: Shaped Representation ---
@@ -6564,6 +6570,10 @@ pub fn reorder_logical_items(
     // +spec:writing-modes:809513 - bidi string built across inline element boundaries; unicode-bidi:normal adds no extra embedding levels
     let mut bidi_str = String::new();
     let mut item_map = Vec::new();
+    // Byte offset in `bidi_str` where each logical item's text begins, indexed
+    // by logical item index. Used to re-base each visual run's byte offset to be
+    // relative to its own logical run (see `run_byte_offset`).
+    let mut logical_item_starts = Vec::with_capacity(logical_items.len());
     for (idx, item) in logical_items.iter().enumerate() {
         // +spec:containing-block:1fdc31 - inline boxes with unicode-bidi:normal are transparent to bidi algorithm
         // +spec:display-property:074abf - inline boxes transparent to bidi when unicode-bidi:normal
@@ -6589,6 +6599,7 @@ pub fn reorder_logical_items(
             _ => "\u{FFFC}",
         };
         let start_byte = bidi_str.len();
+        logical_item_starts.push(start_byte);
         bidi_str.push_str(text);
         for _ in start_byte..bidi_str.len() {
             item_map.push(idx);
@@ -6669,6 +6680,7 @@ pub fn reorder_logical_items(
                     script: crate::text3::script::detect_script(text_slice)
                         .unwrap_or(Script::Latin),
                     text: text_slice.to_string(),
+                    run_byte_offset: sub_run_start - logical_item_starts[logical_idx],
                 });
                 sub_run_start = i;
             }
@@ -6682,6 +6694,7 @@ pub fn reorder_logical_items(
             bidi_level,
             script: crate::text3::script::detect_script(text_slice).unwrap_or(Script::Latin),
             text: text_slice.to_string(),
+            run_byte_offset: sub_run_start - logical_item_starts[logical_idx],
         });
     }
 
@@ -7116,13 +7129,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         .map(|v| v.text.len())
                         .sum();
                     let mut merged_text = String::with_capacity(total_text_len);
-                    // (byte_start, byte_end, style, source, source_node_id, marker_outside)
+                    // (byte_start, byte_end, style, source, source_node_id, marker_outside, run_byte_offset)
                     let mut byte_ranges: Vec<(
                         usize, usize,
                         Arc<StyleProperties>,
                         ContentIndex,
                         Option<NodeId>,
                         Option<bool>,
+                        usize,
                     )> = Vec::with_capacity(coalesce_count);
 
                     for item in &visual_items[idx..coalesce_end] {
@@ -7133,7 +7147,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             style: s, source: src, source_node_id: nid,
                             marker_position_outside: mpo, ..
                         } = &item.logical_source {
-                            byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo));
+                            byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo, item.run_byte_offset));
                         }
                     }
 
@@ -7185,14 +7199,16 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             byte_pos >= *start && byte_pos < *end
                         });
                         let mut cluster = cluster;
-                        if let Some((range_start, _, orig_style, orig_source, orig_nid, orig_mpo)) = orig {
+                        if let Some((range_start, _, orig_style, orig_source, orig_nid, orig_mpo, orig_run_offset)) = orig {
                             // Reassign rendering-affecting style (color, background, etc.)
                             cluster.style = orig_style.clone();
                             cluster.source_content_index = *orig_source;
                             cluster.source_node_id = *orig_nid;
-                            // Fix the byte offset to be relative to the original run
+                            // Fix the byte offset to be relative to the original logical run:
+                            // (position within the merged text - this run's start in the merge)
+                            // + this visual run's offset within its logical run (bidi split).
                             cluster.source_cluster_id.source_run = orig_source.run_index;
-                            cluster.source_cluster_id.start_byte_in_run = (byte_pos - range_start) as u32;
+                            cluster.source_cluster_id.start_byte_in_run = (byte_pos - range_start + *orig_run_offset) as u32;
                             // Update glyph styles
                             for glyph in &mut cluster.glyphs {
                                 glyph.style = orig_style.clone();
@@ -7274,6 +7290,20 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 };
 
                 let mut shaped_clusters = shaped_clusters_result?;
+
+                // Re-base cluster byte offsets to the logical run. Shaping produced
+                // `start_byte_in_run` relative to this visual run's `text`; when bidi
+                // split the logical run into several visual runs, add the visual run's
+                // offset so every cluster ID is unique + matches caret byte positions.
+                let run_byte_offset = item.run_byte_offset as u32;
+                if run_byte_offset != 0 {
+                    for cluster in &mut shaped_clusters {
+                        cluster.source_cluster_id.start_byte_in_run = cluster
+                            .source_cluster_id
+                            .start_byte_in_run
+                            .saturating_add(run_byte_offset);
+                    }
+                }
 
                 // Set marker flag on all clusters if this is a marker
                 if let Some(is_outside) = marker_position_outside {
@@ -8082,6 +8112,41 @@ fn calculate_line_metrics(
     (max_asc, max_desc)
 }
 
+/// Unicode Bidi Algorithm rule L2, applied at the glyph/cluster level for one line.
+///
+/// `reorder_logical_items` already placed the level RUNS of the paragraph in
+/// visual order (rule L2 at the run level, via `unicode_bidi::visual_runs`), but
+/// left the clusters *within* each run in LOGICAL order. To finish L2 the clusters
+/// of every RTL (odd-level) run must be reversed so the run reads right-to-left.
+///
+/// We reverse each maximal contiguous run of clusters that share the same
+/// direction, flipping only the RTL ones. Re-running full L2 over the whole line
+/// instead would double-reverse the run order that is already correct. Grouping
+/// by direction is exact here: under implicit bidi (no explicit embedding
+/// controls, which azul does not inject) two runs of the same direction are never
+/// visually adjacent — a higher even level nests inside its odd parent and a lower
+/// level separates two same-parity runs — so a "same-direction" group is always a
+/// single real level run. Non-cluster items (breaks/objects/tabs) act as run
+/// boundaries. Applied per line, so a wrapped RTL run reorders correctly per line.
+fn apply_l2_visual_reversal(line_items: &mut [ShapedItem]) {
+    let dir_of = |it: &ShapedItem| it.as_cluster().map(|c| c.direction);
+    let mut i = 0;
+    while i < line_items.len() {
+        let Some(dir) = dir_of(&line_items[i]) else {
+            i += 1;
+            continue;
+        };
+        let mut j = i + 1;
+        while j < line_items.len() && dir_of(&line_items[j]) == Some(dir) {
+            j += 1;
+        }
+        if dir == BidiDirection::Rtl {
+            line_items[i..j].reverse();
+        }
+        i = j;
+    }
+}
+
 /// Performs layout for a single fragment, consuming items from a `BreakCursor`.
 ///
 /// This function contains the core line-breaking and positioning logic, but is
@@ -8435,6 +8500,25 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                     // FIX: The log message was misleading. Items are in visual order.
                     "[PFLayout] Line items from breaker (visual order): [{line_text_before_rev}]"
                 )));
+            }
+
+            // Unicode Bidi rule L2 (glyph-level reversal). `reorder_logical_items`
+            // already ordered the level RUNS visually; here we reverse the clusters
+            // within each RTL run so an RTL run reads right-to-left. Applied per line
+            // (after line breaking) so a wrapped RTL run reorders correctly per line.
+            apply_l2_visual_reversal(&mut line_items);
+
+            if let Some(msgs) = debug_messages {
+                let after: String = line_items
+                    .iter()
+                    .filter_map(|i| i.as_cluster())
+                    .map(|c| c.text.as_str())
+                    .collect();
+                if after != line_text_before_rev {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[PFLayout] Line items after L2 reversal: [{after}]"
+                    )));
+                }
             }
 
             // +spec:line-breaking:c59944 - forced line breaks detected for bidi-aware alignment
