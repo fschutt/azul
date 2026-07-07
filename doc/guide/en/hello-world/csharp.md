@@ -38,8 +38,16 @@ You need the **.NET 10 SDK** and the native `libazul` library for your platform.
 (The example project `examples/csharp/Hello.csproj` and the downloadable
 `Azul.csproj` both target `net10.0`.)
 
-There is no NuGet package yet (neither on nuget.org nor on a custom feed) - 
-install manually:
+azul isn't on nuget.org, but a self-hosted NuGet v3 feed lives at azul.rs and the
+package bundles the native `libazul` for Linux/macOS/Windows under
+`runtimes/<rid>/native` (.NET picks the right RID at runtime):
+
+```sh
+dotnet nuget add source https://azul.rs/ui/nuget/index.json --name azul
+dotnet add package azul --version $VERSION
+```
+
+Or install the native library + binding by hand:
 
 1. Download the native library for your OS from the
    [release page](https://azul.rs/ui/release/$VERSION) and

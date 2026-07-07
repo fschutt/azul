@@ -38,8 +38,15 @@ callback, and the smart `createWithLayout` factory.
 You need **Node.js 16+** (or Bun / Deno), the **`koffi`** package, and the native
 `libazul` library.
 
-There is no `azul` package on the npm registry yet (the name is taken by an
-unrelated project - do not `npm install azul`). Install manually:
+The name `azul` on npmjs.org belongs to an unrelated project, so azul ships from
+its own index at azul.rs. The quickest install is the hosted tarball — it bundles
+`libazul` for Linux/macOS/Windows and pulls in `koffi` automatically:
+
+```sh
+npm install https://azul.rs/ui/npm/azul-$VERSION.tgz
+```
+
+With that installed you `require('azul')`. To wire it up by hand instead:
 
 ```sh
 npm install koffi

@@ -48,8 +48,8 @@ straight from the GitHub release:
 
 ```sh
 # linux - Debian / Ubuntu (installs /usr/include/azul.h + /usr/lib/libazul.so)
-curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_$VERSION_amd64.deb
-sudo apt install ./azul_$VERSION_amd64.deb
+curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_${VERSION}_amd64.deb
+sudo apt install ./azul_${VERSION}_amd64.deb
 
 # linux - Fedora / RHEL
 curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul-$VERSION-1.x86_64.rpm
@@ -81,7 +81,8 @@ brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
 brew install fschutt/azul/azul
 ```
 
-There is currently no Chocolatey package, AUR or Alpine repository. On
+Experimental Chocolatey / Arch / Alpine mirrors are published best-effort under
+`azul.rs/ui/{nuget,arch,alpine}`. On
 Windows (and for CI on any platform), download the
 header and the library directly from the
 [release page](https://azul.rs/ui/release/$VERSION):

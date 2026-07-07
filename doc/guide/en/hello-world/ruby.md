@@ -36,8 +36,16 @@ factory — and the binding wraps your object and registers the callbacks for yo
 You need **Ruby 2.6+** (system Ruby on macOS works), the **`ffi` gem**, and the
 native `libazul` library.
 
-There is no `azul` gem on rubygems.org yet (the name is taken by an unrelated
-project - do not `gem install azul`). Install manually:
+The name `azul` on rubygems.org belongs to an unrelated project, so azul ships
+from its own source at azul.rs. The gem bundles `libazul` for Linux/macOS/Windows
+and pulls in `ffi`:
+
+```sh
+gem install azul --source https://azul.rs/ui/gems
+```
+
+With the gem installed you just `require 'azul'` (no `-I.`). To wire it up by
+hand instead:
 
 ```sh
 # --user-install avoids Gem::FilePermissionError on macOS system Ruby;
