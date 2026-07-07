@@ -315,6 +315,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 /// Uses dynamic programming to find the optimal set of line breaks.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[allow(clippy::cognitive_complexity)] // cohesive Knuth-Plass DP: one branch per break class
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
     // For MinContent (intrinsic min-content sizing), CSS wants the width of the
     // widest unbreakable unit (word). Break at EVERY legal opportunity so each

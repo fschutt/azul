@@ -257,7 +257,7 @@ impl GlyphCache {
 /// The returned path is in pixel coordinates (1 unit = 1 pixel at the given ppem).
 /// Returns `None` if the glyph has no raw hinting data or hinting fails.
 /// Read a glyph's left side bearing (font units) straight from the `hmtx`
-/// table. Mirrors the FreeType `TT_Get_HMetrics` lookup used to place phantom
+/// table. Mirrors the `FreeType` `TT_Get_HMetrics` lookup used to place phantom
 /// point pp1 at `xMin - lsb`. Returns `None` if hmtx is unavailable.
 fn glyph_lsb(parsed_font: &ParsedFont, glyph_id: u16) -> Option<i16> {
     let (off, len) = parsed_font.hmtx_range;

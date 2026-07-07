@@ -177,17 +177,18 @@ impl FakeFontBuilder {
         let (glyf, loca) = self.build_glyf_loca();
 
         // Collect (tag, data) for every present table.
-        let mut tables: Vec<([u8; 4], Vec<u8>)> = Vec::new();
-        tables.push((*b"head", self.build_head(gbbox)));
-        tables.push((*b"hhea", self.build_hhea()));
-        tables.push((*b"maxp", self.build_maxp()));
-        tables.push((*b"hmtx", self.build_hmtx()));
-        tables.push((*b"cmap", self.build_cmap()));
-        tables.push((*b"glyf", glyf));
-        tables.push((*b"loca", loca));
-        tables.push((*b"post", self.build_post()));
-        tables.push((*b"OS/2", self.build_os2()));
-        tables.push((*b"name", self.build_name()));
+        let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![
+            (*b"head", self.build_head(gbbox)),
+            (*b"hhea", self.build_hhea()),
+            (*b"maxp", self.build_maxp()),
+            (*b"hmtx", self.build_hmtx()),
+            (*b"cmap", self.build_cmap()),
+            (*b"glyf", glyf),
+            (*b"loca", loca),
+            (*b"post", self.build_post()),
+            (*b"OS/2", self.build_os2()),
+            (*b"name", self.build_name()),
+        ];
         if !self.kern_pairs.is_empty() {
             tables.push((*b"kern", self.build_kern()));
         }
@@ -375,8 +376,7 @@ impl FakeFontBuilder {
                 let cp = c as u32;
                 assert!(
                     cp <= 0xFFFF,
-                    "FakeFont cmap format 4 requires codepoint <= 0xFFFF (got U+{:04X})",
-                    cp
+                    "FakeFont cmap format 4 requires codepoint <= 0xFFFF (got U+{cp:04X})"
                 );
                 mappings.push((cp, gid as u16));
             }

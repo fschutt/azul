@@ -430,6 +430,7 @@ pub fn insert_text(
 /// - `Leading`: Cursor is at start of cluster, delete the previous grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the current grapheme
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[allow(clippy::too_many_lines)] // cohesive grapheme-deletion routine: one branch per cursor affinity
 #[must_use]
 pub fn delete_backward(
     content: &[InlineContent],

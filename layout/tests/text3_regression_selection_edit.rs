@@ -422,7 +422,6 @@ fn caret_right_reaches_document_end_and_left_returns_to_start() {
         "three Rights reach byte1, byte2, then the document end (byte2 Trailing)"
     );
     assert_eq!(l.move_cursor_right(c, &mut None), c, "Right at the document end is a no-op");
-    let mut c = c;
     let backward: Vec<(u32, CursorAffinity)> = (0..3)
         .map(|_| {
             c = l.move_cursor_left(c, &mut None);

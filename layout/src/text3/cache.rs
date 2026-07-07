@@ -1410,7 +1410,7 @@ pub struct LineConstraints {
     pub total_available: f32,
     /// True when measuring min-content: the breaker must break at EVERY soft-wrap
     /// opportunity (each word on its own line) rather than filling `total_available`
-    /// (which is a sentinel f32::MAX/2 for intrinsic sizing and never overflows).
+    /// (which is a sentinel `f32::MAX / 2` for intrinsic sizing and never overflows).
     pub is_min_content: bool,
 }
 
@@ -3353,6 +3353,7 @@ impl Default for Spacing {
 
 impl Spacing {
     /// Resolve this spacing to pixels given the element's font size (for `Em`).
+    #[allow(clippy::cast_precision_loss)] // small integer px values; f32 mantissa is ample
     #[must_use]
     pub fn resolve_px(self, font_size_px: f32) -> f32 {
         match self {
@@ -8603,6 +8604,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 // around every typographic character unit including preserved white spaces; with break-spaces
 // it allows breaking before the first space of a sequence
 // +spec:line-breaking:722f3b - wrapping only at soft wrap opportunities, minimizing overflow
+#[allow(clippy::cognitive_complexity)] // cohesive line-break state machine: one branch per CSS line-break case
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics
 ///

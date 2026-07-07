@@ -149,7 +149,7 @@ pub struct SimpleGlyphRun {
                 // source_node_id (tate-chu-yoko has no single source node).
                 let writing_mode = glyphs
                     .first()
-                    .map_or(crate::text3::cache::WritingMode::default(), |g| {
+                    .map_or_else(crate::text3::cache::WritingMode::default, |g| {
                         g.style.writing_mode
                     });
                 process_glyphs(glyphs, item.position.x, writing_mode, None);
