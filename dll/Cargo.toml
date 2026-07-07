@@ -858,13 +858,11 @@ pyo3_logger = ["pyo3-log", "logging"]
 # Predefined Configurations
 # -----------------------------------------------------------------------------
 
-# Python extension module.
-# The Linux Py*-symbol fallback stubs (src/python_abi3_stubs.rs) are a crate
-# `#[no_mangle]` module, so a SINGLE libazul.so serves BOTH `import azul` (the
-# interpreter interposes the real symbols at load, its `.dynsym` being searched
-# before libazul's own GLOBAL defs) AND C/C++ apps that link `-lazul` (the stubs
-# satisfy the linker; never called without a Python interpreter). They must be
-# crate exports, not a C archive — see src/python_abi3_stubs.rs for why.
+# Python extension module (ships as a SEPARATE artifact — azul.so — from the
+# python-free C libazul.so). `Py*` symbols are left UNDEFINED for the interpreter
+# to resolve at import (standard pyo3/manylinux). Do NOT bake Py* stubs into this
+# cdylib: pyo3 is statically linked in, so a locally-defined Py* is dso_local and
+# self-mis-binds, SIGSEGV-ing pyclass teardown (see src/lib.rs, removed 2026-07-07).
 python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static"]
 
 # PHP extension module (Zend engine native extension via ext-php-rs).

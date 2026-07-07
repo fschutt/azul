@@ -261,13 +261,29 @@ mod python {
 #[cfg(feature = "python-extension")]
 pub use python::azul;
 
-// Fallback definitions of the `Py*` symbols pyo3's `extension-module` leaves
-// undefined, so a single libazul.so serves both `import azul` and C `-lazul`
-// (bug B1). MUST be a crate `#[no_mangle]` module — not a linked C archive —
-// so rustc exports them GLOBAL; a localized stub is not interposable and crashes
-// import. Linux/ELF only. See the module docs for the full rationale.
-#[cfg(all(target_os = "linux", feature = "python-extension"))]
-mod python_abi3_stubs;
+// REMOVED 2026-07-07 — the Linux `Py*` fallback stubs, and the "one libazul.so
+// for BOTH `import azul` AND C `-lazul`" scheme, are gone. WHY:
+//
+// Defining CPython-API symbols (`PyType_GetSlot`, `PyBaseObject_Type`,
+// `PyExc_*`, …) inside this pyo3 cdylib is an ANTI-PATTERN. pyo3 is statically
+// linked into the cdylib, so under LLVM's default `-fno-semantic-interposition`
+// a locally-DEFINED symbol is `dso_local`: pyo3's use of it binds to our
+// (abort()/zeroed) stub instead of the interpreter's real symbol, even though
+// `LD_DEBUG` shows the interpreter would otherwise interpose it. That corrupts
+// EVERY `#[pyclass]` teardown — `del obj` → SIGSEGV in pyo3 `tp_dealloc`
+// (garbage base type object), plus a `PyErrState::restore` panic on the error
+// path. Proven minimal: stubs present → crash, stubs absent → clean. Both the
+// function stubs AND the data (type/exception) stubs trigger it independently.
+//
+// The standard fix (pyo3 / maturin / manylinux): leave `Py*` UNDEFINED in the
+// extension so the already-loaded interpreter resolves them at import (macOS:
+// `-undefined dynamic_lookup`). We now ship TWO artifacts: a python-free
+// `libazul.so` (clean `az_*` C ABI, for `-lazul`) and a SEPARATE `azul.so`
+// pyo3 extension with undefined `Py*`. The original B1 "undefined reference
+// when linking -lazul" was self-inflicted strictness (`--allow-shlib-undefined`
+// is the linker default); the python-free C lib has no `Py*` at all, so it
+// links cleanly. See the `python-pyclass-dealloc-crash` notes for the full
+// investigation (LD_DEBUG/objdump evidence, the dso_local mechanism, sources).
 
 // PHP extension entry point (Zend engine). Loaded via
 // `php -d extension=/path/to/libazul.dylib`.

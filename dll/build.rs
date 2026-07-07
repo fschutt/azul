@@ -62,15 +62,12 @@ fn main() {
         println!("cargo:rustc-cdylib-link-arg=-Wl,-install_name,@rpath/libazul.dylib");
     }
 
-    // B1: on Linux, the cdylib bakes in fallback definitions of every `Py*`
-    // symbol pyo3's `extension-module` leaves undefined, so a SINGLE libazul.so
-    // serves both `import azul` (the interpreter interposes) and C/C++ apps
-    // linking `-lazul`. These live in `src/python_abi3_stubs.rs` (a crate
-    // `#[no_mangle]` module) rather than a linked C archive: rustc's cdylib
-    // version script localizes archive symbols (`local: *`), and a LOCAL stub is
-    // not interposable — it crashed `import azul`. Crate exports land in the
-    // version script's `global:` section, staying preemptible. No build step
-    // needed here; the module is `cfg`-gated to Linux in lib.rs.
+    // Python: the pyo3 extension leaves every `Py*` symbol UNDEFINED (the
+    // interpreter resolves them at import — the standard pyo3/manylinux way).
+    // The extension (azul.so) ships SEPARATELY from the python-free C
+    // libazul.so; there are NO baked-in Py* stubs. The old single-.so "bake
+    // Py* stubs into the cdylib" scheme was an LLVM dso_local anti-pattern that
+    // SIGSEGV'd every pyclass teardown — see dll/src/lib.rs.
 
     if target.contains("ios") {
         configure_ios();
@@ -83,8 +80,7 @@ fn main() {
 // ── Export restriction: keep only the azul C API in the cdylib ────────
 
 /// Emit a linker export list so the cdylib exports only the azul C API
-/// (Az*), az_* helpers, the python module init, and — on Linux python
-/// builds — the interposable Py* stubs. Everything else (turso SQL-function
+/// (Az*), az_* helpers, and the python module init. Everything else (turso SQL-function
 /// exports, material-icons `icon_to_char`, wasm-bindgen shims) is localized.
 /// See the call site for the rationale. Windows is intentionally skipped:
 /// DLL symbol resolution is not a flat namespace (no cross-DLL clash), and a
@@ -149,13 +145,13 @@ fn restrict_cdylib_exports(target: &str) {
     // Windows / other: no restriction (see doc comment).
 }
 
-// ── Python: Py* fallback stubs (Linux, bug B1) ────────────────────────
+// ── Python: no Py* stubs ──────────────────────────────────────────────
 //
-// The fallback `Py*` definitions now live in `src/python_abi3_stubs.rs` as a
-// crate `#[no_mangle]` module (Linux + python-extension only). They must be
-// crate exports, not a linked C archive: rustc's cdylib version script
-// localizes archive symbols, and a LOCAL stub is not interposable — it crashed
-// `import azul`. No build step is required here.
+// The pyo3 extension leaves `Py*` UNDEFINED (interpreter resolves at import).
+// No fallback stubs are baked in — defining CPython-API symbols in the pyo3
+// cdylib self-mis-binds via LLVM dso_local and SIGSEGVs pyclass teardown
+// (removed 2026-07-07; see dll/src/lib.rs). Ship the extension separately from
+// the python-free C libazul.so.
 
 // ── Android setup ─────────────────────────────────────────────────────
 

@@ -1144,24 +1144,20 @@ jobs:
           done
           ls -la target/screenshots/ || echo "No screenshots directory"
 
-      # B1 fix. python-extension pulls in pyo3 (extension-module, no libpython
-      # link) — its cdylib references ~80 Py* symbols. Build it into a SEPARATE
-      # target dir so it never clobbers the LEAN libazul.a (static C linking must
-      # stay python-free).
-      #
-      # LINUX: ship ONE dylib. The Linux python build bakes WEAK Py* stubs into
-      # the cdylib (dll/src/python_abi3_weak_stubs.c via build.rs), so a single
-      # libazul.so serves both `import azul` (libpython interposes the strong
-      # symbols at load) AND C/C++ apps that link `-lazul` (the weak stubs satisfy
-      # the linker, never called). We copy that .so over the lean prod-release
-      # libazul.so and also expose it as azul.so for `import azul`. The lean
-      # libazul.a (built earlier, stripped) is untouched.
-      #
-      # macOS/Windows: KEEP the lean dynamic lib + a SEPARATE python module
-      # (azul.so / azul.pyd). The weak-stub trick is ELF-only; macOS two-level
-      # namespace would bind libazul's own refs to the stubs (breaking import),
-      # and Windows pyo3 hard-links python3.dll (would break pure-C apps). The
-      # macOS codesign step also runs before this, so re-baking would void it.
+      # The pyo3 extension is a SEPARATE artifact on EVERY platform. The old
+      # "one libazul.so for both `import azul` AND -lazul" scheme (Linux baked
+      # Py* stubs into the cdylib) was REMOVED 2026-07-07: defining CPython-API
+      # symbols inside the pyo3 cdylib is an anti-pattern — pyo3 is statically
+      # linked in, so under LLVM's `dso_local` (default -fno-semantic-
+      # interposition) its use of a locally-defined Py*/PyExc_*/type-object binds
+      # to our stub instead of the interpreter's real symbol, SIGSEGV-ing every
+      # #[pyclass] teardown. See dll/src/lib.rs for the full rationale. We now
+      # ship TWO artifacts on all platforms:
+      #   - libazul.so/.dylib/.dll : python-free, clean az_* C ABI, for `-lazul`.
+      #   - azul.so/.pyd           : the pyo3 extension, Py* left UNDEFINED so the
+      #                              interpreter resolves them at import (standard
+      #                              pyo3/manylinux). Built into a SEPARATE target
+      #                              dir so it never clobbers the lean C lib.
       - name: Build Python extension
         run: cargo build --profile prod-release -p azul-dll --lib --features="python-extension" --target-dir target/pyext
 
@@ -1170,37 +1166,42 @@ jobs:
         shell: bash
         run: cp target/pyext/prod-release/azul.dll target/prod-release/azul.pyd
 
-      # Linux: the python build is C-safe (weak stubs) — make it THE release dylib.
-      - name: Bake Python into the single release dylib (Linux)
+      # Linux: expose the pyo3 extension as azul.so ALONGSIDE the lean C
+      # libazul.so — do NOT overwrite it (the C lib must stay python-free).
+      # Mirrors the macOS step below.
+      - name: Expose Python extension (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: |
-          cp target/pyext/prod-release/libazul.so target/prod-release/libazul.so
-          cp target/prod-release/libazul.so target/prod-release/azul.so
+        run: cp target/pyext/prod-release/libazul.so target/prod-release/azul.so
 
-      # Verify B1 is actually fixed: no undefined Py* symbols may remain in the
-      # shipped libazul.so (the stubs must cover every one pyo3 references) —
-      # EXCEPT the refcount ABI functions `_Py_IncRef`/`_Py_DecRef`, which are
-      # intentionally left undefined. Under abi3 pyo3 calls them on the hot
-      # Py_INCREF/Py_DECREF path, and a stub definition is used instead of the
-      # interpreter's real function (self-bound under CPython's RTLD_LOCAL
-      # extension dlopen), corrupting refcounting → `import azul` OOMs. See
-      # dll/src/python_abi3_stubs.rs. If this fails for any OTHER symbol, add it
-      # to that file.
-      - name: Verify no undefined Py* symbols (Linux)
+      # The C libazul.so must be PYTHON-FREE: zero Py* symbols (defined OR
+      # undefined). pyo3 lives only in the separate azul.so extension. This is
+      # what lets `-lazul` link cleanly with no CPython stubs baked in (the old
+      # stubs are the dso_local anti-pattern that SIGSEGV'd pyclass teardown).
+      - name: Verify libazul.so is python-free (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
-          UNDEF=$(nm -D --undefined-only target/prod-release/libazul.so \
-            | grep -E '\b(Py|_Py)[A-Za-z0-9_]*' \
-            | grep -vwE '_Py_IncRef|_Py_DecRef' || true)
-          if [ -n "$UNDEF" ]; then
-            echo "::error::libazul.so has unexpected undefined Py* symbols — B1 not fixed:"
-            echo "$UNDEF"
+          PY=$(nm -D target/prod-release/libazul.so 2>/dev/null \
+            | grep -E '\b(Py|_Py)[A-Za-z0-9_]*' || true)
+          if [ -n "$PY" ]; then
+            echo "::error::libazul.so (C lib) references CPython symbols — must be python-free:"
+            echo "$PY" | head
             exit 1
           fi
-          echo "OK: only the allowed refcount ABI symbols are undefined in libazul.so"
+          echo "OK: libazul.so is python-free (clean az_* C ABI)"
 
-      # Empirically prove a C app links against the python-baked libazul.so
-      # (this is exactly what B1 broke). Link only — running needs a display.
+      # HARD regression gate for the pyo3 stub-dealloc crash: creating AND tearing
+      # down a pyclass must not SIGSEGV. `import` alone is insufficient — the crash
+      # was only on dealloc (`del obj`). Headless; no display needed.
+      - name: Python pyclass teardown gate (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          cp target/prod-release/azul.so examples/python/
+          cd examples/python
+          AZ_BACKEND=headless python3 -c "import azul; c=azul.ColorU.create(1,2,3,4); del c; a=azul.AppConfig.create(); del a; print('pyclass teardown OK')"
+
+      # Empirically prove a C app links against the python-free release libazul.so
+      # (no CPython symbols to resolve, so it links cleanly). Link only — running
+      # needs a display.
       - name: C link test against release libazul.so (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
