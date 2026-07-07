@@ -32,13 +32,58 @@ use azul_css::parser2::new_from_str;
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
 
+/// Write every byte of `buf` to a Unix-domain socket with `MSG_NOSIGNAL`, so a
+/// peer that has closed the connection yields `EPIPE` instead of raising
+/// `SIGPIPE`.
+///
+/// Rust installs `SIG_IGN` for `SIGPIPE` in its own runtime startup, but azul is
+/// frequently loaded into a *host* process — most notably the Python extension
+/// (`import azul`), where `main()` is CPython's and Rust's startup never ran, so
+/// `SIGPIPE` keeps its default *terminate* disposition. A plain
+/// `UnixStream::write_all` to the session bus would then kill the whole host
+/// process the moment the D-Bus daemon or an absent xdg-desktop-portal drops the
+/// socket mid-handshake (observed: SIGPIPE at the portal `Settings.Read` write).
+/// Using `MSG_NOSIGNAL` keeps the failure local — the caller's `.ok()?` turns it
+/// into a clean `None` and we fall back to CLI/defaults. This never changes the
+/// process-wide `SIGPIPE` disposition, which a library must not do behind the
+/// host's back.
+fn send_all_nosignal(stream: &std::os::unix::net::UnixStream, mut buf: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let fd = stream.as_raw_fd();
+    while !buf.is_empty() {
+        let ret = unsafe {
+            libc::send(
+                fd,
+                buf.as_ptr() as *const libc::c_void,
+                buf.len(),
+                libc::MSG_NOSIGNAL,
+            )
+        };
+        if ret < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        if ret == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "send returned 0",
+            ));
+        }
+        buf = &buf[ret as usize..];
+    }
+    Ok(())
+}
+
 /// Read the XDG Desktop Portal `org.freedesktop.appearance` settings.
 ///
 /// Returns `(color_scheme, accent_color_rgb)` where color_scheme is:
 ///   0 = no preference, 1 = dark, 2 = light.
 /// Returns `None` if the portal is unavailable.
 fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
-    use std::io::{Read, Write};
+    use std::io::Read;
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
@@ -57,7 +102,7 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
     // D-Bus authentication: simplest method is EXTERNAL with uid
     let uid = unsafe { libc_getuid() };
     let auth_msg = alloc::format!("\0AUTH EXTERNAL {}\r\nBEGIN\r\n", hex_encode_uid(uid));
-    stream.write_all(auth_msg.as_bytes()).ok()?;
+    send_all_nosignal(&stream, auth_msg.as_bytes()).ok()?;
 
     // Read auth response (we just need "OK <guid>")
     let mut buf = [0u8; 256];
@@ -74,7 +119,7 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
         &[],
         1,
     );
-    stream.write_all(&hello_msg).ok()?;
+    send_all_nosignal(&stream, &hello_msg).ok()?;
     // Read Hello response (we ignore it, just need to consume it)
     let mut resp_buf = vec![0u8; 4096];
     let _ = stream.read(&mut resp_buf);
@@ -91,7 +136,7 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
         ],
         2,
     );
-    stream.write_all(&read_msg).ok()?;
+    send_all_nosignal(&stream, &read_msg).ok()?;
 
     let mut resp_buf = vec![0u8; 4096];
     let n = stream.read(&mut resp_buf).ok()?;
@@ -112,7 +157,7 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
         ],
         3,
     );
-    stream.write_all(&accent_msg).ok()?;
+    send_all_nosignal(&stream, &accent_msg).ok()?;
 
     let mut resp_buf2 = vec![0u8; 4096];
     let n2 = stream.read(&mut resp_buf2).unwrap_or(0);
