@@ -282,13 +282,16 @@ fn trailing_space_only_stays_one_line() {
 }
 
 #[test]
-fn double_space_collapses_to_one_gap() {
-    // CSS Text §4.1.1: a sequence of collapsible spaces collapses to a single space,
-    // so "aa  aa" measures the same 53px as "aa aa".
-    // pins spec: CSS Text L3 §4.1.1 white-space collapse (may be applied only in the
-    // DOM white-space phase, not the raw text3 pipeline).
+fn raw_pipeline_preserves_internal_double_space() {
+    // CSS Text L3 §4.1.1 white-space collapsing ("Phase I") is performed by the DOM
+    // layer (fc.rs::split_text_for_whitespace) BEFORE the text3 pipeline runs; the
+    // raw pipeline operates on already-collapsed runs and must NOT re-collapse (see
+    // cache.rs "non-preserved spaces already collapsed in Phase I"). So feeding an
+    // un-collapsed "aa  aa" straight to the pipeline preserves BOTH 5px spaces:
+    // 12+12 + 5 + 5 + 12+12 = 58px. The CSS-correct collapse-to-one-gap (53px) is
+    // pinned at the DOM layer in solver3::double_space_collapses_to_one_gap.
     let l = layout("aa  aa", AvailableSpace::MaxContent);
-    assert_px(widest_line(&l), 53.0);
+    assert_px(widest_line(&l), 58.0);
 }
 
 #[test]

@@ -340,6 +340,27 @@ fn white_space_pre_preserves_spaces_and_newline_without_wrapping() {
 }
 
 #[test]
+fn double_space_collapses_to_one_gap() {
+    // CSS Text L3 §4.1.1: in white-space:normal a sequence of collapsible spaces
+    // collapses to a single space. This "Phase I" white-space processing runs in
+    // the DOM layer (fc.rs::split_text_for_whitespace), BEFORE the text3 pipeline,
+    // so "aa  aa" measures the same max-content as "aa aa" = 48 + 5 + 48 = 53px.
+    // (The raw text3 pipeline operates on already-collapsed runs and does NOT
+    // re-collapse — see shaping::raw_pipeline_preserves_internal_double_space.)
+    let html = format!(
+        "<html><head><style>\
+            .b {{ display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+         </style></head><body><span class=\"b\">aa  aa</span></body></html>"
+    );
+    let cache = run_layout(&html);
+    assert!(
+        any_max_content(&cache, 53.0),
+        "collapsible double space must collapse to one 5px gap (53px); intrinsics = {:?}",
+        intrinsics(&cache)
+    );
+}
+
+#[test]
 fn nested_span_split_keeps_total_width_48px() {
     // CSS Text: a run split across a <span> boundary still measures as one word;
     // "aa" + <span>"aa"</span> coalesces to 48px max-content (no phantom break).
