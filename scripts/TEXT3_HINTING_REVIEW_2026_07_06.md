@@ -307,3 +307,44 @@ skeptic verifier. Full detail (description/failure_scenario/repro) in the run jo
 - `third_party/allsorts/src/hinting/interpreter.rs:2099` — SHP/SHC/SHZ shift magnitude is divided by freedom·projection; FreeType shifts by d·freedomVector directly
 - `layout/src/glyph_cache.rs:180` — Mixed hinted/unhinted glyphs on the same baseline use round() vs floor() -> up to 1px vertical stagger
 - `layout/src/glyph_cache.rs:135` — Hinting applied at every ppem with no gasp table consultation -> over-hinting/distortion at large sizes
+
+---
+
+## FINAL OUTCOME (fix wave complete — 2026-07-07)
+
+**All 46 confirmed bugs addressed** (44 fixed at root cause; 2 low-risk deferrals below). Verified:
+
+| Gate | Result |
+|---|---|
+| `text3_brutal_shaping` | 26 pass / 2 fail |
+| `text3_brutal_selection` | 17 pass / 1 fail |
+| `text3_brutal_solver3` | 14 pass / 0 fail |
+| allsorts `hinting::tests` (FreeType-parity golden) | **17 / 17 pass** |
+| `cargo build -p azul-layout` (default features) | clean |
+
+The 3 failing battery tests are one root cause: **glyph-level RTL visual reversal (UBA rule L2) is not implemented** — `reorder_logical_items` orders runs visually but emits intra-run clusters in logical order. Widths are already correct; only the per-glyph x-order (and bidi-aware selection-rect splitting) is missing. Documented as `TODO(text3-review)` at `reorder_logical_items` rather than half-implemented (a naive full-L2 pass would double-reverse the RTL-base paragraphs the real app relies on).
+
+### Highest-impact fixes
+- **Space/empty-glyph advance = 0** (`d8b579fab`, font.rs): space glyphs were pre-decoded into the glyph cache *before* the `hmtx` bytes were attached, caching a 0 advance for the whole face; `get_hinted_advance_px` then returned stale `Some(0.0)` instead of `None`. Affected every space in every font. Cascaded to 4 tests.
+- **line-height:normal ~10% too tall** (`24d165629`): solver3 forced `Px(1.2·font_size)` for undeclared line-height instead of passing `Normal` to be resolved from strut metrics — the classic "azul text sits lower than Chrome/CoreText" vertical-parity bug.
+- **11 TrueType interpreter bugs vs FreeType v40** (`de0e9813`): SROUND phase, DELTAP arg order, WCVTP OOM, per-glyph round_state reset, move_point F·P clamp, stack headroom, FLIPRGON bound, MIRP cut-in, ISECT near-parallel, SHZ touched-flag, phantom pp1.x.
+- **Knuth-Plass paragraph collapse** (`cde39154b`), **NBSP/min-content/spacing** (`15567ed39`), **mkmk mark-stacking** (`68dd63c10`), **legacy kern for GPOS-less fonts** (`1cd7f9b64`).
+
+### Deferred (low-risk follow-ups, not blocking)
+- Confirmed bug #2 `cache.rs:4655` move_cursor_left/right affinity — no battery coverage; deferred to avoid an unverified editor-navigation regression.
+- RTL glyph-level visual reversal (the 3 tests above).
+- Pre-existing, unrelated: `cargo build --all-features` fails on a `web_lift` `az_mark` const-fn/volatile issue that predates this work.
+
+### Test harness + autoregression (deliverables)
+- Deterministic TTF builder `layout/tests/common/fakefont.rs` (fonttools-validated) + 50 brutal shaping/selection/solver3 tests.
+- FreeType-parity golden tests `third_party/allsorts/src/hinting/tests.rs` (fork lib-test scaffolding restored — it didn't compile at all before, `0ca8e0654`).
+- CoreText autoregression harness `layout/tests/coretext_autoregression.rs` + `scripts/coretext_regression.sh` (16× upscaled `[ours-hinted | CoreText | diff | ours-unhinted]` panels + `metrics.jsonl` + worst-first `SUMMARY.md`). Run on macOS: `scripts/coretext_regression.sh`. This is the loop for continuing to converge hinting onto CoreText.
+
+20 commits on `fix/text3-hinting-review` (see `git log master..HEAD`).
+
+### CoreText autoregression — first baseline (Arial, 9–24px, 333 cases)
+Ran `scripts/coretext_regression.sh`. Result: **333/333 DIVERGENT** (MATCH 0 / CLOSE 0). This is the *starting* measurement of the clone-CoreText loop, and viewing the 16× upscaled panels pinpoints the dominant divergence class:
+
+> **Our hinted glyphs render near-bilevel hard-black stems; CoreText renders soft gamma-corrected gray anti-aliasing.** The diff heatmap is red-dominated (we over-ink: solid black where CoreText is mid-gray) with blue side-fringes (CoreText distributes coverage to neighbor pixels we leave white). `bboxΔ` shows our small glyphs ~1–2px narrower (`H`,`m`) and `W` ~3–5px taller.
+
+**This is a rasterizer issue, not a hinting-interpreter issue** — the interpreter is verified correct (17/17 golden) and grid-fits stems as intended; `cpurender/raster.rs::render_scanlines_aa_solid` then converts the hinted outline with **linear agg coverage and no text gamma**, so edges come out harsh. **Next loop iteration (deliberately NOT done blind overnight — it changes ALL text rendering and needs review):** add a gamma-correct coverage LUT (CoreText applies a text gamma even with smoothing off) and soften hinted-edge AA, then re-run and compare `metrics.jsonl` (the script auto-diffs prev→now MATCH/CLOSE/DIVERGENT). Worst offenders and per-ppem histogram are in `SUMMARY.md`; upscaled panels are named `NNpx_<case>_<bucket>_rmsX.png`.

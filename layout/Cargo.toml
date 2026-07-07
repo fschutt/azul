@@ -115,7 +115,11 @@ objc2-foundation = { version = "0.3.0", default-features = true, optional = true
 ] }
 
 # CoreText / CoreGraphics for native font rendering comparison tests
-core-foundation = { version = "0.10", optional = true }
+# NB: keep these three on the SAME core-foundation generation — core-text 20.1
+# and core-graphics 0.23 are built against core-foundation 0.9, so pinning
+# core-foundation to 0.9 keeps CTFont/TCFType consistent (0.10 splits the trait
+# and CTLine::set_attribute then rejects the 0.9-declared CTFont).
+core-foundation = { version = "0.9", optional = true }
 core-graphics = { version = "0.23", optional = true }
 core-text = { version = "20.1", optional = true }
 
