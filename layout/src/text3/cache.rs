@@ -1408,6 +1408,10 @@ impl UnifiedConstraints {
 pub struct LineConstraints {
     pub segments: Vec<LineSegment>,
     pub total_available: f32,
+    /// True when measuring min-content: the breaker must break at EVERY soft-wrap
+    /// opportunity (each word on its own line) rather than filling `total_available`
+    /// (which is a sentinel f32::MAX/2 for intrinsic sizing and never overflows).
+    pub is_min_content: bool,
 }
 
 impl WritingMode {
@@ -8615,6 +8619,21 @@ pub fn break_one_line<T: ParsedFontTrait>(
             return (line_items, false);
         }
 
+        // Min-content: break at EVERY soft-wrap opportunity so each word forms its
+        // own line (min-content = widest unbreakable unit). `total_available` is a
+        // sentinel (f32::MAX/2) during intrinsic sizing and never overflows, so
+        // without this the run would collapse onto one line and min-content would
+        // wrongly equal max-content. Once the line holds content and the next unit
+        // is a break opportunity (a space, CJK ideograph, hyphen, …), finish here;
+        // a leading space is stripped at the next line's start (collapsing modes).
+        if line_constraints.is_min_content
+            && !line_items.is_empty()
+            && next_unit.len() == 1
+            && is_break_opportunity_with_word_break(&next_unit[0], cursor.word_break, cursor.hyphens)
+        {
+            break;
+        }
+
         let unit_width: f32 = next_unit
             .iter()
             .map(|item| get_item_measure_with_spacing(item, is_vertical))
@@ -9098,6 +9117,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             let segment_line_constraints = LineConstraints {
                 segments: vec![*segment],
                 total_available: segment.width,
+                is_min_content: false,
             };
             calculate_justification_spacing(
                 &segment_items,
@@ -9116,6 +9136,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             let segment_line_constraints = LineConstraints {
                 segments: vec![*segment],
                 total_available: segment.width,
+                is_min_content: false,
             };
             justify_kashida_and_rebuild(
                 segment_items,
@@ -10121,6 +10142,7 @@ fn get_line_constraints(
     LineConstraints {
         segments: available_segments,
         total_available: total_width,
+        is_min_content: matches!(constraints.available_width, AvailableSpace::MinContent),
     }
 }
 
