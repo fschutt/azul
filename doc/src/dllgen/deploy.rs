@@ -807,9 +807,11 @@ const BINDING_FILES: &[BindingFile] = &[
     // --- powershell ---
     BindingFile { dst: "Azul.psd1", src: "Azul.psd1", source: BindingSource::Codegen },
     BindingFile { dst: "Azul.psm1", src: "Azul.psm1", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.ps1", src: "powershell/hello-world.ps1", source: BindingSource::Examples },
     // --- smalltalk ---
     BindingFile { dst: "Azul.st", src: "Azul.st", source: BindingSource::Codegen },
     BindingFile { dst: "BaselineOfAzul.st", src: "BaselineOfAzul.st", source: BindingSource::Codegen },
+    BindingFile { dst: "hello-world.st", src: "smalltalk/HelloWorld.st", source: BindingSource::Examples },
     // --- vb6 (Azul.bas is the generated binding module; HelloWorld.* are the example app) ---
     BindingFile { dst: "Azul.bas", src: "vb6/Azul.bas", source: BindingSource::Codegen },
     BindingFile { dst: "HelloWorld.bas", src: "vb6/HelloWorld.bas", source: BindingSource::Examples },

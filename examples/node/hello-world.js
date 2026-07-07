@@ -2,7 +2,10 @@
 
 'use strict';
 
-const azul = require('./azul.js');
+// Works both ways: the installed package (`npm install <azul tarball>`) and the
+// local binding file (`azul.js` next to this script).
+let azul;
+try { azul = require('azul'); } catch (_) { azul = require('./azul.js'); }
 const {
     App, AppConfig, Button, ButtonType, Dom,
     CssProperty, CssPropertyWithConditions, StyleFontSize,
