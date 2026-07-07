@@ -243,12 +243,13 @@ fn flex_item_min_content_is_widest_word_48px() {
 fn letter_spacing_half_px_must_not_be_quantized_away() {
     // CSS Text §8: letter-spacing 0.5px is a real, sub-pixel contribution — on the
     // 4 clusters of "aaaa" it must widen max-content by ~2px (4 * 0.5).
-    // known-suspect: getters.rs stores Spacing::Px(px.round() as i32), so 0.5px is
-    // rounded to 1px and the delta inflates to ~4px. Pinning the spec value makes
-    // that quantization visible as a failure.
+    // getters.rs now stores Spacing::PxF(px) (float), so 0.5px is NOT quantized to
+    // 1px. The container must be shrink-to-fit (inline-block) for max-content to be
+    // computed at all: a plain inline span inside a definite-width block never needs
+    // its intrinsic size, so no max-content is produced (correct lazy sizing).
     let base = format!(
         "<html><head><style>\
-            .t {{ font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; letter-spacing: {{LS}}; }}\
+            .t {{ display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; letter-spacing: {{LS}}; }}\
          </style></head><body><span class=\"t\">aaaa</span></body></html>"
     );
     let cache0 = run_layout(&base.replace("{LS}", "0px"));
