@@ -339,8 +339,39 @@ fn build_hinted_path(
     };
     drop(hint);
 
+    // Optional "light" hinting (CoreText / DirectWrite grayscale style): keep the
+    // grid-fitted Y (baseline, x-height and horizontal stems snap crisply to the
+    // pixel grid) but restore the UNHINTED fractional X, so vertical stems stay
+    // sub-pixel-positioned and anti-alias to soft gray instead of snapping to a
+    // hard full-black 1px column (Windows-style full grid-fit). This is what
+    // converges our CPU text onto CoreText — full bytecode hinting over-snaps X,
+    // rendering stems thinner + darker than CoreText's. On by default; set
+    // AZ_HINT_LIGHT=0 to force Windows-style full grid-fit. The interpreter still
+    // runs in full (its Y output + FLIP'd on-curve flags are used), so no hinting
+    // correctness is lost — only the X axis is left sub-pixel for grayscale AA.
+    if hint_light_enabled() {
+        let light: Vec<(i32, i32)> = hinted
+            .iter()
+            .enumerate()
+            .map(|(i, &(hx, hy))| (points_f26dot6.get(i).map_or(hx, |p| p.0), hy))
+            .collect();
+        return build_path_from_contours(&light, &hinted_on_curve, raw_contour_ends);
+    }
+
     // Build path from hinted points using TrueType quadratic contour conventions
     build_path_from_contours(&hinted, &hinted_on_curve, raw_contour_ends)
+}
+
+/// Whether to apply CoreText-style "light" hinting (grid-fit Y only, fractional X).
+/// ON by default (matches CoreText / modern browser grayscale rendering); set
+/// `AZ_HINT_LIGHT=0` (or `false`) to force Windows-style full grid-fit. Read once.
+fn hint_light_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("AZ_HINT_LIGHT")
+            .map(|s| !(s == "0" || s.eq_ignore_ascii_case("false")))
+            .unwrap_or(true)
+    })
 }
 
 /// Build an agg `PathStorage` from TrueType contour data (points in `F26Dot6`).
