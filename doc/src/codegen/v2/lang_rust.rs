@@ -2437,7 +2437,11 @@ impl RustGenerator {
             builder.line("#[repr(C)]");
         }
 
-        // Struct definition
+        // Struct definition. Mirror fields are emitted bare (no `ManuallyDrop`):
+        // the codegen double-drop is prevented instead by only emitting an
+        // `impl Drop` for TRUE LEAVES (see `struct_needs_own_drop` /
+        // `generate_capi_trait_impls`) — plain aggregates have no mirror `Drop`
+        // and free each field exactly once via Rust field-glue.
         if struct_def.fields.is_empty() {
             builder.line(&format!("pub struct {};", full_name));
         } else {
@@ -2510,6 +2514,16 @@ impl RustGenerator {
             builder.line("#[repr(C)]");
         }
 
+        // NOTE: tagged-union payloads are deliberately NOT wrapped in `ManuallyDrop`
+        // (unlike struct fields — see `generate_struct`). Generated convenience impls
+        // construct and match these variants directly (`AzOptionDom::Some(v)`,
+        // `matches!(self, ..::Some(_))`, `Some(v) => AzOptionDom::Some(v)`), which
+        // expect the bare payload type; wrapping would break ~700 such sites. The
+        // double-drop of an owning enum bottoms out in already-idempotent leaves (the
+        // Vec `destructor`-enum guard, boxed take-and-null, refcount), and every
+        // owning enum that appears as a struct field is protected there by the
+        // struct-field wrap above. Revisit only if a standalone owning enum is shown
+        // to double-free.
         // Enum definition
         builder.line(&format!("pub enum {} {{", full_name));
         builder.indent();
@@ -2556,6 +2570,33 @@ impl RustGenerator {
             FieldRefKind::Boxed => format!("Box<{}>", prefixed),
             FieldRefKind::OptionBoxed => format!("Option<Box<{}>>", prefixed),
         }
+    }
+
+    /// Whether a mirror struct is a TRUE LEAF that must keep its own `impl Drop`.
+    ///
+    /// The codegen double-drop (an `AzX` mirror running BOTH `AzX_delete` =
+    /// `drop_in_place::<RealX>` AND Rust field-glue on the same bytes) is avoided by
+    /// NOT emitting an `impl Drop` for plain aggregates: their mirror field-glue
+    /// already frees every field exactly once via each field's own `Drop`, so a
+    /// second free never happens. `AppConfig` and the ~55 callback structs are such
+    /// aggregates.
+    ///
+    /// A type must nonetheless keep an `impl Drop` when field-glue would NOT free its
+    /// heap — i.e. it owns memory through a raw pointer (`*const`/`*mut`: a Vec
+    /// buffer, or an opaque `*mut c_void` box) or has a hand-written real `Drop` that
+    /// frees such a resource. Those are the leaves (`Vec`s, `SystemStyle`,
+    /// `IconProviderHandle`, `RefCount`, GL handles, …); everything else delegates.
+    ///
+    /// This is deliberately conservative: it errs toward KEEPING `Drop` (an
+    /// unnecessary keep is harmless — the pre-existing behavior — while a wrong
+    /// remove would leak), and it changes no field types, so hand-written
+    /// constructors/getters that touch mirror fields are unaffected.
+    fn struct_needs_own_drop(&self, struct_def: &StructDef) -> bool {
+        struct_def.traits.has_custom_drop
+            || struct_def
+                .fields
+                .iter()
+                .any(|f| matches!(f.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut))
     }
 }
 
@@ -2609,6 +2650,32 @@ impl RustGenerator {
             builder.line(&format!(
                 "unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}",
                 external_path, full_name, full_name, external_path
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        // Drop impl (leak fix). The `UsingTransmute` mirror (the Python extension's
+        // `__dll_api_inner`) has no `_delete` extern fn and previously emitted NO
+        // `Drop` at all, so it leaked every owned `String`/`Vec`/box for each pyclass
+        // freed. Emit an inline `drop_in_place::<RealX>` for TRUE LEAVES ONLY (same
+        // `struct_needs_own_drop` rule as `generate_capi_trait_impls`): plain
+        // aggregates delegate to their fields' `Drop` via Rust field-glue, so a
+        // `Drop` here would double-free. Skip generic templates (handled inline).
+        if struct_def.traits.needs_delete()
+            && struct_def.generic_params.is_empty()
+            && self.struct_needs_own_drop(struct_def)
+        {
+            builder.line(&format!("impl Drop for {} {{", full_name));
+            builder.indent();
+            builder.line("fn drop(&mut self) {");
+            builder.indent();
+            builder.line(&format!(
+                "unsafe {{ core::ptr::drop_in_place(self as *mut {} as *mut {}) }}",
+                full_name, external_path
             ));
             builder.dedent();
             builder.line("}");
@@ -3009,8 +3076,13 @@ impl RustGenerator {
             builder.blank();
         }
 
-        // Drop impl calling C-ABI function
-        if struct_def.traits.needs_delete() {
+        // Drop impl calling C-ABI function — TRUE LEAVES ONLY (see
+        // `struct_needs_own_drop`). Plain aggregates get NO mirror `Drop`: their
+        // Rust field-glue already frees each field exactly once via that field's own
+        // `Drop`, so the codegen double-drop (running `_delete` = `drop_in_place`
+        // AND then field-glue on the same bytes) never happens. The C `_delete`
+        // extern fn is still generated for explicit C frees.
+        if struct_def.traits.needs_delete() && self.struct_needs_own_drop(struct_def) {
             let delete_fn = format!("{}_delete", name);
             builder.line(&format!("impl Drop for {} {{", name));
             builder.indent();
@@ -3023,6 +3095,21 @@ impl RustGenerator {
             builder.line("}");
             builder.blank();
         }
+    }
+
+    /// Whether an enum mirror must keep its own `impl Drop`. Enums delegate to their
+    /// single named-struct payload's `Drop` via field-glue (every variant is
+    /// `Variant(NamedStruct)`), so an `impl Drop` is only needed when the enum has a
+    /// hand-written real `Drop` or a variant payload held by a raw pointer that
+    /// field-glue would not free.
+    fn enum_needs_own_drop(&self, enum_def: &EnumDef) -> bool {
+        enum_def.traits.has_custom_drop
+            || enum_def.variants.iter().any(|v| match &v.kind {
+                EnumVariantKind::Tuple(types) => types
+                    .iter()
+                    .any(|(_, rk)| matches!(rk, FieldRefKind::Ptr | FieldRefKind::PtrMut)),
+                _ => false,
+            })
     }
 
     fn generate_capi_trait_impls_enum(
@@ -3053,8 +3140,12 @@ impl RustGenerator {
             builder.blank();
         }
 
-        // Drop impl calling C-ABI function
-        if enum_def.traits.needs_delete() {
+        // Drop impl — enums delegate to their single named-struct payload's own
+        // `Drop` via Rust field-glue, so no mirror `Drop` is emitted unless the enum
+        // itself owns heap (`enum_needs_own_drop`). This avoids double-dropping the
+        // payload (`_delete` = `drop_in_place` AND then field-glue). The `_delete`
+        // extern fn is still generated for explicit C frees.
+        if enum_def.traits.needs_delete() && self.enum_needs_own_drop(enum_def) {
             let delete_fn = format!("{}_delete", name);
             builder.line(&format!("impl Drop for {} {{", name));
             builder.indent();
