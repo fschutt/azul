@@ -319,12 +319,15 @@ fn text_indent_shifts_first_line_only() {
 #[test]
 fn white_space_pre_preserves_spaces_and_newline_without_wrapping() {
     // CSS Text §3: white-space:pre preserves the double space and the newline and
-    // does NOT wrap, so "aa  aa" (58px, spaces kept) sits on line 1 and "aa" on
-    // line 2 even inside a narrow 30px box; the block auto-heights to 2*20 = 40px.
-    // pins spec: pre keeps collapsible spaces and honors LF as a forced break.
+    // does NOT wrap, so the max-content of "aa  aa\naa" is the widest PRESERVED line
+    // "aa  aa" = 58px (NOT the 82px sum across the forced LF break). Use a
+    // shrink-to-fit (inline-block, auto width) container: a definite-width block
+    // never needs its content's intrinsic size, so max-content would not be computed
+    // at all (correct lazy sizing) — inline-block forces the measurement.
+    // pins spec: pre keeps collapsible spaces; max-content = widest line between LFs.
     let html = format!(
         "<html><head><style>\
-            .p {{ white-space: pre; width: 30px; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+            .p {{ white-space: pre; display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
          </style></head><body><div class=\"p\">aa  aa\naa</div></body></html>"
     );
     let cache = run_layout(&html);
