@@ -6638,6 +6638,21 @@ pub fn reorder_logical_items(
         }
     }
 
+    // TODO(text3-review): RTL glyph-level visual reversal is NOT applied.
+    // `visual_runs` orders the RUNS visually (left-to-right), but the loop below
+    // emits each run's content in LOGICAL byte order, and shaping/positioning then
+    // place clusters left-to-right in that logical order. For an RTL run this is
+    // wrong: the first logical character must land at the LARGEST visual x. The
+    // shaped clusters of each RTL run therefore need to be reversed (UBA rule L2,
+    // applied per run at the glyph level AFTER shaping — a single logical Text item
+    // shapes into multiple clusters, so it cannot be reversed here at the item
+    // level). This must compose with the run-level ordering already done here
+    // (naively re-running full L2 on top would double-reverse RTL-base paragraphs),
+    // and `UnifiedLayout::get_selection_rects` must additionally split a selection
+    // into one visual rect per directional segment. Deferred as a coherent
+    // cross-cutting change; see failing tests text3_brutal_shaping::
+    // {hebrew_run_is_rtl_reversed_and_33px_wide, bidi_mixed_run_is_80px_and_reverses_hebrew}
+    // and text3_brutal_selection::bidi_selection_over_rtl_run_splits_into_multiple_rects.
     let mut visual_items = Vec::new();
     for run_range in visual_runs {
         let bidi_level = BidiLevel::new(levels[run_range.start].number());
