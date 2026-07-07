@@ -368,3 +368,16 @@ Result (Arial, 9–24px, 333 cases):
 Regressions: none — brutal batteries steady at 57/3, `azul-layout` build clean, `e2e_pixel_diff` + `cpurender_image_probe` pass.
 
 **Next iterations (the loop stays open):** 305 still `DIVERGENT` by the strict `<8` rms bucket, now from *finer* causes — a ~1px vertical crossbar/baseline rounding (glyph-origin `round()` in `build_hinted_path` / `build_path_from_contours` Y-flip) and CoreText's exact sub-pixel AA. Re-run `scripts/coretext_regression.sh` (it auto-diffs prev→now); worst offenders + per-ppem histogram in `SUMMARY.md`; panels named `NNpx_<case>_<bucket>_rmsX.png`.
+
+---
+
+## Quality wave 2 (2026-07-07) — RTL fixed, big regression net, rendering features wired
+
+End state: **158 tests / 0 failed / 0 ignored** across 9 files (60 brutal + 77 regression + wave-2 additions), fork golden **17/17**, `azul-layout` + `azul-dll --features build-dll` build clean.
+
+- **RTL now works** (`e51627233`): UBA rule L2 applied per line (`apply_l2_visual_reversal`, reverses each contiguous same-direction cluster run, composing with the run-level ordering `visual_runs` already does). A second bug — visual-run splitting made cluster `start_byte_in_run` collide so selection returned 0 rects — fixed via `run_byte_offset` re-basing. The 3 deferred RTL tests are green; bidi visual order is locked with exact-x assertions.
+- **77 new deterministic regression tests** (`c23de602a`…`8ec463823`): UAX#14 breaking, CSS white-space, UBA bidi, selection/caret/edit, line-box metrics, solver3 DOM text — math-on-metrics off the synthetic `fakefont`, extended with `/`, `@`, ZWSP, soft-hyphen, tab + a `FakeFallback` family for fallback tests.
+- **Source bugs churned** (`1810ab359`, `64a1a4c03`): slash soft-wrap opportunity; grapheme-aware + affinity-correct caret motion (combining marks don't split; doc start/end reachable); RTL caret on the correct edge; RTL multi-line selection in reading order; **`text-transform` added as a real inherited CSS property** (was silently dropped as an unknown key) and applied before shaping.
+- **Rendering features wired, default-ON** (`c0672d2e9`, `05dc54e82`, `cba098fd6`): sub-pixel horizontal positioning (`AZ_TEXT_SUBPIXEL=0` off); RGB LCD subpixel AA — 3× raster + FreeType 5-tap FIR + per-channel composite (`AZ_TEXT_LCD=0` off; assumes horizontal-RGB + opaque bg); light hinting (`AZ_HINT_LIGHT=0` off). Text-shadow forced grayscale so LCD-on can't corrupt it.
+
+Open follow-ups: LCD is subpixel-order-specific (BGR/vertical panels need a variant); the CoreText loop's finer residual (baseline/crossbar rounding); `text-transform` works from CSS but isn't yet a programmatic C-API property (api.json) if bindings must set it directly.
