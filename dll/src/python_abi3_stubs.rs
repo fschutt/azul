@@ -48,17 +48,60 @@
 /// A function symbol. Arity/return are irrelevant: only the NAME must exist to
 /// satisfy the linker, and the body is unreachable in a process without a Python
 /// interpreter (which would interpose the real symbol).
+///
+/// WHY EACH BODY MUST BE DISTINCT (bug B2)
+/// --------------------------------------
+/// The previous body was a bare `-> ! { ::std::process::abort() }`, identical for
+/// all ~85 stubs. LLVM's function merging (MergeFunctions / ICF, active under the
+/// release LTO build) folded every one of them onto a SINGLE canonical symbol
+/// (`nm -D` showed all 85 at one address) and rewrote azul's own call-site
+/// relocations for the *other*, non-canonical names to point at the canonical
+/// one. The canonical happened to be `PyBytes_AsString`, so pyo3's
+/// `PyType_GetSlot(actual_type, Py_tp_free)` call — executed in the destructor of
+/// EVERY `#[pyclass]` to obtain `tp_free` (pyo3 `pycell/impl_.rs`) — bound at
+/// runtime to the interpreter's `PyBytes_AsString`. That returned garbage, which
+/// was then invoked as `tp_free(slf)`, jumping to a bogus address: every
+/// unsendable-pyclass teardown (`AppConfig`, `SystemStyle`, …) SIGSEGV'd deep in
+/// `ThreadCheckerImpl::can_drop` on a null object. `import azul` still worked
+/// because module init does not go through this folded `tp_free` path.
+///
+/// Passing each stub its own `stringify!` name keeps the bodies distinct, so the
+/// folder leaves them alone and every Py* symbol retains its own relocation / GOT
+/// slot — restoring correct interposition (each call binds to the matching
+/// interpreter function). CI's `nm -D` gate below only catches *undefined* Py*
+/// symbols; this class of bug (defined-but-folded) is guarded by the distinct
+/// bodies here plus the runtime e2e teardown test.
 macro_rules! py_fn_stubs {
     ($($name:ident),* $(,)?) => {
         $(
             #[no_mangle]
             pub extern "C" fn $name() -> ! {
-                // Reached only if libazul is loaded without a CPython
-                // interpreter in the global scope to interpose this symbol.
-                ::std::process::abort()
+                // The unique per-symbol name makes this body differ from every
+                // other stub's, defeating identical-code folding (see above).
+                py_stub_no_interpreter(stringify!($name))
             }
         )*
     };
+}
+
+/// Cold, shared abort path for every [`py_fn_stubs!`] entry. Reached only if
+/// libazul is loaded with no CPython interpreter in the global scope to interpose
+/// the stub. Takes the calling symbol's `name` so the generated stub bodies stay
+/// distinct (see [`py_fn_stubs!`] — folding them together is catastrophic).
+#[cold]
+#[inline(never)]
+fn py_stub_no_interpreter(name: &'static str) -> ! {
+    use ::std::io::Write as _;
+    // Best-effort diagnostic to stderr (no allocation; direct write to the fd).
+    // Also *uses* `name`, ensuring the distinct per-stub constant survives
+    // optimization and the bodies remain un-foldable (see `py_fn_stubs!`).
+    let mut err = ::std::io::stderr();
+    let _ = err.write_all(
+        b"azul: a Python C-API symbol was called with no CPython interpreter present: ",
+    );
+    let _ = err.write_all(name.as_bytes());
+    let _ = err.write_all(b"\n");
+    ::std::process::abort()
 }
 
 /// A data symbol (PyTypeObject / PyObject* exception / interpreter singletons).
