@@ -313,10 +313,28 @@ pub fn is_nim_keyword(name: &str) -> bool {
 /// Reserved words are wrapped in backticks (Nim "stropping"), which keeps
 /// the original spelling usable as an ordinary identifier.
 pub fn sanitize_identifier(name: &str) -> String {
-    if is_nim_keyword(name) {
-        format!("`{}`", name)
+    // Nim identifiers must start with a letter — a leading underscore (e.g. the
+    // C filler field `_reserved`) is a hard lexer error ("invalid token: _"),
+    // and a bare `_` is illegal too. Strip leading underscores; these are Nim
+    // `{.bycopy.} = object` fields whose layout is positional, so the rename is
+    // ABI-safe. Fall back to `field` if nothing is left.
+    // Nim rejects leading ("invalid token: _") AND trailing ("trailing
+    // underscore") underscores, plus a bare `_`. Trim both ends (e.g. the C arg
+    // `ref_` -> `ref`, which then keyword-escapes to `` `ref` `` below).
+    let stripped = name.trim_matches('_');
+    let base = if stripped.is_empty() { "field" } else { stripped };
+    // Positional/tuple fields arrive as bare indices ("0", "1", ...); Nim needs
+    // an identifier, not a number ("identifier expected, but got '0'"). Prefix a
+    // leading digit (accessor is cosmetic; `{.bycopy.}` layout is positional).
+    let base: String = if base.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        format!("f{}", base)
     } else {
-        name.to_string()
+        base.to_string()
+    };
+    if is_nim_keyword(&base) {
+        format!("`{}`", base)
+    } else {
+        base
     }
 }
 

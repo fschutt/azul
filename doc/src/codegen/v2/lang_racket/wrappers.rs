@@ -88,11 +88,12 @@ fn emit_class_wrappers(builder: &mut CodeBuilder, class_name: &str, ir: &Codegen
     if funcs.is_empty() {
         return;
     }
+    let has_new = funcs.iter().any(|f| f.method_name == "new");
     for func in funcs {
         if func.kind.is_trait_function() {
             continue; // Delete/PartialEq/Cmp/Hash/Debug: use raw Az* if needed.
         }
-        emit_wrapper(builder, &class, func);
+        emit_wrapper(builder, &class, func, has_new);
     }
     builder.blank();
 }
@@ -100,12 +101,13 @@ fn emit_class_wrappers(builder: &mut CodeBuilder, class_name: &str, ir: &Codegen
 fn emit_enum_wrappers(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let class = idiomatic_class_name(&e.name);
     let funcs: Vec<&FunctionDef> = ir.functions_for_class(&e.name).collect();
+    let has_new = funcs.iter().any(|f| f.method_name == "new");
     let mut wrote = false;
     for func in funcs {
         if func.kind.is_trait_function() {
             continue;
         }
-        emit_wrapper(builder, &class, func);
+        emit_wrapper(builder, &class, func, has_new);
         wrote = true;
     }
     if wrote {
@@ -113,8 +115,8 @@ fn emit_enum_wrappers(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     }
 }
 
-fn emit_wrapper(builder: &mut CodeBuilder, class: &str, func: &FunctionDef) {
-    let public_name = public_name(class, func);
+fn emit_wrapper(builder: &mut CodeBuilder, class: &str, func: &FunctionDef, has_new: bool) {
+    let public_name = public_name(class, func, has_new);
 
     // Parameter names (kebab, de-duplicated, sanitized).
     let mut seen = std::collections::HashMap::<String, usize>::new();
@@ -164,11 +166,17 @@ fn emit_wrapper(builder: &mut CodeBuilder, class: &str, func: &FunctionDef) {
 }
 
 /// Public wrapper name for a function.
-fn public_name(class: &str, func: &FunctionDef) -> String {
+fn public_name(class: &str, func: &FunctionDef, has_new: bool) -> String {
     let method = kebab(&func.method_name);
     match func.kind {
+        // `new` always claims the idiomatic `make-<class>` name. `default` also
+        // maps to `make-<class>` — but ONLY when the class has no `new`, since a
+        // class with BOTH (e.g. MsgBox) would otherwise emit `make-<class>`
+        // twice (a duplicate `define` that fails to load). When both exist,
+        // `new` wins and `default` falls back to `<class>-default`.
         FunctionKind::Constructor | FunctionKind::Default
-            if func.method_name == "new" || func.method_name == "default" =>
+            if func.method_name == "new"
+                || (func.method_name == "default" && !has_new) =>
         {
             format!("make-{}", class)
         }

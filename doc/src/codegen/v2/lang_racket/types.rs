@@ -25,7 +25,7 @@ use super::super::ir::{
     CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
     MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
-use super::{c_name, ctype_name, kebab, map_type_to_racket};
+use super::{c_name, ctype_name, field_ident, map_type_to_racket};
 
 pub fn generate_types(
     builder: &mut CodeBuilder,
@@ -197,7 +197,11 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         builder.indent();
         builder.line("(");
         builder.indent();
-        builder.line(&format!("[tag {}]", underlying));
+        // Field name must NOT be `tag`: define-cstruct auto-binds `<name>-tag`
+        // (the C pointer tag), so a field named `tag` would make its accessor
+        // collide with that binding ("identifier already defined") and the whole
+        // module fails to load. `variant-tag` accessor is `<name>-variant-tag`.
+        builder.line(&format!("[variant-tag {}]", underlying));
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {
@@ -218,7 +222,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                 for f in fields {
                     builder.line(&format!(
                         "[{} {}]",
-                        kebab(&f.name),
+                        field_ident(&f.name),
                         ref_kind_field_type(&f.type_name, &f.ref_kind, ir)
                     ));
                 }
@@ -275,7 +279,7 @@ fn emit_struct_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
         builder.line(&format!(";; {}", sanitize_comment(doc)));
     }
     let ct = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
-    builder.line(&format!("[{} {}]", kebab(&f.name), ct));
+    builder.line(&format!("[{} {}]", field_ident(&f.name), ct));
 }
 
 // =============================================================================
@@ -332,7 +336,9 @@ fn emit_monomorphized_alias(
                 builder.indent();
                 builder.line("(");
                 builder.indent();
-                builder.line(&format!("[tag {}]", underlying));
+                // See emit_tagged_union: `tag` collides with define-cstruct's
+                // auto-bound `<name>-tag`, so name the discriminant `variant-tag`.
+                builder.line(&format!("[variant-tag {}]", underlying));
                 if let Some(ref payload_ty) = v.payload_type {
                     builder.line(&format!(
                         "[payload {}]",

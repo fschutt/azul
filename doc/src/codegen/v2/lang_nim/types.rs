@@ -267,9 +267,19 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     let args: Vec<String> = cb
         .args
         .iter()
-        .map(|arg| {
+        .enumerate()
+        .map(|(i, arg)| {
             let nim_ty = arg_type(arg.ref_kind, &arg.type_name, ir);
-            format!("{}: {}", sanitize_identifier(&arg.name), nim_ty)
+            // Callback typedef args are unnamed in the IR; Nim's proc-type
+            // syntax rejects a bare `: T` (empty param name), so synthesize a
+            // positional name (`a0`, `a1`, ...) when none is present.
+            let raw = sanitize_identifier(&arg.name);
+            let name = if raw.trim().is_empty() {
+                format!("a{}", i)
+            } else {
+                raw
+            };
+            format!("{}: {}", name, nim_ty)
         })
         .collect();
 

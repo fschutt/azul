@@ -1700,7 +1700,7 @@ jobs:
         continue-on-error: true
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.13.0
+          version: "0.14.1"
 
       # Go on macOS: ubuntu/windows runners preinstall go, macOS does not.
       - name: Set up Go (macOS)

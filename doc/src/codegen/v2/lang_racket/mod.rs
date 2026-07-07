@@ -135,13 +135,20 @@ fn emit_library_load(builder: &mut CodeBuilder) {
     builder.line(";; the prebuilt library next to the example) by trying an absolute path");
     builder.line(";; first, then falling back to the bare name on the default search path.");
     builder.line(";; ----------------------------------------------------------------------------");
+    // AZ_LIB_DIR points at a directory containing the prebuilt library; join it
+    // with the PLATFORM filename (libazul.dylib / libazul.so / azul.dll). NB:
+    // `(ffi-lib (build-path dir "azul"))` does NOT add the `lib` prefix when
+    // given a path, so it would look for `azul.dylib` and miss `libazul.dylib` —
+    // build the full filename explicitly. The bare-name fallback keeps the
+    // normal loader-search behavior (which does add prefix + suffix).
     builder.line("(define azul-lib");
-    builder.line("  (let ([dir (getenv \"AZ_LIB_DIR\")])");
+    builder.line("  (let ([dir (getenv \"AZ_LIB_DIR\")]");
+    builder.line("        [fname (case (system-type)");
+    builder.line(&format!("                 [(macosx)  \"lib{}.dylib\"]", LIB_NAME));
+    builder.line(&format!("                 [(windows) \"{}.dll\"]", LIB_NAME));
+    builder.line(&format!("                 [else      \"lib{}.so\"])])", LIB_NAME));
     builder.line("    (or (and dir (not (string=? dir \"\"))");
-    builder.line(&format!(
-        "             (ffi-lib (build-path dir \"{}\") #:fail (lambda () #f)))",
-        LIB_NAME
-    ));
+    builder.line("             (ffi-lib (build-path dir fname) #:fail (lambda () #f)))");
     builder.line(&format!("        (ffi-lib \"{}\"))))", LIB_NAME));
     builder.blank();
     builder.line(";; The binding macro every Az* function is declared through. The default");
@@ -209,6 +216,20 @@ pub fn kebab(name: &str) -> String {
     sanitize_racket_ident(&out)
 }
 
+/// A `define-cstruct` field name. Same as [`kebab`], but a field named `tag`
+/// is remapped: `define-cstruct` auto-binds `<struct>-tag` (the C pointer tag),
+/// so a field whose accessor is `<struct>-tag` collides ("identifier already
+/// defined") and the module fails to load. Accessor names are cosmetic here
+/// (no generated code reads them), so `tag` -> `tag-field` is safe.
+pub fn field_ident(name: &str) -> String {
+    let k = kebab(name);
+    if k == "tag" {
+        "tag-field".to_string()
+    } else {
+        k
+    }
+}
+
 /// The idiomatic (kebab, no `az-` prefix) class name for a type.
 pub fn idiomatic_class_name(name: &str) -> String {
     let body = name.strip_prefix("Az").unwrap_or(name);
@@ -224,6 +245,13 @@ pub fn sanitize_racket_ident(name: &str) -> String {
         "begin", "set!", "quote", "quasiquote", "require", "provide", "struct", "and", "or",
         "do", "for", "map", "list", "car", "cdr", "else", "λ",
     ];
+    // Positional/tuple fields arrive as bare indices ("0", "1", ...); Racket
+    // reads those as numbers, not identifiers, so a `[0 _int32]` define-cstruct
+    // field is a "bad field name" error. Prefix a leading digit to make it a
+    // valid identifier (accessor names are cosmetic; layout is positional).
+    if name.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        return format!("f{}", name);
+    }
     if RESERVED.contains(&name) {
         format!("{}*", name)
     } else {

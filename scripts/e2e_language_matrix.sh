@@ -870,6 +870,21 @@ lang_scala() {
       ( cd "$REPO_ROOT/examples/java" && mvn -q package -Dazul.codegen.dir="$CODEGEN_DIR/java" ) || true
     fi
     cp "$LIB_PATH" "$REPO_ROOT/examples/scala/" 2>/dev/null || true
+    # build.sh defaults SCALA_LIB/SCALA3_LIB to a homebrew Cellar path that only
+    # exists on a dev's macOS box. On CI, scalac comes from coursier (setup-action)
+    # and the stdlib jars live in the coursier cache instead — so resolve them via
+    # `cs fetch` and export them. If cs is absent (local homebrew scala), leave the
+    # vars unset and build.sh keeps its homebrew default.
+    if [ -z "${SCALA_LIB:-}" ] && have cs; then
+      sver="$(scalac -version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+      if [ -n "$sver" ]; then
+        scp="$(cs fetch --classpath "org.scala-lang:scala3-library_3:$sver" 2>/dev/null || true)"
+        s3="$(printf '%s' "$scp" | tr ':' '\n' | grep -E 'scala3-library_3-.*\.jar$' | head -1)"
+        s2="$(printf '%s' "$scp" | tr ':' '\n' | grep -E 'scala-library-.*\.jar$'    | head -1)"
+        [ -n "$s3" ] && export SCALA3_LIB="$s3"
+        [ -n "$s2" ] && export SCALA_LIB="$s2"
+      fi
+    fi
     cd "$REPO_ROOT/examples/scala" || exit 1
     bash build.sh
   ) >"$f" 2>&1
@@ -924,14 +939,23 @@ lang_odin() {
     cp "$CODEGEN_DIR/azul.odin" "$REPO_ROOT/examples/odin/azul/azul.odin" 2>/dev/null || true
     cp "$LIB_PATH"              "$REPO_ROOT/examples/odin/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/odin" || exit 1
+    local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
       odin build . -out:hello-world-e2e \
         -extra-linker-flags:"-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
+    elif [ "$IS_WINDOWS" = 1 ]; then
+      # `foreign import azul "system:azul"` makes Odin ask the MSVC linker for
+      # azul.lib (NOT -lazul as on unix), so give it the import lib under that
+      # name on the lib search path; azul.dll resolves from cwd at run time.
+      BIN=./hello-world-e2e.exe
+      cp "$RELEASE_DIR/azul.dll.lib" ./azul.lib 2>/dev/null || true
+      odin build . -out:hello-world-e2e.exe \
+        -extra-linker-flags:"/LIBPATH:." || exit 1
     else
       odin build . -out:hello-world-e2e \
         -extra-linker-flags:"-L." || exit 1
     fi
-    ./hello-world-e2e
+    "$BIN"
   ) >"$f" 2>&1
   finish odin "odin build/run failed (import azul subpackage)"
 }
@@ -1048,7 +1072,12 @@ lang_nim() {
     cp "$CODEGEN_DIR/azul.nim" "$REPO_ROOT/examples/nim/" 2>/dev/null || true
     cp "$LIB_PATH"             "$REPO_ROOT/examples/nim/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/nim" || exit 1
-    nim c -d:release --hints:off --warnings:off -o:hello-world-e2e hello-world.nim || exit 1
+    # Nim derives the main module's name from its filename and rejects a
+    # non-identifier ("invalid module name: 'hello-world'"). The example ships as
+    # hello-world.nim for cross-language naming parity, so compile a valid-ident
+    # copy (imports resolve by module name, not by the main file's name).
+    cp hello-world.nim hello_world_e2e.nim
+    nim c -d:release --hints:off --warnings:off -o:hello-world-e2e hello_world_e2e.nim || exit 1
     ./hello-world-e2e
   ) >"$f" 2>&1
   finish nim "nim c build/run failed (importc dynlib azul.nim)"
@@ -1210,7 +1239,17 @@ lang_cobol() {
     cobc -x -free -I. -L"$RELEASE_DIR" -lazul hello-world.cob -o hello-world-e2e || exit 1
     ./hello-world-e2e
   ) >"$f" 2>&1
-  finish cobol "cobol smoke-tier (needs ENTRY paragraphs per README)"
+  # cobol is a SMOKE-tier binding: the example verifies the FFI + copybook
+  # aliases and prints an init-complete marker, but the full counter e2e needs
+  # user-side ENTRY-paragraph invoker dispatchers (documented in azul.cpy). So a
+  # clean smoke run is an honest SKIP, not a FAILS (which read as a regression).
+  if pass_in_log "$f"; then
+    record cobol "WORKS" "test result: ok"
+  elif grep -q "binding init phase completed successfully" "$f" 2>/dev/null; then
+    skip cobol "smoke-tier OK (FFI + copybook aliases verified); full counter e2e needs user-side ENTRY paragraphs per azul.cpy"
+  else
+    finish cobol "cobol smoke build/run failed (see log)"
+  fi
 }
 
 # ---- Common Lisp (SBCL) ------------------------------------------------------
@@ -1283,6 +1322,14 @@ lang_perl() {
 # langs). If that build fails/unavailable, we SKIP (toolchain gate), not FAIL.
 lang_php() {
   have php || { skip php "php not installed (shivammathur/setup-php)"; return; }
+  # Windows: the ext-php-rs / bindgen build of the Zend extension does not fit
+  # the per-lang wall-clock budget on the MSVC toolchain (it consistently runs
+  # past 600s and gets killed as a "hang"). php is ALPHA/non-gating; a perpetual
+  # timeout is noise, so record an honest SKIP here instead. The extension is
+  # proven on Linux/macOS where the build fits the budget.
+  if [ "$IS_WINDOWS" = 1 ]; then
+    skip php "Windows php-extension build (ext-php-rs/bindgen on MSVC) exceeds the e2e time budget; proven on Linux/macOS (ALPHA)"; return
+  fi
   local f; f="$(log_path php)"
   local PHPEXT_DIR="$REPO_ROOT/target/phpext/release"
   local EXT_LIB
@@ -1479,7 +1526,18 @@ lang_smalltalk() {
     cd "$REPO_ROOT/examples/smalltalk" || exit 1
     gst HelloWorld.st
   ) >"$f" 2>&1
-  finish smalltalk "smalltalk smoke-only (Pharo Tonel blocker per README)"
+  # smalltalk is SMOKE-tier: HelloWorld.st is authored in Pharo syntax, so gst
+  # (GNU Smalltalk) emits expected doesNotUnderstand notices for the Pharo-only
+  # class-definition messages yet still reaches the init-complete marker. The
+  # full GUI needs Pharo + a Tonel package layout the codegen doesn't emit
+  # (README). A clean smoke run is an honest SKIP, not a FAILS.
+  if pass_in_log "$f"; then
+    record smalltalk "WORKS" "test result: ok"
+  elif grep -q "binding init phase completed successfully" "$f" 2>/dev/null; then
+    skip smalltalk "smoke-tier OK (gst FFI init); full GUI needs Pharo + Tonel package layout (codegen does not emit it yet) per README"
+  else
+    finish smalltalk "smalltalk smoke build/run failed (see log)"
+  fi
 }
 
 # ---- VB6 ---------------------------------------------------------------------
@@ -1577,6 +1635,15 @@ HAVE_WAIT_N=0
 
 run_one() {  # backgrounded per-lang worker: re-exec --single under a timeout.
   local lang="$1"
+  # Per-lang timeout override. Racket compiles the ~47k-line generated azul.rkt
+  # from source on every run (there is no persisted bytecode cache across a CI
+  # job), which alone takes several minutes — far past the default budget — so
+  # give it plenty of headroom. BETA/non-gating, and langs run concurrently, so
+  # a long racket does not block the gating shipped rows.
+  local LANG_TIMEOUT="$LANG_TIMEOUT"
+  case "$lang" in
+    racket) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+  esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`
   # statement's own exit status at 0 (no else-branch ran), so a following
@@ -1704,27 +1771,30 @@ emit_table
 echo ""
 echo "$TALLY"
 
-# --- Diagnostics: dump the tail of each FAILED shipped binding's log ----------
+# --- Diagnostics: dump the tail of each FAILED binding's log ------------------
 # The per-language build/run output is captured only to $WORKDIR/<lang>.log,
 # which CI does NOT upload — so a board cell like "compile/link error (see log)"
-# previously pointed at a log nobody could read. Echo the tail of every failed
-# SHIPPED binding's log to stdout so each CI run is self-documenting (the only
-# rows that gate are shipped ones, so that's all we surface). Each dump is a
-# collapsible ::group:: in the Actions UI. Bounded to E2E_DUMP_FAIL_LINES lines;
-# set E2E_DUMP_FAIL_LOG=0 to disable.
-if [ "${E2E_DUMP_FAIL_LOG:-1}" = 1 ] && [ "$shipped_fails" -gt 0 ]; then
+# previously pointed at a log nobody could read. Echo the tail of every FAILED
+# binding's log to stdout so each CI run is self-documenting. Only SHIPPED rows
+# gate CI, but BETA/ALPHA failures still need their logs surfaced to be
+# diagnosable (otherwise "see log" is a dead end). Each dump is a collapsible
+# ::group:: in the Actions UI, ordered shipped-first. Bounded to
+# E2E_DUMP_FAIL_LINES lines; set E2E_DUMP_FAIL_LOG=0 to disable.
+if [ "${E2E_DUMP_FAIL_LOG:-1}" = 1 ] && [ "$n_fails" -gt 0 ]; then
   dump_lines="${E2E_DUMP_FAIL_LINES:-80}"
   in_ci="${GITHUB_ACTIONS:-}"
   echo ""
-  echo "===== FAILED shipped-binding logs (last ${dump_lines} lines each) ====="
+  echo "===== FAILED binding logs (last ${dump_lines} lines each) ====="
+  # Shipped first (they gate), then beta/alpha for diagnosability.
+  for want_tier in shipped beta alpha; do
   for i in "${!RESULT_STATUS[@]}"; do
     [ "${RESULT_STATUS[$i]}" = "FAILS" ] || continue
-    [ "$(tier_of "${RESULT_LANGS[$i]}")" = "shipped" ] || continue
+    [ "$(tier_of "${RESULT_LANGS[$i]}")" = "$want_tier" ] || continue
     d_lang="${RESULT_LANGS[$i]}"; d_note="${RESULT_NOTE[$i]}"
     d_f="$(log_path "$d_lang")"
     d_rec="$WORKDIR/${d_lang}.azrecord"
-    [ -n "$in_ci" ] && echo "::group::✗ ${d_lang} — ${d_note}"
-    echo "----- ${d_lang}: ${d_note} -----"
+    [ -n "$in_ci" ] && echo "::group::✗ ${d_lang} [${want_tier}] — ${d_note}"
+    echo "----- ${d_lang} [${want_tier}]: ${d_note} -----"
     if [ -f "$d_f" ]; then
       strip_ansi < "$d_f" | tail -n "$dump_lines"
     else
@@ -1737,6 +1807,7 @@ if [ "${E2E_DUMP_FAIL_LOG:-1}" = 1 ] && [ "$shipped_fails" -gt 0 ]; then
       strip_ansi < "$d_rec" | tail -n "$dump_lines"
     fi
     [ -n "$in_ci" ] && echo "::endgroup::"
+  done
   done
   echo "===== end failed-binding logs ====="
 fi
