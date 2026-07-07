@@ -114,6 +114,21 @@ jobs:
           cargo run -r -p azul-doc codegen all
           cd dll && cargo test
 
+      # Double-drop invariant (compile-free static check over api.json + the
+      # generated mirror): the codegen must emit `impl Drop` on a mirror ONLY for
+      # TRUE LEAVES (custom Drop or an owned raw pointer); plain aggregates get no
+      # mirror Drop and free each field once via field-glue. A raw-heap-owning
+      # type reachable by-value must stay idempotent. See doc/src/main.rs Lint 2.
+      - name: Double-drop invariant check (azul-doc)
+        run: cargo run -r -p azul-doc check
+
+      # Double-drop RUNTIME regression gate. Exercises the real FFI drop path
+      # (AppConfig by-value: SystemStyle, IconProviderHandle, Vecs, …). Aborts on
+      # any double free; must print OK and exit 0. This is the hard guard that the
+      # field-glue-delegation fix (mirror Drop only for leaves) stays correct.
+      - name: Double-drop runtime gate (appconfig_double_drop)
+        run: cargo run -r -p azul-dll --example appconfig_double_drop --features link-static
+
       - name: Check crates
         run: |
           cargo check -p azul-css

@@ -12,16 +12,15 @@
 //! free. Same class as the SIGSEGV-proven CssPropertyCachePtr / GlContextPtr / InstantPtr
 //! cases.
 //!
-//! STATUS: with the IconProviderHandle fix, this now gets PAST `icon_provider` and
-//! aborts later in `AzSystemStyle_delete` (`free(): double free detected`) — i.e.
-//! `AzAppConfig` nests MULTIPLE ungated double-drop fields (SystemStyle next, likely
-//! more). This is whack-a-mole for deeply-nested structs; the real fix is the systemic
-//! codegen change (don't double-drop Az mirror fields — `ptr::read`+forget in `_delete`,
-//! or `ManuallyDrop` mirror fields). This example is the regression target for that
-//! work: it should run clean only once the whole class is closed. It is built (compiled)
-//! but intentionally NOT run in CI until then.
+//! STATUS: FIXED 2026-07-07 (commit 9e3a06ed9) via FIELD-GLUE DELEGATION — the codegen
+//! emits a mirror `impl Drop` ONLY for true leaves (custom `Drop` or an owned raw
+//! pointer); plain aggregates (`AppConfig`, the ~55 callback structs, `Dom`, `String`)
+//! get NO mirror `Drop` and free each field exactly once via Rust field-glue, so the
+//! double-drop cannot happen at any nesting depth. This example now runs CLEAN and is a
+//! HARD CI regression gate (.github/workflows/rust.yml "Double-drop runtime gate"), paired
+//! with the static invariant check (`azul-doc check`).
 //!
-//! Run (currently aborts at SystemStyle — see above):
+//! Run:
 //!     cargo run --release -p azul-dll --example appconfig_double_drop --features link-static
 
 use azul::prelude::AppConfig;
