@@ -1178,18 +1178,26 @@ jobs:
           cp target/prod-release/libazul.so target/prod-release/azul.so
 
       # Verify B1 is actually fixed: no undefined Py* symbols may remain in the
-      # shipped libazul.so (the weak stubs must cover every one pyo3 references).
-      # If this fails, add the reported symbol to dll/src/python_abi3_weak_stubs.c.
+      # shipped libazul.so (the stubs must cover every one pyo3 references) —
+      # EXCEPT the refcount ABI functions `_Py_IncRef`/`_Py_DecRef`, which are
+      # intentionally left undefined. Under abi3 pyo3 calls them on the hot
+      # Py_INCREF/Py_DECREF path, and a stub definition is used instead of the
+      # interpreter's real function (self-bound under CPython's RTLD_LOCAL
+      # extension dlopen), corrupting refcounting → `import azul` OOMs. See
+      # dll/src/python_abi3_stubs.rs. If this fails for any OTHER symbol, add it
+      # to that file.
       - name: Verify no undefined Py* symbols (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
-          UNDEF=$(nm -D --undefined-only target/prod-release/libazul.so | grep -E '\b(Py|_Py)[A-Za-z0-9_]*' || true)
+          UNDEF=$(nm -D --undefined-only target/prod-release/libazul.so \
+            | grep -E '\b(Py|_Py)[A-Za-z0-9_]*' \
+            | grep -vwE '_Py_IncRef|_Py_DecRef' || true)
           if [ -n "$UNDEF" ]; then
-            echo "::error::libazul.so still has undefined Py* symbols — B1 not fixed:"
+            echo "::error::libazul.so has unexpected undefined Py* symbols — B1 not fixed:"
             echo "$UNDEF"
             exit 1
           fi
-          echo "OK: no undefined Py* symbols in libazul.so"
+          echo "OK: only the allowed refcount ABI symbols are undefined in libazul.so"
 
       # Empirically prove a C app links against the python-baked libazul.so
       # (this is exactly what B1 broke). Link only — running needs a display.

@@ -74,8 +74,22 @@ macro_rules! py_data_stubs {
 }
 
 // ---- functions ----
+//
+// DELIBERATELY OMITTED: the refcount ABI functions `_Py_IncRef` / `_Py_DecRef`.
+// Under the limited API (abi3) pyo3-ffi's `Py_INCREF`/`Py_DECREF` call these
+// symbols directly on the hottest path (every Bound drop). A stub definition
+// for them here is *used* by libazul's own pyo3 code instead of the
+// interpreter's real function (self-bound under the RTLD_LOCAL dlopen CPython
+// uses for extension modules), which corrupts refcounting — a strong
+// `_Py_DecRef` stub made `import azul` allocate without bound and OOM. They MUST
+// stay undefined so they resolve to the live interpreter's implementation.
+// (Verified with a minimal standalone pyo3 repro: a strong `_Py_DecRef` stub
+// alone reproduces the runaway; removing it fixes it.) The `nm -D` "no undefined
+// Py*" CI gate must allow exactly `_Py_IncRef`/`_Py_DecRef` as undefined — they
+// are always provided by any interpreter and never referenced by a pure-C
+// `-lazul` consumer.
 py_fn_stubs! {
-    _Py_DecRef, _Py_IncRef, Py_GetVersion, Py_IsInitialized,
+    Py_GetVersion, Py_IsInitialized,
     PyBytes_AsString, PyBytes_Size, PyDict_Next, PyDict_Size,
     PyErr_Fetch, PyErr_GivenExceptionMatches, PyErr_NewExceptionWithDoc,
     PyErr_NormalizeException, PyErr_Print, PyErr_PrintEx, PyErr_Restore,
