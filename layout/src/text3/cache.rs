@@ -6130,12 +6130,25 @@ impl TextShapingCache {
         let word_break = constraints.word_break;
         let hyphens = constraints.hyphenation;
 
-        let mut total = 0.0f32;
+        let mut total = 0.0f32;      // running width of the current line
+        let mut max_line = 0.0f32;   // widest line between forced breaks = max-content
         let mut max_word = 0.0f32;
         let mut cur_word = 0.0f32;
         let mut max_line_height = 0.0f32;
 
         for item in oriented_items.iter() {
+            // A forced break (preserved LF, <br>) ends the current line. max-content
+            // is the widest line BETWEEN forced breaks, not the running sum across
+            // them — otherwise a white-space:pre block with newlines (or any <br>
+            // content) over-measures its max-content as the concatenation of all
+            // lines. Reset the line accumulators here.
+            if let ShapedItem::Break { .. } = item {
+                if total > max_line { max_line = total; }
+                if cur_word > max_word { max_word = cur_word; }
+                total = 0.0;
+                cur_word = 0.0;
+                continue;
+            }
             // Must match get_item_measure() exactly: a cluster's inline advance
             // INCLUDES per-glyph kerning. Omitting kerning here under-measures
             // max-content, so a shrink-to-fit box (e.g. a flex item sized to its
@@ -6195,20 +6208,23 @@ impl TextShapingCache {
         if cur_word > max_word {
             max_word = cur_word;
         }
+        if total > max_line {
+            max_line = total;
+        }
 
         // white-space:nowrap forbids soft-wrap opportunities entirely, so the
         // min-content width equals the max-content width (one unbreakable line).
         // Without this the scan resets cur_word at each space and reports a
         // too-small min-content, letting flex/shrink-to-fit clip the text.
         let min_content_width = if matches!(constraints.white_space_mode, WhiteSpaceMode::Nowrap) {
-            total
+            max_line
         } else {
             max_word
         };
 
         Ok(IntrinsicTextSizes {
             min_content_width,
-            max_content_width: total,
+            max_content_width: max_line,
             max_content_height: max_line_height,
         })
     }
