@@ -1,0 +1,370 @@
+[
+ {
+  "sev": "critical",
+  "file": "layout/src/solver3/getters.rs",
+  "line": 2690,
+  "area": "solver3-integration",
+  "title": "Pixel line-height (`line-height: 24px`) becomes a NEGATIVE per-run line height via the compact-cache fast path",
+  "fix": "In the fast path, apply the same negative-is-absolute-px convention: `let raw = normalized; if raw < 0.0 { LineHeight::Px(-raw/10.0 /*decoded px*/) } else { LineHeight::Px(raw/100.0*font_size) }`. Note the decode already divided by 10; reconcile so a stored -24000 -> decoded -2400 -> +24px. Better: store an explicit is_px flag in the compact cache instead of overloading sign."
+ },
+ {
+  "sev": "critical",
+  "file": "layout/src/text3/knuth_plass.rs",
+  "line": 420,
+  "area": "line-breaking",
+  "title": "Knuth-Plass never breaks a paragraph that ends in a Box (no trailing forced break) \u2014 whole paragraph collapses to one line",
+  "fix": "After building nodes, append a terminal sequence: Glue{width:0, stretch: large, shrink:0} then Penalty{width:0, penalty:-INFINITY_BADNESS} so the final break is forced at n; or special-case the backtrack to seed the last line from the min-demerit reachable index when breakpoints[n] is unset."
+ },
+ {
+  "sev": "high",
+  "file": "layout/src/text3/cache.rs",
+  "line": 9830,
+  "area": "shaping-cache",
+  "title": "letter-spacing and word-spacing are excluded from line-break width and alignment measurement",
+  "fix": "Fold per-cluster letter-spacing (and word-spacing on separators) into get_item_measure, or add a spacing term when accumulating unit_width in break_one_line and when summing total_width in calculate_alignment_offset, using the same cursive/word-separator gating as position_one_line."
+ },
+ {
+  "sev": "high",
+  "file": "layout/src/text3/cache.rs",
+  "line": 10303,
+  "area": "line-breaking",
+  "title": "NBSP (U+00A0) and NNBSP/MMSP are treated as soft-wrap break opportunities during line breaking",
+  "fix": "In is_break_opportunity_with_word_break, exclude the no-break spaces: treat U+00A0, U+202F (and U+2060/ZWNBSP) as non-break-opportunities even though is_word_separator is true for word-spacing purposes; e.g. `if is_word_separator(item) && !is_nobreak_space(item) { return true }`."
+ },
+ {
+  "sev": "high",
+  "file": "layout/src/text3/cache.rs",
+  "line": 8563,
+  "area": "line-breaking",
+  "title": "overflow-wrap:normal shreds a long unbreakable word into one grapheme per line instead of overflowing on one line",
+  "fix": "In the Normal arm, push the entire next_unit and consume next_unit.len() (place the whole unbreakable unit on this line and let it overflow), matching the intent of the Anywhere/BreakWord branch's progress guarantee but without splitting."
+ },
+ {
+  "sev": "high",
+  "file": "layout/src/text3/cache.rs",
+  "line": 8435,
+  "area": "line-breaking",
+  "title": "Leading whitespace is stripped at line start for white-space:pre and pre-wrap, destroying indentation",
+  "fix": "Gate the leading-whitespace skip on the mode: only skip when white_space_mode is Normal | Nowrap | PreLine; skip for Pre, PreWrap, BreakSpaces."
+ },
+ {
+  "sev": "high",
+  "file": "layout/src/text3/cache.rs",
+  "line": 6081,
+  "area": "line-breaking",
+  "title": "min-content width computes to 0 for CJK / break-all / overflow-wrap:anywhere text (break-opportunity item advance dropped)",
+  "fix": "When an item is a break opportunity that is itself a rendered unit (not a separator/space), include its advance as a one-item word: e.g. `max_word = max_word.max(cur_word).max(if !is_word_separator(item) { adv } else { 0.0 }); cur_word = 0.0;`."
+ },
+ {
+  "sev": "high",
+  "file": "layout/src/text3/cache.rs",
+  "line": 4655,
+  "area": "edit-selection",
+  "title": "move_cursor_left/right ignore current affinity \u2192 one keypress swallowed; document start unreachable by Left arrow",
+  "fix": "Branch on current affinity: for Right, if affinity==Leading advance to next cluster Leading, if Trailing the current position is already a boundary so advance two boundaries (next cluster's Trailing / cluster after next's Leading); simpler: convert the (cluster_id,affinity) pair into an absolute boundary index over the visual cluster order, add/subtract 1, convert back. Handle the leading edge of the first cluster as a distinct boundary."
+ },
+ {
+  "sev": "high",
+  "file": "layout/src/text3/default.rs",
+  "line": 774,
+  "area": "shaping-cache",
+  "title": "Byte offset stored in RawGlyph.liga_component_pos breaks allsorts mark-to-mark (mkmk) and mark-to-ligature positioning",
+  "fix": "Do not overload liga_component_pos. Track byte offsets in a side table (parallel Vec keyed by glyph identity) or use RawGlyph.extra_data (the `()` type param) to carry the byte cluster, leaving liga_component_pos at its allsorts-managed default so GPOS mkmk/marklig equality works."
+ },
+ {
+  "sev": "high",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 2561,
+  "area": "hint-arith",
+  "title": "DELTAP pops (arg, point) in the wrong order \u2014 point index and delta byte are swapped",
+  "fix": "Swap the two pops so the point index is read first: `let point_idx = self.pop()? as u32; let arg = self.pop()? as u32;` (mirroring op_deltac)."
+ },
+ {
+  "sev": "high",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 990,
+  "area": "hint-arith",
+  "title": "WCVTP/WCVTF resize CVT to an unbounded index \u2192 OOM crash on corrupt index",
+  "fix": "Apply the same bound as WS/RS: `if i > 10_000 { return Err(HintError::InvalidCvtIndex(idx)); }` before resizing, in both WCVTP and WCVTF."
+ },
+ {
+  "sev": "high",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 484,
+  "area": "hint-glue",
+  "title": "Per-glyph graphics-state reset omits round_state (round mode leaks from prep into every glyph)",
+  "fix": "Add `self.gs.round_state = RoundState::Grid;` (and the matching super-round params if you want full parity) to the per-glyph reset block after line 484, matching FreeType's TT_Run_Context."
+ },
+ {
+  "sev": "medium",
+  "file": "core/src/selection.rs",
+  "line": 462,
+  "area": "edit-selection",
+  "title": "Plain arrow key with an active selection moves past the selection edge instead of collapsing to it",
+  "fix": "For non-extend collapse: Right/Forward \u2192 collapse to max(start,end); Left/Backward \u2192 collapse to min(start,end), with no movement applied. This requires passing the arrow direction into move_all_cursors (or two collapse variants)."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/cpurender/raster.rs",
+  "line": 2196,
+  "area": "layout-glue-raster",
+  "title": "Hinted glyphs render at integer ppem size, unhinted fallback at fractional size -> size mismatch & animation wobble",
+  "fix": "Either scale the hinted (integer-ppem) outline by (font_size*dpi)/ppem before rasterizing to recover the fractional target size, or disable hinting (use unhinted fractional path) when |font_size*dpi - ppem| exceeds a threshold, so hinted and unhinted glyphs share one size."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/glyph_cache.rs",
+  "line": 280,
+  "area": "hint-glue",
+  "title": "Hinted path built with pre-hinting on-curve flags; FLIPPT/FLIPRGON/FLIPRGOFF changes dropped",
+  "fix": "Use hint_glyph_with_flags (or extend hint_glyph_with_orus to also return flags) and pass the post-hinting flags into build_path_from_contours."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/solver3/fc.rs",
+  "line": 2626,
+  "area": "solver3-integration",
+  "title": "IFC layout cache reuse key omits container-level constraints (text-align, text-indent, line-height, direction)",
+  "fix": "Fold a hash of the constraint-relevant fields (text_align, text_align_last, text_indent, direction, line_height, columns, white_space_mode) into the cache validity check alongside width + content hash."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/solver3/getters.rs",
+  "line": 2797,
+  "area": "solver3-integration",
+  "title": "Sub-pixel letter-spacing / word-spacing silently quantized to whole integer px",
+  "fix": "Change Spacing::Px to hold f32 (keep a hashable wrapper like the existing Em variant uses to_bits), and drop the `.round()` casts; propagate f32 through the position math (cache.rs:7148,9302,etc. already do `px as f32`)."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/solver3/sizing.rs",
+  "line": 707,
+  "area": "solver3-integration",
+  "title": "Intrinsic text measurement uses default constraints \u2192 white-space:nowrap/pre min-content wrong, text-indent ignored",
+  "fix": "Populate the measurement constraints from the IFC root's real style (at minimum white_space_mode/text_wrap, word_break, hyphens, and fixed text_indent), or thread the already-computed text3_constraints into the intrinsic pass."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/solver3/sizing.rs",
+  "line": 1216,
+  "area": "solver3-integration",
+  "title": "inline-block intrinsic width/height with em/rem resolved against DEFAULT_FONT_SIZE (16px), not the element's font size",
+  "fix": "Pass the element's resolved font-size and the root font-size: `resolve_pixel_value_no_percent(&px, get_element_font_size(...), get_root_font_size(...))`."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/cache.rs",
+  "line": 6060,
+  "area": "solver3-integration",
+  "title": "measure_intrinsic_widths omits letter-spacing and word-spacing \u2192 shrink-to-fit boxes are too narrow",
+  "fix": "In the intrinsic advance loop, add letter_spacing (per cluster, skipping cursive) and word_spacing (per word separator) to `adv`, matching position_line_items exactly."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/cache.rs",
+  "line": 3472,
+  "area": "shaping-cache",
+  "title": "layout_hash rounds font-size to integer, so fractional sizes share cache entries and coalesce with the wrong shaping size",
+  "fix": "Hash the exact font_size bits (or a fine quantization like round(px*64)) in layout_hash, and gate coalescing on exact font_size equality, not the rounded hash."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/cache.rs",
+  "line": 8578,
+  "area": "line-breaking",
+  "title": "Trailing spaces are unconditionally stripped at line end for white-space:pre / pre-wrap / break-spaces",
+  "fix": "Only run the trailing-collapsible-whitespace pop for collapsing modes (Normal/Nowrap/PreLine); for Pre/PreWrap/BreakSpaces keep the spaces and let position_one_line's hanging logic handle them."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/cache.rs",
+  "line": 4447,
+  "area": "edit-selection",
+  "title": "get_cursor_rect returns None for empty text, so no caret is drawn in an empty editable/empty line",
+  "fix": "When self.items has no clusters, fall back to a strut-derived rect: use the line box origin and the strut/font ascent+descent for height, x at the content-box left (respecting text-align/direction), width 1."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/cache.rs",
+  "line": 4383,
+  "area": "edit-selection",
+  "title": "get_selection_rects over-covers bidi/RTL selections by drawing a single min..max span between logical endpoints",
+  "fix": "Walk the clusters in the logical range and group consecutive clusters by bidi run / contiguous visual x, emitting one rect per visual segment (as browsers do), rather than a single endpoint-to-endpoint rect."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/default.rs",
+  "line": 866,
+  "area": "shaping-cache",
+  "title": "Hinted advance uses rounded integer ppem while glyph offsets/kerning use the exact (fractional) font size",
+  "fix": "Either scale the hinted advance back to the exact font_size (advance_px * font_size / ppem_rounded) or use unrounded scaling consistently for advance, kerning and offsets; at minimum keep the advance basis identical between the hinted and fallback branches."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/default.rs",
+  "line": 790,
+  "area": "shaping-cache",
+  "title": "Setting any font-feature or font-variant disables default ligatures/contextual-alternates for Latin-family scripts",
+  "fix": "Start from build_feature_mask_for_script's default mask and additively merge user features/alternates (subtracting only features the user explicitly set to 0) instead of replacing the mask with empty."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/default.rs",
+  "line": 770,
+  "area": "shaping-cache",
+  "title": "Glyphs at byte offset > 65535 are silently dropped from shaping",
+  "fix": "Store the byte cluster in a wider side-channel (see finding #1) rather than a u16, or at minimum shape in <64KB chunks with an offset base."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/edit.rs",
+  "line": 224,
+  "area": "edit-selection",
+  "title": "Deleting or type-replacing a selected non-text item (image) is silently a no-op",
+  "fix": "Handle non-text runs in delete_range (remove the whole item when the selection covers it) and in delete_backward/forward (remove or step over an adjacent non-text run) instead of only matching InlineContent::Text."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/edit.rs",
+  "line": 120,
+  "area": "edit-selection",
+  "title": "Multi-cursor edits that add/remove runs leave other cursors' source_run indices stale",
+  "fix": "After an edit that changes new_content.len(), decrement source_run of all previously-processed cursors whose source_run > the removed/merged run index (track the delta in run count, not just byte length)."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/glyphs.rs",
+  "line": 147,
+  "area": "glyphs-script",
+  "title": "CombinedBlock (tate-chu-yoko) glyphs all render stacked at one x in the primary render path",
+  "fix": "Mirror get_glyph_positions: call process_glyphs(glyphs, item.position.x, glyphs.first().map_or(default, |g| g.style.writing_mode), None) ONCE on the full slice instead of looping per glyph."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/knuth_plass.rs",
+  "line": 163,
+  "area": "line-breaking",
+  "title": "Knuth-Plass never creates a soft-wrap opportunity after a mid-word hyphen (U+002D/U+2010)",
+  "fix": "In the general cluster-collection loop, stop collecting (or emit a zero-width Penalty) after any cluster whose text ends with U+002D or U+2010, so intra-word hyphen break opportunities are preserved."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/knuth_plass.rs",
+  "line": 460,
+  "area": "line-breaking",
+  "title": "Knuth-Plass includes the line-terminating space in line width and justification gaps",
+  "fix": "Before measuring/justifying a line in position_lines_from_breaks, drop trailing word-separator items from line_items (or exclude the final glue from line_width and the space count)."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/script.rs",
+  "line": 489,
+  "area": "glyphs-script",
+  "title": "is_hangul swallows Halfwidth/Fullwidth Forms and Enclosed CJK, misclassifying kana/fullwidth Latin as Hangul",
+  "fix": "Remove U+3200-32FF and U+FF00-FFEF from is_hangul; route U+FF61-FF9F to is_katakana and leave fullwidth Latin/punct to the appropriate checkers (or treat fullwidth ASCII as stop/Latin)."
+ },
+ {
+  "sev": "medium",
+  "file": "layout/src/text3/selection.rs",
+  "line": 121,
+  "area": "edit-selection",
+  "title": "Double-click word selection concatenates clusters in visual order and only within one line_index, breaking on bidi and soft wraps",
+  "fix": "Concatenate clusters in logical order (sort by source_cluster_id / logical byte) spanning the whole run, not just one visual line, before running word segmentation; map results back to cluster ids in logical space."
+ },
+ {
+  "sev": "medium",
+  "file": "third_party/allsorts/src/hinting/graphics_state.rs",
+  "line": 200,
+  "area": "hint-glue",
+  "title": "SROUND/S45ROUND phase hardcoded to 16/32/48 instead of period/4, period/2, 3*period/4",
+  "fix": "Compute phase from period after the is_45 adjustment: `self.super_round_phase = match phase_bits { 0 => ZERO, 1 => period/4, 2 => period/2, 3 => period*3/4 }` using self.super_round_period."
+ },
+ {
+  "sev": "medium",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 1290,
+  "area": "hint-arith",
+  "title": "FLIPRGON/FLIPRGOFF iterate lo..=hi with unchecked bounds \u2192 hang on large/negative index",
+  "fix": "Clamp/validate the range against the glyph zone length and/or reject when hi >= zone.len() or hi < lo, e.g. `let hi = hi.min(self.zones[1].flags.len().saturating_sub(1));` and skip when lo > hi."
+ },
+ {
+  "sev": "medium",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 1967,
+  "area": "hint-arith",
+  "title": "MIRP control-value cut-in gated on rounding and ignores zp0==zp1 condition",
+  "fix": "Match FreeType: apply the cut-in whenever zp0==zp1 (not gated on do_round), and do NOT apply it when zp0!=zp1: `if zp0 == zp1 && (dist - orig_dist).abs() > cvt_ci { dist = orig_dist; }` placed before the rounding step."
+ },
+ {
+  "sev": "medium",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 2495,
+  "area": "hint-move",
+  "title": "ISECT treats only exactly-zero determinant as parallel; near-parallel lines extrapolate a far-off point",
+  "fix": "Detect near-parallel with a relative test like FreeType (compare |dax*dby-day*dbx| against |dax*dbx+day*dby| scaled by a factor), not denom==0."
+ },
+ {
+  "sev": "medium",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 2174,
+  "area": "hint-move",
+  "title": "SHZ marks every shifted point as TOUCHED (FreeType shifts a whole zone untouched), poisoning later IUP",
+  "fix": "Give op_shz a direct add-to-current path that does NOT set touched flags (mirror op_shpix's inline move but without the flag inserts), or add a 'touch: bool' parameter to move_point and pass false from SHZ."
+ },
+ {
+  "sev": "medium",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 1624,
+  "area": "hint-move",
+  "title": "move_point drops the move AND the touch when freedom\u00b7projection == 0; FreeType clamps F_dot_P to 1.0 and still moves+touches",
+  "fix": "Replace `if dot == 0 { return; }` with `let dot = if dot == 0 { 0x4000 } else { dot };` matching FreeType's F_dot_P clamp, so the displacement and touch flags are still applied."
+ },
+ {
+  "sev": "medium",
+  "file": "third_party/allsorts/src/hinting/interpreter.rs",
+  "line": 1435,
+  "area": "hint-glue",
+  "title": "Stack has no headroom over maxStackElements; under-declared fonts lose ALL hinting",
+  "fix": "Allocate/allow max_stack = maxStackElements + slack (FreeType-style, e.g. +32) or grow the stack dynamically like storage/CVT with a sane cap."
+ },
+ {
+  "sev": "low",
+  "file": "layout/src/text3/cache.rs",
+  "line": 6717,
+  "area": "shaping-cache",
+  "title": "Characters with no covering font are silently dropped (no .notdef / tofu emitted)",
+  "fix": "When no font covers a char, emit a .notdef glyph from the primary font (glyph_id 0) so a visible tofu box is shown and the byte range is preserved."
+ },
+ {
+  "sev": "low",
+  "file": "layout/src/text3/cache.rs",
+  "line": 6711,
+  "area": "shaping-cache",
+  "title": "Font fallback picks an arbitrary font via nondeterministic HashMap iteration",
+  "fix": "Make the fallback deterministic: iterate loaded fonts in a stable order (e.g. sorted by FontId, or the chain's priority order) rather than raw HashMap order."
+ },
+ {
+  "sev": "low",
+  "file": "layout/src/text3/default.rs",
+  "line": 890,
+  "area": "shaping-cache",
+  "title": "Ligature glyph reports logical_byte_len of only its first component character",
+  "fix": "Compute logical_byte_len from the span covered by all merged unicodes (info.glyph.unicodes) or the distance to the next cluster's byte offset, not just the first char."
+ },
+ {
+  "sev": "low",
+  "file": "layout/src/text3/knuth_plass.rs",
+  "line": 290,
+  "area": "line-breaking",
+  "title": "Knuth-Plass MinContent produces a single line, so min-content == max-content for text-wrap:balance",
+  "fix": "For MinContent in the KP path, break at every legal opportunity (line_width -> 0 or a per-word greedy pass) and report the widest resulting line, rather than reusing the MaxContent infinite width."
+ },
+ {
+  "sev": "low",
+  "file": "third_party/allsorts/src/hinting.rs",
+  "line": 256,
+  "area": "hint-glue",
+  "title": "Phantom point pp1.x hardcoded to 0 instead of (xMin - lsb); pp2.x wrong for lsb != xMin",
+  "fix": "Thread the scaled (xMin - lsb) into phantom[0].x and set phantom[1].x = phantom[0].x + advance; have the caller compute and pass phantom_top_y/bottom_y from vertical metrics as the doc comment already describes."
+ }
+]

@@ -1319,6 +1319,15 @@ pub mod parsed {
                     }
                 }
                 let space_width_val = space_width?;
+                // Only pre-cache when we actually know a non-zero advance. During
+                // `from_bytes_internal` the source bytes are not attached yet, so
+                // `hmtx` is unreadable and `get_space_width_internal` reads back 0;
+                // caching that would pin every space to a 0 advance for the life of
+                // the face. Skip it and let the space decode lazily once bytes are
+                // attached (mock fonts that carry a real space width still cache).
+                if space_width_val == 0 {
+                    return None;
+                }
                 let space_record = OwnedGlyph {
                     bounding_box: OwnedGlyphBoundingBox {
                         max_x: 0,
@@ -2018,7 +2027,15 @@ pub mod parsed {
             let hint_mutex = self.hint_instance.as_ref()?;
 
             let scale = compute_scale(ppem, upem);
-            let adv_f26dot6 = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale);
+            // Round the LIVE hmtx advance, not the decoded glyph's cached
+            // `horz_advance`. The space glyph is eagerly pre-cached during
+            // `from_bytes_internal` before `original_bytes` is attached, so its
+            // cached advance can be a stale 0; and this function only ever rounds
+            // the scaled hmtx advance to the pixel grid anyway (see below), never
+            // the hinted phantom point. For every correctly-decoded glyph the two
+            // are identical, so this is a no-op except for the stale-space case.
+            let hmtx_advance = self.get_horizontal_advance(glyph_index);
+            let adv_f26dot6 = F26Dot6::from_funits(i32::from(hmtx_advance), scale);
 
             // For glyphs with outline data, run bytecode hinting
             if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
