@@ -10496,6 +10496,17 @@ fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak
         }
     }
 
+    // +spec:line-breaking:05e09a - U+002D HYPHEN-MINUS / U+2010 HYPHEN always create a
+    // soft-wrap opportunity AFTER them (UAX#14 class HY/BA), independent of the hyphens
+    // property (they are NOT hyphenation opportunities — no extra glyph is inserted).
+    // Mirrors is_break_opportunity(); this predicate drives the greedy BreakCursor path,
+    // which previously never broke after a plain hyphen.
+    if let ShapedItem::Cluster(c) = item {
+        if c.text.ends_with('\u{002D}') || c.text.ends_with('\u{2010}') {
+            return true;
+        }
+    }
+
     // +spec:line-breaking:2bbda0 - word-break does not affect soft wrap opportunities around punctuation
     match word_break {
         WordBreak::Normal => {
