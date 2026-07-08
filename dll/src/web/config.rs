@@ -51,6 +51,11 @@ pub struct WebConfig {
     pub allow_public: bool,
     /// Optional concurrent connection cap.
     pub max_connections: Option<usize>,
+    /// `web-prelift://…`: run the full startup (which lifts the eventloop +
+    /// route/layout callbacks into the on-disk lift cache) then exit BEFORE
+    /// binding the HTTP server. Used to bake a warm lift cache into the docker
+    /// base image so a derived app only lifts its own callbacks.
+    pub prelift: bool,
 }
 
 impl WebConfig {
@@ -108,8 +113,12 @@ pub enum WebConfigError {
 pub fn parse_web_config(s: &str) -> Result<WebConfig, WebConfigError> {
     let s = s.trim();
 
-    let rest = if s.get(..6).map_or(false, |p| p.eq_ignore_ascii_case("web://")) {
-        &s[6..]
+    // `web-prelift://` warms the lift cache then exits before serving; same URL
+    // + query syntax as `web://` otherwise.
+    let (rest, prelift) = if s.get(..14).map_or(false, |p| p.eq_ignore_ascii_case("web-prelift://")) {
+        (&s[14..], true)
+    } else if s.get(..6).map_or(false, |p| p.eq_ignore_ascii_case("web://")) {
+        (&s[6..], false)
     } else {
         return Err(WebConfigError::NotWebUrl);
     };
@@ -131,6 +140,7 @@ pub fn parse_web_config(s: &str) -> Result<WebConfig, WebConfigError> {
         auth_token: None,
         allow_public: false,
         max_connections: None,
+        prelift,
     };
 
     if let Some(q) = query_str {

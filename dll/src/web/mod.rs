@@ -1267,6 +1267,15 @@ pub fn run_web(
     #[cfg(feature = "web-transpiler")]
     transpiler_remill::preflight_report();
 
+    // web-prelift: the startup above lifted the eventloop + route/layout
+    // callbacks into the on-disk cache (AZ_LIFT_CACHE_DIR). Exit now, before
+    // binding the server — used to bake a warm lift cache into the docker base
+    // image so a derived app only pays to lift ITS OWN callbacks.
+    if web_config.prelift {
+        eprintln!("[azul-web] prelift complete — lift cache warmed; exiting before serve");
+        return Ok(());
+    }
+
     // Phase E: Start HTTP server
     let bind_addr = web_config.bind;
     eprintln!("[azul-web] Listening on http://{}", bind_addr);
