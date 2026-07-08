@@ -1608,6 +1608,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             if class_is_clone {
                 builder.line("let mut __cloned = _self.clone();");
             } else {
+                // KNOWN LIMITATION (deferred): `core::ptr::read` bitwise-duplicates
+                // the owned value out of `self.inner` for the by-value-consuming Rust
+                // method, but the original `self.inner` still holds those bytes and is
+                // Dropped a SECOND time at pyclass dealloc (RefAny double-free) — for
+                // the ~10 non-Clone consuming-self sites (camera/screencap/mic/video
+                // widgets). The correct fix neutralizes `self.inner` after the move,
+                // but the pyo3 receiver is `&self`, so that needs a `&mut self` /
+                // `UnsafeCell` signature change (writing through a `&self`-derived
+                // `*mut` is UB — rejected by `invalid_reference_casting`). Not
+                // exercised by the counter or any shipped-tier binding; fix later.
                 builder.line(&format!(
                     "let mut __cloned: {} = core::ptr::read(_self as *const {});",
                     external_path, external_path

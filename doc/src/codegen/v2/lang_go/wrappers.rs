@@ -84,10 +84,48 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         if !should_emit_wrapper(s, ir, config) {
             continue;
         }
-        emit_struct_wrapper(&mut b, s, ir);
+        emit_struct_wrapper(&mut b, s, ir, config);
     }
 
     Ok(b.finish())
+}
+
+/// If a method/factory returns this (by-value, owned) type, report the Go
+/// wrapper name to box it in so a `runtime.SetFinalizer` GC safety net can
+/// be armed — mirroring how self-returning factories/methods are handled.
+///
+/// Returns `None` (keep the raw `C.Az*` return) unless ALL hold:
+///   * the return is a bare type name — pointers/refs (`*`, `&`) are
+///     borrows the callee still owns, so we must never free them;
+///   * the IR has a matching struct whose wrapper is actually emitted
+///     (`should_emit_wrapper`) — otherwise `*Type` would be undefined Go;
+///   * that type has an `Az<T>_delete` (`has_destructor`) — the gate that
+///     makes the wrapper's `Close()` (which the finalizer calls) exist.
+///
+/// A raw `C.Az<T>` returned by value with an `Az<T>_delete` had NO
+/// finalizer and no `Close()`, so a caller that forgot the manual
+/// `C.Az<T>_delete` leaked it. Boxing + finalizing fixes that leak, and is
+/// double-free-safe: the value is a fresh, unaliased allocation owned
+/// solely by the new wrapper, freed at most once (Close clears the
+/// finalizer; the finalizer path clears itself).
+fn owned_wrapper_return(
+    ret_ty: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<String> {
+    let t = ret_ty.trim();
+    // Borrows / raw pointers are not owned — never attach a destructor.
+    if t.starts_with('&') || t.starts_with('*') {
+        return None;
+    }
+    let s = ir.find_struct(t)?;
+    if !should_emit_wrapper(s, ir, config) {
+        return None;
+    }
+    if !has_destructor(t, ir) {
+        return None;
+    }
+    Some(sanitize_identifier(t))
 }
 
 fn emit_header(b: &mut CodeBuilder) {
@@ -99,7 +137,9 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// Pair each `azul.NewFoo(...)` with `defer foo.Close()` for deterministic");
     b.line("// cleanup. A `runtime.SetFinalizer` safety net runs the destructor on GC");
     b.line("// if you forget; the finalizer is cleared inside `Close()` so the same");
-    b.line("// destructor never executes twice.");
+    b.line("// destructor never executes twice. Methods/factories that RETURN an owned");
+    b.line("// heap type are likewise returned as a `*Wrapper` with a finalizer armed,");
+    b.line("// so a caller who forgets `Close()` on the result still doesn't leak.");
     b.blank();
     b.line("package azul");
     b.blank();
@@ -173,7 +213,7 @@ fn has_useful_method(class_name: &str, ir: &CodegenIR) -> bool {
 // Wrapper struct emission
 // ============================================================================
 
-fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) {
     let go_name = sanitize_identifier(&s.name);
     let ffi_name = ffi_type_name(&s.name);
     let has_delete = has_destructor(&s.name, ir);
@@ -201,7 +241,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     for f in ir.functions_for_class(&s.name) {
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
-                emit_static_factory(b, &go_name, f, &self_arg, ir, has_delete);
+                emit_static_factory(b, &go_name, f, &self_arg, ir, config, has_delete);
             }
             _ => {}
         }
@@ -211,10 +251,10 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     for f in ir.functions_for_class(&s.name) {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(b, &go_name, f, &self_arg, ir, /* clone */ false);
+                emit_instance_method(b, &go_name, f, &self_arg, ir, config, /* clone */ false);
             }
             FunctionKind::DeepCopy => {
-                emit_instance_method(b, &go_name, f, &self_arg, ir, /* clone */ true);
+                emit_instance_method(b, &go_name, f, &self_arg, ir, config, /* clone */ true);
             }
             _ => {}
         }
@@ -252,6 +292,7 @@ fn emit_static_factory(
     f: &FunctionDef,
     self_arg: &str,
     ir: &CodegenIR,
+    config: &CodegenConfig,
     has_delete: bool,
 ) {
     // `new` becomes `New<Type>` so users write `azul.NewApp(...)`.
@@ -278,10 +319,24 @@ fn emit_static_factory(
         .map(|r| r.trim() == f.class_name)
         .unwrap_or(false);
 
+    // Owned NON-self return: box it in its wrapper type so we can arm a
+    // GC-safety-net finalizer (see owned_wrapper_return). `None` keeps the
+    // raw `C.Az*` return for primitives/borrows/wrapperless types.
+    let owned_wrapper = if returns_self {
+        None
+    } else {
+        f.return_type
+            .as_deref()
+            .and_then(|rt| owned_wrapper_return(rt, ir, config))
+    };
+
     let return_ty = match (&f.return_type, returns_self) {
         (None, _) => "".to_string(),
         (Some(_), true) => format!("*{}", go_name),
-        (Some(rt), false) => map_return_type(rt, ir),
+        (Some(rt), false) => match &owned_wrapper {
+            Some(w) => format!("*{}", w),
+            None => map_return_type(rt, ir),
+        },
     };
 
     let header = if return_ty.is_empty() {
@@ -312,6 +367,17 @@ fn emit_static_factory(
             ));
         }
         b.line("return self");
+    } else if let Some(w) = &owned_wrapper {
+        // Owned non-self return: box in the wrapper + arm the same GC
+        // safety net used for self-returns. The value is a fresh, unaliased
+        // C allocation owned solely by `ret`, so Close()/finalizer free it
+        // at most once — no double-free.
+        b.line(&format!("ret := &{}{{ inner: {} }}", w, call));
+        b.line(&format!(
+            "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
+            w
+        ));
+        b.line("return ret");
     } else if return_ty.is_empty() {
         b.line(&call);
     } else {
@@ -333,6 +399,7 @@ fn emit_instance_method(
     f: &FunctionDef,
     self_arg: &str,
     ir: &CodegenIR,
+    config: &CodegenConfig,
     clone: bool,
 ) {
     let method_label = if clone {
@@ -357,10 +424,22 @@ fn emit_instance_method(
         .map(|r| r.trim() == f.class_name)
         .unwrap_or(false);
 
+    // Owned NON-self return: box + finalize (see owned_wrapper_return).
+    let owned_wrapper = if returns_self {
+        None
+    } else {
+        f.return_type
+            .as_deref()
+            .and_then(|rt| owned_wrapper_return(rt, ir, config))
+    };
+
     let return_ty = match (&f.return_type, returns_self) {
         (None, _) => "".to_string(),
         (Some(_), true) => format!("*{}", go_name),
-        (Some(rt), false) => map_return_type(rt, ir),
+        (Some(rt), false) => match &owned_wrapper {
+            Some(w) => format!("*{}", w),
+            None => map_return_type(rt, ir),
+        },
     };
 
     let header = if return_ty.is_empty() {
@@ -428,6 +507,21 @@ fn emit_instance_method(
         // If self was consumed by-value, clear its finalizer so the
         // user's deferred `self.Close()` (or the GC's eventual
         // finalizer fire) doesn't double-drop the stale bytes.
+        if self_by_value {
+            b.line("runtime.SetFinalizer(self, nil)");
+        }
+        b.line("return ret");
+    } else if let Some(w) = &owned_wrapper {
+        // Owned non-self return: box in the wrapper + arm the same GC
+        // safety net used for self-returns. Fresh unaliased allocation
+        // owned solely by `ret`, freed at most once — no double-free.
+        b.line(&format!("ret := &{}{{ inner: {} }}", w, call));
+        b.line(&format!(
+            "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
+            w
+        ));
+        // If self was consumed by-value, cancel its finalizer so the
+        // stale bytes aren't double-freed.
         if self_by_value {
             b.line("runtime.SetFinalizer(self, nil)");
         }

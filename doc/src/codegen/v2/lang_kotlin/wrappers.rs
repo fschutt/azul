@@ -321,6 +321,19 @@ pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     builder.line("// --------------------------------------------------------------------------");
     builder.blank();
 
+    // GC safety net shared by every wrapper. Unlike Java (which uses a
+    // `finalize()` override), Kotlin/modern JVM leans on
+    // `java.lang.ref.Cleaner`: one shared Cleaner spawns a single
+    // background thread that, if the user forgets `close()`/`use { }`,
+    // frees the still-owned native pointer at GC time. Each wrapper
+    // registers a cleaning action that references ONLY the raw pointer +
+    // a one-shot guard (never `this`, which would keep the wrapper
+    // reachable forever and defeat the Cleaner). `close()`/`__consume()`
+    // pre-empt the Cleaner explicitly so a pointer is freed at most once.
+    // File-private: visible to every wrapper class emitted below.
+    builder.line("private val AZUL_CLEANER: java.lang.ref.Cleaner = java.lang.ref.Cleaner.create()");
+    builder.blank();
+
     for s in &ir.structs {
         if !should_emit_wrapper(s, ir, config) {
             continue;
@@ -449,6 +462,35 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.indent();
 
     builder.line("private var closed: Boolean = false");
+    builder.blank();
+
+    // GC safety net (see AZUL_CLEANER above). The cleaning action is
+    // built in a `run { }` block that captures LOCAL copies of the
+    // pointer + guard — never `this` — so registering it does not keep
+    // the wrapper strongly reachable. `__cleanFreed` is a one-shot guard
+    // shared with the action: whoever wins the CAS performs (or skips)
+    // the free, so the pointer is deleted at most once regardless of
+    // close() / __consume() / GC ordering.
+    builder.line("private val __cleanFreed = java.util.concurrent.atomic.AtomicBoolean(false)");
+    builder.line("private val __cleanable: java.lang.ref.Cleaner.Cleanable = run {");
+    builder.indent();
+    builder.line("val __p = ptr");
+    builder.line("val __guard = __cleanFreed");
+    builder.line("AZUL_CLEANER.register(this, Runnable {");
+    builder.indent();
+    builder.line("if (__guard.compareAndSet(false, true)) {");
+    builder.indent();
+    builder.line(&format!(
+        "{}.INSTANCE.{}_delete(__p)",
+        super::super::lang_java::functions::native_class_for_class(&s.name, ir),
+        ffi_name
+    ));
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("})");
+    builder.dedent();
+    builder.line("}");
     builder.blank();
 
     // Internal pointer access for sibling wrappers.
@@ -667,27 +709,35 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     }
 
     // close()
+    // Drive the free through the Cleaner's `clean()` so the delete path
+    // is shared with the GC safety net and runs at most once. `clean()`
+    // invokes the cleaning action (which wins the __cleanFreed CAS and
+    // calls Az<X>_delete) and deregisters the Cleanable, so a later GC
+    // never re-runs it. Idempotent via `closed` + the one-shot guard.
     builder.line("/** Frees the underlying native resources. Idempotent. */");
     builder.line("override fun close() {");
     builder.indent();
     builder.line("if (closed) return");
-    builder.line(&format!(
-        "{}.INSTANCE.{}_delete(ptr)",
-        super::super::lang_java::functions::native_class_for_class(&s.name, ir),
-        ffi_name
-    ));
     builder.line("closed = true");
+    builder.line("__cleanable.clean()");
     builder.dedent();
     builder.line("}");
     builder.blank();
 
     // Mark this wrapper as consumed without calling Az<X>_delete.
     // Used by codegen-emitted call sites where the C ABI takes
-    // ownership of the underlying bytes by-value.
+    // ownership of the underlying bytes by-value. We must cancel the GC
+    // safety net WITHOUT freeing: set the one-shot guard first (so the
+    // action no-ops), then `clean()` to deregister the Cleanable so the
+    // Cleaner thread can never fire a double-free after the C side has
+    // taken ownership.
     builder.line("/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership to the C ABI by-value). */");
     builder.line("internal fun __consume() {");
     builder.indent();
+    builder.line("if (closed) return");
     builder.line("closed = true");
+    builder.line("__cleanFreed.set(true)");
+    builder.line("__cleanable.clean()");
     builder.dedent();
     builder.line("}");
 
@@ -919,8 +969,8 @@ fn emit_kt_toString_if_supported(
 /// element is deep-cloned via the type's `_clone` C export so the
 /// yielded wrapper owns its own heap allocations and survives the
 /// Vec being closed. If no `_clone` export exists, fall back to a
-/// buffer-borrowed wrapper marked consumed (no finalize-time
-/// `AzX_delete` on Vec-internal memory).
+/// buffer-borrowed wrapper marked consumed (its Cleaner safety net is
+/// cancelled, so no GC-time `AzX_delete` on Vec-internal memory).
 /// Primitive-element Vec sibling: bulk-copy into a Kotlin native
 /// typed array (`ByteArray`/`IntArray`/...) via JNA's `getXxxArray`.
 fn emit_kt_vec_primitive_array(
@@ -1107,8 +1157,8 @@ fn emit_static_factory(
                 let local =
                     emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim());
                 // C ABI consumes the by-value struct; mark the
-                // caller's wrapper so its deferred finalizer skips
-                // AzX_delete.
+                // caller's wrapper (__consume) so its Cleaner safety net
+                // is cancelled and never fires a double-free AzX_delete.
                 consume_after_call.push(raw_name);
                 local
             } else {
