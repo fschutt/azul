@@ -42,22 +42,28 @@ ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:${PATH}"
 # to (subprocess path). Built from source here for self-containment; CI should
 # COPY a prebuilt binary instead. See third_party/WEB_LIFTER_INSTALL.md.
 WORKDIR /src
-ARG AZUL_REF=master
-RUN git clone --depth 1 --branch "${AZUL_REF}" \
-        https://github.com/fschutt/azul.git azul \
-    && cd azul \
-    && git submodule update --init --recursive third_party/remill || true
+# remill is a pinned FORK (fschutt/remill). Clone + build it DIRECTLY at a pinned
+# ref — NOT via the azul checkout — so this ~45-min build's layer cache is keyed
+# on REMILL_REF alone and is NOT invalidated every time AZUL_REF (the app source,
+# cloned later in Stage 2) changes. That's what keeps website iteration fast: the
+# remill toolchain layer is reused across every azul rebuild until you bump
+# REMILL_REF (i.e. only when the submodule commit actually moves).
+ARG REMILL_REF=1d5dd7fa4cec8ed8e867b1aedc61c9746f624b13
+RUN git clone https://github.com/fschutt/remill.git /src/remill \
+    && cd /src/remill \
+    && git checkout "${REMILL_REF}" \
+    && git submodule update --init --recursive
 
-# Build remill into the workspace-relative location the lifter discovers
-# (third_party/remill-install). Heavy (~45 min); CI should COPY a cached build.
-RUN cd /src/azul/third_party/remill \
+# Heavy (~45 min); the binary lands in /usr/local/bin so the DLL's subprocess
+# lifter finds it via REMILL_LIFT_BIN (set in Stage 3).
+RUN cd /src/remill \
     && cmake -G Ninja -B /tmp/remill-build . \
          -DCMAKE_BUILD_TYPE=Release \
-         -DCMAKE_INSTALL_PREFIX=/src/azul/third_party/remill-install \
+         -DCMAKE_INSTALL_PREFIX=/opt/remill-install \
          -DREMILL_ENABLE_TESTING=OFF -DREMILL_BUILD_SPARC32=OFF \
     && cmake --build /tmp/remill-build --target remill-lift-17 \
     && cmake --install /tmp/remill-build \
-    && cp /src/azul/third_party/remill-install/bin/remill-lift* /usr/local/bin/ 2>/dev/null || true
+    && cp /opt/remill-install/bin/remill-lift* /usr/local/bin/ 2>/dev/null || true
 
 # ---------------------------------------------------------------------
 # Stage 2: build libazul + the prelift harness with Rust.
@@ -74,18 +80,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         clang libgl1-mesa-dev libx11-dev libv4l-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Clone the APP source LAST (keyed on AZUL_REF) — everything above (remill +
+# LLVM + rust + deps) is AZUL_REF-independent and stays cached across app
+# rebuilds. Bump AZUL_REF (default master) per build via --build-arg.
+ARG AZUL_REF=master
+RUN git clone --depth 1 --branch "${AZUL_REF}" \
+        https://github.com/fschutt/azul.git /src/azul
+
 WORKDIR /src/azul
 # Build libazul. The subprocess lift path is what we warm, so plain build-dll
 # is sufficient (web-transpiler-static would only help the non-default
 # in-process native path). See README.md / use_native_remill docs.
 RUN cargo build --profile prod-release -p azul-dll --features="build-dll"
 
-# Build the prelift harness (examples/rust/prelift): a minimal app that starts
-# run_web once under AZ_E2E to drive the full library lift headless, populating
-# the IR cache, then exits. If absent in the built ref this is a no-op and the
-# cache warms on the first real request. See README.md change #2.
-RUN cargo build --profile prod-release -p azul --example prelift 2>/dev/null \
-    || echo "[prelift] example not present yet — see README.md change #2"
+# Build a minimal azul app WITH the subprocess web transpiler so we can drive
+# the whole-framework lift. Best-effort: if the `web` feature isn't wired in the
+# built ref, this is a no-op and the cache warms on the first real request.
+RUN cargo build --profile prod-release -p azul-examples --features web 2>/dev/null \
+    || echo "[prelift] azul-examples[web] not buildable in this ref — cache warms on first request"
 
 # ---------------------------------------------------------------------
 # Stage 3: warm the lift cache (the actual "prelift").
@@ -107,13 +119,13 @@ ENV OPT=/usr/lib/llvm-21/bin/opt
 ENV LLVM_LINK=/usr/lib/llvm-21/bin/llvm-link
 ENV WASM_LD=/usr/lib/llvm-21/bin/wasm-ld
 
-# Drive the one-shot library lift: AZ_E2E makes run_web dispatch one synthetic
-# event then exit (no hang), populating ${AZ_LIFT_CACHE_DIR}/*.lifted.ll (+ .o).
-# Requires the prelift harness; until it exists the cache warms on first request.
-RUN AZ_BACKEND="web://127.0.0.1:0" \
-    AZ_E2E="/src/azul/scripts/m9_e2e/prelift-warm.json" \
+# Drive the one-shot whole-framework lift with the `web-prelift` backend: it runs
+# the exact run_web startup (Phase A/B/D lift the eventloop + framework/callback
+# fns into ${AZ_LIFT_CACHE_DIR}) then EXITS before binding the server — no harness,
+# no synthetic-event hack, no hang. Best-effort; a missing binary is a no-op.
+RUN AZ_BACKEND="web-prelift://127.0.0.1:0" \
     LD_LIBRARY_PATH=/src/azul/target/prod-release \
-    /src/azul/target/prod-release/examples/prelift 2>&1 | tail -40 \
+    /src/azul/target/prod-release/azul-examples 2>&1 | tail -40 \
     || echo "[prelift] harness not present — cache will warm on first real request"
 
 # ---------------------------------------------------------------------
