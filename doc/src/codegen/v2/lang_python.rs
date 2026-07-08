@@ -1463,30 +1463,49 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         let has_callback_arg = args.iter().any(|a| a.callback_info.is_some());
         let needs_py_param = has_refany_arg || has_callback_arg;
 
+        // A by-value-consuming method on a NON-`Clone` type must MOVE the receiver
+        // out (`ptr::read`) and then NEUTRALIZE the original so the pyclass isn't
+        // Dropped a SECOND time at dealloc (RefAny double-free). That write is only
+        // legal through `&mut self`, so take a mutable receiver for exactly those
+        // methods. `Clone` types deep-clone via `&self` and never need this.
+        let self_is_by_value = func
+            .args
+            .iter()
+            .find(|a| a.name == self_arg_name)
+            .map(|a| a.ref_kind == ArgRefKind::Owned)
+            .unwrap_or(false);
+        let class_is_clone_recv = ir
+            .find_struct(&func.class_name)
+            .map(|s| self.struct_supports_clone(s))
+            .or_else(|| ir.find_enum(&func.class_name).map(|e| self.enum_supports_clone(e)))
+            .unwrap_or(true);
+        let needs_consume_self = takes_self && self_is_by_value && !class_is_clone_recv;
+        let self_recv = if needs_consume_self { "&mut self" } else { "&self" };
+
         // Generate function signature
         if takes_self {
             if args.is_empty() {
                 if needs_py_param {
                     builder.line(&format!(
-                        "fn {}(&self, py: Python<'_>) -> {} {{",
-                        func.method_name, return_type
+                        "fn {}({}, py: Python<'_>) -> {} {{",
+                        func.method_name, self_recv, return_type
                     ));
                 } else {
                     builder.line(&format!(
-                        "fn {}(&self) -> {} {{",
-                        func.method_name, return_type
+                        "fn {}({}) -> {} {{",
+                        func.method_name, self_recv, return_type
                     ));
                 }
             } else {
                 if needs_py_param {
                     builder.line(&format!(
-                        "fn {}(&self, py: Python<'_>, {}) -> {} {{",
-                        func.method_name, args_str, return_type
+                        "fn {}({}, py: Python<'_>, {}) -> {} {{",
+                        func.method_name, self_recv, args_str, return_type
                     ));
                 } else {
                     builder.line(&format!(
-                        "fn {}(&self, {}) -> {} {{",
-                        func.method_name, args_str, return_type
+                        "fn {}({}, {}) -> {} {{",
+                        func.method_name, self_recv, args_str, return_type
                     ));
                 }
             }
@@ -1599,29 +1618,41 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             })
             .unwrap_or(true);
         if takes_self {
-            builder.line(&format!(
-                "let _self: &{} = core::mem::transmute(&self.inner);",
-                external_path
-            ));
-            // Clone self so methods can consume it (mut for methods that mutate).
-            // For non-Clone types, bitwise-move the owned inner out instead.
-            if class_is_clone {
-                builder.line("let mut __cloned = _self.clone();");
-            } else {
-                // KNOWN LIMITATION (deferred): `core::ptr::read` bitwise-duplicates
-                // the owned value out of `self.inner` for the by-value-consuming Rust
-                // method, but the original `self.inner` still holds those bytes and is
-                // Dropped a SECOND time at pyclass dealloc (RefAny double-free) — for
-                // the ~10 non-Clone consuming-self sites (camera/screencap/mic/video
-                // widgets). The correct fix neutralizes `self.inner` after the move,
-                // but the pyo3 receiver is `&self`, so that needs a `&mut self` /
-                // `UnsafeCell` signature change (writing through a `&self`-derived
-                // `*mut` is UB — rejected by `invalid_reference_casting`). Not
-                // exercised by the counter or any shipped-tier binding; fix later.
+            if needs_consume_self {
+                // By-value consume on a NON-Clone type: MOVE the owned inner out
+                // into `__cloned`, then ZERO the original so the pyclass's later
+                // Drop at dealloc is a harmless no-op (was a RefAny double-free /
+                // refcount underflow — the ~10 camera/screencap/mic/video widget
+                // sites). Drop-safe: all owned fields route through RefAny, whose
+                // RefCount::drop early-returns a no-op on a null/zeroed pointer.
+                // Legal because the receiver is `&mut self` (see self_recv above).
+                builder.line(&format!(
+                    "let _self: &mut {} = core::mem::transmute(&mut self.inner);",
+                    external_path
+                ));
                 builder.line(&format!(
                     "let mut __cloned: {} = core::ptr::read(_self as *const {});",
                     external_path, external_path
                 ));
+                builder.line(&format!(
+                    "core::ptr::write(_self as *mut {}, core::mem::zeroed());",
+                    external_path
+                ));
+            } else {
+                builder.line(&format!(
+                    "let _self: &{} = core::mem::transmute(&self.inner);",
+                    external_path
+                ));
+                // Clone self so methods can consume it (mut for methods that
+                // mutate). For non-Clone types, bitwise-move the owned inner out.
+                if class_is_clone {
+                    builder.line("let mut __cloned = _self.clone();");
+                } else {
+                    builder.line(&format!(
+                        "let mut __cloned: {} = core::ptr::read(_self as *const {});",
+                        external_path, external_path
+                    ));
+                }
             }
 
             // Replace self references in fn_body
