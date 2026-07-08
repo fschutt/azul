@@ -16,7 +16,7 @@ description = """
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "a11y"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
 # Android: build as a NativeActivity cdylib — link android-activity into libazul
 # and use `ctor` for the load-time constructor that stashes the window options.

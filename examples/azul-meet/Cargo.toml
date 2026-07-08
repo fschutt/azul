@@ -16,7 +16,7 @@ description = """
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
 [[bin]]
 name = "azul-meet"

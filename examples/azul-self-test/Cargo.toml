@@ -22,7 +22,7 @@ publish = false
 # to the `log` facade (our logger captures them). Without it they compile to a
 # no-op and the self-test would only show its own app-level lines, not azul's
 # [camera]/[udp]/[gamepad]/[sensors] backend traces — defeating the purpose.
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "logging"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 # `std` feature → `log::set_boxed_logger` (azul-dll pulls `log` with
 # default-features=false, so we must opt back into std here).
 log = { version = "0.4", features = ["std"] }

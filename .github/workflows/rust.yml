@@ -1397,7 +1397,11 @@ jobs:
   # ---------------------------------------------------------------------------
   build_demos:
     name: Build Demo Apps (${{ matrix.os }})
-    timeout-minutes: 120   # cap intermittent Windows demo-build hangs (seen >160m)
+    # Demos link-dynamic against the prebuilt libazul (built once by
+    # build_binaries) instead of statically recompiling the whole engine — a
+    # few-second link + the shared engine cache, not a 60-min WebRender rebuild.
+    needs: build_binaries
+    timeout-minutes: 30
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     # Non-blocking: a demo that won't build on some platform must never fail the
     # pipeline or block the release. fail-fast: false already isolates each OS.
@@ -1411,14 +1415,17 @@ jobs:
             os_suffix: linux
             bin_ext: ""
             artifact_name: azul-demos-ubuntu
+            dll_artifact: azul-linux-amd64
           - os: macos-14
             os_suffix: macos
             bin_ext: ""
             artifact_name: azul-demos-macos
+            dll_artifact: azul-macos-amd64
           - os: windows-2022
             os_suffix: windows
             bin_ext: ".exe"
             artifact_name: azul-demos-windows
+            dll_artifact: azul-windows-amd64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -1453,10 +1460,39 @@ jobs:
       # Build each demo best-effort. A failing demo prints a ::warning:: and is
       # skipped (no binary shipped) instead of failing the step/job. azul-doc is
       # intentionally excluded — it's the generator tool, not a demo.
+      - name: Download prebuilt libazul (static .a for self-contained demos)
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.dll_artifact }}
+          path: libazul-prebuilt
+
       - name: Build demos (best-effort)
+        env:
+          # Demos use the `link-dynamic` FEATURE (compile thin against the C ABI,
+          # target/codegen/dll_api_external.rs) but link the prebuilt STATIC
+          # libazul.a → ONE self-contained binary per demo, same as link-static
+          # used to produce, but WITHOUT recompiling the engine from source.
+          # dll/build.rs links `static=azul` against libazul.a. AZ_LINK_STATIC
+          # forces the static path so a stray libazul.so in target/ or /usr/lib
+          # can't make it link dynamically instead.
+          AZ_LINK_PATH: ${{ github.workspace }}/libazul-prebuilt
+          AZ_LINK_STATIC: "1"
+          # The prebuilt libazul.a is final machine code (no LTO bitcode), so the
+          # demo build must NOT try to LTO across it ("failed to get bitcode from
+          # object file for LTO"). The engine is already optimized inside the .a;
+          # only the thin demo glue is built here, so LTO buys nothing anyway.
+          CARGO_PROFILE_RELEASE_LTO: "off"
         shell: bash
         run: |
           set +e
+          # Keep ONLY the static archive so build.rs's probe_dir finds no dylib
+          # and falls through to `rustc-link-lib=static=azul` (self-contained).
+          rm -f libazul-prebuilt/libazul.so libazul-prebuilt/libazuldbg.so \
+                libazul-prebuilt/libazul.dylib libazul-prebuilt/libazuldbg.dylib \
+                libazul-prebuilt/azul.dll libazul-prebuilt/azuldbg.dll \
+                libazul-prebuilt/azul.dll.lib libazul-prebuilt/azul.so \
+                libazul-prebuilt/azul.pyd 2>/dev/null
+          echo "Linking against static lib(s):"; ls -la libazul-prebuilt/
           for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             echo "=== Building $demo on ${{ matrix.os }} ==="
             cargo build --release -p "$demo" || echo "::warning::$demo failed to build on ${{ matrix.os }} (likely missing platform deps) — skipping"
@@ -1468,6 +1504,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p demos-staging
+          # Each demo is a single self-contained binary (static libazul.a linked
+          # in) — no DLL to ship alongside, same as the old link-static output.
           for demo in azul-paint azul-widgets azul-maps azul-vault azul-gamepad azul-camera-app azul-screenshare-app azul-video-app azul-meet azul-self-test; do
             src="target/release/${demo}${{ matrix.bin_ext }}"
             if [ -f "$src" ]; then

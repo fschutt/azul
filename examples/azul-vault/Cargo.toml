@@ -19,7 +19,7 @@ publish = false
 [dependencies]
 # `db-sqlite` makes the `Db` engine real (bundled SQLite via native cc on
 # the desktop host); without it `Db::open` returns an invalid handle.
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "db-sqlite"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
 [[bin]]
 name = "azul-vault"

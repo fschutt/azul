@@ -578,6 +578,7 @@ fn probe_dir(dir: &Path, target: &str) -> bool {
 fn configure_dynamic_linking(target: &str) {
     println!("cargo:rerun-if-env-changed=AZ_DLL_PATH");
     println!("cargo:rerun-if-env-changed=AZ_LINK_PATH");
+    println!("cargo:rerun-if-env-changed=AZ_LINK_STATIC");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
@@ -645,8 +646,17 @@ fn configure_dynamic_linking(target: &str) {
         .find(|p| p.file_name().map(|n| n == "debug" || n == "release").unwrap_or(false))
         .map(|p| p.to_path_buf());
 
-    // Try shared library
-    for (dir, is_system) in &dirs {
+    // Force-static override: demos link the prebuilt libazul.a into a SINGLE
+    // self-contained binary. The dylib search below also probes
+    // target/{release,debug} and /usr/lib, so a stray libazul.so there would be
+    // linked DYNAMICALLY instead. AZ_LINK_STATIC=1 skips dylib discovery so we
+    // fall straight through to the static-lib fallback.
+    let force_static = env::var("AZ_LINK_STATIC")
+        .map(|v| !v.is_empty() && v != "0")
+        .unwrap_or(false);
+
+    // Try shared library (unless static linking is forced)
+    for (dir, is_system) in dirs.iter().filter(|_| !force_static) {
         if !probe_dir(dir, target) {
             continue;
         }
