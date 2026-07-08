@@ -400,11 +400,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+          targets: ${{ matrix.target }}
       - name: Rust build cache
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: cross-${{ matrix.target }}
-          targets: ${{ matrix.target }}
 
       - name: Install cross (Linux)
         if: matrix.use_cross
