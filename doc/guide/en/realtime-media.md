@@ -7,7 +7,7 @@ audience: external
 maturity: beta
 guide_order: 280
 topic_only: false
-short_desc: Camera/mic capture, audio playback, and sharing A/V over UDP (the azul-meet pattern)
+short_desc: Camera/mic capture, audio playback, and streaming A/V frames to a peer (the azul-meet pattern)
 prerequisites: [callbacks, background-tasks]
 tracked_files:
   - layout/src/widgets/capture_common.rs
@@ -15,14 +15,12 @@ tracked_files:
   - core/src/audio.rs
   - core/src/video.rs
   - dll/src/desktop/extra/audio/mod.rs
-  - dll/src/desktop/extra/udp/mod.rs
   - examples/azul-meet/src/main.rs
 last_generated_rev: 754b7f00e088960c14db598f64fa200dacc28bf1
 generated_at: 2026-05-21T00:00:00Z
 default-search-keys:
   - MicrophoneWidget
   - AudioSink
-  - Udp
   - OnAudioFrameCallback
   - AudioFrame
   - VideoFrame
@@ -36,12 +34,19 @@ default-search-keys:
 
 ## Introduction
 
-Azul exposes camera / screen / microphone **capture**, audio **playback**, and a
-UDP **transport** as ordinary widgets and handles - no globals, no manager
-singletons. Each capture source is a "dumb widget" that owns a background
-worker and hands you each frame through a callback hook; playback and transport
-are handles you keep in your own application `State`. Tying them together is the
-`azul-meet` example (a loopback audio call): capture -> hook -> UDP -> playback.
+Azul exposes camera / screen / microphone **capture** and audio **playback** as
+ordinary widgets and handles - no globals, no manager singletons. Each capture
+source is a "dumb widget" that owns a background worker and hands you each frame
+through a callback hook; playback is a handle you keep in your own application
+`State`. Tying them together is the `azul-meet` example (a loopback audio call):
+capture -> hook -> serialize -> [transport] -> deserialize -> playback.
+
+> **Transport is your choice.** Capture and playback are transport-agnostic: a
+> hook hands you decoded frames and `AudioSink` plays frames you hand it, so what
+> carries the bytes between peers is entirely up to you. A first-class,
+> browser-and-native peer-to-peer transport (the **AzMeet** conferencing layer)
+> is being designed separately; until it lands, serialize frames yourself and
+> send them over whatever transport your app already uses.
 
 The architecture follows the framework's backreference dependency-injection
 pattern (see [architecture](architecture.md)): a widget takes a `RefAny` (a
@@ -64,7 +69,7 @@ let camera = CameraWidget::create(CameraConfig::default())
 extern "C" fn on_video_frame(mut data: RefAny, _info: CallbackInfo, frame: VideoFrame) -> Update {
     if let Some(mut s) = data.downcast_mut::<MyState>() {
         // frame.bytes is RGBA, frame.width x frame.height. Save it, run it
-        // through an effect, or encode + send it (see "Sharing over UDP").
+        // through an effect, or encode + send it (see "Streaming frames to a peer").
         s.last_frame_bytes = frame.bytes.len();
     }
     Update::RefreshDom
@@ -106,51 +111,50 @@ sink.play(frame);            // queues the samples to the output
 // sink.is_open(), sink.frames_played(), sink.close()
 ```
 
-## Sharing over UDP (`Udp`)
+## Streaming frames to a peer
 
-`Udp` is a thin, non-blocking wrapper over a UDP socket, again as a handle in
-your `State`. UDP is connectionless and lossy by design, which is exactly the
-fault-tolerant model you want for realtime A/V (a dropped packet is a dropped
-frame, not a stall). You serialize your own payload into the `U8Vec`.
-
-```rust
-let udp = Udp::bind("0.0.0.0:9000".into());     // non-blocking
-let port = udp.local_addr();                    // learn the OS-assigned port
-udp.send_to(peer_addr, my_bytes);               // -> usize bytes sent
-// Poll from a Timer or thread:
-if let OptionU8Vec::Some(bytes) = udp.recv() { /* deserialize + use */ }
-```
-
-Payloads larger than the network MTU (a full video keyframe) use the built-in
-chunking: `Udp::send_chunked` splits the message into sequenced datagrams and
-`Udp::recv_chunked` reassembles them, tolerating reorder + loss (an incomplete
-message is dropped, never retransmitted). Audio chunks (a few KB) fit in a
-single datagram, so use `send_to` / `recv` for those.
-
-## Putting it together: the azul-meet pattern
-
-`examples/azul-meet` wires the full loop as a UDP loopback (it sends to its own
-port, so the whole round-trip runs on one machine):
-
-1. A `MicrophoneWidget` captures audio; its `on_frame` serializes the
-   `AudioFrame` and `Udp::send_to`s it to the peer.
-2. A recv `Timer` drains `Udp::recv()`, deserializes each datagram back into an
-   `AudioFrame`, and `AudioSink::play`s it.
+Capture hands you a decoded frame; playback takes a frame. The only thing between
+two peers is **your serialization + a transport of your choice**. A frame becomes
+bytes, the bytes travel, and the far side turns them back into a frame:
 
 ```rust
-// on_frame: capture -> send
+// on_frame: capture -> serialize -> send over your transport
 let bytes = frame_to_bytes(&frame);
-s.udp.send_to(s.peer.clone(), bytes);
+s.transport.send(s.peer.clone(), bytes);
 
-// recv Timer tick: receive -> play
-while let OptionU8Vec::Some(bytes) = s.udp.recv() {
+// recv (Timer tick or worker): receive -> deserialize -> play
+while let Some(bytes) = s.transport.poll_recv() {
     if let Some(frame) = bytes_to_frame(bytes.as_ref()) {
         s.sink.play(frame);
     }
 }
 ```
 
-A real two-party call is the same code with `peer` set to the remote address.
+`frame_to_bytes` / `bytes_to_frame` are yours (a length-prefixed struct, or the
+encoded codec bytes from `VideoEncoder` below). For a full keyframe that exceeds
+the network MTU you chunk it into sequenced messages and reassemble on the far
+side; a few-KB audio frame fits in a single message.
+
+### The transport seam
+
+`s.transport` above is deliberately abstract. The realtime-media APIs stop at the
+**serialize/deserialize seam** so you can drop in whatever moves bytes between
+peers — and the trade-offs there (raw datagrams vs. congestion-controlled QUIC,
+direct peer-to-peer vs. relayed, native-only vs. also-in-the-browser) are exactly
+what the **AzMeet** conferencing transport is being designed to standardize.
+Until that ships as a first-class API, wire the seam to your own transport.
+
+## Putting it together: the azul-meet pattern
+
+`examples/azul-meet` wires the full loop as a **loopback** call (it sends to
+itself, so the whole round-trip runs on one machine, no network required):
+
+1. A `MicrophoneWidget` captures audio; its `on_frame` serializes the
+   `AudioFrame` and sends it to the peer.
+2. A recv `Timer` drains the transport, deserializes each message back into an
+   `AudioFrame`, and `AudioSink::play`s it.
+
+A real two-party call is the same code with `peer` set to the remote endpoint.
 See `examples/azul-meet/src/main.rs` for the complete app (serialization +
 Timer + State).
 
@@ -173,7 +177,7 @@ actual hardware backends are platform-specific and only run on a real device:
   on Apple (Vulkan Video can't build there - no MoltenVK video), **MediaCodec**
   on Android. The handles + the selection are exposed cross-platform; the codec
   FFI itself is the on-device part. Use these at the `azul-meet`
-  serialize/deserialize seam (`send_chunked` carries the encoded bytes).
+  serialize/deserialize seam (your transport carries the encoded bytes).
 
 ## Testing without hardware
 
@@ -186,5 +190,5 @@ a real device uses, so you can exercise the capture + event paths in CI. See
 
 - [callbacks](callbacks.md) - the hook + `RefAny` mechanism.
 - [background-tasks](background-tasks.md) - the `Thread` that drives capture.
-- [timers](timers.md) - polling `Udp::recv` each frame.
+- [timers](timers.md) - polling your transport for received frames each frame.
 - [Mobile](mobile.md) - shipping this on iOS / Android.

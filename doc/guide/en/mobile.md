@@ -302,7 +302,7 @@ browser/file manager).
 
 ```sh
 adb logcat -s azul:V '*:S'        # azul lines only
-adb logcat | grep -E '\[camera\]|\[udp\]|\[gamepad\]|\[sensors\]|\[cap\]'
+adb logcat | grep -E '\[camera\]|\[gamepad\]|\[sensors\]|\[cap\]'
 ```
 
 A native crash prints a tombstone — `adb logcat` shows the `backtrace:` with the
