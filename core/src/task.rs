@@ -498,6 +498,9 @@ impl Drop for InstantPtr {
             // its own `_delete` already ran the real drop) sees run_destructor=false
             // and skips this -> no double-free. (non-std `ptr` is a raw POD pointer
             // freed by the destructor callback above, so nothing to drop here.)
+            // SAFETY: `run_destructor` is set false above, so this arm runs at
+            // most once per InstantPtr value; the `Box` inside was never moved
+            // out, so it is live and owned here and safe to drop exactly once.
             #[cfg(feature = "std")]
             unsafe {
                 ManuallyDrop::drop(&mut self.ptr);
@@ -1045,5 +1048,32 @@ mod tests {
         assert_eq!(huge.millis(), u64::MAX);
         let normal = SystemTimeDiff { secs: 2, nanos: 500_000_000 };
         assert_eq!(normal.millis(), 2500);
+    }
+
+    #[test]
+    fn duration_div_mismatched_kinds_is_zero() {
+        // Dividing a Tick duration by a System duration is undefined -> 0.0.
+        assert_eq!(tick_dur(10).div(&sys_dur(1, 0)), 0.0);
+        // Matching Tick kinds divide normally.
+        assert!((tick_dur(5).div(&tick_dur(10)) - 0.5).abs() < 1e-6);
+    }
+
+    // Exercises the `unsafe` pointer work in `std_instant_clone` (`&*ptr`) and
+    // the `ManuallyDrop::drop` guard in `InstantPtr::drop`: build an InstantPtr,
+    // clone it (goes through the FFI clone callback + raw-ptr deref), then let
+    // both drop. Under Miri this asserts the clone/drop path is UB-free and the
+    // owned `Box` is freed exactly once per value (no double-free).
+    #[cfg(feature = "std")]
+    #[test]
+    fn instant_ptr_clone_and_drop_no_ub() {
+        let base = StdInstant::now();
+        let a: InstantPtr = base.into();
+        let b = a.clone();
+        // The clone must observe the same underlying instant.
+        assert_eq!(a, b);
+        // Both `a` and `b` own independent Boxes; dropping both must not
+        // double-free (each has run_destructor == true).
+        drop(a);
+        drop(b);
     }
 }

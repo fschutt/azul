@@ -897,6 +897,10 @@ impl_option!(
 impl ImageRef {
     /// If *copies = 1, returns the internal image data
     #[must_use] pub fn into_inner(self) -> Option<DecodedImage> {
+        // SAFETY: `data`/`copies` are non-null heap allocations from `Box::into_raw`
+        // in `new()` (never mutated afterwards). When `copies == 1` we are the sole
+        // owner, so reclaiming both Boxes and `forget`-ing `self` transfers ownership
+        // without a double free / running the destructor twice.
         unsafe {
             if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
                 let data = Box::from_raw(self.data.cast_mut());
@@ -910,14 +914,19 @@ impl ImageRef {
     }
 
     #[must_use] pub const fn get_data(&self) -> &DecodedImage {
+        // SAFETY: `data` is a non-null, live `Box` allocation owned by this handle
+        // (and its shallow clones) until the last copy drops; the returned borrow is
+        // tied to `&self`, so it cannot outlive the allocation.
         unsafe { &*self.data }
     }
 
     #[must_use] pub fn get_image_callback(&self) -> Option<&CoreImageCallback> {
+        // SAFETY: `copies` is a non-null, live allocation for the lifetime of `&self`.
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
-            return None; // not safe
+            return None; // not safe: shared, so no exclusive borrow of the data
         }
 
+        // SAFETY: `data` is a non-null, live `Box` allocation; borrow tied to `&self`.
         match unsafe { &*self.data } {
             DecodedImage::Callback(gl_texture_callback) => Some(gl_texture_callback),
             _ => None,
@@ -925,10 +934,13 @@ impl ImageRef {
     }
 
     pub fn get_image_callback_mut(&mut self) -> Option<&mut CoreImageCallback> {
+        // SAFETY: `copies` is a non-null, live allocation for the lifetime of `&self`.
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
-            return None; // not safe
+            return None; // not safe: shared, so a &mut would alias other clones' data
         }
 
+        // SAFETY: `copies == 1` proven above, so `&mut self` is the unique owner of
+        // the `data` allocation; the exclusive borrow is tied to `&mut self`.
         match unsafe { &mut *self.data.cast_mut() } {
             DecodedImage::Callback(gl_texture_callback) => Some(gl_texture_callback),
             _ => None,
@@ -1087,6 +1099,9 @@ impl ImageRef {
     // pub fn new_vulkan(...) -> Self
 }
 
+// SAFETY: the raw pointers only ever address heap `Box`es whose contents are
+// themselves `Send`/`Sync`, and all cross-thread refcount mutation goes through the
+// `AtomicUsize` in `copies`, so sharing/moving a handle across threads is sound.
 unsafe impl Send for ImageRef {}
 unsafe impl Sync for ImageRef {}
 
@@ -1125,6 +1140,8 @@ impl Hash for ImageRef {
 
 impl Clone for ImageRef {
     fn clone(&self) -> Self {
+        // SAFETY: `copies` is a non-null, live `AtomicUsize` allocation shared by all
+        // clones; the atomic increment balances the `fetch_sub` in `Drop`.
         unsafe {
             self.copies
                 .as_ref()
@@ -1142,6 +1159,9 @@ impl Clone for ImageRef {
 impl Drop for ImageRef {
     fn drop(&mut self) {
         self.run_destructor = false;
+        // SAFETY: `data`/`copies` are non-null, live `Box` allocations shared by all
+        // clones. `fetch_sub` returns the pre-decrement count, so `== 1` means this is
+        // the last owner; only then do we reclaim both Boxes exactly once.
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
@@ -1501,6 +1521,9 @@ pub struct GlTextureCache {
 }
 
 // necessary so the display list can be built in parallel
+// SAFETY: only the raw pointers inside the contained `ImageRefHash`/key maps are
+// non-`Send`-inferring; every stored value is a plain POD id/descriptor with no
+// interior aliasing, so moving the cache to another thread is sound.
 unsafe impl Send for GlTextureCache {}
 
 impl GlTextureCache {
@@ -2495,6 +2518,8 @@ impl SharedRawImageData {
 
     /// Get a reference to the underlying bytes
     #[must_use] pub fn as_ref(&self) -> &[u8] {
+        // SAFETY: `data` is a non-null, live `Box<U8Vec>` owned by this handle (and its
+        // clones) until the last copy drops; the borrow is tied to `&self`.
         unsafe { (*self.data).as_ref() }
     }
 
@@ -2505,11 +2530,13 @@ impl SharedRawImageData {
 
     /// Get a pointer to the raw bytes for hashing/identification
     #[must_use] pub fn as_ptr(&self) -> *const u8 {
+        // SAFETY: `data` is a non-null, live `Box<U8Vec>` (see `as_ref`).
         unsafe { (*self.data).as_ref().as_ptr() }
     }
 
     /// Get the length of the data
     #[must_use] pub const fn len(&self) -> usize {
+        // SAFETY: `data` is a non-null, live `Box<U8Vec>` (see `as_ref`).
         unsafe { (*self.data).len() }
     }
 
@@ -2521,6 +2548,9 @@ impl SharedRawImageData {
     /// Try to extract the `U8Vec` if this is the only reference
     /// Returns None if there are other references
     #[must_use] pub fn into_inner(self) -> Option<U8Vec> {
+        // SAFETY: `data`/`copies` are non-null heap allocations from `Box::into_raw` in
+        // `new()`. When `copies == 1` we are the sole owner, so reclaiming both Boxes
+        // and `forget`-ing `self` transfers ownership without a double free.
         unsafe {
             if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
                 let data = Box::from_raw(self.data.cast_mut());
@@ -2534,11 +2564,15 @@ impl SharedRawImageData {
     }
 }
 
+// SAFETY: the raw pointers only address heap `Box`es of `Send`/`Sync` data, and all
+// cross-thread refcount mutation goes through the `AtomicUsize` in `copies`.
 unsafe impl Send for SharedRawImageData {}
 unsafe impl Sync for SharedRawImageData {}
 
 impl Clone for SharedRawImageData {
     fn clone(&self) -> Self {
+        // SAFETY: `copies` is a non-null, live `AtomicUsize` shared by all clones; the
+        // atomic increment balances the `fetch_sub` in `Drop`.
         unsafe {
             self.copies
                 .as_ref()
@@ -2555,6 +2589,9 @@ impl Clone for SharedRawImageData {
 impl Drop for SharedRawImageData {
     fn drop(&mut self) {
         self.run_destructor = false;
+        // SAFETY: `data`/`copies` are non-null, live `Box`es shared by all clones.
+        // `fetch_sub` returns the pre-decrement count, so `== 1` means we are the last
+        // owner; only then do we reclaim both Boxes exactly once.
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
@@ -2997,7 +3034,7 @@ pub fn build_add_font_resource_updates(
     font_source_load_fn: LoadFontFn,
     parse_font_fn: ParseFontFn,
 ) -> Vec<(StyleFontFamilyHash, AddFontMsg)> {
-    let mut resource_updates = alloc::vec::Vec::new();
+    let mut resource_updates = Vec::new();
     let mut font_instances_added_this_frame = FastBTreeSet::new();
 
     'outer: for (im_font_id, font_sizes) in fonts_in_dom {
@@ -3300,6 +3337,7 @@ pub fn add_resources(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_statements, clippy::redundant_clone, clippy::cast_possible_truncation, clippy::cast_sign_loss, trivial_casts, clippy::borrow_as_ptr, clippy::cast_ptr_alignment, clippy::unused_self, unused_qualifications, unreachable_pub, private_interfaces)] // pedantic lints are noise in unsafe-exercising test code
 mod tests {
     use super::*;
 
@@ -3331,5 +3369,99 @@ mod tests {
         // non-premultiplied branch still rejects wrong length.
         let short2 = RawImageData::U8(vec![0u8; 4 * 2].into());
         assert!(RawImage::load_bgra8(short2, 4, false).is_none());
+    }
+
+    // --- unsafe-hardening tests (Miri-compatible: pure in-memory, no FFI/GL) ---
+
+    #[test]
+    fn imageref_get_data_reads_backing_box() {
+        // Exercises the `&*self.data` raw-pointer deref in `get_data`.
+        let img = ImageRef::null_image(2, 3, RawImageFormat::RGBA8, vec![7, 8]);
+        match img.get_data() {
+            DecodedImage::NullImage { width, height, tag, .. } => {
+                assert_eq!((*width, *height), (2, 3));
+                assert_eq!(tag.as_slice(), &[7, 8]);
+            }
+            _ => panic!("expected NullImage"),
+        }
+    }
+
+    #[test]
+    fn imageref_clone_shares_refcount_and_identity() {
+        // Clone must bump the shared AtomicUsize (so `into_inner` refuses while a
+        // second copy is alive) and preserve the never-reused identity `id`.
+        let img = ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new());
+        let c = img.clone();
+        assert_eq!(img, c); // same id -> shallow clone
+        // Two live copies: sole-owner extraction must fail (and `c` drops cleanly).
+        assert!(c.into_inner().is_none());
+        // Back to one owner: extraction now succeeds, forgetting `self` without leak.
+        assert!(img.into_inner().is_some());
+    }
+
+    #[test]
+    fn imageref_deep_copy_has_distinct_identity() {
+        // deep_copy allocates a fresh backing Box + fresh id -> not equal, independent
+        // drop (Miri would flag any shared/double-freed allocation here).
+        let img = ImageRef::null_image(4, 4, RawImageFormat::RGBA8, vec![1]);
+        let d = img.deep_copy();
+        assert_ne!(img, d);
+        drop(img);
+        // `d` still valid and independently readable after `img` freed.
+        assert_eq!(d.get_size().width as usize, 4);
+    }
+
+    #[test]
+    fn imageref_last_drop_frees_once() {
+        // Clone then drop both: the refcount path must free the two Boxes exactly once
+        // on the final drop. Under Miri a double free / leak fails the test.
+        let img = ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new());
+        let c = img.clone();
+        drop(img);
+        drop(c);
+    }
+
+    #[test]
+    fn imageref_get_callback_none_for_non_callback_and_when_shared() {
+        // `get_image_callback` derefs both `copies` and `data`; a NullImage yields None,
+        // and a shared (copies != 1) handle also yields None.
+        let img = ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new());
+        assert!(img.get_image_callback().is_none());
+        let c = img.clone();
+        assert!(img.get_image_callback().is_none()); // shared -> not safe
+        drop(c);
+    }
+
+    #[test]
+    fn shared_raw_image_data_read_paths() {
+        // Exercises as_ref / len / is_empty / as_ptr raw-pointer derefs.
+        let s = SharedRawImageData::new(vec![10u8, 20, 30].into());
+        assert_eq!(s.as_ref(), &[10, 20, 30]);
+        assert_eq!(s.len(), 3);
+        assert!(!s.is_empty());
+        assert_eq!(unsafe { *s.as_ptr() }, 10);
+        assert!(SharedRawImageData::new(Vec::<u8>::new().into()).is_empty());
+    }
+
+    #[test]
+    fn shared_raw_image_data_clone_shares_alloc() {
+        // Clone shares the backing Box (ptr-equal) and refcount; `into_inner` refuses
+        // while a second copy lives, and succeeds once sole owner.
+        let s = SharedRawImageData::new(vec![1u8, 2, 3, 4].into());
+        let c = s.clone();
+        assert_eq!(s, c); // ptr::eq on the shared `data`
+        assert_eq!(s.as_ptr(), c.as_ptr());
+        assert!(c.into_inner().is_none()); // two owners -> None, `c` drops to refcount 1
+        let inner = s.into_inner().expect("sole owner extraction");
+        assert_eq!(inner.as_ref(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn shared_raw_image_data_last_drop_frees_once() {
+        // Refcounted drop must free both Boxes exactly once; Miri flags UB otherwise.
+        let s = SharedRawImageData::new(vec![0u8; 8].into());
+        let c = s.clone();
+        drop(s);
+        drop(c);
     }
 }

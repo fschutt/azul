@@ -299,6 +299,9 @@ impl ComputedTransform3D {
 
         if use_avx {
             for t in t_vec {
+                // SAFETY: `use_avx` is only set when the AVX feature flag was
+                // detected (see AUDIT-TODO above), so calling the AVX intrinsics
+                // in `then_avx8` is legal on this CPU.
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_avx8(&Self::from_style_transform(
@@ -312,6 +315,9 @@ impl ComputedTransform3D {
             }
         } else if use_sse {
             for t in t_vec {
+                // SAFETY: `use_sse` is only set when the SSE feature flag was
+                // detected (see AUDIT-TODO above), so calling the SSE intrinsics
+                // in `then_sse` is legal on this CPU.
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_sse(&Self::from_style_transform(
@@ -787,6 +793,13 @@ impl ComputedTransform3D {
 
     // linear combination:
     // a[0] * B.row[0] + a[1] * B.row[1] + a[2] * B.row[2] + a[3] * B.row[3]
+    //
+    // SAFETY: the caller must guarantee SSE is available on this CPU (see the
+    // `use_sse` gate in `from_style_transform_vec`). Every `mem::transmute` here
+    // is a BY-VALUE `[f32; 4]` -> `__m128` conversion: both types are 16 bytes
+    // and the value is moved through a register, so no *reference* to under-
+    // aligned storage is ever formed and there is no alignment invariant to
+    // violate (unlike the AVX broadcast, which must use an unaligned load).
     #[cfg(target_arch = "x86_64")]
     #[inline]
     unsafe fn linear_combine_sse(a: [f32; 4], b: &Self) -> [f32; 4] { unsafe {
@@ -814,6 +827,9 @@ impl ComputedTransform3D {
     }}
 
     /// Multiplies this matrix by `other` using SSE instructions.
+    ///
+    /// SAFETY: caller must guarantee SSE is available; only forwards to
+    /// `linear_combine_sse`, whose safety contract is identical.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     unsafe fn then_sse(&self, other: &Self) -> Self { unsafe {
@@ -837,6 +853,11 @@ impl ComputedTransform3D {
     /// 128-bit load from a raw `*const f32` and never forms a `&__m128`;
     /// passing the same row pointer for both lanes reproduces the broadcast
     /// (`result[127:0] = result[255:128] = row`).
+    ///
+    /// SAFETY: caller must guarantee AVX is available. Each `broadcast_row`
+    /// reads exactly 4 f32 (16 bytes) through `_mm256_loadu2_m128`, an
+    /// *unaligned* load, so the align-4 `[f32; 4]` rows are read in-bounds and
+    /// no `&__m128` (align 16) is ever formed from them.
     #[cfg(target_arch = "x86_64")]
     unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,
@@ -873,6 +894,12 @@ impl ComputedTransform3D {
     }}
 
     /// Multiplies this matrix by `other` using AVX instructions.
+    ///
+    /// SAFETY: caller must guarantee AVX is available. Both `_mm256_loadu_ps`
+    /// reads and `_mm256_storeu_ps` writes are *unaligned* 8-f32 (32-byte)
+    /// accesses. `m` is `[[f32; 4]; 4]`, i.e. 16 contiguous f32 with no padding,
+    /// so `&m[0][0]..` and `&m[2][0]..` each span two full rows in-bounds; the
+    /// raw pointers come from live `self`/`out` locals, so lifetimes are valid.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     unsafe fn then_avx8(&self, other: &Self) -> Self { unsafe {
@@ -931,6 +958,7 @@ impl ComputedTransform3D {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_statements, clippy::redundant_clone, clippy::cast_possible_truncation, clippy::cast_sign_loss, trivial_casts, clippy::borrow_as_ptr, clippy::cast_ptr_alignment, clippy::unused_self, unused_qualifications, unreachable_pub, private_interfaces)] // pedantic lints are noise in unsafe-exercising test code
 mod audit_tests {
     use super::*;
 
@@ -958,11 +986,45 @@ mod audit_tests {
         }
     }
 
+    /// Naive row-major 4x4 multiply used as an independent reference for the
+    /// `then` (and hence SIMD) paths. Deliberately avoids `mul_add` so it is a
+    /// separate implementation from the code under test.
+    fn naive_then(a: &ComputedTransform3D, b: &ComputedTransform3D) -> ComputedTransform3D {
+        let mut out = ComputedTransform3D::IDENTITY;
+        for r in 0..4 {
+            for c in 0..4 {
+                let mut acc = 0.0f32;
+                for k in 0..4 {
+                    acc += a.m[r][k] * b.m[k][c];
+                }
+                out.m[r][c] = acc;
+            }
+        }
+        out
+    }
+
+    // Miri-compatible: exercises only the safe scalar `then` against an
+    // independent naive reference. Runs everywhere, including under Miri, so the
+    // scalar anchor that the SIMD paths are compared against is itself checked.
+    #[test]
+    fn scalar_matmul_matches_reference() {
+        let a = sample_a();
+        let b = sample_b();
+        approx_eq(&a.then(&b), &naive_then(&a, &b));
+        // Identity is a left/right unit.
+        approx_eq(&ComputedTransform3D::IDENTITY.then(&b), &b);
+        approx_eq(&a.then(&ComputedTransform3D::IDENTITY), &a);
+    }
+
     // AUDIT: the SSE/AVX matrix-multiply paths must agree with the scalar
     // reference. In particular this exercises `linear_combine_avx8`, whose
     // unaligned-load fix (`_mm256_loadu2_m128` instead of forming a misaligned
     // `&__m128`) must produce identical results. Only runs the SIMD paths when
     // the CPU (and OS) actually support the feature.
+    //
+    // `#[cfg(not(miri))]`: the AVX/SSE intrinsics cannot execute under Miri, so
+    // this test is skipped there; a native run covers it.
+    #[cfg(not(miri))]
     #[test]
     fn simd_matmul_matches_scalar() {
         let a = sample_a();
@@ -983,5 +1045,50 @@ mod audit_tests {
 
         // Always assert the scalar path is self-consistent (identity * b == b).
         approx_eq(&ComputedTransform3D::IDENTITY.then(&b), &b);
+    }
+
+    // AUDIT regression test for the misaligned-`&__m128` bug: the AVX path reads
+    // matrix rows (`[f32; 4]`, alignment 4) that are NOT guaranteed to sit on a
+    // 16-byte boundary. The earlier code formed a `&__m128` from such a row,
+    // which is misaligned-reference UB; the current code uses unaligned loads.
+    // This runs `then_avx8` on the same logical matrix placed at a 16-byte
+    // aligned address AND at that address + 4 (i.e. 4-mod-16, deliberately not
+    // 16-aligned) and asserts identical results. A sanitizer/Valgrind run over
+    // this test would fault on the pre-fix misaligned access.
+    //
+    // `#[cfg(not(miri))]`: invokes AVX intrinsics, which Miri cannot execute.
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[test]
+    fn avx_result_independent_of_row_alignment() {
+        if !std::is_x86_feature_detected!("avx") {
+            return;
+        }
+
+        let a = sample_a();
+        let b = sample_b();
+        let expected = unsafe { a.then_avx8(&b) };
+
+        const N: usize = core::mem::size_of::<ComputedTransform3D>(); // 64, no padding
+        let mut buf = vec![0u8; N * 2 + 16];
+        let base = buf.as_mut_ptr();
+
+        // SAFETY: `aligned` lands within `buf` (align_offset < 16, then +N),
+        // `misaligned` = aligned + 4 stays in-bounds (buf has N*2+16 bytes).
+        // Both are >= 4-byte aligned (base is heap-aligned; +4 preserves that),
+        // so forming `&ComputedTransform3D` (alignment 4) from them is valid.
+        unsafe {
+            let aligned = base.add(base.align_offset(16));
+            let misaligned = aligned.add(4); // 4 mod 16: not 16-aligned
+            for off_ptr in [aligned, misaligned] {
+                core::ptr::copy_nonoverlapping(
+                    (&raw const a).cast::<u8>(),
+                    off_ptr,
+                    N,
+                );
+                let a_ref = &*off_ptr.cast::<ComputedTransform3D>();
+                let got = a_ref.then_avx8(&b);
+                approx_eq(&expected, &got);
+            }
+        }
     }
 }

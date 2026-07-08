@@ -176,6 +176,9 @@ impl Clone for RefCount {
         // while this clone exists. The C macros (AZ_REFLECT) use AzRefCount_clone
         // to create Ref/RefMut guards, and those guards must keep the data alive.
         if !self.ptr.is_null() {
+            // SAFETY: `ptr` is non-null (checked) and came from `Box::into_raw`
+            // in `RefCount::new`; it stays alive as long as any clone exists
+            // because every clone increments `num_copies` here.
             unsafe {
                 (*self.ptr).num_copies.fetch_add(1, AtomicOrdering::SeqCst);
             }
@@ -219,6 +222,8 @@ impl Drop for RefCount {
         // deleting a byte-copied Ref struct twice) becomes a no-op instead
         // of wrapping `num_copies` to `usize::MAX` and corrupting the
         // reference count for the rest of the process.
+        // SAFETY: `inner` is non-null (guarded above) and points to the live
+        // `RefCountInner` from `Box::into_raw`; only the atomic field is touched.
         let current_copies = unsafe {
             match (*inner).num_copies.fetch_update(
                 AtomicOrdering::SeqCst,
@@ -252,18 +257,24 @@ impl Drop for RefCount {
             // Call destructor even for ZSTs (may have side effects)
             (sharing_info.custom_destructor)(_dummy.as_mut_ptr().cast::<c_void>());
         } else {
-            // Reconstruct the layout used during allocation
-            let layout = unsafe {
-                Layout::from_size_align_unchecked(
-                    sharing_info._internal_layout_size,
-                    sharing_info._internal_layout_align,
-                )
-            };
+            // Reconstruct the layout used during allocation. Removed the
+            // `unsafe { Layout::from_size_align_unchecked(..) }`: these size/align
+            // were produced by a valid `Layout` in `new_c` (`layout.size()` /
+            // `layout.align()`), so the safe checked constructor always succeeds
+            // and is behaviorally identical here — no unsafe needed.
+            let layout = Layout::from_size_align(
+                sharing_info._internal_layout_size,
+                sharing_info._internal_layout_align,
+            )
+            .expect("RefCount::drop: stored layout was invalid");
 
             // Phase 1: Run the custom destructor
             (sharing_info.custom_destructor)(data_ptr.cast_mut());
 
             // Phase 2: Deallocate the memory
+            // SAFETY: `data_ptr` was allocated in `new_c` (or `replace_contents`)
+            // with exactly this `layout`, and we are the last reference, so no
+            // other clone can observe the freed block.
             unsafe {
                 alloc::alloc::dealloc(data_ptr as *mut u8, layout);
             }
@@ -313,6 +324,9 @@ impl RefCount {
     /// - Reference counting ensures the data isn't freed while references exist
     fn downcast(&self) -> &RefCountInner {
         assert!(!self.ptr.is_null(), "[RefCount::downcast] FATAL: self.ptr is null!");
+        // SAFETY: `ptr` is non-null (asserted) and came from `Box::into_raw`; the
+        // returned reference is bounded by `&self`, and refcounting keeps the
+        // `RefCountInner` alive for at least that long.
         unsafe { &*self.ptr }
     }
 
@@ -676,6 +690,10 @@ impl RefAny {
             // function is `extern "C"` (called across the FFI boundary from the
             // C ABI teardown), so a panic escaping here would unwind across that
             // boundary = UB.
+            // SAFETY: this fn is only installed by `RefAny::new::<U>`, so `ptr`
+            // points to an initialized, properly aligned `U` that no other code
+            // still references (we are in the final drop). We move it out exactly
+            // once (`count = 1`) and run its drop glue.
             let run = || unsafe {
                 // Allocate uninitialized stack space for one `U`
                 let mut stack_mem = mem::MaybeUninit::<U>::uninit();
@@ -805,6 +823,8 @@ impl RefAny {
             let layout = Layout::from_size_align(len, align).expect("Failed to create layout");
 
             // Allocate heap memory with correct alignment
+            // SAFETY: `layout` has non-zero size (this branch is `len != 0`), the
+            // required precondition for `alloc`; null return is handled below.
             let heap_struct_as_bytes = unsafe { alloc::alloc::alloc(layout) };
 
             // Handle allocation failure (aborts the program)
@@ -1057,6 +1077,8 @@ impl RefAny {
         // length, enabling undo/redo snapshots and client/server state sync.
         let update_fn = inner.update_fn;
         if update_fn != 0 {
+            // SAFETY: `update_fn` is non-zero (checked) and, per `set_update_fn`'s
+            // contract, is a valid `extern "C" fn(*const c_void, usize)`.
             let cb: extern "C" fn(*const c_void, usize) =
                 unsafe { core::mem::transmute(update_fn) };
             let len = inner._internal_len;
@@ -1178,6 +1200,7 @@ impl RefAny {
         // FIXME: &mut self is exclusive to this clone only, not to the shared
         // RefCountInner — concurrent calls via different clones are a data race.
         let inner = self.sharing_info.ptr.cast_mut();
+        // SAFETY: `inner` came from `Box::into_raw` and is live (we hold `self`).
         unsafe {
             (*inner).serialize_fn = serialize_fn;
         }
@@ -1197,6 +1220,7 @@ impl RefAny {
         // FIXME: &mut self is exclusive to this clone only, not to the shared
         // RefCountInner — concurrent calls via different clones are a data race.
         let inner = self.sharing_info.ptr.cast_mut();
+        // SAFETY: `inner` came from `Box::into_raw` and is live (we hold `self`).
         unsafe {
             (*inner).deserialize_fn = deserialize_fn;
         }
@@ -1214,6 +1238,7 @@ impl RefAny {
     /// is exclusive to this clone, not to the shared inner.
     pub fn set_update_fn(&mut self, update_fn: usize) {
         let inner = self.sharing_info.ptr.cast_mut();
+        // SAFETY: `inner` came from `Box::into_raw` and is live (we hold `self`).
         unsafe {
             (*inner).update_fn = update_fn;
         }
@@ -1305,6 +1330,11 @@ impl RefAny {
         }
         
         // We now have exclusive access - perform the replacement
+        // SAFETY: we hold the exclusive lock (num_mutable_refs==1, num_refs==0),
+        // so no live `Ref`/`RefMut` aliases the data; `inner` is the live
+        // `RefCountInner` from `Box::into_raw`. Old data is destructed+freed with
+        // its own stored layout before the pointer is overwritten, and the new
+        // data is freshly allocated and byte-copied.
         unsafe {
             // Get old layout info before we overwrite it
             let old_ptr = (*inner)._internal_ptr;
@@ -1318,9 +1348,13 @@ impl RefAny {
                 old_destructor(old_ptr.cast_mut());
             }
 
-            // Step 2: Deallocate old memory (if non-ZST)
+            // Step 2: Deallocate old memory (if non-ZST). Use the *checked*
+            // `Layout::from_size_align` (not `_unchecked`): the stored
+            // size/align came from a valid `Layout`, so it always succeeds, and
+            // this shrinks the unchecked surface inside this unsafe block.
             if old_layout_size > 0 && !old_ptr.is_null() {
-                let old_layout = Layout::from_size_align_unchecked(old_layout_size, old_layout_align);
+                let old_layout = Layout::from_size_align(old_layout_size, old_layout_align)
+                    .expect("replace_contents: stored old layout was invalid");
                 alloc::alloc::dealloc(old_ptr as *mut u8, old_layout);
             }
 
@@ -1483,6 +1517,7 @@ impl Drop for RefAny {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_statements, clippy::redundant_clone, clippy::cast_possible_truncation, clippy::cast_sign_loss, trivial_casts, clippy::borrow_as_ptr, clippy::cast_ptr_alignment, clippy::unused_self, unused_qualifications, unreachable_pub, private_interfaces)] // pedantic lints are noise in unsafe-exercising test code
 mod audit_tests {
     use super::*;
     use core::sync::atomic::{AtomicUsize, Ordering};
@@ -1573,5 +1608,188 @@ mod audit_tests {
         assert!(!a2.replace_contents(RefAny::new(2i32)));
         drop(r);
         assert!(a2.replace_contents(RefAny::new(2i32)));
+    }
+
+    // ---- Miri-focused unit tests -------------------------------------------
+    // These exercise the pure-Rust memory behavior of each unsafe path so Miri
+    // can detect UB (bad provenance, misalignment, use-after-free, leaks,
+    // refcount corruption). No FFI, no threads, no OS calls; tiny allocations.
+
+    // MIRI: covers RefAny::new + new_c alloc/copy_nonoverlapping + downcast_ref
+    // (&*(ptr as *const U)) + the final Drop path (Box::from_raw + dealloc +
+    // custom destructor). A non-Copy heap type checks the destructor runs.
+    #[test]
+    fn miri_new_downcast_drop_roundtrip() {
+        DROP_COUNT.store(0, Ordering::SeqCst);
+        {
+            let mut a = RefAny::new(DropCounter(9));
+            // downcast_ref exercises the type-id guard + aligned pointer cast.
+            assert!(a.downcast_ref::<DropCounter>().is_some());
+            assert!(a.downcast_ref::<u8>().is_none());
+        }
+        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    // MIRI: alignment correctness of new_c's Layout::from_size_align path. An
+    // over-aligned payload downcast to a misaligned pointer would be UB.
+    #[test]
+    fn miri_alignment_preserved() {
+        #[repr(align(16))]
+        #[derive(Debug)]
+        struct Over(u64);
+        let mut a = RefAny::new(Over(0xABCD));
+        let r = a.downcast_ref::<Over>().unwrap();
+        assert_eq!(r.0, 0xABCD);
+        assert_eq!((&raw const *r) as usize % 16, 0);
+    }
+
+    // MIRI: clone shares one RefCountInner; num_copies increments on clone and
+    // decrements on drop (RefCount::clone / RefCount::drop fetch paths). Data
+    // must survive while any clone lives and be freed exactly once at the end.
+    #[test]
+    fn miri_clone_refcount_increment_decrement() {
+        DROP_COUNT.store(0, Ordering::SeqCst);
+        {
+            let a = RefAny::new(DropCounter(1));
+            assert_eq!(a.get_ref_count(), 1);
+            let b = a.clone();
+            assert_eq!(a.get_ref_count(), 2);
+            assert_eq!(b.get_ref_count(), 2);
+            {
+                let c = b.clone();
+                assert_eq!(c.get_ref_count(), 3);
+            }
+            // c dropped -> back to 2, nothing freed yet.
+            assert_eq!(a.get_ref_count(), 2);
+            assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 0);
+        }
+        // all clones dropped -> data destructed exactly once.
+        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    // MIRI: downcast_mut hands out &mut *(ptr as *mut U); mutation must be
+    // visible through a shared clone (shared RefCountInner data pointer).
+    #[test]
+    fn miri_downcast_mut_mutation_visible_across_clones() {
+        let mut a = RefAny::new(10u32);
+        let mut b = a.clone();
+        {
+            let mut m = a.downcast_mut::<u32>().unwrap();
+            *m += 5;
+        }
+        assert_eq!(*b.downcast_ref::<u32>().unwrap(), 15);
+    }
+
+    // MIRI: the runtime borrow refcount on the shared inner. Exercises
+    // increase_ref/decrease_ref/increase_refmut/decrease_refmut and the
+    // can_be_shared / can_be_shared_mut predicates directly, plus the
+    // checked_sub underflow guard (decrement at zero must saturate, not wrap).
+    #[test]
+    fn miri_borrow_counter_transitions_and_underflow_guard() {
+        let a = RefAny::new(0i32);
+        let rc = &a.sharing_info;
+
+        assert!(rc.can_be_shared());
+        assert!(rc.can_be_shared_mut());
+
+        rc.increase_ref();
+        assert!(rc.can_be_shared()); // shared borrows coexist
+        assert!(!rc.can_be_shared_mut()); // but block a mutable borrow
+        rc.decrease_ref();
+        assert!(rc.can_be_shared_mut());
+
+        rc.increase_refmut();
+        assert!(!rc.can_be_shared()); // mutable borrow blocks shared
+        assert!(!rc.can_be_shared_mut());
+        rc.decrease_refmut();
+        assert!(rc.can_be_shared_mut());
+
+        // Underflow guard: extra decrements must saturate at 0, never wrap to
+        // usize::MAX (which would permanently break the borrow checker).
+        rc.decrease_ref();
+        rc.decrease_refmut();
+        assert!(rc.can_be_shared());
+        assert!(rc.can_be_shared_mut());
+    }
+
+    // MIRI: get_type_id_static reads TypeId via from_raw_parts and folds ALL
+    // bytes. Same type -> same id (stable within a run); distinct types differ.
+    #[test]
+    fn miri_type_id_static_stable_and_distinct() {
+        assert_eq!(
+            RefAny::get_type_id_static::<(u8, u64)>(),
+            RefAny::get_type_id_static::<(u8, u64)>()
+        );
+        assert_ne!(
+            RefAny::get_type_id_static::<u32>(),
+            RefAny::get_type_id_static::<[u32; 2]>()
+        );
+    }
+
+    // MIRI: ZST payload uses a null data pointer but must still construct,
+    // clone, run its destructor once, and reject downcasts (null ptr path).
+    #[test]
+    fn miri_zst_roundtrip_and_destructor() {
+        DROP_COUNT.store(0, Ordering::SeqCst);
+        struct ZstDrop;
+        impl Drop for ZstDrop {
+            fn drop(&mut self) {
+                DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        {
+            let mut a = RefAny::new(ZstDrop);
+            assert_eq!(a.get_data_len(), 0);
+            // downcast_ref bails on the null data pointer for a ZST.
+            assert!(a.downcast_ref::<ZstDrop>().is_none());
+            let _b = a.clone();
+        }
+        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    // MIRI: replace_contents alloc/dealloc/copy path plus the neutralized
+    // new_value destructor. Old value destructed once, new value destructed
+    // once at final drop, with no leak/double-free of either heap block.
+    #[test]
+    fn miri_replace_contents_alloc_paths() {
+        DROP_COUNT.store(0, Ordering::SeqCst);
+        {
+            let mut a = RefAny::new(DropCounter(1));
+            assert!(a.replace_contents(RefAny::new(DropCounter(2))));
+            assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1); // old value gone
+            assert_eq!(a.downcast_ref::<DropCounter>().unwrap().0, 2u32);
+        }
+        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 2);
+    }
+
+    // MIRI: replacing across differing sizes/alignments (u8 -> u64) reallocates
+    // correctly and keeps the shared pointer aligned for the new type.
+    #[test]
+    fn miri_replace_contents_changes_layout() {
+        let mut a = RefAny::new(7u8);
+        assert!(a.replace_contents(RefAny::new(0x1122_3344_5566_7788u64)));
+        {
+            // downcast_ref takes &mut self, so scope the guard before the next call.
+            let r = a.downcast_ref::<u64>().unwrap();
+            assert_eq!(*r, 0x1122_3344_5566_7788u64);
+            assert_eq!((&raw const *r) as usize % core::mem::align_of::<u64>(), 0);
+        }
+        // old u8 type must no longer downcast.
+        assert!(a.downcast_ref::<u8>().is_none());
+    }
+
+    // MIRI: RefCount clone/drop in isolation keeps the inner alive until the
+    // last handle drops (Box::into_raw / Box::from_raw balance).
+    #[test]
+    fn miri_refcount_clone_keeps_inner_alive() {
+        let a = RefAny::new(5usize);
+        let rc0 = a.sharing_info.clone(); // +1 copy
+        let rc1 = rc0.clone(); // +1 copy
+        assert_eq!(a.get_ref_count(), 3);
+        drop(rc1);
+        drop(rc0);
+        assert_eq!(a.get_ref_count(), 1);
+        // `a` still usable -> inner not freed.
+        assert_eq!(*a.clone().downcast_ref::<usize>().unwrap(), 5);
     }
 }

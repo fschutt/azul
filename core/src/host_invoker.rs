@@ -514,3 +514,110 @@ macro_rules! impl_managed_callback {
         }
     };
 }
+
+// NOTE on Miri coverage: the *genuine* FFI transmutes here (a raw host fn
+// pointer stored as `usize` in an `InvokerSlot`, transmuted back to a fn
+// pointer) cannot be driven from real C under Miri. Instead the tests below
+// register real Rust `extern "C"` fns through the public C-ABI setters, so the
+// `set(ptr as usize)` -> `get()` -> `transmute` round-trip is exercised
+// end-to-end with a live pointer (Miri-clean, no UB). The panic-containment
+// test drives the macro-generated thunk's `catch_unwind` with a pure-Rust
+// panic raised *inside* the thunk body (before any extern-"C" boundary), which
+// is the realistic containment path.
+#[cfg(all(test, feature = "std"))]
+#[allow(clippy::items_after_statements, clippy::redundant_clone, clippy::cast_possible_truncation, clippy::cast_sign_loss, trivial_casts, clippy::borrow_as_ptr, clippy::cast_ptr_alignment, clippy::unused_self, unused_qualifications, unreachable_pub, private_interfaces)] // test-only fakes drive the FFI macro; pedantic lints are noise here
+mod tests {
+    use core::sync::atomic::{AtomicU64, Ordering as AtOrdering};
+    use std::sync::Mutex;
+
+    use super::*;
+
+    // The invoker/releaser slots are process-global; serialize tests that
+    // touch them so parallel test threads don't clobber each other.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    // Records the id the releaser was called with, so we can assert the
+    // transmuted-back fn pointer was invoked with the correct payload id.
+    static LAST_RELEASED: AtomicU64 = AtomicU64::new(0);
+
+    extern "C" fn recording_releaser(id: u64) {
+        LAST_RELEASED.store(id, AtOrdering::SeqCst);
+    }
+
+    #[test]
+    fn destructor_transmutes_and_invokes_releaser() {
+        let _g = TEST_LOCK.lock().unwrap();
+        LAST_RELEASED.store(0, AtOrdering::SeqCst);
+        // Register via the real C-ABI setter (exercises `releaser as usize`).
+        AzApp_setHostHandleReleaser(recording_releaser);
+        let mut payload = HostHandlePayload { id: 0xABCD_1234 };
+        // Drive the destructor directly with a pointer to the payload — the
+        // same shape a host-handle RefAny hands it. Exercises the payload
+        // deref + the usize->fn-pointer transmute + the invoke.
+        host_handle_destructor((&raw mut payload).cast::<c_void>());
+        assert_eq!(LAST_RELEASED.load(AtOrdering::SeqCst), 0xABCD_1234);
+        // Clear the slot so a later drop can't call a stale test fn pointer.
+        HOST_HANDLE_RELEASER.set(0);
+    }
+
+    #[test]
+    fn destructor_null_ptr_is_noop() {
+        // Returns before touching any global; no lock needed.
+        host_handle_destructor(core::ptr::null_mut());
+    }
+
+    #[test]
+    fn host_handle_roundtrips_through_refany() {
+        let _g = TEST_LOCK.lock().unwrap();
+        // Ensure the round-trip RefAny's drop fires no releaser.
+        HOST_HANDLE_RELEASER.set(0);
+        let refany = host_handle_to_refany(0x55);
+        // Exercises the type-id-guarded raw-ptr deref in refany_to_host_handle.
+        assert_eq!(refany_to_host_handle(&refany), Some(0x55));
+    }
+
+    // A fake callback kind used to instantiate `impl_managed_callback!` and
+    // assert the generated thunk contains a panic instead of unwinding out of
+    // its `extern "C"` boundary.
+    #[derive(PartialEq, Debug)]
+    struct FakeRet(u32);
+
+    struct FakeInfo;
+    impl FakeInfo {
+        // Panics from *inside* the thunk body (pure-Rust unwind), so the
+        // thunk's `catch_unwind` is the thing under test.
+        fn get_ctx(&self) -> crate::refany::OptionRefAny {
+            panic!("boom from get_ctx");
+        }
+    }
+
+    struct FakeWrapper {
+        #[allow(dead_code)]
+        cb: extern "C" fn(crate::refany::RefAny, FakeInfo) -> FakeRet,
+        #[allow(dead_code)]
+        ctx: crate::refany::OptionRefAny,
+    }
+
+    crate::impl_managed_callback! {
+        wrapper:        FakeWrapper,
+        info_ty:        FakeInfo,
+        return_ty:      FakeRet,
+        default_ret:    FakeRet(99),
+        invoker_static: AZ_TEST_FAKE_INVOKER,
+        invoker_ty:     AzTestFakeInvoker,
+        thunk_fn:       az_test_fake_thunk,
+        setter_fn:      az_test_fake_set_invoker,
+        from_handle_fn: az_test_fake_from_handle,
+    }
+
+    #[test]
+    fn thunk_contains_panic_and_returns_default() {
+        let _g = TEST_LOCK.lock().unwrap();
+        HOST_HANDLE_RELEASER.set(0);
+        let data = host_handle_to_refany(1);
+        // get_ctx() panics inside the thunk body; catch_unwind must contain it
+        // and hand back `default_ret` rather than unwinding across FFI.
+        let out = az_test_fake_thunk(data, FakeInfo);
+        assert_eq!(out, FakeRet(99));
+    }
+}

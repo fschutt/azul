@@ -3039,6 +3039,13 @@ impl NodeData {
         let taken_extra = self.extra.take();
         let taken_node_type = mem::replace(&mut self.node_type, NodeType::Div);
         let mut copy = self.copy_special();
+        // SAFETY: `&raw mut copy.node_type` is aligned and points at an initialized
+        // `NodeType` (the placeholder `Div` that `copy_special` reconstructed from
+        // `self.node_type`, which we replaced with `NodeType::Div` above). `ptr::write`
+        // overwrites it WITHOUT running its `Drop` — this is deliberate (the Drop
+        // mis-lifts on the web backend) and leaks nothing, because the overwritten
+        // value is a heap-free `Div`. Kept unsafe (not a plain `=` assignment)
+        // specifically to skip that Drop.
         unsafe { core::ptr::write(&raw mut copy.node_type, taken_node_type); }
         copy.style = taken_style;
         copy.extra = taken_extra;
@@ -6153,5 +6160,47 @@ mod audit_tests {
         child.estimated_total_children = 0; // corrupt: should be 1
         let mut parent = Dom::create_div();
         parent.add_child(child);
+    }
+
+    // NodeData carries a manual `unsafe impl Send`. This is a compile-time
+    // assertion that the marker holds (fails to build if a non-Send field is
+    // ever added), documenting the invariant the unsafe impl relies on.
+    #[test]
+    fn node_data_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<NodeData>();
+    }
+
+    // Exercises the `core::ptr::write` unsafe path in `copy_special_moving_complex`:
+    // the boxed Text `node_type` must be MOVED bitwise into the copy (box pointer
+    // preserved, string intact), `self.node_type` must be left as `Div`, and the
+    // moved-out `style`/`extra` must land on the copy. Small heap-only tree, so
+    // Miri can validate the raw write / box ownership transfer for UB.
+    #[test]
+    fn copy_special_moving_complex_moves_text_node_type() {
+        let mut nd = NodeData::create_text("hello").with_css("color: red;");
+        assert!(!nd.style.rules.is_empty(), "precondition: style set");
+
+        let copy = nd.copy_special_moving_complex();
+
+        // The Text box was transferred to the copy with its string intact.
+        match copy.get_node_type() {
+            NodeType::Text(s) => assert_eq!(s.as_ref().as_str(), "hello"),
+            other => panic!("expected Text node_type on copy, got {other:?}"),
+        }
+        // The source's node_type was replaced with the heap-free Div placeholder.
+        assert!(matches!(nd.get_node_type(), NodeType::Div));
+        // `style` was moved out of `self` onto the copy.
+        assert!(nd.style.rules.is_empty());
+        assert!(!copy.style.rules.is_empty());
+    }
+
+    // A non-boxed (Div) node_type must also survive the ptr::write path unchanged.
+    #[test]
+    fn copy_special_moving_complex_moves_div_node_type() {
+        let mut nd = NodeData::create_div();
+        let copy = nd.copy_special_moving_complex();
+        assert!(matches!(copy.get_node_type(), NodeType::Div));
+        assert!(matches!(nd.get_node_type(), NodeType::Div));
     }
 }

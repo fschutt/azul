@@ -114,6 +114,12 @@ pub unsafe fn az_mark(_addr: u32, _val: u32) {
     core::ptr::write_volatile(_addr as usize as *mut u32, _val);
 }
 /// No-op `const` variant used when the `web_lift` feature is off.
+///
+/// # Safety
+///
+/// Always safe — this variant does nothing; the `unsafe` marker only exists to
+/// keep the signature identical to the `web_lift` variant so call sites compile
+/// unchanged under both features.
 #[cfg(not(feature = "web_lift"))]
 #[inline]
 pub const unsafe fn az_mark(_addr: u32, _val: u32) {}
@@ -133,6 +139,11 @@ pub const unsafe fn az_mark(_addr: u32, _val: u32) {}
     core::ptr::read_volatile(_addr as usize as *const u32)
 }
 /// No-op `const` variant (returns 0) used when the `web_lift` feature is off.
+///
+/// # Safety
+///
+/// Always safe — returns 0 and touches nothing; the `unsafe` marker only exists
+/// to keep the signature identical to the `web_lift` variant.
 #[cfg(not(feature = "web_lift"))]
 #[inline]
 #[must_use] pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
