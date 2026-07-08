@@ -94,6 +94,6 @@ A given `(api.json + azul-doc + cargo lockfile)` triple regenerates byte-identic
 
 ## Coming Up Next
 
-- [Web Deployment](web-deployment.md) — Building for the browser via WASM
+- [Deploying to the web](deploying-web.md) — Building for the browser via WASM
 - [Headless Rendering](headless-rendering.md) — Running the pipeline without a window
 - [Debugging](debugging.md) — Debug overlays, the inspector, and structured logging

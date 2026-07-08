@@ -19,8 +19,11 @@ name: docker-web-base
 on:
   # Ship the image AS-IS to GHCR for now (still experimental: hello-world.c is
   # not yet stable on web and the lift-cache key is not version-pinned — see
-  # docker/README.md). Auto-publish :<version> + :latest on a release
-  # tag; a manual dispatch defaults to pushing too.
+  # docker/README.md). Publishes on:
+  #   - a release tag (:<version> + :latest),
+  #   - EVERY website publish — rust.yml's deploy_pages dispatches this workflow
+  #     (workflow_dispatch below) so the base image tracks the live site, and
+  #   - a manual dispatch (defaults to pushing).
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'

@@ -215,7 +215,7 @@ SEO-readable on first load. `switch_route` then calls
 code drives both the server-rendered first-load HTML and the
 client-side updates.
 
-See [Web Deployment](web-deployment.md) for the WASM-build pipeline,
+See [Deploying to the web](deploying-web.md) for the WASM-build pipeline,
 the static asset layout, and how the web host serves routes.
 
 ## Coming Up Next
@@ -223,4 +223,4 @@ the static asset layout, and how the web host serves routes.
 - [DOM](dom.md) — Tree shape, node constructors, the cascade
 - [Callbacks](callbacks.md) — `switch_route`, `get_route_param`,
   and the rest of `CallbackInfo`
-- [Web Deployment](web-deployment.md) — Routes as HTTP endpoints
+- [Deploying to the web](deploying-web.md) — Routes as HTTP endpoints

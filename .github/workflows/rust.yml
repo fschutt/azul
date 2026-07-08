@@ -2623,6 +2623,7 @@ jobs:
       contents: write
       pages: write
       id-token: write
+      actions: write   # dispatch the azul-web-base docker build after publishing
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -3507,6 +3508,23 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+      # Rebuild + publish the pre-lifted web Docker base image on EVERY website
+      # publish (not just release tags) so ghcr.io/…/azul-web-base tracks the
+      # site. dockery.yml builds libazul from this same ref and warms the lift
+      # cache via AZ_BACKEND=web-prelift. Best-effort: a docker failure must not
+      # fail the just-completed site deploy.
+      - name: Trigger azul-web-base docker build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run dockery.yml \
+            --ref "${{ github.ref_name }}" \
+            -f ref="${{ github.ref_name }}" \
+            -f push_image=true \
+            && echo "dispatched dockery.yml on ${{ github.ref_name }}" \
+            || echo "::warning::could not dispatch dockery.yml (non-fatal)"
 
   # ───────────────────────────── Quality & Security ─────────────────────────
   # Merged in from the former quality.yml so there is ONE push-triggered

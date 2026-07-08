@@ -425,7 +425,7 @@ autoreview ──► reference.md ──► autodoc ──► autodoc-screenshot
 | Tree | Audience | Contents |
 |------|----------|----------|
 | `getting-started` | external | Linear teaching path: hello-world (per-language) → architecture → understanding-refany → DOM → styling → layout → text → images → widgets → events → timers → animations → scrolling → windowing |
-| `advanced` | external | Non-core systems, ramps to web: debugging / profiling / e2e-testing → I/O (xml, file-dialogs, clipboard) → background-tasks + networking → a11y + headless → codegen + bindings → web-deployment → security |
+| `advanced` | external | Non-core systems, ramps to web: debugging / profiling / e2e-testing → I/O (xml, file-dialogs, clipboard) → background-tasks + networking → a11y + headless → codegen + bindings → deploying-web → security |
 | `contributor` | contributor | Code organization, build-and-codegen, per-system internals (DOM, CSS, layout, text, images, events, rendering, shell2, menus, a11y, async, web) |
 
 Each `[[group]]` declares `id`, `tree`, `audience`, `agent_strategy`,

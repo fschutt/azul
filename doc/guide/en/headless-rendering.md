@@ -113,4 +113,4 @@ The reftest harness in `layout/tests/` is the reference implementation of these 
 
 - [End-to-End Testing](e2e-testing.md) — Driving an Azul app from a script for tests
 - [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`
-- [Web Deployment](web-deployment.md) — Building for the browser via WASM
+- [Deploying to the web](deploying-web.md) — Building for the browser via WASM

@@ -39,7 +39,7 @@ const PREFERRED_ORDER: &[&str] = &[
     "realtime-media",
     "routing",
     "windowing",
-    "web-deployment",
+    "deploying-web",
     "mobile",
     "headless-rendering",
     "e2e-testing",

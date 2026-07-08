@@ -360,5 +360,5 @@ see [e2e-testing](e2e-testing.md). The iOS simulator runs unsigned `.app`s.
 
 - [Realtime Media and Devices](realtime-media.md) — camera/mic/sensors/gamepad/
   geolocation on mobile, and the permissions you declare.
-- [Web Deployment](web-deployment.md) — the WASM target, by comparison.
+- [Deploying to the web](deploying-web.md) — the WASM target, by comparison.
 - [hello-world](hello-world.md) — the app you're shipping.

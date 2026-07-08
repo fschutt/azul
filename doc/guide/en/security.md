@@ -8,7 +8,7 @@ maturity: wip
 guide_order: 500
 topic_only: false
 short_desc: What azul does and doesn't defend against
-prerequisites: [architecture, web-deployment]
+prerequisites: [architecture, deploying-web]
 tracked_files:
   - core/src/refany.rs
   - core/src/callbacks.rs
@@ -151,6 +151,6 @@ For an authoritative threat model: trust the process boundary, don't deserialize
 
 ## Coming Up Next
 
-- [Web Deployment](web-deployment.md) — Building for the browser via WASM
+- [Deploying to the web](deploying-web.md) — Building for the browser via WASM
 - [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`
 - [Headless Rendering](headless-rendering.md) — Running the pipeline without a window
