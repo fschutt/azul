@@ -7,23 +7,24 @@
 # lift their own callbacks on first request instead of the whole azul library.
 # See docker/README.md for the design and the library changes it depends on.
 #
-# NOTE: builds remill from source, which is slow + heavy — so it is gated
-# behind tags/manual dispatch only (NOT every push). Consider splitting the
-# remill toolchain into a separately-cached image as build volume grows.
+# EXPERIMENTAL. Publishes NATIVE amd64 + arm64 base images (a matrix over native
+# runners, no QEMU) and stitches them into one multi-arch tag. The framework
+# lift is baked per-arch by the Dockerfile's `prelift` stage (AZ_BACKEND=
+# web-prelift). arm64's aarch64 lift is the validated path; amd64's own x86
+# self-lift is still WIP, so the amd64 image is best-effort. remill itself is
+# cached independently of AZUL_REF (docker/Dockerfile), so app changes don't
+# rebuild it.
 #
-# This is a SEPARATE workflow from rust.yml on purpose (rust.yml is owned by
-# another change). It does not touch the Pages deploy.
+# This is a SEPARATE workflow from rust.yml on purpose. It does not touch the
+# Pages deploy — rust.yml's deploy_pages dispatches it async + continue-on-error,
+# so website iteration is never blocked on (re)building remill.
 
 name: docker-web-base
 
 on:
-  # Ship the image AS-IS to GHCR for now (still experimental: hello-world.c is
-  # not yet stable on web and the lift-cache key is not version-pinned — see
-  # docker/README.md). Publishes on:
-  #   - a release tag (:<version> + :latest),
-  #   - EVERY website publish — rust.yml's deploy_pages dispatches this workflow
-  #     (workflow_dispatch below) so the base image tracks the live site, and
-  #   - a manual dispatch (defaults to pushing).
+  # Publishes on: a release tag (:<version> + :latest); EVERY website publish
+  # (rust.yml's deploy_pages dispatches this via workflow_dispatch so the base
+  # image tracks the live site); and a manual dispatch (defaults to pushing).
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
@@ -40,7 +41,6 @@ on:
         required: false
         default: true
 
-# Least-privilege: only what is needed to push a package to GHCR.
 permissions:
   contents: read
   packages: write
@@ -53,21 +53,33 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/azul-web-base
 
 jobs:
-  build-and-push:
-    name: Build & Publish azul-web-base
-    runs-on: ubuntu-22.04
+  build:
+    name: Build ${{ matrix.arch }} (experimental)
+    runs-on: ${{ matrix.runner }}
+    # The whole web-base pipeline is experimental; a broken arch must never fail
+    # the run (and website iteration doesn't depend on it at all).
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # arm64: NATIVE aarch64 runner → aarch64 lift (the validated path).
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+          # amd64: native x86 runner. The x86 self-lift is still WIP, so this
+          # image's baked framework cache may be incomplete — best-effort.
+          - arch: amd64
+            runner: ubuntu-22.04
+            platform: linux/amd64
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
-          submodules: false  # the Dockerfile clones + inits remill itself
+          submodules: false  # the Dockerfile clones + builds remill itself
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        # Only authenticate when we actually intend to push (tag push, or the
-        # manual dispatch with push_image=true). Build-only runs skip login.
+      - name: Log in to GHCR
         if: github.event_name == 'push' || github.event.inputs.push_image == 'true'
         uses: docker/login-action@v3
         with:
@@ -75,51 +87,80 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Derive image tags
+      - name: Derive version + azul ref
         id: meta
-        # On a version tag (e.g. 1.2.3) → tag "1.2.3" + "latest".
-        # On manual dispatch → tag with the short SHA (and never "latest").
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            VER="${GITHUB_REF_NAME}"
-            echo "tags=${IMAGE}:${VER},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
-            echo "azul_ref=${VER}" >> "$GITHUB_OUTPUT"
+            echo "ver=${GITHUB_REF_NAME}"            >> "$GITHUB_OUTPUT"
+            echo "azul_ref=${GITHUB_REF_NAME}"       >> "$GITHUB_OUTPUT"
           else
-            SHA="${GITHUB_SHA::12}"
-            echo "tags=${IMAGE}:dev-${SHA}" >> "$GITHUB_OUTPUT"
-            echo "azul_ref=${{ github.event.inputs.ref }}" >> "$GITHUB_OUTPUT"
+            echo "ver=dev-${GITHUB_SHA::12}"         >> "$GITHUB_OUTPUT"
+            echo "azul_ref=${{ github.event.inputs.ref || 'master' }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build (and conditionally push) the image
+      - name: Build (and conditionally push) ${{ matrix.arch }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           target: runtime
+          platforms: ${{ matrix.platform }}
           push: ${{ github.event_name == 'push' || github.event.inputs.push_image == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.IMAGE }}:${{ steps.meta.outputs.ver }}-${{ matrix.arch }}
           build-args: |
             AZUL_REF=${{ steps.meta.outputs.azul_ref }}
-          # Cache the (very heavy) toolchain + builder layers between runs.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Per-arch gha cache scope so the two builds don't clobber each other;
+          # keeps the heavy remill/toolchain + builder layers warm between runs.
+          cache-from: type=gha,scope=web-base-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=web-base-${{ matrix.arch }}
 
-      - name: Summary
+  manifest:
+    name: Stitch multi-arch tag
+    needs: build
+    if: github.event_name == 'push' || github.event.inputs.push_image == 'true'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create + push multi-arch manifest (whatever arches published)
         run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then VER="${GITHUB_REF_NAME}"; else VER="dev-${GITHUB_SHA::12}"; fi
+          SRCS=""
+          for a in arm64 amd64; do
+            if docker manifest inspect "${IMAGE}:${VER}-${a}" >/dev/null 2>&1; then
+              SRCS="$SRCS ${IMAGE}:${VER}-${a}"
+              echo "found ${IMAGE}:${VER}-${a}"
+            else
+              echo "::warning::${IMAGE}:${VER}-${a} not published (arch build failed?) — skipping"
+            fi
+          done
+          if [ -z "$SRCS" ]; then echo "::warning::no arch images published; nothing to stitch"; exit 0; fi
+          docker manifest create "${IMAGE}:${VER}" $SRCS
+          docker manifest push   "${IMAGE}:${VER}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            docker manifest create "${IMAGE}:latest" $SRCS
+            docker manifest push   "${IMAGE}:latest"
+          fi
           {
-            echo "## azul-web-base image"
+            echo "## azul-web-base (experimental, multi-arch)"
             echo ""
-            echo "Tags: \`${{ steps.meta.outputs.tags }}\`"
+            echo "Tag: \`${IMAGE}:${VER}\` ←$SRCS"
             echo ""
-            echo "Pull:"
+            echo "Run a demo:"
+            echo '```sh'
+            echo "docker run --rm -p 8080:8080 ${IMAGE}:${VER}"
             echo '```'
-            echo "docker pull ${IMAGE}:latest"
-            echo '```'
             echo ""
-            echo "Extend:"
+            echo "Extend with your own app:"
             echo '```dockerfile'
-            echo "FROM ${IMAGE}:latest"
-            echo "COPY my-app /usr/local/bin/my-app"
+            echo "FROM ${IMAGE}:${VER}"
+            echo "COPY target/release/my-app /usr/local/bin/my-app"
             echo 'ENV AZ_BACKEND="web://0.0.0.0:8080?allow_public=1"'
             echo 'CMD ["/usr/local/bin/my-app"]'
             echo '```'
