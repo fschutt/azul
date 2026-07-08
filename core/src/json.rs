@@ -644,47 +644,145 @@ impl Json {
         JsonVec::from_vec(result)
     }
 
-    /// Recursive helper for jq_all that handles wildcards
+    /// Maximum JSON-Pointer component depth for [`jq_all`](Self::jq_all).
+    ///
+    /// AUDIT 2026-07-08: `jq_all_recursive` recursed once per pointer component,
+    /// so an attacker-supplied pointer with tens of thousands of `/` segments
+    /// (e.g. `"/a".repeat(100_000)`) overflowed the stack. The single-child
+    /// descent is now iterative (unbounded, allocation-free); only the wildcard
+    /// (`*`) fan-out still recurses, and that recursion is capped here. 512 is far
+    /// deeper than any real document nesting while staying well inside the stack.
+    const JQ_MAX_WILDCARD_DEPTH: usize = 512;
+
+    /// Recursive helper for jq_all that handles wildcards.
+    ///
+    /// Non-wildcard components are walked in a loop so a long linear pointer can
+    /// never overflow the stack; only `*` fan-out recurses, bounded by
+    /// [`JQ_MAX_WILDCARD_DEPTH`](Self::JQ_MAX_WILDCARD_DEPTH).
     fn jq_all_recursive(value: &serde_json::Value, path: &str) -> Vec<Json> {
-        if path.is_empty() {
-            return vec![Self::from_serde_value(value.clone())];
+        Self::jq_all_recursive_depth(value, path, 0)
+    }
+
+    fn jq_all_recursive_depth(
+        value: &serde_json::Value,
+        path: &str,
+        depth: usize,
+    ) -> Vec<Json> {
+        // Guard the wildcard recursion; exceeding the cap yields no match rather
+        // than crashing.
+        if depth > Self::JQ_MAX_WILDCARD_DEPTH {
+            return vec![];
         }
-        if !path.starts_with('/') { return vec![]; }
-        let rest = &path[1..];
-        let (component, remaining) = match rest.find('/') {
-            Some(idx) => (&rest[..idx], &rest[idx..]),
-            None => (rest, ""),
-        };
-        if component == "*" {
-            let mut results = Vec::new();
-            match value {
-                serde_json::Value::Array(arr) => {
-                    for item in arr { results.extend(Self::jq_all_recursive(item, remaining)); }
-                }
-                serde_json::Value::Object(obj) => {
-                    for (_key, val) in obj { results.extend(Self::jq_all_recursive(val, remaining)); }
-                }
-                _ => {}
+
+        // Walk non-wildcard components iteratively.
+        let mut value = value;
+        let mut path = path;
+        loop {
+            if path.is_empty() {
+                return vec![Self::from_serde_value(value.clone())];
             }
-            results
-        } else {
-            match value {
-                serde_json::Value::Array(arr) => {
-                    if let Ok(idx) = component.parse::<usize>() {
-                        if let Some(item) = arr.get(idx) {
-                            return Self::jq_all_recursive(item, remaining);
+            if !path.starts_with('/') {
+                return vec![];
+            }
+            let rest = &path[1..];
+            let (component, remaining) = match rest.find('/') {
+                Some(idx) => (&rest[..idx], &rest[idx..]),
+                None => (rest, ""),
+            };
+
+            if component == "*" {
+                let mut results = Vec::new();
+                match value {
+                    serde_json::Value::Array(arr) => {
+                        for item in arr {
+                            results.extend(Self::jq_all_recursive_depth(
+                                item,
+                                remaining,
+                                depth + 1,
+                            ));
                         }
                     }
-                    vec![]
-                }
-                serde_json::Value::Object(obj) => {
-                    if let Some(val) = obj.get(component) {
-                        return Self::jq_all_recursive(val, remaining);
+                    serde_json::Value::Object(obj) => {
+                        for (_key, val) in obj {
+                            results.extend(Self::jq_all_recursive_depth(
+                                val,
+                                remaining,
+                                depth + 1,
+                            ));
+                        }
                     }
-                    vec![]
+                    _ => {}
                 }
-                _ => vec![],
+                return results;
+            }
+
+            // Single-child descent: advance the cursor instead of recursing.
+            let next = match value {
+                serde_json::Value::Array(arr) => {
+                    component.parse::<usize>().ok().and_then(|idx| arr.get(idx))
+                }
+                serde_json::Value::Object(obj) => obj.get(component),
+                _ => None,
+            };
+            match next {
+                Some(v) => {
+                    value = v;
+                    path = remaining;
+                }
+                None => return vec![],
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod jq_recursion_tests {
+    use super::*;
+
+    /// AUDIT 2026-07-08: a pointer with a very large number of components used to
+    /// overflow the stack via per-component recursion. Linear (non-wildcard)
+    /// descent is now iterative, so an over-long pointer against a shallow
+    /// document returns empty promptly with zero recursion instead of a deep call
+    /// chain. `serde_json`'s own 128-level parse cap keeps documents shallow, but
+    /// this guarantees the jq walk itself never blows the stack on a huge pointer.
+    #[test]
+    #[cfg(feature = "serde-json")]
+    fn huge_pointer_on_shallow_doc_returns_empty() {
+        let json = Json::parse("{\"a\":{\"b\":1}}").expect("parse");
+        let pointer = "/a".repeat(200_000);
+        assert_eq!(json.jq_all(&pointer).as_ref().len(), 0);
+    }
+
+    /// A moderately deep linear pointer (within serde's parse limit) resolves to
+    /// its single leaf via the iterative descent.
+    #[test]
+    #[cfg(feature = "serde-json")]
+    fn deep_linear_pointer_resolves_leaf() {
+        const DEPTH: usize = 100; // below serde_json's 128-level parse cap
+
+        let mut doc = String::new();
+        for _ in 0..DEPTH {
+            doc.push_str("{\"a\":");
+        }
+        doc.push_str("42");
+        for _ in 0..DEPTH {
+            doc.push('}');
+        }
+
+        let json = Json::parse(&doc).expect("deep doc should parse");
+        let pointer = "/a".repeat(DEPTH);
+        let out = json.jq_all(&pointer);
+        assert_eq!(out.as_ref().len(), 1, "the single leaf should be found");
+    }
+
+    /// Ordinary wildcard + index access still works after the iterative rewrite.
+    #[test]
+    #[cfg(feature = "serde-json")]
+    fn wildcard_and_index_still_work() {
+        let json = Json::parse("{\"items\":[{\"v\":1},{\"v\":2},{\"v\":3}]}").expect("parse");
+        let all = json.jq_all("/items/*/v");
+        assert_eq!(all.as_ref().len(), 3);
+        let one = json.jq_all("/items/1/v");
+        assert_eq!(one.as_ref().len(), 1);
     }
 }

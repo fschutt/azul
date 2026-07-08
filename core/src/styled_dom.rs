@@ -491,6 +491,10 @@ impl StyleFontFamiliesHash {
     #[must_use] pub fn new(families: &[StyleFontFamily]) -> Self {
         use core::hash::Hasher;
         let mut hasher = crate::hash::DefaultHasher::new();
+        // Prefix with the length so that e.g. `[A, B]` and `[AB]` (or any two
+        // family lists whose concatenated element hashes coincide) cannot
+        // collide into the same cache key.
+        families.len().hash(&mut hasher);
         for f in families {
             f.hash(&mut hasher);
         }
@@ -727,7 +731,9 @@ impl NodeDataContainerRef<'_, NodeHierarchyItem> {
     #[must_use] pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
         let next_item_index = self[parent_id].next_sibling_id().map_or_else(|| self.len(), |s| s.index());
-        next_item_index - self_item_index - 1
+        // saturating: a malformed FastDom can leave next_sibling <= parent,
+        // which would underflow-panic the subtraction.
+        next_item_index.saturating_sub(self_item_index).saturating_sub(1)
     }
 }
 
@@ -1402,7 +1408,11 @@ impl StyledDom {
 
     /// Re-applies CSS styles to the existing DOM structure.
     pub fn restyle(&mut self, mut css: Css) {
-        let new_tag_ids = self.css_property_cache.downcast_mut().restyle(
+        // NOTE: the tag_ids returned by `cache.restyle` here are generated from
+        // the STALE `compact_cache` (display/overflow reads) and are intentionally
+        // discarded — we regenerate them below AFTER the compact cache and
+        // inheritance have been recomputed (audit styled_dom.rs:1404/1426).
+        let _stale_tag_ids = self.css_property_cache.downcast_mut().restyle(
             &mut css,
             &self.node_data.as_container(),
             &self.node_hierarchy,
@@ -1423,6 +1433,38 @@ impl StyledDom {
                 self.node_data.as_container().internal,
             );
 
+        // The old compact_cache was built from the pre-restyle CSS. If we do not
+        // rebuild it, layout-hot properties (display/overflow/background/clip,
+        // resolved font sizes) keep their stale values and the restyle silently
+        // no-ops for them. Drop it, rebuild via the _with_inheritance path (which
+        // repopulates hot_flags), and invalidate the cached resolved font sizes.
+        let prev_font_hashes: Vec<u64> = self
+            .css_property_cache
+            .downcast_mut()
+            .compact_cache
+            .as_ref()
+            .map(|c| c.prev_font_hashes.clone())
+            .unwrap_or_default();
+        self.css_property_cache.downcast_mut().compact_cache = None;
+        let compact = self
+            .css_property_cache
+            .downcast_mut()
+            .build_compact_cache_with_inheritance(
+                self.node_data.as_container().internal,
+                self.node_hierarchy.as_container().internal,
+                &prev_font_hashes,
+            );
+        self.css_property_cache.downcast_mut().compact_cache = Some(compact);
+        self.css_property_cache
+            .downcast_mut()
+            .invalidate_resolved_font_sizes();
+
+        // Regenerate tag_ids from the freshly rebuilt compact cache so the
+        // hit-test map reflects the post-restyle display/overflow values.
+        let new_tag_ids = self.css_property_cache.downcast_mut().generate_tag_ids(
+            &self.node_data.as_container(),
+            &self.node_hierarchy,
+        );
         self.tag_ids_to_node_ids = new_tag_ids.into();
     }
 
@@ -1504,6 +1546,17 @@ impl StyledDom {
         set_state: impl Fn(&mut StyledNodeState, bool),
         pseudo_state_type: azul_css::dynamic_selector::PseudoStateType,
     ) -> RestyleNodes {
+        // Drop any stale NodeIds that no longer index into this DOM (e.g. left
+        // over from a previous, larger tree). Indexing styled_nodes / node_data
+        // with an out-of-range id would panic. Filtering here keeps the
+        // downstream zip with `old_node_states` aligned.
+        let node_count = self.node_count();
+        let nodes: Vec<NodeId> = nodes
+            .iter()
+            .copied()
+            .filter(|nid| nid.index() < node_count)
+            .collect();
+
         // save the old node state
         let old_node_states = nodes
             .iter()
@@ -1513,7 +1566,7 @@ impl StyledDom {
             })
             .collect::<Vec<_>>();
 
-        for nid in nodes {
+        for nid in &nodes {
             set_state(
                 &mut self.styled_nodes.as_container_mut()[*nid].styled_node_state,
                 new_state_value,
@@ -1883,7 +1936,10 @@ impl StyledDom {
         }
 
         for node_id in self.node_hierarchy.as_container().linear_iter() {
-            let depth = all_node_depths[&node_id];
+            // A single-node DOM (or any node not reached as a non-leaf parent or
+            // one of their children, e.g. a lone root) has no entry here; treat
+            // its depth as 0 instead of panic-indexing the map.
+            let depth = all_node_depths.get(&node_id).copied().unwrap_or(0);
 
             let node_data = &self.node_data.as_container()[node_id];
             let node_state = &self.styled_nodes.as_container()[node_id].styled_node_state;
@@ -2530,4 +2586,34 @@ fn get_path_to_root(
     }
 
     true
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use azul_css::props::basic::StyleFontFamily;
+
+    fn fam(name: &str) -> StyleFontFamily {
+        StyleFontFamily::System(name.to_string().into())
+    }
+
+    #[test]
+    fn style_font_families_hash_is_length_sensitive() {
+        // The length prefix guarantees that lists of different lengths cannot
+        // collide, and that hashing is deterministic.
+        let a = StyleFontFamiliesHash::new(&[fam("Arial")]);
+        let a2 = StyleFontFamiliesHash::new(&[fam("Arial")]);
+        assert_eq!(a, a2, "hash must be deterministic");
+
+        let two = StyleFontFamiliesHash::new(&[fam("Arial"), fam("Helvetica")]);
+        assert_ne!(a, two, "different-length family lists must not collide");
+
+        let empty = StyleFontFamiliesHash::new(&[]);
+        assert_ne!(empty, a);
+        assert_ne!(empty, two);
+
+        // Order still matters.
+        let rev = StyleFontFamiliesHash::new(&[fam("Helvetica"), fam("Arial")]);
+        assert_ne!(two, rev);
+    }
 }

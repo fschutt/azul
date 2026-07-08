@@ -10,7 +10,7 @@ use core::{
 
 use crate::{
     dom::{DomId, DomNodeHash, DomNodeId, OptionDomNodeId, ScrollTagId, ScrollbarOrientation, TagId},
-    geom::{LogicalPosition, LogicalRect},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     id::NodeId,
     resources::IdNamespace,
     window::MouseCursorType,
@@ -247,10 +247,11 @@ impl ScrollStates {
         node: &OverflowingScrollNode,
         scroll_position: LogicalPosition,
     ) {
+        let max_scroll = max_scroll_rect(node);
         self.0
             .entry(node.parent_external_scroll_id)
             .or_default()
-            .set(scroll_position.x, scroll_position.y, &node.child_rect);
+            .set(scroll_position.x, scroll_position.y, &max_scroll);
     }
 
     /// Updating (add to) the existing scroll amount does not update the
@@ -262,11 +263,28 @@ impl ScrollStates {
         scroll_by_x: f32,
         scroll_by_y: f32,
     ) {
+        let max_scroll = max_scroll_rect(node);
         self.0
             .entry(node.parent_external_scroll_id)
             .or_default()
-            .add(scroll_by_x, scroll_by_y, &node.child_rect);
+            .add(scroll_by_x, scroll_by_y, &max_scroll);
     }
+}
+
+/// Compute the maximum scrollable range for a scroll node.
+///
+/// The maximum scroll offset is `content − viewport` (`child_rect − parent_rect`),
+/// clamped to `>= 0`. Previously the scroll position was clamped to the full
+/// content size, which let the content scroll entirely out of view. The returned
+/// rect keeps `child_rect.origin` and stores the max offset in `size`.
+fn max_scroll_rect(node: &OverflowingScrollNode) -> LogicalRect {
+    LogicalRect::new(
+        node.child_rect.origin,
+        LogicalSize::new(
+            (node.child_rect.size.width - node.parent_rect.size.width).max(0.0),
+            (node.child_rect.size.height - node.parent_rect.size.height).max(0.0),
+        ),
+    )
 }
 
 /// Current scroll position for a single scroll frame.
@@ -289,20 +307,28 @@ impl ScrollState {
         self.scroll_position
     }
 
-    /// Add a scroll X / Y onto the existing scroll state
-    pub fn add(&mut self, x: f32, y: f32, child_rect: &LogicalRect) {
+    /// Add a scroll X / Y onto the existing scroll state.
+    ///
+    /// `max_scroll_rect` is the *scroll range* rect: its size is the maximum
+    /// scrollable offset (`content − viewport`, clamped to `>= 0`), NOT the full
+    /// content size. See [`ScrollStates::scroll_node`]. Clamping via `.max(0.0)`
+    /// first also collapses any NaN input to `0.0` (`f32::max` returns the
+    /// non-NaN operand), so a NaN delta can never poison the scroll position.
+    pub fn add(&mut self, x: f32, y: f32, max_scroll_rect: &LogicalRect) {
         self.scroll_position.x = (self.scroll_position.x + x)
             .max(0.0)
-            .min(child_rect.size.width);
+            .min(max_scroll_rect.size.width.max(0.0));
         self.scroll_position.y = (self.scroll_position.y + y)
             .max(0.0)
-            .min(child_rect.size.height);
+            .min(max_scroll_rect.size.height.max(0.0));
     }
 
-    /// Set the scroll state to a new position
-    pub const fn set(&mut self, x: f32, y: f32, child_rect: &LogicalRect) {
-        self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
-        self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
+    /// Set the scroll state to a new position.
+    ///
+    /// `max_scroll_rect` is the *scroll range* rect (see [`ScrollState::add`]).
+    pub const fn set(&mut self, x: f32, y: f32, max_scroll_rect: &LogicalRect) {
+        self.scroll_position.x = x.max(0.0).min(max_scroll_rect.size.width.max(0.0));
+        self.scroll_position.y = y.max(0.0).min(max_scroll_rect.size.height.max(0.0));
     }
 }
 
@@ -607,10 +633,14 @@ impl HitTestTag {
                 text_run_index,
             } => {
                 // tag.0 = DomId (upper 16 bits) | NodeId (middle 32 bits) | text_run_index (lower 16 bits)
-                debug_assert!(dom_id.inner <= 0xFFFF, "Selection tag: DomId {} exceeds 16-bit range", dom_id.inner);
-                debug_assert!(container_node_id.index() <= 0xFFFF_FFFF, "Selection tag: NodeId {} exceeds 32-bit range", container_node_id.index());
-                let tag_value = ((dom_id.inner as u64) << 48)
-                    | ((container_node_id.index() as u64) << 16)
+                // AUDIT: mask each field to its bit width so an out-of-range DomId /
+                // NodeId can never bleed into an adjacent field (silent cross-field
+                // corruption). Masking clamps consistently in debug and release —
+                // a >16-bit DomId is absurd but must degrade gracefully, not panic.
+                let dom_bits = (dom_id.inner as u64) & 0xFFFF;
+                let node_bits = (container_node_id.index() as u64) & 0xFFFF_FFFF;
+                let tag_value = (dom_bits << 48)
+                    | (node_bits << 16)
                     | u64::from(*text_run_index);
                 (tag_value, TAG_TYPE_SELECTION)
             }
@@ -807,6 +837,7 @@ impl fmt::Display for HitTestTag {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // exact-value assertions on computed layout floats
 mod tests {
     use super::*;
 
@@ -857,5 +888,62 @@ mod tests {
         let decoded = HitTestTag::from_item_tag(legacy_tag).unwrap();
         assert!(decoded.is_dom_node());
         assert_eq!(decoded.as_dom_node().unwrap().inner, 42);
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    #[test]
+    fn scroll_state_clamps_to_content_minus_viewport() {
+        // content 300 tall, viewport 100 tall -> max scroll offset = 200
+        let max = max_scroll_rect(&OverflowingScrollNode {
+            parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+            child_rect: rect(0.0, 0.0, 100.0, 300.0),
+            ..Default::default()
+        });
+        assert_eq!(max.size.height, 200.0);
+
+        let mut st = ScrollState::default();
+        st.set(0.0, 999.0, &max);
+        assert_eq!(st.scroll_position.y, 200.0); // not 300 (content would fully scroll away)
+    }
+
+    #[test]
+    fn scroll_state_no_scroll_when_content_fits() {
+        // content == viewport -> zero scroll range
+        let max = max_scroll_rect(&OverflowingScrollNode {
+            parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+            child_rect: rect(0.0, 0.0, 100.0, 100.0),
+            ..Default::default()
+        });
+        let mut st = ScrollState::default();
+        st.add(50.0, 50.0, &max);
+        assert_eq!(st.scroll_position, LogicalPosition::zero());
+    }
+
+    #[test]
+    fn scroll_state_nan_delta_does_not_poison() {
+        let max = rect(0.0, 0.0, 100.0, 200.0);
+        let mut st = ScrollState::default();
+        st.add(f32::NAN, f32::NAN, &max);
+        assert_eq!(st.scroll_position, LogicalPosition::zero());
+    }
+
+    #[test]
+    fn selection_tag_out_of_range_domid_is_clamped_not_corrupting() {
+        // A DomId > 0xFFFF must not bleed into the NodeId field. The masked
+        // encode/decode round-trips within the 16-bit DomId window.
+        let tag = HitTestTag::Selection {
+            dom_id: DomId { inner: 0x1_0007 }, // exceeds 16 bits
+            container_node_id: NodeId::new(5),
+            text_run_index: 9,
+        };
+        let (value, ty) = tag.to_item_tag();
+        assert_eq!(ty, TAG_TYPE_SELECTION);
+        // NodeId field (bits 16..48) is exactly 5, uncorrupted by the overflow.
+        assert_eq!((value >> 16) & 0xFFFF_FFFF, 5);
+        // DomId field is the low 16 bits of the input (0x0007).
+        assert_eq!(value >> 48, 0x0007);
     }
 }

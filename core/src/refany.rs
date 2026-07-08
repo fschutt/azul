@@ -583,6 +583,14 @@ impl_option!(
     [Debug, Hash, Clone, PartialEq, PartialOrd, Ord, Eq]
 );
 
+// AUDIT: unsound-but-required. These `Send`/`Sync` impls are unconditional in
+// `T`: a `!Send`/`!Sync` payload moved or shared cross-thread races its own
+// internals. This is an INTENTIONAL FFI design constraint — `RefAny` is a
+// type-erased C-ABI handle with no way to carry `T: Send + Sync` bounds across
+// the boundary, and the framework's threading model keeps a given payload on
+// one thread in practice. Left as-is per the audit; do not "fix" by adding
+// bounds (it would break the erased FFI type).
+//
 // SAFETY: RefAny is Send because:
 // - The data pointer points to heap memory (can be sent between threads)
 // - All shared state (RefCountInner) uses atomic operations
@@ -595,11 +603,12 @@ unsafe impl Send for RefAny {}
 //   read immutable data, which is inherently thread-safe
 // - The runtime borrow checker (via `can_be_shared/shared_mut`) uses SeqCst atomics
 //
-// KNOWN ISSUE: `downcast_ref/mut` require `&mut self`, but clones of the same RefAny
-// are independent values that can each provide `&mut self` concurrently while sharing
-// the same `RefCountInner`. The check-then-increment in downcast_ref/mut is not atomic,
-// so concurrent borrows via different clones can race. See replace_contents() for the
-// correct compare_exchange pattern.
+// AUDIT: unsound-but-required (same intentional FFI constraint as `Send` above).
+//
+// The check-then-increment race that this note described in `downcast_ref/mut`
+// is now FIXED (both use atomic `fetch_add`+validate / `compare_exchange`
+// acquisition — see those methods). The remaining unsoundness is only the
+// unconditional-in-`T` `Sync`, which is required by the erased C-ABI type.
 unsafe impl Sync for RefAny {}
 
 impl RefAny {
@@ -663,7 +672,11 @@ impl RefAny {
         extern "C" fn default_custom_destructor<U: 'static>(ptr: *mut c_void) {
             use core::{mem, ptr};
 
-            unsafe {
+            // The actual drop glue. `U::drop` is arbitrary user code and this
+            // function is `extern "C"` (called across the FFI boundary from the
+            // C ABI teardown), so a panic escaping here would unwind across that
+            // boundary = UB.
+            let run = || unsafe {
                 // Allocate uninitialized stack space for one `U`
                 let mut stack_mem = mem::MaybeUninit::<U>::uninit();
 
@@ -677,6 +690,18 @@ impl RefAny {
                 // Take ownership and run the destructor
                 let stack_mem = stack_mem.assume_init();
                 drop(stack_mem); // Runs U's Drop implementation
+            };
+
+            // AUDIT: contain any panic from `U::drop` so it can't unwind across
+            // the `extern "C"` boundary. `catch_unwind` needs `std`; `no_std`
+            // builds use `panic = "abort"`, where unwinding cannot occur.
+            #[cfg(feature = "std")]
+            {
+                drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)));
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                run();
             }
         }
 
@@ -917,22 +942,37 @@ impl RefAny {
             return None;
         }
 
-        // Runtime borrow check: ensure no mutable borrows exist
-        let can_be_shared = self.sharing_info.can_be_shared();
-        if !can_be_shared {
+        // AUDIT: ATOMIC shared-borrow acquisition.
+        //
+        // `RefAny` is `Sync` and clones share one `RefCountInner`, so the old
+        // check-then-increment (`can_be_shared()` then `increase_ref()`) raced a
+        // concurrent `downcast_mut` on another clone: both could pass their
+        // pre-checks and hand out aliasing `&`/`&mut` to the same memory (UB).
+        //
+        // Fix (mirrors the `compare_exchange` discipline in `replace_contents`):
+        // increment `num_refs` FIRST, then validate that no mutable borrow is
+        // live. `SeqCst` imposes a single total order, so a writer (which CASes
+        // `num_mutable_refs` 0->1 then reads `num_refs`) and this reader (which
+        // adds to `num_refs` then reads `num_mutable_refs`) can never both
+        // succeed — at least one observes the other's write. Back the increment
+        // out on any failure path.
+        self.sharing_info.increase_ref();
+
+        if !self.sharing_info.can_be_shared() {
+            // A mutable borrow is (being) acquired — release and fail.
+            self.sharing_info.decrease_ref();
             return None;
         }
 
-        // Get data pointer from shared RefCountInner
+        // Get data pointer from shared RefCountInner (stable while we hold the
+        // shared borrow: `replace_contents` needs `num_refs == 0` to proceed).
         let data_ptr = self.sharing_info.downcast()._internal_ptr;
 
         // Null check: ZSTs or uninitialized
         if data_ptr.is_null() {
+            self.sharing_info.decrease_ref();
             return None;
         }
-
-        // Increment shared borrow count atomically
-        self.sharing_info.increase_ref();
 
         Some(Ref {
             // SAFETY: Type check passed, pointer is non-null and properly aligned
@@ -981,33 +1021,60 @@ impl RefAny {
             return None;
         }
 
-        // Runtime exclusive borrow check
-        let can_be_shared_mut = self.sharing_info.can_be_shared_mut();
-        if !can_be_shared_mut {
+        // AUDIT: ATOMIC exclusive-borrow acquisition (mirror `replace_contents`).
+        //
+        // The old check-then-increment (`can_be_shared_mut()` then
+        // `increase_refmut()`) raced concurrent borrows on sibling clones and
+        // could hand out an aliasing `&mut` (UB). Instead, `compare_exchange`
+        // `num_mutable_refs` 0->1 to atomically take the exclusive slot, THEN
+        // verify no shared borrow is live; release + fail otherwise. The CAS
+        // both acquires and rejects a second mutable borrow in one step.
+        let inner = self.sharing_info.downcast();
+        if inner
+            .num_mutable_refs
+            .compare_exchange(0, 1, AtomicOrdering::SeqCst, AtomicOrdering::SeqCst)
+            .is_err()
+        {
+            return None;
+        }
+        if inner.num_refs.load(AtomicOrdering::SeqCst) != 0 {
+            // A shared borrow is live — release the exclusive slot and fail.
+            inner.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
             return None;
         }
 
         // Get data pointer from shared RefCountInner
-        let data_ptr = self.sharing_info.downcast()._internal_ptr;
+        let data_ptr = inner._internal_ptr;
 
         // Null check
         if data_ptr.is_null() {
+            inner.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
             return None;
         }
 
         // Fire the on-update observer (if registered) BEFORE handing out the
         // mutable borrow: the callback sees the pre-mutation data + its byte
         // length, enabling undo/redo snapshots and client/server state sync.
-        let update_fn = self.sharing_info.downcast().update_fn;
+        let update_fn = inner.update_fn;
         if update_fn != 0 {
             let cb: extern "C" fn(*const c_void, usize) =
                 unsafe { core::mem::transmute(update_fn) };
-            let len = self.sharing_info.downcast()._internal_len;
-            cb(data_ptr, len);
+            let len = inner._internal_len;
+            // AUDIT: the observer is a host-provided `extern "C"` fn. A Rust
+            // panic escaping it would unwind across the FFI boundary (UB), so
+            // contain it. `catch_unwind` needs `std`; `no_std` builds use
+            // `panic = "abort"` where no unwinding can occur.
+            #[cfg(feature = "std")]
+            {
+                drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    cb(data_ptr, len);
+                })));
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                cb(data_ptr, len);
+            }
         }
-
-        // Increment mutable borrow count atomically
-        self.sharing_info.increase_refmut();
 
         Some(RefMut {
             // SAFETY: Type and borrow checks passed, exclusive access guaranteed
@@ -1046,13 +1113,16 @@ impl RefAny {
             )
         };
 
-        // Convert first 8 bytes to u64 using proper bit positions
-        struct_as_bytes
-            .iter()
-            .enumerate()
-            .take(8) // Only use first 8 bytes (64 bits fit in u64)
-            .map(|(s_pos, s)| u64::from(*s) << (s_pos * 8))
-            .sum()
+        // AUDIT: fold ALL bytes of the `TypeId` (16 on current toolchains),
+        // not just the first 8. This u64 is the ONLY runtime type guard used by
+        // `downcast_*`; dropping the high 8 bytes let two distinct types whose
+        // `TypeId`s differ only in their upper half collide, permitting a
+        // wrong-type downcast (UB). An FxHash-style rotate+multiply mixes every
+        // byte into the result and is deterministic within a process run (which
+        // is all `TypeId` itself guarantees).
+        struct_as_bytes.iter().fold(0u64, |hash, &b| {
+            (hash.rotate_left(5) ^ u64::from(b)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95)
+        })
     }
 
     /// Checks if the stored type matches the given type ID.
@@ -1299,8 +1369,31 @@ impl RefAny {
         // Release the mutable lock
         self.sharing_info.downcast().num_mutable_refs.store(0, AtomicOrdering::SeqCst);
 
-        // Prevent new_value from running its destructor (we copied the data)
-        core::mem::forget(new_value);
+        // AUDIT: reclaim `new_value` instead of leaking it.
+        //
+        // The old code `mem::forget(new_value)` to stop `RefAny::drop` from
+        // running the T-destructor a SECOND time on the bytes we just copied
+        // into our own allocation — but that leaked `new_value`'s entire
+        // `RefCountInner` box AND its heap data block on every single call.
+        //
+        // Instead, neutralize `new_value`'s destructor to a no-op and let the
+        // normal refcount teardown run: it frees BOTH allocations (data block +
+        // inner box) when this was the last reference, without re-running the
+        // real T-destructor (which now lives on OUR inner, to run exactly once
+        // when `self` is finally dropped). If `new_value` still had clones, the
+        // no-op keeps them from double-dropping the shared T while their own
+        // last drop still reclaims the shared block — no double free, no leak.
+        #[allow(clippy::items_after_statements)]
+        const extern "C" fn noop_destructor(_: *mut c_void) {}
+        let new_inner = new_value.sharing_info.ptr.cast_mut();
+        if !new_inner.is_null() {
+            // SAFETY: `new_inner` came from `Box::into_raw` in `RefCount::new`
+            // and is still alive (we hold `new_value`).
+            unsafe {
+                (*new_inner).custom_destructor = noop_destructor;
+            }
+        }
+        drop(new_value);
 
         true
     }
@@ -1386,5 +1479,99 @@ impl Drop for RefAny {
     fn drop(&mut self) {
         // RefCount::drop handles everything automatically.
         // The sharing_info field is dropped by Rust, triggering RefCount::drop.
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    struct DropCounter(#[allow(dead_code)] u32);
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    // AUDIT: exclusive borrow must be denied while a shared borrow is live and
+    // vice-versa (runtime borrow checker), and must be recoverable after the
+    // guard drops. Exercises the atomic acquire/release added to downcast_*.
+    #[test]
+    fn borrow_exclusion_and_recovery() {
+        // The runtime borrow guard lives in the *shared* refcount inner, so it
+        // is only observable across two clones (a single `RefAny` can't hold two
+        // guards at once — the methods take `&mut self`). `b` shares `a`'s inner.
+        let mut a = RefAny::new(7i32);
+        let mut b = a.clone();
+
+        {
+            let r = a.downcast_ref::<i32>().unwrap();
+            assert_eq!(*r, 7);
+            // shared borrow live -> no mutable borrow via the shared inner
+            assert!(b.downcast_mut::<i32>().is_none());
+            // another shared borrow is fine
+            assert!(b.downcast_ref::<i32>().is_some());
+        }
+
+        {
+            let mut m = a.downcast_mut::<i32>().unwrap();
+            *m = 42;
+            // mutable borrow live -> no shared borrow via the shared inner
+            assert!(b.downcast_ref::<i32>().is_none());
+        }
+
+        assert_eq!(*a.downcast_ref::<i32>().unwrap(), 42);
+    }
+
+    // AUDIT: wrong-type downcast must be rejected. Same type -> same id.
+    #[test]
+    fn type_id_guard() {
+        let mut a = RefAny::new(1u64);
+        assert!(a.downcast_ref::<i32>().is_none());
+        assert!(a.downcast_ref::<u64>().is_some());
+
+        assert_eq!(
+            RefAny::get_type_id_static::<u64>(),
+            RefAny::get_type_id_static::<u64>()
+        );
+        assert_ne!(
+            RefAny::get_type_id_static::<u64>(),
+            RefAny::get_type_id_static::<i64>()
+        );
+    }
+
+    // AUDIT: replace_contents must run each stored value's destructor exactly
+    // once (old value on replace, new value on final drop) and must not leak.
+    #[test]
+    fn replace_contents_drops_exactly_once() {
+        DROP_COUNT.store(0, Ordering::SeqCst);
+        {
+            let mut a = RefAny::new(DropCounter(1));
+            let b = RefAny::new(DropCounter(2));
+            assert!(a.replace_contents(b));
+            // The original `a` value was dropped during replacement.
+            assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
+            // `a` now holds the (copied) `b` value; dropped at end of scope.
+        }
+        // Two DropCounter values were constructed; both must be dropped once.
+        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 2);
+    }
+
+    // AUDIT: replace_contents must fail (return false) while a borrow is live.
+    #[test]
+    fn replace_contents_denied_while_borrowed() {
+        let mut a = RefAny::new(1i32);
+        // Clone first: `r` will exclusively borrow `a`, so the sibling clone
+        // must exist beforehand. Both share the same inner RefCountInner.
+        let mut a2 = a.clone();
+        let r = a.downcast_ref::<i32>().unwrap();
+        // A live shared borrow (num_refs != 0) on the shared inner must block
+        // replace_contents via the sibling clone.
+        assert!(!a2.replace_contents(RefAny::new(2i32)));
+        drop(r);
+        assert!(a2.replace_contents(RefAny::new(2i32)));
     }
 }

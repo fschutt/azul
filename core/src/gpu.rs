@@ -151,7 +151,7 @@ impl GpuValueCache {
         // The overwhelmingly common case is "no transform set", which now reads one
         // byte and bails — no cascade walk. Only nodes that actually have a
         // transform pay the slow-walk cost (required to retrieve the parsed value).
-        (0..styled_dom.node_data.len())
+        let mut events = (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
@@ -225,7 +225,19 @@ impl GpuValueCache {
                     )),
                 }
             })
-            .collect::<Vec<GpuTransformKeyEvent>>()
+            .collect::<Vec<GpuTransformKeyEvent>>();
+
+        // Structural shrink: any cached transform key whose node no longer
+        // exists in the (smaller) DOM is never visited by the loop above, so it
+        // would leak on the GPU. Emit an explicit Removed for those.
+        let node_count = styled_dom.node_data.len();
+        for (node_id, key) in &self.css_transform_keys {
+            if node_id.index() >= node_count {
+                events.push(GpuTransformKeyEvent::Removed(*node_id, *key));
+            }
+        }
+
+        events
     }
 
     /// Applies transform key changes (additions/removals) to the cache.
@@ -260,7 +272,7 @@ impl GpuValueCache {
         // no author-set opacity (the common case) have `OPACITY_SENTINEL` and
         // return immediately — no cascade walk. Only non-default opacities
         // generate key events.
-        (0..styled_dom.node_data.len())
+        let mut events = (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
@@ -314,7 +326,18 @@ impl GpuValueCache {
                     )),
                 }
             })
-            .collect::<Vec<GpuOpacityKeyEvent>>()
+            .collect::<Vec<GpuOpacityKeyEvent>>();
+
+        // Structural shrink: emit Removed for cached opacity keys whose node no
+        // longer exists in the (smaller) DOM (never visited by the loop above).
+        let node_count = styled_dom.node_data.len();
+        for (node_id, key) in &self.opacity_keys {
+            if node_id.index() >= node_count {
+                events.push(GpuOpacityKeyEvent::Removed(*node_id, *key));
+            }
+        }
+
+        events
     }
 
     /// Applies opacity key changes (additions/removals) to the cache.

@@ -1482,8 +1482,13 @@ impl WindowSize {
 
     #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
     #[must_use] pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
+        // Guard against `dpi == 0` (uninitialized / misreporting platform),
+        // which would yield a 0.0 scale factor and later divide-by-zero when
+        // converting physical <-> logical sizes (`to_logical` divides by this).
+        // Fall back to the standard 96 DPI (scale 1.0).
+        let dpi = if self.dpi == 0 { 96 } else { self.dpi };
         DpiScaleFactor {
-            inner: FloatValue::new(self.dpi as f32 / 96.0),
+            inner: FloatValue::new(dpi as f32 / 96.0),
         }
     }
 }
@@ -1731,6 +1736,184 @@ pub enum VirtualKeyCode {
 }
 
 impl VirtualKeyCode {
+    /// Reconstructs a `VirtualKeyCode` from its `as u32` discriminant.
+    ///
+    /// This enum is a fieldless `#[repr(C)]` enum with no explicit discriminants,
+    /// so the discriminants are assigned sequentially in declaration order and
+    /// `VariantN as u32` round-trips through this table. Used to recover the key
+    /// of a keyboard *event* from its `key_code` (which is stored as
+    /// `VirtualKeyCode as u32`) instead of reading live keyboard state.
+    #[must_use]
+    #[allow(clippy::too_many_lines)] // exhaustive keycode match table
+    pub const fn from_u32(v: u32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Key1),
+            1 => Some(Self::Key2),
+            2 => Some(Self::Key3),
+            3 => Some(Self::Key4),
+            4 => Some(Self::Key5),
+            5 => Some(Self::Key6),
+            6 => Some(Self::Key7),
+            7 => Some(Self::Key8),
+            8 => Some(Self::Key9),
+            9 => Some(Self::Key0),
+            10 => Some(Self::A),
+            11 => Some(Self::B),
+            12 => Some(Self::C),
+            13 => Some(Self::D),
+            14 => Some(Self::E),
+            15 => Some(Self::F),
+            16 => Some(Self::G),
+            17 => Some(Self::H),
+            18 => Some(Self::I),
+            19 => Some(Self::J),
+            20 => Some(Self::K),
+            21 => Some(Self::L),
+            22 => Some(Self::M),
+            23 => Some(Self::N),
+            24 => Some(Self::O),
+            25 => Some(Self::P),
+            26 => Some(Self::Q),
+            27 => Some(Self::R),
+            28 => Some(Self::S),
+            29 => Some(Self::T),
+            30 => Some(Self::U),
+            31 => Some(Self::V),
+            32 => Some(Self::W),
+            33 => Some(Self::X),
+            34 => Some(Self::Y),
+            35 => Some(Self::Z),
+            36 => Some(Self::Escape),
+            37 => Some(Self::F1),
+            38 => Some(Self::F2),
+            39 => Some(Self::F3),
+            40 => Some(Self::F4),
+            41 => Some(Self::F5),
+            42 => Some(Self::F6),
+            43 => Some(Self::F7),
+            44 => Some(Self::F8),
+            45 => Some(Self::F9),
+            46 => Some(Self::F10),
+            47 => Some(Self::F11),
+            48 => Some(Self::F12),
+            49 => Some(Self::F13),
+            50 => Some(Self::F14),
+            51 => Some(Self::F15),
+            52 => Some(Self::F16),
+            53 => Some(Self::F17),
+            54 => Some(Self::F18),
+            55 => Some(Self::F19),
+            56 => Some(Self::F20),
+            57 => Some(Self::F21),
+            58 => Some(Self::F22),
+            59 => Some(Self::F23),
+            60 => Some(Self::F24),
+            61 => Some(Self::Snapshot),
+            62 => Some(Self::Scroll),
+            63 => Some(Self::Pause),
+            64 => Some(Self::Insert),
+            65 => Some(Self::Home),
+            66 => Some(Self::Delete),
+            67 => Some(Self::End),
+            68 => Some(Self::PageDown),
+            69 => Some(Self::PageUp),
+            70 => Some(Self::Left),
+            71 => Some(Self::Up),
+            72 => Some(Self::Right),
+            73 => Some(Self::Down),
+            74 => Some(Self::Back),
+            75 => Some(Self::Return),
+            76 => Some(Self::Space),
+            77 => Some(Self::Compose),
+            78 => Some(Self::Caret),
+            79 => Some(Self::Numlock),
+            80 => Some(Self::Numpad0),
+            81 => Some(Self::Numpad1),
+            82 => Some(Self::Numpad2),
+            83 => Some(Self::Numpad3),
+            84 => Some(Self::Numpad4),
+            85 => Some(Self::Numpad5),
+            86 => Some(Self::Numpad6),
+            87 => Some(Self::Numpad7),
+            88 => Some(Self::Numpad8),
+            89 => Some(Self::Numpad9),
+            90 => Some(Self::NumpadAdd),
+            91 => Some(Self::NumpadDivide),
+            92 => Some(Self::NumpadDecimal),
+            93 => Some(Self::NumpadComma),
+            94 => Some(Self::NumpadEnter),
+            95 => Some(Self::NumpadEquals),
+            96 => Some(Self::NumpadMultiply),
+            97 => Some(Self::NumpadSubtract),
+            98 => Some(Self::AbntC1),
+            99 => Some(Self::AbntC2),
+            100 => Some(Self::Apostrophe),
+            101 => Some(Self::Apps),
+            102 => Some(Self::Asterisk),
+            103 => Some(Self::At),
+            104 => Some(Self::Ax),
+            105 => Some(Self::Backslash),
+            106 => Some(Self::Calculator),
+            107 => Some(Self::Capital),
+            108 => Some(Self::Colon),
+            109 => Some(Self::Comma),
+            110 => Some(Self::Convert),
+            111 => Some(Self::Equals),
+            112 => Some(Self::Grave),
+            113 => Some(Self::Kana),
+            114 => Some(Self::Kanji),
+            115 => Some(Self::LAlt),
+            116 => Some(Self::LBracket),
+            117 => Some(Self::LControl),
+            118 => Some(Self::LShift),
+            119 => Some(Self::LWin),
+            120 => Some(Self::Mail),
+            121 => Some(Self::MediaSelect),
+            122 => Some(Self::MediaStop),
+            123 => Some(Self::Minus),
+            124 => Some(Self::Mute),
+            125 => Some(Self::MyComputer),
+            126 => Some(Self::NavigateForward),
+            127 => Some(Self::NavigateBackward),
+            128 => Some(Self::NextTrack),
+            129 => Some(Self::NoConvert),
+            130 => Some(Self::OEM102),
+            131 => Some(Self::Period),
+            132 => Some(Self::PlayPause),
+            133 => Some(Self::Plus),
+            134 => Some(Self::Power),
+            135 => Some(Self::PrevTrack),
+            136 => Some(Self::RAlt),
+            137 => Some(Self::RBracket),
+            138 => Some(Self::RControl),
+            139 => Some(Self::RShift),
+            140 => Some(Self::RWin),
+            141 => Some(Self::Semicolon),
+            142 => Some(Self::Slash),
+            143 => Some(Self::Sleep),
+            144 => Some(Self::Stop),
+            145 => Some(Self::Sysrq),
+            146 => Some(Self::Tab),
+            147 => Some(Self::Underline),
+            148 => Some(Self::Unlabeled),
+            149 => Some(Self::VolumeDown),
+            150 => Some(Self::VolumeUp),
+            151 => Some(Self::Wake),
+            152 => Some(Self::WebBack),
+            153 => Some(Self::WebFavorites),
+            154 => Some(Self::WebForward),
+            155 => Some(Self::WebHome),
+            156 => Some(Self::WebRefresh),
+            157 => Some(Self::WebSearch),
+            158 => Some(Self::WebStop),
+            159 => Some(Self::Yen),
+            160 => Some(Self::Copy),
+            161 => Some(Self::Paste),
+            162 => Some(Self::Cut),
+            _ => None,
+        }
+    }
+
     #[must_use] pub const fn get_lowercase(&self) -> Option<char> {
         use self::VirtualKeyCode::{A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Key0, Numpad0, Key1, Numpad1, Key2, Numpad2, Key3, Numpad3, Key4, Numpad4, Key5, Numpad5, Key6, Numpad6, Key7, Numpad7, Key8, Numpad8, Key9, Numpad9, Minus, Asterisk, At, Period, Semicolon, Slash, Caret};
         match self {
@@ -1894,5 +2077,42 @@ impl Hash for TaskBarIcon {
         H: Hasher,
     {
         self.key.hash(state);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // exact-value assertions on hidpi scale factors
+mod audit_tests {
+    use super::*;
+
+    #[test]
+    fn hidpi_factor_guards_zero_dpi() {
+        // dpi == 0 must not produce a 0.0 scale factor (later divide-by-zero
+        // in to_logical); it falls back to 96 DPI (scale 1.0).
+        let ws = WindowSize { dpi: 0, ..WindowSize::default() };
+        let factor = ws.get_hidpi_factor().inner.get();
+        assert_eq!(factor, 1.0);
+
+        let ws2 = WindowSize { dpi: 192, ..WindowSize::default() };
+        assert_eq!(ws2.get_hidpi_factor().inner.get(), 2.0);
+    }
+
+    #[test]
+    fn virtual_keycode_from_u32_roundtrips() {
+        // A representative spread across the enum, including first/last.
+        for vk in [
+            VirtualKeyCode::Key1,
+            VirtualKeyCode::A,
+            VirtualKeyCode::Z,
+            VirtualKeyCode::Left,
+            VirtualKeyCode::Back,
+            VirtualKeyCode::Delete,
+            VirtualKeyCode::LControl,
+            VirtualKeyCode::Cut,
+        ] {
+            assert_eq!(VirtualKeyCode::from_u32(vk as u32), Some(vk));
+        }
+        // Out of range -> None (no UB, no panic).
+        assert_eq!(VirtualKeyCode::from_u32(10_000), None);
     }
 }

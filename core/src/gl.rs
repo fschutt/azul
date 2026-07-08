@@ -118,6 +118,12 @@ impl fmt::Debug for Refstr {
 
 impl Refstr {
     #[must_use] pub const fn as_str(&self) -> &str {
+        // AUDIT: `from_raw_parts`/`from_utf8_unchecked` are UB on a null ptr
+        // (even with len==0). FFI callers can hand us a null/empty Refstr, so
+        // return an empty `&str` instead of forming a slice over null.
+        if self.ptr.is_null() || self.len == 0 {
+            return "";
+        }
         unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) }
     }
 }
@@ -155,6 +161,10 @@ impl fmt::Debug for RefstrVecRef {
 
 impl RefstrVecRef {
     #[must_use] pub const fn as_slice(&self) -> &[Refstr] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -201,9 +211,17 @@ impl From<&mut [GLint64]> for GLint64VecRefMut {
 
 impl GLint64VecRefMut {
     #[must_use] pub const fn as_slice(&self) -> &[GLint64] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
     const fn as_mut_slice(&mut self) -> &mut [GLint64] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &mut [];
+        }
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -241,9 +259,17 @@ impl From<&mut [GLfloat]> for GLfloatVecRefMut {
 
 impl GLfloatVecRefMut {
     #[must_use] pub const fn as_slice(&self) -> &[GLfloat] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
     const fn as_mut_slice(&mut self) -> &mut [GLfloat] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &mut [];
+        }
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -281,9 +307,17 @@ impl From<&mut [GLint]> for GLintVecRefMut {
 
 impl GLintVecRefMut {
     #[must_use] pub const fn as_slice(&self) -> &[GLint] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
     const fn as_mut_slice(&mut self) -> &mut [GLint] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &mut [];
+        }
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -321,6 +355,10 @@ impl From<&[GLuint]> for GLuintVecRef {
 
 impl GLuintVecRef {
     #[must_use] pub const fn as_slice(&self) -> &[GLuint] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -358,6 +396,10 @@ impl From<&[GLenum]> for GLenumVecRef {
 
 impl GLenumVecRef {
     #[must_use] pub const fn as_slice(&self) -> &[GLenum] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -389,6 +431,10 @@ impl From<&[u8]> for U8VecRef {
 
 impl U8VecRef {
     #[must_use] pub const fn as_slice(&self) -> &[u8] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -461,6 +507,10 @@ impl From<&[f32]> for F32VecRef {
 
 impl F32VecRef {
     #[must_use] pub const fn as_slice(&self) -> &[f32] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -498,6 +548,10 @@ impl From<&[i32]> for I32VecRef {
 
 impl I32VecRef {
     #[must_use] pub const fn as_slice(&self) -> &[i32] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -535,9 +589,17 @@ impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
 
 impl GLbooleanVecRefMut {
     #[must_use] pub const fn as_slice(&self) -> &[GLboolean] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
     const fn as_mut_slice(&mut self) -> &mut [GLboolean] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &mut [];
+        }
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -575,9 +637,17 @@ impl From<&mut [u8]> for U8VecRefMut {
 
 impl U8VecRefMut {
     #[must_use] pub const fn as_slice(&self) -> &[u8] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &[];
+        }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
     const fn as_mut_slice(&mut self) -> &mut [u8] {
+        // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
+        if self.ptr.is_null() || self.len == 0 {
+            return &mut [];
+        }
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -742,6 +812,24 @@ pub type GlTextureStorage = OrderedMap<Epoch, OrderedMap<ExternalImageId, Textur
 /// be misused)
 static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
 
+/// Sound accessor for the process-global GL texture table.
+///
+/// AUDIT: GL access is single-threaded by design (see the WARNING above — the
+/// `Texture` itself is thread-unsafe), so no lock is used. The soundness fix
+/// here is to never form an *implicit* reference to the `static mut` (the
+/// edition-2024 `static_mut_refs` hard error + `&mut`-aliasing UB that
+/// `ACTIVE_GL_TEXTURES.as_mut()` / `.as_ref()` triggered). Deriving the
+/// reference from `&raw mut` gives it correct provenance without ever naming
+/// the static as an auto-ref place. Callers must not hold two of these at once
+/// (they don't — every use is a single non-reentrant scope).
+#[inline]
+#[allow(clippy::deref_addrof)] // the `&raw mut` deref is deliberate: it avoids naming the static as an auto-ref place (edition-2024 `static_mut_refs`)
+fn active_gl_textures() -> &'static mut Option<OrderedMap<DocumentId, GlTextureStorage>> {
+    // SAFETY: `&raw mut` avoids an intermediate `&mut ACTIVE_GL_TEXTURES`; the
+    // static is valid for the whole program. Single-threaded access (GL thread).
+    unsafe { &mut *(&raw mut ACTIVE_GL_TEXTURES) }
+}
+
 /// Inserts a new texture into the OpenGL texture cache, returns a new image ID
 /// for the inserted texture
 ///
@@ -750,6 +838,7 @@ static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> 
 /// # Panics
 ///
 /// Panics if the global active-GL-texture table has not been initialized.
+#[must_use]
 pub fn insert_into_active_gl_textures(
     document_id: DocumentId,
     epoch: Epoch,
@@ -757,19 +846,14 @@ pub fn insert_into_active_gl_textures(
 ) -> ExternalImageId {
     let external_image_id = ExternalImageId::new();
 
-    unsafe {
-        if ACTIVE_GL_TEXTURES.is_none() {
-            ACTIVE_GL_TEXTURES = Some(OrderedMap::new());
-        }
-        let active_textures = ACTIVE_GL_TEXTURES.as_mut().unwrap();
-        let active_epochs = active_textures
-            .entry(document_id)
-            .or_default();
-        let active_textures_for_epoch = active_epochs
-            .entry(epoch)
-            .or_default();
-        active_textures_for_epoch.insert(external_image_id, texture);
+    let active = active_gl_textures();
+    if active.is_none() {
+        *active = Some(OrderedMap::new());
     }
+    let active_textures = active.as_mut().unwrap();
+    let active_epochs = active_textures.entry(document_id).or_default();
+    let active_textures_for_epoch = active_epochs.entry(epoch).or_default();
+    active_textures_for_epoch.insert(external_image_id, texture);
 
     external_image_id
 }
@@ -778,28 +862,26 @@ pub fn insert_into_active_gl_textures(
 /// where the texture is **older** than the given `epoch`.
 pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
     // TODO: Handle overflow of Epochs correctly (low priority)
-    unsafe {
-        let Some(active_textures) = ACTIVE_GL_TEXTURES.as_mut() else {
-            return;
-        };
+    let Some(active_textures) = active_gl_textures().as_mut() else {
+        return;
+    };
 
-        let Some(active_epochs) = active_textures.get_mut(document_id) else {
-            return;
-        };
+    let Some(active_epochs) = active_textures.get_mut(document_id) else {
+        return;
+    };
 
-        // NOTE: original code used retain() but that
-        // doesn't work on no_std
-        let mut epochs_to_remove = Vec::new();
+    // NOTE: original code used retain() but that
+    // doesn't work on no_std
+    let mut epochs_to_remove = Vec::new();
 
-        for (gl_texture_epoch, _) in active_epochs.iter() {
-            if *gl_texture_epoch < epoch {
-                epochs_to_remove.push(*gl_texture_epoch);
-            }
+    for (gl_texture_epoch, _) in active_epochs.iter() {
+        if *gl_texture_epoch < epoch {
+            epochs_to_remove.push(*gl_texture_epoch);
         }
+    }
 
-        for epoch in epochs_to_remove {
-            active_epochs.remove(&epoch);
-        }
+    for epoch in epochs_to_remove {
+        active_epochs.remove(&epoch);
     }
 }
 
@@ -809,29 +891,25 @@ pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: 
     epoch: &Epoch,
     external_image_id: &ExternalImageId,
 ) -> Option<()> {
-    let mut active_textures = unsafe { ACTIVE_GL_TEXTURES.as_mut()? };
-    let mut epochs = active_textures.get_mut(document_id)?;
-    let mut images_in_epoch = epochs.get_mut(epoch)?;
+    let active_textures = active_gl_textures().as_mut()?;
+    let epochs = active_textures.get_mut(document_id)?;
+    let images_in_epoch = epochs.get_mut(epoch)?;
     images_in_epoch.remove(external_image_id);
     Some(())
 }
 
 /// Removes a `DocumentId` from the active epochs
 pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
-    unsafe {
-        let Some(active_textures) = ACTIVE_GL_TEXTURES.as_mut() else {
-            return;
-        };
-        active_textures.remove(document_id);
-    }
+    let Some(active_textures) = active_gl_textures().as_mut() else {
+        return;
+    };
+    active_textures.remove(document_id);
 }
 
 /// Destroys all textures, usually done before destroying the OpenGL context
 #[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
 pub fn gl_textures_clear_opengl_cache() {
-    unsafe {
-        ACTIVE_GL_TEXTURES = None;
-    }
+    *active_gl_textures() = None;
 }
 
 // Search all epoch hash maps for the given key
@@ -846,7 +924,7 @@ pub fn gl_textures_clear_opengl_cache() {
 // pixels large - so it's not like we had anything to draw anyway.
 #[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
 #[must_use] pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
-    let active_textures = unsafe { ACTIVE_GL_TEXTURES.as_ref()? };
+    let active_textures = active_gl_textures().as_ref()?;
     active_textures
         .values()
         .flat_map(|active_document| active_document.values())
@@ -2749,6 +2827,30 @@ impl GlStateSave {
     }
 }
 
+/// AUDIT: RAII guard that deletes a transient framebuffer + renderbuffer on
+/// scope exit. Used by `Texture::clear` and `GlShader::draw` so that a panic
+/// mid-path (e.g. an `.unwrap()` on an empty gen-list, or any GL step that
+/// panics) can't leak the FBO/RBO. Ids of `0` are skipped (GL treats delete-0
+/// as a no-op anyway, but this keeps intent explicit).
+struct FboRboGuard<'a> {
+    gl_context: &'a GlContextPtr,
+    framebuffer_id: GLuint,
+    renderbuffer_id: GLuint,
+}
+
+impl Drop for FboRboGuard<'_> {
+    fn drop(&mut self) {
+        if self.framebuffer_id != 0 {
+            self.gl_context
+                .delete_framebuffers((&[self.framebuffer_id])[..].into());
+        }
+        if self.renderbuffer_id != 0 {
+            self.gl_context
+                .delete_renderbuffers((&[self.renderbuffer_id])[..].into());
+        }
+    }
+}
+
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
 #[repr(C)]
 pub struct Texture {
@@ -2875,12 +2977,20 @@ impl Texture {
         let saved = GlStateSave::save(&self.gl_context);
 
         let framebuffers = self.gl_context.gen_framebuffers(1);
-        let framebuffer_id = framebuffers.get(0).unwrap();
+        let framebuffer_id = *framebuffers.get(0).unwrap();
+        // AUDIT: register the FBO for cleanup BEFORE the next fallible step so a
+        // panic in `gen_renderbuffers().get(0).unwrap()` can't leak it.
+        let mut fbo_rbo_guard = FboRboGuard {
+            gl_context: &self.gl_context,
+            framebuffer_id,
+            renderbuffer_id: 0,
+        };
         self.gl_context
-            .bind_framebuffer(gl::FRAMEBUFFER, *framebuffer_id);
+            .bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
 
         let depthbuffers = self.gl_context.gen_renderbuffers(1);
-        let depthbuffer_id = depthbuffers.get(0).unwrap();
+        let depthbuffer_id = *depthbuffers.get(0).unwrap();
+        fbo_rbo_guard.renderbuffer_id = depthbuffer_id;
 
         self.gl_context
             .bind_texture(gl::TEXTURE_2D, self.texture_id);
@@ -2911,7 +3021,7 @@ impl Texture {
         );
 
         self.gl_context
-            .bind_renderbuffer(gl::RENDERBUFFER, *depthbuffer_id);
+            .bind_renderbuffer(gl::RENDERBUFFER, depthbuffer_id);
         self.gl_context.renderbuffer_storage(
             gl::RENDERBUFFER,
             gl::DEPTH_COMPONENT,
@@ -2922,7 +3032,7 @@ impl Texture {
             gl::FRAMEBUFFER,
             gl::DEPTH_ATTACHMENT,
             gl::RENDERBUFFER,
-            *depthbuffer_id,
+            depthbuffer_id,
         );
 
         self.gl_context.framebuffer_texture_2d(
@@ -2942,12 +3052,11 @@ impl Texture {
         self.gl_context
             .clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-        self.gl_context
-            .delete_framebuffers((&[*framebuffer_id])[..].into());
-        self.gl_context
-            .delete_renderbuffers((&[*depthbuffer_id])[..].into());
-
+        // AUDIT: FBO/RBO deletion is handled by `fbo_rbo_guard`'s Drop (which
+        // also runs on an unwinding panic), so we restore state and let the
+        // guard reclaim the GL objects at scope exit.
         saved.restore(&self.gl_context);
+        drop(fbo_rbo_guard);
     }
 
     #[must_use] pub fn get_descriptor(&self) -> ImageDescriptor {
@@ -3200,6 +3309,14 @@ impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
+        // AUDIT: mirror `GlContextPtr::drop`. Without this guard a C-ABI
+        // double-drop (drop_in_place run twice on the same byte-copied struct)
+        // does a second `fetch_sub` on the already-freed refcount box (UAF) and
+        // a second `delete_textures`. The first drop clears `run_destructor`, so
+        // the second is a no-op.
+        if !self.run_destructor {
+            return;
+        }
         self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
@@ -3390,6 +3507,11 @@ impl Clone for VertexArrayObject {
 
 impl Drop for VertexArrayObject {
     fn drop(&mut self) {
+        // AUDIT: mirror `GlContextPtr::drop` — guard against a C-ABI double-drop
+        // freeing the refcount box twice (use-after-free) + double delete.
+        if !self.run_destructor {
+            return;
+        }
         self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
@@ -3442,6 +3564,11 @@ impl Clone for VertexBuffer {
 
 impl Drop for VertexBuffer {
     fn drop(&mut self) {
+        // AUDIT: mirror `GlContextPtr::drop` — guard against a C-ABI double-drop
+        // freeing the refcount box twice (use-after-free) + double delete.
+        if !self.run_destructor {
+            return;
+        }
         self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
@@ -3681,6 +3808,10 @@ impl UniformType {
 pub struct GlShader {
     pub program_id: GLuint,
     pub gl_context: GlContextPtr,
+    /// AUDIT: guards against a double-drop deleting the same GL program twice
+    /// (`drop_in_place` run twice on a byte-copied struct). Set `true` on
+    /// construction; the first drop clears it so a second drop is a no-op.
+    pub run_destructor: bool,
 }
 
 impl ::core::fmt::Display for GlShader {
@@ -3693,6 +3824,12 @@ impl_traits_for_gl_object!(GlShader, program_id);
 
 impl Drop for GlShader {
     fn drop(&mut self) {
+        // AUDIT: mirror `GlContextPtr::drop` — a C-ABI double-drop would call
+        // `delete_program` on the same id twice. The first drop clears the flag.
+        if !self.run_destructor {
+            return;
+        }
+        self.run_destructor = false;
         self.gl_context.delete_program(self.program_id);
     }
 }
@@ -3881,6 +4018,7 @@ impl GlShader {
         Ok(Self {
             program_id,
             gl_context: gl_context.clone(),
+            run_destructor: true,
         })
     }
 
@@ -3920,11 +4058,20 @@ impl GlShader {
 
         // 1. Create the framebuffer
         let framebuffers = gl_context.gen_framebuffers(1);
-        let framebuffer_id = framebuffers.get(0).unwrap();
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, *framebuffer_id);
+        let framebuffer_id = *framebuffers.get(0).unwrap();
+        // AUDIT: register the FBO for cleanup BEFORE the next fallible step so a
+        // panic anywhere below (incl. `gen_renderbuffers().get(0).unwrap()`)
+        // can't leak the FBO/RBO. Guard's Drop runs on unwind too.
+        let mut fbo_rbo_guard = FboRboGuard {
+            gl_context,
+            framebuffer_id,
+            renderbuffer_id: 0,
+        };
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
 
         let depthbuffers = gl_context.gen_renderbuffers(1);
-        let depthbuffer_id = depthbuffers.get(0).unwrap();
+        let depthbuffer_id = *depthbuffers.get(0).unwrap();
+        fbo_rbo_guard.renderbuffer_id = depthbuffer_id;
 
         gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
         gl_context.tex_image_2d(
@@ -3943,7 +4090,7 @@ impl GlShader {
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 
-        gl_context.bind_renderbuffer(gl::RENDERBUFFER, *depthbuffer_id);
+        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffer_id);
         gl_context.renderbuffer_storage(
             gl::RENDERBUFFER,
             gl::DEPTH_COMPONENT,
@@ -3954,7 +4101,7 @@ impl GlShader {
             gl::FRAMEBUFFER,
             gl::DEPTH_ATTACHMENT,
             gl::RENDERBUFFER,
-            *depthbuffer_id,
+            depthbuffer_id,
         );
 
         gl_context.framebuffer_texture_2d(
@@ -4074,11 +4221,13 @@ impl GlShader {
             gl_context.disable(gl::PRIMITIVE_RESTART);
         }
 
-        gl_context.delete_framebuffers((&[*framebuffer_id])[..].into());
-        gl_context.delete_renderbuffers((&[*depthbuffer_id])[..].into());
-
+        // AUDIT: FBO/RBO deletion is handled by `fbo_rbo_guard`'s Drop (which
+        // also runs on an unwinding panic) — reclaim them explicitly here so
+        // the deletion order matches the original (delete before texture
+        // metadata writes / after state restore).
         // Reset common GL state
         saved.restore(gl_context);
+        drop(fbo_rbo_guard);
 
         texture.format = RawImageFormat::RGBA8;
         texture.flags = TextureFlags {
@@ -4109,5 +4258,55 @@ fn get_gl_program_error(context: &GlContextPtr, shader_object: GLuint) -> Option
         None
     } else {
         Some(err_code)
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    // AUDIT: FFI slice/str accessors must return an empty slice (not form a
+    // slice over a null/dangling ptr, which is UB) when handed a null or
+    // zero-length descriptor from C.
+    #[test]
+    fn refstr_null_and_empty_is_empty_str() {
+        let null = Refstr {
+            ptr: core::ptr::null(),
+            len: 0,
+        };
+        assert_eq!(null.as_str(), "");
+
+        // null ptr but nonzero len (garbage from FFI) must also not deref.
+        let null_lenful = Refstr {
+            ptr: core::ptr::null(),
+            len: 5,
+        };
+        assert_eq!(null_lenful.as_str(), "");
+
+        let s = "hello";
+        let good: Refstr = s.into();
+        assert_eq!(good.as_str(), "hello");
+    }
+
+    #[test]
+    fn refstr_vec_ref_null_is_empty_slice() {
+        let null = RefstrVecRef {
+            ptr: core::ptr::null(),
+            len: 3,
+        };
+        assert!(null.as_slice().is_empty());
+    }
+
+    #[test]
+    fn u8_vec_ref_null_is_empty_slice() {
+        let null = U8VecRef {
+            ptr: core::ptr::null(),
+            len: 8,
+        };
+        assert!(null.as_slice().is_empty());
+
+        let data = [1u8, 2, 3];
+        let good: U8VecRef = (&data[..]).into();
+        assert_eq!(good.as_slice(), &[1, 2, 3]);
     }
 }

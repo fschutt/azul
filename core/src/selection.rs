@@ -249,12 +249,18 @@ impl_vec_partialeq!(IdentifiedSelection, IdentifiedSelectionVec);
 /// ## Invariants
 ///
 /// - `selections` is sorted by position and non-overlapping.
-/// - The **primary** selection is the last one added (highest index).
+/// - The **primary** selection is identified by the stable `primary_id`, NOT by
+///   vector position: `merge_overlapping()` re-sorts `selections` by position,
+///   so "last index" is not the most-recently-added cursor.
 /// - After any mutation, `merge_overlapping()` is called to maintain invariants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiCursorState {
-    /// Sorted by position, non-overlapping. Primary = last added (highest index).
+    /// Sorted by position, non-overlapping. Primary is tracked via `primary_id`.
     pub selections: Vec<IdentifiedSelection>,
+    /// Stable ID of the primary selection (most recently added/set). Survives the
+    /// position sort in `merge_overlapping`, which would otherwise make the
+    /// vector's last element (position-last) masquerade as the primary.
+    pub primary_id: SelectionId,
     /// The DOM node this multi-cursor state applies to.
     pub node_id: DomNodeId,
     /// Stable key that survives DOM rebuilds (from `calculate_contenteditable_key`).
@@ -270,6 +276,7 @@ impl MultiCursorState {
                 id,
                 selection: Selection::Cursor(cursor),
             }],
+            primary_id: id,
             node_id,
             contenteditable_key,
         }
@@ -284,6 +291,7 @@ impl MultiCursorState {
             id,
             selection: Selection::Cursor(cursor),
         });
+        self.primary_id = id;
         self.merge_overlapping();
         id
     }
@@ -297,6 +305,7 @@ impl MultiCursorState {
             id,
             selection: Selection::Range(range),
         });
+        self.primary_id = id;
         self.merge_overlapping();
         id
     }
@@ -306,17 +315,44 @@ impl MultiCursorState {
     pub fn remove_selection(&mut self, id: SelectionId) -> bool {
         let len_before = self.selections.len();
         self.selections.retain(|s| s.id != id);
-        self.selections.len() < len_before
+        let removed = self.selections.len() < len_before;
+        if removed {
+            // If we just removed the primary, re-point it at a surviving one.
+            self.ensure_primary_valid();
+        }
+        removed
     }
 
-    /// Get the primary selection (last added = highest index).
+    /// Get the primary selection (the most recently added/set, tracked by
+    /// `primary_id` — NOT the vector's last element, which position-sorting
+    /// reorders). Falls back to the last element if `primary_id` was somehow
+    /// lost.
     #[must_use] pub fn get_primary(&self) -> Option<&IdentifiedSelection> {
-        self.selections.last()
+        let pid = self.primary_id;
+        self.selections
+            .iter()
+            .find(|s| s.id == pid)
+            .or_else(|| self.selections.last())
     }
 
-    /// Get a mutable reference to the primary selection.
+    /// Get a mutable reference to the primary selection (see `get_primary`).
     pub fn get_primary_mut(&mut self) -> Option<&mut IdentifiedSelection> {
+        let pid = self.primary_id;
+        if let Some(pos) = self.selections.iter().position(|s| s.id == pid) {
+            return self.selections.get_mut(pos);
+        }
         self.selections.last_mut()
+    }
+
+    /// Ensure `primary_id` names a selection that still exists; if not, adopt the
+    /// last selection's id (best effort) so `get_primary` stays meaningful.
+    fn ensure_primary_valid(&mut self) {
+        let pid = self.primary_id;
+        if !self.selections.iter().any(|s| s.id == pid) {
+            if let Some(last) = self.selections.last() {
+                self.primary_id = last.id;
+            }
+        }
     }
 
     /// Get the primary cursor position (for scroll-into-view, IME, etc.)
@@ -345,6 +381,8 @@ impl MultiCursorState {
                 selection: *sel,
             });
         }
+        // IDs are reassigned by index; make sure primary_id still resolves.
+        self.ensure_primary_valid();
         // Don't merge here — edit_text already returns correct positions
     }
 
@@ -356,6 +394,7 @@ impl MultiCursorState {
             id,
             selection: Selection::Cursor(cursor),
         });
+        self.primary_id = id;
     }
 
     /// Set all selections to a single range.
@@ -366,6 +405,7 @@ impl MultiCursorState {
             id,
             selection: Selection::Range(range),
         });
+        self.primary_id = id;
     }
 
     /// Number of active cursors/selections.
@@ -383,6 +423,10 @@ impl MultiCursorState {
         if self.selections.len() <= 1 {
             return;
         }
+
+        // Capture the primary before sorting/merging reorders and rewrites IDs.
+        let primary = self.primary_id;
+        let mut new_primary = primary;
 
         // Sort by the start position of each selection
         self.selections.sort_by(|a, b| {
@@ -411,6 +455,11 @@ impl MultiCursorState {
                             end: new_end,
                         });
                     }
+                    // If either side of the merge was the primary, the merged
+                    // selection inherits primary status.
+                    if last.id == primary || sel.id == primary {
+                        new_primary = sel.id;
+                    }
                     // Keep the newer ID (the one being merged in)
                     last.id = sel.id;
                     continue;
@@ -419,6 +468,10 @@ impl MultiCursorState {
             merged.push(sel);
         }
         self.selections = merged;
+
+        // Point primary at a surviving selection (fallback: last element).
+        self.primary_id = new_primary;
+        self.ensure_primary_valid();
     }
 
     /// Move all cursors using a movement function. Merges collisions afterward.
@@ -667,3 +720,53 @@ impl_option!(
     clone = false,
     [Debug, Clone, PartialEq, Eq]
 );
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    fn cursor(byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: byte },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    fn state(byte: u32) -> MultiCursorState {
+        MultiCursorState::new_with_cursor(cursor(byte), DomNodeId::ROOT, 0)
+    }
+
+    #[test]
+    fn primary_tracked_by_id_not_vec_position() {
+        let mut mc = state(100);
+        // Add a cursor at an EARLIER position; after merge_overlapping's sort it
+        // becomes the vector's FIRST element, but it is the primary (last added).
+        let b = mc.add_cursor(cursor(0));
+        assert_eq!(mc.len(), 2);
+        // The primary must be the just-added cursor at byte 0, not the
+        // position-last cursor at byte 100.
+        assert_eq!(mc.get_primary().unwrap().id, b);
+        assert_eq!(mc.get_primary_cursor().unwrap(), cursor(0));
+    }
+
+    #[test]
+    fn merge_preserves_primary() {
+        let mut mc = state(5);
+        let _b = mc.add_cursor(cursor(5)); // same position -> merges to one
+        assert_eq!(mc.len(), 1);
+        // primary_id must resolve to the surviving selection.
+        let primary = mc.get_primary().unwrap();
+        assert_eq!(primary.id, mc.selections[0].id);
+    }
+
+    #[test]
+    fn removing_primary_repoints_it() {
+        let mut mc = state(0);
+        let b = mc.add_cursor(cursor(10)); // primary = b
+        assert_eq!(mc.get_primary().unwrap().id, b);
+        assert!(mc.remove_selection(b));
+        // primary must now be a still-existing selection, not a dangling id.
+        let p = mc.get_primary().unwrap();
+        assert!(mc.selections.iter().any(|s| s.id == p.id));
+    }
+}

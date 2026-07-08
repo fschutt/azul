@@ -1411,6 +1411,36 @@ impl RendererResources {
     }
 
     // Delete all font family hashes that do not have a font key anymore
+    //
+    // AUDIT-TODO (font GC, resources.rs font leak — 2026-07-08):
+    // Fonts and font instances are currently NEVER garbage-collected. This helper
+    // only prunes `font_id_map` / `font_families_map` entries whose `FontKey` has
+    // *already* vanished from `currently_registered_fonts` — but nothing ever
+    // removes fonts from `currently_registered_fonts` in the first place, and this
+    // helper itself has no callers. No `DeleteFont` / `DeleteFontInstance`
+    // `ResourceUpdate` is ever emitted, so WebRender font memory grows unbounded
+    // when an app cycles fonts (font pickers, editors, live CSS).
+    //
+    // To wire a real font GC mirroring the image GC (see `dll/.../wr_translate2.rs`
+    // `garbage_collect_images` + `image_last_seen_epoch`), the following are needed
+    // and MUST be done together (do not half-implement):
+    //   1. Add `font_last_seen_epoch: OrderedMap<FontKey, u32>` (and, if instance-
+    //      level GC is wanted, per-`FontInstanceKey` epochs) to `RendererResources`.
+    //   2. In the display-list build (dll crate), after resolving each glyph run's
+    //      `FontInstanceKey`, mark the owning `FontKey` (and instance) seen at the
+    //      current epoch — exactly as images are marked in the image GC.
+    //   3. Add a `garbage_collect_fonts(&mut self, now, keep_epochs, updates)` that,
+    //      for every `FontKey` unseen for > keep_epochs frames, emits
+    //      `DeleteFontInstance` for each of its instances then `DeleteFont`, and
+    //      evicts the key from `currently_registered_fonts`, `font_hash_map`,
+    //      `last_frame_registered_fonts`, and `font_id_map`/`font_families_map`
+    //      (via this helper). Respect the "delete on current frame + 1" rule already
+    //      documented on `last_frame_registered_fonts`.
+    //   4. Call it once per frame from the same site as the image GC.
+    // Left as a TODO because steps 2 and 4 are cross-crate (dll) and cannot be
+    // implemented from `azul-core` alone; adding a GC method here without a caller
+    // would just be more dead code.
+    #[allow(dead_code)]
     fn remove_font_families_with_zero_references(&mut self) {
         let font_family_to_delete = self
             .font_id_map
@@ -1790,7 +1820,7 @@ fn premultiply_alpha(array: &mut [u8]) {
 #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
 #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour casts
 fn normalize_u16(i: u16) -> u8 {
-    ((f32::from(core::u16::MAX) / f32::from(i)) * f32::from(core::u8::MAX)) as u8
+    ((f32::from(i) / f32::from(core::u16::MAX)) * f32::from(core::u8::MAX)) as u8
 }
 
 const FOUR_BPP: usize = 4;
@@ -2189,6 +2219,10 @@ impl RawImage {
         let bytes: U8Vec = if premultiplied_alpha {
             // DO NOT CLONE THE IMAGE HERE!
             let pixels = pixels.get_u8_vec()?;
+
+            if pixels.len() != expected_len * FOUR_BPP {
+                return None;
+            }
 
             is_opaque = pixels
                 .as_ref()
@@ -3232,6 +3266,11 @@ pub fn add_resources(
                 descriptor: add_image_msg.0.descriptor,
             },
         );
+        // Keep the reverse lookup (`ImageKey` -> `ImageRefHash`) in sync with the
+        // forward map so display-list translation can resolve keys back to hashes.
+        renderer_resources
+            .image_key_map
+            .insert(add_image_msg.0.key, *image_ref_hash);
     }
 
     for (_, add_font_msg) in add_font_resources {
@@ -3257,5 +3296,40 @@ pub fn add_resources(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_u16_maps_full_range() {
+        // 0 -> 0, u16::MAX -> u8::MAX, midpoint -> ~127/128, no div-by-zero.
+        assert_eq!(normalize_u16(0), 0);
+        assert_eq!(normalize_u16(u16::MAX), 255);
+        // Half of u16::MAX should land at ~half of u8::MAX.
+        let mid = normalize_u16(u16::MAX / 2);
+        assert!((126..=128).contains(&mid), "midpoint normalized to {mid}");
+        // Previously `(65535/i)*255` produced near-white garbage for small i;
+        // a small input must now map to a small output.
+        assert_eq!(normalize_u16(256), 0);
+        assert_eq!(normalize_u16(257), 1);
+    }
+
+    #[test]
+    fn load_bgra8_rejects_wrong_length() {
+        // premultiplied branch: buffer shorter than expected must be rejected,
+        // not silently accepted (previously missing length guard).
+        let short = RawImageData::U8(vec![0u8; 4 * 3].into()); // 3 px worth
+        assert!(RawImage::load_bgra8(short, 4, true).is_none());
+
+        // correct length is accepted.
+        let ok = RawImageData::U8(vec![255u8; 4 * 4].into()); // 4 px
+        assert!(RawImage::load_bgra8(ok, 4, true).is_some());
+
+        // non-premultiplied branch still rejects wrong length.
+        let short2 = RawImageData::U8(vec![0u8; 4 * 2].into());
+        assert!(RawImage::load_bgra8(short2, 4, false).is_none());
     }
 }

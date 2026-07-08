@@ -100,7 +100,12 @@ impl LogicalRect {
         let dx_right_edge = self.max_x() - other.x;
         let dy_top_edge = other.y - self.min_y();
         let dy_bottom_edge = self.max_y() - other.y;
-        if dx_left_edge > 0.0 && dx_right_edge > 0.0 && dy_top_edge > 0.0 && dy_bottom_edge > 0.0 {
+        // Edge semantics must match `contains`: left/top inclusive (`>= min`),
+        // right/bottom exclusive (`< max`). Previously all four edges were
+        // exclusive, so a point exactly on the left/top edge hit-tested as a
+        // miss even though `contains` reported it inside — dropping/duplicating
+        // hits on shared edges between adjacent rects.
+        if dx_left_edge >= 0.0 && dx_right_edge > 0.0 && dy_top_edge >= 0.0 && dy_bottom_edge > 0.0 {
             Some(LogicalPosition::new(dx_left_edge, dy_top_edge))
         } else {
             None
@@ -127,11 +132,21 @@ use core::{
 use azul_css::props::layout::LayoutWritingMode;
 
 /// A 2D position in logical (DPI-independent) coordinates.
-#[derive(Default, Copy, Clone, PartialEq)]
+// PartialEq is hand-implemented over `quantize()` (see below) so that equality
+// agrees with the quantized `Ord`/`Hash`. A derived field-wise `PartialEq`
+// compared raw f32, so `a == b` could be false while `a.cmp(b) == Equal`,
+// breaking `BTreeMap`/`HashMap` lookups keyed on these types.
+#[derive(Default, Copy, Clone)]
 #[repr(C)]
 pub struct LogicalPosition {
     pub x: f32,
     pub y: f32,
+}
+
+impl PartialEq for LogicalPosition {
+    fn eq(&self, other: &Self) -> bool {
+        quantize(self.x) == quantize(other.x) && quantize(self.y) == quantize(other.y)
+    }
 }
 
 impl LogicalPosition {
@@ -196,12 +211,23 @@ impl ops::Sub for LogicalPosition {
 /// Provides ~0.001 precision, sufficient for sub-pixel layout coordinates.
 const DECIMAL_MULTIPLIER: f32 = 1000.0;
 
-/// Quantizes an f32 coordinate to fixed-point for stable `Ord`/`Hash`
+/// Quantizes an f32 coordinate to fixed-point for stable `Ord`/`Hash`/`PartialEq`
 /// (comparing raw f32 bit patterns would be unstable / non-total).
 // intentional fixed-point quantization: the truncation IS the rounding step.
 #[allow(clippy::cast_possible_truncation)]
-fn quantize(value: f32) -> isize {
-    (value * DECIMAL_MULTIPLIER) as isize
+fn quantize(value: f32) -> i64 {
+    // NaN has no meaningful position in a total order. Map it to a single fixed
+    // sentinel (`i64::MIN`) so all NaNs compare equal to each other and sort
+    // below every real value — and, critically, do NOT collide with `0.0`
+    // (the old `NaN as isize == 0` behaviour aliased NaN onto the origin).
+    if value.is_nan() {
+        return i64::MIN;
+    }
+    // `f32 as i64` saturates on overflow (since Rust 1.45), so an out-of-range
+    // coordinate clamps to `i64::{MIN,MAX}` instead of wrapping. `isize` was
+    // only 32-bit on wasm32, so a large coordinate overflowed there — `i64` is
+    // wide enough on every target.
+    (value * DECIMAL_MULTIPLIER) as i64
 }
 
 impl_option!(
@@ -268,11 +294,20 @@ impl LogicalPosition {
 }
 
 /// A 2D size in logical (DPI-independent) coordinates.
-#[derive(Default, Copy, Clone, PartialEq)]
+// PartialEq is hand-implemented over `quantize()` to agree with the quantized
+// `Ord`/`Hash` (see `LogicalPosition` for the rationale).
+#[derive(Default, Copy, Clone)]
 #[repr(C)]
 pub struct LogicalSize {
     pub width: f32,
     pub height: f32,
+}
+
+impl PartialEq for LogicalSize {
+    fn eq(&self, other: &Self) -> bool {
+        quantize(self.width) == quantize(other.width)
+            && quantize(self.height) == quantize(other.height)
+    }
 }
 
 impl LogicalSize {
@@ -648,3 +683,73 @@ impl_option!(
     OptionCursorNodePosition,
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::cmp::Ordering;
+
+    #[test]
+    fn hit_test_edges_match_contains() {
+        let r = LogicalRect::new(LogicalPosition::new(10.0, 20.0), LogicalSize::new(30.0, 40.0));
+        // left/top edge: inclusive in both
+        let tl = LogicalPosition::new(10.0, 20.0);
+        assert!(r.contains(tl));
+        assert!(r.hit_test(&tl).is_some());
+        // just inside
+        let inside = LogicalPosition::new(11.0, 21.0);
+        assert!(r.contains(inside));
+        assert!(r.hit_test(&inside).is_some());
+        // right/bottom edge: exclusive in both
+        let br = LogicalPosition::new(40.0, 60.0);
+        assert!(!r.contains(br));
+        assert!(r.hit_test(&br).is_none());
+        // outside left
+        let out = LogicalPosition::new(9.0, 20.0);
+        assert!(!r.contains(out));
+        assert!(r.hit_test(&out).is_none());
+    }
+
+    #[test]
+    fn hit_test_offset_is_from_top_left() {
+        let r = LogicalRect::new(LogicalPosition::new(10.0, 20.0), LogicalSize::new(30.0, 40.0));
+        let hit = r.hit_test(&LogicalPosition::new(15.0, 25.0)).unwrap();
+        assert_eq!(hit, LogicalPosition::new(5.0, 5.0));
+    }
+
+    #[test]
+    fn quantize_nan_is_distinct_from_zero() {
+        assert_eq!(quantize(f32::NAN), i64::MIN);
+        assert_ne!(quantize(f32::NAN), quantize(0.0));
+    }
+
+    #[test]
+    fn partial_eq_agrees_with_ord_and_hash() {
+        use core::hash::{Hash, Hasher};
+        // Two values within the same quantization bucket must be == AND cmp==Equal.
+        let a = LogicalPosition::new(1.00000, 2.00000);
+        let b = LogicalPosition::new(1.00004, 2.00004); // < 0.001 apart
+        assert_eq!(a, b);
+        assert_eq!(a.cmp(&b), Ordering::Equal);
+
+        let hash_of = |p: &LogicalPosition| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            p.hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hash_of(&a), hash_of(&b));
+
+        // NaN equals NaN under the quantized PartialEq (i64::MIN bucket) — this
+        // is what stops the every-frame Resize loop upstream.
+        let n1 = LogicalSize::new(f32::NAN, 1.0);
+        let n2 = LogicalSize::new(f32::NAN, 1.0);
+        assert_eq!(n1, n2);
+    }
+
+    #[test]
+    fn quantize_saturates_instead_of_wrapping() {
+        // Huge coordinate must saturate, not wrap to a small/negative bucket.
+        assert_eq!(quantize(f32::INFINITY), i64::MAX);
+        assert_eq!(quantize(f32::NEG_INFINITY), i64::MIN);
+    }
+}

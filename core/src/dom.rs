@@ -167,6 +167,14 @@ impl TagId {
 
     /// Creates a new, unique hit-testing tag ID.
     /// Wraps around to 1 on overflow (0 is reserved for "no tag").
+    ///
+    /// AUDIT: the wrap is only reachable after 2^64 - 1 allocations (a process
+    /// running long enough to exhaust the counter is not realistic), but note
+    /// that on wrap the freshly-issued id could theoretically collide with a
+    /// still-live tag from very early in the process. This is left as a
+    /// documented, non-triggerable limitation rather than adding a live-tag
+    /// registry to detect collisions on every allocation. AUDIT-TODO: revisit
+    /// if `TagId` is ever narrowed below 64 bits.
     pub fn unique() -> Self {
         loop {
             let current = TAG_ID.load(Ordering::SeqCst);
@@ -3350,6 +3358,16 @@ pub struct Dom {
     pub css: azul_css::css::CssVec,
     // Tracks the number of sub-children of the current children, so that
     // the `Dom` can be converted into a `CompactDom`.
+    //
+    // AUDIT: this is a cached count that MUST equal the recursive
+    // `1-per-descendant` total of `children`. The builder methods
+    // (`add_child` / `set_children` / `with_child*` / `FromIterator`) keep it in
+    // sync, but `children` is a public field — mutating it directly desyncs this
+    // counter. A too-small value makes `convert_dom_into_compact_dom` under-allocate
+    // its arenas and panic on out-of-bounds writes. Call
+    // `fixup_children_estimated()` after any direct `children` mutation;
+    // `StyledDom::new` already does so as a safety net. Debug builds assert
+    // consistency in the builder methods (see `recompute_estimated_total_children`).
     pub estimated_total_children: usize,
 }
 
@@ -5684,8 +5702,38 @@ impl Dom {
         s
     }
 
+    /// AUDIT: recompute the authoritative descendant count (1 per descendant)
+    /// from `children`, without mutating anything. Used by the debug-only
+    /// consistency assertions in the builder methods so a stale
+    /// `estimated_total_children` (from direct `children` mutation) is caught in
+    /// tests before it can under-allocate the arena in
+    /// `convert_dom_into_compact_dom`.
+    #[must_use]
+    pub fn recompute_estimated_total_children(&self) -> usize {
+        self.children
+            .iter()
+            .map(|c| c.recompute_estimated_total_children() + 1)
+            .sum()
+    }
+
     #[inline]
     pub fn add_child(&mut self, child: Self) {
+        // AUDIT: cheap ONE-LEVEL consistency check (O(child.children), not the
+        // full O(subtree) recompute — `add_child` is a per-child hot path, so a
+        // recursive assert would make debug DOM construction O(n^2)). Assuming
+        // grandchildren are already consistent (they are when the tree is built
+        // bottom-up), this catches a direct mutation of `child.children` that
+        // skipped `fixup_children_estimated()`.
+        debug_assert_eq!(
+            child.estimated_total_children,
+            child
+                .children
+                .iter()
+                .map(|c| c.estimated_total_children + 1)
+                .sum::<usize>(),
+            "Dom.estimated_total_children desynced for added child; call \
+             fixup_children_estimated() after mutating `children` directly",
+        );
         let estimated = child.estimated_total_children;
         let mut v: DomVec = Vec::new().into();
         mem::swap(&mut v, &mut self.children);
@@ -5697,6 +5745,19 @@ impl Dom {
 
     #[inline]
     pub fn set_children(&mut self, children: DomVec) {
+        // AUDIT: one-level check per child (see `add_child`) — verifies each
+        // child's own cached estimate is internally consistent before we trust
+        // it, without an O(subtree) recompute.
+        debug_assert!(
+            children.iter().all(|c| c.estimated_total_children
+                == c
+                    .children
+                    .iter()
+                    .map(|g| g.estimated_total_children + 1)
+                    .sum::<usize>()),
+            "Dom.estimated_total_children desynced in set_children; a child's own \
+             estimate was stale — call fixup_children_estimated() first",
+        );
         let children_estimated = children
             .iter()
             .map(|s| s.estimated_total_children + 1)
@@ -6041,5 +6102,56 @@ impl fmt::Debug for Dom {
         }
 
         print_dom(self, f)
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    #[test]
+    fn node_count_matches_recompute() {
+        // root + [A(+grandchild), B] = 3 descendants, node_count 4.
+        let dom = Dom::create_div()
+            .with_child(Dom::create_div().with_child(Dom::create_div()))
+            .with_child(Dom::create_div());
+        assert_eq!(
+            dom.estimated_total_children,
+            dom.recompute_estimated_total_children()
+        );
+        assert_eq!(dom.estimated_total_children, 3);
+        assert_eq!(dom.node_count(), 4);
+    }
+
+    #[test]
+    fn single_node_dom_node_count() {
+        let dom = Dom::create_div();
+        assert_eq!(dom.estimated_total_children, 0);
+        assert_eq!(dom.node_count(), 1);
+        assert_eq!(dom.recompute_estimated_total_children(), 0);
+    }
+
+    #[test]
+    fn fixup_repairs_desynced_estimate() {
+        let mut dom = Dom::create_div().with_child(Dom::create_div());
+        // Corrupt the public cached field directly.
+        dom.estimated_total_children = 999;
+        let repaired = dom.fixup_children_estimated();
+        assert_eq!(repaired, 1);
+        assert_eq!(
+            dom.estimated_total_children,
+            dom.recompute_estimated_total_children()
+        );
+    }
+
+    // The debug_assert only fires with debug_assertions enabled.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "desynced")]
+    fn add_child_with_stale_estimate_panics_in_debug() {
+        let mut child = Dom::create_div().with_child(Dom::create_div());
+        child.estimated_total_children = 0; // corrupt: should be 1
+        let mut parent = Dom::create_div();
+        parent.add_child(child);
     }
 }

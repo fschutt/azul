@@ -1306,6 +1306,10 @@ impl CssPropertyCache {
         // then flatten into contiguous memory for cache-friendly reads.
         self.css_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
 
+        // Restyling can change font-size properties; the memoized resolved font
+        // sizes are now stale and must be recomputed on next access.
+        self.invalidate_resolved_font_sizes();
+
         self.generate_tag_ids(node_data, node_hierarchy)
     }
 

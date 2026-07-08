@@ -221,19 +221,29 @@ impl Instant {
             return 1.0;
         }
 
+        // Zero-length interval: `duration_current / duration_total` would be
+        // `0/0 = NaN`. Treat a collapsed interval as fully elapsed (1.0) rather
+        // than propagating NaN into animation progress.
+        if start == end {
+            return 1.0;
+        }
+
         let duration_total = end.duration_since(&start);
         let duration_current = self.duration_since(&start);
 
-        duration_current.div(&duration_total).clamp(0.0, 1.0)
+        let ratio = duration_current.div(&duration_total);
+        if ratio.is_nan() {
+            return 1.0;
+        }
+        ratio.clamp(0.0, 1.0)
     }
 
     /// Adds a duration to the instant, does nothing in undefined cases
-    /// (i.e. trying to add a `Duration::Tick` to an `Instant::System`)
+    /// (i.e. trying to add a `Duration::Tick` to an `Instant::System`).
     ///
-    /// # Panics
-    ///
-    /// Panics if `self` and `duration` are of mismatched kinds (e.g. adding a
-    /// `Duration::Tick` to an `Instant::System` or vice versa).
+    /// Mismatched kinds (`System` instant + `Tick` duration, or vice versa)
+    /// saturate to `self` unchanged instead of panicking — a stray mismatch
+    /// must never crash the event loop.
     #[must_use] pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
         duration.map_or_else(|| self.clone(), |d| match (self, d) {
                 (Self::System(i), Duration::System(d)) => {
@@ -246,18 +256,19 @@ impl Instant {
                     }
                     #[cfg(not(feature = "std"))]
                     {
-                        unreachable!()
+                        // A `System` instant cannot be constructed on no_std, so
+                        // this arm is unreachable in practice; return self rather
+                        // than aborting.
+                        let _ = (i, d);
+                        self.clone()
                     }
                 }
                 (Self::Tick(s), Duration::Tick(d)) => Self::Tick(SystemTick {
-                    tick_counter: s.tick_counter + d.tick_diff,
+                    // Saturate so a runaway tick delta cannot overflow-panic.
+                    tick_counter: s.tick_counter.saturating_add(d.tick_diff),
                 }),
-                _ => {
-                    panic!(
-                        "invalid: trying to add a duration {:?} to an instant {:?}",
-                        d, self
-                    );
-                }
+                // Mismatched kinds: undefined operation -> do nothing (saturate).
+                _ => self.clone(),
             })
     }
 
@@ -270,12 +281,11 @@ impl Instant {
         }
     }
 
-    /// Calculates the duration since an earlier point in time
+    /// Calculates the duration since an earlier point in time.
     ///
-    /// # Panics
-    ///
-    /// - Panics if the earlier Instant was created after the current Instant
-    /// - Panics if the two enums do not have the same variant (tick / std)
+    /// Saturates to a zero duration in the degenerate cases (earlier is actually
+    /// *later* than `self`, or the two instants are of mismatched kinds) instead
+    /// of panicking — this runs on the hot event-loop path and must not crash.
     #[must_use] pub fn duration_since(&self, earlier: &Self) -> Duration {
         match (earlier, self) {
             (Self::System(prev), Self::System(now)) => {
@@ -283,31 +293,26 @@ impl Instant {
                 {
                     let prev_instant: StdInstant = prev.clone().into();
                     let now_instant: StdInstant = now.clone().into();
-                    Duration::System((now_instant.duration_since(prev_instant)).into())
+                    // `saturating_duration_since` yields 0 if `prev` is later
+                    // than `now` (monotonic-clock skew / reordered instants).
+                    Duration::System(now_instant.saturating_duration_since(prev_instant).into())
                 }
                 #[cfg(not(feature = "std"))]
                 {
-                    unreachable!() // cannot construct a System instant on no_std
+                    // Unreachable on no_std (no System instants); saturate to 0.
+                    let _ = (prev, now);
+                    Duration::Tick(SystemTickDiff { tick_diff: 0 })
                 }
             }
             (
                 Self::Tick(SystemTick { tick_counter: prev }),
                 Self::Tick(SystemTick { tick_counter: now }),
-            ) => {
-                if prev > now {
-                    panic!(
-                        "illegal: subtraction 'Instant - Instant' would result in a negative \
-                         duration"
-                    )
-                } else {
-                    Duration::Tick(SystemTickDiff {
-                        tick_diff: now - prev,
-                    })
-                }
-            }
-            _ => panic!(
-                "illegal: trying to calculate a Duration from a SystemTime and a Tick instant"
-            ),
+            ) => Duration::Tick(SystemTickDiff {
+                // Saturate: a "negative" span (prev > now) clamps to 0.
+                tick_diff: now.saturating_sub(*prev),
+            }),
+            // Mismatched kinds: no meaningful span -> saturate to 0.
+            _ => Duration::Tick(SystemTickDiff { tick_diff: 0 }),
         }
     }
 }
@@ -580,10 +585,8 @@ impl Duration {
 
     /// Returns true if self > other.
     ///
-    /// # Panics
-    ///
-    /// Panics if `self` and `other` are of different kinds (comparing a System
-    /// duration with a Tick duration).
+    /// Mismatched kinds (comparing a System duration with a Tick duration) are
+    /// undefined and saturate to `false` instead of panicking.
     #[allow(unused_variables)]
     #[must_use] pub fn greater_than(&self, other: &Self) -> bool {
         match (self, other) {
@@ -597,22 +600,18 @@ impl Duration {
                 }
                 #[cfg(not(feature = "std"))]
                 {
-                    unreachable!()
+                    false
                 }
             }
             (Self::Tick(s), Self::Tick(o)) => s.tick_diff > o.tick_diff,
-            _ => {
-                panic!("illegal: trying to compare a SystemDuration with a TickDuration");
-            }
+            _ => false,
         }
     }
 
     /// Returns true if self < other.
     ///
-    /// # Panics
-    ///
-    /// Panics if `self` and `other` are of different kinds (comparing a System
-    /// duration with a Tick duration).
+    /// Mismatched kinds (comparing a System duration with a Tick duration) are
+    /// undefined and saturate to `false` instead of panicking.
     #[allow(unused_variables)]
     #[must_use] pub fn smaller_than(&self, other: &Self) -> bool {
         // self < other
@@ -627,13 +626,11 @@ impl Duration {
                 }
                 #[cfg(not(feature = "std"))]
                 {
-                    unreachable!()
+                    false
                 }
             }
             (Self::Tick(s), Self::Tick(o)) => s.tick_diff < o.tick_diff,
-            _ => {
-                panic!("illegal: trying to compare a SystemDuration with a TickDuration");
-            }
+            _ => false,
         }
     }
 }
@@ -739,8 +736,13 @@ impl SystemTimeDiff {
     }
 
     /// Returns the total duration in milliseconds.
+    ///
+    /// Saturates at `u64::MAX` instead of overflow-panicking for enormous
+    /// `secs` values (`secs * 1000` overflows around ~1.8e16 seconds).
     #[must_use] pub const fn millis(&self) -> u64 {
-        (self.secs * MILLIS_PER_SEC) + (self.nanos / NANOS_PER_MILLI) as u64
+        self.secs
+            .saturating_mul(MILLIS_PER_SEC)
+            .saturating_add((self.nanos / NANOS_PER_MILLI) as u64)
     }
 
     /// Converts to `std::time::Duration`.
@@ -974,3 +976,74 @@ pub struct ThreadReceiverDestructorCallback {
     pub cb: ThreadReceiverDestructorCallbackType,
 }
 impl_callback_simple!(ThreadReceiverDestructorCallback);
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // exact-value assertions on interpolation results
+mod tests {
+    use super::*;
+
+    fn tick(n: u64) -> Instant {
+        Instant::Tick(SystemTick::new(n))
+    }
+    fn tick_dur(n: u64) -> Duration {
+        Duration::Tick(SystemTickDiff { tick_diff: n })
+    }
+    fn sys_dur(secs: u64, nanos: u32) -> Duration {
+        Duration::System(SystemTimeDiff { secs, nanos })
+    }
+
+    #[test]
+    fn linear_interpolate_zero_interval_is_one_not_nan() {
+        let t = tick(5);
+        let v = t.linear_interpolate(tick(5), tick(5));
+        assert!(v.is_finite());
+        assert_eq!(v, 1.0);
+    }
+
+    #[test]
+    fn linear_interpolate_midpoint() {
+        let v = tick(5).linear_interpolate(tick(0), tick(10));
+        assert!((v - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn duration_since_saturates_on_negative() {
+        // earlier is actually later -> saturate to zero, no panic.
+        let d = tick(1).duration_since(&tick(10));
+        assert_eq!(d, tick_dur(0));
+    }
+
+    #[test]
+    fn duration_compare_mismatched_kinds_saturates() {
+        // greater_than / smaller_than across kinds must not panic (saturate to false).
+        let a = tick_dur(5);
+        let b = sys_dur(1, 0);
+        assert!(!a.greater_than(&b));
+        assert!(!a.smaller_than(&b));
+        assert!(!b.greater_than(&a));
+        assert!(!b.smaller_than(&a));
+    }
+
+    #[test]
+    fn add_optional_duration_mismatched_is_noop() {
+        let inst = tick(100);
+        // Adding a System duration to a Tick instant is undefined -> returns self.
+        let out = inst.add_optional_duration(Some(&sys_dur(1, 0)));
+        assert_eq!(out, tick(100));
+        // Matching kinds add and saturate.
+        let out2 = inst.add_optional_duration(Some(&tick_dur(5)));
+        assert_eq!(out2, tick(105));
+        // Saturating add: near-max tick doesn't overflow-panic.
+        let big = tick(u64::MAX);
+        let out3 = big.add_optional_duration(Some(&tick_dur(10)));
+        assert_eq!(out3, tick(u64::MAX));
+    }
+
+    #[test]
+    fn millis_saturates_on_overflow() {
+        let huge = SystemTimeDiff { secs: u64::MAX, nanos: 0 };
+        assert_eq!(huge.millis(), u64::MAX);
+        let normal = SystemTimeDiff { secs: 2, nanos: 500_000_000 };
+        assert_eq!(normal.millis(), 2500);
+    }
+}

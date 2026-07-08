@@ -280,6 +280,16 @@ impl ComputedTransform3D {
         rotation_mode: RotationMode,
     ) -> Self {
         // Uses AVX or SSE SIMD when available on x86_64
+        //
+        // AUDIT-TODO: `USE_AVX`/`USE_SSE` are populated in `gpu.rs` from a raw
+        // CPUID leaf-1 feature bit (ECX[28] for AVX), which reports only that
+        // the CPU *implements* AVX — NOT that the OS has enabled the YMM state
+        // via XCR0 (XGETBV). On a kernel that didn't `XSETBV`-enable AVX, using
+        // these intrinsics faults with SIGILL. The robust gate is
+        // `is_x86_feature_detected!("avx")` / `("sse")`, which also checks the
+        // OS-enabled bit. That detection lives in `gpu.rs` (out of scope for
+        // this edit); consumers here rely on it having gated the flags. Prefer
+        // migrating the `gpu.rs` probe to `is_x86_feature_detected!`.
         let mut matrix = Self::IDENTITY;
         let use_avx =
             INITIALIZED.load(AtomicOrdering::Relaxed) && USE_AVX.load(AtomicOrdering::Relaxed);
@@ -818,43 +828,46 @@ impl ComputedTransform3D {
     }}
 
     /// Dual linear combination using AVX instructions on YMM registers.
-    // _mm256_broadcast_ps reads the row as a 128-bit lane via an unaligned-tolerant
-    // x86 load; the `*const [f32;4]` -> `*const __m128` cast is intentional here.
-    #[allow(clippy::cast_ptr_alignment)]
+    ///
+    /// AUDIT: the rows `b.m[i]` are `[f32; 4]` fields with alignment 4, but
+    /// `_mm256_broadcast_ps` takes a `&__m128` (alignment 16). Forming that
+    /// reference — `&*(ptr as *const __m128)` — from an align-4 field is
+    /// misaligned-reference UB even though the underlying `vbroadcastf128`
+    /// tolerates it. Use `_mm256_loadu2_m128`, which does an *unaligned*
+    /// 128-bit load from a raw `*const f32` and never forms a `&__m128`;
+    /// passing the same row pointer for both lanes reproduces the broadcast
+    /// (`result[127:0] = result[255:128] = row`).
     #[cfg(target_arch = "x86_64")]
     unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,
         b: &Self,
     ) -> core::arch::x86_64::__m256 { unsafe {
-        use core::{
-            arch::x86_64::{_mm256_add_ps, _mm256_broadcast_ps, _mm256_mul_ps, _mm256_shuffle_ps},
-            mem,
+        use core::arch::x86_64::{
+            _mm256_add_ps, _mm256_loadu2_m128, _mm256_mul_ps, _mm256_shuffle_ps,
+        };
+
+        // Unaligned broadcast of a row into both 128-bit lanes. Runs inside the
+        // enclosing `unsafe` block, so the intrinsic call needs no inner `unsafe`.
+        let broadcast_row = |row: &[f32; 4]| {
+            let p = row.as_ptr();
+            _mm256_loadu2_m128(p, p)
         };
 
         let mut result = _mm256_mul_ps(
             _mm256_shuffle_ps(a01, a01, 0x00),
-            _mm256_broadcast_ps(&*(&raw const b.m[0] as *const core::arch::x86_64::__m128)),
+            broadcast_row(&b.m[0]),
         );
         result = _mm256_add_ps(
             result,
-            _mm256_mul_ps(
-                _mm256_shuffle_ps(a01, a01, 0x55),
-                _mm256_broadcast_ps(&*(&raw const b.m[1] as *const core::arch::x86_64::__m128)),
-            ),
+            _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0x55), broadcast_row(&b.m[1])),
         );
         result = _mm256_add_ps(
             result,
-            _mm256_mul_ps(
-                _mm256_shuffle_ps(a01, a01, 0xaa),
-                _mm256_broadcast_ps(&*(&raw const b.m[2] as *const core::arch::x86_64::__m128)),
-            ),
+            _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0xaa), broadcast_row(&b.m[2])),
         );
         result = _mm256_add_ps(
             result,
-            _mm256_mul_ps(
-                _mm256_shuffle_ps(a01, a01, 0xff),
-                _mm256_broadcast_ps(&*(&raw const b.m[3] as *const core::arch::x86_64::__m128)),
-            ),
+            _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0xff), broadcast_row(&b.m[3])),
         );
         result
     }}
@@ -914,5 +927,61 @@ impl ComputedTransform3D {
             Self::new_rotation(axis_x, axis_y, axis_z, theta);
 
         pre_transform.then(&rotate_transform).then(&post_transform)
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    fn sample_a() -> ComputedTransform3D {
+        ComputedTransform3D::new(
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        )
+    }
+    fn sample_b() -> ComputedTransform3D {
+        ComputedTransform3D::new(
+            16.0, 15.0, 14.0, 13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0,
+        )
+    }
+
+    fn approx_eq(a: &ComputedTransform3D, b: &ComputedTransform3D) {
+        for r in 0..4 {
+            for c in 0..4 {
+                assert!(
+                    (a.m[r][c] - b.m[r][c]).abs() < 1e-3,
+                    "mismatch at [{r}][{c}]: {} vs {}",
+                    a.m[r][c],
+                    b.m[r][c]
+                );
+            }
+        }
+    }
+
+    // AUDIT: the SSE/AVX matrix-multiply paths must agree with the scalar
+    // reference. In particular this exercises `linear_combine_avx8`, whose
+    // unaligned-load fix (`_mm256_loadu2_m128` instead of forming a misaligned
+    // `&__m128`) must produce identical results. Only runs the SIMD paths when
+    // the CPU (and OS) actually support the feature.
+    #[test]
+    fn simd_matmul_matches_scalar() {
+        let a = sample_a();
+        let b = sample_b();
+        let scalar = a.then(&b);
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            if std::is_x86_feature_detected!("sse") {
+                let sse = unsafe { a.then_sse(&b) };
+                approx_eq(&scalar, &sse);
+            }
+            if std::is_x86_feature_detected!("avx") {
+                let avx = unsafe { a.then_avx8(&b) };
+                approx_eq(&scalar, &avx);
+            }
+        }
+
+        // Always assert the scalar path is self-consistent (identity * b == b).
+        approx_eq(&ComputedTransform3D::IDENTITY.then(&b), &b);
     }
 }

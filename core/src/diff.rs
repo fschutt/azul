@@ -219,41 +219,58 @@ pub struct ExtendedDiffResult {
         let mut has_layout = false;
         let mut has_paint = false;
 
-        // Build a map of property type → (property, conditions) for old props.
-        let mut old_map = OrderedMap::default();
-        for (prop, conds) in old_node.style.iter_inline_properties() {
-            old_map.insert(prop.get_type(), (prop, conds));
-        }
-
-        // Check new props against old.
-        let mut seen_types = alloc::collections::BTreeSet::new();
-        for (prop, conds) in new_node.style.iter_inline_properties() {
-            let prop_type = prop.get_type();
-            seen_types.insert(prop_type);
-            match old_map.get(&prop_type) {
-                Some(&(old_prop, old_conds))
-                    if old_prop == prop
-                        && old_conds.as_slice() == conds.as_slice() => {} // unchanged
-                _ => {
-                    let scope = prop_type.relayout_scope(true);
-                    if scope == RelayoutScope::None {
-                        has_paint = true;
-                    } else {
-                        has_layout = true;
-                    }
-                }
+        // Classify a changed/added/removed property into the layout vs paint bucket.
+        #[allow(clippy::items_after_statements)]
+        fn mark(prop_type: CssPropertyType, has_layout: &mut bool, has_paint: &mut bool) {
+            if prop_type.relayout_scope(true) == RelayoutScope::None {
+                *has_paint = true;
+            } else {
+                *has_layout = true;
             }
         }
 
-        // Check for removed properties
-        for prop_type in old_map.keys() {
-            if !seen_types.contains(prop_type) {
-                let scope = prop_type.relayout_scope(true);
-                if scope == RelayoutScope::None {
-                    has_paint = true;
-                } else {
-                    has_layout = true;
+        // AUDIT: key the diff by (prop_type, conditions), NOT prop_type alone.
+        // A node can carry the same property under different conditions (e.g.
+        // `color: red` and `color: blue` scoped to `:hover`); keying by
+        // prop_type collapsed them into one map slot, so a change to one
+        // conditional variant could be silently dropped. Match each new
+        // property against an old entry with the SAME prop_type AND the same
+        // conditions, and mark any old entry left unmatched as removed.
+        let old_props: Vec<(CssPropertyType, _, _)> = old_node
+            .style
+            .iter_inline_properties()
+            .map(|(prop, conds)| (prop.get_type(), prop, conds))
+            .collect();
+        let mut old_matched = vec![false; old_props.len()];
+
+        for (prop, conds) in new_node.style.iter_inline_properties() {
+            let prop_type = prop.get_type();
+            // Find an as-yet-unmatched old entry with the same (type, conditions).
+            let mut found_unchanged = false;
+            for (i, (old_type, old_prop, old_conds)) in old_props.iter().enumerate() {
+                if old_matched[i]
+                    || *old_type != prop_type
+                    || old_conds.as_slice() != conds.as_slice()
+                {
+                    continue;
                 }
+                old_matched[i] = true;
+                if *old_prop == prop {
+                    found_unchanged = true;
+                }
+                break;
+            }
+            // Unchanged only when we matched an old (type, conditions) slot whose
+            // value is identical; otherwise the property was added or changed.
+            if !found_unchanged {
+                mark(prop_type, &mut has_layout, &mut has_paint);
+            }
+        }
+
+        // Check for removed properties (old (type, conditions) slots never matched)
+        for (i, (old_type, _, _)) in old_props.iter().enumerate() {
+            if !old_matched[i] {
+                mark(*old_type, &mut has_layout, &mut has_paint);
             }
         }
 
@@ -327,40 +344,90 @@ pub struct ExtendedDiffResult {
 ) -> u64 {
     use core::hash::Hasher;
 
-    let node = &node_data[node_id.index()];
+    let n = node_data.len();
 
-    // Priority 1: Explicit key
-    if let Some(key) = node.get_key() {
+    // Terminal (parent-independent) key for a node: Priority 1 explicit key,
+    // else Priority 2 CSS ID, else `None` (structural — needs the parent chain).
+    let terminal_key = |nid: NodeId| -> Option<u64> {
+        let node = &node_data[nid.index()];
+        // Priority 1: Explicit key
+        if let Some(key) = node.get_key() {
+            return Some(key);
+        }
+        // Priority 2: CSS ID
+        for attr in node.attributes().as_ref() {
+            if let Some(id) = attr.as_id() {
+                let mut hasher = crate::hash::DefaultHasher::new();
+                id.hash(&mut hasher);
+                return Some(hasher.finish());
+            }
+        }
+        None
+    };
+
+    // Fast path: the node itself has an explicit key or CSS ID.
+    if let Some(key) = terminal_key(node_id) {
         return key;
     }
 
-    // Priority 2: CSS ID
-    for attr in node.attributes().as_ref() {
-        if let Some(id) = attr.as_id() {
-            let mut hasher = crate::hash::DefaultHasher::new();
-            id.hash(&mut hasher);
-            return hasher.finish();
+    // Priority 3: structural key, computed ITERATIVELY up the parent chain.
+    //
+    // AUDIT: the previous implementation recursed once per ancestor with no
+    // depth cap and no cycle guard, so a deep DOM overflowed the stack and a
+    // corrupt (cyclic) hierarchy recursed forever — and `precompute_*` calls
+    // this once per node. Walk upward instead, bounded by the node count.
+    //
+    // Collect the structural chain from `node_id` upward. The walk stops at:
+    //   - the root (a node with no parent) — structural base is just
+    //     `discriminant + classes`,
+    //   - a terminal (explicit-key / CSS-ID) ancestor, whose key seeds the fold, or
+    //   - `n` iterations (a valid parent chain is at most `n` long, so exceeding
+    //     that means the hierarchy is cyclic/corrupt — stop).
+    let mut chain: Vec<NodeId> = Vec::new();
+    let mut seed_parent_key: Option<u64> = None;
+    let mut cur = node_id;
+    for _ in 0..n {
+        if cur.index() >= n {
+            break;
+        }
+        chain.push(cur);
+        match hierarchy.get(cur.index()).and_then(NodeHierarchyItem::parent_id) {
+            None => break,
+            Some(parent) => {
+                if let Some(k) = terminal_key(parent) {
+                    seed_parent_key = Some(k);
+                    break;
+                }
+                cur = parent;
+            }
         }
     }
 
-    // Priority 3: Structural key = (node type, classes, nth-of-type, parent key)
-    let mut hasher = crate::hash::DefaultHasher::new();
+    // Fold from the topmost ancestor down to `node_id`. `parent_key` threads the
+    // accumulated key of the level above (identical to the old recursion, just
+    // unrolled bottom-up).
+    let mut parent_key: Option<u64> = seed_parent_key;
+    for &nid in chain.iter().rev() {
+        let node = &node_data[nid.index()];
+        let mut hasher = crate::hash::DefaultHasher::new();
 
-    core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
-    for attr in node.attributes().as_ref() {
-        if let Some(class) = attr.as_class() {
-            class.hash(&mut hasher);
+        core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
+        for attr in node.attributes().as_ref() {
+            if let Some(class) = attr.as_class() {
+                class.hash(&mut hasher);
+            }
         }
-    }
 
-    if let Some(hierarchy_item) = hierarchy.get(node_id.index()) {
-        if let Some(parent_id) = hierarchy_item.parent_id() {
+        if let Some(parent_id) =
+            hierarchy.get(nid.index()).and_then(NodeHierarchyItem::parent_id)
+        {
+            // nth-of-type: count same-discriminant siblings before `nid`.
             let mut sibling_index: usize = 0;
-            let parent_hierarchy = &hierarchy[parent_id.index()];
-
-            let mut current = parent_hierarchy.first_child_id(parent_id);
+            let mut current = hierarchy
+                .get(parent_id.index())
+                .and_then(|h| h.first_child_id(parent_id));
             while let Some(sibling_id) = current {
-                if sibling_id == node_id {
+                if sibling_id == nid {
                     break;
                 }
                 let sibling = &node_data[sibling_id.index()];
@@ -369,17 +436,19 @@ pub struct ExtendedDiffResult {
                 {
                     sibling_index += 1;
                 }
-                current = hierarchy[sibling_id.index()].next_sibling_id();
+                current = hierarchy
+                    .get(sibling_id.index())
+                    .and_then(NodeHierarchyItem::next_sibling_id);
             }
 
             sibling_index.hash(&mut hasher);
-
-            let parent_key = calculate_reconciliation_key(node_data, hierarchy, parent_id);
-            parent_key.hash(&mut hasher);
+            parent_key.unwrap_or(0).hash(&mut hasher);
         }
+
+        parent_key = Some(hasher.finish());
     }
 
-    hasher.finish()
+    parent_key.unwrap_or(0)
 }
 
 /// Precompute reconciliation keys for every node in a DOM tree.
@@ -481,6 +550,20 @@ pub struct DiffResult {
     // produce the same content hash, etc.); we consume in document order on match.
 
     let old_rec_keys = precompute_reconciliation_keys(old_node_data, old_hierarchy);
+    // AUDIT: precompute NEW keys too so the Tier-2/Tier-3 keyless tiers can be
+    // gated on parent-key agreement (see STEP 2). Also lets Tier 1 look the key
+    // up instead of recomputing it per node.
+    let new_rec_keys = precompute_reconciliation_keys(new_node_data, new_hierarchy);
+
+    // Reconciliation key of a node's PARENT (`None` for a root or when the
+    // hierarchy is unavailable). Used to keep keyless matches from migrating
+    // focus/scroll/dataset state across different parents.
+    let old_parent_key = |old_id: NodeId| -> Option<u64> {
+        old_hierarchy
+            .get(old_id.index())
+            .and_then(NodeHierarchyItem::parent_id)
+            .map(|p| old_rec_keys[p.index()])
+    };
 
     let mut old_by_rec_key: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
     let mut old_hashed: OrderedMap<DomNodeHash, VecDeque<NodeId>> = OrderedMap::default();
@@ -507,14 +590,24 @@ pub struct DiffResult {
         let has_explicit_key = new_node.get_key().is_some();
 
         // Tier 1: Reconciliation key (explicit `.with_key()`, CSS ID, or structural key)
-        let new_rec_key =
-            calculate_reconciliation_key(new_node_data, new_hierarchy, new_id);
+        let new_rec_key = new_rec_keys[new_idx];
         if let Some(queue) = old_by_rec_key.get_mut(&new_rec_key) {
             if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
                 matched_old_id = Some(old_id);
                 matched_by_rec_key = true;
             }
         }
+
+        // AUDIT: parent-key of the new node. The keyless Tier-2/Tier-3 tiers are
+        // only allowed to claim an old node whose parent's reconciliation key
+        // agrees — otherwise two structurally-identical nodes under DIFFERENT
+        // parents would match and migrate focus/scroll/dataset state to an
+        // unrelated subtree. When either hierarchy is unavailable this is `None`
+        // on both sides, so the gate is a no-op (flat-DOM behavior preserved).
+        let new_parent_key: Option<u64> = new_hierarchy
+            .get(new_idx)
+            .and_then(NodeHierarchyItem::parent_id)
+            .map(|p| new_rec_keys[p.index()]);
 
         // An explicit `.with_key()` is a strong, intentional identity marker: if it
         // doesn't match anything in the old DOM we treat the new node as genuinely
@@ -524,8 +617,11 @@ pub struct DiffResult {
             // Tier 2: Content hash (exact match — catches pure reorders)
             let hash = new_node.calculate_node_data_hash();
             if let Some(queue) = old_hashed.get_mut(&hash) {
-                if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
-                    matched_old_id = Some(old_id);
+                if let Some(pos) = queue.iter().position(|&old_id| {
+                    !old_nodes_consumed[old_id.index()]
+                        && old_parent_key(old_id) == new_parent_key
+                }) {
+                    matched_old_id = queue.remove(pos);
                 }
             }
 
@@ -533,8 +629,11 @@ pub struct DiffResult {
             if matched_old_id.is_none() {
                 let structural_hash = new_node.calculate_structural_hash();
                 if let Some(queue) = old_structural.get_mut(&structural_hash) {
-                    if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
-                        matched_old_id = Some(old_id);
+                    if let Some(pos) = queue.iter().position(|&old_id| {
+                        !old_nodes_consumed[old_id.index()]
+                            && old_parent_key(old_id) == new_parent_key
+                    }) {
+                        matched_old_id = queue.remove(pos);
                     }
                 }
             }
@@ -871,63 +970,111 @@ pub fn transfer_states(
     node_id: NodeId,
 ) -> u64 {
     use core::hash::Hasher;
-    
-    let node = &node_data[node_id.index()];
-    
-    // Priority 1: Explicit key (from .with_key())
-    if let Some(explicit_key) = node.get_key() {
-        return explicit_key;
-    }
-    
-    // Priority 2: CSS ID
-    for attr in node.attributes().as_ref() {
-        if let Some(id) = attr.as_id() {
-            let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for ID keys
-            hasher.write(id.as_bytes());
-            return hasher.finish();
+
+    let n = node_data.len();
+
+    // Terminal (parent-independent) key: Priority 1 explicit key, else
+    // Priority 2 CSS ID, else `None` (structural — needs the parent chain).
+    let terminal_key = |nid: NodeId| -> Option<u64> {
+        let node = &node_data[nid.index()];
+        // Priority 1: Explicit key (from .with_key())
+        if let Some(explicit_key) = node.get_key() {
+            return Some(explicit_key);
         }
-    }
-    
-    // Priority 3: Structural key = (nth-of-type, classes, parent_key)
-    let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for structural keys
-    
-    // Get parent and calculate its key recursively
-    let parent_key = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id).map_or(0u64, |parent_id| calculate_contenteditable_key(node_data, hierarchy, parent_id));
-    hasher.write(&parent_key.to_le_bytes());
-    
-    // Calculate nth-of-type (count siblings of same node type before this one)
-    // We compare discriminants directly without hashing
-    let node_discriminant = core::mem::discriminant(node.get_node_type());
-    let nth_of_type = hierarchy.get(node_id.index()).and_then(NodeHierarchyItem::parent_id).map_or(0, |parent_id| {
-        // Count siblings with same node type that come before this node
-        let mut count = 0u32;
-        let mut sibling_id = hierarchy.get(parent_id.index()).and_then(|h| h.first_child_id(parent_id));
-        while let Some(sib_id) = sibling_id {
-            if sib_id == node_id {
-                break;
+        // Priority 2: CSS ID
+        for attr in node.attributes().as_ref() {
+            if let Some(id) = attr.as_id() {
+                let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for ID keys
+                hasher.write(id.as_bytes());
+                return Some(hasher.finish());
             }
-            let sibling_discriminant = core::mem::discriminant(node_data[sib_id.index()].get_node_type());
-            if sibling_discriminant == node_discriminant {
-                count += 1;
-            }
-            sibling_id = hierarchy.get(sib_id.index()).and_then(NodeHierarchyItem::next_sibling_id);
         }
-        count
-    });
-    
-    hasher.write(&nth_of_type.to_le_bytes());
-    
-    // Hash the node type discriminant (Discriminant<T> implements Hash)
-    node_discriminant.hash(&mut hasher);
-    
-    // Also hash the classes for additional stability
-    for attr in node.attributes().as_ref() {
-        if let Some(class) = attr.as_class() {
-            hasher.write(class.as_bytes());
+        None
+    };
+
+    // Fast path: the node itself has an explicit key or CSS ID.
+    if let Some(key) = terminal_key(node_id) {
+        return key;
+    }
+
+    // Priority 3: structural key, computed ITERATIVELY up the parent chain.
+    //
+    // AUDIT: replaces unbounded parent-chain recursion (stack overflow on deep
+    // DOMs, infinite recursion on a cyclic hierarchy). Same fold as the old
+    // recursion, unrolled bottom-up and bounded by the node count.
+    let mut chain: Vec<NodeId> = Vec::new();
+    let mut seed_parent_key: Option<u64> = None;
+    let mut cur = node_id;
+    for _ in 0..n {
+        if cur.index() >= n {
+            break;
+        }
+        chain.push(cur);
+        match hierarchy.get(cur.index()).and_then(NodeHierarchyItem::parent_id) {
+            None => break,
+            Some(parent) => {
+                if let Some(k) = terminal_key(parent) {
+                    seed_parent_key = Some(k);
+                    break;
+                }
+                cur = parent;
+            }
         }
     }
-    
-    hasher.finish()
+
+    // Fold from the topmost ancestor down to `node_id`. Unlike the
+    // reconciliation key, the contenteditable structural key ALWAYS writes a
+    // `parent_key` (0 at the root) and an `nth_of_type` (0 at the root), so the
+    // per-level hashing is unconditional — preserve that exactly.
+    let mut parent_key: u64 = seed_parent_key.unwrap_or(0);
+    for &nid in chain.iter().rev() {
+        let node = &node_data[nid.index()];
+        let mut hasher = crate::hash::DefaultHasher::new(); // Different seed for structural keys
+
+        let node_parent = hierarchy.get(nid.index()).and_then(NodeHierarchyItem::parent_id);
+
+        // parent_key: 0 at the root, else the accumulated key of the level above.
+        let level_parent_key = if node_parent.is_some() { parent_key } else { 0 };
+        hasher.write(&level_parent_key.to_le_bytes());
+
+        // nth-of-type: count same-discriminant siblings before `nid`.
+        let node_discriminant = core::mem::discriminant(node.get_node_type());
+        let nth_of_type = node_parent.map_or(0u32, |parent_id| {
+            let mut count = 0u32;
+            let mut sibling_id = hierarchy
+                .get(parent_id.index())
+                .and_then(|h| h.first_child_id(parent_id));
+            while let Some(sib_id) = sibling_id {
+                if sib_id == nid {
+                    break;
+                }
+                let sibling_discriminant =
+                    core::mem::discriminant(node_data[sib_id.index()].get_node_type());
+                if sibling_discriminant == node_discriminant {
+                    count += 1;
+                }
+                sibling_id = hierarchy
+                    .get(sib_id.index())
+                    .and_then(NodeHierarchyItem::next_sibling_id);
+            }
+            count
+        });
+        hasher.write(&nth_of_type.to_le_bytes());
+
+        // Hash the node type discriminant (Discriminant<T> implements Hash)
+        node_discriminant.hash(&mut hasher);
+
+        // Also hash the classes for additional stability
+        for attr in node.attributes().as_ref() {
+            if let Some(class) = attr.as_class() {
+                hasher.write(class.as_bytes());
+            }
+        }
+
+        parent_key = hasher.finish();
+    }
+
+    parent_key
 }
 
 /// Reconcile cursor byte position when text content changes.
@@ -960,21 +1107,33 @@ pub fn transfer_states(
     new_text: &str,
     old_cursor_byte: usize,
 ) -> usize {
+    // AUDIT: every returned offset is snapped DOWN to the nearest UTF-8 char
+    // boundary in `new_text` (and clamped to its length). The prefix/suffix
+    // scans below compare byte-by-byte and can land mid-codepoint, so a raw
+    // return value could later panic when used to slice `new_text` as a `str`.
+    let snap = |offset: usize| -> usize {
+        let mut o = offset.min(new_text.len());
+        while o > 0 && !new_text.is_char_boundary(o) {
+            o -= 1;
+        }
+        o
+    };
+
     // If texts are equal, cursor is unchanged
     if old_text == new_text {
-        return old_cursor_byte;
+        return snap(old_cursor_byte);
     }
-    
+
     // Empty old text - place cursor at end of new text
     if old_text.is_empty() {
         return new_text.len();
     }
-    
+
     // Empty new text - place cursor at 0
     if new_text.is_empty() {
         return 0;
     }
-    
+
     // Find common prefix (how many bytes from the start are identical)
     let common_prefix_bytes = old_text
         .bytes()
@@ -984,7 +1143,7 @@ pub fn transfer_states(
     
     // If cursor was in the unchanged prefix, it stays at the same byte offset
     if old_cursor_byte <= common_prefix_bytes {
-        return old_cursor_byte.min(new_text.len());
+        return snap(old_cursor_byte);
     }
     
     // Find common suffix (how many bytes from the end are identical)
@@ -1002,12 +1161,12 @@ pub fn transfer_states(
     // If cursor was in the unchanged suffix, adjust by length difference
     if old_cursor_byte >= old_suffix_start {
         let offset_from_end = old_text.len() - old_cursor_byte;
-        return new_text.len().saturating_sub(offset_from_end);
+        return snap(new_text.len().saturating_sub(offset_from_end));
     }
-    
+
     // Cursor was in the changed region - place at end of inserted content
     // This handles insertions (cursor moves with new text) and deletions (cursor at edit point)
-    new_suffix_start
+    snap(new_suffix_start)
 }
 
 /// Get the text content from a `NodeData` if it's a Text node.
@@ -1586,5 +1745,134 @@ impl NodeDataFingerprint {
             || self.state_hash != other.state_hash
             || self.inline_css_hash != other.inline_css_hash
             || self.ids_classes_hash != other.ids_classes_hash
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use crate::dom::NodeData;
+    use crate::styled_dom::NodeHierarchyItem;
+
+    // Build a NodeHierarchyItem from optional 0-based indices (encoded 1-based).
+    fn hitem(
+        parent: Option<usize>,
+        prev: Option<usize>,
+        next: Option<usize>,
+        last_child: Option<usize>,
+    ) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: prev.map_or(0, |p| p + 1),
+            next_sibling: next.map_or(0, |p| p + 1),
+            last_child: last_child.map_or(0, |p| p + 1),
+        }
+    }
+
+    // A deep parent chain that would overflow the stack with the old recursion.
+    #[test]
+    fn reconciliation_key_deep_chain_no_overflow() {
+        let build = |n: usize| -> (Vec<NodeData>, Vec<NodeHierarchyItem>) {
+            let node_data = (0..n).map(|_| NodeData::create_div()).collect();
+            let hierarchy = (0..n)
+                .map(|i| {
+                    hitem(
+                        if i == 0 { None } else { Some(i - 1) },
+                        None,
+                        None,
+                        if i + 1 < n { Some(i + 1) } else { None },
+                    )
+                })
+                .collect();
+            (node_data, hierarchy)
+        };
+
+        // A very deep linear chain: the OLD recursion overflowed the stack here.
+        // A single-node key walk is O(depth) and must complete without recursing.
+        let n = 100_000usize;
+        let (node_data, hierarchy) = build(n);
+        let _ = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(n - 1));
+        let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(n - 1));
+
+        // Whole-DOM precompute calls the per-node walk once per node, so over a
+        // *linear* chain it is O(n²) — that only bites a pathological 100k-deep
+        // DOM (never a real tree). Exercise the whole-DOM path over a modest
+        // chain; correctness is covered by `reconciliation_key_single_node` and
+        // `reconciliation_key_distinguishes_siblings`.
+        let m = 2_000usize;
+        let (nd, hi) = build(m);
+        let keys = precompute_reconciliation_keys(&nd, &hi);
+        assert_eq!(keys.len(), m);
+    }
+
+    // A cyclic (corrupt) hierarchy must terminate, not hang.
+    #[test]
+    fn reconciliation_key_cycle_terminates() {
+        let node_data = vec![
+            NodeData::create_div(),
+            NodeData::create_div(),
+            NodeData::create_div(),
+        ];
+        // node1.parent = 2, node2.parent = 1 — a cycle not involving root 0.
+        let hierarchy = vec![
+            hitem(None, None, None, None),
+            hitem(Some(2), None, None, None),
+            hitem(Some(1), None, None, None),
+        ];
+        let _ = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(1));
+        let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(1));
+    }
+
+    #[test]
+    fn reconciliation_key_single_node() {
+        let node_data = vec![NodeData::create_div()];
+        let hierarchy = vec![hitem(None, None, None, None)];
+        let direct = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(0));
+        let pre = precompute_reconciliation_keys(&node_data, &hierarchy)[0];
+        assert_eq!(direct, pre);
+    }
+
+    #[test]
+    fn reconciliation_key_distinguishes_siblings() {
+        // root 0 with two div children 1 and 2 — nth-of-type must differ.
+        let node_data = vec![NodeData::create_div(); 3];
+        let hierarchy = vec![
+            hitem(None, None, None, Some(2)),    // root: first_child=1, last_child=2
+            hitem(Some(0), None, Some(2), None), // child 1
+            hitem(Some(0), Some(1), None, None), // child 2
+        ];
+        let k1 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(1));
+        let k2 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(2));
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn cursor_offsets_are_always_char_boundaries() {
+        // "héllo": h=0, é=1..3 (2 bytes), l=3, l=4, o=5 (len 6).
+        let old = "héllo";
+        let new = "héllo wörld"; // ö is multibyte too
+        for c in 0..=old.len() {
+            let r = reconcile_cursor_position(old, new, c);
+            assert!(
+                new.is_char_boundary(r),
+                "cursor {c} mapped to non-char-boundary offset {r} in {new:?}",
+            );
+            assert!(r <= new.len());
+        }
+        // Deletion inside a multibyte suffix must not split a codepoint.
+        let r = reconcile_cursor_position("aömega", "bömega", 3);
+        assert!("bömega".is_char_boundary(r));
+    }
+
+    #[test]
+    fn cursor_prefix_unchanged_stays_put() {
+        assert_eq!(reconcile_cursor_position("Hello", "Hello World", 5), 5);
+    }
+
+    #[test]
+    fn cursor_empty_cases() {
+        assert_eq!(reconcile_cursor_position("", "abc", 0), 3);
+        assert_eq!(reconcile_cursor_position("abc", "", 2), 0);
+        assert_eq!(reconcile_cursor_position("abc", "abc", 2), 2);
     }
 }

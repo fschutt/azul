@@ -827,9 +827,18 @@ pub struct PropagationResult {
 
     let hier_ref = node_hierarchy.as_ref();
 
-    // Build path from target to root
+    // Build path from target to root. Bounded by the node count and guarded by a
+    // visited-set: a corrupt hierarchy with a parent cycle (or a parent chain
+    // longer than the arena) would otherwise loop forever / OOM here, and this
+    // runs on every event dispatch.
+    let node_count = hier_ref.len();
+    let mut visited: BTreeSet<NodeId> = BTreeSet::new();
     let mut current = Some(target_node_id);
     while let Some(node_id) = current {
+        if path.len() > node_count || !visited.insert(node_id) {
+            // Cycle or overrun detected: stop rather than spin forever.
+            break;
+        }
         path.push(node_id);
         current = hier_ref.get(node_id).and_then(|node| node.parent);
     }
@@ -1484,6 +1493,30 @@ fn create_unmount_event(
     )
 }
 
+/// Returns `true` iff the two logical sizes differ after fixed-point
+/// quantization (~0.001 tolerance), treating a dimension that is NaN on *both*
+/// sides as unchanged so a degenerate layout cannot emit a Resize every frame.
+fn size_changed(old: crate::geom::LogicalSize, new: crate::geom::LogicalSize) -> bool {
+    fn dim_changed(a: f32, b: f32) -> bool {
+        if a.is_nan() && b.is_nan() {
+            return false;
+        }
+        // Fixed-point quantization mirrors `LogicalSize`'s `Ord`/`Hash`.
+        // `f32 as i64` saturates on overflow (no wasm32 wraparound); a lone
+        // NaN quantizes to `i64::MIN` and so registers as changed.
+        #[allow(clippy::cast_possible_truncation)] // intentional fixed-point quantization; saturates
+        let q = |v: f32| -> i64 {
+            if v.is_nan() {
+                i64::MIN
+            } else {
+                (v * 1000.0) as i64
+            }
+        };
+        q(a) != q(b)
+    }
+    dim_changed(old.width, new.width) || dim_changed(old.height, new.height)
+}
+
 fn create_resize_event(
     node_id: NodeId,
     dom_id: DomId,
@@ -1494,7 +1527,12 @@ fn create_resize_event(
     let old_bounds = *old_layout.get(&node_id)?;
     let new_bounds = *new_layout.get(&node_id)?;
 
-    if old_bounds.size == new_bounds.size {
+    // Quantized/tolerance compare with an explicit NaN guard. A raw `==` on
+    // `LogicalSize` used to compare f32 bit patterns, so a single NaN dimension
+    // made `old != new` true *every frame forever* -> an endless Resize-event
+    // loop. `size_changed` treats a NaN dimension present on both sides as
+    // "unchanged" and otherwise compares fixed-point-quantized values.
+    if !size_changed(old_bounds.size, new_bounds.size) {
         return None;
     }
 
@@ -2456,8 +2494,11 @@ pub trait EventProvider {
             v
         }
 
-        // Click uses LeftMouseDown (W3C: click is left-button only)
-        E::Click => vec![EF::Hover(H::LeftMouseDown)],
+        // Click maps to LeftMouseUp: per W3C a `click` completes on button
+        // *release* over the target (left-button only). Mapping it to
+        // LeftMouseDown fired synthesized clicks as a duplicate MouseDown
+        // (press semantics) instead of a completed click.
+        E::Click => vec![EF::Hover(H::LeftMouseUp)],
 
         // Other mouse events
         E::MouseOver => vec![EF::Hover(H::MouseOver)],
@@ -3120,14 +3161,31 @@ enum InternalEventAction {
     AddAndPass(SystemChange),
 }
 
-/// Extract first hovered node from hit test
+/// Extract the front-most hovered node from a hit test.
+///
+/// Picks the node with the minimum `hit_depth` (0 = frontmost/topmost in
+/// z-order) across every hovered DOM. The previous implementation took the
+/// first entry of the `BTreeMap` (lowest `NodeId`), which ignored z-order
+/// entirely and targeted the back-most node under overlapping elements.
+/// Ties are broken deterministically by (`DomId`, `NodeId`) iteration order.
 fn get_first_hovered_node(hit_test: Option<&FullHitTest>) -> Option<DomNodeId> {
     let ht = hit_test?;
-    let (dom_id, hit_data) = ht.hovered_nodes.iter().next()?;
-    let node_id = hit_data.regular_hit_test_nodes.keys().next()?;
+    let mut best: Option<(DomId, NodeId, u32)> = None;
+    for (dom_id, hit_data) in &ht.hovered_nodes {
+        for (node_id, item) in &hit_data.regular_hit_test_nodes {
+            let is_better = match best {
+                None => true,
+                Some((_, _, best_depth)) => item.hit_depth < best_depth,
+            };
+            if is_better {
+                best = Some((*dom_id, *node_id, item.hit_depth));
+            }
+        }
+    }
+    let (dom_id, node_id, _) = best?;
     Some(DomNodeId {
-        dom: *dom_id,
-        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+        dom: dom_id,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
     })
 }
 
@@ -3164,8 +3222,11 @@ fn handle_mouse_down(
     let _target = get_first_hovered_node(hit_test)?;
     let position = get_mouse_position_with_fallback(event, mouse_state);
 
-    // Ctrl+Click (or Cmd+Click on macOS): add cursor at click position
-    if keyboard_state.ctrl_down() && effective_click_count == 1 {
+    // Ctrl+Click (or Cmd+Click on macOS): add cursor at click position.
+    // Use the platform PRIMARY modifier so this fires on Cmd on macOS
+    // (where Ctrl+Click is the secondary-click gesture) — `ctrl_down()`
+    // was wrong there.
+    if keyboard_state.primary_down() && effective_click_count == 1 {
         return Some(InternalEventAction::AddAndPass(
             SystemChange::AddCursorAtClick { position },
         ));
@@ -3212,21 +3273,33 @@ fn handle_key_down(
     use crate::window::VirtualKeyCode;
 
     let target = focused_node?;
-    let EventData::Keyboard(_) = &event.data else {
+    let EventData::Keyboard(kbd) = &event.data else {
         return None;
     };
+
+    // Read the key and modifiers from THIS event's payload, not from the live
+    // `keyboard_state`. The live state can have advanced (another key pressed /
+    // released) between when the event was queued and when it is dispatched, so
+    // reading it here could act on the wrong key/modifiers. `keyboard_state` is
+    // retained only for the platform where the event does not carry a key.
+    let _ = keyboard_state;
 
     // MWA-A2: standard shortcuts key off the PRIMARY modifier (Cmd on
     // macOS, Ctrl elsewhere); word-jump / word-delete keys off the
     // platform's word modifier (Option on macOS, Ctrl elsewhere).
-    let primary = keyboard_state.primary_down();
-    let word_mod = if cfg!(target_os = "macos") {
-        keyboard_state.alt_down()
+    let primary = if cfg!(target_os = "macos") {
+        kbd.modifiers.meta
     } else {
-        keyboard_state.ctrl_down()
+        kbd.modifiers.ctrl
     };
-    let shift = keyboard_state.shift_down();
-    let vk = keyboard_state.current_virtual_keycode.as_ref()?;
+    let word_mod = if cfg!(target_os = "macos") {
+        kbd.modifiers.alt
+    } else {
+        kbd.modifiers.ctrl
+    };
+    let shift = kbd.modifiers.shift;
+    let vk_owned = VirtualKeyCode::from_u32(kbd.key_code)?;
+    let vk = &vk_owned;
 
     // Check keyboard shortcuts (primary+key) → emit specific SystemChange
     // variants. Standard editing shortcuts are routed through the
@@ -3860,5 +3933,75 @@ mod tests {
         // <input> is naturally focusable.
         let input = NodeData::create_node(NodeType::Input);
         assert!(<NodeData as Focusable>::is_naturally_focusable(&input));
+    }
+
+    #[test]
+    fn first_hovered_node_picks_frontmost_by_depth() {
+        use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
+        use crate::dom::OptionDomNodeId;
+        use std::collections::BTreeMap;
+
+        let item = |depth: u32| HitTestItem {
+            point_in_viewport: LogicalPosition::zero(),
+            point_relative_to_item: LogicalPosition::zero(),
+            is_focusable: true,
+            is_virtual_view_hit: None,
+            hit_depth: depth,
+        };
+
+        // Front-most node (depth 0) has the HIGHER NodeId; back node (depth 5)
+        // has the lower id. The old `.next()` logic returned the lowest id
+        // (node 2, the back one). We must now return the front-most (node 5).
+        let mut regular = BTreeMap::new();
+        regular.insert(NodeId::new(2), item(5));
+        regular.insert(NodeId::new(5), item(0));
+
+        let mut hovered = BTreeMap::new();
+        hovered.insert(DomId { inner: 0 }, HitTest {
+            regular_hit_test_nodes: regular,
+            scroll_hit_test_nodes: BTreeMap::new(),
+            scrollbar_hit_test_nodes: BTreeMap::new(),
+            cursor_hit_test_nodes: BTreeMap::new(),
+        });
+        let ht = FullHitTest { hovered_nodes: hovered, focused_node: OptionDomNodeId::None };
+
+        let got = get_first_hovered_node(Some(&ht)).unwrap();
+        assert_eq!(got.node.into_crate_internal(), Some(NodeId::new(5)));
+    }
+
+    #[test]
+    fn size_changed_nan_guard_stops_resize_loop() {
+        use crate::geom::LogicalSize;
+        // A NaN dimension present on BOTH frames must read as "unchanged" so no
+        // Resize is emitted every frame.
+        let a = LogicalSize::new(f32::NAN, 100.0);
+        let b = LogicalSize::new(f32::NAN, 100.0);
+        assert!(!size_changed(a, b));
+        // A real change is still detected.
+        assert!(size_changed(LogicalSize::new(100.0, 100.0), LogicalSize::new(100.0, 120.0)));
+        // Sub-quantum jitter is ignored.
+        assert!(!size_changed(LogicalSize::new(100.0, 100.0), LogicalSize::new(100.00005, 100.0)));
+    }
+
+    #[test]
+    fn dom_path_terminates_on_parent_cycle() {
+        use crate::id::{Node, NodeHierarchy};
+        // Two nodes whose parents point at each other -> a cycle.
+        let nodes = vec![
+            Node { parent: Some(NodeId::new(1)), ..Node::ROOT },
+            Node { parent: Some(NodeId::new(0)), ..Node::ROOT },
+        ];
+        let hier = NodeHierarchy::new(nodes);
+        let target = NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0)));
+        // Must not hang / OOM; bounded by node count + visited-set.
+        let path = get_dom_path(&hier, target);
+        assert!(path.len() <= 2);
+    }
+
+    #[test]
+    fn click_event_maps_to_left_mouse_up() {
+        let filters = event_type_to_filters(EventType::Click, &EventData::None);
+        assert!(filters.contains(&EventFilter::Hover(HoverEventFilter::LeftMouseUp)));
+        assert!(!filters.contains(&EventFilter::Hover(HoverEventFilter::LeftMouseDown)));
     }
 }

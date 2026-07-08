@@ -68,6 +68,10 @@ pub struct TextSelectionDrag {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct ScrollbarThumbDrag {
+    /// DOM ID that `scroll_container_node` belongs to. Used to scope
+    /// `remap_node_ids` so a reconciliation of a *different* DOM can't remap
+    /// this drag's node id against an unrelated DOM's old→new map.
+    pub dom_id: DomId,
     /// The scroll container node being scrolled
     pub scroll_container_node: NodeId,
     /// Whether this is the vertical or horizontal scrollbar
@@ -400,6 +404,7 @@ impl DragContext {
 
     /// Create a scrollbar thumb drag
     #[must_use] pub const fn scrollbar_thumb(
+        dom_id: DomId,
         scroll_container_node: NodeId,
         axis: ScrollbarAxis,
         start_mouse_position: LogicalPosition,
@@ -411,6 +416,7 @@ impl DragContext {
     ) -> Self {
         Self::new(
             ActiveDragType::ScrollbarThumb(ScrollbarThumbDrag {
+                dom_id,
                 scroll_container_node,
                 axis,
                 start_mouse_position,
@@ -718,6 +724,11 @@ impl DragContext {
                 true
             }
             ActiveDragType::ScrollbarThumb(ref mut drag) => {
+                // Scope the remap to the DOM this drag belongs to: a different
+                // DOM's reconciliation must not touch our scroll container id.
+                if drag.dom_id != dom_id {
+                    return true;
+                }
                 if let Some(&new_id) = node_id_map.get(&drag.scroll_container_node) {
                     drag.scroll_container_node = new_id;
                     true
@@ -734,8 +745,12 @@ impl DragContext {
                 } else {
                     return false; // dragged node removed
                 }
-                // Drop target remap
+                // Drop target remap — both current AND previous, otherwise a
+                // stale `previous_drop_target` keeps a pre-reconciliation NodeId
+                // and later generates spurious DragEnter/DragLeave against a
+                // node that no longer exists (or a different node reusing the id).
                 Self::remap_drop_target(&mut drag.current_drop_target, dom_id, node_id_map);
+                Self::remap_drop_target(&mut drag.previous_drop_target, dom_id, node_id_map);
                 true
             }
             // WindowMove, WindowResize, and FileDrop don't reference DOM NodeIds
@@ -781,3 +796,71 @@ impl_option!(
     OptionDragDelta,
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use crate::styled_dom::NodeHierarchyItemId;
+
+    fn node_map(from: usize, to: usize) -> alloc::collections::BTreeMap<NodeId, NodeId> {
+        let mut m = alloc::collections::BTreeMap::new();
+        m.insert(NodeId::new(from), NodeId::new(to));
+        m
+    }
+
+    fn dnid(dom: usize, node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: dom },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    #[test]
+    fn scrollbar_remap_scoped_to_dom() {
+        let mut ctx = DragContext::scrollbar_thumb(
+            DomId { inner: 0 },
+            NodeId::new(3),
+            ScrollbarAxis::Vertical,
+            LogicalPosition::zero(),
+            0.0, 100.0, 300.0, 100.0,
+            1,
+        );
+        // Reconciling a *different* DOM (id 1) must not touch our node id.
+        let ok = ctx.remap_node_ids(DomId { inner: 1 }, &node_map(3, 99));
+        assert!(ok);
+        assert_eq!(ctx.as_scrollbar_thumb().unwrap().scroll_container_node, NodeId::new(3));
+
+        // Reconciling our own DOM (id 0) remaps it.
+        let ok2 = ctx.remap_node_ids(DomId { inner: 0 }, &node_map(3, 99));
+        assert!(ok2);
+        assert_eq!(ctx.as_scrollbar_thumb().unwrap().scroll_container_node, NodeId::new(99));
+    }
+
+    #[test]
+    fn node_drag_remaps_previous_drop_target() {
+        let mut ctx = DragContext::node_drag(
+            DomId { inner: 0 },
+            NodeId::new(1),
+            LogicalPosition::zero(),
+            DragData::new(),
+            2,
+        );
+        {
+            let nd = ctx.as_node_drag_mut().unwrap();
+            nd.current_drop_target = Some(dnid(0, 5)).into();
+            nd.previous_drop_target = Some(dnid(0, 6)).into();
+        }
+        // Map: dragged node 1->1, drop targets 5->50, 6->60.
+        let mut m = alloc::collections::BTreeMap::new();
+        m.insert(NodeId::new(1), NodeId::new(1));
+        m.insert(NodeId::new(5), NodeId::new(50));
+        m.insert(NodeId::new(6), NodeId::new(60));
+        assert!(ctx.remap_node_ids(DomId { inner: 0 }, &m));
+
+        let nd = ctx.as_node_drag().unwrap();
+        let cur = nd.current_drop_target.into_option().unwrap().node.into_crate_internal().unwrap();
+        let prev = nd.previous_drop_target.into_option().unwrap().node.into_crate_internal().unwrap();
+        assert_eq!(cur, NodeId::new(50));
+        assert_eq!(prev, NodeId::new(60)); // previously left stale (bug)
+    }
+}

@@ -335,6 +335,22 @@ impl_vec_clone!(
     ExternalResourceVecDestructor
 );
 
+/// AUDIT 2026-07-08: maximum XML/HTML nesting depth handled by the recursive
+/// DOM-build (`xml_node_to_dom_fast`, `xml_node_to_fast_dom`), resource-scan
+/// (iterative worklist in `scan_external_resources`) and `<body>`-lookup
+/// (`find_body_recursive`) passes. These bound descent per nesting level, so a pathologically deep
+/// document (e.g. tens of thousands of nested `<div>`s) would overflow the native
+/// stack. Beyond this depth, deeper children are ignored rather than crashing.
+/// 512 is far past any realistic hand-authored markup while staying comfortably
+/// inside the default thread stack.
+const MAX_XML_NESTING_DEPTH: usize = 512;
+
+/// AUDIT 2026-07-08: maximum recursion depth for [`ComponentFieldType::parse`],
+/// which recurses through `Option<..>` / `Vec<..>` wrappers. Caps attacker
+/// strings such as `"Option<".repeat(100_000)` that would otherwise overflow the
+/// stack. 64 nested type wrappers is far beyond any real field type.
+const MAX_TYPE_PARSE_DEPTH: usize = 64;
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct Xml {
@@ -356,23 +372,36 @@ impl Xml {
     #[must_use] pub fn scan_external_resources(&self) -> ExternalResourceVec {
         let mut resources = Vec::new();
 
+        // AUDIT 2026-07-08: iterative DFS with an explicit worklist. The old
+        // per-node recursion overflowed the stack on pathologically deep markup
+        // (a single-purpose scan frame is large: string lowercasing + closure +
+        // wide match). An explicit stack keeps memory on the heap; `depth` still
+        // bounds how deep we descend so unbounded input can't grow the worklist
+        // without limit.
+        let mut stack: Vec<(&XmlNodeChild, usize)> = Vec::new();
         for child in self.root.as_ref() {
-            Self::scan_node_child(child, &mut resources);
+            stack.push((child, 0));
+        }
+        while let Some((child, depth)) = stack.pop() {
+            match child {
+                XmlNodeChild::Text(text) => {
+                    // CSS @import / url() in text content (inside <style> tags).
+                    Self::extract_css_urls(text.as_str(), &mut resources);
+                }
+                XmlNodeChild::Element(node) => {
+                    if depth > MAX_XML_NESTING_DEPTH {
+                        // Deeper subtrees are simply not scanned.
+                        continue;
+                    }
+                    Self::scan_node(node, &mut resources);
+                    for c in node.children.as_ref() {
+                        stack.push((c, depth + 1));
+                    }
+                }
+            }
         }
 
         resources.into()
-    }
-
-    fn scan_node_child(child: &XmlNodeChild, resources: &mut Vec<ExternalResource>) {
-        match child {
-            XmlNodeChild::Text(text) => {
-                // Check for CSS @import or url() in text content (inside <style> tags)
-                Self::extract_css_urls(text.as_str(), resources);
-            }
-            XmlNodeChild::Element(node) => {
-                Self::scan_node(node, resources);
-            }
-        }
     }
 
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
@@ -598,19 +627,28 @@ impl Xml {
             });
         }
 
-        // Recurse into children
-        for child in node.children.as_ref() {
-            Self::scan_node_child(child, resources);
-        }
+        // Children are walked by the iterative driver in `scan_external_resources`.
     }
 
     /// Extract URLs from CSS content (handles `url()` and @import)
     fn extract_css_urls(css: &str, resources: &mut Vec<ExternalResource>) {
-        // Simple regex-like parsing for url(...) and @import
-        let mut remaining = css;
+        // AUDIT 2026-07-08: fold to lowercase ONCE using ASCII-only folding.
+        // `to_ascii_lowercase` never changes a string's byte length (only A-Z are
+        // touched, multi-byte code points are left verbatim), so every byte offset
+        // into `lower` maps 1:1 onto `css`. The old code called `to_lowercase()`
+        // every iteration (O(n^2)) and then sliced the ORIGINAL `css` with an
+        // offset computed in the lowercased temporary -- for characters whose
+        // lowercase changes byte length (e.g. 'İ' U+0130, 2 bytes -> 3 bytes) that
+        // offset landed off a char boundary and panicked. Searching in `lower` and
+        // slicing `css` at the same offset also makes the `url(` / `@import` scans
+        // case-insensitive for free.
+        let lower = css.to_ascii_lowercase();
 
-        while let Some(pos) = remaining.find("url(") {
-            let after_url = &remaining[pos + 4..];
+        // url(...) scan (case-insensitive)
+        let mut search_from = 0;
+        while let Some(rel) = lower[search_from..].find("url(") {
+            let after = search_from + rel + 4;
+            let after_url = &css[after..];
             if let Some(url) = Self::extract_url_value(after_url) {
                 let mime = Self::guess_mime_from_url(&url, "");
                 let kind = Self::guess_kind_from_url(&url);
@@ -622,26 +660,26 @@ impl Xml {
                     source_attribute: AzString::from("url()"),
                 });
             }
-            remaining = after_url;
+            search_from = after;
         }
 
-        // Handle @import "url" or @import url(...)
-        remaining = css;
-        while let Some(pos) = remaining.to_lowercase().find("@import") {
-            let after_import = &remaining[pos + 7..];
+        // Handle @import "url" or @import url(...) (case-insensitive)
+        let mut search_from = 0;
+        while let Some(rel) = lower[search_from..].find("@import") {
+            let after = search_from + rel + 7;
+            let after_import = &css[after..];
             let trimmed = after_import.trim_start();
 
-            if let Some(after_url) = trimmed.strip_prefix("url(") {
-                if let Some(url) = Self::extract_url_value(after_url) {
-                    resources.push(ExternalResource {
-                        url: AzString::from(url),
-                        kind: ExternalResourceKind::Stylesheet,
-                        mime_type: Some(MimeTypeHint::new("text/css")).into(),
-                        source_element: AzString::from("style"),
-                        source_attribute: AzString::from("@import"),
-                    });
-                }
-            } else if let Some(url) = Self::extract_quoted_string(trimmed) {
+            // Match `url(` case-insensitively without allocating. `get(..4)`
+            // returns `None` if byte 4 is not a char boundary, so the slice below
+            // can never panic on multi-byte input.
+            let import_url = if trimmed.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("url(")) {
+                Self::extract_url_value(&trimmed[4..])
+            } else {
+                Self::extract_quoted_string(trimmed)
+            };
+
+            if let Some(url) = import_url {
                 resources.push(ExternalResource {
                     url: AzString::from(url),
                     kind: ExternalResourceKind::Stylesheet,
@@ -651,7 +689,7 @@ impl Xml {
                 });
             }
 
-            remaining = after_import;
+            search_from = after;
         }
     }
 
@@ -1418,6 +1456,19 @@ impl ComponentFieldType {
     /// "Callback(fn(LayoutCallbackInfo) -> Dom)", "StructRef(MyStruct)" etc.
     /// Returns `None` if the string cannot be parsed.
     #[must_use] pub fn parse(s: &str) -> Option<Self> {
+        Self::parse_depth(s, 0)
+    }
+
+    /// Depth-bounded implementation of [`parse`](Self::parse).
+    ///
+    /// AUDIT 2026-07-08: `Option<..>` / `Vec<..>` wrappers recurse once per level,
+    /// so an attacker string like `"Option<".repeat(100_000)` (with matching `>`)
+    /// overflowed the stack. Recursion is capped at [`MAX_TYPE_PARSE_DEPTH`];
+    /// beyond it, parsing fails (`None`) instead of crashing.
+    fn parse_depth(s: &str, depth: usize) -> Option<Self> {
+        if depth > MAX_TYPE_PARSE_DEPTH {
+            return None;
+        }
         let s = s.trim();
         match s {
             "String" | "string" => return Some(Self::String),
@@ -1440,7 +1491,7 @@ impl ComponentFieldType {
 
         // Option<T>
         if let Some(inner) = s.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
-            let inner_type = Self::parse(inner)?;
+            let inner_type = Self::parse_depth(inner, depth + 1)?;
             return Some(Self::OptionType(ComponentFieldTypeBox::new(
                 inner_type,
             )));
@@ -1448,7 +1499,7 @@ impl ComponentFieldType {
 
         // Vec<T>
         if let Some(inner) = s.strip_prefix("Vec<").and_then(|r| r.strip_suffix('>')) {
-            let inner_type = Self::parse(inner)?;
+            let inner_type = Self::parse_depth(inner, depth + 1)?;
             return Some(Self::VecType(ComponentFieldTypeBox::new(
                 inner_type,
             )));
@@ -4883,7 +4934,12 @@ pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
 ///
 /// Returns an error if the document has no `<body>` node.
 pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
-    fn find_body_recursive(nodes: &[XmlNodeChild]) -> Option<&XmlNode> {
+    fn find_body_recursive(nodes: &[XmlNodeChild], depth: usize) -> Option<&XmlNode> {
+        // AUDIT 2026-07-08: bound recursion depth to avoid a stack overflow on
+        // pathologically deep markup while hunting for the <body> element.
+        if depth > MAX_XML_NESTING_DEPTH {
+            return None;
+        }
         for child in nodes {
             if let XmlNodeChild::Element(node) = child {
                 let node_type_normalized = normalize_casing(&node.node_type);
@@ -4891,7 +4947,7 @@ pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
                     return Some(node);
                 }
                 // Recurse into children
-                if let Some(found) = find_body_recursive(node.children.as_ref()) {
+                if let Some(found) = find_body_recursive(node.children.as_ref(), depth + 1) {
                     return Some(found);
                 }
             }
@@ -4919,7 +4975,7 @@ pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
 
     // If not found as direct child, search recursively (for malformed HTML like example.com)
     // where <body> might be nested inside <head> due to missing </head> tag
-    find_body_recursive(root_nodes).ok_or(DomXmlParseError::NoBodyInHtml)
+    find_body_recursive(root_nodes, 0).ok_or(DomXmlParseError::NoBodyInHtml)
 }
 
 /// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
@@ -5090,7 +5146,7 @@ pub fn str_to_dom_unstyled<'a>(
     }
 
     // Build the DOM tree from the body node
-    let body_dom = xml_node_to_dom_fast(body_node, component_map, false)
+    let body_dom = xml_node_to_dom_fast(body_node, component_map, false, 0)
         .map_err(DomXmlParseError::from)?;
 
     // Wrap in proper HTML structure (NodeType is imported at module top)
@@ -5627,6 +5683,7 @@ fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
     inside_svg: bool,
+    depth: usize,
 ) -> Result<Dom, RenderDomError> {
     use crate::dom::Dom;
 
@@ -5640,12 +5697,21 @@ fn xml_node_to_dom_fast<'a>(
 
     let child_inside_svg = inside_svg || component_name == "svg";
 
+    // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
+    // pathologically deep markup. At the cap, this node is emitted without its
+    // children (truncation) rather than crashing the process.
+    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
+    if depth >= MAX_XML_NESTING_DEPTH {
+        return Ok(dom);
+    }
+
     // Recursively convert children
     let mut children = Vec::new();
     for child in xml_node.children.as_ref() {
         match child {
             XmlNodeChild::Element(child_node) => {
-                let child_dom = xml_node_to_dom_fast(child_node, component_map, child_inside_svg)?;
+                let child_dom =
+                    xml_node_to_dom_fast(child_node, component_map, child_inside_svg, depth + 1)?;
                 children.push(child_dom);
             }
             XmlNodeChild::Text(text) => {
@@ -5785,6 +5851,7 @@ fn xml_node_to_fast_dom<'a>(
     component_map: &'a ComponentMap,
     inside_svg: bool,
     builder: &mut CompactDomBuilder,
+    depth: usize,
 ) -> Result<(), RenderDomError> {
     use crate::dom::NodeData;
 
@@ -5799,14 +5866,26 @@ fn xml_node_to_fast_dom<'a>(
     // Open this node in the builder
     builder.open_node(node_data);
 
-    // Recursively convert children
-    for child in xml_node.children.as_ref() {
-        match child {
-            XmlNodeChild::Element(child_node) => {
-                xml_node_to_fast_dom(child_node, component_map, child_inside_svg, builder)?;
-            }
-            XmlNodeChild::Text(text) => {
-                builder.add_leaf(NodeData::create_text(AzString::from(text.as_str())));
+    // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
+    // pathologically deep markup. At the cap, children are dropped (the node is
+    // still opened+closed) rather than crashing the process.
+    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
+    if depth < MAX_XML_NESTING_DEPTH {
+        // Recursively convert children
+        for child in xml_node.children.as_ref() {
+            match child {
+                XmlNodeChild::Element(child_node) => {
+                    xml_node_to_fast_dom(
+                        child_node,
+                        component_map,
+                        child_inside_svg,
+                        builder,
+                        depth + 1,
+                    )?;
+                }
+                XmlNodeChild::Text(text) => {
+                    builder.add_leaf(NodeData::create_text(AzString::from(text.as_str())));
+                }
             }
         }
     }
@@ -5834,7 +5913,7 @@ fn render_dom_from_body_node_fast<'a>(
     // Open <html>
     builder.open_node(NodeData::create_node(NodeType::Html));
     // Open <body> (the body_node content goes inside)
-    xml_node_to_fast_dom(body_node, component_map, false, &mut builder)?;
+    xml_node_to_fast_dom(body_node, component_map, false, &mut builder, 0)?;
     // Close <html>
     builder.close_node();
 
@@ -6105,6 +6184,73 @@ fn combine_and_replace_dynamic_items(
     combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
 
+/// Decode a numeric character reference body (the part between `&` and `;`),
+/// e.g. `"#65"` -> `'A'`, `"#x41"` -> `'A'`. Returns `None` if it is not a valid
+/// numeric reference.
+fn decode_numeric_entity(entity: &str) -> Option<char> {
+    let num = entity.strip_prefix('#')?;
+    let code = if let Some(hex) = num.strip_prefix(['x', 'X']) {
+        u32::from_str_radix(hex, 16).ok()?
+    } else {
+        num.parse::<u32>().ok()?
+    };
+    char::from_u32(code)
+}
+
+/// Decode the common HTML/XML entities in a single left-to-right pass.
+///
+/// Handles `&lt;` `&gt;` `&amp;` `&quot;` `&apos;` and numeric references
+/// (`&#NN;` / `&#xHH;`). `&nbsp;` and any unrecognized `&...;` sequence are left
+/// verbatim. The single pass guarantees `&amp;` never double-decodes a following
+/// entity. See [`prepare_string`] for why `&nbsp;` is deliberately preserved.
+fn decode_entities(input: &str) -> String {
+    // Longest handled entity body is a hex numeric ref like `#x10FFFF` (8 bytes);
+    // cap the `;` search window so a stray `&` far from a `;` stays cheap.
+    const MAX_ENTITY_BODY: usize = 12;
+
+    let mut out = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < input.len() {
+        if bytes[i] == b'&' {
+            if let Some(semi_rel) = input[i + 1..].find(';') {
+                if semi_rel <= MAX_ENTITY_BODY {
+                    let body = &input[i + 1..i + 1 + semi_rel];
+                    let end = i + 1 + semi_rel; // index of ';'
+                    // Leave &nbsp; for the per-line pass in prepare_string.
+                    if body.eq_ignore_ascii_case("nbsp") {
+                        out.push_str(&input[i..=end]);
+                        i = end + 1;
+                        continue;
+                    }
+                    let decoded = match body {
+                        "lt" => Some('<'),
+                        "gt" => Some('>'),
+                        "amp" => Some('&'),
+                        "quot" => Some('"'),
+                        "apos" => Some('\''),
+                        _ => decode_numeric_entity(body),
+                    };
+                    if let Some(c) = decoded {
+                        out.push(c);
+                        i = end + 1;
+                        continue;
+                    }
+                }
+            }
+            // Not a recognized entity: emit the '&' literally.
+            out.push('&');
+            i += 1;
+        } else {
+            // Copy one whole UTF-8 char (i is always on a char boundary here).
+            let ch = input[i..].chars().next().unwrap_or('\u{FFFD}');
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
 // NOTE: Two sequential returns count as a single return, while single returns get ignored.
 #[must_use] pub fn prepare_string(input: &str) -> String {
     const SPACE: &str = " ";
@@ -6116,8 +6262,14 @@ fn combine_and_replace_dynamic_items(
         return String::new();
     }
 
-    let input = input.replace("&lt;", "<");
-    let input = input.replace("&gt;", ">");
+    // AUDIT 2026-07-08: previously only `&lt;`/`&gt;` were decoded. Decode the full
+    // common named-entity set (`&lt;` `&gt;` `&amp;` `&quot;` `&apos;`) plus numeric
+    // references (`&#NN;` decimal and `&#xHH;` hex) in a single left-to-right pass.
+    // A single pass is used deliberately so `&amp;` cannot double-decode a following
+    // entity (e.g. "&amp;lt;" -> literal "&lt;", not "<"). `&nbsp;` is intentionally
+    // left untouched here so the per-line pass below (which runs AFTER trimming) can
+    // still turn it into a space that survives leading/trailing trim.
+    let input = decode_entities(input);
 
     let input_len = input.len();
     let mut final_lines: Vec<String> = Vec::new();
@@ -7745,7 +7897,7 @@ mod tests {
         };
 
         let component_map = ComponentMap::default();
-        let dom = xml_node_to_dom_fast(&img_node, &component_map, false)
+        let dom = xml_node_to_dom_fast(&img_node, &component_map, false, 0)
             .expect("xml_node_to_dom_fast for <img> should succeed");
 
         match dom.root.get_node_type() {
@@ -7776,5 +7928,105 @@ mod tests {
             NodeType::Image(_) => {}
             other => panic!("tag_to_node_type(\"img\") should be Image, got {:?}", other),
         }
+    }
+
+    /// Build a `<div>` nested `depth` levels deep, innermost first.
+    fn nested_divs(depth: usize) -> XmlNode {
+        let mut node = XmlNode {
+            node_type: "div".into(),
+            ..Default::default()
+        };
+        for _ in 0..depth {
+            node = XmlNode {
+                node_type: "div".into(),
+                children: vec![XmlNodeChild::Element(node)].into(),
+                ..Default::default()
+            };
+        }
+        node
+    }
+
+    /// AUDIT 2026-07-08: `extract_css_urls` used to slice the original string with
+    /// a byte offset computed in a `to_lowercase()` temporary. On `'İ'` (whose
+    /// lowercase is longer in bytes) that offset was misaligned. This must no
+    /// longer panic and must still find the `@import` target.
+    #[test]
+    fn extract_css_urls_unicode_import_no_panic() {
+        let mut res = Vec::new();
+        Xml::extract_css_urls("İ@import 'x'", &mut res);
+        assert_eq!(res.len(), 1, "should find the one @import target");
+        assert_eq!(res[0].url.as_str(), "x");
+    }
+
+    /// The `url(` and `@import` scans are case-insensitive after the audit fix.
+    #[test]
+    fn extract_css_urls_is_case_insensitive() {
+        let mut res = Vec::new();
+        Xml::extract_css_urls("body { background: URL(http://e.com/a.png); }", &mut res);
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].url.as_str(), "http://e.com/a.png");
+
+        let mut res2 = Vec::new();
+        Xml::extract_css_urls("@IMPORT \"theme.css\";", &mut res2);
+        assert_eq!(res2.len(), 1);
+        assert_eq!(res2[0].url.as_str(), "theme.css");
+    }
+
+    /// AUDIT 2026-07-08: the resource scan recurses per nesting level; deep markup
+    /// must not overflow the stack (deeper-than-cap subtrees are just not scanned).
+    #[test]
+    fn scan_external_resources_deep_nesting_ok() {
+        let xml = Xml {
+            root: vec![XmlNodeChild::Element(nested_divs(2000))].into(),
+        };
+        // Must simply return (no stack overflow); no resources in a plain tree.
+        drop(xml.scan_external_resources());
+    }
+
+    /// AUDIT 2026-07-08: the fast + tree DOM builders recurse per nesting level;
+    /// deep markup must not overflow the stack (children beyond the cap are
+    /// dropped, but the call returns `Ok`).
+    #[test]
+    fn xml_node_to_dom_fast_deep_nesting_ok() {
+        let deep = nested_divs(2000);
+        let component_map = ComponentMap::default();
+        let dom = xml_node_to_dom_fast(&deep, &component_map, false, 0);
+        assert!(dom.is_ok(), "deep DOM build must not overflow the stack");
+
+        let mut builder = CompactDomBuilder::new();
+        let fast = xml_node_to_fast_dom(&deep, &component_map, false, &mut builder, 0);
+        assert!(fast.is_ok(), "deep FastDom build must not overflow the stack");
+    }
+
+    /// AUDIT 2026-07-08: `ComponentFieldType::parse` recurses through `Option<..>`
+    /// / `Vec<..>` wrappers; an over-deep type string is rejected rather than
+    /// overflowing the stack, while ordinary nesting still parses.
+    #[test]
+    fn component_field_type_parse_depth_capped() {
+        let deep = format!("{}Bool{}", "Option<".repeat(4000), ">".repeat(4000));
+        assert!(
+            ComponentFieldType::parse(&deep).is_none(),
+            "over-deep type string must be rejected, not overflow"
+        );
+
+        let shallow = format!("{}Bool{}", "Option<".repeat(8), ">".repeat(8));
+        assert!(
+            ComponentFieldType::parse(&shallow).is_some(),
+            "ordinary nesting must still parse"
+        );
+    }
+
+    /// AUDIT 2026-07-08: `prepare_string` now decodes the full common entity set
+    /// plus numeric references, in a single pass so `&amp;` cannot double-decode.
+    #[test]
+    fn prepare_string_entity_decoding() {
+        assert_eq!(prepare_string("a &amp; b"), "a & b");
+        // `&amp;lt;` must yield the literal text "&lt;", not "<".
+        assert_eq!(prepare_string("&amp;lt;"), "&lt;");
+        assert_eq!(prepare_string("&quot;hi&quot;"), "\"hi\"");
+        assert_eq!(prepare_string("&#65;&#66;"), "AB");
+        assert_eq!(prepare_string("&#x41;"), "A");
+        // Existing behavior preserved.
+        assert_eq!(prepare_string("&lt;tag&gt;"), "<tag>");
     }
 }

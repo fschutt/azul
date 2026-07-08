@@ -575,6 +575,20 @@ impl CssPropertyCache {
             if let Some(pid) = parent_id {
                 let pi = pid.index();
 
+                // AUDIT: inheritance assumes a PRE-ORDER arena, i.e. a node's
+                // parent is always stored at a lower index (`pi < i`) and has
+                // therefore already been fully cascaded. A forward reference
+                // (`pi >= i`) would silently inherit that parent's still-default
+                // (all-zero) values, and an out-of-bounds `pi >= node_count`
+                // would panic. Guard against both: assert the pre-order
+                // invariant in debug builds, and skip inheritance (treat the
+                // node as a root) for any malformed reference in release builds.
+                debug_assert!(
+                    pi < i,
+                    "compact cascade: non-pre-order arena — node {i}'s parent {pi} \
+                     is not stored before it; inheritance would read default values",
+                );
+                if pi < i {
                 // Copy only inheritable tier1 fields from parent
                 result.tier1_enums[i] = result.tier1_enums[pi] & INHERITABLE_TIER1_MASK;
 
@@ -588,6 +602,7 @@ impl CssPropertyCache {
 
                 // Inheritable tier2b: all text properties
                 result.tier2b_text[i] = result.tier2b_text[pi];
+                }
             }
 
             {
@@ -816,17 +831,36 @@ fn resolve_font_size_to_px(
         _ => return,
     };
 
+    // AUDIT: pre-order arena assumed — the parent's font-size is already
+    // resolved to px only when `pid < node_idx`. Use checked `get` so an
+    // out-of-bounds parent ref cannot panic, and require `pid < node_idx` so a
+    // forward reference falls back to the 16px CSS initial value instead of
+    // reading an unresolved (still em/%) parent value.
     let parent_font_size_px = parent_id
         .map_or(16.0, |pid| {
-            decode_pixel_value_u32(tier2_dims[pid.index()].font_size)
-                .map_or(16.0, |ppv| ppv.number.get())
+            let pi = pid.index();
+            debug_assert!(
+                pi < node_idx,
+                "compact font-size resolve: non-pre-order arena — node {node_idx}'s \
+                 parent {pi} font-size is not yet resolved",
+            );
+            if pi < node_idx {
+                tier2_dims
+                    .get(pi)
+                    .and_then(|p| decode_pixel_value_u32(p.font_size))
+                    .map_or(16.0, |ppv| ppv.number.get())
+            } else {
+                16.0
+            }
         });
 
     let resolved_px = match pv.metric {
         SizeMetric::Em => pv.number.get() * parent_font_size_px,
         SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
         SizeMetric::Rem => {
-            decode_pixel_value_u32(tier2_dims[0].font_size)
+            tier2_dims
+                .first()
+                .and_then(|r| decode_pixel_value_u32(r.font_size))
                 .map_or(16.0, |rpv| rpv.number.get())
                 * pv.number.get()
         }
@@ -1400,5 +1434,48 @@ fn encode_flex_basis(val: &CssPropertyValue<LayoutFlexBasis>) -> u32 {
         CssPropertyValue::Inherit => U32_INHERIT,
         CssPropertyValue::None => U32_NONE,
         _ => U32_SENTINEL,
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::resolve_font_size_to_px;
+    use crate::dom::NodeId;
+    use azul_css::compact_cache::{
+        decode_pixel_value_u32, encode_pixel_value_u32, CompactNodeProps,
+    };
+    use azul_css::props::basic::pixel::PixelValue;
+
+    // Happy path: an `em` font-size resolves against a valid (pre-order) parent.
+    #[test]
+    fn resolve_font_size_em_from_parent() {
+        let mut dims = vec![CompactNodeProps::default(); 2];
+        dims[0].font_size = encode_pixel_value_u32(&PixelValue::px(20.0));
+        dims[1].font_size = encode_pixel_value_u32(&PixelValue::em(2.0));
+        resolve_font_size_to_px(&mut dims, 1, Some(NodeId::new(0)));
+        let pv = decode_pixel_value_u32(dims[1].font_size).unwrap();
+        assert!((pv.number.get() - 40.0).abs() < 0.01, "got {}", pv.number.get());
+    }
+
+    // Root `em` (no parent) uses the 16px CSS initial value.
+    #[test]
+    fn resolve_font_size_root_em_uses_default() {
+        let mut dims = vec![CompactNodeProps::default()];
+        dims[0].font_size = encode_pixel_value_u32(&PixelValue::em(2.0));
+        resolve_font_size_to_px(&mut dims, 0, None);
+        let pv = decode_pixel_value_u32(dims[0].font_size).unwrap();
+        assert!((pv.number.get() - 32.0).abs() < 0.01, "got {}", pv.number.get());
+    }
+
+    // A `rem` value reads the root (index 0) via the `.first()` guard without
+    // panicking (previously indexed `tier2_dims[0]` directly).
+    #[test]
+    fn resolve_font_size_rem_reads_root() {
+        let mut dims = vec![CompactNodeProps::default(); 2];
+        dims[0].font_size = encode_pixel_value_u32(&PixelValue::px(10.0)); // root
+        dims[1].font_size = encode_pixel_value_u32(&PixelValue::rem(3.0)); // child rem
+        resolve_font_size_to_px(&mut dims, 1, Some(NodeId::new(0)));
+        let pv = decode_pixel_value_u32(dims[1].font_size).unwrap();
+        assert!((pv.number.get() - 30.0).abs() < 0.01, "got {}", pv.number.get());
     }
 }

@@ -202,7 +202,18 @@ extern "C" fn host_handle_destructor(ptr: *mut c_void) {
     // `releaser as usize` in `AzApp_setHostHandleReleaser`, where `releaser`
     // is an `extern "C" fn(u64)`.
     let releaser: extern "C" fn(u64) = unsafe { core::mem::transmute(releaser_addr) };
-    releaser(payload.id);
+    // AUDIT: this destructor is `extern "C"` and the host releaser is arbitrary
+    // (often a Rust closure via libffi). A panic escaping it would unwind across
+    // the FFI boundary (UB), so contain it. `catch_unwind` needs `std`; `no_std`
+    // builds use `panic = "abort"` where unwinding cannot occur.
+    #[cfg(feature = "std")]
+    {
+        drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| releaser(payload.id))));
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        releaser(payload.id);
+    }
 }
 
 /// Wrap a host-language `u64` handle in a [`RefAny`] suitable for storing
@@ -393,72 +404,91 @@ macro_rules! impl_managed_callback {
             // dispatch table keys on.
             const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
 
-            let ctx = info.get_ctx();
-            let handle = match ctx {
-                $crate::refany::OptionRefAny::Some(ref refany) => {
-                    match $crate::host_invoker::refany_to_host_handle(refany) {
-                        Some(id) => id,
-                        None => return $default,
+            // AUDIT: this thunk is `extern "C"` and dispatches into arbitrary
+            // host code (via a transmuted invoker pointer). A panic escaping the
+            // dispatch would unwind across the FFI boundary (UB), so run the
+            // whole body inside `catch_unwind` and fall back to `$default` on a
+            // panic. `catch_unwind` needs `std`; `no_std` builds use
+            // `panic = "abort"` where unwinding cannot occur. The body captures
+            // `data`/`info`/extras by move (they are consumed either way).
+            let body = move || -> $ret {
+                let ctx = info.get_ctx();
+                let handle = match ctx {
+                    $crate::refany::OptionRefAny::Some(ref refany) => {
+                        match $crate::host_invoker::refany_to_host_handle(refany) {
+                            Some(id) => id,
+                            None => return $default,
+                        }
                     }
-                }
-                _ => return $default,
-            };
-            let invoker_addr = $invoker_static.get();
-            if invoker_addr == 0 {
-                // Per-kind invoker not registered — fall back to the
-                // generic invoker for hosts that wired up only the
-                // single `AzApp_setGenericInvoker` slot (or for custom
-                // user-defined kinds emitted by a downstream
-                // `impl_managed_callback!` whose host hasn't shipped a
-                // per-kind invoker setter yet).
-                let generic_addr = $crate::host_invoker::GENERIC_INVOKER.get();
-                if generic_addr == 0 {
-                    return $default;
-                }
-                // SAFETY: GENERIC_INVOKER only ever holds an address that
-                // came from `invoker as usize` in `AzApp_setGenericInvoker`,
-                // whose parameter is typed as `AzGenericInvoker`.
-                let generic: $crate::host_invoker::AzGenericInvoker =
-                    unsafe { core::mem::transmute(generic_addr) };
+                    _ => return $default,
+                };
+                let invoker_addr = $invoker_static.get();
+                if invoker_addr == 0 {
+                    // Per-kind invoker not registered — fall back to the
+                    // generic invoker for hosts that wired up only the
+                    // single `AzApp_setGenericInvoker` slot (or for custom
+                    // user-defined kinds emitted by a downstream
+                    // `impl_managed_callback!` whose host hasn't shipped a
+                    // per-kind invoker setter yet).
+                    let generic_addr = $crate::host_invoker::GENERIC_INVOKER.get();
+                    if generic_addr == 0 {
+                        return $default;
+                    }
+                    // SAFETY: GENERIC_INVOKER only ever holds an address that
+                    // came from `invoker as usize` in `AzApp_setGenericInvoker`,
+                    // whose parameter is typed as `AzGenericInvoker`.
+                    let generic: $crate::host_invoker::AzGenericInvoker =
+                        unsafe { core::mem::transmute(generic_addr) };
 
-                // Build the args array: pointers to each by-value frame
-                // arg, in declared order (data, info, extras…). Lifetime
-                // is the scope of this thunk; the host MUST NOT retain
-                // these pointers past the call. Array size is inferred
-                // (2 base args + however many extras the macro forwarded).
-                let args = [
-                    &raw const data as *const core::ffi::c_void,
-                    &raw const info as *const core::ffi::c_void,
-                    $( & $extra_name as *const _ as *const core::ffi::c_void , )*
-                ];
+                    // Build the args array: pointers to each by-value frame
+                    // arg, in declared order (data, info, extras…). Lifetime
+                    // is the scope of this thunk; the host MUST NOT retain
+                    // these pointers past the call. Array size is inferred
+                    // (2 base args + however many extras the macro forwarded).
+                    let args = [
+                        &raw const data as *const core::ffi::c_void,
+                        &raw const info as *const core::ffi::c_void,
+                        $( & $extra_name as *const _ as *const core::ffi::c_void , )*
+                    ];
 
+                    let mut out: $ret = $default;
+                    generic(
+                        handle,
+                        KIND_STR.as_ptr() as *const core::ffi::c_char,
+                        args.as_ptr(),
+                        args.len(),
+                        &raw mut out as *mut core::ffi::c_void,
+                    );
+                    return out;
+                }
+                // SAFETY: $invoker_static only ever holds a value that came from
+                // `invoker as usize` in `$setter_fn`, where `invoker` has type
+                // `$invoker_ty`.
+                let invoker: $invoker_ty = unsafe { core::mem::transmute(invoker_addr) };
+
+                // Pre-fill `out` with the kind's default so a host that fails
+                // to write to the out-pointer (e.g. a buggy invoker) leaves us
+                // with a sane value rather than uninitialized memory.
                 let mut out: $ret = $default;
-                generic(
+                invoker(
                     handle,
-                    KIND_STR.as_ptr() as *const core::ffi::c_char,
-                    args.as_ptr(),
-                    args.len(),
-                    &raw mut out as *mut core::ffi::c_void,
+                    &raw const data,
+                    &raw const info,
+                    $( & $extra_name as *const $extra_ty , )*
+                    &raw mut out,
                 );
-                return out;
-            }
-            // SAFETY: $invoker_static only ever holds a value that came from
-            // `invoker as usize` in `$setter_fn`, where `invoker` has type
-            // `$invoker_ty`.
-            let invoker: $invoker_ty = unsafe { core::mem::transmute(invoker_addr) };
+                out
+            };
 
-            // Pre-fill `out` with the kind's default so a host that fails
-            // to write to the out-pointer (e.g. a buggy invoker) leaves us
-            // with a sane value rather than uninitialized memory.
-            let mut out: $ret = $default;
-            invoker(
-                handle,
-                &raw const data,
-                &raw const info,
-                $( & $extra_name as *const $extra_ty , )*
-                &raw mut out,
-            );
-            out
+            #[cfg(feature = "std")]
+            {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(body))
+                    .unwrap_or($default)
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                body()
+            }
         }
 
         impl $wrapper {

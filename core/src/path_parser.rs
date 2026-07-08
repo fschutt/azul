@@ -24,6 +24,21 @@ const ZERO_LENGTH_EPSILON: f32 = 1e-10;
 /// Small offset added to PI/2 when splitting arcs to avoid exact-boundary floating-point issues.
 const ARC_SPLIT_FUDGE: f32 = 0.001;
 
+/// Decode the UTF-8 character starting at `pos` in `input`.
+///
+/// `input` is always the byte view of a valid `&str` and `pos` is always at a
+/// char boundary (only whole ASCII tokens are consumed), so the UTF-8 decode
+/// succeeds; a corrupt offset falls back to the replacement character rather
+/// than panicking. Used so error messages report the real Unicode char instead
+/// of a Latin-1 reinterpretation of a single UTF-8 byte (`b as char`).
+fn char_at(input: &[u8], pos: usize) -> char {
+    input
+        .get(pos..)
+        .and_then(|rest| core::str::from_utf8(rest).ok())
+        .and_then(|s| s.chars().next())
+        .unwrap_or(char::REPLACEMENT_CHARACTER)
+}
+
 /// Errors that can occur during SVG path parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SvgPathParseError {
@@ -368,12 +383,24 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
             match parser.last_command {
                 b'M' => b'L',
                 b'm' => b'l',
+                // AUDIT 2026-07-08: a `Z`/`z` closepath takes no arguments, so it
+                // cannot be implicitly repeated. Reaching here means a stray
+                // non-command byte followed a closepath (e.g. the `5` in "M0 0Z5").
+                // The old `other => other` fell through to the `Z` arm, which
+                // consumes zero bytes, so `pos` never advanced -> 100% CPU infinite
+                // loop. Reject it as an unexpected character instead.
+                b'Z' | b'z' => {
+                    return Err(SvgPathParseError::UnexpectedChar {
+                        pos: parser.pos,
+                        ch: char_at(parser.input, parser.pos),
+                    });
+                }
                 other => other,
             }
         } else {
             return Err(SvgPathParseError::UnexpectedChar {
                 pos: parser.pos,
-                ch: b as char,
+                ch: char_at(parser.input, parser.pos),
             });
         };
 
@@ -877,5 +904,58 @@ pub fn svg_rect_to_path(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> Svg
 
     SvgPath {
         items: SvgPathElementVec::from_vec(elements),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AUDIT 2026-07-08 regression: `"M0 0Z5"` used to spin at 100% CPU forever
+    /// because the trailing `5` re-derived `cmd = Z` (zero-length consume) and
+    /// the cursor never advanced. It must now terminate with `UnexpectedChar`.
+    #[test]
+    fn m0_0z5_does_not_hang() {
+        let err = parse_svg_path_d("M0 0Z5").unwrap_err();
+        match err {
+            SvgPathParseError::UnexpectedChar { ch, .. } => assert_eq!(ch, '5'),
+            other => panic!("expected UnexpectedChar, got {other:?}"),
+        }
+    }
+
+    /// Any digit or symbol directly after a closepath is rejected, not looped on.
+    #[test]
+    fn stray_byte_after_closepath_rejected() {
+        for s in ["M0 0Z9", "m0 0z-", "M0 0Z."] {
+            assert!(
+                matches!(
+                    parse_svg_path_d(s),
+                    Err(SvgPathParseError::UnexpectedChar { .. })
+                ),
+                "expected UnexpectedChar for {s:?}"
+            );
+        }
+    }
+
+    /// A leading non-command byte reports the real Unicode char, not a Latin-1
+    /// reinterpretation of a single UTF-8 byte (the old `b as char`).
+    #[test]
+    fn error_char_is_unicode_not_byte() {
+        // 'ü' is two UTF-8 bytes; `b as char` would have yielded a mojibake char.
+        let err = parse_svg_path_d("ü10 10").unwrap_err();
+        match err {
+            SvgPathParseError::UnexpectedChar { ch, pos } => {
+                assert_eq!(ch, 'ü');
+                assert_eq!(pos, 0);
+            }
+            other => panic!("expected UnexpectedChar, got {other:?}"),
+        }
+    }
+
+    /// A well-formed closepath followed by a real command still parses.
+    #[test]
+    fn valid_closepath_then_command_ok() {
+        let parsed = parse_svg_path_d("M0 0 L10 0 Z M20 20 L30 20 Z");
+        assert!(parsed.is_ok(), "valid multi-subpath path should parse");
     }
 }

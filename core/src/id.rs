@@ -143,13 +143,19 @@ pub mod node_id {
 
     impl Add<usize> for NodeId {
         type Output = Self;
+        /// AUDIT: saturating add. A raw `self.inner + other` could overflow
+        /// (debug panic / release wrap to a bogus small index that then aliases
+        /// a real node). `NodeId` indices are bounded by the arena length, so a
+        /// saturation to `usize::MAX` is an obviously-invalid index that fails
+        /// loudly at the next bounds-checked access rather than silently aliasing.
         #[inline]
         fn add(self, other: usize) -> Self {
-            Self::new(self.inner + other)
+            Self::new(self.inner.saturating_add(other))
         }
     }
 
     impl AddAssign<usize> for NodeId {
+        /// AUDIT: saturating add — see [`Add`] impl above.
         #[inline]
         fn add_assign(&mut self, other: usize) {
             *self = *self + other;
@@ -291,8 +297,25 @@ impl<'a> NodeHierarchyRef<'a> {
     // their allocations across the BFS levels; `into_iter()` would move them.
     #[allow(clippy::iter_with_drain)]
     #[must_use] pub fn get_parents_sorted_by_depth(&self) -> NodeDepths {
+        // AUDIT: an empty hierarchy has no root node — indexing `internal[0]`
+        // (via `self[root]` below) would panic. Bail out early.
+        if self.is_empty() {
+            return Vec::new();
+        }
+
+        let root = NodeId::new(0);
         let mut non_leaf_nodes = Vec::new();
-        let mut current_children = vec![(0, NodeId::new(0))];
+
+        // AUDIT: a childless root (e.g. a single-node DOM) is a LEAF, not a
+        // parent. The old code seeded `current_children` with the root and
+        // unconditionally pushed it into `non_leaf_nodes`, mislabeling it as a
+        // parent. Only descend (and only emit the root) when it actually has a
+        // first child.
+        if !self[root].has_first_child() {
+            return non_leaf_nodes;
+        }
+
+        let mut current_children = vec![(0, root)];
         let mut next_children = Vec::new();
         let mut depth = 1_usize;
 
@@ -615,13 +638,19 @@ impl NodeId {
     where
         F: Fn(Self) -> bool,
     {
-        let mut current_node = node_hierarchy[self].parent_id()?;
-        loop {
+        // AUDIT: guard against (a) an out-of-bounds `self` and (b) a cycle in a
+        // corrupt hierarchy (a `parent_id` that points back down into a
+        // descendant). Use checked `get` and cap the walk at the node count —
+        // a valid parent chain can never be longer than the number of nodes.
+        let node_count = node_hierarchy.internal.len();
+        let mut current_node = node_hierarchy.internal.get(self.index())?.parent_id()?;
+        for _ in 0..node_count {
             if predicate(current_node) {
                 return Some(current_node);
             }
-            current_node = node_hierarchy[current_node].parent_id()?;
+            current_node = node_hierarchy.internal.get(current_node.index())?.parent_id()?;
         }
+        None
     }
 
     /// Return the children of this node (necessary for parallel iteration over children)
@@ -666,3 +695,75 @@ pub struct Children<'a> {
 }
 
 impl_node_iterator!(Children, |node: &Node| node.next_sibling);
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use crate::styled_dom::NodeHierarchyItem;
+
+    #[test]
+    fn parents_by_depth_empty_hierarchy() {
+        let h = NodeHierarchy::new(Vec::new());
+        assert!(h.as_ref().get_parents_sorted_by_depth().is_empty());
+    }
+
+    #[test]
+    fn parents_by_depth_single_childless_root() {
+        // A single-node DOM: the root is a LEAF, not a parent.
+        let h = NodeHierarchy::new(vec![Node::ROOT]);
+        assert!(h.as_ref().get_parents_sorted_by_depth().is_empty());
+    }
+
+    #[test]
+    fn parents_by_depth_root_with_child() {
+        let root = Node {
+            parent: None,
+            previous_sibling: None,
+            next_sibling: None,
+            last_child: Some(NodeId::new(1)),
+        };
+        let child = Node {
+            parent: Some(NodeId::new(0)),
+            ..Node::ROOT
+        };
+        let h = NodeHierarchy::new(vec![root, child]);
+        let parents = h.as_ref().get_parents_sorted_by_depth();
+        assert_eq!(parents, vec![(0, NodeId::new(0))]);
+    }
+
+    fn item(parent: Option<usize>) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: 0,
+            next_sibling: 0,
+            last_child: 0,
+        }
+    }
+
+    #[test]
+    fn nearest_matching_parent_cycle_terminates() {
+        // node1.parent = 2, node2.parent = 1 — cyclic, must not hang.
+        let items = vec![item(None), item(Some(2)), item(Some(1))];
+        let cont = NodeDataContainerRef { internal: &items };
+        let r = NodeId::new(1).get_nearest_matching_parent(&cont, |_| false);
+        assert_eq!(r, None);
+    }
+
+    #[test]
+    fn nearest_matching_parent_finds_match() {
+        // 0 <- 1 <- 2 ; from 2, find the root (index 0).
+        let items = vec![item(None), item(Some(0)), item(Some(1))];
+        let cont = NodeDataContainerRef { internal: &items };
+        let r = NodeId::new(2).get_nearest_matching_parent(&cont, |n| n == NodeId::new(0));
+        assert_eq!(r, Some(NodeId::new(0)));
+    }
+
+    #[test]
+    fn node_id_add_saturates() {
+        assert_eq!(NodeId::new(5) + 3, NodeId::new(8));
+        assert_eq!(NodeId::new(usize::MAX) + 1, NodeId::new(usize::MAX));
+        let mut n = NodeId::new(usize::MAX);
+        n += 10;
+        assert_eq!(n, NodeId::new(usize::MAX));
+    }
+}
