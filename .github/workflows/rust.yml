@@ -3416,6 +3416,29 @@ jobs:
             UPLOAD=()
             for f in "${LARGE[@]}"; do
               case "$f" in
+                */demos/*-macos)
+                  # macOS demo: bundle a preconfigured launcher next to the
+                  # binary so a non-technical user can just double-click it.
+                  # `.command` (not `.sh`) is what Finder runs in Terminal on
+                  # double-click; it clears the Gatekeeper download quarantine
+                  # on the adjacent ad-hoc-signed binary and launches it.
+                  bn="$(basename "$f")"; dir="$(dirname "$f")"
+                  printf '%s\n' \
+                    '#!/bin/bash' \
+                    "# Double-click me — I live next to $bn. I clear the macOS" \
+                    '# download quarantine on that azul demo, then launch it.' \
+                    'cd "$(dirname "$0")" || exit 1' \
+                    "xattr -dr com.apple.quarantine \"./$bn\" 2>/dev/null || true" \
+                    "chmod +x \"./$bn\" 2>/dev/null || true" \
+                    "echo \"Unquarantined ./$bn — launching…\"" \
+                    "exec \"./$bn\"" \
+                    > "$dir/unquarantine.command"
+                  chmod +x "$dir/unquarantine.command"
+                  tar -czf "$f.tar.gz" -C "$dir" "$bn" unquarantine.command
+                  rm -f "$dir/unquarantine.command"
+                  UPLOAD+=("$f.tar.gz")
+                  echo "tar.gz $bn (+ unquarantine.command)"
+                  ;;
                 *.a|*/demos/*)
                   tar -czf "$f.tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
                   UPLOAD+=("$f.tar.gz")
