@@ -209,6 +209,77 @@ This is the part that most often sinks non-WebRTC designs, so it is called out e
 
 ---
 
+## 6.5 Layout-driven resolution + source-specific codec (azul's structural advantage)
+
+Standard conferencing clients treat the codec and the UI as separate systems that guess at
+each other's needs. AzMeet doesn't have to: **every video tile is a DOM node with a computed
+`LogicalRect`, so the layout solver already knows the exact pixel size each remote stream will
+be drawn at.** That collapses several hard problems into one.
+
+**Bandwidth scales with *displayed pixels*, not participant count.** This defeats the naive
+"per-direction × N participants" cost model. You physically cannot fit 100×1080p on a screen,
+so you never *request* it: a 10×10 grid means each tile is ~160×90 and is encoded/requested at
+that resolution. Total received pixels is bounded by the local screen, so **received bandwidth
+is roughly constant regardless of room size** — it just gets divided into more, smaller tiles.
+A 2-person call doesn't double 1080p; each face is now half-screen, so each is requested at
+lower resolution. **The layout engine is the rate controller** — and it re-adapts reactively
+for free (window resize / someone joins → grid reflows → tiles shrink → lower resolution
+requested), because that's just a normal relayout.
+
+- **Mechanism.** The sender encodes, so the receiver's tile size flows back over a control
+  message ("send me ≤ WxH @ F fps for stream S"). For **P2P mesh** (one receiver per sender
+  pair) this receiver-request model is exact and cheap — one round-trip to adapt. For
+  fan-out to many viewers you'd instead **simulcast** (encode 2–3 fixed resolutions) or use
+  **SVC** (layered). **Caveat: hardware H.264 generally cannot do SVC** — with the HW-H.264
+  plan the realistic options are *receiver-request* (P2P) or *simulcast* (SFU), not SVC. AV1/VP9
+  offer real SVC but lack broad HW encode. **[HW-SVC limitation is a well-known constraint; verify per-chip.]**
+- **Hysteresis.** Debounce resolution changes (a transient reflow shouldn't trigger a keyframe
+  storm); switch resolution only on a settled tile size, and only *up* after a short dwell.
+
+**Codec strategy forks by source — and screen-share + audio matter more than camera video.**
+
+| Source | Motion profile | Codec mode | Resolution | Frame rate | Priority |
+|---|---|---|---|---|---|
+| **Audio** | — | Opus, per-packet independent | — | 50/s (20 ms) | **highest — protect last** |
+| **Screen share** | near-static, small dirty regions | **interframe / P-frames** (diffs are tiny) | **true / native** (text must stay crisp) | low / event-driven (5–15 fps) | **high** |
+| **Camera video** | unpredictable, whole-frame | **all-intra or short-GOP + LTR** | **follows tile size** (§ above) | 24–30 fps | **lowest — drop first** |
+
+Screen content is mostly unchanged frame-to-frame, so P-frames (the encoder's motion estimation
+finds ~zero delta on static regions) give near-lossless compression at true resolution — the
+opposite of camera video, where all-intra buys loss-tolerance at a bitrate cost. Never all-intra
+a screen share; never long-P-chain a lossy camera feed.
+
+**Loss resilience without a keyframe-per-frame: Long-Term Reference (LTR) frames.** The
+"timestamp the I-frames; a P-frame diffs against the I-frame from N seconds ago" idea is exactly
+the **LTR** technique (H.264/H.265 long-term reference pictures; used by WebRTC for error
+resilience; exposed by NVENC / VideoToolbox / MediaCodec). The design:
+
+```
+[keyframe job]  emit I-frame every N s, tagged with a monotonic LTR id + timestamp
+[encoder]       P-frames reference the *current LTR id*, NOT the immediately-previous frame
+[decoder]       "I hold LTR #k → any P-frame with ref=k decodes standalone"
+```
+
+- **Why it's better than a plain P-chain:** a single lost P-frame does **not** break the stream —
+  the next P-frame still references the LTR, not the lost frame. A late joiner / recovering peer
+  just waits for the next LTR (≤ N s distortion), then applies P-frames. Bounded, self-healing,
+  no per-frame retransmit.
+- **Bitrate:** sits between all-intra and full-IPPP — cheaper than all-intra, more resilient than
+  a long chain.
+- **Caveat:** a P-frame against a *fixed* LTR grows as the scene drifts from it (5 s of movement
+  ⇒ big diff), so quality/bitrate **sags toward the end of each interval**. Make **N
+  motion-adaptive** (shorten under high motion) or allow a short secondary P-chain off recent
+  frames for the high-motion case. The two "jobs" (keyframe publisher + P-encoder) map cleanly
+  onto two azul `Timer`s / worker threads.
+
+**Priority is a transport-QoS rule, not just an encoder setting.** audio > screenshare > camera:
+carry **audio on low-latency datagrams** (drop-tolerant, protected to the last), **screen share
+on a prioritized stream**, and make **camera video the first thing shed under congestion**
+(drop fps, then resolution, then the stream). On iroh/QUIC this is native stream priorities +
+datagrams; it's also the single most important knob for perceived call quality.
+
+---
+
 ## 7. Recommendation for the maintainer
 
 1. **Yes, lean into iroh — for the native plane.** iroh 1.0 is stable, production-proven, and gives AzMeet exactly what WebRTC struggles at: **true direct desktop↔desktop P2P** with built-in hole-punching. Native↔native AzMeet on iroh is the right call.
@@ -222,6 +293,8 @@ This is the part that most often sinks non-WebRTC designs, so it is called out e
 5. **Plan the media plane deliberately, early.** Whatever transport wins, on the native/non-WebRTC path you own codecs (rav1e/openh264/libvpx), AEC (`sonora`/`aec3` — promising but young), and congestion control (the real risk). Prototype **echo cancellation and adaptive bitrate first** — they are what will actually make or break call quality, not the transport.
 
 6. **Watch MoQ (Option C) but don't bet meetings on it yet.** Strong industry momentum, clean native+browser story, but immature congestion control for symmetric two-way calls as of late 2025. Revisit in 6–12 months.
+
+7. **Make layout-driven resolution the headline differentiator (§6.5).** Because every stream is a DOM tile with a known pixel rect, the layout solver *is* the rate controller: received bandwidth is bounded by screen pixels, not participant count, and adapts on reflow for free. Pair it with source-specific codecs (screen = P-frames/true-res; camera = all-intra/short-GOP + **LTR** for loss resilience) and the QoS priority audio > screenshare > camera. This is the part no browser stack gets for free — it falls out of azul's architecture — and it, more than the transport choice, is what makes AzMeet scale to large rooms.
 
 **One-line answer to the dilemma:** *iroh can absolutely be AzMeet's native transport and can even reach browsers today (via relay) — but it is not, by itself, a browser conferencing stack. Ship iroh natively behind a transport trait, bridge browsers with WebRTC (now) and iroh/WebTransport+MoQ (as it matures), and invest as much in the codec/AEC/congestion-control media plane as in the transport itself.*
 
