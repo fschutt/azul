@@ -400,6 +400,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cross-${{ matrix.target }}
           targets: ${{ matrix.target }}
 
       - name: Install cross (Linux)
@@ -552,6 +556,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: miri
 
       - name: Install Miri
         run: |
@@ -601,6 +609,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
 
       - name: Install coverage tools
         run: |
@@ -646,6 +658,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: engine-${{ matrix.os }}
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
@@ -838,6 +854,8 @@ jobs:
 
       - name: Run Swatinem/rust-cache@v2
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: engine-ubuntu
 
       - name: Install toolchains (clang/c++/python + headless GL deps)
         run: |
@@ -903,7 +921,7 @@ jobs:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
         with:
-          key: binaries-${{ matrix.os }}
+          shared-key: engine-${{ matrix.os }}
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -1411,7 +1429,7 @@ jobs:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
         with:
-          key: demos-${{ matrix.os }}
+          shared-key: engine-${{ matrix.os }}
 
       # Mirror build_binaries' Linux dependency install (clang + GL/X11) plus
       # libv4l-dev for the camera/video demos. macOS/Windows pull their platform
@@ -1518,6 +1536,8 @@ jobs:
 
       - name: Run Swatinem/rust-cache@v2
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: engine-${{ matrix.os }}
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -1582,11 +1602,9 @@ jobs:
     # matrix; 30 min timed out mid-run every time, cancelling the leg. Since
     # e2e_native is in deploy_pages.needs, that silently skipped the deploy.
     timeout-minutes: 60
-    # The macOS scripting leg (27 toolchains, slowest runner) is best-effort:
-    # a timeout/flake there must NOT block the release. Shipped-binding coverage
-    # is still GATED by the ubuntu + windows scripting legs (both run
-    # --gate-shipped) and by rust/c-cpp on all three OSes, which stay blocking.
-    continue-on-error: ${{ matrix.os == 'macos-14' && matrix.family.key == 'scripting' }}
+    # Stays BLOCKING on every OS/family: a real per-OS binding bug must fail the
+    # release. The 30→60 bump + toolchain caching keeps the macOS scripting leg
+    # (27 toolchains) inside the window instead of timing out mid-run.
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
@@ -3631,6 +3649,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: sanitizers
       - name: Install clang + headless deps
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
       - name: Generate DLL API bindings
@@ -3759,6 +3781,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: docs
       # The CDP driver (scripts/docs_pdf_cdp.mjs) uses Node's built-in global
       # WebSocket, which is only available on Node 22+ (runners default lower).
       - name: Install Node 24
