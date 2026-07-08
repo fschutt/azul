@@ -133,8 +133,9 @@ fn test_format_counter_lower_alpha_beyond_26() {
 
 #[test]
 fn test_format_counter_lower_alpha_zero() {
-    // Zero should produce empty string (no alphabetic representation)
-    assert_eq!(format_counter(0, StyleListStyleType::LowerAlpha), "");
+    // Zero has no alphabetic representation → decimal fallback "0"
+    // (CSS Counter Styles L3: out-of-range values fall back to `decimal`).
+    assert_eq!(format_counter(0, StyleListStyleType::LowerAlpha), "0");
 }
 
 #[test]
@@ -245,7 +246,9 @@ fn test_format_counter_lower_greek_basic() {
 
 #[test]
 fn test_format_counter_lower_greek_zero() {
-    assert_eq!(format_counter(0, StyleListStyleType::LowerGreek), "");
+    // Zero has no Greek representation → decimal fallback "0"
+    // (CSS Counter Styles L3: out-of-range values fall back to `decimal`).
+    assert_eq!(format_counter(0, StyleListStyleType::LowerGreek), "0");
 }
 
 #[test]
