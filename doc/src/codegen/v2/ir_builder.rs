@@ -949,6 +949,30 @@ impl<'a> IRBuilder<'a> {
             traits.clone_is_derived = false; // Vec Clone MUST NOT be derived - needs custom impl
         }
 
+        // Droppable leaves MUST NOT derive Clone. A mirror gets an `impl Drop`
+        // exactly when it is a droppable leaf (custom Drop, or an owned raw-pointer
+        // field — see `struct_needs_own_drop` in lang_rust.rs). `#[derive(Clone)]`
+        // on such a type bitwise-copies the owned pointer WITHOUT deep-copying, so
+        // the clone shares the buffer with the original and BOTH free it on drop ->
+        // double-free (proven: `AzSystemStyle`'s raw-ptr field caused the
+        // `App::create` SIGSEGV). Force the deep transmute clone that delegates to
+        // the real type's `Clone`. Generalizes the `*Vec` special-case above to
+        // every heap-owning leaf, fixing all bindings/modes (python UsingTransmute
+        // included) at once.
+        // `!is_copy`: a `Copy` type has no `Drop` (Rust forbids Copy+Drop), so a
+        // bitwise clone can't double-free — it needs no deep-clone override, and
+        // forcing one would collide with the `Clone` it already gets from
+        // `#[derive(Copy)]` (E0119). Only non-Copy droppable leaves are at risk.
+        if traits.is_clone
+            && !traits.is_copy
+            && (has_custom_drop
+                || fields
+                    .iter()
+                    .any(|f| matches!(f.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut)))
+        {
+            traits.clone_is_derived = false;
+        }
+
         Ok(StructDef {
             name: name.to_string(),
             doc: class_data.doc.clone().unwrap_or_default(),
@@ -1023,6 +1047,24 @@ impl<'a> IRBuilder<'a> {
             traits.is_copy = true;
             traits.is_clone = true;
             traits.clone_is_derived = true; // These can be derived
+        }
+
+        // Same rule as structs (see build_struct_def): a droppable enum — custom
+        // Drop, or an owned raw-pointer tuple payload (matches `enum_needs_own_drop`
+        // in lang_rust.rs) — MUST NOT derive Clone. A bitwise derive would share the
+        // payload pointer with the clone, so both free it -> double-free. Force the
+        // deep transmute clone that delegates to the real enum's Clone.
+        if traits.is_clone
+            && !traits.is_copy
+            && (has_custom_drop
+                || variants.iter().any(|v| match &v.kind {
+                    EnumVariantKind::Tuple(types) => types
+                        .iter()
+                        .any(|(_, rk)| matches!(rk, FieldRefKind::Ptr | FieldRefKind::PtrMut)),
+                    _ => false,
+                }))
+        {
+            traits.clone_is_derived = false;
         }
 
         Ok(EnumDef {
