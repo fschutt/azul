@@ -67,6 +67,110 @@ Transitions' static-bitmap limitation.
 3. **Phase 2:** exit-retention — "ghost" the old node from `old_node_data` on Unmount of opted-in nodes, animate out on GPU transforms, drop on completion. **Keep ghosts out of the `transfer_states` path** (double-drop hazard per project memory).
 4. **Phase 3:** `Spring` interpolation + velocity-preserving retarget-on-interrupt in the manager. (Batch the `#[repr(C)]`/api.json ABI break with other planned breaks.)
 
+## 1.5 Timer-driven presence + FLIP (concrete mechanism)
+
+The whole system **compiles down to keyed timer callbacks** — no new scheduler, no new
+event loop. A "system event" (mount / before-unmount / a detected move) does exactly one
+thing: **start (or retarget) a `Timer` whose `RefAny` carries the animation state.** The
+timer ticks `t: 0→1` via `Instant::linear_interpolate` (`task.rs:210`), writes interpolated
+values, and requests a repaint. That reuses `Timer` + `override_css_property` + the GPU keys
+verbatim.
+
+**The load-bearing invariant** (state this as law):
+
+> **Logic, callbacks, and hit-testing operate on Dom B only.** The display list rendered is
+> **`B ∪ retained-A-zombies`**. Zombies are **non-interactive** (excluded from the hit-test
+> tag tree). So `on_frame` "sees" B the instant the swap happens, while the screen still
+> shows A-items flying out — exactly the desired decoupling. This is the retained-mode dual
+> of a GPU back-buffer: B is the front buffer for *logic*; the zombie set is the residue of
+> the old front buffer still being *composited*.
+
+**Three classes, one driver** — driven off the diff, not just unmount:
+
+| Class | Trigger (source of truth) | Timer seed (in `RefAny`) | What the tick writes |
+|---|---|---|---|
+| **Enter** | node in B, unmatched-new → `Mount` (`diff.rs:598`) | target rect (B layout) | opacity/scale `0→1` via GPU keys |
+| **Exit** | node in A, unmatched-old → `Unmount` (`diff.rs:620`) → **`BeforeUnmount`** (`diff.rs:441`) | **frozen A rect + retained subtree** | opacity/scale `1→0`; drop subtree at `t=1` |
+| **Move / morph** | `node_moves{old,new}` pair (`diff.rs:401`) with differing rect/props | First rect (A) + Last rect (B) | FLIP: `transform` Δ→identity on the GPU key |
+
+Enter/Exit are the presence cases; **Move is FLIP and it is the "better than the web" part** —
+it comes free from `node_moves` / `create_migration_map` (`diff.rs:731`), the correspondence
+map that View Transitions fakes with `view-transition-name`. Don't derive morphs from unmount;
+derive them from the correspondence at the swap seam (`shell2/common/layout.rs:~407`, the one
+place with old+new node_data + `node_moves` before the swap).
+
+**Retain subtrees, not the whole DOM.** "DOM back-buffer" is the v1 mental model, but a full
+clone of Dom A per transition is wasteful (5000-node DOM, one exiting toast). What's actually
+retained is a **keyed set of animating subtrees + their frozen computed layout**:
+
+```
+struct RetainedZombie {
+    node_id:      NodeId,          // key = reconciliation key, stable across A/B
+    subtree:      StyledDom,       // the opted-in exiting subtree only (not all of A)
+    frozen_rect:  LogicalRect,     // last solved geometry from A's LayoutCache
+    anim:         AnimState,       // t, easing/spring, from/to, velocity (for retarget)
+}
+struct AnimState { t: f32, curve: Interp, from: Interpolated, to: Interpolated, vel: f32 }
+```
+
+The `AnimationManager` (sibling to `GpuStateManager`) owns `Vec<RetainedZombie>` +
+`Map<NodeId, AnimState>` for live enter/move nodes. The timer callback advances `anim.t`,
+recomputes the interpolated value, and pushes it into `user_overridden_properties`
+(`prop_cache.rs:687`) — the top cascade layer the docs already call out for animation.
+
+**Display-list merge** = one extra pass, cheap because zombies are overlays outside B's layout:
+
+```
+build_display_list(B):
+    dl = normal_build(B)                       # unchanged
+    for z in anim_mgr.zombies:                 # inject as absolutely-positioned overlays
+        item = build_subtree(z.subtree)
+        item.bounds     = lerp(z.frozen_rect, z.target_or_frozen, z.anim.t)
+        item.transform  = z.anim.gpu_transform_key   # GPU-animated, no per-frame relayout
+        item.hit_test   = DISABLED                    # zombies are non-interactive
+        dl.push_overlay(item, z.original_stacking)    # keep A z-order as an overlay layer
+    return dl
+```
+
+Because zombies are injected as **composited overlays**, they do not perturb B's layout —
+exiting siblings' space collapses immediately (the usual, wanted behavior). The rarer
+"exiting item shrinks and pushes its siblings" needs the item to stay in flow and is a
+separate, more expensive mode (per-tick partial re-solve).
+
+**The perf fork — composited vs. layout animations.** `RelayoutScope` (`diff.rs:1358`) already
+classifies each changed property:
+
+- **transform / opacity only** → route through `GpuValueCache` keys (`gpu.rs:43`) →
+  `PushReferenceFrame{transform_key}` / `PushOpacity` (`display_list.rs:797`). WebRender
+  interpolates on the **GPU, zero relayout, 60 fps free** (scrollbar thumbs already do this).
+  Enter fade, exit fade, and FLIP moves all live here.
+- **layout-affecting props** (width/height/flex/margin) → each tick is a **partial re-solve**.
+  Tag these explicitly; otherwise a naive "animate width" silently relayouts every frame.
+
+**Interruption/retarget — design it in, don't bolt it on.** On A→B→C while A's exit is still
+mid-flight, the animation must **not** restart from 0. Because state is **keyed by
+reconciliation key**, the manager finds the in-flight `AnimState` and **retargets**: new
+`to`, `from = current interpolated value`, `vel` carried over (this is *why* Approach 4's
+spring beats bezier — springs retarget with velocity continuity; bezier snaps). WAAPI can't
+do this; making it first-class is the differentiator.
+
+**New surface — exactly four additions, all onto existing systems:**
+1. **`on_before_unmount` system event** (new) — the only genuinely new callback; `Mount`
+   already exists for enter. It fires at the diff seam and, for opted-in nodes, hands the
+   exiting subtree + frozen rect to the `AnimationManager` instead of dropping it.
+2. **`AnimationManager`** — keyed store of zombies + live anim states; sibling to
+   `GpuStateManager`; lives in a real `core/src/animation.rs` (fixes the stale
+   `ARCHITECTURE.md:184` ref).
+3. **Display-list merge pass** — inject zombies as composited, non-interactive overlays.
+4. **Timer glue** — one repaint-driving timer per active transition (or one shared ticker),
+   `RefAny` = the anim state.
+
+**The one real hazard:** exit-retention must keep zombies **out of `transfer_states`** at the
+swap — the old DOM's teardown is the double-drop-sensitive path (project memory:
+`azul-double-drop-systemic-fix`, `azul-clone-drop-double-free-audit`). A zombie is a *moved-out*
+subtree with its own lifetime that drops exactly once at `t=1`, never via A's synchronous
+teardown. Get that boundary right and the rest is additive.
+
 ---
 
 # PART 2 — Custom shader CSS layers (glassmorphism)
