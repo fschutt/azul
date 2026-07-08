@@ -1,7 +1,44 @@
 use std::{env, fs, path::{Path, PathBuf}, process::Command};
 
+/// Emit `AZUL_LIFT_BUILD_ID` for the web lift cache (see `main()`). A CI/docker
+/// build can override it explicitly; otherwise it's the short git hash, plus a
+/// `-dirty` marker when the tree has uncommitted changes.
+fn emit_lift_build_id() {
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-env-changed=AZUL_LIFT_BUILD_ID");
+    if let Ok(v) = env::var("AZUL_LIFT_BUILD_ID") {
+        if !v.is_empty() {
+            println!("cargo:rustc-env=AZUL_LIFT_BUILD_ID={v}");
+            return;
+        }
+    }
+    let git = |args: &[&str]| -> Option<String> {
+        let out = Command::new("git").args(args).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!s.is_empty()).then_some(s)
+    };
+    let id = match git(&["rev-parse", "--short=12", "HEAD"]) {
+        Some(hash) => {
+            let dirty = git(&["status", "--porcelain"]).is_some_and(|s| !s.is_empty());
+            if dirty { format!("{hash}-dirty") } else { hash }
+        }
+        None => "unknown".to_string(),
+    };
+    println!("cargo:rustc-env=AZUL_LIFT_BUILD_ID={id}");
+}
+
 fn main() {
     let target = env::var("TARGET").unwrap_or_default();
+
+    // Embed a build identity for the web lift cache. A CLEAN git checkout keys the
+    // framework lift cache by (ref + fn name) — arch-neutral, so an aarch64-lifted
+    // WASM cache is reused by an x86 server (transpiler_remill::lift_cache_path).
+    // A DIRTY tree gets a `-dirty` marker so dev builds fall back to byte-keying
+    // (which catches every recompile). Re-lifts when the azul source ref changes.
+    emit_lift_build_id();
 
     // Fail fast on mutually-exclusive *config* — NOT a platform gate. Platform
     // features (camera, etc.) dlopen at runtime and must never fail the build so

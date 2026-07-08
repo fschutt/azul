@@ -54,6 +54,13 @@ RUN git clone https://github.com/fschutt/remill.git /src/remill \
     && git checkout "${REMILL_REF}" \
     && git submodule update --init --recursive
 
+# KNOWN BLOCKER (experimental): remill's cmake does `find_package(XED CONFIG)`,
+# which needs XEDConfig.cmake — i.e. XED (and LLVM/glog/gflags) from trailofbits
+# **cxx-common**, NOT a standalone XED build. Provision cxx-common for LLVM
+# ${LLVM_VERSION} and pass its toolchain here (VCPKG_ROOT / CMAKE_TOOLCHAIN_FILE)
+# before this succeeds. Until then the image build fails at this step — track
+# https://github.com/lifting-bits/cxx-common. Left as-is so the intended build
+# is documented; the web-base image is experimental and not yet green.
 # Heavy (~45 min); the binary lands in /usr/local/bin so the DLL's subprocess
 # lifter finds it via REMILL_LIFT_BIN (set in Stage 3).
 RUN cd /src/remill \

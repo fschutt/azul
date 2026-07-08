@@ -973,16 +973,14 @@ impl RemillTranspiler {
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
         // On-disk lift cache (subprocess path only). OPT-IN via AZ_LIFT_CACHE=1,
         // default OFF: a hit skips the remill-lift-17 subprocess (the slowest
-        // per-fn step), but the cache key (lift_cache_path) hashes only the
-        // machine bytes + lift_addr + a manual LIFT_CACHE_VERSION — it does NOT
-        // capture the remill fork rev, the LLVM version, or the azul source. So
-        // while the web backend is pre-stable (remill bugs unfixed, toolchain in
-        // flux) a stale/buggy lift could be served on a false hit. Keep it off by
-        // default until web ships and the key is version-pinned; opt in (e.g. the
-        // pre-lifted Docker base image, once its cache key is made deterministic)
-        // when you accept that contract. `bytes` here is already post-rewrite.
+        // per-fn step). The key (lift_cache_path) now captures the toolchain
+        // (engine_fingerprint = remill fork rev + LLVM) AND the azul source: a
+        // CLEAN git build keys by (ref + fn name) — deterministic + arch-neutral,
+        // so the pre-lifted Docker base image's cache is reused across CPUs and
+        // re-lifts when the source ref changes. Dirty/dev builds fall back to
+        // byte-keying (catches every recompile). `bytes` here is post-rewrite.
         let cache_path = if !use_native && std::env::var_os("AZ_LIFT_CACHE").is_some() {
-            Some(lift_cache_path(&bytes, lift_addr))
+            Some(lift_cache_path(&bytes, lift_addr, fn_name))
         } else {
             None
         };
@@ -5981,15 +5979,42 @@ fn lift_cache_root() -> PathBuf {
 /// `AZ_LIFT_CACHE_DIR=<abs path>`; persists across server restarts; clear with
 /// `rm -rf` or `AZ_LIFT_CACHE_CLEAR=1`). Disable entirely with
 /// `AZ_NO_LIFT_CACHE=1`.
-fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64) -> PathBuf {
+/// The azul source build identity embedded at compile time by `dll/build.rs`
+/// (short git hash, `-dirty` on an uncommitted tree, or `unknown` without git).
+/// Lets the framework lift cache be keyed by source ref rather than machine
+/// bytes — so it re-lifts when azul's source changes, and is shared across CPUs.
+fn azul_build_id() -> &'static str {
+    option_env!("AZUL_LIFT_BUILD_ID").unwrap_or("unknown")
+}
+
+fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64, fn_name: &str) -> PathBuf {
     let dir = lift_cache_root();
-    let key = format!(
-        "{}_{:x}_v{}_e{:x}",
-        super::fnv1a64_hex(rewritten_bytes),
-        lift_addr,
-        LIFT_CACHE_VERSION,
-        engine_fingerprint(),
-    );
+    let build_id = azul_build_id();
+    // A CLEAN git ref keys the entry by (ref + fn name) — ARCH-NEUTRAL: the
+    // lifted output is WASM, independent of the host CPU that produced it, so an
+    // aarch64-lifted framework cache is reused verbatim by an x86 server (this is
+    // what lets one prelift serve every arch). A dirty/unknown build falls back
+    // to byte-keying, which catches every recompile during development. Both
+    // carry the cache version + engine fingerprint so a toolchain/format change
+    // still invalidates; the ref key drops `lift_addr` + machine bytes (both
+    // arch-specific) and uses the arch-neutral fn-name hash instead.
+    let key = if build_id == "unknown" || build_id.ends_with("-dirty") {
+        format!(
+            "{}_{:x}_v{}_e{:x}",
+            super::fnv1a64_hex(rewritten_bytes),
+            lift_addr,
+            LIFT_CACHE_VERSION,
+            engine_fingerprint(),
+        )
+    } else {
+        format!(
+            "ref_{}_{}_v{}_e{:x}",
+            build_id,
+            super::fnv1a64_hex(fn_name.as_bytes()),
+            LIFT_CACHE_VERSION,
+            engine_fingerprint(),
+        )
+    };
     dir.join(format!("{key}.lifted.ll"))
 }
 
