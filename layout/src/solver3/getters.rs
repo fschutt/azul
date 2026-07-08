@@ -243,16 +243,86 @@ fn resolve_font_size_slow(
     dom_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
+    // ITERATIVE resolution (was unbounded self-recursion up the parent chain, which
+    // stack-overflowed on deeply nested DOMs and was O(N*depth)). We walk `parent_id`
+    // in a loop to collect the ancestor chain, then resolve top-down so each node's
+    // `em` inherits from its already-resolved parent. Result is identical to the old
+    // recursive version for a well-formed tree, but bounded by the tree depth in
+    // stack usage (a single Vec of ancestors instead of nested frames).
+    //
+    // Each ancestor is resolved against its OWN `styled_node_state` (previously the
+    // recursion incorrectly threaded the *child's* state into parent/root resolution),
+    // matching the sibling `get_parent_font_size` / `get_root_font_size` helpers.
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let states = styled_dom.styled_nodes.as_container();
+    let root_id = NodeId::new(0);
+
+    // Root font-size, resolved from NodeId(0) with no parent and root == DEFAULT
+    // (mirrors the original: for node 0 the root branch returned DEFAULT directly).
+    let root_font_size = if dom_id == root_id {
+        DEFAULT_FONT_SIZE
+    } else {
+        let root_state = &states[root_id].styled_node_state;
+        resolve_font_size_one(
+            styled_dom,
+            root_id,
+            root_state,
+            DEFAULT_FONT_SIZE,
+            DEFAULT_FONT_SIZE,
+        )
+    };
+
+    // Collect the ancestor chain: chain[0] == dom_id, chain.last() == topmost ancestor.
+    let mut chain = alloc::vec::Vec::new();
+    let mut cur = Some(dom_id);
+    while let Some(id) = cur {
+        chain.push(id);
+        cur = hierarchy
+            .get(id)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+    }
+
+    // Resolve top-down. The topmost ancestor has parent_font_size == DEFAULT; each
+    // subsequent node inherits the previously-resolved value as its parent size.
+    let mut parent_font_size = DEFAULT_FONT_SIZE;
+    let mut resolved = DEFAULT_FONT_SIZE;
+    for &id in chain.iter().rev() {
+        // The target node keeps the caller-provided state (its own state, per the
+        // public contract); ancestors use their own stored state.
+        let this_state = if id == dom_id {
+            node_state
+        } else {
+            &states[id].styled_node_state
+        };
+        let this_root_fs = if id == root_id {
+            DEFAULT_FONT_SIZE
+        } else {
+            root_font_size
+        };
+        resolved =
+            resolve_font_size_one(styled_dom, id, this_state, parent_font_size, this_root_fs);
+        parent_font_size = resolved;
+    }
+    resolved
+}
+
+/// Resolves a single node's font-size given its already-resolved `parent_font_size`
+/// and `root_font_size`. Contains the per-node logic that the old recursive
+/// `resolve_font_size_slow` applied at each frame (computed-values px short-circuit,
+/// then a full cascade walk), with no recursion of its own.
+fn resolve_font_size_one(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    parent_font_size: f32,
+    root_font_size: f32,
+) -> f32 {
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let cache = &styled_dom.css_property_cache.ptr;
 
     if let Some(vec) = cache.computed_values.get(dom_id.index()) {
-        if let Ok(idx) = vec.binary_search_by_key(
-            &CssPropertyType::FontSize,
-            |(k, _)| *k,
-        ) {
-            if let CssProperty::FontSize(css_val) = &vec[idx].1.property
-            {
+        if let Ok(idx) = vec.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k) {
+            if let CssProperty::FontSize(css_val) = &vec[idx].1.property {
                 if let Some(fs) = css_val.get_property() {
                     if fs.inner.metric == azul_css::props::basic::length::SizeMetric::Px {
                         return fs.inner.number.get();
@@ -261,19 +331,6 @@ fn resolve_font_size_slow(
             }
         }
     }
-
-    let parent_font_size = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(dom_id)
-        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        .map_or(DEFAULT_FONT_SIZE, |parent_id| resolve_font_size_slow(styled_dom, parent_id, node_state));
-
-    let root_font_size = if dom_id == NodeId::new(0) {
-        DEFAULT_FONT_SIZE
-    } else {
-        resolve_font_size_slow(styled_dom, NodeId::new(0), node_state)
-    };
 
     cache
         .get_font_size(node_data, &dom_id, node_state)

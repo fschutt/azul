@@ -62,12 +62,10 @@ fn resolve_px_with_box_model(
     containing: f32,
     box_props: &BoxProps,
     is_horizontal: bool,
+    em: f32,
+    rem: f32,
 ) -> Option<f32> {
-    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-
-    if let Some(v) =
-        super::calc::resolve_pixel_value_no_percent(px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-    {
+    if let Some(v) = super::calc::resolve_pixel_value_no_percent(px, em, rem) {
         return Some(v);
     }
 
@@ -366,20 +364,23 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         // +spec:min-max-sizing:970fef - if min-width/min-height is a <length>, use as floor for intrinsic sizes
         if let Some(dom_id) = tree.get(node_index).and_then(|n| n.dom_node_id) {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
             use crate::solver3::getters::{get_css_min_width, get_css_min_height, MultiValue};
 
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
+            // Resolve em against the element's OWN font-size and rem against the root.
+            let em = get_element_font_size(self.ctx.styled_dom, dom_id, node_state);
+            let rem = super::getters::get_root_font_size(self.ctx.styled_dom, node_state);
+
             if let MultiValue::Exact(mw) = get_css_min_width(self.ctx.styled_dom, dom_id, node_state) {
-                if let Some(min_w) = super::calc::resolve_pixel_value_no_percent(&mw.inner, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
+                if let Some(min_w) = super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem) {
                     intrinsic.min_content_width = intrinsic.min_content_width.max(min_w);
                     intrinsic.max_content_width = intrinsic.max_content_width.max(min_w);
                 }
             }
 
             if let MultiValue::Exact(mh) = get_css_min_height(self.ctx.styled_dom, dom_id, node_state) {
-                if let Some(min_h) = super::calc::resolve_pixel_value_no_percent(&mh.inner, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) {
+                if let Some(min_h) = super::calc::resolve_pixel_value_no_percent(&mh.inner, em, rem) {
                     intrinsic.min_content_height = intrinsic.min_content_height.max(min_h);
                     intrinsic.max_content_height = intrinsic.max_content_height.max(min_h);
                 }
@@ -1595,9 +1596,10 @@ pub fn calculate_used_size_for_node(
             }
         }
         LayoutWidth::Px(px) => {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let em = get_element_font_size(styled_dom, id, node_state);
+            let rem = super::getters::get_root_font_size(styled_dom, node_state);
             let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
-                &px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                &px, em, rem,
                 viewport_size.width, viewport_size.height,
             );
 
@@ -1621,9 +1623,10 @@ pub fn calculate_used_size_for_node(
         // +spec:width-calculation:bf694a - min-content, max-content, fit-content() sizing values
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
         LayoutWidth::FitContent(px) => {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let em = get_element_font_size(styled_dom, id, node_state);
+            let rem = super::getters::get_root_font_size(styled_dom, node_state);
             let arg = super::calc::resolve_pixel_value_with_viewport(
-                &px, containing_block_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                &px, containing_block_size.width, em, rem,
                 viewport_size.width, viewport_size.height,
             );
             intrinsic.max_content_width.min(intrinsic.min_content_width.max(arg))
@@ -1722,9 +1725,10 @@ pub fn calculate_used_size_for_node(
             }
         }
         LayoutHeight::Px(px) => {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let em = get_element_font_size(styled_dom, id, node_state);
+            let rem = super::getters::get_root_font_size(styled_dom, node_state);
             let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
-                &px, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                &px, em, rem,
                 viewport_size.width, viewport_size.height,
             );
 
@@ -1748,9 +1752,10 @@ pub fn calculate_used_size_for_node(
         // css-sizing-3 §3.2: fit-content(<length-percentage>) = min(max-content, max(min-content, <length-percentage>))
         // For block axis, both min-content and max-content equal auto height
         LayoutHeight::FitContent(px) => {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            let em = get_element_font_size(styled_dom, id, node_state);
+            let rem = super::getters::get_root_font_size(styled_dom, node_state);
             let arg = super::calc::resolve_pixel_value_with_viewport(
-                &px, containing_block_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE,
+                &px, containing_block_size.height, em, rem,
                 viewport_size.width, viewport_size.height,
             );
             let auto_height = intrinsic.max_content_height;
@@ -1985,13 +1990,18 @@ fn apply_constraint_violation_table(
         get_css_min_width, get_css_max_width, get_css_min_height, get_css_max_height, MultiValue,
     };
 
+    // Resolve em against the element's OWN font-size and rem against the root
+    // font-size, NOT a hard-coded 16px.
+    let em = get_element_font_size(styled_dom, id, node_state);
+    let rem = super::getters::get_root_font_size(styled_dom, node_state);
+
     // +spec:min-max-sizing:92ab8d - constraint violation table for replaced elements with intrinsic ratio (cyclic percentage contributions use auto fallback)
     // +spec:min-max-sizing:ad8605 - min-height/max-height interact with percentage heights; percentages behave as auto in intrinsic contribution calc
 
     // +spec:positioning:c0af55 - automatic minimum size of abspos box is always zero (default 0.0)
     // Resolve min-width (default 0)
     let min_w = match get_css_min_width(styled_dom, id, node_state) {
-        MultiValue::Exact(mw) => resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true).unwrap_or(0.0),
+        MultiValue::Exact(mw) => resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem).unwrap_or(0.0),
         _ => 0.0,
     };
 
@@ -2001,7 +2011,7 @@ fn apply_constraint_violation_table(
             if mw.inner.number.get() >= core::f32::MAX - 1.0 {
                 f32::MAX
             } else {
-                resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true).unwrap_or(f32::MAX)
+                resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem).unwrap_or(f32::MAX)
             }
         }
         _ => f32::MAX,
@@ -2009,7 +2019,7 @@ fn apply_constraint_violation_table(
 
     // Resolve min-height (default 0)
     let min_h = match get_css_min_height(styled_dom, id, node_state) {
-        MultiValue::Exact(mh) => resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false).unwrap_or(0.0),
+        MultiValue::Exact(mh) => resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false, em, rem).unwrap_or(0.0),
         _ => 0.0,
     };
 
@@ -2019,7 +2029,7 @@ fn apply_constraint_violation_table(
             if mh.inner.number.get() >= core::f32::MAX - 1.0 {
                 f32::MAX
             } else {
-                resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false).unwrap_or(f32::MAX)
+                resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false, em, rem).unwrap_or(f32::MAX)
             }
         }
         _ => f32::MAX,
@@ -2111,10 +2121,14 @@ fn apply_width_constraints(
 ) -> f32 {
     use crate::solver3::getters::{get_css_max_width, get_css_min_width, MultiValue};
 
+    // Resolve em against the element's OWN font-size and rem against the root.
+    let em = get_element_font_size(styled_dom, id, node_state);
+    let rem = super::getters::get_root_font_size(styled_dom, node_state);
+
     // +spec:display-property:0c55e5 - auto min-width resolves to 0 for CSS2 display types
     // Resolve min-width (default is 0)
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
-        MultiValue::Exact(mw) => resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true).unwrap_or(0.0),
+        MultiValue::Exact(mw) => resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem).unwrap_or(0.0),
         _ => 0.0,
     };
 
@@ -2124,7 +2138,7 @@ fn apply_width_constraints(
             if mw.inner.number.get() >= core::f32::MAX - 1.0 {
                 None
             } else {
-                resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true)
+                resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem)
             }
         }
         _ => None,
@@ -2154,10 +2168,14 @@ fn apply_height_constraints(
 ) -> f32 {
     use crate::solver3::getters::{get_css_max_height, get_css_min_height, MultiValue};
 
+    // Resolve em against the element's OWN font-size and rem against the root.
+    let em = get_element_font_size(styled_dom, id, node_state);
+    let rem = super::getters::get_root_font_size(styled_dom, node_state);
+
     // for backwards-compat with CSS2 display types (block, inline, inline-block, table)
     // Resolve min-height (default is 0)
     let min_height = match get_css_min_height(styled_dom, id, node_state) {
-        MultiValue::Exact(mh) => resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false).unwrap_or(0.0),
+        MultiValue::Exact(mh) => resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false, em, rem).unwrap_or(0.0),
         _ => 0.0,
     };
 
@@ -2167,7 +2185,7 @@ fn apply_height_constraints(
             if mh.inner.number.get() >= core::f32::MAX - 1.0 {
                 None
             } else {
-                resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false)
+                resolve_px_with_box_model(&mh.inner, containing_block_height, box_props, false, em, rem)
             }
         }
         _ => None,

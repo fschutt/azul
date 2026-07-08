@@ -753,11 +753,14 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                 | LayoutWidth::MaxContent
                 | LayoutWidth::FitContent(_) => (None, false),
                 LayoutWidth::Px(px) => {
+                    let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
                     let pixels = resolve_size_metric(
                         px.metric,
                         px.number.get(),
                         constraints.available_size.width,
                         ctx.viewport_size,
+                        get_element_font_size(ctx.styled_dom, id, node_state),
+                        get_root_font_size(ctx.styled_dom, node_state),
                     );
                     (Some(pixels), true)
                 }
@@ -793,11 +796,14 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                 | LayoutHeight::MaxContent
                 | LayoutHeight::FitContent(_) => (None, false),
                 LayoutHeight::Px(px) => {
+                    let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
                     let pixels = resolve_size_metric(
                         px.metric,
                         px.number.get(),
                         constraints.available_size.height,
                         ctx.viewport_size,
+                        get_element_font_size(ctx.styled_dom, id, node_state),
+                        get_root_font_size(ctx.styled_dom, node_state),
                     );
                     (Some(pixels), true)
                 }
@@ -2998,18 +3004,23 @@ const fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
 /// - `value`: The numeric value
 /// - `containing_block_size`: Size of containing block (for percentage)
 /// - `viewport_size`: Viewport dimensions (for vw, vh, vmin, vmax)
+/// - `element_font_size`: The element's own computed font-size (for `em`)
+/// - `root_font_size`: The root element's computed font-size (for `rem`)
 #[inline]
 fn resolve_size_metric(
     metric: SizeMetric,
     value: f32,
     containing_block_size: f32,
     viewport_size: LogicalSize,
+    element_font_size: f32,
+    root_font_size: f32,
 ) -> f32 {
     match metric {
         SizeMetric::Px => value,
         SizeMetric::Pt => value * PT_TO_PX,
         SizeMetric::Percent => value / 100.0 * containing_block_size,
-        SizeMetric::Em | SizeMetric::Rem => value * DEFAULT_FONT_SIZE,
+        SizeMetric::Em => value * element_font_size,
+        SizeMetric::Rem => value * root_font_size,
         SizeMetric::Vw => value / 100.0 * viewport_size.width,
         SizeMetric::Vh => value / 100.0 * viewport_size.height,
         SizeMetric::Vmin => value / 100.0 * viewport_size.width.min(viewport_size.height),
@@ -4894,28 +4905,35 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         use ResolutionContext;
 
         let styled_dom = ctx.styled_dom;
-        let table_id = tree.nodes[node_index].dom_node_id.unwrap();
-        let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
+        // Anonymous table wrapper boxes have no dom_node_id; without a styled
+        // node we cannot resolve font-relative border-spacing units, so fall
+        // back to zero spacing rather than panicking.
+        let (h_spacing, v_spacing) = if let Some(table_id) = tree.nodes[node_index].dom_node_id {
+            let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
 
-        let spacing_context = ResolutionContext {
-            element_font_size: get_element_font_size(styled_dom, table_id, table_state),
-            parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
-            root_font_size: get_root_font_size(styled_dom, table_state),
-            containing_block_size: PhysicalSize::new(0.0, 0.0),
-            element_size: None,
-            viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+            let spacing_context = ResolutionContext {
+                element_font_size: get_element_font_size(styled_dom, table_id, table_state),
+                parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
+                root_font_size: get_root_font_size(styled_dom, table_state),
+                containing_block_size: PhysicalSize::new(0.0, 0.0),
+                element_size: None,
+                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+            };
+
+            let h_spacing = table_ctx
+                .border_spacing
+                .horizontal
+                .resolve_with_context(&spacing_context, PropertyContext::Other)
+                .max(0.0);
+            let v_spacing = table_ctx
+                .border_spacing
+                .vertical
+                .resolve_with_context(&spacing_context, PropertyContext::Other)
+                .max(0.0);
+            (h_spacing, v_spacing)
+        } else {
+            (0.0f32, 0.0f32)
         };
-
-        let h_spacing = table_ctx
-            .border_spacing
-            .horizontal
-            .resolve_with_context(&spacing_context, PropertyContext::Other)
-            .max(0.0);
-        let v_spacing = table_ctx
-            .border_spacing
-            .vertical
-            .resolve_with_context(&spacing_context, PropertyContext::Other)
-            .max(0.0);
 
         // Add spacing: left + (n-1 between columns) + right = n+1 spacings
         let num_cols = table_ctx.columns.len();
@@ -5329,6 +5347,8 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
                     px.number.get(),
                     available_width,
                     ctx.viewport_size,
+                    get_element_font_size(ctx.styled_dom, dom_id, node_state),
+                    get_root_font_size(ctx.styled_dom, node_state),
                 )
             }
             LayoutWidth::Auto | LayoutWidth::MinContent | LayoutWidth::MaxContent
@@ -5737,13 +5757,14 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
             }
         }
     } else {
-        // Case 3: Not enough space - scale down from min widths
-        let scale = if total_min_width > 0.0 { available_width / total_min_width } else { 1.0 };
+        // Case 3: Not enough space - columns must not shrink below their
+        // min-content width (CSS 2.1 §17.5.2). Floor each column at min_width;
+        // the table overflows its containing block instead of squeezing content.
         for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
             if table_ctx.collapsed_columns.contains(&col_idx) {
                 col.computed_width = Some(0.0);
             } else {
-                col.computed_width = Some(col.min_width * scale);
+                col.computed_width = Some(col.min_width);
             }
         }
     }
@@ -6245,31 +6266,37 @@ fn position_table_cells<T: ParsedFontTrait>(
     // Get border spacing values if border-collapse is separate
     let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
         let styled_dom = ctx.styled_dom;
-        let table_id = tree.nodes[table_index].dom_node_id.unwrap();
-        let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
+        // Anonymous table wrapper boxes have no dom_node_id; without a styled
+        // node we cannot resolve font-relative border-spacing units, so fall
+        // back to zero spacing rather than panicking.
+        if let Some(table_id) = tree.nodes[table_index].dom_node_id {
+            let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
 
-        let spacing_context = ResolutionContext {
-            element_font_size: get_element_font_size(styled_dom, table_id, table_state),
-            parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
-            root_font_size: get_root_font_size(styled_dom, table_state),
-            containing_block_size: PhysicalSize::new(0.0, 0.0),
-            element_size: None,
-            viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-        };
+            let spacing_context = ResolutionContext {
+                element_font_size: get_element_font_size(styled_dom, table_id, table_state),
+                parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
+                root_font_size: get_root_font_size(styled_dom, table_state),
+                containing_block_size: PhysicalSize::new(0.0, 0.0),
+                element_size: None,
+                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+            };
 
-        let h = table_ctx
-            .border_spacing
-            .horizontal
-            .resolve_with_context(&spacing_context, PropertyContext::Other)
-            .max(0.0);
+            let h = table_ctx
+                .border_spacing
+                .horizontal
+                .resolve_with_context(&spacing_context, PropertyContext::Other)
+                .max(0.0);
 
-        let v = table_ctx
-            .border_spacing
-            .vertical
-            .resolve_with_context(&spacing_context, PropertyContext::Other)
-            .max(0.0);
+            let v = table_ctx
+                .border_spacing
+                .vertical
+                .resolve_with_context(&spacing_context, PropertyContext::Other)
+                .max(0.0);
 
-        (h, v)
+            (h, v)
+        } else {
+            (0.0, 0.0)
+        }
     } else {
         (0.0, 0.0)
     };
@@ -7573,7 +7600,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             ctx.styled_dom, span_dom_id, node_state
         );
         let line_height = line_height_value
-            .map_or(text3::cache::LineHeight::Normal, |v| text3::cache::LineHeight::Px(v.inner.normalized() * font_size));
+            .map_or(text3::cache::LineHeight::Normal, |v| {
+                // Absolute px line-heights are stored as a negative normalized
+                // value; a positive value is a unitless multiplier of font-size.
+                let n = v.inner.normalized();
+                let px = if n < 0.0 { -n } else { n * font_size };
+                text3::cache::LineHeight::Px(px)
+            });
 
         let cb_width = constraints.containing_block_size.main(constraints.writing_mode);
         let padding_top = get_css_padding_top(ctx.styled_dom, span_dom_id, node_state)

@@ -25,12 +25,23 @@ pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
         StyleListStyleType::Square => "▪".to_string(),
         StyleListStyleType::Decimal => value.to_string(),
         StyleListStyleType::DecimalLeadingZero => format!("{value:02}"),
-        StyleListStyleType::LowerAlpha => with_sign(value, |n| to_alphabetic(n, false)),
-        StyleListStyleType::UpperAlpha => with_sign(value, |n| to_alphabetic(n, true)),
+        StyleListStyleType::LowerAlpha => decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, false))),
+        StyleListStyleType::UpperAlpha => decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, true))),
         StyleListStyleType::LowerRoman => with_sign(value, |n| to_roman(n, false)),
         StyleListStyleType::UpperRoman => with_sign(value, |n| to_roman(n, true)),
-        StyleListStyleType::LowerGreek => with_sign(value, |n| to_greek(n, false)),
-        StyleListStyleType::UpperGreek => with_sign(value, |n| to_greek(n, true)),
+        StyleListStyleType::LowerGreek => decimal_fallback(value, with_sign(value, |n| to_greek(n, false))),
+        StyleListStyleType::UpperGreek => decimal_fallback(value, with_sign(value, |n| to_greek(n, true))),
+    }
+}
+
+/// CSS fallback: when an alphabetic/greek counter style cannot represent a value
+/// (e.g. `value == 0`, where `to_alphabetic`/`to_greek` yield an empty string), the
+/// spec falls back to `decimal` so the marker is never blank.
+fn decimal_fallback(value: i32, formatted: String) -> String {
+    if formatted.is_empty() {
+        value.to_string()
+    } else {
+        formatted
     }
 }
 

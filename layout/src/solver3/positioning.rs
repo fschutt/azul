@@ -1168,12 +1168,14 @@ pub(crate) fn find_absolute_containing_block_rect(
 
             // Calculate padding-box size (border-box - borders)
             let padding_box_size = LogicalSize::new(
-                border_box_size.width
+                (border_box_size.width
                     - pbp.border.left
-                    - pbp.border.right,
-                border_box_size.height
+                    - pbp.border.right)
+                    .max(0.0),
+                (border_box_size.height
                     - pbp.border.top
-                    - pbp.border.bottom,
+                    - pbp.border.bottom)
+                    .max(0.0),
             );
 
             return Ok(LogicalRect::new(padding_box_pos, padding_box_size));
