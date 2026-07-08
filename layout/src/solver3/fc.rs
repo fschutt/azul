@@ -5204,8 +5204,8 @@ fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
         match attr {
             // Clamp to the HTML limits (colspan 1000, rowspan 65534): an
             // unclamped span grows the column/row vectors unboundedly -> OOM/hang.
-            azul_core::dom::AttributeType::ColSpan(n) => colspan = (*n).max(1).min(1000) as usize,
-            azul_core::dom::AttributeType::RowSpan(n) => rowspan = (*n).max(1).min(65534) as usize,
+            azul_core::dom::AttributeType::ColSpan(n) => colspan = (*n).clamp(1, 1000) as usize,
+            azul_core::dom::AttributeType::RowSpan(n) => rowspan = (*n).clamp(1, 65534) as usize,
             _ => {}
         }
     }

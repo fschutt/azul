@@ -273,7 +273,7 @@ fn resolve_font_size_slow(
     };
 
     // Collect the ancestor chain: chain[0] == dom_id, chain.last() == topmost ancestor.
-    let mut chain = alloc::vec::Vec::new();
+    let mut chain = Vec::new();
     let mut cur = Some(dom_id);
     while let Some(id) = cur {
         chain.push(id);
