@@ -16,7 +16,7 @@
 # Build locally:
 #     cargo run -r -p azul-doc codegen all
 #     pipx run maturin build --release -m dll/Cargo.toml \
-#         --features python-extension -i python3.8
+#         --features python-extension -i python3.10
 #
 # In CI the wheels are built with cibuildwheel (see .github/workflows/publish.yml),
 # which drives maturin under the hood across the CPython matrix / platforms.
@@ -31,7 +31,7 @@ name = "azul"
 version = "0.2.0"
 description = "Python bindings for the Azul GUI framework"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Felix Schütt", email = "felix.schuett@maps4print.com" }]
 keywords = ["gui", "user-interface", "svg", "graphics", "css"]

@@ -70,8 +70,8 @@ curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.pyd
 ```
 
 The module bundles the prebuilt native library, so there are no further system 
-dependencies to worry about. The abi3 wheel targets **Python 3.8+** - make sure
-you have a recent version.
+dependencies to worry about. The abi3 wheel targets **Python 3.10+** (pyo3 is
+`abi3-py310`) - make sure you have a recent version.
 
 > [!NOTE]
 > If there is no prebuilt module for your platform, 
