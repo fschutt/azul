@@ -576,7 +576,8 @@ jobs:
         # run), gl / callbacks (real FFI/GL). EXTEND this list (space-separated
         # test-name filters) as new unsafe modules are verified Miri-clean — a
         # random new *safe* test must never land here.
-        run: cargo +nightly miri test --lib -p azul-core -- refany::
+        run: |
+          cargo +nightly miri test --lib -p azul-core -- refany::
 
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
