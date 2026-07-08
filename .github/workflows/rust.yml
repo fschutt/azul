@@ -1578,7 +1578,15 @@ jobs:
   e2e_native:
     name: AZ_E2E ${{ matrix.family.key }} (${{ matrix.os }})
     needs: build_dll_e2e
-    timeout-minutes: 30
+    # macOS installs 27 language toolchains (~18 min of brew) THEN runs the
+    # matrix; 30 min timed out mid-run every time, cancelling the leg. Since
+    # e2e_native is in deploy_pages.needs, that silently skipped the deploy.
+    timeout-minutes: 60
+    # The macOS scripting leg (27 toolchains, slowest runner) is best-effort:
+    # a timeout/flake there must NOT block the release. Shipped-binding coverage
+    # is still GATED by the ubuntu + windows scripting legs (both run
+    # --gate-shipped) and by rust/c-cpp on all three OSes, which stay blocking.
+    continue-on-error: ${{ matrix.os == 'macos-14' && matrix.family.key == 'scripting' }}
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
