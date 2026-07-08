@@ -5184,8 +5184,10 @@ fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     for attr in node_data.attributes().as_ref() {
         match attr {
-            azul_core::dom::AttributeType::ColSpan(n) => colspan = (*n).max(1) as usize,
-            azul_core::dom::AttributeType::RowSpan(n) => rowspan = (*n).max(1) as usize,
+            // Clamp to the HTML limits (colspan 1000, rowspan 65534): an
+            // unclamped span grows the column/row vectors unboundedly -> OOM/hang.
+            azul_core::dom::AttributeType::ColSpan(n) => colspan = (*n).max(1).min(1000) as usize,
+            azul_core::dom::AttributeType::RowSpan(n) => rowspan = (*n).max(1).min(65534) as usize,
             _ => {}
         }
     }
@@ -6141,7 +6143,10 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             )?;
 
             // Calculate the current total height of spanned rows (excluding collapsed rows)
-            let end_row = cell_info.row + cell_info.rowspan;
+            // Clamp to the actual row count: a rowspan extending past the last
+            // row would slice row_heights out of bounds (panic on e.g. a
+            // rowspan="2" cell in a single-row table).
+            let end_row = (cell_info.row + cell_info.rowspan).min(table_ctx.row_heights.len());
             let current_total: f32 = table_ctx.row_heights[cell_info.row..end_row]
                 .iter()
                 .enumerate()

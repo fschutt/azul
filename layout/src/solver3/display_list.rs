@@ -1257,7 +1257,8 @@ impl DisplayListBuilder {
         // Avoid duplicates and keep sorted
         if !self.forced_page_breaks.contains(&y_position) {
             self.forced_page_breaks.push(y_position);
-            self.forced_page_breaks.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            self.forced_page_breaks
+                .sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
         }
     }
 
