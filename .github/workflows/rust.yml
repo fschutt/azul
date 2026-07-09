@@ -1681,22 +1681,6 @@ jobs:
       AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
       AZ_BACKEND: headless
     steps:
-      # The scripting family installs 27+ language toolchains (OCaml, Swift, Zig,
-      # Haskell/GHC, Kotlin, Scala, …) alongside the ~300 MB prebuilt libazul.
-      # On ubuntu-22.04 this overflows the stock ~14 GB runner disk (Haskell's
-      # GHC compilation hit ENOSPC with 35 MB free). Reclaim space from
-      # preinstalled toolchains the e2e tests don't need.
-      - name: Free disk space (scripting)
-        if: matrix.family.key == 'scripting' && matrix.os == 'ubuntu-22.04'
-        run: |
-          echo "Before:"; df -h / | tail -1
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
-                      /opt/hostedtoolcache/CodeQL \
-                      /usr/local/share/boost /usr/share/swift \
-                      /usr/local/share/chromium 2>/dev/null || true
-          sudo docker image prune --all --force 2>/dev/null || true
-          echo "After:"; df -h / | tail -1
-
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -1919,58 +1903,10 @@ jobs:
             echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           fi
 
-      # Extra scripting toolchains best-effort (the runner preinstalls node,
-      # ruby, python, go, perl, php, java, dotnet; install a few cheap extras).
-      - name: Install extra language toolchains (best-effort)
-        if: matrix.family.key == 'scripting'
-        continue-on-error: true
-        shell: bash
-        run: |
-          if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
-            # NOTE: a newer LuaJIT does NOT fix lua here -- even a current 2.1
-            # build NYIs on App_create's by-value AppConfig (LuaJIT x86-64 FFI
-            # can't call by-value-aggregate C fns); the matrix script reports
-            # that as SKIP. So just install apt's luajit for the toolchain.
-            #   luajit/php-cli/gfortran/gnucobol/fp-compiler/sbcl: language runtimes
-            #   gnat: Ada (GNAT-FSF)     gnu-smalltalk: smalltalk smoke (gst)
-            #   algol68g: Algol 68 Genie (niche; dialect-incompat but runs the row)
-            #   freebasic: fbc (x86_64 Linux)
-            #   libffi-dev: sbcl/cffi + racket/perl FFI trampolines
-            #   llvm-dev/libclang-dev/clang: bindgen/libclang for the php-extension
-            sudo apt-get install -y --no-install-recommends \
-              luajit php-cli gfortran gnucobol fp-compiler sbcl \
-              gnat gnu-smalltalk algol68g freebasic \
-              libffi-dev llvm-dev libclang-dev clang 2>/dev/null || true
-          elif [ "${{ matrix.os }}" = "macos-14" ]; then
-            #   fpc/luajit/php/sbcl: language runtimes  gnu-cobol: cobc
-            #   gnu-smalltalk: gst  gcc: provides gfortran on macOS
-            #   libffi: sbcl/cffi + perl FFI  llvm: libclang for the php-extension
-            #   (ada/gnat + freebasic have no arm64 brew formula -> those rows SKIP)
-            brew install luajit php fpc sbcl gnu-cobol gnu-smalltalk gcc libffi llvm 2>/dev/null || true
-          else
-            #   luajit + freepascal (fpc) + freebasic (x86_64 Windows fbc) + sbcl
-            #   via choco; msys2 mingw already installed for cgo/C (provides
-            #   gfortran). LLVM gives libclang for the php-extension.
-            choco install luajit freepascal freebasic sbcl llvm -y 2>/dev/null || true
-          fi
-          # Perl FFI::Platypus — perl is preinstalled on all three runners but the
-          # binding needs the Platypus FFI module. cpanm bootstraps it.
-          cpanm --notest FFI::Platypus 2>/dev/null \
-            || sudo cpanm --notest FFI::Platypus 2>/dev/null \
-            || curl -sL https://cpanmin.us | perl - --notest FFI::Platypus 2>/dev/null || true
-          # Quicklisp for SBCL (lang_lisp needs ~/quicklisp/setup.lisp). Idempotent:
-          # skip if already bootstrapped.
-          if command -v sbcl >/dev/null 2>&1 && [ ! -f "$HOME/quicklisp/setup.lisp" ]; then
-            curl -sO https://beta.quicklisp.org/quicklisp.lisp \
-              && sbcl --non-interactive \
-                   --load quicklisp.lisp \
-                   --eval '(quicklisp-quickstart:install)' 2>/dev/null || true
-          fi
-          # Ruby FFI gem — the azul.rb binding does `require 'ffi'`, which is NOT
-          # preinstalled on the runners (LoadError -> ruby FAILS). Try user then
-          # system install; harmless if already present.
-          gem install ffi --no-document 2>/dev/null \
-            || sudo gem install ffi --no-document 2>/dev/null || true
+      # Per-language toolchain install/cleanup is now handled inside
+      # e2e_language_matrix.sh (lang_deps_install / lang_deps_cleanup) so each
+      # language installs only what it needs, runs, then cleans up — avoiding the
+      # disk-space exhaustion caused by installing all 27+ toolchains at once.
 
       - name: Language binding board (AZ_E2E, gates shipped tier)
         shell: bash
