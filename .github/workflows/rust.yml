@@ -869,6 +869,7 @@ jobs:
 
       - name: Mark ICU parity done
         if: steps.icu-cache.outputs.cache-hit != 'true'
+        shell: bash
         run: mkdir -p target && echo "done" > target/icu-parity-done-${{ matrix.backend.feature }}
 
   # Cheap "does azul.h compile + link" check across every C compiler that
