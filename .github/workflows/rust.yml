@@ -33,6 +33,11 @@ on:
           - deploy
         required: true
         default: 'ci'
+      cache_bust:
+        description: 'Force-clear all caches (full rebuild from scratch)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -64,6 +69,10 @@ env:
   # Release version consumed by the inlined multi-registry publish jobs (below).
   # Bump in lockstep with the workspace crates + api.json.
   AZUL_VERSION: "0.2.0"
+  # When cache_bust is checked in a manual dispatch, append the unique run ID
+  # to every cache key so nothing matches and everything rebuilds from scratch.
+  # On push/PR (no inputs) or when unchecked this resolves to the empty string.
+  CACHE_BUST: ${{ github.event.inputs.cache_bust == 'true' && github.run_id || '' }}
 
 jobs:
   # =============================================================================
@@ -114,7 +123,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -207,7 +216,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -317,7 +326,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -435,7 +444,7 @@ jobs:
           path: |
             target/${{ matrix.target }}/prod-release
             target/codegen
-          key: cross-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          key: cross-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
 
       - name: Install Rust
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -459,7 +468,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -638,7 +647,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -653,7 +662,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
-          key: reftest-chrome-images-${{ hashFiles('doc/working/*.xhtml') }}
+          key: reftest-chrome-images-${{ hashFiles('doc/working/*.xhtml') }}-${{ env.CACHE_BUST }}
           restore-keys: reftest-chrome-images-
 
       - name: Run reftests
@@ -755,7 +764,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -842,7 +851,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/icu-parity-done-${{ matrix.backend.feature }}
-          key: icu-parity-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('layout/src/**/*.rs', 'layout/tests/**/*.rs', 'layout/Cargo.toml') }}
+          key: icu-parity-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('layout/src/**/*.rs', 'layout/tests/**/*.rs', 'layout/Cargo.toml') }}-${{ env.CACHE_BUST }}
 
       - name: Install Rust
         if: steps.icu-cache.outputs.cache-hit != 'true'
@@ -904,7 +913,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -974,7 +983,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -1045,7 +1054,7 @@ jobs:
             target/azuldbg/prod-release
             target/pyext/prod-release
             target/codegen
-          key: build-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          key: build-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
 
       - name: Install Rust
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -1076,7 +1085,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -1610,7 +1619,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -1737,7 +1746,7 @@ jobs:
             target/release
             target/pyext-e2e/release
             target/codegen
-          key: e2e-dll-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          key: e2e-dll-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
 
       - name: Install Rust
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -1761,7 +1770,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -2153,7 +2162,7 @@ jobs:
           path: |
             target/${{ matrix.target }}/release
             target/codegen
-          key: mobile-build-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          key: mobile-build-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
 
       - uses: Swatinem/rust-cache@v2
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -2165,7 +2174,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -2310,7 +2319,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -2408,7 +2417,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -2734,7 +2743,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -3800,7 +3809,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -3893,7 +3902,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -3962,7 +3971,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -4042,7 +4051,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
       - name: Generate DLL API bindings
@@ -4108,7 +4117,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/azul-documentation.pdf
-          key: docs-pdf-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}
+          key: docs-pdf-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}-${{ env.CACHE_BUST }}
 
       - name: Rust build cache
         if: steps.pdf-cache.outputs.cache-hit != 'true'
@@ -4250,7 +4259,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -4383,7 +4392,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
@@ -5000,7 +5009,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
           restore-keys: |
             codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
 
