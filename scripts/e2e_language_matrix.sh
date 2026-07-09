@@ -464,6 +464,354 @@ finish() {
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # =============================================================================
+# PER-LANGUAGE TOOLCHAIN INSTALL / CLEANUP
+#
+# Instead of installing ALL 27+ language toolchains up front (which overflows
+# the runner's ~14 GB disk), each language installs its own deps just before
+# running and cleans up afterwards so the next language starts clean.
+#
+# lang_deps_install <lang>  — installs the toolchain/libs for <lang>
+# lang_deps_cleanup <lang>  — removes build artifacts + optionally uninstalls
+#                              heavy toolchains to reclaim disk
+#
+# Preinstalled tools (node, ruby, python, go, perl, java, dotnet, clang, gcc)
+# are NOT touched — only the extras that the CI bulk step used to install.
+# =============================================================================
+
+# Serialize apt/brew/choco installs. Parallel --single children may try to
+# install at the same time; apt in particular fails if two dpkg instances run
+# concurrently. mkdir-based spinlock (macOS bash 3.2 has no flock).
+_PKG_LOCK="${TMPDIR:-/tmp}/azul-e2e-pkg-install.lock"
+_pkg_lock() {
+  local waited=0
+  while ! mkdir "$_PKG_LOCK" 2>/dev/null; do
+    local holder
+    holder="$(cat "$_PKG_LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+      rm -rf "$_PKG_LOCK" 2>/dev/null; continue
+    fi
+    sleep 2; waited=$((waited + 2))
+    [ "$waited" -ge 600 ] && { echo "_pkg_lock: timed out" >&2; break; }
+  done
+  echo $$ > "$_PKG_LOCK/pid" 2>/dev/null || true
+}
+_pkg_unlock() { rm -rf "$_PKG_LOCK" 2>/dev/null; }
+
+# _apt_install <pkg...>: serialized apt-get install (Linux only, no-op elsewhere).
+_apt_install() {
+  [ "$IS_MACOS" = 1 ] || [ "$IS_WINDOWS" = 1 ] && return 0
+  _pkg_lock; trap _pkg_unlock RETURN
+  sudo apt-get install -y --no-install-recommends "$@" 2>/dev/null || true
+}
+
+# _apt_remove <pkg...>: remove apt packages (Linux only).
+_apt_remove() {
+  [ "$IS_MACOS" = 1 ] || [ "$IS_WINDOWS" = 1 ] && return 0
+  _pkg_lock; trap _pkg_unlock RETURN
+  sudo apt-get remove -y "$@" 2>/dev/null || true
+  sudo apt-get autoremove -y 2>/dev/null || true
+}
+
+# _brew_install <pkg...>: serialized brew install (macOS only).
+_brew_install() {
+  [ "$IS_MACOS" = 1 ] || return 0
+  _pkg_lock; trap _pkg_unlock RETURN
+  brew install "$@" 2>/dev/null || true
+}
+
+# _brew_remove <pkg...>: remove brew packages (macOS only).
+_brew_remove() {
+  [ "$IS_MACOS" = 1 ] || return 0
+  _pkg_lock; trap _pkg_unlock RETURN
+  brew uninstall "$@" 2>/dev/null || true
+}
+
+# _choco_install <pkg...>: serialized choco install (Windows only).
+_choco_install() {
+  [ "$IS_WINDOWS" = 1 ] || return 0
+  _pkg_lock; trap _pkg_unlock RETURN
+  choco install "$@" -y 2>/dev/null || true
+}
+
+# _choco_remove <pkg...>: remove choco packages (Windows only).
+_choco_remove() {
+  [ "$IS_WINDOWS" = 1 ] || return 0
+  _pkg_lock; trap _pkg_unlock RETURN
+  choco uninstall "$@" -y 2>/dev/null || true
+}
+
+lang_deps_install() {
+  local lang="$1"
+  case "$lang" in
+    lua)
+      _apt_install luajit
+      _brew_install luajit
+      _choco_install luajit
+      ;;
+    php)
+      _apt_install php-cli llvm-dev libclang-dev clang
+      _brew_install php llvm
+      # Windows: php is preinstalled; llvm for the extension build
+      _choco_install llvm
+      ;;
+    fortran)
+      _apt_install gfortran
+      # macOS: gcc formula provides gfortran
+      _brew_install gcc
+      ;;
+    cobol)
+      _apt_install gnucobol
+      _brew_install gnu-cobol
+      ;;
+    pascal)
+      _apt_install fp-compiler
+      _brew_install fpc
+      _choco_install freepascal
+      ;;
+    lisp)
+      _apt_install sbcl libffi-dev
+      _brew_install sbcl libffi
+      _choco_install sbcl
+      # Bootstrap quicklisp if needed
+      if command -v sbcl >/dev/null 2>&1 && [ ! -f "$HOME/quicklisp/setup.lisp" ]; then
+        curl -sO https://beta.quicklisp.org/quicklisp.lisp \
+          && sbcl --non-interactive \
+               --load quicklisp.lisp \
+               --eval '(quicklisp-quickstart:install)' 2>/dev/null || true
+      fi
+      ;;
+    ada)
+      _apt_install gnat
+      # macOS/Windows: no arm64 brew formula / no easy install -> SKIP
+      ;;
+    smalltalk)
+      _apt_install gnu-smalltalk
+      _brew_install gnu-smalltalk
+      ;;
+    algol68)
+      _apt_install algol68g
+      ;;
+    freebasic)
+      _apt_install freebasic
+      _choco_install freebasic
+      ;;
+    perl)
+      # libffi-dev needed for FFI::Platypus
+      _apt_install libffi-dev
+      _brew_install libffi
+      # Install FFI::Platypus module
+      cpanm --notest FFI::Platypus 2>/dev/null \
+        || sudo cpanm --notest FFI::Platypus 2>/dev/null \
+        || curl -sL https://cpanmin.us | perl - --notest FFI::Platypus 2>/dev/null || true
+      ;;
+    ruby)
+      # Ruby FFI gem (ruby itself is preinstalled)
+      gem install ffi --no-document 2>/dev/null \
+        || sudo gem install ffi --no-document 2>/dev/null || true
+      ;;
+    racket)
+      # libffi-dev needed for racket FFI trampolines
+      _apt_install libffi-dev
+      _brew_install libffi
+      ;;
+    # Languages that use only preinstalled tools: c, cpp, rust, go, node, python,
+    # csharp, java, kotlin, scala, zig, odin, nim, red, powershell, vb6, etc.
+    # No extra install needed.
+    *) ;;
+  esac
+}
+
+lang_deps_cleanup() {
+  local lang="$1"
+
+  # Always clean build artifacts from the example directory.
+  case "$lang" in
+    c)
+      rm -f "$REPO_ROOT/examples/c/hello-world-e2e" "$REPO_ROOT/examples/c/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/c/azul.h"
+      ;;
+    cpp)
+      rm -f "$REPO_ROOT/examples/cpp/cpp20/hello-world-e2e" "$REPO_ROOT/examples/cpp/cpp20/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/cpp/cpp20"/azul*.hpp "$REPO_ROOT/examples/cpp/cpp20/azul.h"
+      ;;
+    go)
+      rm -f "$REPO_ROOT/examples/go/hello-world-go-e2e" "$REPO_ROOT/examples/go/hello-world-go-e2e.exe"
+      rm -f "$REPO_ROOT/examples/go/azul.h"
+      rm -f "$REPO_ROOT/examples/go/$(basename "$LIB_PATH")"
+      ;;
+    lua)
+      rm -f "$REPO_ROOT/examples/lua/azul.lua"
+      rm -f "$REPO_ROOT/examples/lua/$(basename "$LIB_PATH")"
+      _apt_remove luajit
+      _brew_remove luajit
+      _choco_remove luajit
+      ;;
+    node)
+      rm -f "$REPO_ROOT/examples/node/azul.js"
+      rm -f "$REPO_ROOT/examples/node/$(basename "$LIB_PATH")"
+      rm -rf "$REPO_ROOT/examples/node/node_modules"
+      ;;
+    ruby)
+      rm -f "$REPO_ROOT/examples/ruby/azul.rb"
+      rm -f "$REPO_ROOT/examples/ruby/$(basename "$LIB_PATH")"
+      ;;
+    csharp)
+      rm -f "$REPO_ROOT/examples/csharp/Azul.cs"
+      rm -f "$REPO_ROOT/examples/csharp/$(basename "$LIB_PATH")"
+      rm -rf "$REPO_ROOT/examples/csharp/bin" "$REPO_ROOT/examples/csharp/obj"
+      ;;
+    java)
+      rm -f "$REPO_ROOT/examples/java/$(basename "$LIB_PATH")"
+      rm -rf "$REPO_ROOT/examples/java/target"
+      rm -rf "$REPO_ROOT/examples/java/com/azul"
+      ;;
+    kotlin)
+      rm -f "$REPO_ROOT/examples/kotlin/Azul.kt"
+      rm -f "$REPO_ROOT/examples/kotlin/hello-world.jar"
+      rm -f "$REPO_ROOT/examples/kotlin/$(basename "$LIB_PATH")"
+      ;;
+    scala)
+      rm -f "$REPO_ROOT/examples/scala/$(basename "$LIB_PATH")"
+      rm -rf "$REPO_ROOT/examples/scala/target" "$REPO_ROOT/examples/scala/project/target"
+      ;;
+    zig)
+      rm -f "$REPO_ROOT/examples/zig/hello-world-e2e" "$REPO_ROOT/examples/zig/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig"
+      rm -f "$REPO_ROOT/examples/zig/$(basename "$LIB_PATH")"
+      ;;
+    odin)
+      rm -f "$REPO_ROOT/examples/odin/hello-world-e2e" "$REPO_ROOT/examples/odin/hello-world-e2e.exe"
+      rm -rf "$REPO_ROOT/examples/odin/azul"
+      rm -f "$REPO_ROOT/examples/odin/$(basename "$LIB_PATH")" "$REPO_ROOT/examples/odin/azul.lib"
+      ;;
+    nim)
+      rm -f "$REPO_ROOT/examples/nim/hello-world-e2e" "$REPO_ROOT/examples/nim/hello_world_e2e.nim"
+      rm -f "$REPO_ROOT/examples/nim/azul.nim"
+      rm -f "$REPO_ROOT/examples/nim/$(basename "$LIB_PATH")"
+      rm -rf "$REPO_ROOT/examples/nim/nimcache"
+      ;;
+    racket)
+      rm -f "$REPO_ROOT/examples/racket/azul.rkt" "$REPO_ROOT/examples/racket/info.rkt"
+      rm -f "$REPO_ROOT/examples/racket/$(basename "$LIB_PATH")"
+      ;;
+    ocaml)
+      rm -f "$REPO_ROOT/examples/ocaml/azul.ml" "$REPO_ROOT/examples/ocaml/azul.mli"
+      rm -f "$REPO_ROOT/examples/ocaml/$(basename "$LIB_PATH")"
+      rm -rf "$REPO_ROOT/examples/ocaml/_build"
+      ;;
+    haskell)
+      rm -rf "$REPO_ROOT/examples/azul-haskell"
+      rm -f "$REPO_ROOT/examples/haskell/$(basename "$LIB_PATH")"
+      rm -rf "$REPO_ROOT/examples/haskell/dist-newstyle"
+      ;;
+    pascal)
+      rm -f "$REPO_ROOT/examples/pascal/hello-world" "$REPO_ROOT/examples/pascal/hello-world.o"
+      rm -f "$REPO_ROOT/examples/pascal/azul.pas"
+      rm -f "$REPO_ROOT/examples/pascal/$(basename "$LIB_PATH")"
+      _apt_remove fp-compiler
+      _brew_remove fpc
+      _choco_remove freepascal
+      ;;
+    fortran)
+      rm -f "$REPO_ROOT/examples/fortran/hello_world" "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod
+      rm -f "$REPO_ROOT/examples/fortran/azul.f90" "$REPO_ROOT/examples/fortran/Makefile"
+      rm -f "$REPO_ROOT/examples/fortran/$(basename "$LIB_PATH")"
+      _apt_remove gfortran
+      _brew_remove gcc
+      ;;
+    cobol)
+      rm -f "$REPO_ROOT/examples/cobol/hello-world-e2e"
+      rm -f "$REPO_ROOT/examples/cobol/azul.cpy"
+      rm -f "$REPO_ROOT/examples/cobol/$(basename "$LIB_PATH")"
+      _apt_remove gnucobol
+      _brew_remove gnu-cobol
+      ;;
+    lisp)
+      rm -f "$REPO_ROOT/examples/lisp/azul.lisp" "$REPO_ROOT/examples/lisp/azul.asd"
+      rm -f "$REPO_ROOT/examples/lisp/$(basename "$LIB_PATH")"
+      _apt_remove sbcl
+      _brew_remove sbcl
+      _choco_remove sbcl
+      ;;
+    perl)
+      rm -rf "$REPO_ROOT/examples/perl/lib/Azul.pm"
+      rm -f "$REPO_ROOT/examples/perl/$(basename "$LIB_PATH")"
+      ;;
+    php)
+      rm -rf "$REPO_ROOT/target/phpext"
+      _apt_remove llvm-dev libclang-dev
+      _brew_remove llvm
+      _choco_remove llvm
+      ;;
+    powershell)
+      rm -f "$REPO_ROOT/examples/powershell/Azul.cs" "$REPO_ROOT/examples/powershell/Azul.psd1" "$REPO_ROOT/examples/powershell/Azul.psm1"
+      rm -f "$REPO_ROOT/examples/powershell/$(basename "$LIB_PATH")"
+      ;;
+    ada)
+      rm -rf "$REPO_ROOT/examples/ada/obj"
+      rm -f "$REPO_ROOT/examples/ada/azul.ads" "$REPO_ROOT/examples/ada/azul.adb"
+      rm -f "$REPO_ROOT/examples/ada/$(basename "$LIB_PATH")"
+      _apt_remove gnat
+      ;;
+    algol68)
+      rm -f "$REPO_ROOT/examples/algol68/azul.a68"
+      rm -f "$REPO_ROOT/examples/algol68/$(basename "$LIB_PATH")"
+      _apt_remove algol68g
+      ;;
+    freebasic)
+      rm -f "$REPO_ROOT/examples/freebasic/hello-world-e2e"
+      rm -f "$REPO_ROOT/examples/freebasic/azul.bi"
+      rm -f "$REPO_ROOT/examples/freebasic/$(basename "$LIB_PATH")"
+      _apt_remove freebasic
+      _choco_remove freebasic
+      ;;
+    smalltalk)
+      rm -f "$REPO_ROOT/examples/smalltalk/Azul.st"
+      rm -f "$REPO_ROOT/examples/smalltalk/$(basename "$LIB_PATH")"
+      _apt_remove gnu-smalltalk
+      _brew_remove gnu-smalltalk
+      ;;
+    rust)
+      rm -f "$REPO_ROOT/target/release/examples/hello-world"
+      ;;
+    d)
+      rm -f "$REPO_ROOT/examples/d/hello-world-e2e" "$REPO_ROOT/examples/d/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/d/azul.d"
+      rm -f "$REPO_ROOT/examples/d/$(basename "$LIB_PATH")"
+      ;;
+    swift)
+      rm -f "$REPO_ROOT/examples/swift/hello-world-e2e"
+      rm -f "$REPO_ROOT/examples/swift/azul.swift" "$REPO_ROOT/examples/swift/azul.h" "$REPO_ROOT/examples/swift/module.modulemap"
+      rm -f "$REPO_ROOT/examples/swift/$(basename "$LIB_PATH")"
+      ;;
+    v)
+      rm -f "$REPO_ROOT/examples/v/hello-world-e2e"
+      rm -rf "$REPO_ROOT/examples/v/azul"
+      rm -f "$REPO_ROOT/examples/v/$(basename "$LIB_PATH")"
+      ;;
+    crystal)
+      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e"
+      rm -f "$REPO_ROOT/examples/crystal/azul.cr"
+      rm -f "$REPO_ROOT/examples/crystal/$(basename "$LIB_PATH")"
+      ;;
+    julia)
+      rm -rf "$REPO_ROOT/examples/julia/azul"
+      rm -f "$REPO_ROOT/examples/julia/$(basename "$LIB_PATH")"
+      ;;
+    red)
+      rm -f "$REPO_ROOT/examples/red/hello-world-e2e"
+      rm -f "$REPO_ROOT/examples/red/azul.reds"
+      rm -f "$REPO_ROOT/examples/red/$(basename "$LIB_PATH")"
+      ;;
+    vb6)
+      rm -f "$REPO_ROOT/examples/vb6/HelloWorld.exe" "$REPO_ROOT/examples/vb6/vb6-build.log"
+      rm -f "$REPO_ROOT/examples/vb6/Azul.bas"
+      rm -f "$REPO_ROOT/examples/vb6/$(basename "$LIB_PATH")"
+      ;;
+  esac
+}
+
+# =============================================================================
 # PER-LANGUAGE RECIPES
 #
 # Each lang_<name> function: (a) probes its toolchain via `have`/command -v and
@@ -1619,11 +1967,15 @@ if [ "$SINGLE" = 1 ]; then
     else
       unset AZ_RECORD
     fi
+    # Install language-specific toolchains/deps just before running, then
+    # clean up afterwards so the next language starts with a clean disk.
+    lang_deps_install "$lang"
     if declare -F "$fn" >/dev/null 2>&1; then
       "$fn"
     else
       record "$lang" "FAILS" "unknown language (no recipe)"
     fi
+    lang_deps_cleanup "$lang"
   done
   exit 0
 fi
