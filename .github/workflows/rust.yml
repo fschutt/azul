@@ -109,10 +109,21 @@ jobs:
             echo "No uncommitted changes after autofix."
           fi
 
-      - name: Generate DLL API bindings and run tests
-        run: |
-          cargo run -r -p azul-doc codegen all
-          cd dll && cargo test
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
+      - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Run DLL tests
+        run: cd dll && cargo test
 
       # Double-drop invariant (compile-free static check over api.json + the
       # generated mirror): the codegen must emit `impl Drop` on a mirror ONLY for
@@ -191,7 +202,17 @@ jobs:
         with:
           toolchain: 1.88.0
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Check azul-dll with a11y enabled (default)
@@ -291,7 +312,17 @@ jobs:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Check sub-crates (azul-css, azul-core, azul-layout)
@@ -396,29 +427,52 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Early artifact cache: skip the entire cross-build if source hasn't changed.
+      - name: Check cross-build artifact cache
+        id: build-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            target/${{ matrix.target }}/prod-release
+            target/codegen
+          key: cross-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+
       - name: Install Rust
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
       - name: Rust build cache
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: cross-${{ matrix.target }}
 
       - name: Install cross (Linux)
-        if: matrix.use_cross
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.use_cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
+      - name: Cache codegen output
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.build-cache.outputs.cache-hit != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build with cross (Linux cross-arch)
-        if: matrix.use_cross
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.use_cross
         run: cross build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
       - name: Build natively (Windows/macOS cross-arch)
-        if: "!matrix.use_cross"
+        if: steps.build-cache.outputs.cache-hit != 'true' && !matrix.use_cross
         run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
       # Remove embedded ThinLTO bitcode + debug info from the staticlib before
@@ -427,7 +481,7 @@ jobs:
       # skipped the cross-ELF archives in past releases). Asserts no .llvmbc
       # survives; machine code is untouched.
       - name: Strip static lib (bitcode + debug)
-        if: ${{ success() || matrix.experimental }}
+        if: steps.build-cache.outputs.cache-hit != 'true' && (success() || matrix.experimental)
         shell: bash
         run: |
           shopt -s nullglob
@@ -579,7 +633,17 @@ jobs:
         run: |
           cargo +nightly miri test --lib -p azul-core -- refany::
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Setup Chrome
@@ -686,7 +750,17 @@ jobs:
           rustup toolchain install nightly --component miri
           cargo +nightly miri setup
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll (debug)
@@ -762,18 +836,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Skip entirely if layout source (incl. ICU tests) hasn't changed.
+      - name: Check ICU parity cache
+        id: icu-cache
+        uses: actions/cache@v5
+        with:
+          path: target/icu-parity-done-${{ matrix.backend.feature }}
+          key: icu-parity-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('layout/src/**/*.rs', 'layout/tests/**/*.rs', 'layout/Cargo.toml') }}
+
       - name: Install Rust
+        if: steps.icu-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
 
       - name: Run ICU parity tests (${{ matrix.backend.feature }})
-        if: matrix.backend.run
+        if: steps.icu-cache.outputs.cache-hit != 'true' && matrix.backend.run
         run: cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }}
 
       - name: Compile-check ICU parity test (${{ matrix.backend.feature }})
-        if: ${{ !matrix.backend.run }}
+        if: steps.icu-cache.outputs.cache-hit != 'true' && !matrix.backend.run
         run: cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }} --no-run
+
+      - name: Mark ICU parity done
+        if: steps.icu-cache.outputs.cache-hit != 'true'
+        run: mkdir -p target && echo "done" > target/icu-parity-done-${{ matrix.backend.feature }}
 
   # Cheap "does azul.h compile + link" check across every C compiler that
   # matters, WITHOUT rebuilding the DLL per compiler. The ABI rule is: a C
@@ -812,7 +899,17 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings (azul.h)
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll (debug, build-once-per-ABI)
@@ -872,7 +969,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libxext-dev python3
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings (azul.h / azul20.hpp)
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll (release, with debug-server)
@@ -925,39 +1032,67 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Early artifact cache: if engine source + Cargo.lock haven't changed,
+      # skip the entire build and just upload cached artifacts. Cache key is
+      # content-based: Cargo.lock (deps) + engine source. CI-only or doc-only
+      # changes do NOT invalidate this cache.
+      - name: Check build artifact cache
+        id: build-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            target/prod-release
+            target/azuldbg/prod-release
+            target/pyext/prod-release
+            target/codegen
+          key: build-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+
       - name: Install Rust
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
+        if: steps.build-cache.outputs.cache-hit != 'true'
         with:
           shared-key: engine-${{ matrix.os }}
 
       - name: Install clang (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
 
       - name: Install MinGW (Windows)
-        if: matrix.os == 'windows-2022'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'windows-2022'
         shell: bash
         run: choco install mingw -y
 
       - name: Install coreutils (macOS)
-        if: matrix.os == 'macos-14'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'macos-14'
         run: brew install coreutils
 
+      - name: Cache codegen output
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.build-cache.outputs.cache-hit != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Validate C header syntax (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: |
           cd target/codegen
           clang -fsyntax-only -std=c99 -x c azul.h
           echo "C header (C99) compiles successfully"
 
       - name: Validate C++ headers (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: |
           cd target/codegen
           clang++ -std=c++03 -fsyntax-only -I. azul03.hpp && echo "C++03 ✓"
@@ -968,7 +1103,7 @@ jobs:
           clang++ -std=c++2b -fsyntax-only -I. azul23.hpp && echo "C++23 ✓"
 
       - name: Compile C examples (syntax check)
-        if: matrix.os != 'windows-2022'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os != 'windows-2022'
         shell: bash
         run: |
           cd examples/c
@@ -980,7 +1115,7 @@ jobs:
           done
 
       - name: Compile C++ examples (syntax check)
-        if: matrix.os != 'windows-2022'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os != 'windows-2022'
         shell: bash
         run: |
           for std in cpp03:c++03 cpp11:c++11 cpp14:c++14 cpp17:c++17 cpp23:c++2b; do
@@ -1012,6 +1147,7 @@ jobs:
           done
 
       - name: Build DLL (for C/C++ examples)
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: cargo build --profile prod-release -p azul-dll --features="build-dll"
 
       # Strip the STATICLIB, in two layers:
@@ -1026,6 +1162,7 @@ jobs:
       #     strips final linked outputs, never `.a` archives). Combined with
       #     prod-release `debug = 0` this keeps libazul.a small (was ~1 GB).
       - name: Strip static lib (.a/.lib)
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
@@ -1056,7 +1193,7 @@ jobs:
       # now sets @rpath/libazul.dylib at link time; this step is belt-and-braces
       # for artifacts produced by older build paths.
       - name: Normalize macOS dylib install name
-        if: runner.os == 'macOS'
+        if: steps.build-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
         shell: bash
         run: |
           for f in target/prod-release/libazul.dylib; do
@@ -1067,7 +1204,7 @@ jobs:
           done
 
       - name: Codesign macOS artifacts
-        if: runner.os == 'macOS'
+        if: steps.build-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
         shell: bash
         env:
           APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
@@ -1106,6 +1243,7 @@ jobs:
       # / screenshot steps consume. Devs download azuldbg.* and drop it in place
       # of azul.* to re-enable the debug server. Shipped azul.* stays lean.
       - name: Build azuldbg (debug-server swap-in)
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           cargo build --profile prod-release -p azul-dll \
@@ -1126,10 +1264,11 @@ jobs:
           fi
 
       - name: Build Rust examples
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: cargo check --verbose --examples
 
       - name: Take screenshots (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         run: |
           chmod +x scripts/screenshot_single.sh
@@ -1149,7 +1288,7 @@ jobs:
           ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Take screenshots (macOS)
-        if: matrix.os == 'macos-14'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'macos-14'
         continue-on-error: true
         run: |
           chmod +x scripts/screenshot_single.sh
@@ -1168,7 +1307,7 @@ jobs:
           ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Take screenshots (Windows)
-        if: matrix.os == 'windows-2022'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'windows-2022'
         continue-on-error: true
         shell: bash
         run: |
@@ -1202,10 +1341,11 @@ jobs:
       #                              pyo3/manylinux). Built into a SEPARATE target
       #                              dir so it never clobbers the lean C lib.
       - name: Build Python extension
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: cargo build --profile prod-release -p azul-dll --lib --features="python-extension" --target-dir target/pyext
 
       - name: Rename Python extension (Windows)
-        if: matrix.os == 'windows-2022'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'windows-2022'
         shell: bash
         run: cp target/pyext/prod-release/azul.dll target/prod-release/azul.pyd
 
@@ -1213,7 +1353,7 @@ jobs:
       # libazul.so — do NOT overwrite it (the C lib must stay python-free).
       # Mirrors the macOS step below.
       - name: Expose Python extension (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: cp target/pyext/prod-release/libazul.so target/prod-release/azul.so
 
       # The C libazul.so must be PYTHON-FREE: zero Py* symbols (defined OR
@@ -1221,7 +1361,7 @@ jobs:
       # what lets `-lazul` link cleanly with no CPython stubs baked in (the old
       # stubs are the dso_local anti-pattern that SIGSEGV'd pyclass teardown).
       - name: Verify libazul.so is python-free (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: |
           PY=$(nm -D target/prod-release/libazul.so 2>/dev/null \
             | grep -E '\b(Py|_Py)[A-Za-z0-9_]*' || true)
@@ -1236,7 +1376,7 @@ jobs:
       # down a pyclass must not SIGSEGV. `import` alone is insufficient — the crash
       # was only on dealloc (`del obj`). Headless; no display needed.
       - name: Python pyclass teardown gate (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: |
           cp target/prod-release/azul.so examples/python/
           cd examples/python
@@ -1246,7 +1386,7 @@ jobs:
       # (no CPython symbols to resolve, so it links cleanly). Link only — running
       # needs a display.
       - name: C link test against release libazul.so (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: |
           cd examples/c
           clang -std=c99 -I../../target/codegen hello-world.c \
@@ -1254,10 +1394,11 @@ jobs:
             && echo "OK: C app links against the release libazul.so (B1 fixed)"
 
       - name: Rename Python extension (macOS)
-        if: matrix.os == 'macos-14'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'macos-14'
         run: cp target/pyext/prod-release/libazul.dylib target/prod-release/azul.so
 
       - name: Test Python extension import
+        if: steps.build-cache.outputs.cache-hit != 'true'
         # Smoke test only — must NOT block the C/C++/Rust binary + header upload
         # steps below. (A failure here previously aborted the whole job, so the
         # ubuntu release binaries never uploaded.) The dedicated B1 gates above
@@ -1282,7 +1423,7 @@ jobs:
       # gate keeps it that way.) Runs after the python bake so it checks the
       # exact files that ship.
       - name: Assert panic=abort (no unwind runtime in dist artifacts)
-        if: runner.os != 'Windows'
+        if: steps.build-cache.outputs.cache-hit != 'true' && runner.os != 'Windows'
         shell: bash
         run: |
           for f in target/prod-release/libazul.so  target/prod-release/libazuldbg.so \
@@ -1308,7 +1449,7 @@ jobs:
       # Mach-O two-level namespacing. Those specific families are allowed on
       # macOS ONLY; anything else is a failure. Windows is skipped (no restrict).
       - name: Assert cdylib exports only the azul C API
-        if: runner.os != 'Windows'
+        if: steps.build-cache.outputs.cache-hit != 'true' && runner.os != 'Windows'
         shell: bash
         run: |
           # dep #[no_mangle] residuals that neither macOS -exported_symbols_list
@@ -1464,7 +1605,17 @@ jobs:
         if: matrix.os == 'macos-14'
         run: brew install coreutils
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       # Build each demo best-effort. A failing demo prints a ::warning:: and is
@@ -1577,24 +1728,49 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Early artifact cache: skip the DLL build if engine source hasn't changed.
+      - name: Check E2E DLL artifact cache
+        id: build-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            target/release
+            target/pyext-e2e/release
+            target/codegen
+          key: e2e-dll-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+
       - name: Install Rust
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
 
       - name: Run Swatinem/rust-cache@v2
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: engine-${{ matrix.os }}
 
       - name: Install dependencies (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
+      - name: Cache codegen output
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.build-cache.outputs.cache-hit != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll (release, dynamic, debug-server)
+        if: steps.build-cache.outputs.cache-hit != 'true'
         # debug-server enables the AZ_E2E runner the families drive (it is OFF in
         # the shipped lean build, so the E2E test binary must opt back in).
         run: cargo build --release -p azul-dll --features build-dll,debug-server
@@ -1605,7 +1781,7 @@ jobs:
       # into its own target dir so it can't clobber the dll above. Linux/
       # macOS only: the windows .pyd rename path is exercised by build_binaries.
       - name: Build python extension (debug-server, for e2e)
-        if: matrix.os != 'windows-2022'
+        if: steps.build-cache.outputs.cache-hit != 'true' && matrix.os != 'windows-2022'
         run: cargo build --release -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
 
       - name: Stage DLL + codegen artifact
@@ -1969,22 +2145,44 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
+      # Early artifact cache: skip the entire mobile build if source hasn't changed.
+      - name: Check mobile build artifact cache
+        id: build-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            target/${{ matrix.target }}/release
+            target/codegen
+          key: mobile-build-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+
       - uses: Swatinem/rust-cache@v2
+        if: steps.build-cache.outputs.cache-hit != 'true'
         with:
           key: mobile-${{ matrix.label }}
+      - name: Cache codegen output
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.build-cache.outputs.cache-hit != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Set up Android NDK
-        if: startsWith(matrix.label, 'android')
+        if: steps.build-cache.outputs.cache-hit != 'true' && startsWith(matrix.label, 'android')
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27
       - name: Install cargo-ndk
-        if: startsWith(matrix.label, 'android')
+        if: steps.build-cache.outputs.cache-hit != 'true' && startsWith(matrix.label, 'android')
         run: cargo install cargo-ndk --locked
       - name: Build libazul (Android)
-        if: startsWith(matrix.label, 'android')
+        if: steps.build-cache.outputs.cache-hit != 'true' && startsWith(matrix.label, 'android')
         run: |
           # --platform 24 (Android 7.0): build.rs links libcamera2ndk/libmediandk
           # (API 24); AAudio (API 26) is dlopen'd, so it doesn't raise the floor.
@@ -1995,12 +2193,13 @@ jobs:
             --no-default-features --features "$MOBILE_FEATURES,android-activity"
 
       - name: Build libazul (iOS)
-        if: startsWith(matrix.label, 'ios')
+        if: steps.build-cache.outputs.cache-hit != 'true' && startsWith(matrix.label, 'ios')
         run: |
           cargo build --release --target ${{ matrix.target }} -p azul-dll \
             --no-default-features --features "$MOBILE_FEATURES"
 
       - name: Collect libazul + minimal link stubs
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -e
@@ -2106,7 +2305,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: mobile-apps-ios
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
       # Signing is OPTIONAL: only when the APPLE_* secrets are present do we import
       # the Developer cert and export IOS_SIGNING_IDENTITY, which makes build-ios.sh
@@ -2194,7 +2403,17 @@ jobs:
         id: ndk
         with:
           ndk-version: r27
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
       - name: Build cdylib demos as APKs (best-effort)
         shell: bash
@@ -2510,9 +2729,20 @@ jobs:
         with:
           toolchain: 1.88.0
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate codegen and NFPM config
         run: |
-          cargo run -r -p azul-doc codegen all
+          if [ "${{ steps.codegen-cache.outputs.cache-hit }}" != "true" ]; then
+            cargo run -r -p azul-doc codegen all
+          fi
           cargo run -r -p azul-doc nfpm
 
       - name: Create placeholder binaries
@@ -3565,7 +3795,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
       - name: Install cargo-geiger
         run: cargo install cargo-geiger --locked || cargo install cargo-geiger
@@ -3648,7 +3888,17 @@ jobs:
         with:
           toolchain: 1.88.0
           components: clippy
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
       - name: clippy (extreme lints — enforced as -D warnings)
         shell: bash
@@ -3707,7 +3957,17 @@ jobs:
           shared-key: sanitizers
       - name: Install clang + headless deps
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
       - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
@@ -3777,7 +4037,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
       - name: Generate DLL API bindings
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: cargo run -r -p azul-doc codegen all
       - name: cargo tree (generate crate lists)
@@ -3833,22 +4102,35 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      # Skip the entire PDF render if guide content hasn't changed.
+      - name: Check docs PDF cache
+        id: pdf-cache
+        uses: actions/cache@v5
+        with:
+          path: target/azul-documentation.pdf
+          key: docs-pdf-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}
+
       - name: Rust build cache
+        if: steps.pdf-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: docs
       # The CDP driver (scripts/docs_pdf_cdp.mjs) uses Node's built-in global
       # WebSocket, which is only available on Node 22+ (runners default lower).
       - name: Install Node 24
+        if: steps.pdf-cache.outputs.cache-hit != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
       - name: Install Chrome
+        if: steps.pdf-cache.outputs.cache-hit != 'true'
         id: setup_chrome
         uses: browser-actions/setup-chrome@v2
       - name: Install pdfunite (poppler-utils)
+        if: steps.pdf-cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Render docs → target/azul-documentation.pdf
+        if: steps.pdf-cache.outputs.cache-hit != 'true'
         env:
           CHROME_BIN: ${{ steps.setup_chrome.outputs.chrome-path }}
         run: bash scripts/docs_to_pdf.sh --no-open
@@ -3963,7 +4245,17 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate Python binding source (codegen)
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Stage pyproject.toml at workspace root
@@ -4086,7 +4378,17 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate bindings (codegen)
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build native library (lean release)
@@ -4693,7 +4995,17 @@ jobs:
       - name: Install build dependencies + LuaRocks
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks
 
+      - name: Cache codegen output
+        id: codegen-cache
+        uses: actions/cache@v5
+        with:
+          path: target/codegen
+          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+          restore-keys: |
+            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
       - name: Generate bindings (codegen)
+        if: steps.codegen-cache.outputs.cache-hit != 'true'
         run: cargo run -r -p azul-doc codegen all
 
       - name: Assemble rock
