@@ -1633,6 +1633,14 @@ jobs:
           else
             cp target/release/libazul.so e2e-dll/release/
           fi
+          # Strip debug info from the e2e shared libs. The release profile has
+          # debug=1 (line tables for samply) which bloats libazul.so to ~311 MB.
+          # E2E tests don't need debug symbols; stripping shrinks the artifact
+          # and the consumer's disk footprint (the scripting job installs 27+
+          # language toolchains and was running out of disk space).
+          for f in e2e-dll/release/*.so e2e-dll/release/*.dylib; do
+            [ -f "$f" ] && strip -S "$f" 2>/dev/null || true
+          done
           ls -la e2e-dll/release/
 
       - name: Upload E2E DLL + codegen
@@ -1673,6 +1681,22 @@ jobs:
       AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
       AZ_BACKEND: headless
     steps:
+      # The scripting family installs 27+ language toolchains (OCaml, Swift, Zig,
+      # Haskell/GHC, Kotlin, Scala, …) alongside the ~300 MB prebuilt libazul.
+      # On ubuntu-22.04 this overflows the stock ~14 GB runner disk (Haskell's
+      # GHC compilation hit ENOSPC with 35 MB free). Reclaim space from
+      # preinstalled toolchains the e2e tests don't need.
+      - name: Free disk space (scripting)
+        if: matrix.family.key == 'scripting' && matrix.os == 'ubuntu-22.04'
+        run: |
+          echo "Before:"; df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+                      /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/boost /usr/share/swift \
+                      /usr/local/share/chromium 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          echo "After:"; df -h / | tail -1
+
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -1873,6 +1897,9 @@ jobs:
           if [ -f target/release/azul-pyext.so ]; then
             mv target/release/azul-pyext.so examples/python/azul.so
           fi
+          # Remove the download staging dir — its contents are now in target/
+          # and keeping it doubles the DLL footprint on disk.
+          rm -rf e2e-dll
           ls -la target/release/
 
       - name: Resolve dynamic library path
