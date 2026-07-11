@@ -69,9 +69,14 @@ env:
   # Release version consumed by the inlined multi-registry publish jobs (below).
   # Bump in lockstep with the workspace crates + api.json.
   AZUL_VERSION: "0.2.0"
-  # When cache_bust is checked in a manual dispatch, append the unique run ID
-  # to every cache key so nothing matches and everything rebuilds from scratch.
+  # When cache_bust is checked in a manual dispatch, the unique run ID is spliced
+  # into every cache key so nothing matches and everything rebuilds from scratch.
   # On push/PR (no inputs) or when unchecked this resolves to the empty string.
+  #
+  # It MUST stay at the FRONT of every key (`<name>-${{ env.CACHE_BUST }}-…`) and
+  # appear in every restore-keys entry: restore-keys are PREFIX matches, so a bust
+  # value parked at the END of the key would be invisible to the fallback prefixes
+  # and a "bust" run would happily restore the very caches it is trying to discard.
   CACHE_BUST: ${{ github.event.inputs.cache_bust == 'true' && github.run_id || '' }}
 
 jobs:
@@ -123,9 +128,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -216,9 +222,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -326,9 +333,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -437,6 +445,10 @@ jobs:
         uses: actions/checkout@v5
 
       # Early artifact cache: skip the entire cross-build if source hasn't changed.
+      # An EXACT key hit => "Validate build cache" sets skip=true and the build is
+      # skipped outright. A restore-keys (prefix) hit leaves cache-hit=false, so the
+      # build still runs — but against a WARM target/ from the last green build of
+      # this target, so cargo rebuilds incrementally instead of from zero.
       - name: Check cross-build artifact cache
         id: build-cache
         uses: actions/cache@v5
@@ -444,7 +456,10 @@ jobs:
           path: |
             target/${{ matrix.target }}/prod-release
             target/codegen
-          key: cross-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
+          key: cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          restore-keys: |
+            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-
+            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-
 
       - name: Validate build cache
         id: cache-valid
@@ -479,9 +494,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -706,9 +722,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -721,8 +738,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
-          key: reftest-chrome-images-${{ hashFiles('doc/working/*.xhtml') }}-${{ env.CACHE_BUST }}
-          restore-keys: reftest-chrome-images-
+          key: reftest-chrome-images-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xhtml') }}
+          restore-keys: |
+            reftest-chrome-images-${{ env.CACHE_BUST }}-
 
       - name: Run reftests
         run: cargo run -r -p azul-doc reftest
@@ -751,10 +769,26 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+      # Cargo + target cache, same house style as every other cache in this file
+      # (content-hash key + restore-keys), so there is ONE caching system.
+      # scripts/coverage.sh builds with the custom `coverage` profile → the
+      # instrumented artifacts land in target/coverage. `~/.cargo/bin/grcov` + the
+      # two cargo-install manifests are cached so `cargo install grcov` below sees
+      # it as already-installed instead of recompiling grcov on every run.
       - name: Rust build cache
-        uses: Swatinem/rust-cache@v2
+        uses: actions/cache@v5
         with:
-          shared-key: coverage
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/bin/grcov
+            target/coverage
+          key: coverage-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          restore-keys: |
+            coverage-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            coverage-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Install coverage tools
         run: |
@@ -818,9 +852,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -899,13 +934,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # Skip entirely if layout source (incl. ICU tests) hasn't changed.
+      # Skip entirely if layout source (incl. ICU tests) hasn't changed. Only an
+      # EXACT key hit skips the run (the steps below gate on cache-hit); a
+      # restore-keys hit just restores the previous sentinel, which no step reads.
       - name: Check ICU parity cache
         id: icu-cache
         uses: actions/cache@v5
         with:
           path: target/icu-parity-done-${{ matrix.backend.feature }}
-          key: icu-parity-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('layout/src/**/*.rs', 'layout/tests/**/*.rs', 'layout/Cargo.toml') }}-${{ env.CACHE_BUST }}
+          key: icu-parity-${{ env.CACHE_BUST }}-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('layout/src/**/*.rs', 'layout/tests/**/*.rs', 'layout/Cargo.toml') }}
+          restore-keys: |
+            icu-parity-${{ env.CACHE_BUST }}-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-
+            icu-parity-${{ env.CACHE_BUST }}-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-
 
       - name: Install Rust
         if: steps.icu-cache.outputs.cache-hit != 'true'
@@ -968,9 +1008,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings (azul.h)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1033,9 +1074,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings (azul.h / azul20.hpp)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1095,6 +1137,10 @@ jobs:
       # skip the entire build and just upload cached artifacts. Cache key is
       # content-based: Cargo.lock (deps) + engine source. CI-only or doc-only
       # changes do NOT invalidate this cache.
+      # An EXACT key hit => "Validate build cache" sets skip=true and nothing is
+      # built. A restore-keys (prefix) hit leaves cache-hit=false, so the build
+      # still runs — but the restored target/ dirs are the last green build's, so
+      # cargo does an INCREMENTAL rebuild instead of compiling every crate cold.
       - name: Check build artifact cache
         id: build-cache
         uses: actions/cache@v5
@@ -1104,7 +1150,10 @@ jobs:
             target/azuldbg/prod-release
             target/pyext/prod-release
             target/codegen
-          key: build-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
+          key: build-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          restore-keys: |
+            build-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
+            build-${{ env.CACHE_BUST }}-${{ matrix.os }}-
 
       - name: Validate build cache
         id: cache-valid
@@ -1151,9 +1200,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1681,9 +1731,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1800,6 +1851,9 @@ jobs:
         uses: actions/checkout@v5
 
       # Early artifact cache: skip the DLL build if engine source hasn't changed.
+      # EXACT hit => skip=true (no build). restore-keys (prefix) hit => cache-hit is
+      # false so the DLL is still rebuilt, but on top of the last green build's
+      # target/, i.e. incrementally rather than from zero.
       - name: Check E2E DLL artifact cache
         id: build-cache
         uses: actions/cache@v5
@@ -1808,7 +1862,10 @@ jobs:
             target/release
             target/pyext-e2e/release
             target/codegen
-          key: e2e-dll-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
+          key: e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          restore-keys: |
+            e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
+            e2e-dll-${{ env.CACHE_BUST }}-${{ matrix.os }}-
 
       - name: Validate build cache
         id: cache-valid
@@ -1847,9 +1904,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -1953,9 +2011,27 @@ jobs:
         with:
           toolchain: 1.88.0
 
-      - name: Run Swatinem/rust-cache@v2
+      # Cargo + target cache (house style: content-hash key + restore-keys) for the
+      # `rust` family — the only leg that compiles Rust; the others just link the
+      # prebuilt DLL downloaded below.
+      # Deliberately caches the DEP subdirs of target/release, NOT the profile dir
+      # itself: "Place DLL + codegen into the target tree" copies the prebuilt
+      # libazul straight into target/release/, and caching the profile root would
+      # re-upload that whole DLL into the (10 GB) cache on every run.
+      - name: Rust build cache
         if: matrix.family.key == 'rust'
-        uses: Swatinem/rust-cache@v2
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/release/build
+            target/release/.fingerprint
+          key: e2e-native-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          restore-keys: |
+            e2e-native-${{ env.CACHE_BUST }}-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
+            e2e-native-${{ env.CACHE_BUST }}-${{ matrix.os }}-
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -2232,6 +2308,8 @@ jobs:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
       # Early artifact cache: skip the entire mobile build if source hasn't changed.
+      # EXACT hit => skip=true. restore-keys (prefix) hit => build runs against a
+      # warm target/<triple>/release (incremental, not cold).
       - name: Check mobile build artifact cache
         id: build-cache
         uses: actions/cache@v5
@@ -2239,7 +2317,10 @@ jobs:
           path: |
             target/${{ matrix.target }}/release
             target/codegen
-          key: mobile-build-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}-${{ env.CACHE_BUST }}
+          key: mobile-build-${{ env.CACHE_BUST }}-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          restore-keys: |
+            mobile-build-${{ env.CACHE_BUST }}-${{ matrix.label }}-${{ hashFiles('Cargo.lock') }}-
+            mobile-build-${{ env.CACHE_BUST }}-${{ matrix.label }}-
 
       - name: Validate build cache
         id: cache-valid
@@ -2264,9 +2345,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.cache-valid.outputs.skip != 'true' && steps.codegen-cache.outputs.cache-hit != 'true'
@@ -2405,9 +2487,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -2500,9 +2583,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -2826,9 +2910,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate codegen and NFPM config
         run: |
@@ -3892,9 +3977,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -3985,9 +4071,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -4050,9 +4137,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -4130,9 +4218,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
       - name: Generate DLL API bindings
         if: steps.codegen-cache.outputs.cache-hit != 'true'
         continue-on-error: true
@@ -4190,13 +4279,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-      # Skip the entire PDF render if guide content hasn't changed.
+      # Skip the entire PDF render if guide content hasn't changed. Only an EXACT
+      # key hit skips it (the render steps gate on cache-hit); a restore-keys hit
+      # just drops the previous PDF on disk, which the re-render then overwrites.
       - name: Check docs PDF cache
         id: pdf-cache
         uses: actions/cache@v5
         with:
           path: target/azul-documentation.pdf
-          key: docs-pdf-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}-${{ env.CACHE_BUST }}
+          key: docs-pdf-${{ env.CACHE_BUST }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}
+          restore-keys: |
+            docs-pdf-${{ env.CACHE_BUST }}-${{ hashFiles('Cargo.lock') }}-
+            docs-pdf-${{ env.CACHE_BUST }}-
 
       # The CDP driver (scripts/docs_pdf_cdp.mjs) uses Node's built-in global
       # WebSocket, which is only available on Node 22+ (runners default lower).
@@ -4333,9 +4427,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate Python binding source (codegen)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -4463,9 +4558,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate bindings (codegen)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
@@ -5080,9 +5176,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/codegen
-          key: codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}-${{ env.CACHE_BUST }}
+          key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
           restore-keys: |
-            codegen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
       - name: Generate bindings (codegen)
         if: steps.codegen-cache.outputs.cache-hit != 'true'
