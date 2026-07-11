@@ -48,12 +48,14 @@ case "${1:-}" in
   --*|"")    ;;                       # no positional mode; flags follow
   *) echo "unknown mode: $1 (use: full | fable-run | css | css-review)"; exit 2;;
 esac
+REDO=0
 while [ $# -gt 0 ]; do case "$1" in
   --model)  MODEL="$2"; shift 2;;
   --effort) EFFORT="$2"; shift 2;;
   --jobs)   JOBS="$2"; shift 2;;
   --lcov)   LCOV="$2"; shift 2;;
   --fable)  FABLE=1; MODEL=fable; shift;;
+  --redo)   REDO=1; shift;;          # ignore the resume state, reprocess everything
   --dry-run) DRY=1; shift;;
   *) echo "unknown arg: $1"; exit 2;;
 esac; done
@@ -72,7 +74,40 @@ else
   mapfile -t SRC_FILES < <(for tf in target/autotest/tasks/*.md; do
       grep -m1 -oE '(core|css|layout)/src/[A-Za-z0-9_/]+\.rs' "$tf"; done | sort -u)
 fi
+# Drop entries for files that no longer exist (deleted/renamed since the task
+# files were generated) so we never dispatch an agent at a missing path.
+EXIST=(); for f in "${SRC_FILES[@]}"; do [ -f "$f" ] && EXIST+=("$f"); done
+SRC_FILES=("${EXIST[@]+"${EXIST[@]}"}")
 [ "${#SRC_FILES[@]}" -gt 0 ] || { echo "empty work list"; exit 1; }
+
+# --- RESUME: skip files already processed, so a rate-limit / crash doesn't
+#     restart from scratch. Two independent signals:
+#       (1) a per-mode done-list, appended on every success, and
+#       (2) the ARTIFACT itself — the generated test module / report fragment —
+#           so we still resume correctly even if the done-list is lost.
+#     The artifact marker is NOT applied under --fable: a coverage gap-fill pass
+#     deliberately REVISITS files that already have tests (the coverage filter
+#     below is what narrows it), so only the done-list guards those.
+DONE_FILE="target/autotest/.done-${MODE}$([ "$FABLE" = 1 ] && echo '-fable')"
+touch "$DONE_FILE"
+if [ "$REDO" = 0 ]; then
+  BEFORE=${#SRC_FILES[@]}
+  KEEP=()
+  for src in "${SRC_FILES[@]}"; do
+    grep -qxF "$src" "$DONE_FILE" 2>/dev/null && continue
+    if [ "$FABLE" = 0 ]; then
+      case "$MODE" in
+        review) [ -s "target/autotest/spec-review/$(echo "$src"|tr '/.' '__').md" ] && continue;;
+        css)    grep -q 'mod spec_conformance'   "$src" 2>/dev/null && continue;;
+        *)      grep -q 'mod autotest_generated' "$src" 2>/dev/null && continue;;
+      esac
+    fi
+    KEEP+=("$src")
+  done
+  SRC_FILES=("${KEEP[@]+"${KEEP[@]}"}")
+  echo "[resume] ${BEFORE} total — $((BEFORE - ${#SRC_FILES[@]})) already done, ${#SRC_FILES[@]} remaining  (--redo to force all)"
+fi
+[ "${#SRC_FILES[@]}" -gt 0 ] || { echo "[fleet] nothing left to do — every file already processed."; exit 0; }
 
 # --- Coverage overlay (fable / --fable): keep only files with uncovered lines,
 #     and record those line numbers per file for the prompt.
@@ -120,9 +155,19 @@ bullet per +spec id — 'STATUS(CORRECT|PARTIAL|INCORRECT|MISSING) — <spec id>
 <finding + the exact spec deviation if any, with file:line>'. Be concrete about \
 where the impl diverges. Do NOT edit any file; print the report."
     if [ "${DRY:-0}" = 1 ]; then echo "[dry-review] $src"; return 0; fi
-    if claude -p "$rprompt" --model "$MODEL" --effort "$EFFORT" \
-          --permission-mode bypassPermissions --output-format text > "$frag" 2>/dev/null; then
-      echo "[ok]   $src"; else echo "[fail] $src"; fi
+    claude -p "$rprompt" --model "$MODEL" --effort "$EFFORT" \
+      --permission-mode bypassPermissions --output-format text > "$frag" 2>/dev/null
+    # A rate-limit / quota / error reply comes back as PLAIN TEXT and would
+    # otherwise be written as a "report" and marked done. Reject it: the output
+    # must be non-trivial AND look like the requested report, and must not be a
+    # limit/error message. Anything else => delete the fragment, count as FAIL.
+    if grep -qiE "rate.?limit|usage limit|quota|too many requests|try again|overloaded|insufficient" "$frag" 2>/dev/null \
+       || [ ! -s "$frag" ] || [ "$(wc -c <"$frag")" -lt 200 ] \
+       || ! grep -qE "CORRECT|PARTIAL|INCORRECT|MISSING|^## " "$frag" 2>/dev/null; then
+      rm -f "$frag"; echo "[fail] $src (rate-limited / invalid reply — not marked done)"
+    else
+      echo "[ok]   $src"; echo "$src" >> "$DONE_FILE"
+    fi
     return 0
   fi
 
@@ -158,9 +203,17 @@ test rather than guess at an un-constructible type."
   if [ "${DRY:-0}" = 1 ]; then echo "[dry] $src ${unc:+(gap)}"; return 0; fi
   if claude -p "$prompt" --model "$MODEL" --effort "$EFFORT" \
         --permission-mode bypassPermissions >/dev/null 2>&1; then
-    echo "[ok]   $src"; else echo "[fail] $src"; fi
+    # Only count success if the artifact really landed — a rate-limited agent
+    # exits 0 with a text reply and would otherwise be falsely marked done.
+    marker='mod autotest_generated'; [ "$MODE" = css ] && marker='mod spec_conformance'
+    if grep -q "$marker" "$src" 2>/dev/null; then
+      echo "[ok]   $src"; echo "$src" >> "$DONE_FILE"
+    else
+      echo "[fail] $src (no tests written — rate-limited? not marked done)"
+    fi
+  else echo "[fail] $src"; fi
 }
-export -f run_one; export MODE MODEL EFFORT DRY
+export -f run_one; export MODE MODEL EFFORT DRY DONE_FILE
 
 printf '%s\n' "${SRC_FILES[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {}
 
