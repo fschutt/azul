@@ -4005,3 +4005,2298 @@ mod tests {
         assert!(!filters.contains(&EventFilter::Hover(HoverEventFilter::LeftMouseDown)));
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use super::*;
+    use crate::{
+        dom::{DomId, DomNodeId, OptionDomNodeId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        hit_test::{FullHitTest, HitTest, HitTestItem},
+        id::{Node, NodeHierarchy, NodeId},
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+        window::{CursorPosition, KeyboardState, MouseState, VirtualKeyCode, VirtualKeyCodeVec},
+    };
+
+    // ---------------------------------------------------------------- helpers
+
+    fn tick(n: u64) -> Instant {
+        Instant::Tick(SystemTick::new(n))
+    }
+
+    fn dnid(dom: usize, node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: dom },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    /// A `DomNodeId` whose node slot is the `None` sentinel (raw inner == 0).
+    fn dnid_none(dom: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: dom },
+            node: NodeHierarchyItemId::NONE,
+        }
+    }
+
+    fn hit_item(depth: u32) -> HitTestItem {
+        HitTestItem {
+            point_in_viewport: LogicalPosition::new(1.0, 2.0),
+            point_relative_to_item: LogicalPosition::new(3.0, 4.0),
+            is_focusable: true,
+            is_virtual_view_hit: None,
+            hit_depth: depth,
+        }
+    }
+
+    /// Hit test containing `(node_index, hit_depth)` pairs, all under one DOM.
+    fn hit_test_with(dom: usize, nodes: &[(usize, u32)]) -> FullHitTest {
+        let mut regular = BTreeMap::new();
+        for (idx, depth) in nodes {
+            regular.insert(NodeId::new(*idx), hit_item(*depth));
+        }
+        let mut hovered = BTreeMap::new();
+        hovered.insert(
+            DomId { inner: dom },
+            HitTest {
+                regular_hit_test_nodes: regular,
+                scroll_hit_test_nodes: BTreeMap::new(),
+                scrollbar_hit_test_nodes: BTreeMap::new(),
+                cursor_hit_test_nodes: BTreeMap::new(),
+            },
+        );
+        FullHitTest {
+            hovered_nodes: hovered,
+            focused_node: OptionDomNodeId::None,
+        }
+    }
+
+    fn empty_hit_test() -> FullHitTest {
+        FullHitTest {
+            hovered_nodes: BTreeMap::new(),
+            focused_node: OptionDomNodeId::None,
+        }
+    }
+
+    fn mouse_event(ty: EventType, button: MouseButton, pos: LogicalPosition) -> SyntheticEvent {
+        SyntheticEvent::new(
+            ty,
+            EventSource::User,
+            dnid(0, 0),
+            tick(0),
+            EventData::Mouse(MouseEventData {
+                position: pos,
+                button,
+                buttons: 1,
+                modifiers: KeyModifiers::default(),
+            }),
+        )
+    }
+
+    fn key_event(key_code: u32, modifiers: KeyModifiers) -> SyntheticEvent {
+        SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            dnid(0, 0),
+            tick(0),
+            EventData::Keyboard(KeyboardEventData {
+                key_code,
+                char_code: None,
+                modifiers,
+                repeat: false,
+            }),
+        )
+    }
+
+    /// Straight parent chain: node 0 = root, node i's parent = node i-1.
+    fn hierarchy_chain(len: usize) -> NodeHierarchy {
+        let nodes = (0..len)
+            .map(|i| Node {
+                parent: if i == 0 { None } else { Some(NodeId::new(i - 1)) },
+                ..Node::ROOT
+            })
+            .collect::<Vec<_>>();
+        NodeHierarchy::new(nodes)
+    }
+
+    /// Modifiers with the platform's PRIMARY modifier held (Cmd on macOS, Ctrl elsewhere).
+    fn primary_modifiers() -> KeyModifiers {
+        if cfg!(target_os = "macos") {
+            KeyModifiers::new().with_meta()
+        } else {
+            KeyModifiers::new().with_ctrl()
+        }
+    }
+
+    fn keyboard_with_primary_held() -> KeyboardState {
+        let key = if cfg!(target_os = "macos") {
+            VirtualKeyCode::LWin
+        } else {
+            VirtualKeyCode::LControl
+        };
+        KeyboardState {
+            pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![key]),
+            ..KeyboardState::default()
+        }
+    }
+
+    // ============================================================ numeric edge
+    // size_changed / quantization
+
+    #[test]
+    fn size_changed_zero_and_identity() {
+        assert!(!size_changed(LogicalSize::zero(), LogicalSize::zero()));
+        assert!(!size_changed(
+            LogicalSize::new(0.0, 0.0),
+            LogicalSize::new(-0.0, -0.0)
+        ));
+        // 0 -> any real size is a change.
+        assert!(size_changed(LogicalSize::zero(), LogicalSize::new(0.0, 1.0)));
+        assert!(size_changed(LogicalSize::zero(), LogicalSize::new(1.0, 0.0)));
+    }
+
+    #[test]
+    fn size_changed_single_sided_nan_is_a_change() {
+        // NaN on ONE side only must register as changed (the both-sides NaN case
+        // is the loop-guard covered by `size_changed_nan_guard_stops_resize_loop`).
+        assert!(size_changed(
+            LogicalSize::new(f32::NAN, 10.0),
+            LogicalSize::new(10.0, 10.0)
+        ));
+        assert!(size_changed(
+            LogicalSize::new(10.0, 10.0),
+            LogicalSize::new(10.0, f32::NAN)
+        ));
+        // NaN on both sides in *different* dimensions is still a change in the
+        // other dimension only if that dimension actually differs.
+        assert!(!size_changed(
+            LogicalSize::new(f32::NAN, f32::NAN),
+            LogicalSize::new(f32::NAN, f32::NAN)
+        ));
+    }
+
+    #[test]
+    fn size_changed_negative_and_infinite_do_not_panic() {
+        // Negative sizes (degenerate layouts) must be handled deterministically.
+        assert!(size_changed(
+            LogicalSize::new(-100.0, 0.0),
+            LogicalSize::new(100.0, 0.0)
+        ));
+        assert!(!size_changed(
+            LogicalSize::new(-100.0, -50.0),
+            LogicalSize::new(-100.0, -50.0)
+        ));
+        // f32 * 1000.0 overflows to +/-inf, and `inf as i64` SATURATES (it does
+        // not wrap or UB). So the comparison stays total and panic-free.
+        assert!(!size_changed(
+            LogicalSize::new(f32::INFINITY, f32::INFINITY),
+            LogicalSize::new(f32::INFINITY, f32::INFINITY)
+        ));
+        assert!(size_changed(
+            LogicalSize::new(f32::INFINITY, 0.0),
+            LogicalSize::new(f32::NEG_INFINITY, 0.0)
+        ));
+        // Finite-but-huge values saturate into the same bucket as infinity: the
+        // documented quantization trade-off, asserted here so a future change of
+        // the quantizer (e.g. to i128 or a float compare) is a deliberate one.
+        assert!(!size_changed(
+            LogicalSize::new(f32::MAX, 0.0),
+            LogicalSize::new(f32::INFINITY, 0.0)
+        ));
+    }
+
+    #[test]
+    fn size_changed_ignores_sub_quantum_jitter_but_sees_one_quantum() {
+        // The quantizer is 1/1000, so a 0.0005 wobble must be ignored...
+        assert!(!size_changed(
+            LogicalSize::new(50.0, 50.0),
+            LogicalSize::new(50.0004, 50.0)
+        ));
+        // ...but a full quantum must be seen.
+        assert!(size_changed(
+            LogicalSize::new(50.0, 50.0),
+            LogicalSize::new(50.002, 50.0)
+        ));
+    }
+
+    // ------------------------------------------------- create_*_event numerics
+
+    #[test]
+    fn create_mount_event_without_layout_entry_falls_back_to_zero_rect() {
+        let layout: BTreeMap<NodeId, LogicalRect> = BTreeMap::new();
+        let ev = create_mount_event(NodeId::new(3), DomId { inner: 0 }, &layout, &tick(7));
+        assert_eq!(ev.event_type, EventType::Mount);
+        assert_eq!(ev.source, EventSource::Lifecycle);
+        assert_eq!(ev.phase, EventPhase::Target);
+        assert_eq!(ev.target, ev.current_target);
+        assert_eq!(ev.target.node.into_crate_internal(), Some(NodeId::new(3)));
+        match ev.data {
+            EventData::Lifecycle(d) => {
+                assert_eq!(d.reason, LifecycleReason::InitialMount);
+                assert!(d.previous_bounds.is_none());
+                assert_eq!(d.current_bounds, LogicalRect::zero());
+            }
+            _ => panic!("mount event must carry lifecycle data"),
+        }
+    }
+
+    #[test]
+    fn create_unmount_event_reports_previous_bounds_and_zero_current() {
+        let mut layout = BTreeMap::new();
+        let rect = LogicalRect::new(LogicalPosition::new(1.0, 2.0), LogicalSize::new(3.0, 4.0));
+        layout.insert(NodeId::new(1), rect);
+        let ev = create_unmount_event(NodeId::new(1), DomId { inner: 2 }, &layout, &tick(9));
+        assert_eq!(ev.event_type, EventType::Unmount);
+        match ev.data {
+            EventData::Lifecycle(d) => {
+                assert_eq!(d.reason, LifecycleReason::Unmount);
+                assert_eq!(d.previous_bounds, Some(rect));
+                assert_eq!(d.current_bounds, LogicalRect::zero());
+            }
+            _ => panic!("unmount event must carry lifecycle data"),
+        }
+    }
+
+    #[test]
+    fn create_lifecycle_event_survives_extreme_node_ids() {
+        // The largest NodeId that survives the 1-based (`n + 1`) FFI encoding.
+        // (NodeId::new(usize::MAX) would overflow that encoding — out of scope here.)
+        let huge = NodeId::new(usize::MAX - 1);
+        let layout: BTreeMap<NodeId, LogicalRect> = BTreeMap::new();
+        let ev = create_mount_event(huge, DomId { inner: usize::MAX }, &layout, &tick(0));
+        assert_eq!(ev.target.node.into_crate_internal(), Some(huge));
+        assert_eq!(ev.target.dom, DomId { inner: usize::MAX });
+
+        // NodeId 0 (the root) must round-trip too — the 1-based encoding makes
+        // 0 the value most likely to collide with the `None` sentinel.
+        let root = create_mount_event(NodeId::ZERO, DomId { inner: 0 }, &layout, &tick(0));
+        assert_eq!(
+            root.target.node.into_crate_internal(),
+            Some(NodeId::ZERO),
+            "NodeId 0 must not decode as `None`"
+        );
+    }
+
+    #[test]
+    fn create_resize_event_returns_none_for_missing_or_unchanged_layout() {
+        let dom = DomId { inner: 0 };
+        let node = NodeId::new(1);
+        let rect = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(10.0, 10.0));
+
+        let empty: BTreeMap<NodeId, LogicalRect> = BTreeMap::new();
+        let mut one = BTreeMap::new();
+        one.insert(node, rect);
+
+        // Missing in old, missing in new, missing in both -> None (no panic).
+        assert!(create_resize_event(node, dom, &empty, &one, &tick(0)).is_none());
+        assert!(create_resize_event(node, dom, &one, &empty, &tick(0)).is_none());
+        assert!(create_resize_event(node, dom, &empty, &empty, &tick(0)).is_none());
+        // Present on both sides but unchanged -> None.
+        assert!(create_resize_event(node, dom, &one, &one, &tick(0)).is_none());
+    }
+
+    #[test]
+    fn create_resize_event_ignores_pure_origin_moves() {
+        // Only the SIZE is compared: moving a node without resizing it must not
+        // emit a Resize event.
+        let dom = DomId { inner: 0 };
+        let node = NodeId::new(0);
+        let size = LogicalSize::new(10.0, 10.0);
+        let mut old = BTreeMap::new();
+        old.insert(node, LogicalRect::new(LogicalPosition::new(0.0, 0.0), size));
+        let mut new = BTreeMap::new();
+        new.insert(
+            node,
+            LogicalRect::new(LogicalPosition::new(500.0, 500.0), size),
+        );
+        assert!(create_resize_event(node, dom, &old, &new, &tick(0)).is_none());
+    }
+
+    #[test]
+    fn create_resize_event_nan_size_does_not_loop_forever() {
+        // Regression guard: a NaN dimension on BOTH frames must NOT emit a Resize
+        // every frame (a raw f32 `!=` would, since NaN != NaN).
+        let dom = DomId { inner: 0 };
+        let node = NodeId::new(0);
+        let nan_rect = LogicalRect::new(
+            LogicalPosition::zero(),
+            LogicalSize::new(f32::NAN, 100.0),
+        );
+        let mut old = BTreeMap::new();
+        old.insert(node, nan_rect);
+        let mut new = BTreeMap::new();
+        new.insert(node, nan_rect);
+        assert!(create_resize_event(node, dom, &old, &new, &tick(0)).is_none());
+    }
+
+    #[test]
+    fn create_resize_event_reports_both_bounds_on_real_change() {
+        let dom = DomId { inner: 0 };
+        let node = NodeId::new(0);
+        let old_rect =
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(10.0, 10.0));
+        let new_rect =
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(10.0, 20.0));
+        let mut old = BTreeMap::new();
+        old.insert(node, old_rect);
+        let mut new = BTreeMap::new();
+        new.insert(node, new_rect);
+
+        let ev = create_resize_event(node, dom, &old, &new, &tick(3))
+            .expect("a real size change must emit a Resize");
+        assert_eq!(ev.event_type, EventType::Resize);
+        match ev.data {
+            EventData::Lifecycle(d) => {
+                assert_eq!(d.reason, LifecycleReason::Resize);
+                assert_eq!(d.previous_bounds, Some(old_rect));
+                assert_eq!(d.current_bounds, new_rect);
+            }
+            _ => panic!("resize event must carry lifecycle data"),
+        }
+    }
+
+    // ------------------------------------------------- detect_lifecycle_events
+
+    #[test]
+    fn detect_lifecycle_events_all_none_is_empty() {
+        let events = detect_lifecycle_events(
+            DomId { inner: 0 },
+            DomId { inner: 0 },
+            None,
+            None,
+            None,
+            None,
+            tick(0),
+        );
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn detect_lifecycle_events_without_layout_emits_nothing() {
+        // Hierarchies differ, but no layout maps -> the fn must not fabricate events.
+        let old = hierarchy_chain(1);
+        let new = hierarchy_chain(4);
+        let events = detect_lifecycle_events(
+            DomId { inner: 0 },
+            DomId { inner: 0 },
+            Some(&old),
+            Some(&new),
+            None,
+            None,
+            tick(0),
+        );
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn detect_lifecycle_events_emits_mounts_unmounts_and_resizes() {
+        let dom = DomId { inner: 0 };
+        let old_hier = hierarchy_chain(2); // nodes 0,1
+        let new_hier = hierarchy_chain(3); // nodes 0,1,2
+
+        let r = |h: f32| LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(10.0, h));
+        let mut old_layout = BTreeMap::new();
+        old_layout.insert(NodeId::new(0), r(10.0));
+        old_layout.insert(NodeId::new(1), r(10.0));
+        let mut new_layout = BTreeMap::new();
+        new_layout.insert(NodeId::new(0), r(10.0)); // unchanged
+        new_layout.insert(NodeId::new(1), r(99.0)); // resized
+        new_layout.insert(NodeId::new(2), r(10.0)); // mounted
+
+        let events = detect_lifecycle_events(
+            dom,
+            dom,
+            Some(&old_hier),
+            Some(&new_hier),
+            Some(&old_layout),
+            Some(&new_layout),
+            tick(5),
+        );
+
+        let mounts: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::Mount)
+            .collect();
+        let resizes: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::Resize)
+            .collect();
+        assert_eq!(mounts.len(), 1, "only node 2 is new");
+        assert_eq!(
+            mounts[0].target.node.into_crate_internal(),
+            Some(NodeId::new(2))
+        );
+        assert_eq!(resizes.len(), 1, "only node 1 changed size");
+        assert_eq!(
+            resizes[0].target.node.into_crate_internal(),
+            Some(NodeId::new(1))
+        );
+        assert!(
+            !events.iter().any(|e| e.event_type == EventType::Unmount),
+            "nothing was removed"
+        );
+        assert!(events.iter().all(|e| e.source == EventSource::Lifecycle));
+
+        // Reverse direction: the removed node must unmount.
+        let events = detect_lifecycle_events(
+            dom,
+            dom,
+            Some(&new_hier),
+            Some(&old_hier),
+            Some(&new_layout),
+            Some(&old_layout),
+            tick(6),
+        );
+        let unmounts: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::Unmount)
+            .collect();
+        assert_eq!(unmounts.len(), 1);
+        assert_eq!(
+            unmounts[0].target.node.into_crate_internal(),
+            Some(NodeId::new(2))
+        );
+    }
+
+    #[test]
+    fn detect_lifecycle_events_mount_of_node_missing_from_layout_uses_zero_rect() {
+        let dom = DomId { inner: 0 };
+        let new_hier = hierarchy_chain(2);
+        let new_layout: BTreeMap<NodeId, LogicalRect> = BTreeMap::new(); // empty!
+        let events = detect_lifecycle_events(
+            dom,
+            dom,
+            None,
+            Some(&new_hier),
+            None,
+            Some(&new_layout),
+            tick(0),
+        );
+        assert_eq!(events.len(), 2);
+        for ev in &events {
+            match ev.data {
+                EventData::Lifecycle(d) => assert_eq!(d.current_bounds, LogicalRect::zero()),
+                _ => panic!("expected lifecycle data"),
+            }
+        }
+    }
+
+    #[test]
+    fn collect_node_ids_handles_none_and_empty_hierarchies() {
+        assert!(collect_node_ids(None).is_empty());
+        let empty = NodeHierarchy::new(Vec::new());
+        assert!(collect_node_ids(Some(&empty)).is_empty());
+        let three = hierarchy_chain(3);
+        let ids = collect_node_ids(Some(&three));
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&NodeId::ZERO));
+        assert!(ids.contains(&NodeId::new(2)));
+    }
+
+    // ======================================================== getters/predicates
+
+    #[test]
+    fn process_event_result_order_is_dense_and_monotonic() {
+        let all = [
+            ProcessEventResult::DoNothing,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+            ProcessEventResult::UpdateHitTesterAndProcessAgain,
+            ProcessEventResult::ShouldIncrementalRelayout,
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow,
+            ProcessEventResult::ShouldRegenerateDomAllWindows,
+        ];
+        for (i, r) in all.iter().enumerate() {
+            assert_eq!(r.order(), i, "order() must match declaration index");
+        }
+        // Ord/PartialOrd must agree with order(), and max_self must be the join.
+        for a in all {
+            for b in all {
+                assert_eq!(a < b, a.order() < b.order());
+                let joined = a.max_self(b);
+                assert_eq!(joined.order(), a.order().max(b.order()));
+                assert_eq!(joined, b.max_self(a), "max_self must be commutative");
+                assert_eq!(a.max_self(a), a, "max_self must be idempotent");
+            }
+        }
+    }
+
+    #[test]
+    fn key_modifiers_builders_are_orthogonal_and_is_empty_tracks_them() {
+        let empty = KeyModifiers::new();
+        assert!(empty.is_empty());
+        assert_eq!(empty, KeyModifiers::default());
+
+        // Each builder sets exactly one flag.
+        assert_eq!(
+            KeyModifiers::new().with_shift(),
+            KeyModifiers { shift: true, ctrl: false, alt: false, meta: false }
+        );
+        assert_eq!(
+            KeyModifiers::new().with_ctrl(),
+            KeyModifiers { shift: false, ctrl: true, alt: false, meta: false }
+        );
+        assert_eq!(
+            KeyModifiers::new().with_alt(),
+            KeyModifiers { shift: false, ctrl: false, alt: true, meta: false }
+        );
+        assert_eq!(
+            KeyModifiers::new().with_meta(),
+            KeyModifiers { shift: false, ctrl: false, alt: false, meta: true }
+        );
+
+        // Any single flag defeats is_empty; builders are idempotent and composable.
+        assert!(!KeyModifiers::new().with_shift().is_empty());
+        assert!(!KeyModifiers::new().with_ctrl().is_empty());
+        assert!(!KeyModifiers::new().with_alt().is_empty());
+        assert!(!KeyModifiers::new().with_meta().is_empty());
+        assert_eq!(
+            KeyModifiers::new().with_ctrl().with_ctrl(),
+            KeyModifiers::new().with_ctrl()
+        );
+        let all = KeyModifiers::new().with_shift().with_ctrl().with_alt().with_meta();
+        assert!(!all.is_empty());
+        assert!(all.shift && all.ctrl && all.alt && all.meta);
+    }
+
+    #[test]
+    fn scroll_into_view_options_presets_and_behavior_setters() {
+        assert_eq!(
+            ScrollIntoViewOptions::default(),
+            ScrollIntoViewOptions::nearest(),
+            "Default must be the `nearest`/`auto` preset"
+        );
+        for (opts, expected) in [
+            (ScrollIntoViewOptions::nearest(), ScrollLogicalPosition::Nearest),
+            (ScrollIntoViewOptions::center(), ScrollLogicalPosition::Center),
+            (ScrollIntoViewOptions::start(), ScrollLogicalPosition::Start),
+            (ScrollIntoViewOptions::end(), ScrollLogicalPosition::End),
+        ] {
+            assert_eq!(opts.block, expected);
+            assert_eq!(opts.inline_axis, expected, "both axes must be aligned alike");
+            assert_eq!(opts.behavior, ScrollIntoViewBehavior::Auto);
+
+            // The behavior setters must not disturb the axes, and last-writer-wins.
+            let instant = opts.with_instant();
+            assert_eq!(instant.behavior, ScrollIntoViewBehavior::Instant);
+            assert_eq!(instant.block, opts.block);
+            assert_eq!(instant.inline_axis, opts.inline_axis);
+
+            let smooth = opts.with_smooth();
+            assert_eq!(smooth.behavior, ScrollIntoViewBehavior::Smooth);
+            assert_eq!(
+                opts.with_instant().with_smooth().behavior,
+                ScrollIntoViewBehavior::Smooth
+            );
+            assert_eq!(
+                opts.with_smooth().with_instant().behavior,
+                ScrollIntoViewBehavior::Instant
+            );
+        }
+    }
+
+    #[test]
+    fn default_action_result_has_action_predicate() {
+        assert!(!DefaultActionResult::default().has_action());
+        assert!(!DefaultActionResult::prevented().has_action());
+        assert!(DefaultActionResult::prevented().prevented);
+        assert_eq!(DefaultActionResult::prevented().action, DefaultAction::None);
+
+        // `None` action => nothing to do, even though it was not prevented.
+        let none = DefaultActionResult::new(DefaultAction::None);
+        assert!(!none.prevented);
+        assert!(!none.has_action());
+
+        // Any real action => has_action.
+        for action in [
+            DefaultAction::FocusNext,
+            DefaultAction::FocusPrevious,
+            DefaultAction::FocusFirst,
+            DefaultAction::FocusLast,
+            DefaultAction::ClearFocus,
+            DefaultAction::SelectAllText,
+            DefaultAction::ActivateFocusedElement { target: dnid(0, 1) },
+            DefaultAction::SubmitForm { form_node: dnid(0, 1) },
+            DefaultAction::CloseModal { modal_node: dnid(0, 1) },
+            DefaultAction::ScrollFocusedContainer {
+                direction: ScrollDirection::Down,
+                amount: ScrollAmount::Page,
+            },
+        ] {
+            let r = DefaultActionResult::new(action);
+            assert_eq!(r.action, action);
+            assert!(!r.prevented);
+            assert!(r.has_action(), "{action:?} must be reported as actionable");
+        }
+    }
+
+    #[test]
+    fn synthetic_event_constructor_invariants_and_flag_transitions() {
+        let target = dnid(3, 7);
+        let mut ev = SyntheticEvent::new(
+            EventType::Click,
+            EventSource::Programmatic,
+            target,
+            tick(42),
+            EventData::None,
+        );
+        // Post-construction invariants.
+        assert_eq!(ev.event_type, EventType::Click);
+        assert_eq!(ev.source, EventSource::Programmatic);
+        assert_eq!(ev.phase, EventPhase::Target);
+        assert_eq!(ev.target, target);
+        assert_eq!(ev.current_target, target);
+        assert_eq!(ev.timestamp, tick(42));
+        assert!(!ev.is_propagation_stopped());
+        assert!(!ev.is_immediate_propagation_stopped());
+        assert!(!ev.is_default_prevented());
+
+        // stop_propagation does NOT imply stop_immediate_propagation...
+        ev.stop_propagation();
+        assert!(ev.is_propagation_stopped());
+        assert!(!ev.is_immediate_propagation_stopped());
+
+        // ...but the reverse implication MUST hold, or propagate_phase's
+        // `stopped_immediate` check could be bypassed by the `stopped` fast path.
+        let mut ev2 = SyntheticEvent::new(
+            EventType::Click,
+            EventSource::User,
+            target,
+            tick(0),
+            EventData::None,
+        );
+        ev2.stop_immediate_propagation();
+        assert!(ev2.is_immediate_propagation_stopped());
+        assert!(
+            ev2.is_propagation_stopped(),
+            "immediate stop must also stop normal propagation"
+        );
+
+        // All three flags are idempotent and independent.
+        let mut ev3 = ev2.clone();
+        ev3.stop_immediate_propagation();
+        ev3.prevent_default();
+        ev3.prevent_default();
+        assert!(ev3.is_default_prevented());
+        assert!(!ev.is_default_prevented(), "flags must not leak across events");
+    }
+
+    #[test]
+    fn hover_filter_is_system_internal_only_for_system_text_clicks() {
+        for f in [
+            HoverEventFilter::SystemTextSingleClick,
+            HoverEventFilter::SystemTextDoubleClick,
+            HoverEventFilter::SystemTextTripleClick,
+        ] {
+            assert!(f.is_system_internal(), "{f:?} is internal");
+            assert!(
+                f.to_focus_event_filter().is_none(),
+                "internal filters must never be exposed as focus callbacks"
+            );
+        }
+        for f in [
+            HoverEventFilter::MouseOver,
+            HoverEventFilter::MouseDown,
+            HoverEventFilter::Drop,
+            HoverEventFilter::KeyringResult,
+            HoverEventFilter::MouseOut,
+        ] {
+            assert!(!f.is_system_internal(), "{f:?} is a user-visible filter");
+        }
+    }
+
+    #[test]
+    fn event_filter_kind_predicates_are_mutually_exclusive() {
+        let hover = EventFilter::Hover(HoverEventFilter::MouseDown);
+        let focus = EventFilter::Focus(FocusEventFilter::FocusReceived);
+        let window = EventFilter::Window(WindowEventFilter::Resized);
+        let component = EventFilter::Component(ComponentEventFilter::AfterMount);
+        let app = EventFilter::Application(ApplicationEventFilter::DeviceConnected);
+
+        assert!(focus.is_focus_callback());
+        assert!(window.is_window_callback());
+        for f in [hover, window, component, app] {
+            assert!(!f.is_focus_callback(), "{f:?} is not a focus callback");
+        }
+        for f in [hover, focus, component, app] {
+            assert!(!f.is_window_callback(), "{f:?} is not a window callback");
+        }
+        // The `as_*` accessors must agree with the predicates.
+        assert_eq!(hover.as_hover_event_filter(), Some(HoverEventFilter::MouseDown));
+        assert_eq!(hover.as_focus_event_filter(), None);
+        assert_eq!(hover.as_window_event_filter(), None);
+        assert_eq!(focus.as_focus_event_filter(), Some(FocusEventFilter::FocusReceived));
+        assert_eq!(window.as_window_event_filter(), Some(WindowEventFilter::Resized));
+        assert_eq!(component.as_hover_event_filter(), None);
+    }
+
+    // ============================================================== round-trips
+
+    #[test]
+    fn window_to_hover_filter_mapping_never_yields_an_internal_filter() {
+        // Every window filter that has a hover twin must map onto a filter the
+        // user is actually allowed to register (never a SystemText* internal).
+        for w in [
+            WindowEventFilter::MouseOver,
+            WindowEventFilter::MouseDown,
+            WindowEventFilter::LeftMouseDown,
+            WindowEventFilter::RightMouseDown,
+            WindowEventFilter::MiddleMouseDown,
+            WindowEventFilter::MouseUp,
+            WindowEventFilter::LeftMouseUp,
+            WindowEventFilter::RightMouseUp,
+            WindowEventFilter::MiddleMouseUp,
+            WindowEventFilter::Scroll,
+            WindowEventFilter::TextInput,
+            WindowEventFilter::VirtualKeyDown,
+            WindowEventFilter::VirtualKeyUp,
+            WindowEventFilter::HoveredFile,
+            WindowEventFilter::DroppedFile,
+            WindowEventFilter::HoveredFileCancelled,
+            WindowEventFilter::TouchStart,
+            WindowEventFilter::TouchEnd,
+            WindowEventFilter::PenDown,
+            WindowEventFilter::DragStart,
+            WindowEventFilter::Drop,
+            WindowEventFilter::DoubleClick,
+            WindowEventFilter::PermissionChanged,
+            WindowEventFilter::BiometricResult,
+            WindowEventFilter::KeyringResult,
+        ] {
+            let hover = w
+                .to_hover_event_filter()
+                .unwrap_or_else(|| panic!("{w:?} should have a hover twin"));
+            assert!(
+                !hover.is_system_internal(),
+                "{w:?} must not map onto an internal filter"
+            );
+        }
+
+        // Window-only events have deliberately NO hover twin.
+        for w in [
+            WindowEventFilter::MouseEnter,
+            WindowEventFilter::MouseLeave,
+            WindowEventFilter::Resized,
+            WindowEventFilter::Moved,
+            WindowEventFilter::FocusReceived,
+            WindowEventFilter::FocusLost,
+            WindowEventFilter::CloseRequested,
+            WindowEventFilter::ThemeChanged,
+            WindowEventFilter::WindowFocusReceived,
+            WindowEventFilter::WindowFocusLost,
+            WindowEventFilter::DpiChanged,
+            WindowEventFilter::MonitorChanged,
+        ] {
+            assert_eq!(
+                w.to_hover_event_filter(),
+                None,
+                "{w:?} is window-specific and must not map to a hover filter"
+            );
+        }
+    }
+
+    #[test]
+    fn window_hover_focus_filter_names_round_trip() {
+        // Window -> Hover -> Focus must preserve the *identity* of the event for
+        // the shared (mouse / key / drag) subset — a mismatched row here means a
+        // callback registered as Focus(X) would fire for hover event Y.
+        let pairs = [
+            (
+                WindowEventFilter::MouseOver,
+                HoverEventFilter::MouseOver,
+                Some(FocusEventFilter::MouseOver),
+            ),
+            (
+                WindowEventFilter::LeftMouseDown,
+                HoverEventFilter::LeftMouseDown,
+                Some(FocusEventFilter::LeftMouseDown),
+            ),
+            (
+                WindowEventFilter::RightMouseUp,
+                HoverEventFilter::RightMouseUp,
+                Some(FocusEventFilter::RightMouseUp),
+            ),
+            (
+                WindowEventFilter::TextInput,
+                HoverEventFilter::TextInput,
+                Some(FocusEventFilter::TextInput),
+            ),
+            (
+                WindowEventFilter::VirtualKeyDown,
+                HoverEventFilter::VirtualKeyDown,
+                Some(FocusEventFilter::VirtualKeyDown),
+            ),
+            (
+                WindowEventFilter::DragStart,
+                HoverEventFilter::DragStart,
+                Some(FocusEventFilter::DragStart),
+            ),
+            (
+                WindowEventFilter::Drop,
+                HoverEventFilter::Drop,
+                Some(FocusEventFilter::Drop),
+            ),
+            // File events exist on window + hover, but have no focus twin.
+            (
+                WindowEventFilter::DroppedFile,
+                HoverEventFilter::DroppedFile,
+                None,
+            ),
+            (
+                WindowEventFilter::TouchStart,
+                HoverEventFilter::TouchStart,
+                None,
+            ),
+        ];
+        for (w, h, f) in pairs {
+            assert_eq!(w.to_hover_event_filter(), Some(h), "window->hover for {w:?}");
+            assert_eq!(h.to_focus_event_filter(), f, "hover->focus for {h:?}");
+        }
+    }
+
+    #[test]
+    fn on_to_event_filter_conversion_is_stable() {
+        use crate::dom::On;
+        // On::TextInput / FocusReceived / FocusLost are FOCUS filters, and the
+        // virtual-key events are WINDOW filters — everything else is Hover.
+        assert_eq!(
+            EventFilter::from(On::TextInput),
+            EventFilter::Focus(FocusEventFilter::TextInput)
+        );
+        assert_eq!(
+            EventFilter::from(On::VirtualKeyDown),
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown)
+        );
+        assert_eq!(
+            EventFilter::from(On::MouseOver),
+            EventFilter::Hover(HoverEventFilter::MouseOver)
+        );
+        // The a11y actions all collapse onto "click" (= MouseUp).
+        for on in [On::Default, On::Collapse, On::Expand, On::Increment, On::Decrement] {
+            assert_eq!(
+                EventFilter::from(on),
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                "{on:?} must map to the click filter"
+            );
+        }
+        assert!(EventFilter::from(On::TextInput).is_focus_callback());
+        assert!(EventFilter::from(On::VirtualKeyUp).is_window_callback());
+    }
+
+    #[test]
+    fn virtual_keycode_round_trips_for_every_key_events_rs_interprets() {
+        // handle_key_down decodes `KeyboardEventData.key_code` with `from_u32`,
+        // while producers write `vk as u32`. If that round-trip ever breaks, every
+        // shortcut silently dies — so pin it for the keys this module interprets.
+        for vk in [
+            VirtualKeyCode::Left,
+            VirtualKeyCode::Right,
+            VirtualKeyCode::Up,
+            VirtualKeyCode::Down,
+            VirtualKeyCode::Home,
+            VirtualKeyCode::End,
+            VirtualKeyCode::Back,
+            VirtualKeyCode::Delete,
+            VirtualKeyCode::A,
+            VirtualKeyCode::C,
+            VirtualKeyCode::D,
+            VirtualKeyCode::V,
+            VirtualKeyCode::X,
+            VirtualKeyCode::Y,
+            VirtualKeyCode::Z,
+        ] {
+            assert_eq!(
+                VirtualKeyCode::from_u32(vk as u32),
+                Some(vk),
+                "{vk:?} must survive the as-u32 / from_u32 round trip"
+            );
+        }
+        // Out-of-range key codes must decode to None rather than index out of bounds.
+        assert_eq!(VirtualKeyCode::from_u32(u32::MAX), None);
+        assert_eq!(VirtualKeyCode::from_u32(100_000), None);
+    }
+
+    // ============================================ ArrowDirection / KeyboardShortcut
+
+    #[test]
+    fn arrow_direction_from_key_is_total_over_every_decodable_key() {
+        // Fuzz every decodable key code (plus the undecodable tail) through both
+        // key mappers: they must never panic and must only claim the nav keys.
+        let nav = [
+            VirtualKeyCode::Left,
+            VirtualKeyCode::Right,
+            VirtualKeyCode::Up,
+            VirtualKeyCode::Down,
+            VirtualKeyCode::Home,
+            VirtualKeyCode::End,
+        ];
+        for raw in 0u32..1024 {
+            let Some(vk) = VirtualKeyCode::from_u32(raw) else {
+                continue;
+            };
+            for ctrl in [false, true] {
+                let got = ArrowDirection::from_key(vk, ctrl);
+                assert_eq!(
+                    got.is_some(),
+                    nav.contains(&vk),
+                    "{vk:?} (ctrl={ctrl}) must map to an ArrowDirection iff it is a nav key"
+                );
+                if let Some(dir) = got {
+                    // to_selection is total and never panics for any (dir, ctrl).
+                    let (_d, _s) = dir.to_selection(ctrl);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn arrow_direction_ctrl_only_upgrades_horizontal_arrows_to_words() {
+        // ctrl must upgrade Left/Right to Word steps, and must NOT change the
+        // step for Up/Down/Home/End (those are already line/document scoped).
+        for (dir, expect_no_ctrl, expect_ctrl) in [
+            (
+                ArrowDirection::Left,
+                (SelectionDirection::Backward, SelectionStep::Character),
+                (SelectionDirection::Backward, SelectionStep::Word),
+            ),
+            (
+                ArrowDirection::Right,
+                (SelectionDirection::Forward, SelectionStep::Character),
+                (SelectionDirection::Forward, SelectionStep::Word),
+            ),
+            (
+                ArrowDirection::Up,
+                (SelectionDirection::Backward, SelectionStep::VisualLine),
+                (SelectionDirection::Backward, SelectionStep::VisualLine),
+            ),
+            (
+                ArrowDirection::Down,
+                (SelectionDirection::Forward, SelectionStep::VisualLine),
+                (SelectionDirection::Forward, SelectionStep::VisualLine),
+            ),
+            (
+                ArrowDirection::LineStart,
+                (SelectionDirection::Backward, SelectionStep::Line),
+                (SelectionDirection::Backward, SelectionStep::Line),
+            ),
+            (
+                ArrowDirection::DocumentEnd,
+                (SelectionDirection::Forward, SelectionStep::Document),
+                (SelectionDirection::Forward, SelectionStep::Document),
+            ),
+        ] {
+            assert_eq!(dir.to_selection(false), expect_no_ctrl, "{dir:?} plain");
+            assert_eq!(dir.to_selection(true), expect_ctrl, "{dir:?} + ctrl");
+        }
+        // Ctrl+Home/End are distinct DIRECTIONS (not a step upgrade).
+        assert_eq!(
+            ArrowDirection::from_key(VirtualKeyCode::Home, true),
+            Some(ArrowDirection::DocumentStart)
+        );
+        assert_eq!(
+            ArrowDirection::from_key(VirtualKeyCode::End, true),
+            Some(ArrowDirection::DocumentEnd)
+        );
+    }
+
+    #[test]
+    fn keyboard_shortcut_from_key_requires_primary_for_every_key() {
+        // Without the primary modifier NO key may produce a shortcut — otherwise
+        // typing plain "c" into a text field would copy.
+        for raw in 0u32..1024 {
+            let Some(vk) = VirtualKeyCode::from_u32(raw) else {
+                continue;
+            };
+            for shift in [false, true] {
+                assert_eq!(
+                    KeyboardShortcut::from_key(vk, false, shift),
+                    None,
+                    "{vk:?} (shift={shift}) must need the primary modifier"
+                );
+            }
+        }
+        // With primary held, exactly the editing set is recognised.
+        assert_eq!(
+            KeyboardShortcut::from_key(VirtualKeyCode::Z, true, true),
+            Some(KeyboardShortcut::Redo),
+            "primary+shift+Z is Redo, not Undo"
+        );
+        assert_eq!(
+            KeyboardShortcut::from_key(VirtualKeyCode::Y, true, true),
+            Some(KeyboardShortcut::Redo),
+            "shift must not disturb primary+Y"
+        );
+        assert_eq!(
+            KeyboardShortcut::from_key(VirtualKeyCode::C, true, true),
+            Some(KeyboardShortcut::Copy),
+            "shift must not disturb primary+C"
+        );
+        // D is handled separately (SelectNextOccurrence), not as a KeyboardShortcut.
+        assert_eq!(KeyboardShortcut::from_key(VirtualKeyCode::D, true, false), None);
+    }
+
+    #[test]
+    fn selection_op_new_defaults_to_a_single_repeat() {
+        let op = SelectionOp::new(
+            SelectionDirection::Forward,
+            SelectionStep::Word,
+            SelectionMode::Delete,
+        );
+        assert_eq!(op.direction, SelectionDirection::Forward);
+        assert_eq!(op.step, SelectionStep::Word);
+        assert_eq!(op.mode, SelectionMode::Delete);
+        assert_eq!(op.repeat, 1, "a fresh op must apply exactly once");
+    }
+
+    // ================================================== filter/phase matching
+
+    #[test]
+    fn capture_phase_never_matches_any_filter() {
+        // Regression guard: azul has no capture listeners. If this breaks, every
+        // ancestor callback fires TWICE (once capturing, once bubbling).
+        let ev = mouse_event(EventType::MouseDown, MouseButton::Left, LogicalPosition::zero());
+        for filter in [
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            EventFilter::Focus(FocusEventFilter::MouseDown),
+            EventFilter::Window(WindowEventFilter::MouseDown),
+            EventFilter::Component(ComponentEventFilter::AfterMount),
+            EventFilter::Application(ApplicationEventFilter::DeviceConnected),
+        ] {
+            assert!(
+                !matches_filter_phase(filter, &ev, EventPhase::Capture),
+                "{filter:?} must not match in the capture phase"
+            );
+        }
+        // ...but the same filter DOES match at Target and Bubble.
+        for phase in [EventPhase::Target, EventPhase::Bubble] {
+            assert!(matches_filter_phase(
+                EventFilter::Hover(HoverEventFilter::MouseDown),
+                &ev,
+                phase
+            ));
+        }
+    }
+
+    #[test]
+    fn application_filters_never_match_yet() {
+        // Documented stub: Application events are not routed through propagation.
+        let ev = mouse_event(EventType::MouseDown, MouseButton::Left, LogicalPosition::zero());
+        for phase in [EventPhase::Capture, EventPhase::Target, EventPhase::Bubble] {
+            assert!(!matches_filter_phase(
+                EventFilter::Application(ApplicationEventFilter::MonitorConnected),
+                &ev,
+                phase
+            ));
+        }
+    }
+
+    #[test]
+    fn check_mouse_button_is_false_for_every_non_mouse_payload() {
+        for data in [
+            EventData::None,
+            EventData::Keyboard(KeyboardEventData {
+                key_code: 0,
+                char_code: None,
+                modifiers: KeyModifiers::default(),
+                repeat: false,
+            }),
+            EventData::Touch(TouchEventData {
+                id: u64::MAX,
+                position: LogicalPosition::zero(),
+                force: f32::NAN,
+            }),
+            EventData::Clipboard(ClipboardEventData { content: None }),
+        ] {
+            for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+                assert!(
+                    !check_mouse_button(&data, button),
+                    "non-mouse payload must never claim a button"
+                );
+            }
+        }
+        // Exotic button ids compare by value, including the u8 boundary.
+        let other_max = EventData::Mouse(MouseEventData {
+            position: LogicalPosition::zero(),
+            button: MouseButton::Other(u8::MAX),
+            buttons: u8::MAX,
+            modifiers: KeyModifiers::default(),
+        });
+        assert!(check_mouse_button(&other_max, MouseButton::Other(u8::MAX)));
+        assert!(!check_mouse_button(&other_max, MouseButton::Other(0)));
+        assert!(!check_mouse_button(&other_max, MouseButton::Left));
+    }
+
+    #[test]
+    fn button_specific_filters_require_the_matching_button() {
+        let left = mouse_event(EventType::MouseDown, MouseButton::Left, LogicalPosition::zero());
+        let right = mouse_event(EventType::MouseDown, MouseButton::Right, LogicalPosition::zero());
+        let middle = mouse_event(EventType::MouseDown, MouseButton::Middle, LogicalPosition::zero());
+
+        // The generic filter fires for every button...
+        for ev in [&left, &right, &middle] {
+            assert!(matches_hover_filter(
+                HoverEventFilter::MouseDown,
+                ev,
+                EventPhase::Target
+            ));
+        }
+        // ...the specific ones only for theirs.
+        assert!(matches_hover_filter(HoverEventFilter::LeftMouseDown, &left, EventPhase::Target));
+        assert!(!matches_hover_filter(HoverEventFilter::LeftMouseDown, &right, EventPhase::Target));
+        assert!(matches_hover_filter(HoverEventFilter::RightMouseDown, &right, EventPhase::Target));
+        assert!(!matches_hover_filter(HoverEventFilter::MiddleMouseDown, &right, EventPhase::Target));
+        assert!(matches_hover_filter(HoverEventFilter::MiddleMouseDown, &middle, EventPhase::Target));
+
+        // A MouseDown filter must never fire on a MouseUp event and vice versa.
+        let up = mouse_event(EventType::MouseUp, MouseButton::Left, LogicalPosition::zero());
+        assert!(!matches_hover_filter(HoverEventFilter::MouseDown, &up, EventPhase::Target));
+        assert!(!matches_hover_filter(HoverEventFilter::MouseUp, &left, EventPhase::Target));
+        assert!(matches_focus_filter(FocusEventFilter::LeftMouseUp, &up, EventPhase::Target));
+        assert!(matches_window_filter(WindowEventFilter::LeftMouseUp, &up, EventPhase::Target));
+
+        // A MouseDown event carrying a NON-mouse payload cannot satisfy a
+        // button-specific filter (there is no button to compare against).
+        let payloadless = SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::Synthetic,
+            dnid(0, 0),
+            tick(0),
+            EventData::None,
+        );
+        assert!(matches_hover_filter(HoverEventFilter::MouseDown, &payloadless, EventPhase::Target));
+        assert!(!matches_hover_filter(
+            HoverEventFilter::LeftMouseDown,
+            &payloadless,
+            EventPhase::Target
+        ));
+    }
+
+    #[test]
+    fn component_filter_matches_only_its_own_lifecycle_event() {
+        let lifecycle = |ty: EventType| {
+            SyntheticEvent::new(ty, EventSource::Lifecycle, dnid(0, 0), tick(0), EventData::None)
+        };
+        let pairs = [
+            (ComponentEventFilter::AfterMount, EventType::Mount),
+            (ComponentEventFilter::BeforeUnmount, EventType::Unmount),
+            (ComponentEventFilter::Updated, EventType::Update),
+            (ComponentEventFilter::NodeResized, EventType::Resize),
+        ];
+        for (filter, ty) in pairs {
+            let ev = lifecycle(ty);
+            assert!(
+                matches_component_filter(filter, &ev, EventPhase::Target),
+                "{filter:?} must match {ty:?}"
+            );
+            // ...and must NOT match any of the other lifecycle event types.
+            for (_, other_ty) in pairs.iter().filter(|(_, t)| *t != ty) {
+                assert!(
+                    !matches_component_filter(filter, &lifecycle(*other_ty), EventPhase::Target),
+                    "{filter:?} must not match {other_ty:?}"
+                );
+            }
+        }
+        // DefaultAction / Selected have no EventType twin: they must never match
+        // a lifecycle event (they are driven by the a11y layer instead).
+        for filter in [ComponentEventFilter::DefaultAction, ComponentEventFilter::Selected] {
+            for (_, ty) in pairs {
+                assert!(!matches_component_filter(filter, &lifecycle(ty), EventPhase::Target));
+            }
+        }
+    }
+
+    #[test]
+    fn event_type_to_filters_never_panics_and_stays_synced_with_the_hover_matcher() {
+        // ROUND-TRIP INVARIANT: a Hover filter emitted by `event_type_to_filters`
+        // is later re-checked by `matches_filter_phase` inside `propagate_event`
+        // (see shell2/common/event.rs). If the two tables disagree, the callback
+        // is collected and then silently dropped — a dead filter.
+        //
+        // KNOWN_DESYNC records the pairs that are ALREADY broken today (reported
+        // separately). The assertion is a *subset* check, so fixing one of them
+        // keeps this test green while any NEW desync fails it.
+        const KNOWN_DESYNC: &[EventType] = &[
+            EventType::Click,             // -> Hover(LeftMouseUp), matcher wants EventType::MouseUp
+            EventType::ContextMenu,       // -> Hover(RightMouseDown), matcher wants MouseDown
+            EventType::MouseOut,          // -> Hover(MouseOut), matcher has no MouseOut arm
+            EventType::ScrollStart,       // -> Hover(Scroll), matcher wants EventType::Scroll
+            EventType::ScrollEnd,         // -> Hover(Scroll), matcher wants EventType::Scroll
+            EventType::FocusIn,           // -> Hover(FocusIn), matcher has no FocusIn arm
+            EventType::FocusOut,          // -> Hover(FocusOut), matcher has no FocusOut arm
+            EventType::CompositionStart,  // -> Hover(CompositionStart), no arm
+            EventType::CompositionUpdate, // -> Hover(CompositionUpdate), no arm
+            EventType::CompositionEnd,    // -> Hover(CompositionEnd), no arm
+        ];
+
+        let mouse_data = EventData::Mouse(MouseEventData {
+            position: LogicalPosition::new(1.0, 1.0),
+            button: MouseButton::Left,
+            buttons: 1,
+            modifiers: KeyModifiers::default(),
+        });
+
+        let cases: Vec<(EventType, EventData)> = vec![
+            (EventType::MouseOver, EventData::None),
+            (EventType::MouseEnter, EventData::None),
+            (EventType::MouseLeave, EventData::None),
+            (EventType::MouseOut, EventData::None),
+            (EventType::MouseDown, mouse_data.clone()),
+            (EventType::MouseUp, mouse_data.clone()),
+            (EventType::Click, mouse_data.clone()),
+            (EventType::DoubleClick, mouse_data.clone()),
+            (EventType::ContextMenu, mouse_data.clone()),
+            (EventType::KeyDown, EventData::None),
+            (EventType::KeyUp, EventData::None),
+            (EventType::KeyPress, EventData::None),
+            (EventType::CompositionStart, EventData::None),
+            (EventType::CompositionUpdate, EventData::None),
+            (EventType::CompositionEnd, EventData::None),
+            (EventType::Focus, EventData::None),
+            (EventType::Blur, EventData::None),
+            (EventType::FocusIn, EventData::None),
+            (EventType::FocusOut, EventData::None),
+            (EventType::Input, EventData::None),
+            (EventType::Change, EventData::None),
+            (EventType::Scroll, EventData::None),
+            (EventType::ScrollStart, EventData::None),
+            (EventType::ScrollEnd, EventData::None),
+            (EventType::DragStart, EventData::None),
+            (EventType::Drag, EventData::None),
+            (EventType::DragEnd, EventData::None),
+            (EventType::DragEnter, EventData::None),
+            (EventType::DragOver, EventData::None),
+            (EventType::DragLeave, EventData::None),
+            (EventType::Drop, EventData::None),
+            (EventType::TouchStart, EventData::None),
+            (EventType::TouchMove, EventData::None),
+            (EventType::TouchEnd, EventData::None),
+            (EventType::TouchCancel, EventData::None),
+            (EventType::Mount, EventData::None),
+            (EventType::Unmount, EventData::None),
+            (EventType::Update, EventData::None),
+            (EventType::Resize, EventData::None),
+            (EventType::WindowResize, EventData::None),
+            (EventType::WindowMove, EventData::None),
+            (EventType::WindowClose, EventData::None),
+            (EventType::ThemeChange, EventData::None),
+            (EventType::FileHover, EventData::None),
+            (EventType::FileDrop, EventData::None),
+            (EventType::FileHoverCancel, EventData::None),
+            (EventType::Copy, EventData::None),
+            (EventType::Cut, EventData::None),
+            (EventType::Paste, EventData::None),
+            (EventType::SensorChanged, EventData::None),
+            (EventType::GamepadInput, EventData::None),
+            (EventType::GeolocationFix, EventData::None),
+            (EventType::GeolocationError, EventData::None),
+            (EventType::PermissionChanged, EventData::None),
+            (EventType::BiometricResult, EventData::None),
+            (EventType::KeyringResult, EventData::None),
+            (EventType::LongPress, EventData::None),
+            (EventType::Play, EventData::None),
+        ];
+
+        for (ty, data) in cases {
+            let filters = event_type_to_filters(ty, &data);
+            let ev = SyntheticEvent::new(ty, EventSource::User, dnid(0, 0), tick(0), data);
+
+            // No duplicate filters — a duplicate would invoke the callback twice.
+            let mut seen = BTreeSet::new();
+            for f in &filters {
+                assert!(seen.insert(*f), "{ty:?} emitted {f:?} twice");
+            }
+
+            for f in &filters {
+                if !matches!(f, EventFilter::Hover(_)) {
+                    continue; // only Hover filters are re-checked by propagate_event
+                }
+                if matches_filter_phase(*f, &ev, EventPhase::Target) {
+                    continue;
+                }
+                assert!(
+                    KNOWN_DESYNC.contains(&ty),
+                    "NEW DESYNC: event_type_to_filters({ty:?}) emits {f:?}, but \
+                     matches_filter_phase rejects it at the Target phase, so the \
+                     callback would be collected and then silently dropped"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn event_type_to_filters_omits_button_specific_filter_for_exotic_buttons() {
+        // MouseButton::Other(n) has no dedicated filter: only the generic one.
+        let data = EventData::Mouse(MouseEventData {
+            position: LogicalPosition::zero(),
+            button: MouseButton::Other(u8::MAX),
+            buttons: 0,
+            modifiers: KeyModifiers::default(),
+        });
+        let down = event_type_to_filters(EventType::MouseDown, &data);
+        assert_eq!(down, vec![EventFilter::Hover(HoverEventFilter::MouseDown)]);
+        let up = event_type_to_filters(EventType::MouseUp, &data);
+        assert_eq!(up, vec![EventFilter::Hover(HoverEventFilter::MouseUp)]);
+
+        // Unmapped event types produce an empty filter list (never a panic).
+        for ty in [
+            EventType::Submit,
+            EventType::Reset,
+            EventType::Invalid,
+            EventType::Play,
+            EventType::Pause,
+            EventType::Ended,
+            EventType::TimeUpdate,
+            EventType::VolumeChange,
+            EventType::MediaError,
+            EventType::PinchIn,
+            EventType::RotateClockwise,
+            EventType::SwipeLeft,
+        ] {
+            assert!(
+                event_type_to_filters(ty, &EventData::None).is_empty(),
+                "{ty:?} is unmapped and must yield no filters"
+            );
+        }
+    }
+
+    // ================================================== DOM path / propagation
+
+    #[test]
+    fn get_dom_path_none_target_yields_empty_path() {
+        let hier = hierarchy_chain(3);
+        assert!(get_dom_path(&hier, NodeHierarchyItemId::NONE).is_empty());
+        // An empty hierarchy with a real target must not index out of bounds.
+        let empty = NodeHierarchy::new(Vec::new());
+        let path = get_dom_path(&empty, NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)));
+        assert_eq!(path, vec![NodeId::ZERO], "unknown nodes still path to themselves");
+    }
+
+    #[test]
+    fn get_dom_path_out_of_range_target_does_not_panic() {
+        let hier = hierarchy_chain(3);
+        let huge = NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(usize::MAX - 1)));
+        let path = get_dom_path(&hier, huge);
+        assert_eq!(path, vec![NodeId::new(usize::MAX - 1)]);
+    }
+
+    #[test]
+    fn get_dom_path_returns_root_to_target_order() {
+        let hier = hierarchy_chain(4); // 0 <- 1 <- 2 <- 3
+        let path = get_dom_path(&hier, NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(3))));
+        assert_eq!(
+            path,
+            vec![NodeId::new(0), NodeId::new(1), NodeId::new(2), NodeId::new(3)],
+            "path must run root -> target"
+        );
+        // The root itself paths to a single-element vec.
+        let root_path = get_dom_path(&hier, NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)));
+        assert_eq!(root_path, vec![NodeId::ZERO]);
+    }
+
+    #[test]
+    fn get_dom_path_terminates_on_a_self_parent_cycle() {
+        // A node that is its own parent must not spin forever.
+        let hier = NodeHierarchy::new(vec![Node {
+            parent: Some(NodeId::ZERO),
+            ..Node::ROOT
+        }]);
+        let path = get_dom_path(&hier, NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)));
+        assert_eq!(path, vec![NodeId::ZERO]);
+    }
+
+    #[test]
+    fn get_dom_path_handles_a_deep_chain_without_recursing() {
+        // 5000 levels deep: an iterative walk copes, a recursive one would blow
+        // the stack.
+        let hier = hierarchy_chain(5000);
+        let path = get_dom_path(
+            &hier,
+            NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(4999))),
+        );
+        assert_eq!(path.len(), 5000);
+        assert_eq!(path[0], NodeId::ZERO);
+        assert_eq!(path[4999], NodeId::new(4999));
+    }
+
+    #[test]
+    fn propagate_event_visits_each_node_exactly_once() {
+        // Regression guard for the double-fire bug: with capture + bubble both
+        // walking the ancestors, a node's callback used to be collected TWICE.
+        let hier = hierarchy_chain(3); // 0 <- 1 <- 2
+        let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        for i in 0..3 {
+            callbacks.insert(
+                NodeId::new(i),
+                vec![EventFilter::Hover(HoverEventFilter::MouseDown)],
+            );
+        }
+        let mut ev = SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::User,
+            dnid(0, 2),
+            tick(0),
+            EventData::Mouse(MouseEventData {
+                position: LogicalPosition::zero(),
+                button: MouseButton::Left,
+                buttons: 1,
+                modifiers: KeyModifiers::default(),
+            }),
+        );
+
+        let result = propagate_event(&mut ev, &hier, &callbacks);
+        let nodes: Vec<NodeId> = result.callbacks_to_invoke.iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            nodes,
+            vec![NodeId::new(2), NodeId::new(1), NodeId::new(0)],
+            "target first, then bubbling up to the root — each node once"
+        );
+        assert!(!result.default_prevented);
+    }
+
+    #[test]
+    fn propagate_event_on_a_dangling_target_is_a_no_op() {
+        let hier = hierarchy_chain(2);
+        let callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+
+        // Target = the `None` sentinel: the doc comment claims a panic, but the
+        // implementation returns a default result. Pin the safe behavior.
+        let mut ev = SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::User,
+            dnid_none(0),
+            tick(0),
+            EventData::None,
+        );
+        let result = propagate_event(&mut ev, &hier, &callbacks);
+        assert!(result.callbacks_to_invoke.is_empty());
+        assert!(!result.default_prevented);
+
+        // Target = a node id far outside the hierarchy: also a no-op, no panic.
+        let mut ev = SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::User,
+            dnid(0, 10_000),
+            tick(0),
+            EventData::None,
+        );
+        let result = propagate_event(&mut ev, &hier, &callbacks);
+        assert!(result.callbacks_to_invoke.is_empty());
+    }
+
+    #[test]
+    fn propagate_event_respects_a_pre_stopped_event() {
+        let hier = hierarchy_chain(3);
+        let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        for i in 0..3 {
+            callbacks.insert(
+                NodeId::new(i),
+                vec![EventFilter::Hover(HoverEventFilter::MouseOver)],
+            );
+        }
+        let base = SyntheticEvent::new(
+            EventType::MouseOver,
+            EventSource::User,
+            dnid(0, 2),
+            tick(0),
+            EventData::None,
+        );
+
+        // stopped => neither target nor bubble collect anything.
+        let mut stopped = base.clone();
+        stopped.stop_propagation();
+        let r = propagate_event(&mut stopped, &hier, &callbacks);
+        assert!(r.callbacks_to_invoke.is_empty(), "a stopped event collects nothing");
+
+        // stopped_immediate => likewise (and it implies `stopped`).
+        let mut immediate = base.clone();
+        immediate.stop_immediate_propagation();
+        let r = propagate_event(&mut immediate, &hier, &callbacks);
+        assert!(r.callbacks_to_invoke.is_empty());
+
+        // prevented_default is faithfully reported back out.
+        let mut prevented = base;
+        prevented.prevent_default();
+        let r = propagate_event(&mut prevented, &hier, &callbacks);
+        assert!(r.default_prevented);
+        assert_eq!(r.callbacks_to_invoke.len(), 3, "preventDefault must not stop dispatch");
+    }
+
+    #[test]
+    fn propagate_event_ignores_filters_that_do_not_match_the_event() {
+        let hier = hierarchy_chain(2);
+        let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        callbacks.insert(
+            NodeId::new(1),
+            vec![
+                EventFilter::Hover(HoverEventFilter::MouseUp), // wrong event type
+                EventFilter::Hover(HoverEventFilter::RightMouseDown), // wrong button
+                EventFilter::Hover(HoverEventFilter::LeftMouseDown), // match
+            ],
+        );
+        let mut ev = mouse_event(EventType::MouseDown, MouseButton::Left, LogicalPosition::zero());
+        ev.target = dnid(0, 1);
+        ev.current_target = ev.target;
+
+        let r = propagate_event(&mut ev, &hier, &callbacks);
+        assert_eq!(
+            r.callbacks_to_invoke,
+            vec![(
+                NodeId::new(1),
+                EventFilter::Hover(HoverEventFilter::LeftMouseDown)
+            )]
+        );
+        // The event is left in the state of the LAST walked phase: bubble, ending
+        // on the root ancestor. (`current_target` is only meaningful while a
+        // callback is running, so this pins the post-walk residue rather than
+        // asserting it is reset.)
+        assert_eq!(ev.phase, EventPhase::Bubble);
+        assert_eq!(ev.current_target, dnid(0, 0));
+        assert_eq!(ev.target, dnid(0, 1), "the target itself must never be rewritten");
+    }
+
+    #[test]
+    fn collect_matching_callbacks_collects_nothing_once_immediate_stop_is_set() {
+        let mut result = PropagationResult::default();
+        let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        callbacks.insert(
+            NodeId::ZERO,
+            vec![EventFilter::Hover(HoverEventFilter::MouseOver)],
+        );
+        let mut ev = SyntheticEvent::new(
+            EventType::MouseOver,
+            EventSource::User,
+            dnid(0, 0),
+            tick(0),
+            EventData::None,
+        );
+        ev.stop_immediate_propagation();
+        collect_matching_callbacks(&ev, NodeId::ZERO, EventPhase::Target, &callbacks, &mut result);
+        assert!(result.callbacks_to_invoke.is_empty());
+
+        // A node with no registered callbacks is simply skipped.
+        let mut fresh = PropagationResult::default();
+        let clean = SyntheticEvent::new(
+            EventType::MouseOver,
+            EventSource::User,
+            dnid(0, 0),
+            tick(0),
+            EventData::None,
+        );
+        collect_matching_callbacks(&clean, NodeId::new(9), EventPhase::Target, &callbacks, &mut fresh);
+        assert!(fresh.callbacks_to_invoke.is_empty());
+    }
+
+    #[test]
+    fn propagate_phase_over_an_empty_iterator_only_sets_the_phase() {
+        let mut result = PropagationResult::default();
+        let callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        let mut ev = SyntheticEvent::new(
+            EventType::MouseOver,
+            EventSource::User,
+            dnid(0, 0),
+            tick(0),
+            EventData::None,
+        );
+        propagate_phase(
+            &mut ev,
+            core::iter::empty(),
+            EventPhase::Bubble,
+            &callbacks,
+            &mut result,
+        );
+        assert_eq!(ev.phase, EventPhase::Bubble);
+        assert!(result.callbacks_to_invoke.is_empty());
+
+        // propagate_target_phase resets phase + current_target to the target.
+        propagate_target_phase(&mut ev, NodeId::ZERO, &callbacks, &mut result);
+        assert_eq!(ev.phase, EventPhase::Target);
+        assert_eq!(ev.current_target, ev.target);
+    }
+
+    // ================================================================== dedup
+
+    #[test]
+    fn deduplicate_synthetic_events_handles_empty_and_single() {
+        assert!(deduplicate_synthetic_events(Vec::new()).is_empty());
+        let one = vec![SyntheticEvent::new(
+            EventType::Scroll,
+            EventSource::User,
+            dnid(0, 0),
+            tick(1),
+            EventData::None,
+        )];
+        assert_eq!(deduplicate_synthetic_events(one).len(), 1);
+    }
+
+    #[test]
+    fn deduplicate_synthetic_events_keeps_the_latest_timestamp_per_target_and_type() {
+        let mk = |node: usize, ty: EventType, t: u64| {
+            SyntheticEvent::new(ty, EventSource::User, dnid(0, node), tick(t), EventData::None)
+        };
+        // Same (target, type), out-of-order timestamps -> keep the newest.
+        let events = vec![
+            mk(1, EventType::Scroll, 5),
+            mk(1, EventType::Scroll, 99),
+            mk(1, EventType::Scroll, 1),
+        ];
+        let out = deduplicate_synthetic_events(events);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].timestamp, tick(99), "the newest event must survive");
+
+        // Different node OR different type -> both survive.
+        let events = vec![
+            mk(1, EventType::Scroll, 1),
+            mk(2, EventType::Scroll, 1),
+            mk(1, EventType::MouseOver, 1),
+        ];
+        assert_eq!(deduplicate_synthetic_events(events).len(), 3);
+
+        // Different DOM with the same node index -> distinct targets.
+        let a = SyntheticEvent::new(EventType::Scroll, EventSource::User, dnid(0, 1), tick(0), EventData::None);
+        let b = SyntheticEvent::new(EventType::Scroll, EventSource::User, dnid(1, 1), tick(0), EventData::None);
+        assert_eq!(deduplicate_synthetic_events(vec![a, b]).len(), 2);
+    }
+
+    #[test]
+    fn deduplicate_synthetic_events_collapses_a_large_duplicate_burst() {
+        // 10k identical events (e.g. a scroll storm) must collapse to one, and
+        // the result must be the newest — no quadratic blowup, no overflow.
+        let events: Vec<SyntheticEvent> = (0..10_000u64)
+            .map(|t| {
+                SyntheticEvent::new(
+                    EventType::Scroll,
+                    EventSource::User,
+                    dnid(0, 0),
+                    tick(t),
+                    EventData::None,
+                )
+            })
+            .collect();
+        let out = deduplicate_synthetic_events(events);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].timestamp, tick(9_999));
+    }
+
+    #[test]
+    fn deduplicate_synthetic_events_preserves_unicode_payloads() {
+        // Deduplication keys off (target, event_type) only — the payload must
+        // survive untouched, including multi-byte / combining / RTL text.
+        let text = "🦀 グラフ é\u{0301} مرحبا \u{1F1E6}\u{1F1F9}".repeat(200);
+        let ev = SyntheticEvent::new(
+            EventType::Input,
+            EventSource::User,
+            dnid(0, 0),
+            tick(1),
+            EventData::TextInput(TextInputEventData {
+                inserted_text: text.clone(),
+                old_text: String::new(),
+            }),
+        );
+        let newer = SyntheticEvent::new(
+            EventType::Input,
+            EventSource::User,
+            dnid(0, 0),
+            tick(2),
+            EventData::TextInput(TextInputEventData {
+                inserted_text: text.clone(),
+                old_text: text.clone(),
+            }),
+        );
+        let out = deduplicate_synthetic_events(vec![ev, newer]);
+        assert_eq!(out.len(), 1);
+        match &out[0].data {
+            EventData::TextInput(d) => {
+                assert_eq!(d.inserted_text, text);
+                assert_eq!(d.old_text, text, "the newer event won");
+            }
+            _ => panic!("payload must be preserved"),
+        }
+    }
+
+    // ====================================================== hit-test extraction
+
+    #[test]
+    fn get_first_hovered_node_on_empty_input() {
+        assert!(get_first_hovered_node(None).is_none());
+        assert!(
+            get_first_hovered_node(Some(&empty_hit_test())).is_none(),
+            "a hit test with no hovered DOMs has no front-most node"
+        );
+        // A DOM entry that is present but has zero hit nodes is also `None`.
+        let ht = hit_test_with(0, &[]);
+        assert!(get_first_hovered_node(Some(&ht)).is_none());
+    }
+
+    #[test]
+    fn get_first_hovered_node_picks_minimum_depth_and_breaks_ties_deterministically() {
+        // Front-most (depth 0) has the HIGHER node id — a naive `.next()` on the
+        // BTreeMap would wrongly return node 2.
+        let ht = hit_test_with(0, &[(2, 5), (5, 0), (9, 3)]);
+        let got = get_first_hovered_node(Some(&ht)).unwrap();
+        assert_eq!(got.node.into_crate_internal(), Some(NodeId::new(5)));
+
+        // Equal depths: the first in (DomId, NodeId) iteration order wins, and the
+        // choice must be stable across calls.
+        let ht = hit_test_with(0, &[(7, 2), (3, 2), (11, 2)]);
+        let a = get_first_hovered_node(Some(&ht)).unwrap();
+        let b = get_first_hovered_node(Some(&ht)).unwrap();
+        assert_eq!(a, b, "tie-breaking must be deterministic");
+        assert_eq!(a.node.into_crate_internal(), Some(NodeId::new(3)));
+
+        // u32::MAX depth is still a valid (and only) candidate.
+        let ht = hit_test_with(0, &[(1, u32::MAX)]);
+        let got = get_first_hovered_node(Some(&ht)).unwrap();
+        assert_eq!(got.node.into_crate_internal(), Some(NodeId::new(1)));
+        assert_eq!(got.dom, DomId { inner: 0 });
+    }
+
+    #[test]
+    fn get_mouse_position_with_fallback_prefers_the_event_payload() {
+        let mouse = MouseState {
+            cursor_position: CursorPosition::InWindow(LogicalPosition::new(9.0, 9.0)),
+            ..MouseState::default()
+        };
+        let ev = mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            LogicalPosition::new(1.0, 2.0),
+        );
+        assert_eq!(
+            get_mouse_position_with_fallback(&ev, &mouse),
+            LogicalPosition::new(1.0, 2.0),
+            "the event's own payload wins over the live cursor"
+        );
+
+        // Non-mouse payload -> fall back to the live cursor...
+        let keyless = SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::Synthetic,
+            dnid(0, 0),
+            tick(0),
+            EventData::None,
+        );
+        assert_eq!(
+            get_mouse_position_with_fallback(&keyless, &mouse),
+            LogicalPosition::new(9.0, 9.0)
+        );
+
+        // ...and if the cursor is Uninitialized or OutOfWindow, fall back to zero
+        // (`CursorPosition::get_position` only yields InWindow positions).
+        for cursor in [
+            CursorPosition::Uninitialized,
+            CursorPosition::OutOfWindow(LogicalPosition::new(-5.0, -5.0)),
+        ] {
+            let ms = MouseState { cursor_position: cursor, ..MouseState::default() };
+            assert_eq!(
+                get_mouse_position_with_fallback(&keyless, &ms),
+                LogicalPosition::zero()
+            );
+        }
+    }
+
+    #[test]
+    fn get_mouse_position_with_fallback_passes_through_extreme_coordinates() {
+        let mouse = MouseState::default();
+        for pos in [
+            LogicalPosition::new(f32::NAN, f32::NAN),
+            LogicalPosition::new(f32::INFINITY, f32::NEG_INFINITY),
+            LogicalPosition::new(f32::MAX, f32::MIN),
+            LogicalPosition::new(-0.0, 0.0),
+        ] {
+            let ev = mouse_event(EventType::MouseDown, MouseButton::Left, pos);
+            let got = get_mouse_position_with_fallback(&ev, &mouse);
+            // Compare bitwise so NaN == NaN holds: the value must be forwarded
+            // verbatim, never sanitized or panicked on.
+            assert_eq!(got.x.to_bits(), pos.x.to_bits());
+            assert_eq!(got.y.to_bits(), pos.y.to_bits());
+        }
+    }
+
+    // ============================================= input-interpreter handlers
+
+    #[test]
+    fn handle_mouse_down_treats_zero_click_count_as_one() {
+        let ht = hit_test_with(0, &[(0, 0)]);
+        let mouse = MouseState::default();
+        let kb = KeyboardState::default();
+        let ev = mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            LogicalPosition::new(4.0, 5.0),
+        );
+
+        // click_count 0 is normalised to 1 -> a plain text-selection click.
+        let action = handle_mouse_down(&ev, Some(&ht), 0, &mouse, &kb)
+            .expect("click_count 0 must be treated as a single click");
+        match action {
+            InternalEventAction::AddAndPass(SystemChange::TextSelectionClick { position, .. }) => {
+                assert_eq!(position, LogicalPosition::new(4.0, 5.0));
+            }
+            _ => panic!("expected a passed-through TextSelectionClick"),
+        }
+    }
+
+    #[test]
+    fn handle_mouse_down_saturates_above_a_triple_click() {
+        let ht = hit_test_with(0, &[(0, 0)]);
+        let mouse = MouseState::default();
+        let kb = KeyboardState::default();
+        let ev = mouse_event(EventType::MouseDown, MouseButton::Left, LogicalPosition::zero());
+
+        // 1..=3 are real clicks.
+        for count in 1u8..=3 {
+            assert!(
+                handle_mouse_down(&ev, Some(&ht), count, &mouse, &kb).is_some(),
+                "click_count {count} must produce a selection click"
+            );
+        }
+        // 4 and above (up to the u8 boundary) are dropped — no wraparound, no panic.
+        for count in [4u8, 5, 100, u8::MAX] {
+            assert!(
+                handle_mouse_down(&ev, Some(&ht), count, &mouse, &kb).is_none(),
+                "click_count {count} must be ignored"
+            );
+        }
+    }
+
+    #[test]
+    fn handle_mouse_down_without_a_hit_test_is_a_no_op() {
+        let mouse = MouseState::default();
+        let kb = KeyboardState::default();
+        let ev = mouse_event(EventType::MouseDown, MouseButton::Left, LogicalPosition::zero());
+        assert!(handle_mouse_down(&ev, None, 1, &mouse, &kb).is_none());
+        assert!(handle_mouse_down(&ev, Some(&empty_hit_test()), 1, &mouse, &kb).is_none());
+    }
+
+    #[test]
+    fn handle_mouse_down_with_primary_held_adds_a_cursor_only_on_a_single_click() {
+        let ht = hit_test_with(0, &[(0, 0)]);
+        let mouse = MouseState::default();
+        let kb = keyboard_with_primary_held();
+        let ev = mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            LogicalPosition::new(7.0, 8.0),
+        );
+
+        // primary + single click -> multi-cursor add.
+        match handle_mouse_down(&ev, Some(&ht), 1, &mouse, &kb) {
+            Some(InternalEventAction::AddAndPass(SystemChange::AddCursorAtClick { position })) => {
+                assert_eq!(position, LogicalPosition::new(7.0, 8.0));
+            }
+            _ => panic!("primary+click must add a cursor at the click position"),
+        }
+        // primary + double click -> NOT a cursor add (falls back to selection).
+        match handle_mouse_down(&ev, Some(&ht), 2, &mouse, &kb) {
+            Some(InternalEventAction::AddAndPass(SystemChange::TextSelectionClick { .. })) => {}
+            _ => panic!("primary+double-click must not add a cursor"),
+        }
+    }
+
+    #[test]
+    fn handle_mouse_over_requires_a_held_button_and_a_drag_origin() {
+        let ht = hit_test_with(0, &[(0, 0)]);
+        let start = LogicalPosition::new(1.0, 1.0);
+        let ev = mouse_event(
+            EventType::MouseOver,
+            MouseButton::Left,
+            LogicalPosition::new(50.0, 60.0),
+        );
+
+        // Button up -> never a drag, even with a drag origin.
+        let up = MouseState::default();
+        assert!(handle_mouse_over(&ev, Some(&ht), &up, Some(start)).is_none());
+
+        // Button down but no drag origin -> not a drag either.
+        let down = MouseState { left_down: true, ..MouseState::default() };
+        assert!(handle_mouse_over(&ev, Some(&ht), &down, None).is_none());
+
+        // Button down + origin but nothing under the cursor -> no drag.
+        assert!(handle_mouse_over(&ev, None, &down, Some(start)).is_none());
+        assert!(handle_mouse_over(&ev, Some(&empty_hit_test()), &down, Some(start)).is_none());
+
+        // All three present -> a drag selection from origin to the current point.
+        match handle_mouse_over(&ev, Some(&ht), &down, Some(start)) {
+            Some(InternalEventAction::AddAndPass(SystemChange::TextSelectionDrag {
+                start_position,
+                current_position,
+            })) => {
+                assert_eq!(start_position, start);
+                assert_eq!(current_position, LogicalPosition::new(50.0, 60.0));
+            }
+            _ => panic!("expected a TextSelectionDrag"),
+        }
+    }
+
+    #[test]
+    fn handle_key_down_needs_a_focused_node_and_a_keyboard_payload() {
+        let kb = KeyboardState::default();
+        let ev = key_event(VirtualKeyCode::Back as u32, KeyModifiers::default());
+        assert!(
+            handle_key_down(&ev, &kb, None).is_none(),
+            "no focus => no keyboard system change"
+        );
+
+        // Focused, but the event carries no keyboard payload.
+        let payloadless = SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            dnid(0, 1),
+            tick(0),
+            EventData::None,
+        );
+        assert!(handle_key_down(&payloadless, &kb, Some(dnid(0, 1))).is_none());
+    }
+
+    #[test]
+    fn handle_key_down_rejects_undecodable_key_codes() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        // u32::MAX / out-of-table codes must fall out via `from_u32` -> None,
+        // never index a table or panic.
+        for code in [u32::MAX, u32::MAX - 1, 100_000, 9_999] {
+            let ev = key_event(code, KeyModifiers::default());
+            assert!(
+                handle_key_down(&ev, &kb, target).is_none(),
+                "key_code {code} must decode to None"
+            );
+        }
+    }
+
+    #[test]
+    fn handle_key_down_reads_modifiers_from_the_event_not_the_live_keyboard() {
+        // The live KeyboardState is deliberately EMPTY here: the handler must key
+        // off the event payload's modifiers (the live state may have advanced
+        // between queueing and dispatch).
+        let kb = KeyboardState::default();
+        let target = dnid(0, 1);
+        let ev = key_event(VirtualKeyCode::C as u32, primary_modifiers());
+        match handle_key_down(&ev, &kb, Some(target)) {
+            Some(InternalEventAction::AddAndSkip(SystemChange::CopyToClipboard)) => {}
+            _ => panic!("primary+C in the payload must copy, regardless of the live state"),
+        }
+
+        // ...and conversely, a live primary key must NOT rewrite an unmodified event.
+        let live = keyboard_with_primary_held();
+        let plain = key_event(VirtualKeyCode::C as u32, KeyModifiers::default());
+        assert!(
+            handle_key_down(&plain, &live, Some(target)).is_none(),
+            "an unmodified C is plain text input, not a copy"
+        );
+    }
+
+    #[test]
+    fn handle_key_down_maps_backspace_and_delete_to_selection_ops() {
+        let kb = KeyboardState::default();
+        let target = dnid(0, 1);
+
+        let expect_op = |ev: &SyntheticEvent| -> SelectionOp {
+            match handle_key_down(ev, &kb, Some(target)) {
+                Some(InternalEventAction::AddAndSkip(SystemChange::ApplySelectionOp {
+                    target: t,
+                    op,
+                })) => {
+                    assert_eq!(t, target);
+                    op
+                }
+                _ => panic!("expected an ApplySelectionOp"),
+            }
+        };
+
+        let back = expect_op(&key_event(VirtualKeyCode::Back as u32, KeyModifiers::default()));
+        assert_eq!(back.direction, SelectionDirection::Backward);
+        assert_eq!(back.step, SelectionStep::Character);
+        assert_eq!(back.mode, SelectionMode::Delete);
+
+        let del = expect_op(&key_event(VirtualKeyCode::Delete as u32, KeyModifiers::default()));
+        assert_eq!(del.direction, SelectionDirection::Forward);
+        assert_eq!(del.step, SelectionStep::Character);
+        assert_eq!(del.mode, SelectionMode::Delete);
+
+        // Shift+arrow extends instead of moving.
+        let shift_right = expect_op(&key_event(
+            VirtualKeyCode::Right as u32,
+            KeyModifiers::new().with_shift(),
+        ));
+        assert_eq!(shift_right.mode, SelectionMode::Extend);
+        assert_eq!(shift_right.step, SelectionStep::Character);
+
+        // The word modifier upgrades Backspace to a word delete.
+        let word_mod = if cfg!(target_os = "macos") {
+            KeyModifiers::new().with_alt()
+        } else {
+            KeyModifiers::new().with_ctrl()
+        };
+        let word_back = expect_op(&key_event(VirtualKeyCode::Back as u32, word_mod));
+        assert_eq!(word_back.step, SelectionStep::Word);
+        assert_eq!(word_back.mode, SelectionMode::Delete);
+    }
+
+    #[test]
+    fn handle_key_down_ignores_keys_it_does_not_interpret() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        // Ordinary text keys must pass through to the user callbacks untouched.
+        for vk in [VirtualKeyCode::B, VirtualKeyCode::Q, VirtualKeyCode::Space, VirtualKeyCode::F5] {
+            let ev = key_event(vk as u32, KeyModifiers::default());
+            assert!(
+                handle_key_down(&ev, &kb, target).is_none(),
+                "{vk:?} must not generate a system change"
+            );
+        }
+    }
+
+    // ================================================ default_input_interpreter
+
+    #[test]
+    fn default_input_interpreter_with_no_events_produces_nothing() {
+        let kb = KeyboardState::default();
+        let mouse = MouseState::default();
+        let info = InputInterpreterInfo {
+            events: &[],
+            hit_test: None,
+            keyboard_state: &kb,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: None,
+                click_count: 0,
+                drag_start_position: None,
+                has_selection: false,
+            },
+        };
+        let r = default_input_interpreter(&info);
+        assert!(r.system_changes.is_empty());
+        assert!(r.user_events.is_empty());
+    }
+
+    #[test]
+    fn default_input_interpreter_skips_shortcut_events_but_passes_clicks_through() {
+        let kb = KeyboardState::default();
+        let mouse = MouseState::default();
+        let ht = hit_test_with(0, &[(0, 0)]);
+        let target = dnid(0, 1);
+
+        // A primary+C shortcut is consumed (AddAndSkip) — the user callback must
+        // NOT also see the raw key event...
+        let copy = key_event(VirtualKeyCode::C as u32, primary_modifiers());
+        // ...while a MouseDown is consumed AND forwarded (AddAndPass).
+        let click = mouse_event(EventType::MouseDown, MouseButton::Left, LogicalPosition::zero());
+        // ...and an unhandled event type is forwarded untouched.
+        let scroll = SyntheticEvent::new(
+            EventType::Scroll,
+            EventSource::User,
+            target,
+            tick(0),
+            EventData::None,
+        );
+
+        let events = vec![copy, click, scroll];
+        let info = InputInterpreterInfo {
+            events: &events,
+            hit_test: Some(&ht),
+            keyboard_state: &kb,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: Some(target),
+                click_count: 1,
+                drag_start_position: None,
+                has_selection: false,
+            },
+        };
+        let r = default_input_interpreter(&info);
+
+        assert_eq!(r.system_changes.len(), 2, "copy + selection click");
+        assert!(r.system_changes.contains(&SystemChange::CopyToClipboard));
+        assert!(r
+            .system_changes
+            .iter()
+            .any(|c| matches!(c, SystemChange::TextSelectionClick { .. })));
+
+        assert_eq!(r.user_events.len(), 2, "the consumed KeyDown must not be forwarded");
+        assert!(!r.user_events.iter().any(|e| e.event_type == EventType::KeyDown));
+        assert!(r.user_events.iter().any(|e| e.event_type == EventType::MouseDown));
+        assert!(r.user_events.iter().any(|e| e.event_type == EventType::Scroll));
+    }
+
+    #[test]
+    fn default_input_interpreter_extern_survives_a_null_info_pointer() {
+        // The C-ABI trampoline must null-check rather than deref garbage.
+        let user_data = crate::refany::RefAny::new(0u8);
+        let r = default_input_interpreter_extern(user_data, core::ptr::null());
+        assert!(r.system_changes.is_empty());
+        assert!(r.user_events.is_empty());
+    }
+
+    // ==================================================== post-callback filter
+
+    #[test]
+    fn post_filter_with_prevent_default_only_lets_focus_changes_through() {
+        let old = Some(dnid(0, 1));
+        let new = Some(dnid(0, 2));
+        let pre = vec![
+            SystemChange::TextSelectionClick {
+                position: LogicalPosition::zero(),
+                timestamp: tick(0),
+            },
+            SystemChange::PasteFromClipboard,
+        ];
+
+        // prevent_default + no focus change -> absolutely nothing (not even the
+        // usual ApplyPendingTextInput).
+        let out = default_post_filter(true, &pre, old, old);
+        assert!(out.is_empty(), "preventDefault must suppress every side effect");
+
+        // prevent_default + a focus change -> ONLY the focus change.
+        let out = default_post_filter(true, &pre, old, new);
+        assert_eq!(out, vec![SystemChange::SetFocus { new_focus: new, old_focus: old }]);
+    }
+
+    #[test]
+    fn post_filter_maps_pre_changes_to_their_follow_ups() {
+        // No pre-changes, no focus change -> just the text-input flush.
+        let out = default_post_filter(false, &[], None, None);
+        assert_eq!(out, vec![SystemChange::ApplyPendingTextInput]);
+
+        // Cursor-moving ops schedule a scroll-into-view.
+        for change in [
+            SystemChange::TextSelectionClick {
+                position: LogicalPosition::zero(),
+                timestamp: tick(0),
+            },
+            SystemChange::ApplySelectionOp {
+                target: dnid(0, 1),
+                op: SelectionOp::new(
+                    SelectionDirection::Forward,
+                    SelectionStep::Character,
+                    SelectionMode::Move,
+                ),
+            },
+            SystemChange::AddCursorAtClick { position: LogicalPosition::zero() },
+            SystemChange::SelectNextOccurrence { target: dnid(0, 1) },
+            SystemChange::CutToClipboard { target: dnid(0, 1) },
+            SystemChange::PasteFromClipboard,
+            SystemChange::UndoTextEdit { target: dnid(0, 1) },
+            SystemChange::RedoTextEdit { target: dnid(0, 1) },
+            SystemChange::SelectAllText,
+        ] {
+            let out = default_post_filter(false, core::slice::from_ref(&change), None, None);
+            assert!(
+                out.contains(&SystemChange::ScrollSelectionIntoView),
+                "{change:?} must schedule a scroll-into-view"
+            );
+            assert_eq!(out[0], SystemChange::ApplyPendingTextInput);
+        }
+
+        // A drag starts the auto-scroll timer instead.
+        let drag = SystemChange::TextSelectionDrag {
+            start_position: LogicalPosition::zero(),
+            current_position: LogicalPosition::new(1.0, 1.0),
+        };
+        let out = default_post_filter(false, core::slice::from_ref(&drag), None, None);
+        assert!(out.contains(&SystemChange::StartAutoScrollTimer));
+        assert!(!out.contains(&SystemChange::ScrollSelectionIntoView));
+
+        // Changes with no follow-up add nothing beyond the text-input flush.
+        let out = default_post_filter(false, &[SystemChange::CopyToClipboard], None, None);
+        assert_eq!(out, vec![SystemChange::ApplyPendingTextInput]);
+    }
+
+    #[test]
+    fn post_filter_emits_set_focus_only_when_focus_actually_moved() {
+        let a = Some(dnid(0, 1));
+        let b = Some(dnid(0, 2));
+        // Unchanged (both Some, both None) -> no SetFocus.
+        for (old, new) in [(a, a), (None, None)] {
+            let out = default_post_filter(false, &[], old, new);
+            assert!(!out.iter().any(|c| matches!(c, SystemChange::SetFocus { .. })));
+        }
+        // Changed (including to/from None) -> exactly one SetFocus, and it is last.
+        for (old, new) in [(a, b), (None, a), (a, None)] {
+            let out = default_post_filter(false, &[], old, new);
+            assert_eq!(
+                out.last(),
+                Some(&SystemChange::SetFocus { new_focus: new, old_focus: old })
+            );
+            assert_eq!(
+                out.iter()
+                    .filter(|c| matches!(c, SystemChange::SetFocus { .. }))
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn post_filter_handles_a_large_pre_change_list_without_blowing_up() {
+        // 5000 cursor ops -> 1 flush + 5000 scroll-into-views. Bounded, no overflow.
+        let pre: Vec<SystemChange> = (0..5000)
+            .map(|_| SystemChange::AddCursorAtClick { position: LogicalPosition::zero() })
+            .collect();
+        let out = default_post_filter(false, &pre, None, None);
+        assert_eq!(out.len(), 5001);
+        assert_eq!(out[0], SystemChange::ApplyPendingTextInput);
+        assert!(out[1..]
+            .iter()
+            .all(|c| *c == SystemChange::ScrollSelectionIntoView));
+    }
+
+    #[test]
+    fn default_post_filter_delegates_to_post_callback_filter_system_changes() {
+        let pre = vec![
+            SystemChange::TextSelectionDrag {
+                start_position: LogicalPosition::zero(),
+                current_position: LogicalPosition::new(2.0, 2.0),
+            },
+            SystemChange::SelectAllText,
+        ];
+        for prevent in [false, true] {
+            for (old, new) in [(None, None), (Some(dnid(0, 1)), Some(dnid(0, 2)))] {
+                assert_eq!(
+                    default_post_filter(prevent, &pre, old, new),
+                    post_callback_filter_system_changes(prevent, &pre, old, new),
+                    "the two entry points must stay in lock-step"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_post_filter_extern_decodes_the_none_focus_sentinel() {
+        // old_focus = the `None` sentinel, new_focus = a real node => a focus change.
+        let pre: Vec<SystemChange> = Vec::new();
+        let slice = SystemChangeVecSlice {
+            ptr: pre.as_ptr(),
+            len: pre.len(),
+        };
+        let out = default_post_filter_extern(
+            crate::refany::RefAny::new(0u8),
+            false,
+            slice,
+            dnid_none(0),
+            dnid(0, 4),
+        );
+        let changes = out.as_slice();
+        assert_eq!(changes.first(), Some(&SystemChange::ApplyPendingTextInput));
+        assert_eq!(
+            changes.last(),
+            Some(&SystemChange::SetFocus {
+                new_focus: Some(dnid(0, 4)),
+                old_focus: None,
+            }),
+            "a `NONE` node id must decode to `None`, not to node 0"
+        );
+
+        // An empty C-slice must be accepted (ptr may be dangling-but-aligned).
+        let out = default_post_filter_extern(
+            crate::refany::RefAny::new(0u8),
+            true,
+            SystemChangeVecSlice::empty(),
+            dnid_none(0),
+            dnid_none(0),
+        );
+        assert!(out.as_slice().is_empty());
+    }
+}
