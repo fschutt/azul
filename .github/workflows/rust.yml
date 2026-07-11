@@ -469,12 +469,6 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
-      - name: Rust build cache
-        if: steps.cache-valid.outputs.skip != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: cross-${{ matrix.target }}
-
       - name: Install cross (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -689,11 +683,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-      - name: Rust build cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: miri
-
       - name: Install Miri
         run: |
           rustup toolchain install nightly --component miri
@@ -811,11 +800,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-      - name: Rust build cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: engine-${{ matrix.os }}
-
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang lldb libv4l-dev
@@ -1039,11 +1023,6 @@ jobs:
         with:
           toolchain: 1.88.0
 
-      - name: Run Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: engine-ubuntu
-
       - name: Install toolchains (clang/c++/python + headless GL deps)
         run: |
           sudo apt-get update
@@ -1153,11 +1132,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-        if: steps.cache-valid.outputs.skip != 'true'
-        with:
-          shared-key: engine-${{ matrix.os }}
-
       - name: Install clang (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
@@ -1686,10 +1660,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: engine-${{ matrix.os }}
-
       # Mirror build_binaries' Linux dependency install (clang + GL/X11) plus
       # libv4l-dev for the camera/video demos. macOS/Windows pull their platform
       # frameworks (AVFoundation, Media Foundation) from the SDK at build time.
@@ -1866,12 +1836,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-
-      - name: Run Swatinem/rust-cache@v2
-        if: steps.cache-valid.outputs.skip != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: engine-${{ matrix.os }}
 
       - name: Install dependencies (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
@@ -2294,10 +2258,6 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: Swatinem/rust-cache@v2
-        if: steps.cache-valid.outputs.skip != 'true'
-        with:
-          key: mobile-${{ matrix.label }}
       - name: Cache codegen output
         if: steps.cache-valid.outputs.skip != 'true'
         id: codegen-cache
@@ -2440,9 +2400,6 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: mobile-apps-ios
       - name: Cache codegen output
         id: codegen-cache
         uses: actions/cache@v5
@@ -2527,9 +2484,6 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: aarch64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: mobile-apps-android
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -4089,10 +4043,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-      - name: Rust build cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: sanitizers
       - name: Install clang + headless deps
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
       - name: Cache codegen output
@@ -4248,11 +4198,6 @@ jobs:
           path: target/azul-documentation.pdf
           key: docs-pdf-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}-${{ env.CACHE_BUST }}
 
-      - name: Rust build cache
-        if: steps.pdf-cache.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: docs
       # The CDP driver (scripts/docs_pdf_cdp.mjs) uses Node's built-in global
       # WebSocket, which is only available on Node 22+ (runners default lower).
       - name: Install Node 24
@@ -4509,9 +4454,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-
-      - name: Run Swatinem/rust-cache@v2
-        uses: Swatinem/rust-cache@v2
 
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
