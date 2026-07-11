@@ -1980,26 +1980,14 @@ if [ "$SINGLE" = 1 ]; then
   exit 0
 fi
 
-# Parallel driver: each lang runs in a re-exec'd `--single` child under a
-# wall-clock timeout (default 240s, override E2E_LANG_TIMEOUT), at most
-# E2E_JOBS (default 4) at a time. This both bounds hangs and cuts wall time vs.
-# the old sequential loop. Results are collected from the .status sidecars.
+# Driver: each lang runs in a re-exec'd `--single` child under a per-language
+# wall-clock timeout (default 240s, override E2E_LANG_TIMEOUT).
+# The matrix runs strictly SEQUENTIALLY — one language at a time (see the
+# dispatch loop below for why) — so this per-language timeout is the only
+# hang-bound needed. Results are collected from the .status sidecars.
 LANG_TIMEOUT="${E2E_LANG_TIMEOUT:-240}"
-# Default concurrency = CPU count (GitHub free runners are 2-core Linux/Windows,
-# 3-core macOS — so this stays gentle). The TIMEOUT, not the parallelism, is the
-# real hang-fix; most langs SKIP instantly and only a handful actually compile,
-# so even 2-wide meaningfully cuts the old fully-sequential 39 min. Override
-# with E2E_JOBS (E2E_JOBS=1 = sequential, for the most constrained runners).
-_ncpu="$( (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2) )"
-MAXJOBS="${E2E_JOBS:-$_ncpu}"
-[ "$MAXJOBS" -ge 1 ] 2>/dev/null || MAXJOBS=1
 
-# `wait -n` (reap one job → rolling parallelism) needs bash 4.3+. macOS ships
-# bash 3.2; there we fall back to fixed-size batches (launch MAXJOBS, wait all).
-HAVE_WAIT_N=0
-( sleep 0 & wait -n ) >/dev/null 2>&1 && HAVE_WAIT_N=1
-
-run_one() {  # backgrounded per-lang worker: re-exec --single under a timeout.
+run_one() {  # per-lang worker: re-exec --single under a timeout.
   local lang="$1"
   # Per-lang timeout override. Racket compiles the ~47k-line generated azul.rkt
   # from source on every run (there is no persisted bytecode cache across a CI
@@ -2045,20 +2033,22 @@ run_one() {  # backgrounded per-lang worker: re-exec --single under a timeout.
   fi
 }
 
-running=0
+# Run STRICTLY SEQUENTIALLY: one language at a time, in requested order.
+# Rationale (do NOT reintroduce parallelism here):
+#   * Disk: each language installs its own toolchain via lang_deps_install and
+#     removes it via lang_deps_cleanup (both run inside the `--single` child that
+#     run_one execs). Serially, at most ONE toolchain is on disk at a time, so
+#     the runner's ~14 GB disk never overflows — installing all 27+ up front did.
+#   * CPU/IO: running several toolchain installs concurrently with the heavy
+#     compiles (haskell/GHC, kotlin, racket) starved those builds and blew their
+#     per-language timeout (reported as a bogus "timed out (hung)"). One-at-a-time
+#     gives each compile the whole runner, so it fits its budget.
+# run_one already wraps install -> run -> cleanup for a single language under the
+# per-language wall-clock timeout, so calling it serially is all that's needed.
 for lang in "${NORM_LANGS[@]}"; do
   echo ">>> [$lang] running..." >&2
-  run_one "$lang" &
-  running=$((running + 1))
-  if [ "$running" -ge "$MAXJOBS" ]; then
-    if [ "$HAVE_WAIT_N" = 1 ]; then
-      wait -n; running=$((running - 1))
-    else
-      wait; running=0          # bash 3.2: drain the whole batch
-    fi
-  fi
+  run_one "$lang"
 done
-wait
 
 # Collect results from the .status sidecars in requested-lang order.
 for lang in "${NORM_LANGS[@]}"; do
