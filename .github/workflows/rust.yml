@@ -533,23 +533,32 @@ jobs:
 
   # rust9x: Build azul for Windows 98/XP using the rust9x fork (i686).
   #
-  # The rust9x COMPILER is built+cached separately by the
-  # `rust9x-compiler.yml` workflow (~90 min, run manually/weekly). This job
-  # only RESTORES that cache (read-only) and builds azul against it in minutes,
-  # so it can run on every push. If the cache is empty (never primed, or
-  # evicted), the job warns and skips the azul build instead of doing the
-  # expensive compiler build inline. BLOCKING when the cache is present (see
-  # `continue-on-error: false` below); the cache-empty path gates out the build
-  # steps, so an un-primed/evicted cache can't false-fail the run.
+  # The rust9x COMPILER (stage1, ~90 min to build) is stored as an asset on the
+  # permanent `rust9x-toolchain` GitHub *Release* — NOT in the Actions cache.
+  # The cache was ephemeral (7-day unused expiry + LRU eviction at the 10 GB
+  # repo cap), so the restore-only lookup always missed and this job skipped its
+  # build forever. A release asset never expires.
+  #
+  # Flow: download the toolchain asset → if it is missing, BUILD it inline and
+  # upload it to the release (so the next run is fast) → link it → build azul.
+  # The job never silently skips.
   build_rust9x:
     name: Build rust9x (Win98/XP experimental)
-    timeout-minutes: 90
+    # Long enough to absorb a cold inline compiler build (LLVM from source).
+    # Warm runs (asset present) finish in minutes.
+    timeout-minutes: 360
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: windows-2022
-    # BLOCKING: when the compiler cache is present the Win98/XP build must
-    # succeed. The cache-empty path skips the build (the build steps are gated
-    # on the cache being present), so an un-primed cache can't false-fail the run.
+    # BLOCKING: the Win98/XP build must succeed.
     continue-on-error: false
+    permissions:
+      # Needed to create/update the `rust9x-toolchain` release and upload the
+      # toolchain asset when it is missing.
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUST9X_TAG: rust9x-toolchain
+      RUST9X_ASSET: rust9x-stage1-x86_64-pc-windows-msvc.tar.gz
     steps:
       - name: Checkout azul
         uses: actions/checkout@v5
@@ -564,42 +573,87 @@ jobs:
       - name: Clone rust9x source (for std + toolchain link)
         shell: bash
         run: |
-          # Source only — the compiler binary comes from the cache below. The
-          # checkout is needed to link the toolchain and (if used) build-std.
+          # FULL clone (no --depth): if the toolchain asset is missing we build
+          # the compiler here, and rust's bootstrap (x.py) reads git history
+          # (HEAD^1, merge-base) — a shallow clone makes it panic.
           # GIT_TERMINAL_PROMPT=0 fails fast on a bad URL instead of hanging.
-          GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch rust9x https://github.com/rust9x/rust.git rust9x
+          GIT_TERMINAL_PROMPT=0 git clone --branch rust9x https://github.com/rust9x/rust.git rust9x
 
-      - name: Restore cached rust9x compiler (stage1)
-        id: rust9x_cache
-        uses: actions/cache/restore@v5
-        with:
-          # Must match rust9x-compiler.yml's cache path + key exactly.
-          path: rust9x/build/x86_64-pc-windows-msvc/stage1
-          key: rust9x-stage1-${{ hashFiles('rust9x/src/version') }}
-          restore-keys: rust9x-stage1-
-
-      - name: Handle empty compiler cache (fail on deploy, skip otherwise)
-        if: steps.rust9x_cache.outputs.cache-matched-key == ''
+      - name: Download rust9x toolchain from Releases
+        id: rust9x_asset
         shell: bash
         run: |
-          if [ "${{ github.event.inputs.run_mode }}" = "deploy" ]; then
-            echo "::error::rust9x compiler cache is empty on a deploy — the release would omit the Win98/XP binary. Run the 'rust9x compiler (cache primer)' workflow, then re-deploy."
-            exit 1
+          # Permanent store: an asset on the `rust9x-toolchain` release. Absent
+          # => build it below. `|| true` so a missing tag/asset is not fatal.
+          mkdir -p dist
+          if gh release download "$RUST9X_TAG" \
+               --repo "$GITHUB_REPOSITORY" \
+               --pattern "$RUST9X_ASSET" \
+               --dir dist 2>/dev/null && [ -f "dist/$RUST9X_ASSET" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "rust9x toolchain asset downloaded from release $RUST9X_TAG"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::rust9x toolchain asset not found on release '$RUST9X_TAG' — building it inline (~90 min) and publishing it."
           fi
-          echo "::warning::rust9x compiler cache is empty — run the 'rust9x compiler (cache primer)' workflow to enable the Win98/XP build. Skipping for this push."
+
+      - name: Install Python (for x.py)
+        if: steps.rust9x_asset.outputs.found != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ninja (for the LLVM source build)
+        if: steps.rust9x_asset.outputs.found != 'true'
+        run: choco install ninja -y
+
+      - name: Build rust9x stage1 (asset missing)
+        if: steps.rust9x_asset.outputs.found != 'true'
+        shell: bash
+        working-directory: rust9x
+        timeout-minutes: 330
+        run: |
+          cp bootstrap.rust9x.toml bootstrap.toml 2>/dev/null || true
+          # download-ci-llvm=false: rust9x is a fork, so the prebuilt CI LLVM
+          # artifacts for its commit 404 and bootstrap panics. Build LLVM from
+          # source instead (slow — hence the long timeout).
+          python x.py build --stage 1 --set llvm.download-ci-llvm=false
+          test -f build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe
+
+      - name: Publish rust9x toolchain to Releases
+        if: steps.rust9x_asset.outputs.found != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf "$RUST9X_ASSET" -C rust9x/build/x86_64-pc-windows-msvc stage1
+          # Create the release once; thereafter just clobber the asset.
+          gh release view "$RUST9X_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$RUST9X_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "rust9x toolchain (stage1)" \
+              --notes "Prebuilt rust9x stage1 compiler (x86_64-pc-windows-msvc host, i686/i586-rust9x-windows-msvc targets), consumed by the build_rust9x CI job. Stored here rather than in the Actions cache, which expires and is LRU-evicted." \
+              --latest=false
+          gh release upload "$RUST9X_TAG" "$RUST9X_ASSET" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Unpack rust9x toolchain (asset present)
+        if: steps.rust9x_asset.outputs.found == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rust9x/build/x86_64-pc-windows-msvc
+          tar -xzf "dist/$RUST9X_ASSET" -C rust9x/build/x86_64-pc-windows-msvc
+          test -f rust9x/build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe
 
       - name: Link rust9x toolchain
-        if: steps.rust9x_cache.outputs.cache-matched-key != ''
         shell: bash
         run: rustup toolchain link rust9x "$(pwd)/rust9x/build/x86_64-pc-windows-msvc/stage1"
 
       - name: Generate DLL API bindings
-        if: steps.rust9x_cache.outputs.cache-matched-key != ''
         working-directory: azul
         run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul with rust9x (i686, WinXP+)
-        if: steps.rust9x_cache.outputs.cache-matched-key != ''
         working-directory: azul
         shell: bash
         run: |
@@ -614,7 +668,6 @@ jobs:
             -p azul-dll --features="build-dll"
 
       - name: Upload rust9x artifact
-        if: steps.rust9x_cache.outputs.cache-matched-key != ''
         uses: actions/upload-artifact@v7
         with:
           name: azul-windows-i686-rust9x

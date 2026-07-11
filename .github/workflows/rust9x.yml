@@ -1,34 +1,40 @@
-# Primes the GitHub Actions cache with a prebuilt rust9x compiler (stage1).
+# Builds the rust9x compiler (stage1) and publishes it as an asset on the
+# permanent `rust9x-toolchain` GitHub Release.
 #
 # rust9x (https://github.com/rust9x/rust) is a Rust fork that targets legacy
 # Windows (95/98/ME/NT/2000/XP/Vista) via i586/i686-rust9x-windows-msvc. There
 # is NO prebuilt toolchain — it must be built from source (~90 min). Building
-# it on every CI run is wasteful, so this workflow builds it ONCE and caches it
-# under a stable key. The main `rust.yml` `build_rust9x` job then restores this
-# cache (read-only) and builds azul against it in minutes.
+# it on every CI run is wasteful, so this workflow builds it ONCE and uploads it
+# to a release. The main `rust.yml` `build_rust9x` job downloads that asset and
+# builds azul against it in minutes (and, if the asset is missing, builds and
+# publishes it itself — it never skips).
 #
-# Run this manually (Actions → "rust9x compiler (cache primer)" → Run workflow)
-# whenever rust9x updates or the cache was evicted. It also rebuilds yearly to
-# pick up compiler drift. It does NOT need to run often for cache warmth: the
-# consumer job in rust.yml RESTORES this cache on every push, which resets
-# GitHub's 7-day unused-cache eviction timer, so it stays warm as long as CI
-# runs at least weekly.
-name: rust9x compiler (cache primer)
+# The Actions cache is deliberately NOT used here: it expires after 7 unused
+# days and is LRU-evicted at the 10 GB repo cap, which made the consumer job
+# skip forever. A release asset is permanent.
+#
+# Run this manually (Actions → "rust9x compiler (toolchain release)" → Run
+# workflow) whenever rust9x updates. It also rebuilds yearly to pick up drift.
+name: rust9x compiler (toolchain release)
 
 on:
   workflow_dispatch:
   schedule:
-    # Yearly (Jan 1, 04:00 UTC) — only to pick up rust9x compiler updates;
-    # warmth is maintained by the consumer's per-push restores (see above).
+    # Yearly (Jan 1, 04:00 UTC) — only to pick up rust9x compiler updates; the
+    # release asset itself never expires.
     - cron: "0 4 1 1 *"
 
 permissions:
-  contents: read
-  actions: write # required to write the cache
+  contents: write # required to create the release + upload the toolchain asset
+
+env:
+  RUST9X_TAG: rust9x-toolchain
+  RUST9X_ASSET: rust9x-stage1-x86_64-pc-windows-msvc.tar.gz
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   build-rust9x-compiler:
-    name: Build + cache rust9x compiler (stage1)
+    name: Build + publish rust9x compiler (stage1)
     runs-on: windows-2022
     # LLVM is built from source (see download-ci-llvm below), so this is a long
     # one-time/yearly build.
@@ -58,19 +64,7 @@ jobs:
           GIT_TERMINAL_PROMPT=0 git clone --branch rust9x \
             https://github.com/rust9x/rust.git rust9x
 
-      # Same path + key as the consumer in rust.yml so the cache matches. Keyed
-      # on rust9x's `src/version` (stable across most commits); restore-keys
-      # prefix lets the consumer fall back to the latest cached stage1.
-      - name: Cache rust9x stage1
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: rust9x/build/x86_64-pc-windows-msvc/stage1
-          key: rust9x-stage1-${{ hashFiles('rust9x/src/version') }}
-          restore-keys: rust9x-stage1-
-
-      - name: Build rust9x stage1 (skipped on exact cache hit)
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Build rust9x stage1
         shell: bash
         working-directory: rust9x
         run: |
@@ -82,12 +76,22 @@ jobs:
           python x.py build --stage 1 --set llvm.download-ci-llvm=false
         timeout-minutes: 330
 
-      - name: Report
+      # Same tag + asset name the consumer (rust.yml build_rust9x) downloads.
+      - name: Publish rust9x stage1 to Releases
         shell: bash
         run: |
-          if [ -f rust9x/build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe ]; then
-            echo "rust9x stage1 present — cache will be saved under key rust9x-stage1-*"
-          else
+          set -euo pipefail
+          if [ ! -f rust9x/build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe ]; then
             echo "::error::rust9x stage1 build produced no rustc.exe"
             exit 1
           fi
+          tar -czf "$RUST9X_ASSET" -C rust9x/build/x86_64-pc-windows-msvc stage1
+          gh release view "$RUST9X_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$RUST9X_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "rust9x toolchain (stage1)" \
+              --notes "Prebuilt rust9x stage1 compiler (x86_64-pc-windows-msvc host, i686/i586-rust9x-windows-msvc targets), consumed by the build_rust9x CI job. Stored here rather than in the Actions cache, which expires and is LRU-evicted." \
+              --latest=false
+          gh release upload "$RUST9X_TAG" "$RUST9X_ASSET" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          echo "published $RUST9X_ASSET to release $RUST9X_TAG"
