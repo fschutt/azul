@@ -17,6 +17,5 @@ pub mod capability;
 pub mod map;
 pub mod pdf;
 pub mod sqlite;
-pub mod udp;
 pub mod video_codec;
 pub mod webtransport;

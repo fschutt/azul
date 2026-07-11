@@ -369,12 +369,6 @@ pub mod task;
 pub mod transform;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
-/// UDP chunked-message framing (P8): split a >MTU payload into sequenced
-/// datagrams + reassemble them, tolerating reorder + loss.
-///
-/// Pure logic the
-/// dll's `Udp` handle builds on; unit-tested here. See `udp_framing.rs`.
-pub mod udp_framing;
 /// Default font/text constants and small geometry helpers for layout.
 pub mod ui_solver;
 /// URL POD type (`Url`/`UrlParseError`); parsing gated behind the `url` feature.

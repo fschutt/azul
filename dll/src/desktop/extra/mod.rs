@@ -39,12 +39,9 @@ pub mod audio;
 /// the capture_common seam. See camera/mod.rs.
 pub mod camera;
 pub mod screencap;
-/// UDP transport (P8). The `Udp` handle wraps a `std::net::UdpSocket` (no
-/// feature gate - `std::net` is always present, real on every target). The
-/// fault-tolerant packet-sharing primitive for azul-meet. See `udp/mod.rs`.
-pub mod udp;
 /// WebTransport room transport (`WebTransport`) — typed media/chat/control to a
-/// coordination server; replaces `udp` for azul-meet. v1 = loopback stub engine;
+/// coordination server; replaces the removed UDP transport for azul-meet.
+/// v1 = loopback stub engine;
 /// real QUIC behind `webtransport-native`. See `webtransport/mod.rs`.
 pub mod webtransport;
 /// Video encode/decode (P7/P8). `VideoEncoder` / `VideoDecoder` handles select
