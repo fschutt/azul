@@ -177,9 +177,7 @@ fn probe_permission(perm: &str) -> Option<PermissionState> {
             .ok()?;
 
         if granted == 0 {
-            return Some(PermissionState::Granted {
-                quality: PermissionQuality::Full,
-            });
+            return Some(PermissionState::Granted(PermissionQuality::Full));
         }
 
         // Denied. `shouldShowRequestPermissionRationale` is true only after
@@ -255,9 +253,7 @@ pub unsafe extern "system" fn Java_com_azul_permission_AzulPermissions_nativeOnP
         return;
     };
     let state = if granted != 0 {
-        PermissionState::Granted {
-            quality: PermissionQuality::Full,
-        }
+        PermissionState::Granted(PermissionQuality::Full)
     } else {
         PermissionState::Denied
     };

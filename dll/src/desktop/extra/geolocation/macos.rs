@@ -238,9 +238,7 @@ fn auth_status_to_state(status: isize) -> PermissionState {
         0 => PermissionState::NotDetermined,
         1 => PermissionState::Restricted,
         2 => PermissionState::Denied,
-        3 | 4 => PermissionState::Granted {
-            quality: PermissionQuality::Full,
-        },
+        3 | 4 => PermissionState::Granted(PermissionQuality::Full),
         _ => PermissionState::NotDetermined,
     }
 }

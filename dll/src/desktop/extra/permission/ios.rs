@@ -110,17 +110,13 @@ fn cl_status(background: bool) -> PermissionState {
             0 => PermissionState::NotDetermined,
             1 => PermissionState::Restricted,
             2 => PermissionState::Denied,
-            3 => PermissionState::Granted {
-                quality: cl_quality(mgr),
-            },
+            3 => PermissionState::Granted(cl_quality(mgr)),
             4 => {
                 if background {
                     // When-in-use can't satisfy a background subscription.
                     PermissionState::Denied
                 } else {
-                    PermissionState::Granted {
-                        quality: cl_quality(mgr),
-                    }
+                    PermissionState::Granted(cl_quality(mgr))
                 }
             }
             _ => PermissionState::NotDetermined,
@@ -155,12 +151,8 @@ fn ph_status(access_level: isize) -> PermissionState {
             0 => PermissionState::NotDetermined,
             1 => PermissionState::Restricted,
             2 => PermissionState::Denied,
-            3 => PermissionState::Granted {
-                quality: PermissionQuality::Full,
-            },
-            4 => PermissionState::Granted {
-                quality: PermissionQuality::Reduced,
-            },
+            3 => PermissionState::Granted(PermissionQuality::Full),
+            4 => PermissionState::Granted(PermissionQuality::Reduced),
             _ => PermissionState::NotDetermined,
         }
     }
@@ -186,9 +178,7 @@ fn map_common(status: isize) -> PermissionState {
         0 => PermissionState::NotDetermined,
         1 => PermissionState::Restricted,
         2 => PermissionState::Denied,
-        3 => PermissionState::Granted {
-            quality: PermissionQuality::Full,
-        },
+        3 => PermissionState::Granted(PermissionQuality::Full),
         _ => PermissionState::NotDetermined,
     }
 }

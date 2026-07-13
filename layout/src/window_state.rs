@@ -134,6 +134,24 @@ impl_option!(
     [Debug, Clone, PartialEq]
 );
 
+// C-ABI vec so that `CallbackInfo::queue_window_state_sequence()` can be
+// exposed over FFI (a `Vec<FullWindowState>` is not repr(C)).
+impl_vec!(
+    FullWindowState,
+    FullWindowStateVec,
+    FullWindowStateVecDestructor,
+    FullWindowStateVecDestructorType,
+    FullWindowStateVecSlice,
+    OptionFullWindowState
+);
+impl_vec_clone!(
+    FullWindowState,
+    FullWindowStateVec,
+    FullWindowStateVecDestructor
+);
+impl_vec_partialeq!(FullWindowState, FullWindowStateVec);
+impl_vec_debug!(FullWindowState, FullWindowStateVec);
+
 impl Default for FullWindowState {
     fn default() -> Self {
         Self {

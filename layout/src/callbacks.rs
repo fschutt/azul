@@ -41,6 +41,7 @@ use azul_css::{
         property::{CssProperty, CssPropertyType, CssPropertyVec},
     },
     system::SystemStyle,
+    corety::{OptionString, OptionUsize},
     AzString, OptionU8Vec, StringVec, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
@@ -69,7 +70,7 @@ use crate::{
     thread::{CreateThreadCallback, Thread},
     timer::Timer,
     window::{DomLayoutResult, LayoutWindow},
-    window_state::{FullWindowState, WindowCreateOptions},
+    window_state::{FullWindowState, FullWindowStateVec, WindowCreateOptions},
 };
 
 use azul_css::{impl_option, impl_option_inner};
@@ -1073,8 +1074,10 @@ impl CallbackInfo {
     /// Queue multiple window state changes to be applied in sequence.
     /// Each state triggers a separate event processing cycle, which is needed
     /// for simulating clicks where mouse down and mouse up must be separate events.
-    pub fn queue_window_state_sequence(&mut self, states: Vec<FullWindowState>) {
-        self.push_change(CallbackChange::QueueWindowStateSequence { states });
+    pub fn queue_window_state_sequence(&mut self, states: FullWindowStateVec) {
+        self.push_change(CallbackChange::QueueWindowStateSequence {
+            states: states.into_library_owned_vec(),
+        });
     }
 
     /// Change the text content of a node (applied after callback returns)
@@ -1518,17 +1521,17 @@ impl CallbackInfo {
         dom_id: DomId,
         parent_node_id: NodeId,
         node_type_str: AzString,
-        position: Option<usize>,
-        classes: Vec<AzString>,
-        id: Option<AzString>,
+        position: OptionUsize,
+        classes: StringVec,
+        id: OptionString,
     ) {
         self.push_change(CallbackChange::InsertChildNode {
             dom_id,
             parent_node_id,
             node_type_str,
-            position,
-            classes,
-            id,
+            position: position.into(),
+            classes: classes.into_library_owned_vec(),
+            id: id.into(),
         });
     }
 
@@ -1772,11 +1775,12 @@ impl CallbackInfo {
     ///
     /// Returns a Vec of `IdentifiedSelection` from the `MultiCursorState`, or empty
     /// if no multi-cursor state exists.
-    #[must_use] pub fn get_multi_cursor_selections(&self, dom_id: &DomId) -> Vec<azul_core::selection::IdentifiedSelection> {
+    #[must_use] pub fn get_multi_cursor_selections(&self, dom_id: &DomId) -> azul_core::selection::IdentifiedSelectionVec {
         let lw = self.get_layout_window();
         lw.text_edit_manager.multi_cursor.as_ref()
             .map(|mc| mc.selections.clone())
             .unwrap_or_default()
+            .into()
     }
 
     /// Get the primary (last-added) selection from the `MultiCursorState`.
@@ -2692,8 +2696,9 @@ impl CallbackInfo {
     /// info.format_list("es-ES", &items, ListType::And) // -> "A, B y C"
     /// ```
     #[cfg(feature = "icu")]
-    pub fn format_list(&self, locale: &str, items: &[AzString], list_type: ListType) -> AzString {
-        self.get_icu_localizer().format_list(locale, items, list_type)
+    pub fn format_list(&self, locale: &str, items: StringVec, list_type: ListType) -> AzString {
+        self.get_icu_localizer()
+            .format_list(locale, items.as_ref(), list_type)
     }
 
     /// Format a date according to the specified locale.
@@ -2778,8 +2783,9 @@ impl CallbackInfo {
     /// // Result: ["Ägypten", "Andorra", "Österreich"] (Ä sorts with A, Ö with O)
     /// ```
     #[cfg(feature = "icu")]
-    pub fn sort_strings(&self, locale: &str, strings: &[AzString]) -> IcuStringVec {
-        self.get_icu_localizer().sort_strings(locale, strings)
+    pub fn sort_strings(&self, locale: &str, strings: StringVec) -> IcuStringVec {
+        self.get_icu_localizer()
+            .sort_strings(locale, strings.as_ref())
     }
 
     /// Check if two strings are equal according to locale collation rules.
@@ -3581,10 +3587,12 @@ impl CallbackInfo {
 
     /// ALL files of the current drag hover (MWA-B7 - multi-file drags were
     /// previously truncated to the first path before they reached callbacks).
-    #[must_use] pub fn get_hovered_files(&self) -> &[AzString] {
+    #[must_use] pub fn get_hovered_files(&self) -> StringVec {
         self.get_layout_window()
             .file_drop_manager
             .get_hovered_files()
+            .to_vec()
+            .into()
     }
 
     /// Get the currently dropped file (if a file was just dropped)
@@ -3599,10 +3607,12 @@ impl CallbackInfo {
     }
 
     /// ALL files of this frame's drop (MWA-B7; one-shot).
-    #[must_use] pub fn get_dropped_files(&self) -> &[AzString] {
+    #[must_use] pub fn get_dropped_files(&self) -> StringVec {
         self.get_layout_window()
             .file_drop_manager
             .get_dropped_files()
+            .to_vec()
+            .into()
     }
 
     /// Measure a DOM headlessly: style + lay it out against `available`
@@ -3755,7 +3765,7 @@ impl CallbackInfo {
     ///
     /// W3C equivalent: `dataTransfer.types`
     /// Returns an empty vec if no drag is active or no data is set.
-    #[must_use] pub fn get_drag_types(&self) -> Vec<AzString> {
+    #[must_use] pub fn get_drag_types(&self) -> StringVec {
         let lw = self.get_layout_window();
         // Try gesture manager first
         if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
@@ -3769,21 +3779,21 @@ impl CallbackInfo {
                     .collect();
             }
         }
-        Vec::new()
+        StringVec::from_const_slice(&[])
     }
 
     /// Get drag data for a specific MIME type.
     ///
     /// W3C equivalent: `dataTransfer.getData(type)`
     /// Returns None if no drag is active or the MIME type is not set.
-    #[must_use] pub fn get_drag_data(&self, mime_type: &str) -> Option<Vec<u8>> {
+    #[must_use] pub fn get_drag_data(&self, mime_type: &str) -> OptionU8Vec {
         let lw = self.get_layout_window();
         if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
             if let Some(node_drag) = ctx.as_node_drag() {
-                return node_drag.drag_data.get_data(mime_type).map(<[u8]>::to_vec);
+                return node_drag.drag_data.get_data(mime_type).map(|d| U8Vec::from(d.to_vec())).into();
             }
         }
-        None
+        OptionU8Vec::None
     }
 
     /// Set drag data for a MIME type on the active drag operation.

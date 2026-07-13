@@ -161,9 +161,7 @@ pub fn request_av_access_nonblocking(video: bool) {
             crate::plog_info!("[avf_auth] {} access already granted", label);
             push_async_result(
                 capability,
-                PermissionState::Granted {
-                    quality: PermissionQuality::Full,
-                },
+                PermissionState::Granted(PermissionQuality::Full),
             );
         }
         STATUS_DENIED | STATUS_RESTRICTED => {
@@ -191,9 +189,7 @@ pub fn request_av_access_nonblocking(video: bool) {
                 // designed OS-thread → pump handoff (MWA-A1b).
                 let state = if granted.as_bool() {
                     crate::plog_info!("[avf_auth] async request: access granted");
-                    PermissionState::Granted {
-                        quality: PermissionQuality::Full,
-                    }
+                    PermissionState::Granted(PermissionQuality::Full)
                 } else {
                     crate::plog_warn!("[avf_auth] async request: access denied by user");
                     PermissionState::Denied

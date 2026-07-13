@@ -106,17 +106,13 @@ pub enum PermissionState {
     /// OS prompt is currently visible / in-flight.
     Requested,
     /// User granted access.
-    Granted {
-        quality: PermissionQuality,
-    },
+    Granted(PermissionQuality),
     /// User denied access (with or without "don't ask again").
     Denied,
     /// MDM / parental controls / kiosk policy blocks the prompt entirely.
     Restricted,
     /// iOS "Allow Once" / Android one-time. Reverts on next app launch.
-    EphemeralGranted {
-        until_app_close: bool,
-    },
+    EphemeralGranted(bool),
 }
 
 impl PermissionState {
@@ -124,7 +120,7 @@ impl PermissionState {
     #[must_use] pub const fn is_granted(self) -> bool {
         matches!(
             self,
-            Self::Granted { .. } | Self::EphemeralGranted { .. }
+            Self::Granted(..) | Self::EphemeralGranted(..)
         )
     }
 
@@ -521,7 +517,7 @@ mod tests {
         assert!(!mgr.set_status(Capability::Camera, PermissionState::Requested));
         assert!(mgr.set_status(
             Capability::Camera,
-            PermissionState::Granted { quality: PermissionQuality::Full }
+            PermissionState::Granted(PermissionQuality::Full)
         ));
         assert!(mgr.get_status(Capability::Camera).is_granted());
     }
@@ -582,9 +578,7 @@ mod tests {
 
         push_async_result(
             Capability::Camera,
-            PermissionState::Granted {
-                quality: PermissionQuality::Full,
-            },
+            PermissionState::Granted(PermissionQuality::Full),
         );
         push_async_result(Capability::Geolocation, PermissionState::Denied);
 
@@ -640,7 +634,7 @@ mod pump_provider_tests {
 
         assert!(mgr.set_status(
             Capability::Geolocation,
-            PermissionState::Granted { quality: PermissionQuality::Full },
+            PermissionState::Granted(PermissionQuality::Full),
         ));
         assert!(!mgr.has_pending_async(), "prompt resolved");
         assert_eq!(mgr.get_pending_events(ts()).len(), 1);

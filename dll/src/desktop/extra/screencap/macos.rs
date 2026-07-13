@@ -108,9 +108,7 @@ fn ensure_screen_access() -> bool {
             // NotDetermined forever).
             azul_layout::managers::permission::push_async_result(
                 azul_layout::managers::permission::Capability::ScreenCapture,
-                azul_layout::managers::permission::PermissionState::Granted {
-                    quality: azul_layout::managers::permission::PermissionQuality::Full,
-                },
+                azul_layout::managers::permission::PermissionState::Granted(azul_layout::managers::permission::PermissionQuality::Full),
             );
             return true;
         }
@@ -131,9 +129,7 @@ fn ensure_screen_access() -> bool {
             azul_layout::managers::permission::push_async_result(
                 azul_layout::managers::permission::Capability::ScreenCapture,
                 if granted {
-                    azul_layout::managers::permission::PermissionState::Granted {
-                        quality: azul_layout::managers::permission::PermissionQuality::Full,
-                    }
+                    azul_layout::managers::permission::PermissionState::Granted(azul_layout::managers::permission::PermissionQuality::Full)
                 } else {
                     azul_layout::managers::permission::PermissionState::Denied
                 },

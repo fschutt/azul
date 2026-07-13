@@ -7467,7 +7467,9 @@ fn process_debug_event(
 
                     // Queue all states to be applied in sequence across frames
                     callback_info
-                        .queue_window_state_sequence(vec![move_state, down_state, up_state]);
+                        .queue_window_state_sequence(
+                            vec![move_state, down_state, up_state].into(),
+                        );
                     needs_update = true;
 
                     let response = ClickNodeResponse {
@@ -10342,9 +10344,9 @@ fn process_debug_event(
                     dom_id,
                     parent_node_id,
                     azul_css::AzString::from(node_type.as_str()),
-                    *position,
-                    classes_az,
-                    id_az,
+                    (*position).into(),
+                    classes_az.into(),
+                    id_az.into(),
                 );
                 needs_update = true;
 

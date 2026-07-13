@@ -171,9 +171,7 @@ fn portal_access_blocking(capability: Capability) -> PermissionState {
         Err(_) => return PermissionState::NotDetermined,
     };
     match response_code {
-        RESPONSE_SUCCESS => PermissionState::Granted {
-            quality: PermissionQuality::Full,
-        },
+        RESPONSE_SUCCESS => PermissionState::Granted(PermissionQuality::Full),
         RESPONSE_CANCELLED => PermissionState::Denied,
         _ => PermissionState::Denied,
     }
@@ -189,7 +187,5 @@ fn no_portal_fallback(capability: Capability, why: &str) -> PermissionState {
         why,
         capability
     );
-    PermissionState::Granted {
-        quality: PermissionQuality::Full,
-    }
+    PermissionState::Granted(PermissionQuality::Full)
 }

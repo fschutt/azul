@@ -115,13 +115,11 @@ mod imp {
             match &started {
                 Ok(()) => push_async_result(
                     Capability::Geolocation,
-                    PermissionState::Granted {
-                        quality: if high_accuracy {
-                            PermissionQuality::Full
-                        } else {
-                            PermissionQuality::Reduced
-                        },
-                    },
+                    PermissionState::Granted(if high_accuracy {
+                        PermissionQuality::Full
+                    } else {
+                        PermissionQuality::Reduced
+                    }),
                 ),
                 Err(_) => push_async_result(Capability::Geolocation, PermissionState::Denied),
             }
