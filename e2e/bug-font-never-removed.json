@@ -1,0 +1,70 @@
+{
+  "name": "bug_font_never_removed",
+  "description": "B3: a font loaded for a node is never evicted when the node goes away. Baseline the resource counters on a DOM with no text, mount a DOM whose only text node uses a font family unique to it, then mount the baseline DOM again (the text node — and with it the last user of that font — is gone). Every font table must return to the baseline.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\"></div>"
+      ],
+      "css": [
+        "#root { width: 100px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "snapshot_resources", "as": "baseline" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <p id=\"txt\">font leak probe</p>",
+        "</div>"
+      ],
+      "css": [
+        "#root { width: 100px; height: 40px; background: blue; }",
+        "#txt  { font-family: serif; font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "assert_exists", "selector": "#txt" },
+    { "op": "snapshot_resources", "as": "with_font" },
+    { "op": "assert_resource_counts", "vs": "baseline", "fonts": "ge" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\"></div>"
+      ],
+      "css": [
+        "#root { width: 100px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "tick_ms", "ms": 1000 },
+    { "op": "wait", "ms": 200 },
+    { "op": "assert_not_exists", "selector": "#txt" },
+
+    {
+      "op": "assert_resource_counts",
+      "vs": "baseline",
+      "fonts": "eq",
+      "font_hash_map": "eq",
+      "font_id_map": "eq",
+      "font_families_map": "eq",
+      "parsed_fonts": "eq",
+      "font_chain_cache": "eq",
+      "font_hash_to_families": "eq",
+      "images": "eq",
+      "image_key_map": "eq"
+    }
+  ]
+}

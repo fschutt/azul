@@ -1,0 +1,27 @@
+{
+  "name": "bug_window_size_ignored",
+  "description": "B2: E2eSetup.window_width / window_height must reach the headless window. The setup below asks for 800x900; the root box is sized to 100% of the window, so its laid-out size IS the window size. If the window is stuck at the 640x480 default, this test goes red.",
+  "setup": {
+    "window_width": 800,
+    "window_height": 900,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\"></div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_exists", "selector": "#root" },
+    { "op": "assert_layout", "selector": "#root", "property": "width", "expected": 800, "tolerance": 1 },
+    { "op": "assert_layout", "selector": "#root", "property": "height", "expected": 900, "tolerance": 1 }
+  ]
+}

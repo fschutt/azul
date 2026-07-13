@@ -1,0 +1,65 @@
+{
+  "name": "bug_dom_mutation_no_damage",
+  "description": "B1: the DOM-mutation ops (set_node_css_override / set_node_text / insert_node) change the DOM but produce NO paint damage and nothing re-renders — the screen keeps showing stale content. Each of the three mutations is snapshotted before, driven, and then checked for LIVENESS (assert_changed: damage non-empty AND pixels really differ) and SOUNDNESS (assert_damage_covers_changes: every changed pixel lies inside the damage set).",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box\" id=\"b\"></div>",
+        "  <p id=\"t\">before</p>",
+        "</div>"
+      ],
+      "css": [
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        "#t    { font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_node_count", "selector": ".box", "expected": 2 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_css" },
+    { "op": "tick_ms", "ms": 16 },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_idle_stable", "vs": "before_css" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "set_node_css_override", "node_id": 7, "property": "background", "value": "red" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "get_frame_report" },
+    { "op": "capture_damage_png", "path": "target/e2e/bug_dom_mutation_css.png" },
+    { "op": "assert_changed", "vs": "before_css", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_css" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_text" },
+    { "op": "set_node_text", "node_id": 10, "text": "AFTER" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "get_frame_report" },
+    { "op": "assert_changed", "vs": "before_text", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_text" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_insert" },
+    { "op": "insert_node", "parent_id": 3, "node_type": "div", "classes": ["box"], "id": "c" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "get_frame_report" },
+    { "op": "assert_node_count", "selector": ".box", "expected": 3 },
+    { "op": "assert_changed", "vs": "before_insert", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_insert" },
+
+    { "op": "assert_work_bounded", "max_relayouts": 8, "max_dom_regens": 8 }
+  ]
+}
