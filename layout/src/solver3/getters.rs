@@ -3426,12 +3426,27 @@ pub struct CollectedFontStacks {
 
 /// Resolved font chains ready for use in layout
 /// This is the result of resolving font stacks against `FcFontCache`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResolvedFontChains {
     /// Map from `FontChainKeyOrRef` to the resolved `FontFallbackChain`
     /// For `FontChainKeyOrRef::Ref` variants, the `FontFallbackChain` contains
     /// a single-font chain that covers the entire Unicode range.
     pub chains: HashMap<FontChainKeyOrRef, FontFallbackChain>,
+    /// CSS families that were REQUESTED but could not be matched to any
+    /// font (not on disk, not registered in memory).
+    ///
+    /// This used to be swallowed: the resolver moved on to the next family
+    /// and, if the whole stack failed, `ensure_chains_nonempty` quietly
+    /// attached an arbitrary system font. Every unmatched family therefore
+    /// collapsed onto the SAME `FontId`, text rendered in a font nobody
+    /// asked for, and no test could tell. A failed family match is now a
+    /// first-class output: it is recorded here and logged once
+    /// (see `report_unresolved_families`).
+    pub unresolved_families: std::collections::BTreeSet<String>,
+    /// Chains that matched NOTHING at all and only render because
+    /// `ensure_chains_nonempty` attached a last-resort font. These are
+    /// rendering in a font the stylesheet never asked for.
+    pub last_resort_chains: usize,
 }
 
 impl ResolvedFontChains {
@@ -3865,7 +3880,38 @@ pub fn prune_chain_to_used_chars(
     fc_cache: &FcFontCache,
     scripts_hint: Option<&[UnicodeRange]>,
 ) -> ResolvedFontChains {
-    resolve_font_chains_with_registry(collected, fc_cache, None, scripts_hint)
+    resolve_font_chains_with_registry(collected, fc_cache, None, scripts_hint, &HashMap::new())
+}
+
+/// Split a CSS font stack into (a) the groups that resolve to an in-memory
+/// font registered BY FAMILY NAME and (b) the families that still have to
+/// be looked up on disk.
+///
+/// In-memory fonts are the bundled/embedder/test fonts registered with
+/// [`crate::text3::cache::FontManager::register_named_font`]. They must be
+/// matched here, in azul, because the fast disk resolver
+/// (`FcFontRegistry::request_fonts_fast`) only walks file paths and cannot
+/// see them at all. Matching is on the NORMALIZED family name, which also
+/// makes `font-family: "Foo Bar"` (the CSS parser keeps the quotes) match
+/// the registered `Foo Bar`.
+fn split_memory_matches(
+    font_families: &[String],
+    memory_families: &HashMap<String, rust_fontconfig::FontMatch>,
+) -> (Vec<rust_fontconfig::CssFallbackGroup>, Vec<String>) {
+    let mut groups = Vec::new();
+    let mut disk = Vec::new();
+    for family in font_families {
+        let norm = rust_fontconfig::utils::normalize_family_name(family);
+        if let Some(m) = memory_families.get(&norm) {
+            groups.push(rust_fontconfig::CssFallbackGroup {
+                css_name: family.clone(),
+                fonts: vec![m.clone()],
+            });
+        } else {
+            disk.push(family.clone());
+        }
+    }
+    (groups, disk)
 }
 
 /// Registry-aware variant of [`resolve_font_chains`].
@@ -3887,8 +3933,10 @@ pub fn prune_chain_to_used_chars(
     fc_cache: &FcFontCache,
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
     scripts_hint: Option<&[UnicodeRange]>,
+    memory_families: &HashMap<String, rust_fontconfig::FontMatch>,
 ) -> ResolvedFontChains {
     let mut chains = HashMap::new();
+    let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     // Resolve system/file font stacks via fontconfig
     for font_stack in &collected.font_stacks {
@@ -3934,30 +3982,60 @@ pub fn prune_chain_to_used_chars(
             PatternMatch::False
         };
 
+        // MEMORY FONTS FIRST (see `split_memory_matches`): a family
+        // registered by name into the cache's in-memory table wins over
+        // anything on disk, exactly as CSS says.
+        let (mem_groups, disk_families) = split_memory_matches(&font_families, memory_families);
+
         // Registry-aware resolve: scout-on-demand path when available.
         // See `resolve_font_chains_with_registry` doc for rationale.
-        let chain = registry.map_or_else(
-            || {
-                let mut trace = Vec::new();
-                fc_cache.resolve_font_chain_with_scripts(
-                    &font_families,
-                    weight,
-                    italic,
-                    oblique,
-                    scripts_hint,
-                    &mut trace,
-                )
-            },
-            |reg| {
-                reg.request_and_resolve_with_scripts(
-                    &font_families,
-                    weight,
-                    italic,
-                    oblique,
-                    scripts_hint,
-                )
-            },
-        );
+        let mut chain = if disk_families.is_empty() {
+            FontFallbackChain {
+                css_fallbacks: Vec::new(),
+                unicode_fallbacks: Vec::new(),
+                original_stack: font_families.clone(),
+            }
+        } else {
+            registry.map_or_else(
+                || {
+                    let mut trace = Vec::new();
+                    fc_cache.resolve_font_chain_with_scripts(
+                        &disk_families,
+                        weight,
+                        italic,
+                        oblique,
+                        scripts_hint,
+                        &mut trace,
+                    )
+                },
+                |reg| {
+                    reg.request_and_resolve_with_scripts(
+                        &disk_families,
+                        weight,
+                        italic,
+                        oblique,
+                        scripts_hint,
+                    )
+                },
+            )
+        };
+        if !mem_groups.is_empty() {
+            let mut merged = mem_groups;
+            merged.extend(chain.css_fallbacks.drain(..));
+            chain.css_fallbacks = merged;
+        }
+
+        // A family that produced no group matched NOTHING — record it (see
+        // `ResolvedFontChains::unresolved_families`).
+        for family in &font_families {
+            let matched = chain
+                .css_fallbacks
+                .iter()
+                .any(|g| g.css_name.eq_ignore_ascii_case(family) && !g.fonts.is_empty());
+            if !matched && !is_generic_family(family) {
+                unresolved.insert(family.clone());
+            }
+        }
 
         // WEB-LIFT last resort (in azul-layout, NOT rust-fontconfig — so the fragile
         // `with_memory_fonts` isn't re-codegen'd into a trapping shape): the lifted
@@ -3965,7 +4043,6 @@ pub fn prune_chain_to_used_chars(
         // font IS registered (generic→OS-name expansion + token/unicode query is
         // lift-fragile). If the chain has no fonts, append the first registered font so
         // load_missing_for_chains / resolve_char find it and text shapes (not measure 0).
-        let mut chain = chain;
         let total_fonts = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
             + chain.unicode_fallbacks.len();
         if total_fonts == 0 {
@@ -3987,7 +4064,13 @@ pub fn prune_chain_to_used_chars(
     // style.font_stack for FontStack::Ref and uses the font data directly.
     // No entries are inserted into `chains` for them.
 
-    ResolvedFontChains { chains }
+    let out = ResolvedFontChains {
+        chains,
+        unresolved_families: unresolved,
+        last_resort_chains: 0,
+    };
+    report_unresolved_families(&out);
+    out
 }
 
 /// WEB-LIFT last resort, applied LIFT-SAFELY. The lifted backend drops in-place
@@ -4008,11 +4091,25 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
     let keys: Vec<FontChainKeyOrRef> = resolved.chains.keys().cloned().collect();
     let mut rebuilt: HashMap<FontChainKeyOrRef, FontFallbackChain> =
         HashMap::new();
+    let mut last_resort = 0usize;
     for key in keys {
         if let Some(mut chain) = resolved.chains.remove(&key) {
             let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
                 + chain.unicode_fallbacks.len();
             if total == 0 {
+                // NOT SILENT: this chain matched nothing at all. Every such
+                // chain gets the SAME arbitrary `fallback_id` — which is
+                // precisely how N distinct font-families collapsed onto one
+                // FontId. It still renders (a missing font must never be a
+                // blank screen), but it is now counted and reported.
+                last_resort += 1;
+                if let FontChainKeyOrRef::Chain(k) = &key {
+                    eprintln!(
+                        "[azul][font] LAST-RESORT fallback for font stack {:?}: nothing in \
+                         the stack matched, rendering in an arbitrary system font.",
+                        k.font_families
+                    );
+                }
                 chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
                     id: fallback_id,
                     unicode_ranges: Vec::new(),
@@ -4023,6 +4120,7 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
         }
     }
     resolved.chains = rebuilt;
+    resolved.last_resort_chains = last_resort;
 }
 
 /// Convenience function that collects and resolves font chains in one call
@@ -4066,7 +4164,12 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     if let Some(registry) = font_manager.registry.as_deref() {
         let used_chars = collect_used_codepoints_all(styled_dom);
         if !used_chars.is_empty() {
-            let mut fast = resolve_font_chains_fast(&collected, registry, &used_chars);
+            let mut fast = resolve_font_chains_fast(
+                &collected,
+                registry,
+                &used_chars,
+                &font_manager.memory_families,
+            );
             ensure_chains_nonempty(&mut fast, fc_cache);
             return fast;
         }
@@ -4081,6 +4184,7 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
         fc_cache,
         font_manager.registry.as_deref(),
         Some(&scripts),
+        &font_manager.memory_families,
     );
 
     let used_chars = collect_used_codepoints(styled_dom);
@@ -4111,6 +4215,7 @@ pub fn resolve_font_chains_fast(
     collected: &CollectedFontStacks,
     registry: &rust_fontconfig::registry::FcFontRegistry,
     codepoints: &std::collections::BTreeSet<char>,
+    memory_families: &HashMap<String, rust_fontconfig::FontMatch>,
 ) -> ResolvedFontChains {
     use rust_fontconfig::PatternMatch;
 
@@ -4118,6 +4223,7 @@ pub fn resolve_font_chains_fast(
     let dbg = *DBG.get_or_init(|| std::env::var_os("AZ_FAST_RESOLVE_DEBUG").is_some());
 
     let mut chains: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
+    let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {
@@ -4151,8 +4257,25 @@ pub fn resolve_font_chains_fast(
             PatternMatch::False
         };
 
-        let request = vec![(font_families.clone(), codepoints.clone())];
-        let mut chains_out = registry.request_fonts_fast(&request, weight, italic_match);
+        // ── MEMORY FONTS FIRST ──────────────────────────────────────────
+        // `request_fonts_fast` only knows about fonts that exist as FILES
+        // (it walks the registry's `known_paths`). A family registered via
+        // `FontManager::register_named_font` (bundled embedder font, the
+        // built-in mock test fonts) lives only in the `FcFontCache`'s
+        // memory-font table and is INVISIBLE to it — such a family silently
+        // fell through to a system fallback on every production build
+        // (production always has a live registry, so it always took this
+        // path). Match memory families by name here, in CSS order, and only
+        // hand the remaining families to the disk probe.
+        let (mut css_fallbacks, disk_families) =
+            split_memory_matches(&font_families, memory_families);
+
+        let request = vec![(disk_families.clone(), codepoints.clone())];
+        let mut chains_out = if disk_families.is_empty() {
+            Vec::new()
+        } else {
+            registry.request_fonts_fast(&request, weight, italic_match)
+        };
         if dbg {
             let total_fonts: usize = chains_out
                 .iter()
@@ -4169,12 +4292,90 @@ pub fn resolve_font_chains_fast(
                 total_fonts,
             );
         }
-        if let Some(chain) = chains_out.pop() {
-            chains.insert(cache_key, chain);
+        // Merge: memory-matched groups (in CSS order) + whatever the disk
+        // probe found for the remaining families.
+        let mut chain = chains_out.pop().unwrap_or(FontFallbackChain {
+            css_fallbacks: Vec::new(),
+            unicode_fallbacks: Vec::new(),
+            original_stack: font_families.clone(),
+        });
+        if !css_fallbacks.is_empty() {
+            css_fallbacks.extend(chain.css_fallbacks.drain(..));
+            chain.css_fallbacks = css_fallbacks;
         }
+
+        // A family that produced no group matched NOTHING. Record it — a
+        // silently-unmatched family is the root cause of "every font-family
+        // renders in the same fallback font".
+        for family in &font_families {
+            let matched = chain
+                .css_fallbacks
+                .iter()
+                .any(|g| g.css_name.eq_ignore_ascii_case(family) && !g.fonts.is_empty());
+            if !matched && !is_generic_family(family) {
+                unresolved.insert(family.clone());
+            }
+        }
+
+        chains.insert(cache_key, chain);
     }
 
-    ResolvedFontChains { chains }
+    let out = ResolvedFontChains {
+        chains,
+        unresolved_families: unresolved,
+        last_resort_chains: 0,
+    };
+    report_unresolved_families(&out);
+    out
+}
+
+/// CSS generic families are not expected to match by name (they are
+/// expanded to concrete OS families before lookup), so a missing group for
+/// them is not a resolution failure worth reporting.
+fn is_generic_family(family: &str) -> bool {
+    matches!(
+        family.to_ascii_lowercase().as_str(),
+        "serif"
+            | "sans-serif"
+            | "monospace"
+            | "cursive"
+            | "fantasy"
+            | "system-ui"
+            | "ui-serif"
+            | "ui-sans-serif"
+            | "ui-monospace"
+            | "ui-rounded"
+            | "emoji"
+            | "math"
+            | "fangsong"
+    )
+}
+
+/// Log every family the resolver could not match, ONCE per process per
+/// family name.
+///
+/// This is the diagnostic that was missing. Before this, a stylesheet
+/// asking for `font-family: Arial` on a box with no Arial installed got a
+/// system fallback and said nothing — so eight different families rendering
+/// identically looked like correct behaviour to every test we had.
+fn report_unresolved_families(resolved: &ResolvedFontChains) {
+    use std::sync::{Mutex, OnceLock};
+    if resolved.unresolved_families.is_empty() {
+        return;
+    }
+    static SEEN: OnceLock<Mutex<std::collections::BTreeSet<String>>> = OnceLock::new();
+    let seen = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
+    let Ok(mut seen) = seen.lock() else { return };
+    for family in &resolved.unresolved_families {
+        if seen.insert(family.clone()) {
+            eprintln!(
+                "[azul][font] UNRESOLVED font-family {family:?}: no font file and no \
+                 registered in-memory font matches this family. Text that asks for it \
+                 renders in a FALLBACK font. Register it with \
+                 FontManager::register_named_font(), or install it."
+            );
+        }
+    }
 }
 
 /// Legacy wrapper: collect + resolve without registration. Kept for

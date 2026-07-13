@@ -723,7 +723,10 @@ impl FontContext {
             .iter()
             .map(|(k, v)| (FontChainKeyOrRef::Chain(k.clone()), v.clone()))
             .collect();
-        let resolved = ResolvedFontChains { chains: chains_map };
+        let resolved = ResolvedFontChains {
+            chains: chains_map,
+            ..Default::default()
+        };
 
         // Borrow our shared `parsed_fonts` Arc as a transient
         // FontManager so we can use the helper. `from_arc_shared`
@@ -743,7 +746,7 @@ impl FontContext {
     /// Carries the `registry` forward so the resulting manager also
     /// has the scout-on-demand path available.
     #[must_use] pub fn to_font_manager(&self) -> FontManager<azul_css::props::basic::FontRef> {
-        FontManager {
+        let mut fm = FontManager {
             fc_cache: self.fc_cache.clone(),
             parsed_fonts: self.parsed_fonts.clone(),
             font_chain_cache: self.font_chain_cache.clone(),
@@ -751,7 +754,11 @@ impl FontContext {
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
             last_resolved_font_stacks_sig: None,
-        }
+            memory_families: HashMap::new(),
+        };
+        // Idempotent: reuses the FontIds already in the shared fc_cache.
+        fm.register_builtin_mock_fonts();
+        fm
     }
 }
 
@@ -790,6 +797,22 @@ pub struct FontManager<T> {
     /// when the set of font-family hashes has not changed. Cleared
     /// whenever `font_chain_cache` is explicitly emptied.
     pub last_resolved_font_stacks_sig: Option<u64>,
+    /// Index of every font registered by FAMILY NAME into `fc_cache`'s
+    /// in-memory font table (bundled fonts, embedder fonts, the built-in
+    /// mock test fonts): normalized family name → the `FontMatch` the
+    /// resolver should emit for it.
+    ///
+    /// WHY THIS EXISTS (architectural, see `resolve_font_chains_fast`):
+    /// the fast chain resolver in rust-fontconfig 4.4
+    /// (`FcFontRegistry::request_fonts_fast`) resolves families purely
+    /// against `known_paths` — i.e. fonts that exist as FILES ON DISK.
+    /// In-memory fonts are invisible to it, so a family registered with
+    /// `FcFontCache::with_memory_fonts` could never be matched by name
+    /// on the production path (which always has a live registry): it
+    /// silently fell back to a system font. This index is consulted
+    /// FIRST, before the disk probe, so a memory-registered family wins
+    /// exactly as CSS says it should.
+    pub memory_families: HashMap<String, rust_fontconfig::FontMatch>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
@@ -797,7 +820,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
-        Ok(Self {
+        let mut fm = Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_chain_cache: HashMap::new(),
@@ -805,7 +828,107 @@ impl<T: ParsedFontTrait> FontManager<T> {
             font_hash_to_families: HashMap::new(),
             registry: None,
             last_resolved_font_stacks_sig: None,
-        })
+            memory_families: HashMap::new(),
+        };
+        fm.register_builtin_mock_fonts();
+        Ok(fm)
+    }
+
+    /// Register a font by FAMILY NAME from raw bytes, as an in-memory font
+    /// in the shared `FcFontCache`.
+    ///
+    /// This is the ONE hook an embedder (or a test) uses to make a font
+    /// resolvable by `font-family: "<family>"`. It mints one `FontId` for
+    /// the font, inserts it into the fontconfig cache's memory-font table
+    /// (so `get_font_bytes` / `load_fonts_from_disk` find it with no
+    /// special-casing) and indexes it in [`Self::memory_families`] so the
+    /// fast chain resolver can match it by name.
+    ///
+    /// `coverage` are the codepoint ranges the font actually covers.
+    /// Passing the true ranges matters: `FontFallbackChain::resolve_char`
+    /// skips any font that reports no coverage, and a font claiming
+    /// coverage it doesn't have would render .notdef instead of falling
+    /// back.
+    ///
+    /// Returns the `FontId` the family now resolves to.
+    pub fn register_named_font(
+        &mut self,
+        family: &str,
+        bytes: &[u8],
+        coverage: Vec<rust_fontconfig::UnicodeRange>,
+    ) -> FontId {
+        let norm = rust_fontconfig::utils::normalize_family_name(family);
+
+        // IDEMPOTENT: several `FontManager`s (one per window, plus the PDF
+        // writer) share one `FcFontCache`. Registering the same family twice
+        // would mint a second `FontId` for the same bytes, orphan the first
+        // in the cache's metadata table and make the family's id
+        // non-deterministic. Reuse the existing memory font instead.
+        let mut existing: Vec<(FontId, Vec<rust_fontconfig::UnicodeRange>)> = Vec::new();
+        self.fc_cache.for_each_pattern(|pattern, id| {
+            let hit = pattern
+                .family
+                .as_deref()
+                .is_some_and(|f| rust_fontconfig::utils::normalize_family_name(f) == norm);
+            if hit {
+                existing.push((*id, pattern.unicode_ranges.clone()));
+            }
+        });
+        if let Some((id, ranges)) = existing
+            .into_iter()
+            .find(|(id, _)| self.fc_cache.is_memory_font(id))
+        {
+            self.memory_families.insert(
+                norm,
+                rust_fontconfig::FontMatch {
+                    id,
+                    unicode_ranges: ranges,
+                    fallbacks: Vec::new(),
+                },
+            );
+            return id;
+        }
+
+        let pattern = rust_fontconfig::FcPattern {
+            name: Some(family.to_string()),
+            family: Some(family.to_string()),
+            unicode_ranges: coverage.clone(),
+            ..Default::default()
+        };
+        let id = FontId::new();
+        self.fc_cache.with_memory_font_with_id(
+            id,
+            pattern,
+            rust_fontconfig::FcFont {
+                bytes: bytes.to_vec(),
+                font_index: 0,
+                id: family.to_string(),
+            },
+        );
+        self.memory_families.insert(
+            norm,
+            rust_fontconfig::FontMatch {
+                id,
+                unicode_ranges: coverage,
+                fallbacks: Vec::new(),
+            },
+        );
+        id
+    }
+
+    /// Register the built-in mock test fonts (see
+    /// [`crate::text3::mock_fonts`]). Called from every constructor: the
+    /// mock families are only reachable if a stylesheet names them, and
+    /// having them always present means tests exercise the *same* font
+    /// path as production instead of a test-only bypass.
+    pub fn register_builtin_mock_fonts(&mut self) {
+        for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
+            self.register_named_font(
+                family,
+                bytes,
+                crate::text3::mock_fonts::mock_font_ranges(),
+            );
+        }
     }
 
     /// Create a `FontManager` sharing the font-path cache handle.
@@ -818,15 +941,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn from_shared(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
-        Ok(Self {
-            fc_cache,
-            parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
-            font_chain_cache: HashMap::new(),
-            embedded_fonts: Mutex::new(HashMap::new()),
-            font_hash_to_families: HashMap::new(),
-            registry: None,
-            last_resolved_font_stacks_sig: None,
-        })
+        Self::new(fc_cache)
     }
 
     /// Create a `FontManager` sharing both the font-path cache and the
@@ -841,7 +956,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         fc_cache: FcFontCache,
         parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
     ) -> Result<Self, LayoutError> {
-        Ok(Self {
+        let mut fm = Self {
             fc_cache,
             parsed_fonts,
             font_chain_cache: HashMap::new(),
@@ -849,7 +964,10 @@ impl<T: ParsedFontTrait> FontManager<T> {
             font_hash_to_families: HashMap::new(),
             registry: None,
             last_resolved_font_stacks_sig: None,
-        })
+            memory_families: HashMap::new(),
+        };
+        fm.register_builtin_mock_fonts();
+        Ok(fm)
     }
 
     /// Attach a `FcFontRegistry` to this `FontManager` so subsequent
