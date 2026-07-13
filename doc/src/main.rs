@@ -13,6 +13,7 @@ pub mod autotest;
 pub mod codegen;
 pub mod doc_coverage;
 pub mod dllgen;
+pub mod gene2e;
 pub mod docgen;
 pub mod patch;
 pub mod print;
@@ -318,6 +319,16 @@ fn main() -> anyhow::Result<()> {
             let opts = doc_coverage::DocCoverageOptions::parse(rest)?;
             let api_data = load_api_json(&api_path)?;
             doc_coverage::run(&project_root, &api_data, &opts)?;
+            return Ok(());
+        }
+        ["gen-e2e", rest @ ..] => {
+            // Fan out a fleet of cheap Claude agents that turn each ONE-LINE test
+            // description in <txt> into a real e2e JSON test in <out-dir>.
+            // GENERATES tests only — running them is a separate step.
+            // Usage: gen-e2e <txt> <out-dir> [--jobs N] [--model M] [--effort E]
+            //                [--limit N] [--filter <tag>] [--dry-run] [--redo]
+            let opts = gene2e::GenE2eOptions::parse(rest)?;
+            gene2e::run(&project_root, &opts)?;
             return Ok(());
         }
         ["discover"] => {
@@ -2299,6 +2310,12 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    spec holistic                 - Generate holistic analysis from all results");
     println!("    spec paragraphs <feature>     - Paragraphs for one feature (with text)");
     println!("    spec annotations              - Scan source for +spec: annotations");
+    println!();
+    println!("  E2E TEST GENERATION:");
+    println!("    gen-e2e <txt> <out-dir>       - Fan out cheap LLM agents: one line of <txt>");
+    println!("                                    -> one validated e2e JSON test in <out-dir>");
+    println!("      [--jobs N] [--model M] [--effort E] [--limit N] [--filter <tag>]");
+    println!("      [--dry-run] [--redo]        - dry-run lists the work; redo ignores resume");
     println!();
     println!("  OTHER:");
     println!("    v2 dll                        - Generate v2 DLL bindings");
