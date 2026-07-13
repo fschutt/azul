@@ -479,7 +479,8 @@ impl SvgQuadraticCurve {
 
 impl AnimationInterpolationFunction {
     /// Returns the cubic bezier curve corresponding to this timing function.
-    #[must_use] pub const fn get_curve(self) -> SvgCubicCurve {
+    #[must_use]
+    pub const fn get_curve(self) -> SvgCubicCurve {
         match self {
             Self::Ease => SvgCubicCurve {
                 start: SvgPoint { x: 0.0, y: 0.0 },

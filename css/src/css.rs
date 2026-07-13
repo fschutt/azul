@@ -1995,3 +1995,1762 @@ mod priority_sort_tests {
         .count();
     (id_count, class_count, div_count, path.selectors.len())
 }
+
+#[cfg(test)]
+#[allow(clippy::pedantic, clippy::nursery)]
+mod autotest_generated {
+    use core::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+
+    use super::*;
+    use crate::{
+        dynamic_selector::DynamicSelector,
+        props::{
+            basic::{color::ColorU, pixel::PixelValue},
+            layout::dimensions::LayoutWidth,
+            style::text::StyleTextColor,
+        },
+    };
+
+    // ---------------------------------------------------------------------
+    // helpers
+    // ---------------------------------------------------------------------
+
+    /// `width` — NOT inheritable, DOES trigger relayout.
+    fn prop_width(px: f32) -> CssProperty {
+        CssProperty::width(LayoutWidth::Px(PixelValue::px(px)))
+    }
+
+    /// `color` — IS inheritable, does NOT trigger relayout.
+    fn prop_text_color(r: u8) -> CssProperty {
+        CssProperty::const_text_color(StyleTextColor {
+            inner: ColorU::new(r, 0, 0, 255),
+        })
+    }
+
+    fn dyn_prop(id: &str, default_value: CssProperty) -> DynamicCssProperty {
+        DynamicCssProperty {
+            dynamic_id: id.to_string().into(),
+            default_value,
+        }
+    }
+
+    fn rule_at(priority: u8, selectors: Vec<CssPathSelector>) -> CssRuleBlock {
+        let mut r = CssRuleBlock::new(
+            CssPath::new(selectors),
+            vec![CssDeclaration::Static(prop_width(1.0))],
+        );
+        r.priority = priority;
+        r
+    }
+
+    fn hash_of<T: Hash>(t: &T) -> u64 {
+        let mut h = DefaultHasher::new();
+        t.hash(&mut h);
+        h.finish()
+    }
+
+    /// A stand-in property payload so the generic `CssPropertyValue<T>` surface can be
+    /// driven with hostile floats (NaN / ±inf) that no real CSS type would hand us.
+    #[derive(Debug, Copy, Clone, PartialEq, Default)]
+    struct TestVal(f32);
+
+    impl PrintAsCssValue for TestVal {
+        fn print_as_css_value(&self) -> String {
+            format!("{}", self.0)
+        }
+    }
+
+    impl fmt::Display for TestVal {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    /// The six CSS-wide keyword variants (everything that is not `Exact`).
+    fn keyword_values() -> Vec<CssPropertyValue<TestVal>> {
+        vec![
+            CssPropertyValue::Auto,
+            CssPropertyValue::None,
+            CssPropertyValue::Initial,
+            CssPropertyValue::Inherit,
+            CssPropertyValue::Revert,
+            CssPropertyValue::Unset,
+        ]
+    }
+
+    // =====================================================================
+    // Css — constructors, predicates, getters
+    // =====================================================================
+
+    #[test]
+    fn css_empty_is_the_neutral_element() {
+        let e = Css::empty();
+        assert!(e.is_empty());
+        assert_eq!(e.rules().count(), 0);
+        assert_eq!(e.iter_inline_properties().count(), 0);
+        // empty() / default() / new(vec![]) must all agree.
+        assert_eq!(e, Css::default());
+        assert_eq!(e, Css::new(Vec::new()));
+        assert_eq!(e, Css::from(Vec::<CssRuleBlock>::new()));
+    }
+
+    #[test]
+    fn css_new_preserves_length_and_order() {
+        let rules = vec![
+            rule_at(rule_priority::UA, vec![CssPathSelector::Global]),
+            rule_at(
+                rule_priority::AUTHOR,
+                vec![CssPathSelector::Id("a".to_string().into())],
+            ),
+            rule_at(rule_priority::INLINE, vec![CssPathSelector::Children]),
+        ];
+        let css = Css::new(rules.clone());
+        assert!(!css.is_empty());
+        assert_eq!(css.rules().count(), 3);
+        assert_eq!(css.rules.as_ref(), &rules[..]);
+        // `rules()` and the raw vec must not disagree.
+        assert_eq!(css.rules().count(), css.rules.as_ref().len());
+    }
+
+    #[test]
+    fn css_new_with_many_rules_does_not_panic() {
+        let rules: Vec<CssRuleBlock> = (0..10_000)
+            .map(|i| rule_at((i % 256) as u8, vec![CssPathSelector::Global]))
+            .collect();
+        let css = Css::new(rules);
+        assert_eq!(css.rules.as_ref().len(), 10_000);
+        assert!(!css.is_empty());
+        // Every rule carries one Static decl → one inline property each.
+        assert_eq!(css.iter_inline_properties().count(), 10_000);
+    }
+
+    #[test]
+    fn css_sort_by_specificity_on_empty_and_singleton_is_a_noop() {
+        let mut empty = Css::empty();
+        empty.sort_by_specificity();
+        assert!(empty.is_empty());
+
+        let one = rule_at(rule_priority::AUTHOR, vec![CssPathSelector::Global]);
+        let mut css = Css::new(vec![one.clone()]);
+        css.sort_by_specificity();
+        assert_eq!(css.rules.as_ref(), &[one][..]);
+    }
+
+    #[test]
+    fn css_sort_by_specificity_is_idempotent() {
+        let mut css = Css::new(vec![
+            rule_at(rule_priority::RUNTIME, vec![CssPathSelector::Global]),
+            rule_at(
+                rule_priority::UA,
+                vec![
+                    CssPathSelector::Id("x".to_string().into()),
+                    CssPathSelector::Class("y".to_string().into()),
+                ],
+            ),
+            rule_at(rule_priority::INLINE, vec![CssPathSelector::Global]),
+            rule_at(
+                rule_priority::AUTHOR,
+                vec![CssPathSelector::Type(NodeTypeTag::Div)],
+            ),
+            rule_at(rule_priority::SYSTEM, vec![CssPathSelector::Global]),
+        ]);
+        css.sort_by_specificity();
+        let once = css.clone();
+        css.sort_by_specificity();
+        assert_eq!(css, once, "sort_by_specificity must be idempotent");
+
+        // Layer order is the primary key, and it is monotonically non-decreasing.
+        let priorities: Vec<u8> = css.rules().map(|r| r.priority).collect();
+        assert_eq!(
+            priorities,
+            vec![
+                rule_priority::UA,
+                rule_priority::SYSTEM,
+                rule_priority::AUTHOR,
+                rule_priority::INLINE,
+                rule_priority::RUNTIME,
+            ]
+        );
+    }
+
+    #[test]
+    fn css_sort_by_specificity_keeps_equal_keys_in_source_order() {
+        // sort_by is stable — two rules with the same (priority, specificity) must not swap.
+        let a = CssRuleBlock::new(
+            CssPath::new(vec![CssPathSelector::Global]),
+            vec![CssDeclaration::Static(prop_width(1.0))],
+        );
+        let b = CssRuleBlock::new(
+            CssPath::new(vec![CssPathSelector::Global]),
+            vec![CssDeclaration::Static(prop_width(2.0))],
+        );
+        let mut css = Css::new(vec![a.clone(), b.clone()]);
+        css.sort_by_specificity();
+        assert_eq!(
+            css.rules.as_ref(),
+            &[a, b][..],
+            "ties must keep source order (last-wins cascade depends on it)"
+        );
+    }
+
+    #[test]
+    fn css_iter_inline_properties_skips_dynamic_declarations() {
+        let css = Css::new(vec![CssRuleBlock::with_conditions(
+            CssPath::new(vec![CssPathSelector::Global]),
+            vec![
+                CssDeclaration::Static(prop_width(10.0)),
+                CssDeclaration::Dynamic(dyn_prop("d", prop_text_color(1))),
+                CssDeclaration::Static(prop_text_color(2)),
+            ],
+            vec![DynamicSelector::ContainerName("c".to_string().into())],
+        )]);
+
+        let collected: Vec<_> = css.iter_inline_properties().collect();
+        assert_eq!(collected.len(), 2, "Dynamic declarations must be skipped");
+        assert_eq!(collected[0].0.get_type(), CssPropertyType::Width);
+        assert_eq!(collected[1].0.get_type(), CssPropertyType::TextColor);
+        // Every yielded property shares the conditions of its enclosing rule.
+        for (_, conds) in &collected {
+            assert_eq!(conds.as_ref().len(), 1);
+        }
+    }
+
+    #[test]
+    fn css_iter_inline_properties_on_rule_without_declarations() {
+        let css = Css::new(vec![CssRuleBlock::new(
+            CssPath::new(vec![CssPathSelector::Global]),
+            Vec::new(),
+        )]);
+        assert!(!css.is_empty(), "a rule with 0 declarations is still a rule");
+        assert_eq!(css.iter_inline_properties().count(), 0);
+    }
+
+    #[test]
+    fn css_ord_is_length_based_by_design() {
+        // Documented deviation: `Ord for Css` compares rule COUNT only, so two
+        // structurally different stylesheets of equal length compare Equal while
+        // PartialEq reports them as different. Pinned here so the deviation is a
+        // deliberate choice, not an accident.
+        let a = Css::new(vec![rule_at(
+            rule_priority::UA,
+            vec![CssPathSelector::Global],
+        )]);
+        let b = Css::new(vec![rule_at(
+            rule_priority::RUNTIME,
+            vec![CssPathSelector::Type(NodeTypeTag::Div)],
+        )]);
+        assert_ne!(a, b);
+        assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
+        assert_eq!(a.partial_cmp(&b), Some(core::cmp::Ordering::Equal));
+        // …and the length ordering itself is right.
+        let longer = Css::new(vec![
+            rule_at(rule_priority::UA, vec![CssPathSelector::Global]),
+            rule_at(rule_priority::UA, vec![CssPathSelector::Global]),
+        ]);
+        assert_eq!(a.cmp(&longer), core::cmp::Ordering::Less);
+        assert_eq!(Css::empty().cmp(&a), core::cmp::Ordering::Less);
+    }
+
+    // =====================================================================
+    // CssDeclaration
+    // =====================================================================
+
+    #[test]
+    fn css_declaration_new_static_matches_the_wrapped_property() {
+        let p = prop_width(42.0);
+        let d = CssDeclaration::new_static(p.clone());
+        assert_eq!(d, CssDeclaration::Static(p.clone()));
+        assert_eq!(d.get_type(), p.get_type());
+        assert_eq!(d.get_type(), CssPropertyType::Width);
+    }
+
+    #[test]
+    fn css_declaration_new_dynamic_takes_its_type_from_the_default_value() {
+        let dp = dyn_prop("my_id", prop_text_color(7));
+        let d = CssDeclaration::new_dynamic(dp.clone());
+        assert_eq!(d, CssDeclaration::Dynamic(dp));
+        assert_eq!(
+            d.get_type(),
+            CssPropertyType::TextColor,
+            "a Dynamic declaration's type is its default value's type"
+        );
+    }
+
+    #[test]
+    fn css_declaration_is_inheritable_matrix() {
+        // color inherits, width does not — that is the CSS spec.
+        assert!(CssDeclaration::new_static(prop_text_color(1)).is_inheritable());
+        assert!(!CssDeclaration::new_static(prop_width(1.0)).is_inheritable());
+        // A Dynamic declaration is NEVER inheritable, even when its default value
+        // is an inheritable property. Guards the documented anti-surprise rule.
+        assert!(
+            !CssDeclaration::new_dynamic(dyn_prop("c", prop_text_color(1))).is_inheritable(),
+            "Dynamic declarations must never inherit, even wrapping an inheritable prop"
+        );
+        assert!(!CssDeclaration::new_dynamic(dyn_prop("w", prop_width(1.0))).is_inheritable());
+    }
+
+    #[test]
+    fn css_declaration_can_trigger_relayout_matrix() {
+        assert!(CssDeclaration::new_static(prop_width(1.0)).can_trigger_relayout());
+        assert!(!CssDeclaration::new_static(prop_text_color(1)).can_trigger_relayout());
+        // Dynamic delegates to the default value's type (unlike is_inheritable).
+        assert!(CssDeclaration::new_dynamic(dyn_prop("w", prop_width(1.0))).can_trigger_relayout());
+        assert!(
+            !CssDeclaration::new_dynamic(dyn_prop("c", prop_text_color(1))).can_trigger_relayout()
+        );
+    }
+
+    #[test]
+    fn css_declaration_to_str_static_is_non_empty_for_edge_floats() {
+        for px in [
+            0.0_f32,
+            -0.0,
+            f32::MIN,
+            f32::MAX,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::EPSILON,
+        ] {
+            let s = CssDeclaration::new_static(prop_width(px)).to_str();
+            assert!(
+                !s.is_empty(),
+                "to_str() must render something for width: {px:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn css_declaration_to_str_dynamic_renders_var_syntax() {
+        let s = CssDeclaration::new_dynamic(dyn_prop("my_id", prop_width(5.0))).to_str();
+        assert!(
+            s.starts_with("var(--my_id, "),
+            "dynamic to_str must render CSS var() syntax, got {s:?}"
+        );
+        assert!(s.ends_with(')'));
+    }
+
+    #[test]
+    fn css_declaration_to_str_dynamic_with_hostile_ids_does_not_panic() {
+        let long = "x".repeat(100_000);
+        for id in [
+            "",
+            "   ",
+            "😀",
+            "a\u{0301}\u{0301}",
+            "--)",
+            "\u{0}",
+            "a\nb",
+            long.as_str(),
+        ] {
+            let s = CssDeclaration::new_dynamic(dyn_prop(id, prop_width(1.0))).to_str();
+            assert!(s.starts_with("var(--"));
+        }
+    }
+
+    // =====================================================================
+    // DynamicCssProperty
+    // =====================================================================
+
+    #[test]
+    fn dynamic_css_property_is_never_inheritable() {
+        for p in [
+            prop_text_color(0),
+            prop_width(0.0),
+            prop_width(f32::NAN),
+            CssProperty::const_none(CssPropertyType::FontSize),
+            CssProperty::const_inherit(CssPropertyType::TextColor),
+        ] {
+            assert!(
+                !dyn_prop("id", p).is_inheritable(),
+                "DynamicCssProperty::is_inheritable is unconditionally false"
+            );
+        }
+    }
+
+    #[test]
+    fn dynamic_css_property_relayout_follows_the_default_value_type() {
+        assert!(dyn_prop("a", prop_width(1.0)).can_trigger_relayout());
+        assert!(!dyn_prop("a", prop_text_color(1)).can_trigger_relayout());
+        // Keyword-valued defaults keep their property type, so the answer is unchanged.
+        assert!(dyn_prop("a", CssProperty::const_auto(CssPropertyType::Width)).can_trigger_relayout());
+        assert!(
+            !dyn_prop("a", CssProperty::const_none(CssPropertyType::TextColor))
+                .can_trigger_relayout()
+        );
+    }
+
+    // =====================================================================
+    // BoxOrStatic
+    // =====================================================================
+
+    static STATIC_U32: u32 = 0xDEAD_BEEF;
+
+    #[test]
+    fn box_or_static_heap_round_trips_through_as_ref_and_deref() {
+        let b = BoxOrStatic::heap(123_u32);
+        assert_eq!(*b.as_ref(), 123);
+        assert_eq!(*b, 123, "Deref must agree with as_ref");
+        assert_eq!(*BoxOrStatic::heap(u32::MAX).as_ref(), u32::MAX);
+        assert_eq!(*BoxOrStatic::heap(0_u32).as_ref(), 0);
+        // Zero-sized and large payloads.
+        assert_eq!(*BoxOrStatic::heap(()).as_ref(), ());
+        let big = BoxOrStatic::heap(vec![0_u8; 1_000_000]);
+        assert_eq!(big.as_ref().len(), 1_000_000);
+    }
+
+    #[test]
+    fn box_or_static_static_variant_reads_through_as_ref() {
+        let b: BoxOrStatic<u32> = BoxOrStatic::Static(&STATIC_U32 as *const u32);
+        assert_eq!(*b.as_ref(), 0xDEAD_BEEF);
+        assert_eq!(*b, 0xDEAD_BEEF);
+    }
+
+    #[test]
+    fn box_or_static_as_mut_mutates_the_boxed_value() {
+        let mut b = BoxOrStatic::heap(1_u32);
+        *b.as_mut() = 9;
+        assert_eq!(*b.as_ref(), 9);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot mutate a static BoxOrStatic value")]
+    fn box_or_static_as_mut_on_static_panics_as_documented() {
+        let mut b: BoxOrStatic<u32> = BoxOrStatic::Static(&STATIC_U32 as *const u32);
+        let _ = b.as_mut();
+    }
+
+    #[test]
+    fn box_or_static_clone_is_deep_for_boxed() {
+        let a = BoxOrStatic::heap(5_u32);
+        let mut b = a.clone();
+        *b.as_mut() = 6;
+        assert_eq!(*a.as_ref(), 5, "cloning a Boxed value must not alias it");
+        assert_eq!(*b.as_ref(), 6);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn box_or_static_eq_ord_hash_all_delegate_to_the_inner_value() {
+        let heap = BoxOrStatic::heap(0xDEAD_BEEF_u32);
+        let stat: BoxOrStatic<u32> = BoxOrStatic::Static(&STATIC_U32 as *const u32);
+        // Same inner value, different variant → still equal / equal-hashing / equal-ordering.
+        assert_eq!(heap, stat);
+        assert_eq!(hash_of(&heap), hash_of(&stat));
+        assert_eq!(heap.cmp(&stat), core::cmp::Ordering::Equal);
+        assert_eq!(heap.partial_cmp(&stat), Some(core::cmp::Ordering::Equal));
+
+        let smaller = BoxOrStatic::heap(1_u32);
+        assert!(smaller < heap);
+    }
+
+    #[test]
+    fn box_or_static_debug_and_display_render_the_inner_value() {
+        let b = BoxOrStatic::heap(42_u32);
+        assert_eq!(format!("{b:?}"), "42");
+        assert_eq!(format!("{b}"), "42");
+        let s: BoxOrStaticString = BoxOrStatic::heap(String::new().into());
+        assert!(
+            !format!("{s:?}").is_empty(),
+            "Debug of an empty string payload is still well-formed"
+        );
+        // Hostile float payloads must not panic while formatting.
+        for f in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MIN] {
+            let bf = BoxOrStatic::heap(f);
+            assert!(!format!("{bf:?}").is_empty());
+            assert!(!format!("{bf}").is_empty());
+        }
+    }
+
+    #[test]
+    fn box_or_static_default_is_a_heap_allocated_default() {
+        let b: BoxOrStatic<u32> = BoxOrStatic::default();
+        assert_eq!(*b.as_ref(), 0);
+        assert!(matches!(b, BoxOrStatic::Boxed(_)));
+        let s: BoxOrStaticString = BoxOrStatic::default();
+        assert_eq!(s.as_ref().as_str(), "");
+    }
+
+    #[test]
+    fn box_or_static_into_inner_returns_the_payload() {
+        assert_eq!(BoxOrStatic::heap(7_u32).into_inner(), 7);
+        let stat: BoxOrStatic<u32> = BoxOrStatic::Static(&STATIC_U32 as *const u32);
+        assert_eq!(stat.into_inner(), 0xDEAD_BEEF);
+        let s: BoxOrStaticString = BoxOrStatic::heap("hello".to_string().into());
+        assert_eq!(s.into_inner().as_str(), "hello");
+    }
+
+    #[test]
+    fn box_or_static_into_inner_must_not_leak_the_box() {
+        use core::sync::atomic::{AtomicIsize, Ordering};
+
+        // Counts LIVE instances: +1 on construction, +1 on clone, -1 on drop.
+        // Never touched by any other test, so parallel execution is safe.
+        static LIVE: AtomicIsize = AtomicIsize::new(0);
+
+        struct Tracked(u32);
+        impl Tracked {
+            fn new(v: u32) -> Self {
+                LIVE.fetch_add(1, Ordering::SeqCst);
+                Self(v)
+            }
+        }
+        impl Clone for Tracked {
+            fn clone(&self) -> Self {
+                LIVE.fetch_add(1, Ordering::SeqCst);
+                Self(self.0)
+            }
+        }
+        impl Drop for Tracked {
+            fn drop(&mut self) {
+                LIVE.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+
+        let boxed = BoxOrStatic::heap(Tracked::new(7));
+        assert_eq!(LIVE.load(Ordering::SeqCst), 1);
+
+        let inner = boxed.into_inner();
+        assert_eq!(inner.0, 7);
+        drop(inner);
+
+        assert_eq!(
+            LIVE.load(Ordering::SeqCst),
+            0,
+            "into_inner() on a Boxed variant leaks: it clones the payload and then \
+             mem::forget(self), so `Drop for BoxOrStatic` never runs and the Box \
+             (plus the T inside it) is never freed"
+        );
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn box_or_static_is_the_documented_16_bytes() {
+        assert_eq!(core::mem::size_of::<BoxOrStatic<u32>>(), 16);
+        assert_eq!(core::mem::size_of::<BoxOrStaticString>(), 16);
+    }
+
+    // =====================================================================
+    // CssPropertyValue
+    // =====================================================================
+
+    #[test]
+    fn css_property_value_predicates_are_mutually_exclusive() {
+        for v in keyword_values() {
+            let flags = [
+                v.is_auto(),
+                v.is_none(),
+                v.is_initial(),
+                v.is_inherit(),
+                v.is_revert(),
+                v.is_unset(),
+            ];
+            assert_eq!(
+                flags.iter().filter(|b| **b).count(),
+                1,
+                "exactly one predicate must fire for {v:?}"
+            );
+            assert!(
+                v.get_property().is_none(),
+                "a keyword variant has no property"
+            );
+        }
+
+        let exact = CssPropertyValue::Exact(TestVal(1.0));
+        assert!(
+            !exact.is_auto()
+                && !exact.is_none()
+                && !exact.is_initial()
+                && !exact.is_inherit()
+                && !exact.is_revert()
+                && !exact.is_unset(),
+            "Exact must answer false to every keyword predicate"
+        );
+    }
+
+    #[test]
+    fn css_property_value_predicates_pick_the_right_variant() {
+        assert!(CssPropertyValue::<TestVal>::Auto.is_auto());
+        assert!(CssPropertyValue::<TestVal>::None.is_none());
+        assert!(CssPropertyValue::<TestVal>::Initial.is_initial());
+        assert!(CssPropertyValue::<TestVal>::Inherit.is_inherit());
+        assert!(CssPropertyValue::<TestVal>::Revert.is_revert());
+        assert!(CssPropertyValue::<TestVal>::Unset.is_unset());
+    }
+
+    #[test]
+    fn css_property_value_get_property_and_get_property_owned_agree() {
+        let exact = CssPropertyValue::Exact(TestVal(3.5));
+        assert_eq!(exact.get_property(), Some(&TestVal(3.5)));
+        assert_eq!(exact.get_property_owned(), Some(TestVal(3.5)));
+        for v in keyword_values() {
+            assert_eq!(v.get_property(), None);
+            assert_eq!(v.get_property_owned(), None);
+        }
+    }
+
+    #[test]
+    fn css_property_value_get_property_or_default_substitutes_only_auto_and_initial() {
+        // Documented mapping: Auto/Initial fall back to T::default(); the remaining
+        // keywords stay None (the cascade resolves them elsewhere).
+        assert_eq!(
+            CssPropertyValue::<TestVal>::Auto.get_property_or_default(),
+            Some(TestVal::default())
+        );
+        assert_eq!(
+            CssPropertyValue::<TestVal>::Initial.get_property_or_default(),
+            Some(TestVal::default())
+        );
+        assert_eq!(CssPropertyValue::<TestVal>::None.get_property_or_default(), None);
+        assert_eq!(
+            CssPropertyValue::<TestVal>::Inherit.get_property_or_default(),
+            None
+        );
+        assert_eq!(
+            CssPropertyValue::<TestVal>::Revert.get_property_or_default(),
+            None
+        );
+        assert_eq!(CssPropertyValue::<TestVal>::Unset.get_property_or_default(), None);
+        assert_eq!(
+            CssPropertyValue::Exact(TestVal(9.0)).get_property_or_default(),
+            Some(TestVal(9.0))
+        );
+    }
+
+    #[test]
+    fn css_property_value_default_is_exact_default() {
+        assert_eq!(
+            CssPropertyValue::<TestVal>::default(),
+            CssPropertyValue::Exact(TestVal::default())
+        );
+        assert!(!CssPropertyValue::<TestVal>::default().is_auto());
+    }
+
+    #[test]
+    fn css_property_value_from_wraps_into_exact() {
+        let v: CssPropertyValue<TestVal> = TestVal(2.0).into();
+        assert_eq!(v, CssPropertyValue::Exact(TestVal(2.0)));
+    }
+
+    #[test]
+    fn css_property_value_keyword_serialization_is_the_css_keyword() {
+        let cases: [(CssPropertyValue<TestVal>, &str); 6] = [
+            (CssPropertyValue::Auto, "auto"),
+            (CssPropertyValue::None, "none"),
+            (CssPropertyValue::Initial, "initial"),
+            (CssPropertyValue::Inherit, "inherit"),
+            (CssPropertyValue::Revert, "revert"),
+            (CssPropertyValue::Unset, "unset"),
+        ];
+        for (v, expected) in cases {
+            assert_eq!(v.get_css_value_fmt(), expected);
+            assert_eq!(
+                format!("{v}"),
+                expected,
+                "Display and get_css_value_fmt must not diverge for keywords"
+            );
+        }
+        let exact = CssPropertyValue::Exact(TestVal(1.5));
+        assert_eq!(exact.get_css_value_fmt(), "1.5");
+        assert_eq!(format!("{exact}"), "1.5");
+    }
+
+    #[test]
+    fn css_property_value_serializes_hostile_floats_without_panicking() {
+        for f in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MIN,
+            f32::MAX,
+            -0.0,
+            f32::MIN_POSITIVE,
+        ] {
+            let v = CssPropertyValue::Exact(TestVal(f));
+            assert!(!v.get_css_value_fmt().is_empty());
+            assert!(!format!("{v}").is_empty());
+        }
+    }
+
+    #[test]
+    fn css_property_value_map_property_preserves_keyword_variants() {
+        // The mapper must never run for a keyword variant…
+        for v in keyword_values() {
+            let before = format!("{v}");
+            let mapped: CssPropertyValue<u32> =
+                v.map_property(|_| panic!("map_fn must not run on a keyword variant"));
+            assert_eq!(format!("{mapped}"), before, "the keyword must survive the map");
+        }
+        // …and must run exactly once for Exact.
+        let mapped = CssPropertyValue::Exact(TestVal(2.0)).map_property(|t| t.0 as u32);
+        assert_eq!(mapped, CssPropertyValue::Exact(2_u32));
+    }
+
+    #[test]
+    fn css_property_value_map_property_handles_nan_and_type_changing_maps() {
+        let mapped = CssPropertyValue::Exact(TestVal(f32::NAN)).map_property(|t| t.0.is_nan());
+        assert_eq!(mapped, CssPropertyValue::Exact(true));
+        // f32 -> i32 saturating cast on infinity must not trap.
+        let mapped = CssPropertyValue::Exact(TestVal(f32::INFINITY)).map_property(|t| t.0 as i64);
+        assert_eq!(mapped, CssPropertyValue::Exact(i64::MAX));
+    }
+
+    // =====================================================================
+    // CssRuleBlock
+    // =====================================================================
+
+    #[test]
+    fn css_rule_block_new_defaults_to_author_priority_and_no_conditions() {
+        let decls = vec![
+            CssDeclaration::Static(prop_width(1.0)),
+            CssDeclaration::Static(prop_text_color(2)),
+        ];
+        let r = CssRuleBlock::new(
+            CssPath::new(vec![CssPathSelector::Type(NodeTypeTag::Div)]),
+            decls.clone(),
+        );
+        assert_eq!(r.priority, rule_priority::AUTHOR);
+        assert!(r.conditions.as_ref().is_empty());
+        assert_eq!(r.declarations.as_ref(), &decls[..]);
+        assert_eq!(r.path.selectors.as_ref().len(), 1);
+    }
+
+    #[test]
+    fn css_rule_block_with_conditions_keeps_every_condition() {
+        let conds: Vec<DynamicSelector> = (0..1_000)
+            .map(|i| DynamicSelector::ContainerName(format!("c{i}").into()))
+            .collect();
+        let r = CssRuleBlock::with_conditions(
+            CssPath::default(),
+            Vec::new(),
+            conds.clone(),
+        );
+        assert_eq!(r.conditions.as_ref().len(), 1_000);
+        assert_eq!(r.conditions.as_ref(), &conds[..]);
+        assert_eq!(
+            r.priority,
+            rule_priority::AUTHOR,
+            "with_conditions must not change the layer"
+        );
+        assert!(r.declarations.as_ref().is_empty());
+        assert!(r.path.selectors.as_ref().is_empty());
+    }
+
+    #[test]
+    fn css_rule_block_default_is_empty_and_ua_priority() {
+        let r = CssRuleBlock::default();
+        assert!(r.path.selectors.as_ref().is_empty());
+        assert!(r.declarations.as_ref().is_empty());
+        assert!(r.conditions.as_ref().is_empty());
+        assert_eq!(r.priority, rule_priority::UA, "u8::default() == 0 == UA");
+    }
+
+    #[test]
+    fn rule_priority_slots_are_strictly_ordered() {
+        assert!(rule_priority::UA < rule_priority::SYSTEM);
+        assert!(rule_priority::SYSTEM < rule_priority::AUTHOR);
+        assert!(rule_priority::AUTHOR < rule_priority::INLINE);
+        assert!(rule_priority::INLINE < rule_priority::RUNTIME);
+    }
+
+    // =====================================================================
+    // NodeTypeTag — parse / serialize round trip
+    // =====================================================================
+
+    const ALL_TAGS: &[NodeTypeTag] = {
+        use NodeTypeTag::*;
+        &[
+            Html, Head, Body, Div, P, Article, Section, Nav, Aside, Header, Footer, Main, Figure,
+            FigCaption, H1, H2, H3, H4, H5, H6, Br, Hr, Pre, BlockQuote, Address, Details, Summary,
+            Dialog, Ul, Ol, Li, Dl, Dt, Dd, Menu, MenuItem, Dir, Table, Caption, THead, TBody,
+            TFoot, Tr, Th, Td, ColGroup, Col, Form, FieldSet, Legend, Label, Input, Button, Select,
+            OptGroup, SelectOption, TextArea, Output, Progress, Meter, DataList, Span, A, Em,
+            Strong, B, I, U, S, Mark, Del, Ins, Code, Samp, Kbd, Var, Cite, Dfn, Abbr, Acronym, Q,
+            Time, Sub, Sup, Small, Big, Bdo, Bdi, Wbr, Ruby, Rt, Rtc, Rp, Data, Canvas, Object,
+            Param, Embed, Audio, Video, Source, Track, Map, Area, Svg, SvgPath, SvgCircle, SvgRect,
+            SvgEllipse, SvgLine, SvgPolygon, SvgPolyline, SvgG, SvgDefs, SvgSymbol, SvgUse,
+            SvgSwitch, SvgText, SvgTspan, SvgTextPath, SvgLinearGradient, SvgRadialGradient,
+            SvgStop, SvgPattern, SvgClipPathElement, SvgMask, SvgFilter, SvgFeBlend,
+            SvgFeColorMatrix, SvgFeComponentTransfer, SvgFeComposite, SvgFeConvolveMatrix,
+            SvgFeDiffuseLighting, SvgFeDisplacementMap, SvgFeDistantLight, SvgFeDropShadow,
+            SvgFeFlood, SvgFeFuncR, SvgFeFuncG, SvgFeFuncB, SvgFeFuncA, SvgFeGaussianBlur,
+            SvgFeImage, SvgFeMerge, SvgFeMergeNode, SvgFeMorphology, SvgFeOffset, SvgFePointLight,
+            SvgFeSpecularLighting, SvgFeSpotLight, SvgFeTile, SvgFeTurbulence, SvgMarker, SvgImage,
+            SvgForeignObject, SvgTitle, SvgDesc, SvgMetadata, SvgA, SvgView, SvgStyle, SvgScript,
+            SvgAnimate, SvgAnimateMotion, SvgAnimateTransform, SvgSet, SvgMpath, Title, Meta, Link,
+            Script, Style, Base, Text, Img, VirtualView, Icon, GeolocationProbe, Before, After,
+            Marker, Placeholder,
+        ]
+    };
+
+    #[test]
+    fn node_type_tag_variant_list_is_complete_and_unique() {
+        // Guard rail for the round-trip tests below: if a variant is added to the enum
+        // without being added here, this count check fails and points at the omission.
+        assert_eq!(
+            ALL_TAGS.len(),
+            182,
+            "ALL_TAGS is out of sync with the NodeTypeTag enum"
+        );
+        let mut seen: Vec<NodeTypeTag> = Vec::new();
+        for t in ALL_TAGS {
+            assert!(!seen.contains(t), "duplicate entry in ALL_TAGS: {t:?}");
+            seen.push(*t);
+        }
+    }
+
+    #[test]
+    fn node_type_tag_display_names_are_all_distinct() {
+        let mut names: Vec<String> = ALL_TAGS.iter().map(ToString::to_string).collect();
+        names.sort();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            before,
+            "two NodeTypeTag variants serialize to the same CSS tag name — \
+             the string is then ambiguous on the way back in"
+        );
+    }
+
+    #[test]
+    fn node_type_tag_display_then_from_str_round_trips_every_variant() {
+        let mut broken: Vec<(NodeTypeTag, String)> = Vec::new();
+        for tag in ALL_TAGS {
+            let serialized = tag.to_string();
+            // Resolve to a bool first: the Result borrows `serialized`, so `serialized`
+            // cannot be moved into `broken` while that borrow is still live.
+            let round_trips = matches!(NodeTypeTag::from_str(&serialized), Ok(t) if t == *tag);
+            if !round_trips {
+                broken.push((*tag, serialized));
+            }
+        }
+        assert!(
+            broken.is_empty(),
+            "from_str(Display(tag)) must yield tag back, but these variants do not \
+             round-trip: {broken:?}"
+        );
+    }
+
+    #[test]
+    fn node_type_tag_serialize_parse_serialize_is_stable() {
+        // Idempotent normalization: for every variant that parses back at all, a second
+        // serialize must produce a byte-identical string.
+        for tag in ALL_TAGS {
+            let once = tag.to_string();
+            if let Ok(parsed) = NodeTypeTag::from_str(&once) {
+                assert_eq!(
+                    parsed.to_string(),
+                    once,
+                    "serialize(parse(serialize({tag:?}))) drifted"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn node_type_tag_from_str_valid_minimal() {
+        assert_eq!(NodeTypeTag::from_str("div"), Ok(NodeTypeTag::Div));
+        assert_eq!(NodeTypeTag::from_str("p"), Ok(NodeTypeTag::P));
+        assert_eq!(NodeTypeTag::from_str("a"), Ok(NodeTypeTag::A));
+    }
+
+    #[test]
+    fn node_type_tag_from_str_accepts_documented_aliases() {
+        // Two spellings, one variant — and the canonical spelling is what comes back out.
+        assert_eq!(NodeTypeTag::from_str("image"), Ok(NodeTypeTag::SvgImage));
+        assert_eq!(NodeTypeTag::from_str("svg:image"), Ok(NodeTypeTag::SvgImage));
+        assert_eq!(NodeTypeTag::SvgImage.to_string(), "svg:image");
+
+        assert_eq!(NodeTypeTag::from_str("iframe"), Ok(NodeTypeTag::VirtualView));
+        assert_eq!(
+            NodeTypeTag::from_str("virtual-view"),
+            Ok(NodeTypeTag::VirtualView)
+        );
+
+        for (bare, prefixed, tag) in [
+            ("before", "::before", NodeTypeTag::Before),
+            ("after", "::after", NodeTypeTag::After),
+            ("marker", "::marker", NodeTypeTag::Marker),
+            ("placeholder", "::placeholder", NodeTypeTag::Placeholder),
+        ] {
+            assert_eq!(NodeTypeTag::from_str(bare), Ok(tag));
+            assert_eq!(NodeTypeTag::from_str(prefixed), Ok(tag));
+            assert_eq!(
+                tag.to_string(),
+                prefixed,
+                "pseudo-elements must serialize in their `::` form"
+            );
+        }
+    }
+
+    #[test]
+    fn node_type_tag_from_str_rejects_hostile_input_without_panicking() {
+        let long = "a".repeat(1_000_000);
+        let nested = "<".repeat(10_000);
+        let hostile = [
+            "",                       // empty
+            " ",                      // whitespace only
+            "   \t\n\r  ",            // whitespace only, mixed
+            " div",                   // leading junk — no trimming
+            "div ",                   // trailing junk
+            "  div  ",                // both
+            "div;garbage",            // trailing garbage
+            "DIV",                    // wrong case — CSS tag matching here is case-sensitive
+            "Div",
+            "0",
+            "-0",
+            "9223372036854775807",    // i64::MAX
+            "1e400",
+            "NaN",
+            "inf",
+            "-inf",
+            "\u{1F600}",              // emoji
+            "e\u{0301}",              // combining mark
+            "\u{0}",                  // NUL
+            "\u{FEFF}div",            // BOM prefix
+            "div\u{0}",
+            "*",
+            "::",
+            ":::before",
+            "<script>",
+            long.as_str(),
+            nested.as_str(),
+        ];
+        for input in hostile {
+            match NodeTypeTag::from_str(input) {
+                Ok(t) => panic!("{input:?} must not parse, but produced {t:?}"),
+                Err(NodeTypeTagParseError::Invalid(echoed)) => {
+                    assert_eq!(echoed, input, "the error must echo the input verbatim");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn node_type_tag_parse_error_display_names_the_offending_input() {
+        let e = NodeTypeTagParseError::Invalid("wat");
+        assert_eq!(format!("{e}"), "Invalid node type: wat");
+        // Empty / unicode payloads must still format cleanly.
+        assert_eq!(format!("{}", NodeTypeTagParseError::Invalid("")), "Invalid node type: ");
+        assert!(format!("{}", NodeTypeTagParseError::Invalid("😀")).contains('😀'));
+    }
+
+    #[test]
+    fn node_type_tag_parse_error_to_contained_to_shared_round_trips() {
+        let long = "x".repeat(10_000);
+        for s in ["", "   ", "div", "😀", "e\u{0301}", "\u{0}", long.as_str()] {
+            let shared = NodeTypeTagParseError::Invalid(s);
+            let owned = shared.to_contained();
+            assert_eq!(owned, NodeTypeTagParseErrorOwned::Invalid(s.to_string().into()));
+            assert_eq!(
+                owned.to_shared(),
+                shared,
+                "to_shared(to_contained(x)) must equal x"
+            );
+            // …and the owned form still renders the same message.
+            assert_eq!(format!("{}", owned.to_shared()), format!("{shared}"));
+        }
+    }
+
+    // =====================================================================
+    // CssPath / CssScopeRange
+    // =====================================================================
+
+    #[test]
+    fn css_path_new_preserves_selectors_including_empty() {
+        assert!(CssPath::new(Vec::new()).selectors.as_ref().is_empty());
+        assert_eq!(CssPath::new(Vec::new()), CssPath::default());
+
+        let sels = vec![
+            CssPathSelector::Type(NodeTypeTag::Div),
+            CssPathSelector::DirectChildren,
+            CssPathSelector::Class("c".to_string().into()),
+        ];
+        let p = CssPath::new(sels.clone());
+        assert_eq!(p.selectors.as_ref(), &sels[..]);
+    }
+
+    #[test]
+    fn css_path_display_and_debug_agree_and_compose() {
+        let p = CssPath::new(vec![
+            CssPathSelector::Type(NodeTypeTag::Div),
+            CssPathSelector::Id("id".to_string().into()),
+            CssPathSelector::Class("cls".to_string().into()),
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
+        ]);
+        assert_eq!(format!("{p}"), "div#id.cls:hover");
+        assert_eq!(format!("{p:?}"), format!("{p}"), "Debug delegates to Display");
+        // An empty path renders as the empty string — deterministic, no panic.
+        assert_eq!(format!("{}", CssPath::default()), "");
+    }
+
+    #[test]
+    fn push_front_scope_scopes_a_bare_star_rule_to_the_node_only() {
+        // A bare `*` path is the parse_inline wrapper for inline styles → node-only.
+        let mut p = CssPath::new(vec![CssPathSelector::Global]);
+        p.push_front_scope(5, 9);
+        assert_eq!(
+            p.selectors.as_ref(),
+            &[
+                CssPathSelector::Root(CssScopeRange { start: 5, end: 5 }),
+                CssPathSelector::Global,
+            ][..],
+            "inline style must not leak past the owner node (#47)"
+        );
+    }
+
+    #[test]
+    fn push_front_scope_scopes_a_real_selector_to_the_whole_subtree() {
+        let mut p = CssPath::new(vec![CssPathSelector::Class("menu-item".to_string().into())]);
+        p.push_front_scope(5, 9);
+        assert_eq!(
+            p.selectors.as_ref()[0],
+            CssPathSelector::Root(CssScopeRange { start: 5, end: 9 })
+        );
+        assert_eq!(p.selectors.as_ref().len(), 2);
+    }
+
+    #[test]
+    fn push_front_scope_on_an_empty_path_uses_the_subtree_range() {
+        // len() != 1 → not the bare-`*` case → subtree scope.
+        let mut p = CssPath::default();
+        p.push_front_scope(2, 8);
+        assert_eq!(
+            p.selectors.as_ref(),
+            &[CssPathSelector::Root(CssScopeRange { start: 2, end: 8 })][..]
+        );
+    }
+
+    #[test]
+    fn push_front_scope_at_numeric_boundaries_does_not_panic() {
+        // 0, usize::MAX, and an INVERTED range (start > end) — the function does no
+        // arithmetic, so all three must be stored verbatim without overflow.
+        for (start, end) in [
+            (0_usize, 0_usize),
+            (0, usize::MAX),
+            (usize::MAX, usize::MAX),
+            (usize::MAX, 0),  // inverted: end < start
+            (9, 5),           // inverted
+        ] {
+            let mut p = CssPath::new(vec![CssPathSelector::Class("c".to_string().into())]);
+            p.push_front_scope(start, end);
+            assert_eq!(
+                p.selectors.as_ref()[0],
+                CssPathSelector::Root(CssScopeRange { start, end })
+            );
+        }
+        // The bare-`*` branch clamps `end` to `start`, so it can never be inverted.
+        let mut g = CssPath::new(vec![CssPathSelector::Global]);
+        g.push_front_scope(usize::MAX, 0);
+        assert_eq!(
+            g.selectors.as_ref()[0],
+            CssPathSelector::Root(CssScopeRange {
+                start: usize::MAX,
+                end: usize::MAX
+            })
+        );
+    }
+
+    #[test]
+    fn push_front_scope_applied_twice_stacks_root_selectors() {
+        let mut p = CssPath::new(vec![CssPathSelector::Global]);
+        p.push_front_scope(5, 9);
+        // Now the path is [Root, Global] (len 2) → no longer the bare-`*` case, so the
+        // second call scopes to the full subtree rather than node-only.
+        p.push_front_scope(1, 20);
+        assert_eq!(
+            p.selectors.as_ref(),
+            &[
+                CssPathSelector::Root(CssScopeRange { start: 1, end: 20 }),
+                CssPathSelector::Root(CssScopeRange { start: 5, end: 5 }),
+                CssPathSelector::Global,
+            ][..]
+        );
+    }
+
+    #[test]
+    fn push_front_scope_on_a_long_path_preserves_order_and_length() {
+        let sels: Vec<CssPathSelector> = (0..5_000)
+            .map(|i| CssPathSelector::Class(format!("c{i}").into()))
+            .collect();
+        let mut p = CssPath::new(sels.clone());
+        p.push_front_scope(3, 4);
+        assert_eq!(p.selectors.as_ref().len(), 5_001);
+        assert_eq!(
+            p.selectors.as_ref()[0],
+            CssPathSelector::Root(CssScopeRange { start: 3, end: 4 })
+        );
+        assert_eq!(&p.selectors.as_ref()[1..], &sels[..], "the tail must be untouched");
+    }
+
+    #[test]
+    fn scope_range_contains_at_zero_and_usize_max() {
+        let zero = CssScopeRange { start: 0, end: 0 };
+        assert!(zero.contains(0));
+        assert!(!zero.contains(1));
+        assert!(!zero.contains(usize::MAX));
+
+        let full = CssScopeRange {
+            start: 0,
+            end: usize::MAX,
+        };
+        assert!(full.contains(0));
+        assert!(full.contains(usize::MAX));
+        assert!(full.contains(usize::MAX / 2));
+
+        let top = CssScopeRange {
+            start: usize::MAX,
+            end: usize::MAX,
+        };
+        assert!(top.contains(usize::MAX));
+        assert!(!top.contains(usize::MAX - 1));
+        assert!(!top.contains(0));
+    }
+
+    #[test]
+    fn scope_range_inverted_contains_nothing() {
+        // start > end is nonsense but must degrade to "matches nothing", not panic.
+        let inverted = CssScopeRange { start: 9, end: 5 };
+        for n in [0_usize, 4, 5, 7, 9, 10, usize::MAX] {
+            assert!(!inverted.contains(n), "inverted range must never match {n}");
+        }
+    }
+
+    // =====================================================================
+    // Selector serializers
+    // =====================================================================
+
+    #[test]
+    fn css_path_selector_display_covers_every_variant() {
+        let cases: Vec<(CssPathSelector, String)> = vec![
+            (CssPathSelector::Global, "*".to_string()),
+            (
+                CssPathSelector::Root(CssScopeRange { start: 2, end: 6 }),
+                ":root(2..=6)".to_string(),
+            ),
+            (
+                CssPathSelector::Type(NodeTypeTag::Div),
+                "div".to_string(),
+            ),
+            (
+                CssPathSelector::Class("c".to_string().into()),
+                ".c".to_string(),
+            ),
+            (CssPathSelector::Id("i".to_string().into()), "#i".to_string()),
+            (
+                CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
+                ":focus".to_string(),
+            ),
+            (
+                CssPathSelector::Attribute(CssAttributeSelector::default()),
+                "[]".to_string(),
+            ),
+            (CssPathSelector::DirectChildren, ">".to_string()),
+            (CssPathSelector::Children, " ".to_string()),
+            (CssPathSelector::AdjacentSibling, "+".to_string()),
+            (CssPathSelector::GeneralSibling, "~".to_string()),
+        ];
+        for (sel, expected) in cases {
+            assert_eq!(format!("{sel}"), expected);
+        }
+        assert_eq!(CssPathSelector::default(), CssPathSelector::Global);
+    }
+
+    #[test]
+    fn css_path_selector_display_at_scope_range_boundaries() {
+        let s = CssPathSelector::Root(CssScopeRange {
+            start: 0,
+            end: usize::MAX,
+        });
+        assert_eq!(format!("{s}"), format!(":root(0..={})", usize::MAX));
+    }
+
+    #[test]
+    fn css_path_selector_display_with_empty_and_unicode_names() {
+        // Empty class/id names produce a bare `.` / `#` — degenerate but deterministic.
+        assert_eq!(
+            format!("{}", CssPathSelector::Class(String::new().into())),
+            "."
+        );
+        assert_eq!(format!("{}", CssPathSelector::Id(String::new().into())), "#");
+        assert_eq!(
+            format!("{}", CssPathSelector::Class("😀".to_string().into())),
+            ".😀"
+        );
+        let long = "x".repeat(100_000);
+        assert_eq!(
+            format!("{}", CssPathSelector::Id(long.clone().into())).len(),
+            long.len() + 1
+        );
+    }
+
+    #[test]
+    fn attribute_match_op_symbol_prefix_matrix() {
+        assert_eq!(AttributeMatchOp::Exists.symbol_prefix(), "");
+        assert_eq!(AttributeMatchOp::Eq.symbol_prefix(), "");
+        assert_eq!(AttributeMatchOp::Includes.symbol_prefix(), "~");
+        assert_eq!(AttributeMatchOp::DashMatch.symbol_prefix(), "|");
+        assert_eq!(AttributeMatchOp::Prefix.symbol_prefix(), "^");
+        assert_eq!(AttributeMatchOp::Suffix.symbol_prefix(), "$");
+        assert_eq!(AttributeMatchOp::Substring.symbol_prefix(), "*");
+        assert_eq!(AttributeMatchOp::default(), AttributeMatchOp::Exists);
+    }
+
+    #[test]
+    fn css_attribute_selector_display_renders_each_operator() {
+        let ops = [
+            (AttributeMatchOp::Eq, "[a=\"v\"]"),
+            (AttributeMatchOp::Includes, "[a~=\"v\"]"),
+            (AttributeMatchOp::DashMatch, "[a|=\"v\"]"),
+            (AttributeMatchOp::Prefix, "[a^=\"v\"]"),
+            (AttributeMatchOp::Suffix, "[a$=\"v\"]"),
+            (AttributeMatchOp::Substring, "[a*=\"v\"]"),
+        ];
+        for (op, expected) in ops {
+            let sel = CssAttributeSelector {
+                name: "a".to_string().into(),
+                op,
+                value: OptionString::Some("v".to_string().into()),
+            };
+            assert_eq!(format!("{sel}"), expected);
+        }
+    }
+
+    #[test]
+    fn css_attribute_selector_exists_ignores_any_value() {
+        // `[attr]` has no right-hand side, so a stray value must be dropped, not printed.
+        let sel = CssAttributeSelector {
+            name: "a".to_string().into(),
+            op: AttributeMatchOp::Exists,
+            value: OptionString::Some("ignored".to_string().into()),
+        };
+        assert_eq!(format!("{sel}"), "[a]");
+        assert_eq!(format!("{}", CssAttributeSelector::default()), "[]");
+    }
+
+    #[test]
+    fn css_attribute_selector_missing_value_renders_an_empty_string_literal() {
+        let sel = CssAttributeSelector {
+            name: "a".to_string().into(),
+            op: AttributeMatchOp::Eq,
+            value: OptionString::None,
+        };
+        assert_eq!(format!("{sel}"), "[a=\"\"]");
+    }
+
+    #[test]
+    fn css_attribute_selector_display_with_hostile_names_and_values_does_not_panic() {
+        for (name, value) in [
+            ("", ""),
+            ("😀", "😀"),
+            ("a\u{0301}", "e\u{0301}"),
+            ("a", "has \" quote"),   // NOTE: not escaped — see report
+            ("a", "]"),
+            ("a", "\u{0}"),
+            ("a", "\n"),
+        ] {
+            let sel = CssAttributeSelector {
+                name: name.to_string().into(),
+                op: AttributeMatchOp::Eq,
+                value: OptionString::Some(value.to_string().into()),
+            };
+            let out = format!("{sel}");
+            assert!(out.starts_with('[') && out.ends_with(']'));
+        }
+    }
+
+    #[test]
+    fn css_nth_child_selector_display_at_numeric_boundaries() {
+        assert_eq!(format!("{}", CssNthChildSelector::Number(0)), "0");
+        assert_eq!(
+            format!("{}", CssNthChildSelector::Number(u32::MAX)),
+            u32::MAX.to_string()
+        );
+        assert_eq!(format!("{}", CssNthChildSelector::Even), "even");
+        assert_eq!(format!("{}", CssNthChildSelector::Odd), "odd");
+        assert_eq!(
+            format!(
+                "{}",
+                CssNthChildSelector::Pattern(CssNthChildPattern {
+                    pattern_repeat: 2,
+                    offset: 1,
+                })
+            ),
+            "2n + 1"
+        );
+        // A=0 / A=B=u32::MAX must not overflow or panic while formatting.
+        assert_eq!(
+            format!(
+                "{}",
+                CssNthChildSelector::Pattern(CssNthChildPattern {
+                    pattern_repeat: 0,
+                    offset: 0,
+                })
+            ),
+            "0n + 0"
+        );
+        let maxed = CssNthChildSelector::Pattern(CssNthChildPattern {
+            pattern_repeat: u32::MAX,
+            offset: u32::MAX,
+        });
+        assert_eq!(
+            format!("{maxed}"),
+            format!("{}n + {}", u32::MAX, u32::MAX)
+        );
+    }
+
+    #[test]
+    fn css_path_pseudo_selector_display_covers_every_variant() {
+        let cases: Vec<(CssPathPseudoSelector, String)> = vec![
+            (CssPathPseudoSelector::First, "first".to_string()),
+            (CssPathPseudoSelector::Last, "last".to_string()),
+            (
+                CssPathPseudoSelector::NthChild(CssNthChildSelector::Even),
+                "nth-child(even)".to_string(),
+            ),
+            (CssPathPseudoSelector::Hover, "hover".to_string()),
+            (CssPathPseudoSelector::Active, "active".to_string()),
+            (CssPathPseudoSelector::Focus, "focus".to_string()),
+            (
+                CssPathPseudoSelector::Lang("de-DE".to_string().into()),
+                "lang(de-DE)".to_string(),
+            ),
+            (CssPathPseudoSelector::Backdrop, "backdrop".to_string()),
+            (CssPathPseudoSelector::Dragging, "dragging".to_string()),
+            (CssPathPseudoSelector::DragOver, "drag-over".to_string()),
+        ];
+        for (p, expected) in cases {
+            assert_eq!(format!("{p}"), expected);
+        }
+    }
+
+    #[test]
+    fn css_path_pseudo_selector_lang_with_hostile_payloads_does_not_panic() {
+        let long = "l".repeat(100_000);
+        for lang in ["", "   ", "😀", "e\u{0301}", ")", "\u{0}", long.as_str()] {
+            let p = CssPathPseudoSelector::Lang(lang.to_string().into());
+            let out = format!("{p}");
+            assert!(out.starts_with("lang(") && out.ends_with(')'));
+        }
+    }
+
+    // =====================================================================
+    // get_specificity
+    // =====================================================================
+
+    #[test]
+    fn get_specificity_of_an_empty_path_is_all_zero() {
+        assert_eq!(get_specificity(&CssPath::default()), (0, 0, 0, 0));
+        assert_eq!(get_specificity(&CssPath::new(Vec::new())), (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn get_specificity_counts_ids_classes_and_types_separately() {
+        let path = CssPath::new(vec![
+            CssPathSelector::Id("a".to_string().into()),
+            CssPathSelector::Id("b".to_string().into()),
+            CssPathSelector::Class("c".to_string().into()),
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
+            CssPathSelector::Attribute(CssAttributeSelector::default()),
+            CssPathSelector::Type(NodeTypeTag::Div),
+        ]);
+        // pseudo-classes and attribute selectors count in the CLASS column (per W3C).
+        assert_eq!(get_specificity(&path), (2, 3, 1, 6));
+    }
+
+    #[test]
+    fn get_specificity_ignores_combinators_and_root_except_in_the_total() {
+        let path = CssPath::new(vec![
+            CssPathSelector::Root(CssScopeRange { start: 0, end: 9 }),
+            CssPathSelector::Global,
+            CssPathSelector::Children,
+            CssPathSelector::DirectChildren,
+            CssPathSelector::AdjacentSibling,
+            CssPathSelector::GeneralSibling,
+        ]);
+        let (ids, classes, types, total) = get_specificity(&path);
+        assert_eq!((ids, classes, types), (0, 0, 0));
+        assert_eq!(total, 6, "the 4th field is the raw selector count");
+    }
+
+    #[test]
+    fn get_specificity_orders_ids_above_classes_above_types() {
+        let id = get_specificity(&CssPath::new(vec![CssPathSelector::Id("x".to_string().into())]));
+        let class = get_specificity(&CssPath::new(vec![CssPathSelector::Class(
+            "x".to_string().into(),
+        )]));
+        let ty = get_specificity(&CssPath::new(vec![CssPathSelector::Type(NodeTypeTag::Div)]));
+        let star = get_specificity(&CssPath::new(vec![CssPathSelector::Global]));
+        assert!(star < ty, "* must be the weakest");
+        assert!(ty < class);
+        assert!(class < id);
+    }
+
+    #[test]
+    fn get_specificity_on_a_huge_path_does_not_overflow_or_hang() {
+        let sels: Vec<CssPathSelector> = (0..50_000)
+            .map(|i| CssPathSelector::Id(format!("i{i}").into()))
+            .collect();
+        let path = CssPath::new(sels);
+        assert_eq!(get_specificity(&path), (50_000, 0, 0, 50_000));
+    }
+
+    // =====================================================================
+    // Parsers (feature = "parser")
+    // =====================================================================
+
+    #[cfg(feature = "parser")]
+    fn parse(s: &str) -> Css {
+        Css::from_string(s.to_string().into())
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_on_empty_and_whitespace_only_input_yields_no_rules() {
+        for input in ["", " ", "   ", "\t\n\r\n ", "\u{FEFF}", "\u{00A0}"] {
+            let css = parse(input);
+            assert!(
+                css.is_empty(),
+                "{input:?} must produce zero rules, got {}",
+                css.rules.as_ref().len()
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_on_garbage_never_panics_and_is_deterministic() {
+        let garbage = [
+            "}}}}",
+            "{{{{",
+            "@@@@",
+            ";;;;",
+            "\u{0}\u{1}\u{2}",
+            "div {",
+            "div }",
+            "} div {",
+            "div { color",
+            "div { color: }",
+            "div { : red; }",
+            "* * * * *",
+            ":::::",
+            "[[[[",
+            "/* unterminated comment",
+            "@media {",
+            "url(",
+            "\"unterminated",
+            "div{color:red;}}}}",
+        ];
+        for input in garbage {
+            let a = parse(input);
+            let b = parse(input);
+            assert_eq!(a, b, "parsing {input:?} must be deterministic");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_valid_minimal_produces_one_author_rule() {
+        let css = parse("div { width: 200px; }");
+        assert_eq!(css.rules.as_ref().len(), 1);
+        let rule = &css.rules.as_ref()[0];
+        assert_eq!(
+            rule.priority,
+            rule_priority::AUTHOR,
+            "parser output belongs to the author layer"
+        );
+        assert_eq!(
+            rule.path.selectors.as_ref(),
+            &[CssPathSelector::Type(NodeTypeTag::Div)][..]
+        );
+        let props: Vec<CssPropertyType> = css
+            .iter_inline_properties()
+            .map(|(p, _)| p.get_type())
+            .collect();
+        assert_eq!(props, vec![CssPropertyType::Width]);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_handles_leading_and_trailing_junk_deterministically() {
+        // Surrounding whitespace must be irrelevant.
+        assert_eq!(parse("  div { width: 1px; }  "), parse("div { width: 1px; }"));
+        // Trailing garbage must not eat the valid rule that precedes it.
+        let with_junk = parse("div { width: 1px; } @@@ garbage");
+        assert!(
+            with_junk.rules().any(|r| r.path.selectors.as_ref()
+                == &[CssPathSelector::Type(NodeTypeTag::Div)][..]),
+            "the leading valid rule must survive trailing junk"
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_on_boundary_numbers_does_not_panic() {
+        let inputs = [
+            "div { width: 0px; }",
+            "div { width: -0px; }",
+            "div { width: -1px; }",
+            "div { width: 9223372036854775807px; }",   // i64::MAX
+            "div { width: 340282350000000000000000000000000000000px; }", // ~f32::MAX
+            "div { width: 1e400px; }",                 // f64 overflow → inf
+            "div { width: 1e-400px; }",                // f64 underflow → 0
+            "div { width: NaN; }",
+            "div { width: inf; }",
+            "div { width: -inf; }",
+            "div { width: 99999999999999999999999999px; }",
+            "div { opacity: 1e309; }",
+            "div { z-index: -9223372036854775808; }",  // i64::MIN
+            "div { width: .....; }",
+            "div { width: --5px; }",
+        ];
+        for input in inputs {
+            let css = parse(input);
+            assert!(
+                css.rules.as_ref().len() <= 1,
+                "{input:?} must not explode into multiple rules"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_on_unicode_input_does_not_panic() {
+        let inputs = [
+            "div { content: \"😀\"; }",
+            ".😀 { width: 1px; }",
+            "#e\u{0301} { width: 1px; }",
+            "div { font-family: \"日本語\"; }",
+            "div\u{0301} { width: 1px; }",
+            "div { width: 1px; } /* 🎉 */",
+            "\u{202E}div { width: 1px; }",  // right-to-left override
+        ];
+        for input in inputs {
+            let css = parse(input);
+            // The invariant is "no panic + stable output", not any particular rule count.
+            assert_eq!(css, parse(input));
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_on_a_one_megabyte_input_terminates() {
+        // 100k declarations inside a single rule ≈ 1_000_000 chars.
+        let body = "width:1px;".repeat(100_000);
+        assert!(body.len() >= 1_000_000);
+        let css = parse(&format!("div{{{body}}}"));
+        assert_eq!(css.rules.as_ref().len(), 1);
+        assert!(!css.rules.as_ref()[0].declarations.as_ref().is_empty());
+
+        // …and a single 100k-char junk token must not hang either.
+        let junk = "a".repeat(100_000);
+        let _ = parse(&junk);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_on_deeply_nested_blocks_does_not_stack_overflow() {
+        // Run on a dedicated 64 MiB stack: a recursive-descent parser would blow the
+        // default 2 MiB test stack and take the whole test binary down with it.
+        let depth = 10_000;
+        let mut s = String::with_capacity(depth * 8);
+        for _ in 0..depth {
+            s.push_str("div{");
+        }
+        s.push_str("width:1px;");
+        for _ in 0..depth {
+            s.push('}');
+        }
+
+        let handle = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || Css::from_string(s.into()).rules.as_ref().len())
+            .expect("spawning the parser thread must succeed");
+
+        let rule_count = handle
+            .join()
+            .expect("10_000 nested blocks must not panic or overflow the stack");
+        assert!(rule_count <= depth + 1, "rule count must stay bounded by the nesting depth");
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_with_warnings_agrees_with_from_string() {
+        for input in [
+            "",
+            "   ",
+            "div { width: 1px; }",
+            "div { not-a-property: 1; }",
+            "}}} garbage {{{",
+            "div { width: NaN; }",
+        ] {
+            let (css, _warnings) = Css::from_string_with_warnings(input.to_string().into());
+            assert_eq!(
+                css,
+                parse(input),
+                "from_string_with_warnings must parse {input:?} identically to from_string"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_with_warnings_reports_an_unknown_property() {
+        let (css, warnings) =
+            Css::from_string_with_warnings("div { definitely-not-a-property: 1px; }".to_string().into());
+        assert!(
+            !warnings.is_empty(),
+            "an unknown property must surface as a warning rather than being dropped silently"
+        );
+        // The unknown property is a RECOVERABLE error: the parse keeps going, so the
+        // stylesheet must not be torn down around it.
+        assert!(css.rules.as_ref().len() <= 1);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn from_string_with_warnings_on_empty_input_has_no_rules() {
+        let (css, warnings) = Css::from_string_with_warnings(String::new().into());
+        assert!(css.is_empty());
+        assert!(warnings.is_empty());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_marks_every_rule_as_the_inline_layer() {
+        let css = Css::parse_inline("width: 200px; color: red;");
+        assert!(!css.is_empty());
+        for r in css.rules() {
+            assert_eq!(
+                r.priority,
+                rule_priority::INLINE,
+                "parse_inline must stamp every rule with the INLINE layer"
+            );
+        }
+        let props: Vec<CssPropertyType> = css
+            .iter_inline_properties()
+            .map(|(p, _)| p.get_type())
+            .collect();
+        assert!(props.contains(&CssPropertyType::Width));
+        assert!(props.contains(&CssPropertyType::TextColor));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_wraps_bare_declarations_in_a_star_rule() {
+        let css = Css::parse_inline("width: 200px;");
+        assert_eq!(css.rules.as_ref().len(), 1);
+        assert_eq!(
+            css.rules.as_ref()[0].path.selectors.as_ref(),
+            &[CssPathSelector::Global][..],
+            "the wrapper path must be exactly `*` — push_front_scope keys node-only \
+             inline semantics off that shape"
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_on_empty_and_whitespace_input_does_not_panic() {
+        for input in ["", " ", "\t\n", "   \r\n  "] {
+            let css = Css::parse_inline(input);
+            for r in css.rules() {
+                assert_eq!(r.priority, rule_priority::INLINE);
+                assert!(
+                    r.declarations.as_ref().is_empty(),
+                    "an empty inline style must not produce declarations"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_on_garbage_never_panics_and_is_deterministic() {
+        for input in [
+            "}}}}",
+            "{{{{",
+            ";;;;",
+            ":::",
+            "color",
+            "color:",
+            ": red",
+            "\u{0}\u{1}",
+            "/* unterminated",
+            "@@@",
+            "width: 1px",  // no trailing semicolon
+        ] {
+            assert_eq!(
+                Css::parse_inline(input),
+                Css::parse_inline(input),
+                "parse_inline({input:?}) must be deterministic"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_on_unicode_and_boundary_numbers_does_not_panic() {
+        for input in [
+            "content: \"😀\"",
+            "font-family: \"日本語\"",
+            "width: 0px",
+            "width: -0px",
+            "width: 9223372036854775807px",
+            "width: 1e400px",
+            "width: NaN",
+            "width: inf",
+            "opacity: 1e309",
+        ] {
+            let css = Css::parse_inline(input);
+            for r in css.rules() {
+                assert_eq!(r.priority, rule_priority::INLINE);
+            }
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_on_a_one_megabyte_style_terminates() {
+        let style = "width:1px;".repeat(100_000);
+        assert!(style.len() >= 1_000_000);
+        let css = Css::parse_inline(&style);
+        assert!(!css.is_empty());
+        for r in css.rules() {
+            assert_eq!(r.priority, rule_priority::INLINE);
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_supports_nested_pseudo_blocks() {
+        // Documented feature: `:hover { ... }` works inside an inline style via CSS nesting.
+        let css = Css::parse_inline(":hover { color: red; }");
+        assert!(!css.is_empty(), "a nested pseudo block must produce a rule");
+        for r in css.rules() {
+            assert_eq!(r.priority, rule_priority::INLINE);
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_inline_must_not_let_a_brace_escape_the_star_wrapper() {
+        // parse_inline builds `* {\n<input>\n}`. A `}` inside the input closes that
+        // wrapper early, so whatever follows is parsed as a TOP-LEVEL rule with an
+        // attacker-chosen selector. An inline style string must never be able to define
+        // rules that target other elements — every rule it produces has to stay rooted
+        // at the `*` wrapper (push_front_scope also keys node-only scoping off that).
+        let css = Css::parse_inline("color: red; } div { background: green;");
+        for r in css.rules() {
+            let first = r.path.selectors.as_ref().first();
+            assert!(
+                matches!(first, None | Some(CssPathSelector::Global)),
+                "a `}}` in the inline style escaped the `*` wrapper and produced the \
+                 free-standing rule `{}` (selector injection)",
+                r.path
+            );
+        }
+    }
+}

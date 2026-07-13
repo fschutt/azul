@@ -888,9 +888,1315 @@ mod string_arena_tests {
         // the clone doesn't depend on the arena at all.
         let clone = {
             let mut arena = StringArena::new();
-            
+
             arena.intern("deep-copy test")
         };
         assert_eq!(clone.as_str(), "deep-copy test");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::all, clippy::pedantic, clippy::nursery)]
+mod autotest_generated {
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // helpers
+    // ------------------------------------------------------------------
+
+    /// Minimal FNV-1a hasher so the Hash-consistency tests don't depend on
+    /// `std` being linked (the crate keeps a `#![no_std]` line commented out).
+    struct Fnv(u64);
+
+    impl core::hash::Hasher for Fnv {
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            for b in bytes {
+                self.0 ^= u64::from(*b);
+                self.0 = self.0.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+    }
+
+    fn hash_of<T: core::hash::Hash>(t: &T) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = Fnv(0xcbf2_9ce4_8422_2325);
+        Hash::hash(t, &mut h);
+        h.finish()
+    }
+
+    /// UTF-16 code units of `s`, serialized to bytes with the given byte order.
+    fn utf16_bytes(s: &str, little_endian: bool) -> Vec<u8> {
+        s.encode_utf16()
+            .flat_map(|u| {
+                let b = if little_endian {
+                    u.to_le_bytes()
+                } else {
+                    u.to_be_bytes()
+                };
+                [b[0], b[1]]
+            })
+            .collect()
+    }
+
+    // ==================================================================
+    // EmptyStruct
+    // ==================================================================
+
+    #[test]
+    fn empty_struct_new_invariants() {
+        let e = EmptyStruct::new();
+        assert_eq!(e._reserved, 0, "_reserved must always be initialized to 0");
+        assert_eq!(e, EmptyStruct::default(), "new() must equal default()");
+    }
+
+    #[test]
+    fn empty_struct_is_ffi_safe_non_zero_size() {
+        // The whole point of the type: `()` is zero-sized and not FFI-safe.
+        assert_eq!(core::mem::size_of::<EmptyStruct>(), 1);
+        assert_eq!(core::mem::align_of::<EmptyStruct>(), 1);
+    }
+
+    #[test]
+    fn empty_struct_unit_conversions_round_trip() {
+        let from_unit = EmptyStruct::from(());
+        assert_eq!(from_unit, EmptyStruct::new());
+        let back: () = EmptyStruct::new().into();
+        assert_eq!(back, ());
+    }
+
+    #[test]
+    fn empty_struct_total_order_is_trivial() {
+        // Every EmptyStruct is equal to every other one, so Ord/Hash must agree.
+        let a = EmptyStruct::new();
+        let b = EmptyStruct::default();
+        assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
+        assert_eq!(hash_of(&a), hash_of(&b));
+    }
+
+    // ==================================================================
+    // LayoutDebugMessage
+    // ==================================================================
+
+    #[test]
+    fn debug_message_new_records_fields_and_caller_location() {
+        let m = LayoutDebugMessage::new(LayoutDebugMessageType::Warning, "disk on fire");
+        assert_eq!(m.message_type, LayoutDebugMessageType::Warning);
+        assert_eq!(m.message.as_str(), "disk on fire");
+        assert!(
+            m.location.as_str().contains("corety.rs"),
+            "#[track_caller] must record THIS file, got {:?}",
+            m.location.as_str()
+        );
+
+        // location is "file:line:column" — the last two segments must be numbers.
+        let parts: Vec<&str> = m.location.as_str().rsplitn(3, ':').collect();
+        assert_eq!(parts.len(), 3, "location must be file:line:column");
+        assert!(parts[0].parse::<u32>().is_ok(), "column must parse as u32");
+        assert!(parts[1].parse::<u32>().is_ok(), "line must parse as u32");
+    }
+
+    #[test]
+    fn debug_message_track_caller_propagates_through_helpers() {
+        // If #[track_caller] were missing on the helpers, both locations would
+        // collapse to the same line inside LayoutDebugMessage::new().
+        let a = LayoutDebugMessage::info("a");
+        let b = LayoutDebugMessage::info("b");
+        assert_ne!(
+            a.location.as_str(),
+            b.location.as_str(),
+            "two call sites on different lines must record different locations"
+        );
+        assert!(a.location.as_str().contains("corety.rs"));
+    }
+
+    #[test]
+    fn debug_message_helpers_set_the_right_type() {
+        assert_eq!(
+            LayoutDebugMessage::info("x").message_type,
+            LayoutDebugMessageType::Info
+        );
+        assert_eq!(
+            LayoutDebugMessage::warning("x").message_type,
+            LayoutDebugMessageType::Warning
+        );
+        assert_eq!(
+            LayoutDebugMessage::error("x").message_type,
+            LayoutDebugMessageType::Error
+        );
+        assert_eq!(
+            LayoutDebugMessage::box_props("x").message_type,
+            LayoutDebugMessageType::BoxProps
+        );
+        assert_eq!(
+            LayoutDebugMessage::css_getter("x").message_type,
+            LayoutDebugMessageType::CssGetter
+        );
+        assert_eq!(
+            LayoutDebugMessage::bfc_layout("x").message_type,
+            LayoutDebugMessageType::BfcLayout
+        );
+        assert_eq!(
+            LayoutDebugMessage::ifc_layout("x").message_type,
+            LayoutDebugMessageType::IfcLayout
+        );
+        assert_eq!(
+            LayoutDebugMessage::table_layout("x").message_type,
+            LayoutDebugMessageType::TableLayout
+        );
+        assert_eq!(
+            LayoutDebugMessage::display_type("x").message_type,
+            LayoutDebugMessageType::DisplayType
+        );
+    }
+
+    #[test]
+    fn debug_message_helpers_preserve_the_message_verbatim() {
+        // Every helper must forward the payload untouched, including empty
+        // and unicode payloads.
+        for m in [
+            LayoutDebugMessage::info(""),
+            LayoutDebugMessage::warning(""),
+            LayoutDebugMessage::error(""),
+            LayoutDebugMessage::box_props(""),
+            LayoutDebugMessage::css_getter(""),
+            LayoutDebugMessage::bfc_layout(""),
+            LayoutDebugMessage::ifc_layout(""),
+            LayoutDebugMessage::table_layout(""),
+            LayoutDebugMessage::display_type(""),
+        ] {
+            assert!(m.message.is_empty());
+            assert!(!m.location.is_empty(), "location is always filled in");
+        }
+
+        let weird = "ünïcødé \u{1F600}\n\t\"quoted\" \u{0}nul";
+        assert_eq!(LayoutDebugMessage::error(weird).message.as_str(), weird);
+    }
+
+    #[test]
+    fn debug_message_handles_huge_message_without_panicking() {
+        let huge = "m".repeat(1_000_000);
+        let m = LayoutDebugMessage::new(LayoutDebugMessageType::PositionCalculation, huge.clone());
+        assert_eq!(m.message.len(), 1_000_000);
+        assert_eq!(m.message.as_str(), huge.as_str());
+        assert_eq!(
+            m.message_type,
+            LayoutDebugMessageType::PositionCalculation,
+            "the variant with no helper must still be constructible via new()"
+        );
+    }
+
+    #[test]
+    fn debug_message_default_is_empty_info() {
+        let m = LayoutDebugMessage::default();
+        assert_eq!(m.message_type, LayoutDebugMessageType::Info);
+        assert!(m.message.is_empty());
+        assert!(m.location.is_empty(), "default() does not track a caller");
+        assert_eq!(LayoutDebugMessageType::default(), LayoutDebugMessageType::Info);
+    }
+
+    #[test]
+    fn debug_message_accepts_string_and_str_via_into() {
+        // `impl Into<String>` must work for both &str and String.
+        let from_str = LayoutDebugMessage::info("borrowed");
+        let from_string = LayoutDebugMessage::info(String::from("owned"));
+        assert_eq!(from_str.message.as_str(), "borrowed");
+        assert_eq!(from_string.message.as_str(), "owned");
+    }
+
+    #[test]
+    fn debug_message_clone_is_a_deep_equal_copy() {
+        let m = LayoutDebugMessage::error("clone me \u{1F600}");
+        let c = m.clone();
+        assert_eq!(c, m);
+        assert_ne!(
+            c.message.as_bytes().as_ptr(),
+            m.message.as_bytes().as_ptr(),
+            "clone must deep-copy the library-owned message bytes"
+        );
+    }
+
+    // ==================================================================
+    // AzString — constructors
+    // ==================================================================
+
+    #[test]
+    fn azstring_default_is_empty_and_readable() {
+        let s = AzString::default();
+        assert_eq!(s.as_str(), "");
+        assert_eq!(s.len(), 0);
+        assert!(s.is_empty());
+        assert_eq!(s.as_bytes(), b"");
+    }
+
+    #[test]
+    fn azstring_from_const_str_borrows_the_static_and_never_frees_it() {
+        // One binding, used for both the construction and the pointer check —
+        // rustc is not obliged to dedupe two identical string literals.
+        const TEXT: &str = "static text";
+        let s = AzString::from_const_str(TEXT);
+        assert_eq!(s.as_str(), TEXT);
+        assert_eq!(s.len(), 11);
+        assert!(
+            matches!(s.vec.destructor, U8VecDestructor::NoDestructor),
+            "a &'static str must not get a freeing destructor"
+        );
+        assert_eq!(
+            s.vec.ptr,
+            TEXT.as_bytes().as_ptr(),
+            "from_const_str must alias the static, not copy it"
+        );
+    }
+
+    #[test]
+    fn azstring_from_const_str_empty_and_unicode() {
+        let empty = AzString::from_const_str("");
+        assert!(empty.is_empty());
+        assert_eq!(empty.as_str(), "");
+        assert_eq!(empty.len(), 0);
+
+        let uni = AzString::from_const_str("héllo \u{1F600}");
+        assert_eq!(uni.as_str(), "héllo \u{1F600}");
+        // len() is BYTES, not chars: 5 ASCII-ish + 1 extra for é + space + 4 for the emoji
+        assert_eq!(uni.len(), "héllo \u{1F600}".len());
+        assert_ne!(
+            uni.len(),
+            uni.as_str().chars().count(),
+            "len() must be a byte length, not a char count"
+        );
+    }
+
+    #[test]
+    fn azstring_from_string_round_trips_edge_values() {
+        for input in [
+            String::new(),
+            String::from(" "),
+            String::from("\t\n\r"),
+            String::from("0"),
+            String::from("-0"),
+            String::from("9223372036854775807"), // i64::MAX
+            String::from("NaN"),
+            String::from("inf"),
+            String::from("  valid  "),
+            String::from("valid;garbage"),
+            String::from("\u{1F600}\u{0301}\u{0}"), // emoji + combining mark + NUL
+            "{".repeat(10_000),                     // deeply "nested" junk: no parser, no overflow
+        ] {
+            let s = AzString::from_string(input.clone());
+            assert_eq!(s.as_str(), input.as_str(), "from_string must be verbatim");
+            assert_eq!(s.len(), input.len());
+            assert_eq!(s.is_empty(), input.is_empty());
+            // round-trip back out
+            assert_eq!(s.into_library_owned_string(), input);
+        }
+    }
+
+    #[test]
+    fn azstring_from_string_handles_a_megabyte() {
+        let huge = "x".repeat(1_000_000);
+        let s = AzString::from_string(huge.clone());
+        assert_eq!(s.len(), 1_000_000);
+        assert_eq!(s.as_str().len(), huge.len());
+        assert!(s.as_str().bytes().all(|b| b == b'x'));
+    }
+
+    #[test]
+    fn azstring_from_string_preserves_the_original_capacity() {
+        // into_library_owned_string rebuilds the String via from_raw_parts(ptr, len, cap).
+        // If `cap` were not carried through faithfully, this would corrupt the heap.
+        let mut owned = String::with_capacity(4096);
+        owned.push_str("hi");
+        let s = AzString::from_string(owned);
+        assert!(matches!(s.vec.destructor, U8VecDestructor::DefaultRust));
+        let back = s.into_library_owned_string();
+        assert_eq!(back, "hi");
+        assert!(
+            back.capacity() >= 4096,
+            "capacity must survive the AzString round-trip, got {}",
+            back.capacity()
+        );
+    }
+
+    // ==================================================================
+    // AzString::copy_from_bytes  (numeric / pointer edge cases)
+    // ==================================================================
+
+    #[test]
+    fn azstring_copy_from_bytes_zero_len_is_empty() {
+        let buf = b"hello";
+        let s = AzString::copy_from_bytes(buf.as_ptr(), 0, 0);
+        assert!(s.is_empty());
+        assert_eq!(s.as_str(), "");
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_null_ptr_is_empty() {
+        let s = AzString::copy_from_bytes(core::ptr::null(), 0, 16);
+        assert!(s.is_empty());
+        assert_eq!(s.as_str(), "");
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_honours_the_start_offset() {
+        let buf = b"0123456789";
+        let s = AzString::copy_from_bytes(buf.as_ptr(), 3, 4);
+        assert_eq!(s.as_str(), "3456");
+        assert_eq!(s.len(), 4);
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_start_at_end_with_zero_len_is_empty() {
+        // start == buf.len() is only legal because len == 0 short-circuits
+        // before the pointer is ever offset.
+        let buf = b"abc";
+        let s = AzString::copy_from_bytes(buf.as_ptr(), buf.len(), 0);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_zero_len_wins_over_start_overflow() {
+        // start + len overflows usize, but len == 0 must short-circuit BEFORE
+        // the debug_assert / ptr.add() — no panic, no UB.
+        let buf = b"abc";
+        let s = AzString::copy_from_bytes(buf.as_ptr(), usize::MAX, 0);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_null_wins_over_max_len() {
+        // The null check must precede everything, even for absurd start/len.
+        let s = AzString::copy_from_bytes(core::ptr::null(), usize::MAX, usize::MAX);
+        assert!(s.is_empty());
+        assert_eq!(s.as_str(), "");
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_replaces_invalid_utf8_lossily() {
+        // Slicing "héllo" mid-codepoint leaves a stray continuation byte (0xA9),
+        // which must become U+FFFD so the as_str() UTF-8 invariant still holds.
+        let buf = "héllo".as_bytes();
+        assert_eq!(buf[1], 0xC3);
+        assert_eq!(buf[2], 0xA9);
+        let s = AzString::copy_from_bytes(buf.as_ptr(), 2, 2);
+        assert_eq!(s.as_str(), "\u{FFFD}l");
+        // The UTF-8 invariant as_str() relies on must actually hold:
+        assert!(core::str::from_utf8(s.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_keeps_valid_utf8_byte_for_byte() {
+        let buf = "héllo \u{1F600}".as_bytes();
+        let s = AzString::copy_from_bytes(buf.as_ptr(), 0, buf.len());
+        assert_eq!(s.as_str(), "héllo \u{1F600}");
+        assert_eq!(s.as_bytes(), buf);
+    }
+
+    #[test]
+    fn azstring_copy_from_bytes_preserves_interior_nul() {
+        let buf = b"a\0b";
+        let s = AzString::copy_from_bytes(buf.as_ptr(), 0, 3);
+        assert_eq!(s.len(), 3, "an interior NUL is data, not a terminator");
+        assert_eq!(s.as_bytes(), b"a\0b");
+    }
+
+    // ==================================================================
+    // U8Vec::copy_from_bytes  (numeric / pointer edge cases)
+    // ==================================================================
+
+    #[test]
+    fn u8vec_copy_from_bytes_zero_len_is_empty() {
+        let buf = b"hello";
+        let v = U8Vec::copy_from_bytes(buf.as_ptr(), 0, 0);
+        assert!(v.is_empty());
+        assert_eq!(v.as_ref(), b"");
+    }
+
+    #[test]
+    fn u8vec_copy_from_bytes_null_ptr_is_empty() {
+        let v = U8Vec::copy_from_bytes(core::ptr::null(), 0, 8);
+        assert!(v.is_empty());
+        assert_eq!(v.len(), 0);
+    }
+
+    #[test]
+    fn u8vec_copy_from_bytes_null_wins_over_max_start_and_len() {
+        // Neither the debug_assert nor ptr.add() may be reached for a null ptr.
+        let v = U8Vec::copy_from_bytes(core::ptr::null(), usize::MAX, usize::MAX);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn u8vec_copy_from_bytes_zero_len_wins_over_start_overflow() {
+        // start + len overflows, but len == 0 short-circuits first.
+        let buf = b"abc";
+        let v = U8Vec::copy_from_bytes(buf.as_ptr(), usize::MAX, 0);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn u8vec_copy_from_bytes_copies_the_requested_window() {
+        let buf: Vec<u8> = (0u8..=255).collect();
+        let v = U8Vec::copy_from_bytes(buf.as_ptr(), 250, 6);
+        assert_eq!(v.as_ref(), &[250, 251, 252, 253, 254, 255]);
+        assert_eq!(v.len(), 6);
+    }
+
+    #[test]
+    fn u8vec_copy_from_bytes_owns_its_copy() {
+        // The copy must survive the source buffer being dropped.
+        let v = {
+            let buf = vec![1u8, 2, 3, 4];
+            U8Vec::copy_from_bytes(buf.as_ptr(), 1, 2)
+        };
+        assert_eq!(v.as_ref(), &[2, 3]);
+        assert!(matches!(v.destructor, U8VecDestructor::DefaultRust));
+    }
+
+    #[test]
+    fn u8vec_copy_from_bytes_accepts_all_byte_values() {
+        // Arbitrary (non-UTF-8) bytes must round-trip unchanged — U8Vec has no
+        // encoding invariant, unlike AzString.
+        let buf: Vec<u8> = (0u8..=255).collect();
+        let v = U8Vec::copy_from_bytes(buf.as_ptr(), 0, buf.len());
+        assert_eq!(v.as_ref(), buf.as_slice());
+    }
+
+    // ==================================================================
+    // AzString::from_c_str
+    // ==================================================================
+
+    #[test]
+    fn azstring_from_c_str_null_is_empty() {
+        let s = unsafe { AzString::from_c_str(core::ptr::null()) };
+        assert!(s.is_empty());
+        assert_eq!(s.as_str(), "");
+    }
+
+    #[test]
+    fn azstring_from_c_str_reads_up_to_the_terminator() {
+        let c = b"hello\0trailing garbage\0";
+        let s = unsafe { AzString::from_c_str(c.as_ptr().cast::<i8>()) };
+        assert_eq!(s.as_str(), "hello");
+        assert_eq!(s.len(), 5, "the NUL terminator is not part of the string");
+    }
+
+    #[test]
+    fn azstring_from_c_str_empty_c_string_is_empty() {
+        let c = b"\0";
+        let s = unsafe { AzString::from_c_str(c.as_ptr().cast::<i8>()) };
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn azstring_from_c_str_replaces_non_utf8_bytes() {
+        // A latin-1 "café" is not valid UTF-8; it must come back lossily
+        // rather than violating the as_str() invariant.
+        let c = b"caf\xE9\0";
+        let s = unsafe { AzString::from_c_str(c.as_ptr().cast::<i8>()) };
+        assert_eq!(s.as_str(), "caf\u{FFFD}");
+        assert!(core::str::from_utf8(s.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn azstring_from_c_str_handles_a_long_c_string() {
+        let mut c = "z".repeat(100_000).into_bytes();
+        c.push(0);
+        let s = unsafe { AzString::from_c_str(c.as_ptr().cast::<i8>()) };
+        assert_eq!(s.len(), 100_000);
+    }
+
+    // ==================================================================
+    // AzString::to_c_str  (+ round trip through from_c_str)
+    // ==================================================================
+
+    #[test]
+    fn azstring_to_c_str_appends_exactly_one_nul() {
+        let s = AzString::from_const_str("abc");
+        let c = s.to_c_str();
+        assert_eq!(c.as_ref(), b"abc\0");
+        assert_eq!(c.len(), s.len() + 1);
+    }
+
+    #[test]
+    fn azstring_to_c_str_of_empty_is_just_the_terminator() {
+        let c = AzString::default().to_c_str();
+        assert_eq!(c.as_ref(), b"\0");
+        assert_eq!(c.len(), 1);
+    }
+
+    #[test]
+    fn azstring_c_str_round_trip() {
+        for original in ["", "abc", "héllo \u{1F600}", "  spaced  "] {
+            let s = AzString::from_const_str(original);
+            let c = s.to_c_str();
+            let back = unsafe { AzString::from_c_str(c.as_ptr().cast::<i8>()) };
+            assert_eq!(back.as_str(), original, "C round-trip must be lossless");
+            assert_eq!(back, s);
+        }
+    }
+
+    #[test]
+    fn azstring_c_str_round_trip_truncates_at_an_interior_nul() {
+        // Documented C-string reality: a string containing a NUL cannot survive
+        // a *const char* round-trip. Assert the truncation is deterministic
+        // rather than pretending it round-trips.
+        let s = AzString::from_string(String::from("a\0b"));
+        let c = s.to_c_str();
+        assert_eq!(c.as_ref(), b"a\0b\0", "to_c_str keeps the interior NUL");
+        let back = unsafe { AzString::from_c_str(c.as_ptr().cast::<i8>()) };
+        assert_eq!(back.as_str(), "a", "from_c_str stops at the first NUL");
+    }
+
+    #[test]
+    fn azstring_to_c_str_is_an_independent_allocation() {
+        let s = AzString::from_const_str("shared?");
+        let c = s.to_c_str();
+        assert!(matches!(c.destructor, U8VecDestructor::DefaultRust));
+        assert_ne!(
+            c.as_ptr(),
+            s.as_bytes().as_ptr(),
+            "to_c_str must copy, not alias the source"
+        );
+        assert_eq!(s.as_str(), "shared?", "source must be untouched");
+    }
+
+    // ==================================================================
+    // AzString::from_utf8 / from_utf8_lossy
+    // ==================================================================
+
+    #[test]
+    fn azstring_from_utf8_null_or_zero_len_is_empty() {
+        let buf = b"abc";
+        assert!(unsafe { AzString::from_utf8(core::ptr::null(), 3) }.is_empty());
+        assert!(unsafe { AzString::from_utf8(buf.as_ptr(), 0) }.is_empty());
+        assert!(unsafe { AzString::from_utf8_lossy(core::ptr::null(), 3) }.is_empty());
+        assert!(unsafe { AzString::from_utf8_lossy(buf.as_ptr(), 0) }.is_empty());
+    }
+
+    #[test]
+    fn azstring_from_utf8_accepts_valid_multibyte() {
+        let buf = "héllo \u{1F600}".as_bytes();
+        let s = unsafe { AzString::from_utf8(buf.as_ptr(), buf.len()) };
+        assert_eq!(s.as_str(), "héllo \u{1F600}");
+        assert_eq!(s.len(), buf.len());
+    }
+
+    #[test]
+    fn azstring_from_utf8_rejects_invalid_but_lossy_replaces_it() {
+        // A truncated 2-byte sequence: strict → empty, lossy → U+FFFD.
+        let buf = b"caf\xC3";
+        let strict = unsafe { AzString::from_utf8(buf.as_ptr(), buf.len()) };
+        assert!(
+            strict.is_empty(),
+            "from_utf8 must return an EMPTY string for invalid UTF-8, got {:?}",
+            strict.as_str()
+        );
+        let lossy = unsafe { AzString::from_utf8_lossy(buf.as_ptr(), buf.len()) };
+        assert_eq!(lossy.as_str(), "caf\u{FFFD}");
+    }
+
+    #[test]
+    fn azstring_from_utf8_rejects_overlong_and_stray_continuations() {
+        for bad in [
+            &b"\xC0\xAF"[..],         // overlong encoding of '/'
+            &b"\xED\xA0\x80"[..],     // UTF-16 surrogate half, illegal in UTF-8
+            &b"\xF8\x88\x80\x80"[..], // 5-byte sequence, illegal since RFC 3629
+            &b"\x80"[..],             // stray continuation byte
+            &b"\xFF\xFE"[..],         // never-valid bytes
+        ] {
+            let strict = unsafe { AzString::from_utf8(bad.as_ptr(), bad.len()) };
+            assert!(strict.is_empty(), "from_utf8 must reject {bad:?}");
+
+            let lossy = unsafe { AzString::from_utf8_lossy(bad.as_ptr(), bad.len()) };
+            assert!(
+                lossy.as_str().contains('\u{FFFD}'),
+                "from_utf8_lossy must substitute U+FFFD for {bad:?}"
+            );
+            // Both paths must uphold the UTF-8 invariant that as_str() assumes.
+            assert!(core::str::from_utf8(lossy.as_bytes()).is_ok());
+        }
+    }
+
+    #[test]
+    fn azstring_from_utf8_keeps_interior_nul() {
+        let buf = b"a\0b";
+        let s = unsafe { AzString::from_utf8(buf.as_ptr(), buf.len()) };
+        assert_eq!(s.len(), 3);
+        assert_eq!(s.as_bytes(), b"a\0b");
+    }
+
+    #[test]
+    fn azstring_from_utf8_handles_a_megabyte() {
+        let buf = "y".repeat(1_000_000);
+        let s = unsafe { AzString::from_utf8(buf.as_bytes().as_ptr(), buf.len()) };
+        assert_eq!(s.len(), 1_000_000);
+    }
+
+    // ==================================================================
+    // AzString::from_utf16_le / from_utf16_be / from_utf16_with_byte_order
+    // ==================================================================
+
+    #[test]
+    fn azstring_from_utf16_le_decodes_bmp_and_surrogate_pairs() {
+        let text = "héllo \u{1F600}"; // the emoji needs a surrogate pair
+        let bytes = utf16_bytes(text, true);
+        let s = unsafe { AzString::from_utf16_le(bytes.as_ptr(), bytes.len()) };
+        assert_eq!(s.as_str(), text);
+    }
+
+    #[test]
+    fn azstring_from_utf16_be_decodes_bmp_and_surrogate_pairs() {
+        let text = "héllo \u{1F600}";
+        let bytes = utf16_bytes(text, false);
+        let s = unsafe { AzString::from_utf16_be(bytes.as_ptr(), bytes.len()) };
+        assert_eq!(s.as_str(), text);
+    }
+
+    #[test]
+    fn azstring_from_utf16_byte_order_actually_matters() {
+        // Decoding LE bytes as BE must NOT silently yield the same text.
+        let le = utf16_bytes("AB", true);
+        assert_eq!(le.as_slice(), &[0x41, 0x00, 0x42, 0x00]);
+        let as_be = unsafe { AzString::from_utf16_be(le.as_ptr(), le.len()) };
+        assert_eq!(
+            as_be.as_str(),
+            "\u{4100}\u{4200}",
+            "BE decode of LE bytes must byte-swap, not guess"
+        );
+        assert_ne!(as_be.as_str(), "AB");
+    }
+
+    #[test]
+    fn azstring_from_utf16_odd_length_is_empty() {
+        let bytes = utf16_bytes("hello", true);
+        let odd = bytes.len() - 1;
+        assert_eq!(odd % 2, 1);
+        // Still inside the buffer, so this is a safe call — it must be rejected
+        // on the length check, not read a half code unit.
+        assert!(unsafe { AzString::from_utf16_le(bytes.as_ptr(), odd) }.is_empty());
+        assert!(unsafe { AzString::from_utf16_be(bytes.as_ptr(), odd) }.is_empty());
+        // The smallest odd length of all:
+        assert!(unsafe { AzString::from_utf16_le(bytes.as_ptr(), 1) }.is_empty());
+    }
+
+    #[test]
+    fn azstring_from_utf16_null_or_zero_len_is_empty() {
+        let bytes = utf16_bytes("hi", true);
+        assert!(unsafe { AzString::from_utf16_le(core::ptr::null(), 4) }.is_empty());
+        assert!(unsafe { AzString::from_utf16_be(core::ptr::null(), 4) }.is_empty());
+        assert!(unsafe { AzString::from_utf16_le(bytes.as_ptr(), 0) }.is_empty());
+        assert!(unsafe { AzString::from_utf16_be(bytes.as_ptr(), 0) }.is_empty());
+    }
+
+    #[test]
+    fn azstring_from_utf16_unpaired_surrogate_is_empty() {
+        // A lone high surrogate is not valid UTF-16 → documented empty result.
+        let lone_high: [u8; 2] = 0xD83C_u16.to_le_bytes();
+        assert!(unsafe { AzString::from_utf16_le(lone_high.as_ptr(), 2) }.is_empty());
+
+        // A lone LOW surrogate, and a reversed (low-then-high) pair.
+        let lone_low: [u8; 2] = 0xDF89_u16.to_le_bytes();
+        assert!(unsafe { AzString::from_utf16_le(lone_low.as_ptr(), 2) }.is_empty());
+
+        let reversed: Vec<u8> = [0xDF89_u16, 0xD83C_u16]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        assert!(unsafe { AzString::from_utf16_le(reversed.as_ptr(), reversed.len()) }.is_empty());
+    }
+
+    #[test]
+    fn azstring_from_utf16_decodes_noncharacters_and_nul() {
+        // U+FFFE / U+0000 are valid code points (not surrogates) — they must
+        // decode rather than being treated as an error or a terminator.
+        let units: Vec<u8> = [0x0041_u16, 0x0000, 0xFFFE]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        let s = unsafe { AzString::from_utf16_le(units.as_ptr(), units.len()) };
+        assert_eq!(s.as_str(), "A\u{0}\u{FFFE}");
+        assert_eq!(s.len(), 1 + 1 + 3);
+    }
+
+    #[test]
+    fn azstring_from_utf16_handles_100k_code_units() {
+        let text = "ab".repeat(50_000);
+        let bytes = utf16_bytes(&text, true);
+        assert_eq!(bytes.len(), 200_000);
+        let s = unsafe { AzString::from_utf16_le(bytes.as_ptr(), bytes.len()) };
+        assert_eq!(s.len(), 100_000);
+    }
+
+    #[test]
+    fn azstring_from_utf16_with_byte_order_honours_the_supplied_fn() {
+        // The private shared impl must use the caller's byte-order fn verbatim.
+        fn swap_halves(b: [u8; 2]) -> u16 {
+            u16::from_be_bytes(b)
+        }
+        let le = utf16_bytes("Az", true);
+        let via_shared = unsafe {
+            AzString::from_utf16_with_byte_order(le.as_ptr(), le.len(), u16::from_le_bytes)
+        };
+        assert_eq!(via_shared.as_str(), "Az");
+
+        let swapped = unsafe {
+            AzString::from_utf16_with_byte_order(le.as_ptr(), le.len(), swap_halves)
+        };
+        assert_eq!(swapped.as_str(), "\u{4100}\u{7A00}");
+
+        // The odd-length / null guards live in the shared impl, so check them here too.
+        assert!(unsafe {
+            AzString::from_utf16_with_byte_order(le.as_ptr(), 3, u16::from_le_bytes)
+        }
+        .is_empty());
+        assert!(unsafe {
+            AzString::from_utf16_with_byte_order(core::ptr::null(), 2, u16::from_le_bytes)
+        }
+        .is_empty());
+    }
+
+    // ==================================================================
+    // AzString — getters / predicates / conversions
+    // ==================================================================
+
+    #[test]
+    fn azstring_as_str_and_as_bytes_agree_for_every_constructor() {
+        let buf = "mixed \u{1F600}".as_bytes();
+        let mut arena = StringArena::new();
+        let strings = [
+            AzString::default(),
+            AzString::from_const_str("mixed \u{1F600}"),
+            AzString::from_string(String::from("mixed \u{1F600}")),
+            AzString::from("mixed \u{1F600}"),
+            AzString::copy_from_bytes(buf.as_ptr(), 0, buf.len()),
+            unsafe { AzString::from_utf8(buf.as_ptr(), buf.len()) },
+            arena.intern("mixed \u{1F600}"),
+        ];
+        for s in &strings {
+            assert_eq!(
+                s.as_bytes(),
+                s.as_str().as_bytes(),
+                "as_bytes() and as_str() must view the same memory"
+            );
+            assert_eq!(s.len(), s.as_bytes().len());
+            assert_eq!(s.is_empty(), s.len() == 0);
+            let via_as_ref: &str = s.as_ref();
+            assert_eq!(via_as_ref, s.as_str(), "AsRef must match as_str");
+            assert_eq!(&**s, s.as_str(), "Deref must match as_str");
+        }
+    }
+
+    #[test]
+    fn azstring_is_empty_only_for_zero_bytes() {
+        assert!(AzString::default().is_empty());
+        assert!(AzString::from_const_str("").is_empty());
+        assert!(AzString::from_string(String::new()).is_empty());
+        // Whitespace and a NUL byte are content, not emptiness.
+        assert!(!AzString::from_const_str(" ").is_empty());
+        assert!(!AzString::from_const_str("\t\n").is_empty());
+        assert!(!AzString::from_string(String::from("\0")).is_empty());
+        assert_eq!(AzString::from_string(String::from("\0")).len(), 1);
+    }
+
+    #[test]
+    fn azstring_len_counts_bytes_not_chars() {
+        assert_eq!(AzString::from_const_str("é").len(), 2);
+        assert_eq!(AzString::from_const_str("\u{1F600}").len(), 4);
+        assert_eq!(AzString::from_const_str("e\u{0301}").len(), 3); // combining accent
+        assert_eq!(AzString::from_const_str("\u{1F600}").as_str().chars().count(), 1);
+    }
+
+    #[test]
+    fn azstring_into_bytes_moves_without_copying_or_double_freeing() {
+        let s = AzString::from_string(String::from("payload"));
+        let ptr = s.as_bytes().as_ptr();
+        let (len, cap) = (s.vec.len, s.vec.cap);
+        let v = s.into_bytes();
+        assert_eq!(v.as_ref(), b"payload");
+        assert_eq!(v.as_ptr(), ptr, "into_bytes must move, not copy");
+        assert_eq!(v.len(), len);
+        assert_eq!(v.capacity(), cap);
+        assert!(matches!(v.destructor, U8VecDestructor::DefaultRust));
+        // Dropping `v` here frees the buffer exactly once (the source was
+        // ManuallyDrop'd) — a double free would abort the test process.
+    }
+
+    #[test]
+    fn azstring_into_bytes_preserves_a_non_owning_destructor() {
+        let v = AzString::from_const_str("static").into_bytes();
+        assert_eq!(v.as_ref(), b"static");
+        assert!(
+            matches!(v.destructor, U8VecDestructor::NoDestructor),
+            "a &'static-backed AzString must not gain a freeing destructor"
+        );
+    }
+
+    #[test]
+    fn azstring_into_bytes_of_empty_is_empty() {
+        let v = AzString::default().into_bytes();
+        assert!(v.is_empty());
+        assert_eq!(v.as_ref(), b"");
+    }
+
+    #[test]
+    fn azstring_into_library_owned_string_works_for_all_destructors() {
+        // DefaultRust: moves the allocation out.
+        assert_eq!(
+            AzString::from_string(String::from("owned \u{1F600}")).into_library_owned_string(),
+            "owned \u{1F600}"
+        );
+        // NoDestructor: must COPY the static, never take ownership of it.
+        assert_eq!(
+            AzString::from_const_str("static").into_library_owned_string(),
+            "static"
+        );
+        // External (arena-backed): must copy out of the arena.
+        let owned = {
+            let mut arena = StringArena::new();
+            let s = arena.intern("interned");
+            s.into_library_owned_string()
+        };
+        assert_eq!(owned, "interned", "must outlive the arena it was copied from");
+        // Empty / default.
+        assert_eq!(AzString::default().into_library_owned_string(), "");
+    }
+
+    #[test]
+    fn azstring_into_library_owned_string_copies_static_memory() {
+        let mut owned = AzString::from_const_str("static").into_library_owned_string();
+        // If this had aliased the &'static str, mutating it would be UB /
+        // a segfault writing to rodata.
+        owned.push_str(" + mutable");
+        assert_eq!(owned, "static + mutable");
+    }
+
+    // ==================================================================
+    // AzString::clone_self
+    // ==================================================================
+
+    #[test]
+    fn azstring_clone_self_deep_copies_library_owned_memory() {
+        let s = AzString::from_string(String::from("deep"));
+        let c = s.clone_self();
+        assert_eq!(c, s);
+        assert_ne!(
+            c.as_bytes().as_ptr(),
+            s.as_bytes().as_ptr(),
+            "a DefaultRust clone must own a fresh allocation"
+        );
+        assert!(matches!(c.vec.destructor, U8VecDestructor::DefaultRust));
+    }
+
+    #[test]
+    fn azstring_clone_self_shares_static_memory() {
+        let s = AzString::from_const_str("static");
+        let c = s.clone_self();
+        assert_eq!(c, s);
+        assert_eq!(
+            c.as_bytes().as_ptr(),
+            s.as_bytes().as_ptr(),
+            "cloning a &'static-backed string should alias, not allocate"
+        );
+        assert!(matches!(c.vec.destructor, U8VecDestructor::NoDestructor));
+    }
+
+    #[test]
+    fn azstring_clone_self_of_empty_and_unicode() {
+        for s in [
+            AzString::default(),
+            AzString::from_const_str(""),
+            AzString::from_string(String::from("\u{1F600}\u{0}\u{0301}")),
+        ] {
+            let c = s.clone_self();
+            assert_eq!(c.as_str(), s.as_str());
+            assert_eq!(c.len(), s.len());
+        }
+    }
+
+    #[test]
+    fn azstring_clone_trait_matches_clone_self() {
+        let s = AzString::from_string(String::from("via trait"));
+        assert_eq!(s.clone(), s.clone_self());
+    }
+
+    // ==================================================================
+    // AzString — Debug / Display round trips (fmt)
+    // ==================================================================
+
+    #[test]
+    fn azstring_display_round_trips_through_from() {
+        for original in [
+            "",
+            " ",
+            "plain",
+            "héllo \u{1F600}",
+            "with \"quotes\" and \\ backslash",
+            "line\nbreak\ttab",
+            "e\u{0301} combining",
+        ] {
+            let s = AzString::from(original);
+            let rendered = format!("{s}");
+            assert_eq!(rendered, original, "Display must emit the string verbatim");
+            let reparsed = AzString::from(rendered.as_str());
+            assert_eq!(reparsed, s, "parse(serialize(x)) == x");
+            // serialize(parse(serialize(x))) == serialize(x)
+            assert_eq!(format!("{reparsed}"), rendered);
+        }
+    }
+
+    #[test]
+    fn azstring_debug_matches_str_debug_and_escapes() {
+        let s = AzString::from("a\"b\\c\nd");
+        let expected = format!("{:?}", "a\"b\\c\nd");
+        assert_eq!(format!("{s:?}"), expected, "Debug must delegate to str::fmt");
+        assert!(format!("{s:?}").starts_with('"'), "Debug output must be quoted");
+        assert!(!format!("{s:?}").contains('\n'), "Debug must escape newlines");
+    }
+
+    #[test]
+    fn azstring_debug_and_display_of_empty_do_not_panic() {
+        assert_eq!(format!("{:?}", AzString::default()), "\"\"");
+        assert_eq!(format!("{}", AzString::default()), "");
+        assert_eq!(format!("{:?}", AzString::from_const_str("")), "\"\"");
+    }
+
+    #[test]
+    fn azstring_display_of_a_megabyte_is_lossless() {
+        let huge = "q".repeat(1_000_000);
+        let s = AzString::from_string(huge.clone());
+        assert_eq!(format!("{s}").len(), huge.len());
+    }
+
+    #[test]
+    fn azstring_debug_is_stable_across_constructors() {
+        // Same text, different memory ownership → identical rendering.
+        let buf = "same".as_bytes();
+        let a = AzString::from_const_str("same");
+        let b = AzString::from_string(String::from("same"));
+        let c = AzString::copy_from_bytes(buf.as_ptr(), 0, buf.len());
+        assert_eq!(format!("{a:?}"), format!("{b:?}"));
+        assert_eq!(format!("{b:?}"), format!("{c:?}"));
+        assert_eq!(format!("{a}"), format!("{c}"));
+    }
+
+    // ==================================================================
+    // AzString — Eq / Ord / Hash invariants
+    // ==================================================================
+
+    #[test]
+    fn azstring_eq_and_hash_ignore_memory_ownership() {
+        let buf = "key".as_bytes();
+        let mut arena = StringArena::new();
+        let variants = [
+            AzString::from_const_str("key"),
+            AzString::from_string(String::from("key")),
+            AzString::copy_from_bytes(buf.as_ptr(), 0, buf.len()),
+            arena.intern("key"),
+        ];
+        for v in &variants {
+            assert_eq!(*v, variants[0], "equality must compare CONTENT, not pointers");
+            assert_eq!(
+                hash_of(v),
+                hash_of(&variants[0]),
+                "Hash must agree with Eq across destructor kinds"
+            );
+            assert_eq!(
+                hash_of(v),
+                hash_of(&"key"),
+                "AzString must hash like the &str it wraps"
+            );
+        }
+    }
+
+    #[test]
+    fn azstring_ord_matches_str_ord() {
+        let mut v = [
+            AzString::from("b"),
+            AzString::from(""),
+            AzString::from("\u{1F600}"),
+            AzString::from("a"),
+            AzString::from("ab"),
+        ];
+        v.sort();
+        let sorted: Vec<&str> = v.iter().map(AzString::as_str).collect();
+        assert_eq!(sorted, ["", "a", "ab", "b", "\u{1F600}"]);
+        assert_eq!(
+            AzString::from("a").partial_cmp(&AzString::from("b")),
+            Some(core::cmp::Ordering::Less)
+        );
+        assert_eq!(
+            AzString::from("x").cmp(&AzString::from("x")),
+            core::cmp::Ordering::Equal
+        );
+    }
+
+    // ==================================================================
+    // StringArena
+    // ==================================================================
+
+    #[test]
+    fn arena_new_starts_empty() {
+        let arena = StringArena::new();
+        assert_eq!(arena.metrics(), (0, 0), "a fresh arena allocates nothing");
+        assert_eq!(StringArena::default().metrics(), (0, 0));
+    }
+
+    #[test]
+    fn arena_metrics_track_chunks_and_bytes() {
+        let mut arena = StringArena::new();
+        let _a = arena.intern("abc");
+        let (chunks, bytes) = arena.metrics();
+        assert_eq!(chunks, 1);
+        assert_eq!(bytes, 3);
+        let _b = arena.intern("de");
+        let (chunks, bytes) = arena.metrics();
+        assert_eq!(chunks, 1, "a second small string reuses the open chunk");
+        assert_eq!(bytes, 5);
+    }
+
+    #[test]
+    fn arena_empty_string_allocates_nothing_and_is_readable() {
+        let mut arena = StringArena::new();
+        let e = arena.intern("");
+        assert!(e.is_empty());
+        assert_eq!(e.as_str(), "");
+        assert_eq!(arena.metrics(), (0, 0), "empty strings need no storage");
+        assert!(!e.vec.ptr.is_null(), "the dangling ptr must still be non-null");
+    }
+
+    #[test]
+    fn arena_string_is_external_and_stashes_an_arc_in_cap() {
+        let mut arena = StringArena::new();
+        let s = arena.intern("hi");
+        assert!(matches!(s.vec.destructor, U8VecDestructor::External(_)));
+        assert_ne!(s.vec.cap, 0, "cap holds the Arc pointer, not a capacity");
+        assert_eq!(s.as_str(), "hi");
+    }
+
+    #[test]
+    fn arena_intern_refcounts_each_string() {
+        let mut arena = StringArena::new();
+        assert_eq!(Arc::strong_count(&arena.inner), 1);
+        let a = arena.intern("one");
+        let b = arena.intern("two");
+        assert_eq!(
+            Arc::strong_count(&arena.inner),
+            3,
+            "each interned string must hold its own Arc reference"
+        );
+        drop(a);
+        assert_eq!(Arc::strong_count(&arena.inner), 2);
+        drop(b);
+        assert_eq!(Arc::strong_count(&arena.inner), 1);
+    }
+
+    #[test]
+    fn arena_clone_deep_copies_and_does_not_bump_the_refcount() {
+        let mut arena = StringArena::new();
+        let s = arena.intern("interned");
+        let c = s.clone_self();
+        assert_eq!(
+            Arc::strong_count(&arena.inner),
+            2,
+            "cloning an External string deep-copies; it must NOT retain the arena"
+        );
+        assert!(matches!(c.vec.destructor, U8VecDestructor::DefaultRust));
+        assert_eq!(c.as_str(), "interned");
+        assert_ne!(c.vec.ptr, s.vec.ptr);
+    }
+
+    #[test]
+    fn arena_clone_outlives_the_arena_and_the_original() {
+        let clone = {
+            let mut arena = StringArena::new();
+            let s = arena.intern("deep-copied out of the arena");
+            let c = s.clone_self();
+            drop(s);
+            drop(arena);
+            c
+        };
+        assert_eq!(clone.as_str(), "deep-copied out of the arena");
+    }
+
+    #[test]
+    fn arena_exact_half_chunk_boundary_fills_one_chunk_exactly() {
+        // len == CHUNK_SIZE / 2 is NOT "oversized" (the check is `>`), so two of
+        // them must fit in a single chunk with zero reallocation, and the third
+        // must open a new one.
+        let mut arena = StringArena::new();
+        let half = "h".repeat(StringArena::CHUNK_SIZE / 2);
+        let a = arena.intern(&half);
+        let b = arena.intern(&half);
+        assert_eq!(arena.metrics().0, 1, "two half-chunks must share one chunk");
+        let c = arena.intern(&half);
+        assert_eq!(arena.metrics().0, 2, "the third must open a new chunk");
+
+        // If the exact-fit append had reallocated, `a`/`b` would now dangle.
+        assert_eq!(a.as_str(), half);
+        assert_eq!(b.as_str(), half);
+        assert_eq!(c.as_str(), half);
+    }
+
+    #[test]
+    fn arena_oversized_string_is_readable_and_gets_its_own_chunk() {
+        let mut arena = StringArena::new();
+        let big = "b".repeat(StringArena::CHUNK_SIZE + 1);
+        let s = arena.intern(&big);
+        assert_eq!(s.len(), big.len());
+        assert_eq!(s.as_str(), big.as_str());
+        assert_eq!(arena.metrics(), (1, big.len()));
+    }
+
+    #[test]
+    fn arena_many_interleaved_sizes_all_read_back_correctly() {
+        let mut arena = StringArena::new();
+        let mut kept = Vec::new();
+        for i in 0..200 {
+            let s = format!("s{i}-{}", "p".repeat(i % 17));
+            kept.push((arena.intern(&s), s));
+        }
+        for (interned, expected) in &kept {
+            assert_eq!(interned.as_str(), expected.as_str());
+        }
+    }
+
+    #[test]
+    fn arena_interns_unicode_and_nul_bytes_verbatim() {
+        let mut arena = StringArena::new();
+        let weird = "héllo \u{1F600}\u{0}\u{0301}";
+        let s = arena.intern(weird);
+        assert_eq!(s.as_str(), weird);
+        assert_eq!(s.len(), weird.len());
+    }
+
+    #[test]
+    fn arena_strings_outlive_the_handle_even_when_interleaved() {
+        let (a, b) = {
+            let mut arena = StringArena::new();
+            let a = arena.intern("first");
+            let big = "z".repeat(StringArena::CHUNK_SIZE * 2);
+            let _dropped = arena.intern(&big);
+            let b = arena.intern("second");
+            (a, b)
+        };
+        assert_eq!(a.as_str(), "first");
+        assert_eq!(b.as_str(), "second");
+    }
+
+    /// RED — genuine bug in `StringArena::intern` (use-after-free).
+    ///
+    /// The oversized branch pushes a *dedicated, completely full* chunk
+    /// (`len == cap`) but never touches `current_remaining`. If a small string
+    /// was interned first, `remaining` is still > 0, so the next small intern
+    /// skips the "push a fresh chunk" branch and appends into
+    /// `chunks.last_mut()` — which is now that full dedicated chunk. The
+    /// `extend_from_slice` therefore grows a `len == cap` Vec, reallocating it
+    /// and leaving the `AzString` handed out for the oversized string pointing
+    /// at freed memory.
+    ///
+    /// This test only inspects chunk *lengths* — it never dereferences the
+    /// dangling pointer, so the test itself stays UB-free.
+    #[test]
+    fn arena_small_after_oversized_must_not_grow_the_full_dedicated_chunk() {
+        let mut arena = StringArena::new();
+
+        // 1. open a shared chunk, leaving current_remaining > 0
+        let _small = arena.intern("a");
+
+        // 2. oversized → dedicated chunk with len == cap == big_len
+        let big = "x".repeat(StringArena::CHUNK_SIZE);
+        let big_len = big.len();
+        let interned_big = arena.intern(&big);
+        assert_eq!(interned_big.as_str(), big.as_str(), "valid before the next intern");
+
+        // 3. another small string: must NOT be appended into the full chunk
+        let _small2 = arena.intern("y");
+
+        // Safety: read-only look at the chunk lengths; no chunk data is read
+        // and the (possibly dangling) `interned_big.vec.ptr` is never deref'd.
+        let grew = unsafe {
+            let chunks = &*arena.inner.chunks.get();
+            chunks.iter().any(|c| c.len() > big_len)
+        };
+        assert!(
+            !grew,
+            "intern() appended a small string into the FULL dedicated chunk of an oversized \
+             string (len == cap), which reallocates that Vec and leaves every AzString pointing \
+             into it dangling — a use-after-free. Root cause: the oversized branch pushes a chunk \
+             without resetting `current_remaining`, so the next small string takes the \
+             `chunks.last_mut()` fast path onto the wrong chunk."
+        );
+    }
+
+    // ==================================================================
+    // arena_string_destructor
+    // ==================================================================
+
+    #[test]
+    fn arena_destructor_drops_one_arc_ref_and_is_idempotent() {
+        let inner = Arc::new(StringArenaInner {
+            chunks: UnsafeCell::new(Vec::new()),
+            current_remaining: UnsafeCell::new(0),
+        });
+        let raw = Arc::into_raw(Arc::clone(&inner));
+        assert_eq!(Arc::strong_count(&inner), 2);
+
+        let mut v = U8Vec {
+            ptr: core::ptr::NonNull::<u8>::dangling().as_ptr().cast_const(),
+            len: 0,
+            cap: raw as usize,
+            destructor: U8VecDestructor::External(arena_string_destructor),
+        };
+
+        arena_string_destructor(&mut v);
+        assert_eq!(
+            Arc::strong_count(&inner),
+            1,
+            "the destructor must release exactly one Arc reference"
+        );
+        assert_eq!(v.cap, 0, "cap must be zeroed to guard against a double drop");
+
+        // A second call must be a no-op rather than a double free.
+        arena_string_destructor(&mut v);
+        assert_eq!(Arc::strong_count(&inner), 1);
+        assert_eq!(v.cap, 0);
+
+        // `v` still carries the External destructor; dropping it runs the
+        // destructor a third time — also a no-op, since cap == 0.
+        drop(v);
+        assert_eq!(Arc::strong_count(&inner), 1);
+    }
+
+    #[test]
+    fn arena_destructor_tolerates_a_null_arc_pointer() {
+        // cap == 0 (e.g. a zeroed FFI husk) must not be turned into Arc::from_raw(null).
+        let mut v = U8Vec {
+            ptr: core::ptr::null(),
+            len: 0,
+            cap: 0,
+            destructor: U8VecDestructor::NoDestructor,
+        };
+        arena_string_destructor(&mut v);
+        assert_eq!(v.cap, 0);
+    }
+
+    #[test]
+    fn arena_last_reference_frees_the_chunks() {
+        // The arena's bytes must survive until the LAST AzString goes away,
+        // and dropping in either order must not double-free.
+        let inner_ptr;
+        let s = {
+            let mut arena = StringArena::new();
+            let s = arena.intern("outlives the handle");
+            inner_ptr = Arc::as_ptr(&arena.inner);
+            assert_eq!(Arc::strong_count(&arena.inner), 2);
+            s
+        };
+        // The arena handle is gone but the string still owns a reference.
+        assert_eq!(s.as_str(), "outlives the handle");
+        assert_eq!(s.vec.cap as *const StringArenaInner, inner_ptr);
+        drop(s); // final reference → chunks freed here, exactly once
     }
 }

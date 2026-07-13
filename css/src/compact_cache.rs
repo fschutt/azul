@@ -2548,3 +2548,1615 @@ mod tests {
         assert_eq!(decode_border_collapse(t1), StyleBorderCollapse::Separate);
     }
 }
+
+#[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    clippy::unreadable_literal,
+    clippy::too_many_lines,
+    clippy::cast_precision_loss
+)]
+mod autotest_generated {
+    use super::*;
+    use crate::props::basic::length::PercentageValue;
+
+    // =========================================================================
+    // Shared fixtures
+    // =========================================================================
+
+    const ALL_DISPLAY: [LayoutDisplay; 23] = [
+        LayoutDisplay::Block,
+        LayoutDisplay::Inline,
+        LayoutDisplay::InlineBlock,
+        LayoutDisplay::Flex,
+        LayoutDisplay::None,
+        LayoutDisplay::InlineFlex,
+        LayoutDisplay::Table,
+        LayoutDisplay::InlineTable,
+        LayoutDisplay::TableRowGroup,
+        LayoutDisplay::TableHeaderGroup,
+        LayoutDisplay::TableFooterGroup,
+        LayoutDisplay::TableRow,
+        LayoutDisplay::TableColumnGroup,
+        LayoutDisplay::TableColumn,
+        LayoutDisplay::TableCell,
+        LayoutDisplay::TableCaption,
+        LayoutDisplay::FlowRoot,
+        LayoutDisplay::ListItem,
+        LayoutDisplay::RunIn,
+        LayoutDisplay::Marker,
+        LayoutDisplay::Grid,
+        LayoutDisplay::InlineGrid,
+        LayoutDisplay::Contents,
+    ];
+
+    const ALL_BORDER_STYLE: [BorderStyle; 10] = [
+        BorderStyle::None,
+        BorderStyle::Solid,
+        BorderStyle::Double,
+        BorderStyle::Dotted,
+        BorderStyle::Dashed,
+        BorderStyle::Hidden,
+        BorderStyle::Groove,
+        BorderStyle::Ridge,
+        BorderStyle::Inset,
+        BorderStyle::Outset,
+    ];
+
+    const ALL_SIZE_METRIC: [SizeMetric; 12] = [
+        SizeMetric::Px,
+        SizeMetric::Pt,
+        SizeMetric::Em,
+        SizeMetric::Rem,
+        SizeMetric::In,
+        SizeMetric::Cm,
+        SizeMetric::Mm,
+        SizeMetric::Percent,
+        SizeMetric::Vw,
+        SizeMetric::Vh,
+        SizeMetric::Vmin,
+        SizeMetric::Vmax,
+    ];
+
+    /// Build a `PixelValue` straight from the raw fixed-point isize (×1000),
+    /// bypassing the f32 constructor so boundary rows are exact.
+    fn pv_raw(metric: SizeMetric, raw: isize) -> PixelValue {
+        PixelValue {
+            metric,
+            number: FloatValue { number: raw },
+        }
+    }
+
+    /// All 21 tier-1 enum properties as one struct, so a decode can be checked
+    /// field-by-field against exactly what was encoded.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    struct T1 {
+        display: LayoutDisplay,
+        position: LayoutPosition,
+        float: LayoutFloat,
+        overflow_x: LayoutOverflow,
+        overflow_y: LayoutOverflow,
+        box_sizing: LayoutBoxSizing,
+        flex_direction: LayoutFlexDirection,
+        flex_wrap: LayoutFlexWrap,
+        justify_content: LayoutJustifyContent,
+        align_items: LayoutAlignItems,
+        align_content: LayoutAlignContent,
+        writing_mode: LayoutWritingMode,
+        clear: LayoutClear,
+        font_weight: StyleFontWeight,
+        font_style: StyleFontStyle,
+        text_align: StyleTextAlign,
+        visibility: StyleVisibility,
+        white_space: StyleWhiteSpace,
+        direction: StyleDirection,
+        vertical_align: StyleVerticalAlign,
+        border_collapse: StyleBorderCollapse,
+    }
+
+    impl T1 {
+        /// Every field at its CSS initial value (the u8-0 slot).
+        const fn initial() -> Self {
+            Self {
+                display: LayoutDisplay::Block,
+                position: LayoutPosition::Static,
+                float: LayoutFloat::None,
+                overflow_x: LayoutOverflow::Visible,
+                overflow_y: LayoutOverflow::Visible,
+                box_sizing: LayoutBoxSizing::ContentBox,
+                flex_direction: LayoutFlexDirection::Row,
+                flex_wrap: LayoutFlexWrap::NoWrap,
+                justify_content: LayoutJustifyContent::FlexStart,
+                align_items: LayoutAlignItems::Stretch,
+                align_content: LayoutAlignContent::Stretch,
+                writing_mode: LayoutWritingMode::HorizontalTb,
+                clear: LayoutClear::None,
+                font_weight: StyleFontWeight::Normal,
+                font_style: StyleFontStyle::Normal,
+                text_align: StyleTextAlign::Left,
+                visibility: StyleVisibility::Visible,
+                white_space: StyleWhiteSpace::Normal,
+                direction: StyleDirection::Ltr,
+                vertical_align: StyleVerticalAlign::Baseline,
+                border_collapse: StyleBorderCollapse::Separate,
+            }
+        }
+
+        /// Every field at its highest-numbered variant — the worst case for a
+        /// mask that is one bit too narrow.
+        const fn saturated() -> Self {
+            Self {
+                display: LayoutDisplay::Contents,
+                position: LayoutPosition::Sticky,
+                float: LayoutFloat::Right,
+                overflow_x: LayoutOverflow::Clip,
+                overflow_y: LayoutOverflow::Clip,
+                box_sizing: LayoutBoxSizing::BorderBox,
+                flex_direction: LayoutFlexDirection::ColumnReverse,
+                flex_wrap: LayoutFlexWrap::WrapReverse,
+                justify_content: LayoutJustifyContent::SpaceEvenly,
+                align_items: LayoutAlignItems::Baseline,
+                align_content: LayoutAlignContent::SpaceAround,
+                writing_mode: LayoutWritingMode::VerticalLr,
+                clear: LayoutClear::Both,
+                font_weight: StyleFontWeight::Bolder,
+                font_style: StyleFontStyle::Oblique,
+                text_align: StyleTextAlign::End,
+                visibility: StyleVisibility::Collapse,
+                white_space: StyleWhiteSpace::BreakSpaces,
+                direction: StyleDirection::Rtl,
+                vertical_align: StyleVerticalAlign::TextBottom,
+                border_collapse: StyleBorderCollapse::Collapse,
+            }
+        }
+
+        fn encode(self) -> u64 {
+            encode_tier1(
+                self.display,
+                self.position,
+                self.float,
+                self.overflow_x,
+                self.overflow_y,
+                self.box_sizing,
+                self.flex_direction,
+                self.flex_wrap,
+                self.justify_content,
+                self.align_items,
+                self.align_content,
+                self.writing_mode,
+                self.clear,
+                self.font_weight,
+                self.font_style,
+                self.text_align,
+                self.visibility,
+                self.white_space,
+                self.direction,
+                self.vertical_align,
+                self.border_collapse,
+            )
+        }
+
+        fn decode(t1: u64) -> Self {
+            Self {
+                display: decode_display(t1),
+                position: decode_position(t1),
+                float: decode_float(t1),
+                overflow_x: decode_overflow_x(t1),
+                overflow_y: decode_overflow_y(t1),
+                box_sizing: decode_box_sizing(t1),
+                flex_direction: decode_flex_direction(t1),
+                flex_wrap: decode_flex_wrap(t1),
+                justify_content: decode_justify_content(t1),
+                align_items: decode_align_items(t1),
+                align_content: decode_align_content(t1),
+                writing_mode: decode_writing_mode(t1),
+                clear: decode_clear(t1),
+                font_weight: decode_font_weight(t1),
+                font_style: decode_font_style(t1),
+                text_align: decode_text_align(t1),
+                visibility: decode_visibility(t1),
+                white_space: decode_white_space(t1),
+                direction: decode_direction(t1),
+                vertical_align: decode_vertical_align(t1),
+                border_collapse: decode_border_collapse(t1),
+            }
+        }
+    }
+
+    // =========================================================================
+    // u8 decoders — every byte outside the variant range must fall back to the
+    // CSS initial value (the u8-0 slot), never panic, never alias a real variant
+    // =========================================================================
+
+    /// `first_invalid` = the first u8 that has no variant. Every byte from there
+    /// to `u8::MAX` must decode to `initial`.
+    fn assert_u8_fallback<T: PartialEq + core::fmt::Debug + Copy>(
+        name: &str,
+        decode: fn(u8) -> T,
+        first_invalid: u8,
+        initial: T,
+    ) {
+        for v in first_invalid..=u8::MAX {
+            assert_eq!(
+                decode(v),
+                initial,
+                "{name}: out-of-range byte {v} must fall back to the CSS initial value",
+            );
+        }
+    }
+
+    #[test]
+    fn out_of_range_u8_falls_back_to_css_initial_for_every_enum() {
+        assert_u8_fallback("display", layout_display_from_u8, 23, LayoutDisplay::Block);
+        assert_u8_fallback("position", layout_position_from_u8, 5, LayoutPosition::Static);
+        assert_u8_fallback("float", layout_float_from_u8, 3, LayoutFloat::None);
+        assert_u8_fallback("overflow", layout_overflow_from_u8, 5, LayoutOverflow::Visible);
+        assert_u8_fallback(
+            "box_sizing",
+            layout_box_sizing_from_u8,
+            2,
+            LayoutBoxSizing::ContentBox,
+        );
+        assert_u8_fallback(
+            "flex_direction",
+            layout_flex_direction_from_u8,
+            4,
+            LayoutFlexDirection::Row,
+        );
+        assert_u8_fallback("flex_wrap", layout_flex_wrap_from_u8, 3, LayoutFlexWrap::NoWrap);
+        assert_u8_fallback(
+            "justify_content",
+            layout_justify_content_from_u8,
+            8,
+            LayoutJustifyContent::FlexStart,
+        );
+        assert_u8_fallback(
+            "align_items",
+            layout_align_items_from_u8,
+            5,
+            LayoutAlignItems::Stretch,
+        );
+        assert_u8_fallback("align_self", layout_align_self_from_u8, 6, LayoutAlignSelf::Auto);
+        assert_u8_fallback(
+            "justify_self",
+            layout_justify_self_from_u8,
+            5,
+            LayoutJustifySelf::Auto,
+        );
+        assert_u8_fallback(
+            "justify_items",
+            layout_justify_items_from_u8,
+            4,
+            LayoutJustifyItems::Stretch,
+        );
+        assert_u8_fallback(
+            "grid_auto_flow",
+            layout_grid_auto_flow_from_u8,
+            4,
+            LayoutGridAutoFlow::Row,
+        );
+        assert_u8_fallback(
+            "align_content",
+            layout_align_content_from_u8,
+            6,
+            LayoutAlignContent::Stretch,
+        );
+        assert_u8_fallback(
+            "writing_mode",
+            layout_writing_mode_from_u8,
+            3,
+            LayoutWritingMode::HorizontalTb,
+        );
+        assert_u8_fallback("clear", layout_clear_from_u8, 4, LayoutClear::None);
+        assert_u8_fallback(
+            "font_weight",
+            style_font_weight_from_u8,
+            11,
+            StyleFontWeight::Normal,
+        );
+        assert_u8_fallback("font_style", style_font_style_from_u8, 3, StyleFontStyle::Normal);
+        assert_u8_fallback("text_align", style_text_align_from_u8, 6, StyleTextAlign::Left);
+        assert_u8_fallback(
+            "visibility",
+            style_visibility_from_u8,
+            3,
+            StyleVisibility::Visible,
+        );
+        assert_u8_fallback(
+            "white_space",
+            style_white_space_from_u8,
+            6,
+            StyleWhiteSpace::Normal,
+        );
+        assert_u8_fallback("direction", style_direction_from_u8, 2, StyleDirection::Ltr);
+        assert_u8_fallback(
+            "vertical_align",
+            style_vertical_align_from_u8,
+            8,
+            StyleVerticalAlign::Baseline,
+        );
+        assert_u8_fallback(
+            "border_collapse",
+            border_collapse_from_u8,
+            2,
+            StyleBorderCollapse::Separate,
+        );
+        assert_u8_fallback("border_style", border_style_from_u8, 10, BorderStyle::None);
+        assert_u8_fallback("size_metric", size_metric_from_u8, 12, SizeMetric::Px);
+    }
+
+    #[test]
+    fn display_documented_sentinel_31_decodes_to_block() {
+        // The module doc promises 0x1F is the "look it up in the slow path"
+        // sentinel and that decoding it yields the default rather than a
+        // garbage variant. 31 is also DISPLAY_MASK, so a saturated tier1 u64
+        // lands exactly here.
+        assert_eq!(layout_display_from_u8(31), LayoutDisplay::Block);
+        assert_eq!(layout_display_from_u8(u8::MAX), LayoutDisplay::Block);
+    }
+
+    #[test]
+    fn every_variant_of_every_enum_fits_its_tier1_mask() {
+        // The existing suite checks only the highest variant per enum. If a new
+        // variant is inserted in the middle with a hand-written u8 above the
+        // mask width, that check still passes while the encoding silently
+        // corrupts the neighbouring bit run. Check the whole variant set.
+        fn fits(name: &str, val: u8, mask: u64) {
+            assert!(
+                u64::from(val) & !mask == 0,
+                "{name}: encoded u8 {val} does not fit mask {mask:#b}",
+            );
+        }
+
+        for v in ALL_DISPLAY {
+            fits("display", layout_display_to_u8(v), DISPLAY_MASK);
+        }
+        for v in [
+            LayoutPosition::Static,
+            LayoutPosition::Relative,
+            LayoutPosition::Absolute,
+            LayoutPosition::Fixed,
+            LayoutPosition::Sticky,
+        ] {
+            fits("position", layout_position_to_u8(v), POSITION_MASK);
+        }
+        for v in [LayoutFloat::None, LayoutFloat::Left, LayoutFloat::Right] {
+            fits("float", layout_float_to_u8(v), FLOAT_MASK);
+        }
+        for v in [
+            LayoutOverflow::Visible,
+            LayoutOverflow::Hidden,
+            LayoutOverflow::Scroll,
+            LayoutOverflow::Auto,
+            LayoutOverflow::Clip,
+        ] {
+            fits("overflow", layout_overflow_to_u8(v), OVERFLOW_MASK);
+        }
+        for v in [LayoutBoxSizing::ContentBox, LayoutBoxSizing::BorderBox] {
+            fits("box_sizing", layout_box_sizing_to_u8(v), BOX_SIZING_MASK);
+        }
+        for v in [
+            LayoutFlexDirection::Row,
+            LayoutFlexDirection::RowReverse,
+            LayoutFlexDirection::Column,
+            LayoutFlexDirection::ColumnReverse,
+        ] {
+            fits("flex_direction", layout_flex_direction_to_u8(v), FLEX_DIR_MASK);
+        }
+        for v in [
+            LayoutFlexWrap::NoWrap,
+            LayoutFlexWrap::Wrap,
+            LayoutFlexWrap::WrapReverse,
+        ] {
+            fits("flex_wrap", layout_flex_wrap_to_u8(v), FLEX_WRAP_MASK);
+        }
+        for v in [
+            LayoutJustifyContent::FlexStart,
+            LayoutJustifyContent::FlexEnd,
+            LayoutJustifyContent::Start,
+            LayoutJustifyContent::End,
+            LayoutJustifyContent::Center,
+            LayoutJustifyContent::SpaceBetween,
+            LayoutJustifyContent::SpaceAround,
+            LayoutJustifyContent::SpaceEvenly,
+        ] {
+            fits("justify_content", layout_justify_content_to_u8(v), JUSTIFY_MASK);
+        }
+        for v in [
+            LayoutAlignItems::Stretch,
+            LayoutAlignItems::Center,
+            LayoutAlignItems::Start,
+            LayoutAlignItems::End,
+            LayoutAlignItems::Baseline,
+        ] {
+            fits("align_items", layout_align_items_to_u8(v), ALIGN_MASK);
+        }
+        for v in [
+            LayoutAlignSelf::Auto,
+            LayoutAlignSelf::Stretch,
+            LayoutAlignSelf::Center,
+            LayoutAlignSelf::Start,
+            LayoutAlignSelf::End,
+            LayoutAlignSelf::Baseline,
+        ] {
+            fits("align_self", layout_align_self_to_u8(v), ALIGN_SELF_MASK);
+        }
+        for v in [
+            LayoutJustifySelf::Auto,
+            LayoutJustifySelf::Start,
+            LayoutJustifySelf::End,
+            LayoutJustifySelf::Center,
+            LayoutJustifySelf::Stretch,
+        ] {
+            fits("justify_self", layout_justify_self_to_u8(v), JUSTIFY_SELF_MASK);
+        }
+        for v in [
+            LayoutJustifyItems::Stretch,
+            LayoutJustifyItems::Start,
+            LayoutJustifyItems::End,
+            LayoutJustifyItems::Center,
+        ] {
+            fits("justify_items", layout_justify_items_to_u8(v), JUSTIFY_ITEMS_MASK);
+        }
+        for v in [
+            LayoutGridAutoFlow::Row,
+            LayoutGridAutoFlow::Column,
+            LayoutGridAutoFlow::RowDense,
+            LayoutGridAutoFlow::ColumnDense,
+        ] {
+            fits("grid_auto_flow", layout_grid_auto_flow_to_u8(v), GRID_AUTO_FLOW_MASK);
+        }
+        for v in [
+            LayoutAlignContent::Stretch,
+            LayoutAlignContent::Center,
+            LayoutAlignContent::Start,
+            LayoutAlignContent::End,
+            LayoutAlignContent::SpaceBetween,
+            LayoutAlignContent::SpaceAround,
+        ] {
+            fits("align_content", layout_align_content_to_u8(v), ALIGN_MASK);
+        }
+        for v in [
+            LayoutWritingMode::HorizontalTb,
+            LayoutWritingMode::VerticalRl,
+            LayoutWritingMode::VerticalLr,
+        ] {
+            fits("writing_mode", layout_writing_mode_to_u8(v), WRITING_MODE_MASK);
+        }
+        for v in [
+            LayoutClear::None,
+            LayoutClear::Left,
+            LayoutClear::Right,
+            LayoutClear::Both,
+        ] {
+            fits("clear", layout_clear_to_u8(v), CLEAR_MASK);
+        }
+        for v in [
+            StyleFontWeight::Normal,
+            StyleFontWeight::W100,
+            StyleFontWeight::W200,
+            StyleFontWeight::W300,
+            StyleFontWeight::W500,
+            StyleFontWeight::W600,
+            StyleFontWeight::Bold,
+            StyleFontWeight::W800,
+            StyleFontWeight::W900,
+            StyleFontWeight::Lighter,
+            StyleFontWeight::Bolder,
+        ] {
+            fits("font_weight", style_font_weight_to_u8(v), FONT_WEIGHT_MASK);
+        }
+        for v in [
+            StyleFontStyle::Normal,
+            StyleFontStyle::Italic,
+            StyleFontStyle::Oblique,
+        ] {
+            fits("font_style", style_font_style_to_u8(v), FONT_STYLE_MASK);
+        }
+        for v in [
+            StyleTextAlign::Left,
+            StyleTextAlign::Center,
+            StyleTextAlign::Right,
+            StyleTextAlign::Justify,
+            StyleTextAlign::Start,
+            StyleTextAlign::End,
+        ] {
+            fits("text_align", style_text_align_to_u8(v), TEXT_ALIGN_MASK);
+        }
+        for v in [
+            StyleVisibility::Visible,
+            StyleVisibility::Hidden,
+            StyleVisibility::Collapse,
+        ] {
+            fits("visibility", style_visibility_to_u8(v), VISIBILITY_MASK);
+        }
+        for v in [
+            StyleWhiteSpace::Normal,
+            StyleWhiteSpace::Pre,
+            StyleWhiteSpace::Nowrap,
+            StyleWhiteSpace::PreWrap,
+            StyleWhiteSpace::PreLine,
+            StyleWhiteSpace::BreakSpaces,
+        ] {
+            fits("white_space", style_white_space_to_u8(v), WHITE_SPACE_MASK);
+        }
+        for v in [StyleDirection::Ltr, StyleDirection::Rtl] {
+            fits("direction", style_direction_to_u8(v), DIRECTION_MASK);
+        }
+        for v in [
+            StyleVerticalAlign::Baseline,
+            StyleVerticalAlign::Top,
+            StyleVerticalAlign::Middle,
+            StyleVerticalAlign::Bottom,
+            StyleVerticalAlign::Sub,
+            StyleVerticalAlign::Superscript,
+            StyleVerticalAlign::TextTop,
+            StyleVerticalAlign::TextBottom,
+            StyleVerticalAlign::Percentage(PercentageValue::new(50.0)),
+            StyleVerticalAlign::Length(PixelValue::px(4.0)),
+        ] {
+            fits("vertical_align", style_vertical_align_to_u8(v), VERTICAL_ALIGN_MASK);
+        }
+        for v in [StyleBorderCollapse::Separate, StyleBorderCollapse::Collapse] {
+            fits("border_collapse", border_collapse_to_u8(v), BORDER_COLLAPSE_MASK);
+        }
+        // border-style gets a 4-bit nibble inside the packed u16, not a tier1 mask.
+        for v in ALL_BORDER_STYLE {
+            fits("border_style", border_style_to_u8(v), 0x0F);
+        }
+        // SizeMetric gets the low 4 bits of the pixel-value u32.
+        for v in ALL_SIZE_METRIC {
+            fits("size_metric", size_metric_to_u8(v), 0x0F);
+        }
+    }
+
+    #[test]
+    fn vertical_align_percentage_and_length_collapse_to_baseline() {
+        // Documented lossy fallback: the 3-bit tier1 slot cannot carry a
+        // length/percentage payload, so these must encode as 0 (Baseline) and
+        // the caller is expected to take the slow path. What must NOT happen is
+        // an out-of-range u8 leaking into the border-collapse bit next door.
+        for v in [
+            StyleVerticalAlign::Percentage(PercentageValue::new(0.0)),
+            StyleVerticalAlign::Percentage(PercentageValue::new(-100.0)),
+            StyleVerticalAlign::Percentage(PercentageValue::new(1e9)),
+            StyleVerticalAlign::Length(PixelValue::px(0.0)),
+            StyleVerticalAlign::Length(PixelValue::px(-1e9)),
+        ] {
+            assert_eq!(style_vertical_align_to_u8(v), 0);
+            assert_eq!(
+                style_vertical_align_from_u8(style_vertical_align_to_u8(v)),
+                StyleVerticalAlign::Baseline,
+            );
+        }
+
+        // …and the collapse must not disturb the neighbouring border-collapse bit.
+        let mut t = T1::initial();
+        t.vertical_align = StyleVerticalAlign::Percentage(PercentageValue::new(150.0));
+        t.border_collapse = StyleBorderCollapse::Collapse;
+        let encoded = t.encode();
+        assert_eq!(decode_vertical_align(encoded), StyleVerticalAlign::Baseline);
+        assert_eq!(decode_border_collapse(encoded), StyleBorderCollapse::Collapse);
+    }
+
+    // =========================================================================
+    // Tier1 u64 packing — field isolation, saturation, arbitrary input
+    // =========================================================================
+
+    #[test]
+    fn tier1_each_field_at_max_does_not_leak_into_any_other_field() {
+        // One field at its highest variant, all others at CSS initial. If a
+        // shift/mask pair is wrong, the extra bits land in a neighbour and that
+        // neighbour decodes to something other than its initial value.
+        let sat = T1::saturated();
+        let mut cases: Vec<(&str, T1)> = Vec::new();
+
+        macro_rules! case {
+            ($field:ident) => {{
+                let mut t = T1::initial();
+                t.$field = sat.$field;
+                cases.push((stringify!($field), t));
+            }};
+        }
+
+        case!(display);
+        case!(position);
+        case!(float);
+        case!(overflow_x);
+        case!(overflow_y);
+        case!(box_sizing);
+        case!(flex_direction);
+        case!(flex_wrap);
+        case!(justify_content);
+        case!(align_items);
+        case!(align_content);
+        case!(writing_mode);
+        case!(clear);
+        case!(font_weight);
+        case!(font_style);
+        case!(text_align);
+        case!(visibility);
+        case!(white_space);
+        case!(direction);
+        case!(vertical_align);
+        case!(border_collapse);
+
+        assert_eq!(cases.len(), 21, "every tier1 field must be covered");
+
+        for (name, expected) in cases {
+            let decoded = T1::decode(expected.encode());
+            assert_eq!(
+                decoded, expected,
+                "{name} at its max variant leaked into another tier1 field",
+            );
+        }
+    }
+
+    #[test]
+    fn tier1_all_fields_saturated_roundtrips() {
+        let sat = T1::saturated();
+        assert_eq!(T1::decode(sat.encode()), sat);
+        assert!(tier1_is_populated(sat.encode()));
+    }
+
+    #[test]
+    fn tier1_encode_never_touches_the_grid_bits_or_bits_above_63() {
+        // encode_tier1 owns bits [52:0] plus the populated flag at bit 63.
+        // Bits [62:53] belong to align-self / justify-self / grid-auto-flow /
+        // justify-items, which the cache builder ORs in separately. If
+        // encode_tier1 ever spills into that window it silently rewrites a grid
+        // property that it never received as an argument.
+        const GRID_WINDOW: u64 = 0x3FF << 53; // bits 53..=62
+
+        for t in [T1::initial(), T1::saturated()] {
+            let encoded = t.encode();
+            assert_eq!(
+                encoded & GRID_WINDOW,
+                0,
+                "encode_tier1 wrote into the grid bit window [62:53]",
+            );
+            assert_eq!(encoded & TIER1_POPULATED_BIT, TIER1_POPULATED_BIT);
+        }
+
+        // The grid fields must survive being ORed on top of a saturated tier1.
+        let base = T1::saturated().encode();
+        let with_grid = base
+            | ((u64::from(layout_align_self_to_u8(LayoutAlignSelf::Baseline))) << ALIGN_SELF_SHIFT)
+            | ((u64::from(layout_justify_self_to_u8(LayoutJustifySelf::Stretch)))
+                << JUSTIFY_SELF_SHIFT)
+            | ((u64::from(layout_grid_auto_flow_to_u8(LayoutGridAutoFlow::ColumnDense)))
+                << GRID_AUTO_FLOW_SHIFT)
+            | ((u64::from(layout_justify_items_to_u8(LayoutJustifyItems::Center)))
+                << JUSTIFY_ITEMS_SHIFT);
+
+        assert_eq!(T1::decode(with_grid), T1::saturated());
+        assert_eq!(
+            layout_align_self_from_u8(((with_grid >> ALIGN_SELF_SHIFT) & ALIGN_SELF_MASK) as u8),
+            LayoutAlignSelf::Baseline,
+        );
+        assert_eq!(
+            layout_justify_self_from_u8(
+                ((with_grid >> JUSTIFY_SELF_SHIFT) & JUSTIFY_SELF_MASK) as u8
+            ),
+            LayoutJustifySelf::Stretch,
+        );
+        assert_eq!(
+            layout_grid_auto_flow_from_u8(
+                ((with_grid >> GRID_AUTO_FLOW_SHIFT) & GRID_AUTO_FLOW_MASK) as u8
+            ),
+            LayoutGridAutoFlow::ColumnDense,
+        );
+        assert_eq!(
+            layout_justify_items_from_u8(
+                ((with_grid >> JUSTIFY_ITEMS_SHIFT) & JUSTIFY_ITEMS_MASK) as u8
+            ),
+            LayoutJustifyItems::Center,
+        );
+    }
+
+    #[test]
+    fn tier1_zero_is_unpopulated_but_still_decodes_to_css_initial() {
+        // A `with_capacity`-allocated cache holds 0 for every node until the
+        // builder fills it in. Reading such a node must be safe and yield the
+        // CSS initial value, not a garbage variant.
+        assert!(!tier1_is_populated(0));
+        assert_eq!(T1::decode(0), T1::initial());
+    }
+
+    #[test]
+    fn tier1_decodes_arbitrary_u64_deterministically_without_panic() {
+        // u64::MAX means every mask reads all-ones. Each decoder must clamp to a
+        // real variant (usually the initial value via the `_` arm) rather than
+        // panic or produce an out-of-range discriminant.
+        let m = u64::MAX;
+        assert!(tier1_is_populated(m));
+        assert_eq!(
+            T1::decode(m),
+            T1 {
+                display: LayoutDisplay::Block,          // 31 → fallback
+                position: LayoutPosition::Static,       // 7  → fallback
+                float: LayoutFloat::None,               // 3  → fallback
+                overflow_x: LayoutOverflow::Visible,    // 7  → fallback
+                overflow_y: LayoutOverflow::Visible,    // 7  → fallback
+                box_sizing: LayoutBoxSizing::BorderBox, // 1  → real variant
+                flex_direction: LayoutFlexDirection::ColumnReverse, // 3 → real
+                flex_wrap: LayoutFlexWrap::NoWrap,      // 3  → fallback
+                justify_content: LayoutJustifyContent::SpaceEvenly, // 7 → real
+                align_items: LayoutAlignItems::Stretch, // 7  → fallback
+                align_content: LayoutAlignContent::Stretch, // 7 → fallback
+                writing_mode: LayoutWritingMode::HorizontalTb, // 3 → fallback
+                clear: LayoutClear::Both,               // 3  → real variant
+                font_weight: StyleFontWeight::Normal,   // 15 → fallback
+                font_style: StyleFontStyle::Normal,     // 3  → fallback
+                text_align: StyleTextAlign::Left,       // 7  → fallback
+                visibility: StyleVisibility::Visible,   // 3  → fallback
+                white_space: StyleWhiteSpace::Normal,   // 7  → fallback
+                direction: StyleDirection::Rtl,         // 1  → real variant
+                vertical_align: StyleVerticalAlign::TextBottom, // 7 → real
+                border_collapse: StyleBorderCollapse::Collapse, // 1 → real
+            },
+        );
+
+        // A deterministic sweep of adversarial bit patterns: none may panic.
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        for _ in 0..4096 {
+            let _ = T1::decode(x);
+            let _ = tier1_is_populated(x);
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        }
+        for x in [0u64, 1, u64::MAX, 0xAAAA_AAAA_AAAA_AAAA, 0x5555_5555_5555_5555] {
+            let _ = T1::decode(x);
+        }
+    }
+
+    // =========================================================================
+    // Packed border styles (u16, four nibbles)
+    // =========================================================================
+
+    #[test]
+    fn border_styles_packed_roundtrip_for_all_10000_combinations() {
+        for top in ALL_BORDER_STYLE {
+            for right in ALL_BORDER_STYLE {
+                for bottom in ALL_BORDER_STYLE {
+                    for left in ALL_BORDER_STYLE {
+                        let packed = encode_border_styles_packed(top, right, bottom, left);
+                        assert_eq!(decode_border_top_style(packed), top);
+                        assert_eq!(decode_border_right_style(packed), right);
+                        assert_eq!(decode_border_bottom_style(packed), bottom);
+                        assert_eq!(decode_border_left_style(packed), left);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn border_styles_packed_nibbles_do_not_alias() {
+        // Only the top nibble set — the other three must read as None (0),
+        // not pick up bits from their neighbours.
+        let packed = encode_border_styles_packed(
+            BorderStyle::Outset, // 9 — the widest valid nibble
+            BorderStyle::None,
+            BorderStyle::None,
+            BorderStyle::None,
+        );
+        assert_eq!(packed, 0x0009);
+        assert_eq!(decode_border_top_style(packed), BorderStyle::Outset);
+        assert_eq!(decode_border_right_style(packed), BorderStyle::None);
+        assert_eq!(decode_border_bottom_style(packed), BorderStyle::None);
+        assert_eq!(decode_border_left_style(packed), BorderStyle::None);
+
+        let packed = encode_border_styles_packed(
+            BorderStyle::None,
+            BorderStyle::None,
+            BorderStyle::None,
+            BorderStyle::Outset,
+        );
+        assert_eq!(packed, 0x9000);
+        assert_eq!(decode_border_left_style(packed), BorderStyle::Outset);
+        assert_eq!(decode_border_top_style(packed), BorderStyle::None);
+    }
+
+    #[test]
+    fn border_styles_packed_decodes_garbage_u16_without_panic() {
+        // Nibbles 10..=15 have no variant. `0xFFFF` (an all-ones cold-tier row,
+        // e.g. from a misinitialised buffer) must decode to None everywhere.
+        for packed in [0u16, 0xFFFF, 0xAAAA, 0x5555, u16::MAX / 2] {
+            let _ = decode_border_top_style(packed);
+            let _ = decode_border_right_style(packed);
+            let _ = decode_border_bottom_style(packed);
+            let _ = decode_border_left_style(packed);
+        }
+        assert_eq!(decode_border_top_style(0xFFFF), BorderStyle::None);
+        assert_eq!(decode_border_right_style(0xFFFF), BorderStyle::None);
+        assert_eq!(decode_border_bottom_style(0xFFFF), BorderStyle::None);
+        assert_eq!(decode_border_left_style(0xFFFF), BorderStyle::None);
+        // Exhaustive: no u16 may panic any of the four decoders.
+        for packed in 0..=u16::MAX {
+            let _ = decode_border_top_style(packed);
+            let _ = decode_border_left_style(packed);
+        }
+    }
+
+    // =========================================================================
+    // Colors (u32 0xRRGGBBAA)
+    // =========================================================================
+
+    #[test]
+    fn color_u32_channel_order_is_rrggbbaa() {
+        let c = ColorU {
+            r: 0x12,
+            g: 0x34,
+            b: 0x56,
+            a: 0x78,
+        };
+        assert_eq!(encode_color_u32(&c), 0x1234_5678);
+        assert_eq!(decode_color_u32(0x1234_5678), Some(c));
+    }
+
+    #[test]
+    fn color_u32_roundtrips_every_boundary_channel_combination() {
+        for r in [0u8, 1, 127, 254, 255] {
+            for g in [0u8, 1, 127, 254, 255] {
+                for b in [0u8, 1, 127, 254, 255] {
+                    for a in [0u8, 1, 127, 254, 255] {
+                        let c = ColorU { r, g, b, a };
+                        let encoded = encode_color_u32(&c);
+                        if encoded == 0 {
+                            // Only fully-transparent black hits the unset sentinel.
+                            assert_eq!((r, g, b, a), (0, 0, 0, 0));
+                            assert_eq!(decode_color_u32(encoded), None);
+                        } else {
+                            assert_eq!(decode_color_u32(encoded), Some(c));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn color_u32_transparent_black_is_the_documented_unset_collision() {
+        // Documented limitation, pinned so it cannot regress silently:
+        // rgba(0,0,0,0) is indistinguishable from "property never set".
+        let transparent_black = ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        assert_eq!(encode_color_u32(&transparent_black), 0);
+        assert_eq!(decode_color_u32(0), None);
+
+        // Every other alpha-0 color must still survive the round-trip.
+        let transparent_red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        assert_eq!(encode_color_u32(&transparent_red), 0xFF00_0000);
+        assert_eq!(decode_color_u32(0xFF00_0000), Some(transparent_red));
+
+        // …including "black but only just" (alpha 1).
+        let almost = ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 1,
+        };
+        assert_eq!(decode_color_u32(encode_color_u32(&almost)), Some(almost));
+    }
+
+    #[test]
+    fn color_u32_max_decodes_to_opaque_white() {
+        assert_eq!(
+            decode_color_u32(u32::MAX),
+            Some(ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255
+            }),
+        );
+    }
+
+    // =========================================================================
+    // PixelValue u32 (4-bit metric + 28-bit signed fixed-point ×1000)
+    // =========================================================================
+
+    #[test]
+    fn pixel_value_u32_sentinels_all_decode_to_none_and_are_distinct() {
+        let sentinels = [
+            U32_SENTINEL,
+            U32_AUTO,
+            U32_NONE,
+            U32_INHERIT,
+            U32_INITIAL,
+            U32_MIN_CONTENT,
+            U32_MAX_CONTENT,
+        ];
+        for (i, a) in sentinels.iter().enumerate() {
+            assert!(
+                *a >= U32_SENTINEL_THRESHOLD,
+                "sentinel {a:#X} sits below the threshold and would decode as a value",
+            );
+            assert_eq!(decode_pixel_value_u32(*a), None);
+            for b in &sentinels[i + 1..] {
+                assert_ne!(a, b, "two u32 sentinels share a bit pattern");
+            }
+        }
+        // The threshold itself is the lowest reserved value.
+        assert_eq!(decode_pixel_value_u32(U32_SENTINEL_THRESHOLD), None);
+        // One below the threshold is still a real (negative) value.
+        assert!(decode_pixel_value_u32(U32_SENTINEL_THRESHOLD - 1).is_some());
+    }
+
+    #[test]
+    fn pixel_value_u32_roundtrips_at_the_28_bit_boundaries_for_every_metric() {
+        // ±2^27 is the documented edge of the 28-bit signed fixed-point field.
+        for metric in ALL_SIZE_METRIC {
+            for raw in [0isize, 1, -1, 1000, -1000, 134_217_727, -134_217_728] {
+                let pv = pv_raw(metric, raw);
+                let encoded = encode_pixel_value_u32(&pv);
+
+                // Raw -1 with a high metric nibble collides with the sentinel
+                // band; that is asserted separately in the bug test below.
+                if encoded >= U32_SENTINEL_THRESHOLD {
+                    continue;
+                }
+
+                let decoded = decode_pixel_value_u32(encoded)
+                    .unwrap_or_else(|| panic!("{metric:?} raw {raw} decoded as a sentinel"));
+                assert_eq!(decoded.metric, metric, "metric nibble lost for raw {raw}");
+                assert_eq!(
+                    decoded.number.number(),
+                    raw,
+                    "{metric:?}: raw {raw} did not survive the round-trip",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pixel_value_u32_out_of_28_bit_range_returns_sentinel() {
+        for metric in ALL_SIZE_METRIC {
+            for raw in [
+                134_217_728isize,
+                -134_217_729,
+                1_000_000_000,
+                -1_000_000_000,
+                isize::MAX,
+                isize::MIN,
+            ] {
+                assert_eq!(
+                    encode_pixel_value_u32(&pv_raw(metric, raw)),
+                    U32_SENTINEL,
+                    "{metric:?}: raw {raw} is outside 28 bits and must escape to tier 3",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pixel_value_u32_decodes_every_low_bit_pattern_without_panic() {
+        // Metric nibbles 12..=15 have no SizeMetric — they must clamp to Px.
+        for nibble in 12u32..16 {
+            let encoded = (1u32 << 4) | nibble;
+            let decoded = decode_pixel_value_u32(encoded).unwrap();
+            assert_eq!(decoded.metric, SizeMetric::Px);
+            assert_eq!(decoded.number.number(), 1);
+        }
+        // Sign extension: the top bit of the 28-bit field must arithmetic-shift.
+        let neg = decode_pixel_value_u32(0x8000_0000).unwrap();
+        assert_eq!(neg.metric, SizeMetric::Px);
+        assert_eq!(neg.number.number(), -134_217_728);
+    }
+
+    #[test]
+    fn pixel_value_u32_negative_0_001_in_vh_vmin_vmax_collides_with_sentinels() {
+        // BUG (encode_pixel_value_u32 / decode_pixel_value_u32):
+        //
+        // raw == -1 (i.e. -0.001 of a unit) sign-extends to 0xFFFF_FFFF, and
+        // `<< 4` leaves 0xFFFF_FFF0. ORing in a metric nibble >= 9 pushes the
+        // word into the reserved sentinel band (>= 0xFFFF_FFF9):
+        //
+        //   -0.001vh   → 0xFFFF_FFF9 == U32_MAX_CONTENT
+        //   -0.001vmin → 0xFFFF_FFFA == U32_MIN_CONTENT
+        //   -0.001vmax → 0xFFFF_FFFB == U32_INITIAL
+        //
+        // So a legal (if tiny) negative viewport-relative length is written into
+        // the cache as `max-content` / `min-content` / `initial`, and the decoder
+        // reports None (unset) instead of the value. The encoder's range check
+        // guards the 28-bit magnitude but not the sentinel band it lands in.
+        //
+        // Fix would be to reject any encoding that lands >= U32_SENTINEL_THRESHOLD
+        // and escape to tier 3 instead.
+        for metric in [SizeMetric::Vh, SizeMetric::Vmin, SizeMetric::Vmax] {
+            let pv = pv_raw(metric, -1);
+            let encoded = encode_pixel_value_u32(&pv);
+            let decoded = decode_pixel_value_u32(encoded);
+            assert_eq!(
+                decoded.map(|d| (d.metric, d.number.number())),
+                Some((metric, -1isize)),
+                "{metric:?}: raw -1 encoded to {encoded:#X}, which lands in the sentinel band",
+            );
+        }
+    }
+
+    // =========================================================================
+    // Resolved px i16 (×10)
+    // =========================================================================
+
+    #[test]
+    fn resolved_px_i16_nan_and_infinity_are_defined_and_do_not_panic() {
+        // `f32 as i32` saturates: NaN → 0, +inf → i32::MAX, -inf → i32::MIN.
+        assert_eq!(encode_resolved_px_i16(f32::NAN), 0);
+        assert_eq!(encode_resolved_px_i16(-f32::NAN), 0);
+        assert_eq!(encode_resolved_px_i16(f32::INFINITY), I16_SENTINEL);
+        assert_eq!(encode_resolved_px_i16(f32::NEG_INFINITY), I16_SENTINEL);
+        assert_eq!(encode_resolved_px_i16(f32::MAX), I16_SENTINEL);
+        assert_eq!(encode_resolved_px_i16(f32::MIN), I16_SENTINEL);
+        // Subnormals round to zero rather than blowing up.
+        assert_eq!(encode_resolved_px_i16(f32::MIN_POSITIVE), 0);
+        assert_eq!(encode_resolved_px_i16(-0.0), 0);
+    }
+
+    #[test]
+    fn resolved_px_i16_saturates_exactly_at_the_documented_range() {
+        // Doc: -3276.8 ..= +3276.3 px at 0.1px precision.
+        assert_eq!(encode_resolved_px_i16(3276.3), 32763);
+        assert_eq!(encode_resolved_px_i16(-3276.8), -32768);
+
+        // One tick outside in either direction escapes to tier 3.
+        assert_eq!(encode_resolved_px_i16(3276.4), I16_SENTINEL);
+        assert_eq!(encode_resolved_px_i16(-3276.9), I16_SENTINEL);
+        assert_eq!(encode_resolved_px_i16(1e9), I16_SENTINEL);
+        assert_eq!(encode_resolved_px_i16(-1e9), I16_SENTINEL);
+    }
+
+    #[test]
+    fn resolved_px_i16_sentinels_decode_to_none_and_are_distinct() {
+        let sentinels = [I16_SENTINEL, I16_AUTO, I16_INHERIT, I16_INITIAL];
+        for (i, a) in sentinels.iter().enumerate() {
+            assert!(*a >= I16_SENTINEL_THRESHOLD);
+            assert_eq!(decode_resolved_px_i16(*a), None);
+            for b in &sentinels[i + 1..] {
+                assert_ne!(a, b, "two i16 sentinels share a bit pattern");
+            }
+        }
+        assert_eq!(decode_resolved_px_i16(I16_SENTINEL_THRESHOLD), None);
+        assert_eq!(decode_resolved_px_i16(I16_SENTINEL_THRESHOLD - 1), Some(3276.3));
+    }
+
+    #[test]
+    fn resolved_px_i16_every_non_sentinel_value_roundtrips() {
+        // Exhaustive over the whole non-sentinel i16 domain: decode → encode must
+        // be the identity, or a value written by one frame reads back shifted on
+        // the next.
+        for v in i16::MIN..I16_SENTINEL_THRESHOLD {
+            let px = decode_resolved_px_i16(v)
+                .unwrap_or_else(|| panic!("{v} is below the threshold but decoded as a sentinel"));
+            assert_eq!(
+                encode_resolved_px_i16(px),
+                v,
+                "i16 {v} decoded to {px} px which re-encodes to a different i16",
+            );
+        }
+    }
+
+    // =========================================================================
+    // Flex u16 (×100)
+    // =========================================================================
+
+    #[test]
+    fn flex_u16_nan_infinity_and_negatives_are_defined_and_do_not_panic() {
+        assert_eq!(encode_flex_u16(f32::NAN), 0);
+        assert_eq!(encode_flex_u16(f32::INFINITY), U16_SENTINEL);
+        assert_eq!(encode_flex_u16(f32::NEG_INFINITY), U16_SENTINEL);
+        assert_eq!(encode_flex_u16(f32::MAX), U16_SENTINEL);
+        // flex-grow/shrink are non-negative; a negative escapes to tier 3.
+        assert_eq!(encode_flex_u16(-1.0), U16_SENTINEL);
+        assert_eq!(encode_flex_u16(-0.01), U16_SENTINEL);
+        // …but -0.0 and values that round to zero clamp to 0, not to a sentinel.
+        assert_eq!(encode_flex_u16(-0.0), 0);
+        assert_eq!(encode_flex_u16(0.0), 0);
+    }
+
+    #[test]
+    fn flex_u16_saturates_exactly_at_the_documented_range() {
+        // Doc: 0.00 ..= 655.27 at 0.01 precision.
+        assert_eq!(encode_flex_u16(655.27), 65527);
+        assert_eq!(decode_flex_u16(65527), Some(655.27));
+        // 65528 is representable but 65529 is the threshold.
+        assert_eq!(encode_flex_u16(655.28), 65528);
+        assert_eq!(encode_flex_u16(655.29), U16_SENTINEL);
+        assert_eq!(encode_flex_u16(1e9), U16_SENTINEL);
+    }
+
+    #[test]
+    fn flex_u16_sentinel_band_decodes_to_none() {
+        for v in U16_SENTINEL_THRESHOLD..=u16::MAX {
+            assert_eq!(decode_flex_u16(v), None, "u16 {v} is reserved and must decode as None");
+        }
+        assert_eq!(U16_SENTINEL, u16::MAX);
+        assert!(decode_flex_u16(U16_SENTINEL_THRESHOLD - 1).is_some());
+    }
+
+    #[test]
+    fn flex_u16_every_non_sentinel_value_roundtrips() {
+        for v in 0..U16_SENTINEL_THRESHOLD {
+            let f = decode_flex_u16(v).unwrap_or_else(|| panic!("{v} decoded as a sentinel"));
+            assert_eq!(encode_flex_u16(f), v, "u16 {v} → {f} → re-encoded differently");
+        }
+    }
+
+    // =========================================================================
+    // encode_css_pixel_as_i16 — CssPropertyValue → i16 keyword sentinels
+    // =========================================================================
+
+    #[test]
+    fn css_pixel_as_i16_maps_every_keyword_to_its_own_sentinel() {
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::Auto),
+            I16_AUTO,
+        );
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::Initial),
+            I16_INITIAL,
+        );
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::Inherit),
+            I16_INHERIT,
+        );
+        // None / Revert / Unset have no dedicated slot → generic sentinel (slow path).
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::<PixelValue>::None),
+            I16_SENTINEL,
+        );
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::<PixelValue>::Revert),
+            I16_SENTINEL,
+        );
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::<PixelValue>::Unset),
+            I16_SENTINEL,
+        );
+    }
+
+    #[test]
+    fn css_pixel_as_i16_only_takes_the_fast_path_for_absolute_px() {
+        // Only SizeMetric::Px can be pre-resolved without layout context;
+        // every relative unit must escape to the cascade.
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::Exact(PixelValue::px(12.5))),
+            125,
+        );
+        for metric in ALL_SIZE_METRIC {
+            if metric == SizeMetric::Px {
+                continue;
+            }
+            assert_eq!(
+                encode_css_pixel_as_i16(&CssPropertyValue::Exact(pv_raw(metric, 12_500))),
+                I16_SENTINEL,
+                "{metric:?} needs resolution context and must not be pre-resolved",
+            );
+        }
+    }
+
+    #[test]
+    fn css_pixel_as_i16_out_of_range_px_escapes_to_the_sentinel() {
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::Exact(PixelValue::px(1e6))),
+            I16_SENTINEL,
+        );
+        assert_eq!(
+            encode_css_pixel_as_i16(&CssPropertyValue::Exact(PixelValue::px(-1e6))),
+            I16_SENTINEL,
+        );
+        // A px value that happens to land on a keyword sentinel would be
+        // misread as `auto`/`inherit`; the range check must exclude the band.
+        for raw in [I16_SENTINEL, I16_AUTO, I16_INHERIT, I16_INITIAL] {
+            let px = f32::from(raw) / 10.0;
+            assert_eq!(
+                encode_css_pixel_as_i16(&CssPropertyValue::Exact(PixelValue::px(px))),
+                I16_SENTINEL,
+                "{px} px must not silently encode as the keyword sentinel {raw}",
+            );
+        }
+    }
+
+    // =========================================================================
+    // CompactLayoutCache — constructor invariants, bounds, predicates
+    // =========================================================================
+
+    #[test]
+    fn empty_cache_is_the_neutral_element() {
+        let c = CompactLayoutCache::empty();
+        assert_eq!(c.node_count(), 0);
+        assert!(c.tier1_enums.is_empty());
+        assert!(c.tier2_dims.is_empty());
+        assert!(c.tier2_cold.is_empty());
+        assert!(c.tier2b_text.is_empty());
+        assert!(c.font_dirty_nodes.is_empty());
+        assert!(c.prev_font_hashes.is_empty());
+        assert!(c.font_hash_to_families.is_empty());
+        assert_eq!(c.dom_declared_flags, 0);
+        // with_capacity(0) must produce exactly the same thing.
+        assert_eq!(CompactLayoutCache::with_capacity(0), c);
+    }
+
+    #[test]
+    fn with_capacity_keeps_every_tier_the_same_length() {
+        for n in [0usize, 1, 2, 3, 17, 1024] {
+            let c = CompactLayoutCache::with_capacity(n);
+            assert_eq!(c.node_count(), n);
+            assert_eq!(c.tier1_enums.len(), n);
+            assert_eq!(c.tier2_dims.len(), n);
+            assert_eq!(c.tier2_cold.len(), n);
+            assert_eq!(c.tier2b_text.len(), n);
+            assert_eq!(c.prev_font_hashes.len(), n);
+            // Dirty list starts empty regardless of node count.
+            assert!(c.font_dirty_nodes.is_empty());
+            assert_eq!(c.dom_declared_flags, 0);
+        }
+    }
+
+    #[test]
+    fn freshly_allocated_node_reads_back_every_css_initial_value() {
+        // `with_capacity` zeroes tier1 and default-fills tier2. A node the
+        // builder never touched must still answer every getter with the CSS
+        // initial value — this is what lets the builder skip unset properties.
+        let c = CompactLayoutCache::with_capacity(3);
+        for i in 0..3 {
+            assert_eq!(T1::decode(c.tier1_enums[i]), T1::initial());
+            assert_eq!(c.get_display(i), LayoutDisplay::Block);
+            assert_eq!(c.get_position(i), LayoutPosition::Static);
+            assert_eq!(c.get_float(i), LayoutFloat::None);
+            assert_eq!(c.get_overflow_x(i), LayoutOverflow::Visible);
+            assert_eq!(c.get_overflow_y(i), LayoutOverflow::Visible);
+            assert_eq!(c.get_box_sizing(i), LayoutBoxSizing::ContentBox);
+            assert_eq!(c.get_flex_direction(i), LayoutFlexDirection::Row);
+            assert_eq!(c.get_flex_wrap(i), LayoutFlexWrap::NoWrap);
+            assert_eq!(c.get_justify_content(i), LayoutJustifyContent::FlexStart);
+            assert_eq!(c.get_align_items(i), LayoutAlignItems::Stretch);
+            assert_eq!(c.get_align_content(i), LayoutAlignContent::Stretch);
+            assert_eq!(c.get_writing_mode(i), LayoutWritingMode::HorizontalTb);
+            assert_eq!(c.get_clear(i), LayoutClear::None);
+            assert_eq!(c.get_font_weight(i), StyleFontWeight::Normal);
+            assert_eq!(c.get_font_style(i), StyleFontStyle::Normal);
+            assert_eq!(c.get_text_align(i), StyleTextAlign::Left);
+            assert_eq!(c.get_visibility(i), StyleVisibility::Visible);
+            assert_eq!(c.get_white_space(i), StyleWhiteSpace::Normal);
+            assert_eq!(c.get_direction(i), StyleDirection::Ltr);
+            assert_eq!(c.get_vertical_align(i), StyleVerticalAlign::Baseline);
+            assert_eq!(c.get_border_collapse(i), StyleBorderCollapse::Separate);
+
+            // Dimensions: auto / none, i.e. no decodable pixel value.
+            assert_eq!(c.get_width_raw(i), U32_AUTO);
+            assert_eq!(c.get_height_raw(i), U32_AUTO);
+            assert_eq!(c.get_min_width_raw(i), U32_AUTO);
+            assert_eq!(c.get_min_height_raw(i), U32_AUTO);
+            assert_eq!(c.get_max_width_raw(i), U32_NONE);
+            assert_eq!(c.get_max_height_raw(i), U32_NONE);
+            assert_eq!(c.get_flex_basis_raw(i), U32_AUTO);
+            assert_eq!(c.get_font_size_raw(i), U32_INITIAL);
+            assert_eq!(decode_pixel_value_u32(c.get_width_raw(i)), None);
+            assert_eq!(decode_pixel_value_u32(c.get_font_size_raw(i)), None);
+
+            // Box model: zeros are real values (Some), offsets are auto (raw sentinel).
+            assert_eq!(c.get_padding_top(i), Some(0.0));
+            assert_eq!(c.get_padding_right(i), Some(0.0));
+            assert_eq!(c.get_padding_bottom(i), Some(0.0));
+            assert_eq!(c.get_padding_left(i), Some(0.0));
+            assert_eq!(c.get_border_top_width(i), Some(0.0));
+            assert_eq!(c.get_border_left_width(i), Some(0.0));
+            // margin defaults to 0, NOT auto — centering must not kick in for free.
+            assert_eq!(c.get_margin_top(i), Some(0.0));
+            assert_eq!(c.get_margin_left(i), Some(0.0));
+            assert!(!c.is_margin_top_auto(i));
+            assert!(!c.is_margin_right_auto(i));
+            assert!(!c.is_margin_bottom_auto(i));
+            assert!(!c.is_margin_left_auto(i));
+            // …but the inset properties DO default to auto.
+            assert_eq!(c.get_top(i), I16_AUTO);
+            assert_eq!(c.get_right(i), I16_AUTO);
+            assert_eq!(c.get_bottom(i), I16_AUTO);
+            assert_eq!(c.get_left(i), I16_AUTO);
+
+            // Flex: grow 0, shrink 1 (the CSS defaults).
+            assert_eq!(c.get_flex_grow(i), Some(0.0));
+            assert_eq!(c.get_flex_shrink(i), Some(1.0));
+
+            // Cold tier.
+            assert_eq!(c.get_z_index(i), I16_AUTO);
+            assert_eq!(c.get_border_styles_packed(i), 0);
+            assert_eq!(c.get_border_top_style(i), BorderStyle::None);
+            assert_eq!(c.get_border_right_style(i), BorderStyle::None);
+            assert_eq!(c.get_border_bottom_style(i), BorderStyle::None);
+            assert_eq!(c.get_border_left_style(i), BorderStyle::None);
+            assert_eq!(c.get_border_top_color_raw(i), 0);
+            assert_eq!(decode_color_u32(c.get_border_top_color_raw(i)), None);
+            assert_eq!(c.get_border_top_left_radius_raw(i), I16_SENTINEL);
+            assert_eq!(c.get_tab_size_raw(i), I16_SENTINEL);
+            assert_eq!(c.get_border_spacing_h_raw(i), 0);
+            assert_eq!(c.get_border_spacing_v_raw(i), 0);
+            assert_eq!(c.get_opacity_raw(i), OPACITY_SENTINEL);
+            assert_eq!(c.get_hot_flags(i), 0);
+            assert_eq!(c.get_scrollbar_gutter_bits(i), SCROLLBAR_GUTTER_AUTO);
+
+            // Every "has this rare prop" predicate must be false on a fresh node,
+            // otherwise the fast path would take a cascade walk for every node.
+            assert!(!c.has_transform(i));
+            assert!(!c.has_transform_origin(i));
+            assert!(!c.has_box_shadow(i));
+            assert!(!c.has_text_decoration(i));
+            assert!(!c.has_background(i));
+            assert!(!c.has_clip_path(i));
+            assert!(!c.has_scrollbar_css(i));
+            assert!(!c.has_counter(i));
+            assert!(!c.has_break(i));
+            assert!(!c.has_text_orientation(i));
+            assert!(!c.has_text_shadow(i));
+            assert!(!c.has_backdrop_filter(i));
+            assert!(!c.has_filter(i));
+            assert!(!c.has_mix_blend_mode(i));
+
+            // Text tier.
+            assert_eq!(c.get_text_color_raw(i), 0);
+            assert_eq!(c.get_font_family_hash(i), 0);
+            assert_eq!(c.get_line_height(i), None); // "normal" → slow path
+            assert_eq!(c.get_letter_spacing(i), Some(0.0));
+            assert_eq!(c.get_word_spacing(i), Some(0.0));
+            assert_eq!(c.get_text_indent(i), Some(0.0));
+        }
+    }
+
+    #[test]
+    fn hot_flag_predicates_read_only_their_own_bit() {
+        let flags = [
+            ("transform", HOT_FLAG_HAS_TRANSFORM),
+            ("transform_origin", HOT_FLAG_HAS_TRANSFORM_ORIGIN),
+            ("box_shadow", HOT_FLAG_HAS_BOX_SHADOW),
+            ("text_decoration", HOT_FLAG_HAS_TEXT_DECORATION),
+            ("background", HOT_FLAG_HAS_BACKGROUND),
+            ("clip_path", HOT_FLAG_HAS_CLIP_PATH),
+        ];
+
+        for (name, bit) in flags {
+            let mut c = CompactLayoutCache::with_capacity(1);
+            c.tier2_cold[0].hot_flags = bit;
+
+            let observed = [
+                ("transform", c.has_transform(0)),
+                ("transform_origin", c.has_transform_origin(0)),
+                ("box_shadow", c.has_box_shadow(0)),
+                ("text_decoration", c.has_text_decoration(0)),
+                ("background", c.has_background(0)),
+                ("clip_path", c.has_clip_path(0)),
+            ];
+            for (other, is_set) in observed {
+                assert_eq!(
+                    is_set,
+                    other == name,
+                    "hot_flags = {bit:#010b}: has_{other}() should be {}",
+                    other == name,
+                );
+            }
+            // The gutter field lives in bits 4-5 and must be unaffected.
+            assert_eq!(c.get_scrollbar_gutter_bits(0), SCROLLBAR_GUTTER_AUTO);
+        }
+
+        // No two hot flags may share a bit, and none may overlap the gutter field.
+        let mut seen = 0u8;
+        for (_, bit) in flags {
+            assert_eq!(seen & bit, 0, "two hot flags share bit {bit:#010b}");
+            assert_eq!(
+                bit & HOT_FLAG_SCROLLBAR_GUTTER_MASK,
+                0,
+                "hot flag {bit:#010b} overlaps the scrollbar-gutter field",
+            );
+            seen |= bit;
+        }
+    }
+
+    #[test]
+    fn scrollbar_gutter_bits_survive_a_fully_set_hot_flags_byte() {
+        for gutter in [
+            SCROLLBAR_GUTTER_AUTO,
+            SCROLLBAR_GUTTER_STABLE,
+            SCROLLBAR_GUTTER_BOTH_EDGES,
+            SCROLLBAR_GUTTER_MIRROR,
+        ] {
+            let mut c = CompactLayoutCache::with_capacity(1);
+            // Every boolean flag set *and* a gutter value: the gutter must still
+            // read back cleanly out of the middle of the byte.
+            c.tier2_cold[0].hot_flags = HOT_FLAG_HAS_TRANSFORM
+                | HOT_FLAG_HAS_TRANSFORM_ORIGIN
+                | HOT_FLAG_HAS_BOX_SHADOW
+                | HOT_FLAG_HAS_TEXT_DECORATION
+                | HOT_FLAG_HAS_BACKGROUND
+                | HOT_FLAG_HAS_CLIP_PATH
+                | (gutter << HOT_FLAG_SCROLLBAR_GUTTER_SHIFT);
+
+            assert_eq!(c.get_scrollbar_gutter_bits(0), gutter);
+            assert!(c.has_transform(0));
+            assert!(c.has_clip_path(0));
+        }
+
+        // An all-ones byte reads the max gutter value, never something out of range.
+        let mut c = CompactLayoutCache::with_capacity(1);
+        c.tier2_cold[0].hot_flags = u8::MAX;
+        assert_eq!(c.get_scrollbar_gutter_bits(0), SCROLLBAR_GUTTER_MIRROR);
+        assert!(c.get_scrollbar_gutter_bits(0) <= 3);
+    }
+
+    #[test]
+    fn extra_flag_predicates_read_only_their_own_bit() {
+        let flags = [
+            ("scrollbar_css", EXTRA_FLAG_HAS_SCROLLBAR_CSS),
+            ("counter", EXTRA_FLAG_HAS_COUNTER),
+            ("break", EXTRA_FLAG_HAS_BREAK),
+            ("text_orientation", EXTRA_FLAG_HAS_TEXT_ORIENTATION),
+            ("text_shadow", EXTRA_FLAG_HAS_TEXT_SHADOW),
+            ("backdrop_filter", EXTRA_FLAG_HAS_BACKDROP_FILTER),
+            ("filter", EXTRA_FLAG_HAS_FILTER),
+            ("mix_blend_mode", EXTRA_FLAG_HAS_MIX_BLEND_MODE),
+        ];
+
+        // All 8 bits must be distinct and together cover the whole byte.
+        let mut seen = 0u8;
+        for (_, bit) in flags {
+            assert_eq!(seen & bit, 0, "two extra flags share bit {bit:#010b}");
+            seen |= bit;
+        }
+        assert_eq!(seen, u8::MAX);
+
+        for (name, bit) in flags {
+            let mut c = CompactLayoutCache::with_capacity(1);
+            c.tier2_cold[0].extra_flags = bit;
+            let observed = [
+                ("scrollbar_css", c.has_scrollbar_css(0)),
+                ("counter", c.has_counter(0)),
+                ("break", c.has_break(0)),
+                ("text_orientation", c.has_text_orientation(0)),
+                ("text_shadow", c.has_text_shadow(0)),
+                ("backdrop_filter", c.has_backdrop_filter(0)),
+                ("filter", c.has_filter(0)),
+                ("mix_blend_mode", c.has_mix_blend_mode(0)),
+            ];
+            for (other, is_set) in observed {
+                assert_eq!(
+                    is_set,
+                    other == name,
+                    "extra_flags = {bit:#010b}: has_{other}() should be {}",
+                    other == name,
+                );
+            }
+            // Setting an extra flag must not make any hot-flag predicate fire.
+            assert!(!c.has_transform(0));
+            assert!(!c.has_background(0));
+        }
+    }
+
+    #[test]
+    fn dom_declared_flags_are_distinct_and_queryable() {
+        let flags = [
+            DOM_HAS_SHAPE_INSIDE,
+            DOM_HAS_SHAPE_OUTSIDE,
+            DOM_HAS_TEXT_JUSTIFY,
+            DOM_HAS_TEXT_INDENT,
+            DOM_HAS_COLUMN_COUNT,
+            DOM_HAS_COLUMN_GAP,
+            DOM_HAS_INITIAL_LETTER,
+            DOM_HAS_INITIAL_LETTER_ALIGN,
+            DOM_HAS_LINE_CLAMP,
+            DOM_HAS_HANGING_PUNCTUATION,
+            DOM_HAS_TEXT_COMBINE_UPRIGHT,
+            DOM_HAS_EXCLUSION_MARGIN,
+            DOM_HAS_HYPHENATION_LANGUAGE,
+            DOM_HAS_UNICODE_BIDI,
+            DOM_HAS_TEXT_BOX_TRIM,
+            DOM_HAS_HYPHENS,
+            DOM_HAS_WORD_BREAK,
+            DOM_HAS_OVERFLOW_WRAP,
+            DOM_HAS_LINE_BREAK,
+            DOM_HAS_TEXT_ALIGN_LAST,
+            DOM_HAS_LINE_HEIGHT,
+            DOM_HAS_COLUMN_WIDTH,
+            DOM_HAS_SHAPE_MARGIN,
+        ];
+
+        let mut seen = 0u32;
+        for f in flags {
+            assert_eq!(f.count_ones(), 1, "{f:#X} is not a single-bit flag");
+            assert_eq!(seen & f, 0, "two DOM_HAS_* flags share bit {f:#X}");
+            seen |= f;
+        }
+
+        let mut c = CompactLayoutCache::empty();
+        // Nothing declared: every query is false, including the degenerate ones.
+        for f in flags {
+            assert!(!c.dom_declared(f));
+        }
+        assert!(!c.dom_declared(0));
+        assert!(!c.dom_declared(u32::MAX));
+
+        // One flag declared: only that query is true.
+        c.dom_declared_flags = DOM_HAS_LINE_HEIGHT;
+        for f in flags {
+            assert_eq!(c.dom_declared(f), f == DOM_HAS_LINE_HEIGHT);
+        }
+        assert!(!c.dom_declared(0), "an empty flag query must never report declared");
+        assert!(c.dom_declared(u32::MAX));
+
+        // Everything declared: every query is true.
+        c.dom_declared_flags = u32::MAX;
+        for f in flags {
+            assert!(c.dom_declared(f));
+        }
+    }
+
+    #[test]
+    fn getters_at_the_last_valid_index_do_not_panic() {
+        let c = CompactLayoutCache::with_capacity(4);
+        let last = c.node_count() - 1;
+        let _ = c.get_display(last);
+        let _ = c.get_width_raw(last);
+        let _ = c.get_padding_top(last);
+        let _ = c.get_z_index(last);
+        let _ = c.get_border_top_style(last);
+        let _ = c.get_line_height(last);
+        let _ = c.has_transform(last);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn tier1_getter_on_an_empty_cache_panics_rather_than_reading_oob() {
+        let c = CompactLayoutCache::empty();
+        let _ = c.get_display(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn tier2_getter_past_the_end_panics_rather_than_reading_oob() {
+        let c = CompactLayoutCache::with_capacity(2);
+        let _ = c.get_padding_top(2);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn cold_tier_getter_at_usize_max_panics_rather_than_wrapping() {
+        // usize::MAX would wrap to a valid offset if the index were ever used in
+        // pointer arithmetic without a bounds check.
+        let c = CompactLayoutCache::with_capacity(1);
+        let _ = c.get_z_index(usize::MAX);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn text_tier_getter_past_the_end_panics_rather_than_reading_oob() {
+        let c = CompactLayoutCache::with_capacity(1);
+        let _ = c.get_font_family_hash(1);
+    }
+
+    // =========================================================================
+    // Struct layout — the compact cache's whole point is its byte budget
+    // =========================================================================
+
+    #[test]
+    fn compact_structs_stay_within_their_documented_byte_budget() {
+        // These sizes are load-bearing: the cache is sized as N × these, and the
+        // module header quotes them. A field added without updating the header
+        // silently doubles the per-node memory cost.
+        assert_eq!(size_of::<CompactNodeProps>(), 72);
+        assert_eq!(size_of::<CompactNodePropsCold>(), 48);
+        assert_eq!(size_of::<CompactTextProps>(), 24);
+        // Tier 1 is exactly one u64 per node.
+        assert_eq!(size_of::<u64>(), 8);
+        // No padding surprises from #[repr(C)] reordering.
+        assert_eq!(align_of::<CompactNodeProps>(), 4);
+        assert_eq!(align_of::<CompactNodePropsCold>(), 4);
+        assert_eq!(align_of::<CompactTextProps>(), 8);
+    }
+}
