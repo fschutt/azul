@@ -1257,15 +1257,26 @@ impl LayoutWindow {
                 h
             });
 
-            // Skip all font resolution steps if NO node's font_family_hash
-            // changed AND the font_chain_cache has already been populated,
-            // OR if the font-stacks signature matches the one we stashed
-            // after the last successful resolution.
-            let font_requirements_unchanged = (font_dirty_count == 0
-                && !self.font_manager.font_chain_cache.is_empty())
-                || (font_stacks_sig.is_some()
-                    && font_stacks_sig == self.font_manager.last_resolved_font_stacks_sig
-                    && !self.font_manager.font_chain_cache.is_empty());
+            // Skip all font resolution steps only if the DOM's font stacks are
+            // PROVABLY the same ones we last resolved: the signature over
+            // `prev_font_hashes` must match the one stashed after the last
+            // successful resolution, no node may be font-dirty, and the chain
+            // cache must be populated.
+            //
+            // The `font_dirty_count == 0` clause used to be sufficient on its
+            // own. That was wrong for a WHOLESALE DOM SWAP (`Update::RefreshDom`,
+            // an e2e `mount`, a route change): the incoming StyledDom is a fresh
+            // object whose compact cache has no dirty nodes relative to itself,
+            // so the check said "nothing changed" and font resolution was skipped
+            // ENTIRELY — a node with a brand-new `font-family` never got its font
+            // loaded (parsed_fonts stayed flat even with eight distinct families
+            // on screen) and silently rendered in the previous DOM's font. The
+            // signature is what actually detects "these are different font
+            // stacks", so it is now required, not merely an alternative.
+            let font_requirements_unchanged = font_dirty_count == 0
+                && font_stacks_sig.is_some()
+                && font_stacks_sig == self.font_manager.last_resolved_font_stacks_sig
+                && !self.font_manager.font_chain_cache.is_empty();
 
             if font_requirements_unchanged {
                 if let Some(msgs) = debug_messages.as_mut() {
@@ -1367,6 +1378,46 @@ impl LayoutWindow {
                         msgs.push(LayoutDebugMessage::warning(format!(
                             "[FontLoading] Failed to load font {font_id:?}: {error}"
                         )));
+                    }
+                }
+
+                // Step 5b (FONT GC): everything the fonts of this document do NOT
+                // reference is garbage — the node that pulled it in is gone. The
+                // font tables used to be append-only (`AUDIT-TODO` in
+                // `azul_core::resources`), so a window that cycled fonts never
+                // gave one back. Evict here, where the definitive keep-set (the
+                // chains just resolved + the family hashes in this DOM's property
+                // cache) is in hand. Anything wrongly evicted is re-loaded by the
+                // next `load_missing_for_chains`.
+                //
+                // Only for the single-DOM case: `font_chain_cache` is REPLACED per
+                // DOM (see `set_font_chain_cache_with_sig` below), so with iframes
+                // the keep-set describes just the DOM being laid out, and evicting
+                // on it could drop a sibling DOM's font between its layout and its
+                // raster.
+                let single_dom = self
+                    .layout_results
+                    .keys()
+                    .all(|d| *d == dom_id);
+                if single_dom {
+                    let keep_ids =
+                        crate::solver3::getters::collect_font_ids_from_chains(&chains);
+                    let keep_hashes: std::collections::HashSet<u64> = styled_dom
+                        .css_property_cache
+                        .ptr
+                        .compact_cache
+                        .as_ref()
+                        .map(|cc| cc.font_hash_to_families.keys().copied().collect())
+                        .unwrap_or_default();
+                    let evicted = self
+                        .font_manager
+                        .garbage_collect_fonts(&keep_ids, &keep_hashes);
+                    if evicted > 0 {
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[FontLoading] GC evicted {evicted} unreferenced font(s)"
+                            )));
+                        }
                     }
                 }
 

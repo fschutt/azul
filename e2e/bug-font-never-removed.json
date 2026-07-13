@@ -1,6 +1,6 @@
 {
   "name": "bug_font_never_removed",
-  "description": "B3: a font loaded for a node is never evicted when the node goes away. Baseline the resource counters on a DOM with no text, mount a DOM whose only text node uses a font family unique to it, then mount the baseline DOM again (the text node — and with it the last user of that font — is gone). Every font table must return to the baseline.",
+  "description": "B3: a font loaded for a node is never evicted when the node goes away. Baseline the resource counters on a DOM with no text, mount a DOM whose only text node uses a font family unique to it (LIVENESS: the font tables must actually GROW — without this half the leak assertion below is vacuously green whenever no font is loaded at all), then mount the baseline DOM again: the text node, and with it the last user of that family, is gone. Every font table must return to the baseline.",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -17,7 +17,7 @@
       ]
     },
     { "op": "wait_frame" },
-    { "op": "wait", "ms": 150 },
+    { "op": "wait", "ms": 200 },
     { "op": "snapshot_resources", "as": "baseline" },
 
     {
@@ -29,14 +29,14 @@
       ],
       "css": [
         "#root { width: 100px; height: 40px; background: blue; }",
-        "#txt  { font-family: serif; font-size: 20px; color: black; }"
+        "#txt  { font-family: monospace; font-size: 20px; color: black; }"
       ]
     },
     { "op": "wait_frame" },
-    { "op": "wait", "ms": 200 },
+    { "op": "wait", "ms": 250 },
     { "op": "assert_exists", "selector": "#txt" },
-    { "op": "snapshot_resources", "as": "with_font" },
-    { "op": "assert_resource_counts", "vs": "baseline", "fonts": "ge" },
+
+    { "op": "assert_resource_counts", "vs": "baseline", "font_hash_to_families": "gt", "font_chain_cache": "gt" },
 
     {
       "op": "mount",
@@ -48,7 +48,7 @@
       ]
     },
     { "op": "wait_frame" },
-    { "op": "wait", "ms": 200 },
+    { "op": "wait", "ms": 250 },
     { "op": "tick_ms", "ms": 1000 },
     { "op": "wait", "ms": 200 },
     { "op": "assert_not_exists", "selector": "#txt" },

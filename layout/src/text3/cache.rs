@@ -1063,6 +1063,42 @@ impl<T: ParsedFontTrait> FontManager<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.remove(font_id)
     }
+
+    /// FONT GC — evict everything the CURRENT document no longer references.
+    ///
+    /// `keep_ids` are the `FontId`s reachable from the font chains just resolved
+    /// for this document; `keep_hashes` are the font-family hashes present in its
+    /// CSS property cache. Anything else belonged to a node that is gone.
+    ///
+    /// Without this, `parsed_fonts` / `font_hash_to_families` only ever GREW: a
+    /// font loaded for one node stayed resident for the life of the window even
+    /// after the node (and every other user of that family) disappeared — an app
+    /// that cycles fonts (font picker, editor, live CSS) leaked every font it ever
+    /// touched.
+    ///
+    /// Eviction is always safe: `load_missing_for_chains` re-loads any font a
+    /// later layout turns out to need. The cost of a wrong guess is one re-parse,
+    /// never a missing glyph.
+    ///
+    /// Returns the number of parsed fonts evicted.
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
+    pub fn garbage_collect_fonts(
+        &mut self,
+        keep_ids: &HashSet<FontId>,
+        keep_hashes: &HashSet<u64>,
+    ) -> usize {
+        let evicted = {
+            let mut parsed = self.parsed_fonts.lock().unwrap();
+            let before = parsed.len();
+            parsed.retain(|id, _| keep_ids.contains(id));
+            before.saturating_sub(parsed.len())
+        };
+        self.font_hash_to_families
+            .retain(|h, _| keep_hashes.contains(h));
+        evicted
+    }
 }
 
 // Error handling

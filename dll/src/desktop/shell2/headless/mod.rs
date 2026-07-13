@@ -1011,6 +1011,78 @@ impl HeadlessWindow {
         Ok(result)
     }
 
+    /// Re-run layout on the EXISTING (already mutated) `StyledDom` and re-render —
+    /// the `ShouldIncrementalRelayout` path every other backend implements
+    /// (macOS `apply_incremental_relayout_result`, windows/wayland
+    /// `frame_relayout_only`), and which headless was missing entirely.
+    ///
+    /// Headless used to answer *every* redraw signal with the full
+    /// `regenerate_layout()`. For an in-place DOM mutation that is not just the
+    /// slow path, it is the WRONG path: `regenerate_layout` short-circuits on
+    /// `is_layout_equivalent(old, new)`, and after an in-place mutation "old" and
+    /// "new" are the same DOM — so layout was skipped and the frame kept the
+    /// pre-mutation shaped text and geometry forever (the stale screen).
+    pub fn relayout_only(&mut self) -> Result<(), String> {
+        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+
+        {
+            let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
+            crate::desktop::shell2::common::layout::incremental_relayout(
+                layout_window,
+                &self.common.current_window_state,
+                &mut self.common.renderer_resources,
+                &mut debug_messages,
+            )?;
+        }
+
+        if let Some(msgs) = debug_messages {
+            for msg in msgs {
+                crate::desktop::shell2::common::debug_server::log(
+                    crate::desktop::shell2::common::debug_server::LogLevel::Debug,
+                    crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                    msg.message.as_str().to_string(),
+                    None,
+                );
+            }
+        }
+
+        // Same finalize tail as regenerate_layout: hit-testers, CPU frame, damage.
+        if let Some(lw) = self.common.layout_window.as_ref() {
+            self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
+        }
+        if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                cpu_ht.rebuild_from_layout(&lw.layout_results);
+            }
+        }
+
+        #[cfg(feature = "cpurender")]
+        {
+            let ws = &self.common.current_window_state;
+            let width = ws.size.dimensions.width;
+            let height = ws.size.dimensions.height;
+            let dpi = ws.size.dpi as f32 / 96.0;
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.render_frame(
+                    lw,
+                    &self.common.renderer_resources,
+                    width,
+                    height,
+                    dpi,
+                );
+            }
+            let paint = self.cpu_backend.last_frame_damage.clone();
+            let present = self.cpu_backend.last_present_damage.clone();
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.frame_report.record_frame(paint, present);
+            }
+        }
+
+        self.common.frame_needs_regeneration = true;
+        Ok(())
+    }
+
     // === Event injection (for tests / debug server) ===
 
     /// Inject an event into the queue for the next poll cycle.
@@ -1532,12 +1604,30 @@ impl HeadlessWindow {
             // In the CPU-only path there is no GPU compositor that can
             // handle scroll-offset-only or repaint-only updates.  Every
             // visual change (including scroll) requires a full display
-            // list rebuild, so we regenerate layout on any redraw signal.
+            // list rebuild, so we re-render on any redraw signal — but
+            // `frame_relayout_only` decides WHICH pass runs: an in-place DOM
+            // mutation (debug-server DOM ops, restyle, runtime text edit) must
+            // re-run layout on the EXISTING StyledDom. Sending it through the
+            // full `regenerate_layout()` is not a slower way to get the same
+            // answer: that path bails out on `is_layout_equivalent(old, new)`,
+            // which after an in-place mutation compares the DOM with itself,
+            // reports "unchanged", and skips layout — leaving the old shaped
+            // text and geometry on screen forever.
             if needs_redraw {
-                if let Err(e) = self.regenerate_layout() {
+                let relayout_only = {
+                    use super::common::event::PlatformWindow;
+                    self.take_frame_relayout_only()
+                };
+                let res = if relayout_only {
+                    self.relayout_only()
+                } else {
+                    self.regenerate_layout().map(|_| ())
+                };
+                if let Err(e) = res {
                     log_error!(
                         LogCategory::Layout,
-                        "[Headless] Layout regeneration failed: {}",
+                        "[Headless] Layout {} failed: {}",
+                        if relayout_only { "relayout" } else { "regeneration" },
                         e
                     );
                 }

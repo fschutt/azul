@@ -1032,6 +1032,14 @@ macro_rules! impl_platform_window_getters {
             self.$field.display_list_dirty = false;
             v
         }
+        fn mark_frame_relayout_only(&mut self) {
+            self.$field.frame_relayout_only = true;
+        }
+        fn take_frame_relayout_only(&mut self) -> bool {
+            let v = self.$field.frame_relayout_only;
+            self.$field.frame_relayout_only = false;
+            v
+        }
     };
 }
 
@@ -1191,6 +1199,13 @@ pub trait PlatformWindow {
 
     /// Check and clear the display_list_dirty flag
     fn take_display_list_dirty(&mut self) -> bool;
+
+    /// Mark the next frame as "layout is already up to date on the EXISTING
+    /// StyledDom — re-run layout on it, do NOT rebuild the DOM".
+    fn mark_frame_relayout_only(&mut self);
+
+    /// Check and clear the `frame_relayout_only` flag.
+    fn take_frame_relayout_only(&mut self) -> bool;
 
     // Callback Invocation Preparation
 
@@ -1629,6 +1644,16 @@ pub trait PlatformWindow {
                                 .set_node_type(azul_core::dom::NodeType::Text(azul_css::css::BoxOrStatic::heap(text.clone())));
                         }
                     }
+                    // The incremental layout cache keys its shaped-text runs on
+                    // the DOM pointer, which a text mutation does not change — so
+                    // the next relayout happily reused the OLD glyph runs and the
+                    // screen kept showing the previous text (damage was reported,
+                    // yet not one pixel differed). Drop the incremental cache so
+                    // the text is re-shaped…
+                    lw.layout_cache.reset_incremental();
+                    // …and rebuild the display list, which otherwise still carries
+                    // the old glyph run (same reasoning as ChangeNodeImage below).
+                    lw.regenerate_display_list_for_dom(dom_id);
                 }
                 ProcessEventResult::ShouldIncrementalRelayout
             }
@@ -1710,8 +1735,27 @@ pub trait PlatformWindow {
                                 .collect();
                             layout_result.styled_dom.node_data.as_container_mut()[*node_id]
                                 .set_css_props(new_props.into());
+
+                            // STALE-SCREEN FIX: `set_css_props` only writes the
+                            // node's INLINE property vec. Layout and the display
+                            // list read the CSS PROPERTY CACHE, which still holds
+                            // the cascaded value — so the node kept its old paint
+                            // (blue stays blue), the display list came out
+                            // identical, the CPU diff reported no damage and the
+                            // screen went stale. Push the same properties through
+                            // the user-override channel (the one the resolver
+                            // consults FIRST — exactly what OverrideNodeCssProperties
+                            // below uses) so the cache actually changes.
+                            let props_slice: Vec<azul_css::props::property::CssProperty> =
+                                properties.as_ref().iter().cloned().collect();
+                            let _ = layout_result
+                                .styled_dom
+                                .restyle_user_property(node_id, &props_slice);
                         }
                     }
+                    // …and rebuild the display list from the restyled DOM, or the
+                    // stored one still carries the old paint.
+                    lw.regenerate_display_list_for_dom(*dom_id);
                 }
                 ProcessEventResult::ShouldIncrementalRelayout
             }
@@ -2311,16 +2355,107 @@ pub trait PlatformWindow {
                             let css = azul_css::css::Css::empty();
                             let styled = azul_core::styled_dom::StyledDom::create(&mut dom, css);
 
-                            // Append to the parent
-                            match position {
-                                Some(pos) => {
-                                    layout_result.styled_dom.append_child_with_index(styled, *pos);
-                                    layout_result.styled_dom.finalize_non_leaf_nodes();
-                                },
-                                None => layout_result.styled_dom.append_child(styled),
+                            // `append_child` always attaches to the DOM's ROOT — the
+                            // requested `parent_node_id` was accepted, validated and
+                            // then IGNORED, so every inserted node landed as a last
+                            // child of <html> (outside <body>, inheriting nothing,
+                            // painting nothing). Append first, then RE-PARENT.
+                            let sd = &mut layout_result.styled_dom;
+                            let new_id = azul_core::id::NodeId::new(
+                                sd.node_data.as_ref().len(),
+                            );
+                            let root_id = sd
+                                .root
+                                .into_crate_internal()
+                                .unwrap_or(azul_core::id::NodeId::ZERO);
+                            let root_last_before =
+                                sd.node_hierarchy.as_container()[root_id].last_child_id();
+                            sd.append_child(styled);
+
+                            if *parent_node_id != root_id {
+                                // The hierarchy is a FLAT DFS array whose
+                                // `first_child_id(n)` is *derived* as `n + 1`. A node
+                                // appended at the end of the array can therefore only
+                                // ever be a LAST child, and only of a parent that
+                                // already has children (otherwise the derived first
+                                // child would point at an unrelated node). Anything
+                                // else needs a full re-index of the DOM (and of every
+                                // node-keyed manager) — out of scope here, so it is
+                                // rejected loudly instead of silently corrupting the
+                                // tree.
+                                let parent_last = sd.node_hierarchy.as_container()
+                                    [*parent_node_id]
+                                    .last_child_id();
+                                match parent_last {
+                                    Some(parent_last) => {
+                                        // 1. unlink the new node from the root chain
+                                        {
+                                            let h = &mut sd.node_hierarchy;
+                                            h.as_container_mut()[root_id].last_child =
+                                                azul_core::id::NodeId::into_raw(&root_last_before);
+                                            if let Some(rl) = root_last_before {
+                                                h.as_container_mut()[rl].next_sibling =
+                                                    azul_core::id::NodeId::into_raw(&None);
+                                            }
+                                            // 2. link it as the parent's new last child
+                                            h.as_container_mut()[parent_last].next_sibling =
+                                                azul_core::id::NodeId::into_raw(&Some(new_id));
+                                            h.as_container_mut()[new_id].previous_sibling =
+                                                azul_core::id::NodeId::into_raw(&Some(parent_last));
+                                            h.as_container_mut()[new_id].next_sibling =
+                                                azul_core::id::NodeId::into_raw(&None);
+                                            h.as_container_mut()[new_id].parent =
+                                                azul_core::id::NodeId::into_raw(&Some(
+                                                    *parent_node_id,
+                                                ));
+                                            h.as_container_mut()[*parent_node_id].last_child =
+                                                azul_core::id::NodeId::into_raw(&Some(new_id));
+                                        }
+                                        // 3. keep the cascade bookkeeping consistent
+                                        let sibling_index = {
+                                            let h = sd.node_hierarchy.as_container();
+                                            let mut n = parent_node_id
+                                                .az_children(&h)
+                                                .count();
+                                            n = n.saturating_sub(1);
+                                            n
+                                        };
+                                        let ci = sd.cascade_info.as_mut();
+                                        ci[parent_last.index()].is_last_child = false;
+                                        ci[new_id.index()].index_in_parent =
+                                            u32::try_from(sibling_index).unwrap_or(u32::MAX);
+                                        ci[new_id.index()].is_last_child = true;
+                                        sd.finalize_non_leaf_nodes();
+                                    }
+                                    None => {
+                                        log_warn!(
+                                            super::debug_server::LogCategory::EventLoop,
+                                            "[InsertChildNode] parent {:?} has no children — the \
+                                             flat DFS hierarchy cannot represent a first child \
+                                             appended at the end of the array; the node stayed at \
+                                             the DOM root",
+                                            parent_node_id
+                                        );
+                                    }
+                                }
                             }
+                            let _ = position; // only append-as-last-child is representable
+
+                            // `append_child` composes the trees but does NOT re-run
+                            // inheritance or rebuild the compact cache (see the doc
+                            // comment on this very method): the appended node keeps
+                            // its isolated cascade — no inherited font-size, no
+                            // inherited color, no UA defaults, no compact-cache
+                            // entry — so it measured 0×0 and painted nothing even
+                            // once it was correctly parented.
+                            sd.recompute_inheritance_and_compact_cache();
                         }
                     }
+                    // The tree changed shape: the incremental layout cache (keyed
+                    // on the DOM pointer) would otherwise reuse the old tree.
+                    lw.layout_cache.reset_incremental();
+                    // The stored display list still describes the OLD tree.
+                    lw.regenerate_display_list_for_dom(*dom_id);
                 }
                 ProcessEventResult::ShouldIncrementalRelayout
             }
@@ -5190,6 +5325,22 @@ pub trait PlatformWindow {
         // so build_atomic_txn sends it to WebRender without a full DOM rebuild.
         if max_changes_result >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow {
             self.mark_display_list_dirty();
+            needs_redraw = true;
+        }
+
+        // A change that mutated the EXISTING StyledDom in place (a debug-server DOM
+        // mutation, a restyle, a runtime text edit) needs layout re-run ON THAT DOM
+        // — NOT a DOM rebuild. Rebuilding is not merely wasteful here, it is WRONG:
+        // `regenerate_layout` compares the incoming DOM against the stored one with
+        // `is_layout_equivalent`, and after an in-place mutation those two are the
+        // SAME object, so the check says "unchanged" and the whole layout pass is
+        // skipped — the shaped text, the glyph runs and the geometry all stay at
+        // their pre-mutation values. That is the stale screen: the DOM says "AFTER",
+        // every frame keeps rendering "before".
+        if max_changes_result >= ProcessEventResult::ShouldIncrementalRelayout
+            && !needs_layout_regeneration
+        {
+            self.mark_frame_relayout_only();
             needs_redraw = true;
         }
 

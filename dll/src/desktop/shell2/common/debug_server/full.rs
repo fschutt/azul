@@ -2649,6 +2649,12 @@ struct E2eContinuation {
     /// states and the relayout the wait exists to wait FOR — so `wait` yields
     /// with a deadline instead, and frames keep processing meanwhile.
     resume_not_before: Option<std::time::Instant>,
+    /// Whether the current test's `setup` block (window size / DPI / app state)
+    /// has already been applied. The setup is applied ONCE, before step 0, and
+    /// the runner then yields so the resize actually reaches the window before
+    /// the first step runs. Without this the whole `setup` block was parsed and
+    /// then silently ignored — every test rendered at the default window size.
+    setup_applied: bool,
 }
 
 // ==================== Debug Server Handle ====================
@@ -4937,9 +4943,18 @@ fn eval_assert_resource_counts(
             "eq" => actual == base,
             "le" => actual <= base,
             "ge" => actual >= base,
+            // STRICT modes. Without them a leak test can only assert "came back
+            // to baseline", which is vacuously true when the resource was never
+            // acquired in the first place — exactly how the font-leak scenario
+            // managed to pass while the font tables were frozen. "gt" lets a test
+            // assert the LIVENESS half ("the font really was loaded") so the
+            // leak half cannot go green for the wrong reason.
+            "gt" => actual > base,
+            "lt" => actual < base,
             other => {
                 return AssertionResult::fail(format!(
-                    "assert_resource_counts: unknown mode '{other}' for '{key}'"
+                    "assert_resource_counts: unknown mode '{other}' for '{key}' (known: eq, le, \
+                     ge, gt, lt)"
                 ))
             }
         };
@@ -4989,10 +5004,67 @@ fn resume_e2e_continuation(
         let continue_on_failure = test.config.continue_on_failure;
 
         // Start new test if step_idx == 0
-        if cont.step_idx == 0 {
+        if cont.step_idx == 0 && !cont.setup_applied {
             cont.current_step_results.clear();
             cont.current_test_failed = false;
             cont.test_start = std::time::Instant::now();
+        }
+
+        // Apply the test's `setup` block (window size / DPI / app state) BEFORE
+        // step 0. This used to be dead data: `E2eSetup` was deserialized and
+        // never read, so `window_width` / `window_height` never reached the
+        // window and every scenario rendered at the default size.
+        //
+        // The resize goes through the normal `modify_window_state` channel (a
+        // CallbackChange the shell applies + relayouts), so we must YIELD right
+        // after pushing it — otherwise step 0 would run against the pre-resize
+        // layout, which is exactly the trap `has_pending_relayout_change()`
+        // exists for.
+        if cont.step_idx == 0 && !cont.setup_applied {
+            cont.setup_applied = true;
+            if let Some(setup) = test.setup.clone() {
+                let mut new_state = callback_info.get_current_window_state().clone();
+                new_state.size.dimensions = azul_core::geom::LogicalSize::new(
+                    setup.window_width as f32,
+                    setup.window_height as f32,
+                );
+                new_state.size.dpi = setup.dpi;
+                callback_info.modify_window_state(new_state);
+
+                if let Some(state) = setup.app_state.clone() {
+                    let mut cmd = serde_json::Map::new();
+                    cmd.insert("op".into(), serde_json::Value::String("set_app_state".into()));
+                    cmd.insert("state".into(), state);
+                    if let Ok(ev) = serde_json::from_value::<DebugEvent>(serde_json::Value::Object(cmd)) {
+                        let (tx, _rx) = mpsc::channel();
+                        let req = DebugRequest {
+                            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+                            event: ev,
+                            window_id: cont.window_id.clone(),
+                            wait_for_render: false,
+                            response_tx: tx,
+                        };
+                        let _ = process_debug_event(
+                            &req, callback_info, &mut app_data, &cont.component_map,
+                        );
+                    }
+                }
+
+                log(
+                    LogLevel::Debug,
+                    LogCategory::DebugServer,
+                    format!(
+                        "[E2E] setup: window {}x{} @ {} dpi (yield for relayout)",
+                        setup.window_width, setup.window_height, setup.dpi
+                    ),
+                    None,
+                );
+
+                // Yield so the resize lands (and layout re-runs) before step 0.
+                cont.app_data = app_data;
+                *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+                return true;
+            }
         }
 
         while cont.step_idx < test.steps.len() {
@@ -5178,6 +5250,8 @@ fn resume_e2e_continuation(
 
         cont.test_idx += 1;
         cont.step_idx = 0;
+        // The next test gets its own `setup` block applied.
+        cont.setup_applied = false;
     }
 
     // All tests done — send results
@@ -10297,6 +10371,7 @@ fn process_debug_event(
             // when a step (like resize) needs a relayout between steps.
             let cont = E2eContinuation {
                 resume_not_before: None,
+                setup_applied: false,
                 response_tx: request.response_tx.clone(),
                 window_id: request.window_id.clone(),
                 tests: tests.clone(),
@@ -10331,8 +10406,45 @@ fn process_debug_event(
                 .map(|lr| lr.styled_dom.node_data.as_ref().len())
                 .unwrap_or(0);
 
+            // The StyledDom hierarchy is a FLAT DFS array: a node's first child
+            // is DERIVED as `id + 1`, so a node's children are a contiguous run.
+            // A node appended at the END of the array is therefore only a valid
+            // child of a parent whose subtree already ENDS the array — i.e. of a
+            // node on the tree's RIGHTMOST SPINE. Inserting anywhere else needs a
+            // full DFS re-index plus a node-id remap of every manager
+            // (`LayoutWindow::remap_node_ids`); until that exists, say so instead
+            // of quietly appending the node to <html> (which is what this op used
+            // to do — it validated `parent_id` and then ignored it, so the node
+            // landed outside <body>, inherited nothing and painted nothing).
+            let on_rightmost_spine = layout_window
+                .layout_results
+                .get(&dom_id)
+                .map(|lr| {
+                    let h = lr.styled_dom.node_hierarchy.as_container();
+                    let mut cur = parent_node_id;
+                    loop {
+                        let Some(parent) = h[cur].parent_id() else {
+                            return true; // reached the root
+                        };
+                        if h[parent].last_child_id() != Some(cur) {
+                            return false;
+                        }
+                        cur = parent;
+                    }
+                })
+                .unwrap_or(false);
+
             if parent_node_id.index() >= node_count {
                 send_err(request, format!("Parent node {} not found (total nodes: {})", parent_id, node_count));
+            } else if !on_rightmost_spine {
+                send_err(request, format!(
+                    "insert_node: node {parent_id} is not on the DOM's rightmost spine. The flat \
+                     DFS hierarchy derives a node's first child as `id + 1`, so a node appended at \
+                     the end of the array can only become the last child of a subtree that already \
+                     ends the array. Inserting elsewhere requires a full re-index + \
+                     remap_node_ids, which is not implemented — refusing rather than corrupting \
+                     the tree."
+                ));
             } else {
                 let new_node_id = node_count as u64; // New node will be appended at end
                 let classes_az: Vec<azul_css::AzString> = classes.iter()
@@ -10348,7 +10460,10 @@ fn process_debug_event(
                     classes_az.into(),
                     id_az.into(),
                 );
-                needs_update = true;
+                // NOTE: deliberately NO `needs_update = true` here — the pushed
+                // CallbackChange already relayouts + rebuilds the display list.
+                // needs_update would force Update::RefreshDom → a full DOM rebuild
+                // from the app's layout_callback, throwing the mutation away.
 
                 send_ok(
                     request,
@@ -10378,7 +10493,10 @@ fn process_debug_event(
                 send_err(request, format!("Cannot delete node {} (root or out of range)", node_id));
             } else {
                 callback_info.delete_node(dom_id, target_node_id);
-                needs_update = true;
+                // NOTE: deliberately NO `needs_update = true` here — the pushed
+                // CallbackChange already relayouts + rebuilds the display list.
+                // needs_update would force Update::RefreshDom → a full DOM rebuild
+                // from the app's layout_callback, throwing the mutation away.
 
                 send_ok(
                     request,
@@ -10415,7 +10533,10 @@ fn process_debug_event(
                     dom_node_id,
                     azul_css::AzString::from(text.as_str()),
                 );
-                needs_update = true;
+                // NOTE: deliberately NO `needs_update = true` here — the pushed
+                // CallbackChange already relayouts + rebuilds the display list.
+                // needs_update would force Update::RefreshDom → a full DOM rebuild
+                // from the app's layout_callback, throwing the mutation away.
 
                 send_ok(
                     request,
@@ -10456,7 +10577,10 @@ fn process_debug_event(
                     target_node_id,
                     ids_and_classes.into(),
                 );
-                needs_update = true;
+                // NOTE: deliberately NO `needs_update = true` here — the pushed
+                // CallbackChange already relayouts + rebuilds the display list.
+                // needs_update would force Update::RefreshDom → a full DOM rebuild
+                // from the app's layout_callback, throwing the mutation away.
 
                 send_ok(
                     request,
@@ -10486,36 +10610,62 @@ fn process_debug_event(
             if target_node_id.index() >= node_count {
                 send_err(request, format!("Node {} not found", node_id));
             } else {
+                use azul_css::props::property::{
+                    parse_combined_css_property, CombinedCssPropertyType,
+                };
                 let key_map = get_css_key_map();
-                match CssPropertyType::from_str(property, &key_map) {
-                    Some(prop_type) => {
-                        match azul_css::props::property::parse_css_property(prop_type, value) {
-                            Ok(css_prop) => {
-                                callback_info.change_node_css_properties(
-                                    dom_id,
-                                    target_node_id,
-                                    vec![css_prop].into(),
-                                );
-                                needs_update = true;
+                // A CSS name is either a plain property ("width", "background")
+                // or a COMBINED/shorthand one ("background-color", "margin",
+                // "border", "font", …), which lives in a different enum and
+                // expands to several plain properties. Only the first was
+                // handled, so every shorthand was rejected with "Unknown CSS
+                // property" — `background-color` among them.
+                let parsed: Result<Vec<azul_css::props::property::CssProperty>, String> =
+                    if let Some(prop_type) = CssPropertyType::from_str(property, &key_map) {
+                        azul_css::props::property::parse_css_property(prop_type, value)
+                            .map(|p| vec![p])
+                            .map_err(|e| {
+                                format!(
+                                    "Failed to parse CSS value '{value}' for property \
+                                     '{property}': {e:?}"
+                                )
+                            })
+                    } else if let Some(combined) = CombinedCssPropertyType::from_str(property, &key_map) {
+                        parse_combined_css_property(combined, value).map_err(|e| {
+                            format!(
+                                "Failed to parse CSS value '{value}' for shorthand property \
+                                 '{property}': {e:?}"
+                            )
+                        })
+                    } else {
+                        Err(format!("Unknown CSS property: '{property}'"))
+                    };
 
-                                send_ok(
-                                    request,
-                                    None,
-                                    Some(ResponseData::NodeCssOverrideSet(NodeCssOverrideSetResponse {
-                                        node_id: *node_id,
-                                        property: property.clone(),
-                                        value: value.clone(),
-                                    })),
-                                );
-                            }
-                            Err(e) => {
-                                send_err(request, format!("Failed to parse CSS value '{}' for property '{}': {:?}", value, property, e));
-                            }
-                        }
+                match parsed {
+                    Ok(css_props) => {
+                        callback_info.change_node_css_properties(
+                            dom_id,
+                            target_node_id,
+                            css_props.into(),
+                        );
+                        // NOTE: deliberately NO `needs_update = true` here.
+                        // change_node_css_properties pushes a
+                        // CallbackChange::ChangeNodeCssProperties, which
+                        // restyles + rebuilds the display list and reports
+                        // ShouldIncrementalRelayout. needs_update would instead
+                        // force Update::RefreshDom → a full DOM rebuild from the
+                        // app's layout_callback, throwing the mutation away.
+                        send_ok(
+                            request,
+                            None,
+                            Some(ResponseData::NodeCssOverrideSet(NodeCssOverrideSetResponse {
+                                node_id: *node_id,
+                                property: property.clone(),
+                                value: value.clone(),
+                            })),
+                        );
                     }
-                    None => {
-                        send_err(request, format!("Unknown CSS property: '{}'", property));
-                    }
+                    Err(e) => send_err(request, e),
                 }
             }
         }
