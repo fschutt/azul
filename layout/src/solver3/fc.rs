@@ -2998,6 +2998,26 @@ const fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
     }
 }
 
+/// Resolve a computed CSS `font-weight` to the OpenType `wght` coordinate.
+///
+/// Relative weights currently use the same concrete fallback values as
+/// [`convert_font_weight`]. The CSS cascade preserves `lighter` / `bolder` as
+/// enum values instead of resolving them against the parent, so 300 / 900 are
+/// the closest representation of Azul's existing font-selection behavior.
+#[must_use] pub const fn font_weight_to_wght(weight: StyleFontWeight) -> f32 {
+    match weight {
+        StyleFontWeight::W100 => 100.0,
+        StyleFontWeight::W200 => 200.0,
+        StyleFontWeight::W300 | StyleFontWeight::Lighter => 300.0,
+        StyleFontWeight::Normal => 400.0,
+        StyleFontWeight::W500 => 500.0,
+        StyleFontWeight::W600 => 600.0,
+        StyleFontWeight::Bold => 700.0,
+        StyleFontWeight::W800 => 800.0,
+        StyleFontWeight::W900 | StyleFontWeight::Bolder => 900.0,
+    }
+}
+
 /// Resolves a CSS size metric to pixels.
 ///
 /// - `metric`: The CSS unit (px, pt, em, vw, etc.)

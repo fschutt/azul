@@ -313,8 +313,8 @@ pub struct PdfPositionedGlyph {
             let writing_mode = cluster.style.writing_mode;
 
             // Look up the font from the fonts container
-            let font = match fonts.get_by_hash(font_hash) {
-                Some(f) => f.clone(),
+            let font = match fonts.get_owned_by_hash(font_hash) {
+                Some(f) => f,
                 None => continue, // Skip glyphs with unknown fonts
             };
 

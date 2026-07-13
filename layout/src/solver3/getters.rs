@@ -2994,10 +2994,14 @@ pub fn get_style_properties(
         letter_spacing,
         word_spacing,
         text_decoration,
+        // Keep the computed CSS weight available after fontconfig selection.
+        // Static faces ignore it; variable faces lazily instantiate their
+        // matching `wght` coordinate before shaping.
+        font_variations: vec![(*b"wght", super::fc::font_weight_to_wght(font_weight))],
         tab_size,
         text_transform,
         // These still use defaults - could be extended in future:
-        // font_features, font_variations, writing_mode,
+        // font_features, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
         ..Default::default()
     }

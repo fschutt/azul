@@ -339,13 +339,23 @@ pub mod parsed {
         /// [`crate::text3::cache::FontManager::evict_unused`] to
         /// decide which `LocaGlyfState::Deferred` faces to release.
         pub(crate) last_used: Arc<std::sync::atomic::AtomicU64>,
-        /// `true` if this font is a variable font (carries a `gvar`
-        /// table). Cached at parse time so [`decode_glyph_inner`]
-        /// can short-circuit the variable-context construction for
-        /// the common non-variable case. Variable-glyph delta
-        /// application requires the source bytes to be retained,
-        /// so it only fires on the `LocaGlyfState::Deferred` path.
+        /// `true` if this font has an `fvar` table and variable TrueType
+        /// (`gvar`) or CFF (`CFF2`) outlines. Cached at parse time so both
+        /// instancing and [`decode_glyph_inner`] can short-circuit for the
+        /// common non-variable case.
         pub(crate) is_variable_font: bool,
+        /// Lazily-created static instances of this variable font, keyed by the
+        /// fully resolved (and clamped) user coordinate tuple. CSS exposes only
+        /// nine discrete weights today, so this cache is naturally bounded to
+        /// at most nine entries per face without an eviction policy.
+        pub(crate) variation_instances: Arc<
+            std::sync::Mutex<
+                std::collections::HashMap<
+                    Vec<allsorts::tables::Fixed>,
+                    azul_css::props::basic::FontRef,
+                >,
+            >,
+        >,
         /// Lazy outline cache. Populated on first
         /// [`ParsedFont::get_or_decode_glyph`] call per `gid`; entries
         /// are wrapped in `Arc` so callers can hold them without
@@ -441,6 +451,7 @@ pub mod parsed {
                 // same face.
                 last_used: Arc::clone(&self.last_used),
                 is_variable_font: self.is_variable_font,
+                variation_instances: Arc::clone(&self.variation_instances),
                 glyph_cache: Arc::clone(&self.glyph_cache),
                 // `LocaGlyfState` is `Clone` — for `Loaded` this is an
                 // `Arc::clone`; for `Deferred` it's an `Arc::clone` of
@@ -809,6 +820,46 @@ pub mod parsed {
         }
     }
 
+    /// Convert the static CFF2 table emitted by allsorts instancing into CFF1.
+    /// Azul's outline decoder and PDF bridge already support CFF1, while CFF2
+    /// remains a variable-font-only representation even after its deltas have
+    /// been resolved.
+    fn convert_static_cff2_to_cff1(bytes: &[u8]) -> Option<Vec<u8>> {
+        use allsorts::{
+            binary::read::ReadScope,
+            font_data::FontData,
+            subset::{CmapTarget, SubsetProfile},
+            tables::{FontTableProvider, MaxpTable},
+            tag,
+        };
+
+        let font_data = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
+        let provider = font_data.table_provider(0).ok()?;
+        let maxp_data = provider.read_table_data(tag::MAXP).ok()?;
+        let maxp = ReadScope::new(&maxp_data).read::<MaxpTable>().ok()?;
+        let glyph_ids = (0..maxp.num_glyphs).collect::<Vec<_>>();
+        let profile = SubsetProfile::Custom(vec![
+            tag::CMAP,
+            tag::HEAD,
+            tag::HHEA,
+            tag::HMTX,
+            tag::MAXP,
+            tag::NAME,
+            tag::OS_2,
+            tag::POST,
+            tag::GPOS,
+            tag::GSUB,
+            tag::GDEF,
+            tag::VHEA,
+            tag::VMTX,
+            tag::CVT,
+            tag::FPGM,
+            tag::PREP,
+        ]);
+
+        allsorts::subset::subset(&provider, &glyph_ids, &profile, CmapTarget::Unicode).ok()
+    }
+
     impl ParsedFont {
         /// Parse a font from bytes using allsorts
         ///
@@ -1158,12 +1209,14 @@ pub mod parsed {
             // into a chain but never actually rasterized (typical
             // for fallback fonts in CSS chains).
             let has_glyf = provider.has_table(tag::GLYF) && provider.has_table(tag::LOCA);
-            // Cache `has_gvar` before `provider` gets moved into
+            // Cache variable-outline table presence before `provider` gets moved into
             // `allsorts::font::Font::new(provider)` further down —
             // it's the cheapest way to detect a variable font and
             // avoids the borrow-after-move that a later
             // `provider.has_table(tag::GVAR)` would incur.
             let has_gvar = provider.has_table(tag::GVAR);
+            let has_cff2 = provider.has_table(tag::CFF2);
+            let is_variable_font = provider.has_table(tag::FVAR) && (has_gvar || has_cff2);
             let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> = if has_glyf
                 && !defer_loca_glyf
             {
@@ -1278,7 +1331,10 @@ pub mod parsed {
                 opt_kern_table,
                 cmap_subtable,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-                is_variable_font: has_gvar,
+                is_variable_font,
+                variation_instances: Arc::new(std::sync::Mutex::new(
+                    std::collections::HashMap::new(),
+                )),
                 glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
@@ -1407,6 +1463,112 @@ pub mod parsed {
                 loaded: Arc::new(std::sync::Mutex::new(None)),
             };
             Some(font)
+        }
+
+        /// Return the static font instance for `variations`, creating it on the
+        /// first use. The expensive allsorts instancing and parsing work is paid
+        /// once per resolved coordinate tuple; subsequent shaping runs only take
+        /// a short cache lock and clone a [`FontRef`](azul_css::props::basic::FontRef).
+        pub(crate) fn get_or_create_variation_instance(
+            &self,
+            variations: &[([u8; 4], f32)],
+        ) -> Option<azul_css::props::basic::FontRef> {
+            use std::{
+                collections::hash_map::DefaultHasher,
+                hash::{Hash, Hasher},
+            };
+
+            use allsorts::{
+                binary::read::ReadScope,
+                font_data::FontData,
+                tables::{variable_fonts::fvar::FvarTable, Fixed, FontTableProvider},
+                tag,
+            };
+
+            if !self.is_variable_font {
+                return None;
+            }
+
+            let source = self.original_bytes.as_ref()?;
+            let font_data = ReadScope::new(source.as_slice()).read::<FontData<'_>>().ok()?;
+            let provider = font_data.table_provider(self.original_index).ok()?;
+            let fvar_data = provider.read_table_data(tag::FVAR).ok()?;
+            let fvar = ReadScope::new(&fvar_data).read::<FvarTable<'_>>().ok()?;
+            let source_is_cff2 = provider.has_table(tag::CFF2);
+
+            let coordinates = fvar
+                .axes()
+                .map(|axis| {
+                    let requested = variations
+                        .iter()
+                        .rev()
+                        .find(|(candidate, value)| {
+                            u32::from_be_bytes(*candidate) == axis.axis_tag && value.is_finite()
+                        })
+                        .map(|(_, value)| *value);
+                    requested
+                        .map(Fixed::from)
+                        .unwrap_or(axis.default_value)
+                        .clamp(axis.min_value, axis.max_value)
+                })
+                .collect::<Vec<_>>();
+
+            if let Ok(cache) = self.variation_instances.lock() {
+                if let Some(instance) = cache.get(&coordinates) {
+                    return Some(instance.clone());
+                }
+            }
+
+            let (mut static_bytes, _) =
+                allsorts::variations::instance(&provider, &coordinates).ok()?;
+            if source_is_cff2 {
+                static_bytes = convert_static_cff2_to_cff1(&static_bytes)?;
+            }
+
+            let shared_bytes = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(static_bytes)));
+            let mut parsed = Self::from_bytes_shared(shared_bytes, 0, &mut Vec::new())?;
+
+            // The standard ParsedFont hash deliberately samples only the first
+            // and last 4 KiB to avoid faulting huge mmap'd fonts into RAM. Static
+            // instances can differ only in middle tables, so derive their
+            // identity from the base font plus the exact fixed-point tuple.
+            let mut hasher = DefaultHasher::new();
+            b"azul-variable-font-instance".hash(&mut hasher);
+            self.hash.hash(&mut hasher);
+            coordinates.hash(&mut hasher);
+            parsed.hash = hasher.finish();
+
+            let instance = crate::parsed_font_to_font_ref(parsed);
+            let mut cache = self.variation_instances.lock().ok()?;
+            Some(cache
+                .entry(coordinates)
+                .or_insert_with(|| instance.clone())
+                .clone())
+        }
+
+        /// Resolve an already-created variable instance by its shaped-glyph hash.
+        pub(crate) fn get_variation_instance_by_hash(
+            &self,
+            hash: u64,
+        ) -> Option<azul_css::props::basic::FontRef> {
+            let cache = self.variation_instances.lock().ok()?;
+            cache.values().find_map(|instance| {
+                (crate::font_ref_to_parsed_font(instance).hash == hash)
+                    .then(|| instance.clone())
+            })
+        }
+
+        /// Snapshot the static instances created for this variable face.
+        ///
+        /// This is used by callback font introspection so consumers see every
+        /// font hash that can occur in shaped glyph runs.
+        pub(crate) fn get_variation_instances(
+            &self,
+        ) -> Vec<azul_css::props::basic::FontRef> {
+            self.variation_instances
+                .lock()
+                .map(|cache| cache.values().cloned().collect())
+                .unwrap_or_default()
         }
 
         /// Resolve the current face's `LocaGlyf`, loading it lazily
@@ -2377,6 +2539,15 @@ pub mod parsed {
 
         fn get_hash(&self) -> u64 {
             self.hash
+        }
+
+        fn resolve_font_hash(&self, hash: u64) -> Option<Self> {
+            if self.hash == hash {
+                Some(self.clone())
+            } else {
+                self.get_variation_instance_by_hash(hash)
+                    .map(|font_ref| crate::font_ref_to_parsed_font(&font_ref).clone())
+            }
         }
 
         fn get_glyph_size(
