@@ -1,0 +1,43 @@
+{
+  "name": "op_focus_blur",
+  "description": "ZOMBIE-OP PROOF (focus / blur): both ops were DECLARED in DebugEvent with no match arm, so they fell through to the `_ => Unhandled` catch-all and answered `ok` while doing nothing. They now push CallbackChange::ModifyWindowState with window_focused / flags.has_focus flipped, which the shared apply_user_change() applies exactly the way WM_SETFOCUS / WM_KILLFOCUS / X11 FocusIn|FocusOut do: save previous_window_state, mutate current_window_state, run the state-diff pass (which derives WindowFocusIn / WindowFocusOut). This test asserts the WINDOW STATE ACTUALLY CHANGES — a vacuous `ok` leaves `focused` pinned at its start value and every assertion below goes red.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">focus probe</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_exists", "selector": "#root" },
+    { "op": "assert_window_state", "property": "focused", "expected": true },
+    { "op": "assert_window_state", "property": "window_focused", "expected": true },
+
+    { "op": "blur" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_window_state", "property": "focused", "expected": false },
+    { "op": "assert_window_state", "property": "window_focused", "expected": false },
+
+    { "op": "focus" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_window_state", "property": "focused", "expected": true },
+    { "op": "assert_window_state", "property": "window_focused", "expected": true },
+
+    { "op": "blur" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_window_state", "property": "window_focused", "expected": false },
+
+    { "op": "assert_work_bounded", "max_relayouts": 8, "max_dom_regens": 8 }
+  ]
+}

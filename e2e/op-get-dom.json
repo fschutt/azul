@@ -1,0 +1,60 @@
+{
+  "name": "op_get_dom",
+  "description": "ZOMBIE-OP PROOF (get_dom): `get_dom` was declared with no match arm — it answered `ok` with NO DATA AT ALL, so a caller reading the DOM got nothing back and the test still went green. It now returns the current DOM as a nested tree (index / type / id / classes / text / children) plus the serialized HTML, built by build_dom_response() from the live StyledDom in layout_results. `assert_dom` is evaluated through THAT SAME builder, so these assertions cover the payload the op hands out, not a parallel re-derivation of it. The second half proves the read is LIVE and not a canned/stale answer: after re-mounting a different DOM, the tree must carry the new content and must no longer carry the old.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <p id=\"t\">GET_DOM_BEFORE</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 20px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_exists", "selector": "#root" },
+
+    { "op": "get_dom" },
+    { "op": "assert_dom", "min_node_count": 4 },
+    { "op": "assert_dom", "contains": "GET_DOM_BEFORE" },
+    { "op": "assert_dom", "contains": "root" },
+    { "op": "assert_dom", "contains": "box" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root2\">",
+        "  <div class=\"card\" id=\"c1\"></div>",
+        "  <div class=\"card\" id=\"c2\"></div>",
+        "  <p id=\"t2\">GET_DOM_AFTER</p>",
+        "</div>"
+      ],
+      "css": [
+        "body   { font-size: 20px; color: black; }",
+        "#root2 { display: flex; flex-direction: column; }",
+        ".card  { width: 50px; height: 30px; background: orange; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+
+    { "op": "assert_exists", "selector": "#root2" },
+    { "op": "get_dom" },
+    { "op": "assert_dom", "contains": "GET_DOM_AFTER" },
+    { "op": "assert_dom", "not_contains": "GET_DOM_BEFORE" },
+    { "op": "assert_dom", "contains": "card" },
+    { "op": "assert_dom", "min_node_count": 5 }
+  ]
+}

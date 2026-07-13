@@ -71,6 +71,8 @@ pub enum ResponseData {
     NodeLayout(NodeLayoutResponse),
     /// All nodes layout
     AllNodesLayout(AllNodesLayoutResponse),
+    /// The current DOM (nested tree + HTML), see `DebugEvent::GetDom`
+    Dom(DomResponse),
     /// DOM tree
     DomTree(DomTreeResponse),
     /// Node hierarchy
@@ -927,6 +929,40 @@ pub struct NodeHierarchyResponse {
     pub root: i64,
     pub node_count: usize,
     pub nodes: Vec<HierarchyNodeInfo>,
+}
+
+/// Response for `GetDom` — the current DOM as a NESTED tree plus its HTML.
+///
+/// Distinct from its two siblings: `GetDomTree` returns only counters (no
+/// nodes at all) and `GetNodeHierarchy` returns a FLAT array keyed by index.
+/// `GetDom` returns the DOM the way a consumer actually wants to read it —
+/// nested, one call, with the serialized HTML alongside it.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DomResponse {
+    pub dom_id: usize,
+    pub node_count: usize,
+    /// The same string `GetHtmlString` returns, so a caller needs one round-trip.
+    pub html: String,
+    /// The root node, with all children nested under it.
+    pub root: DomNodeJson,
+}
+
+/// One node of the nested `GetDom` tree.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DomNodeJson {
+    pub index: usize,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub classes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<DomNodeJson>,
 }
 
 /// Hierarchy info for a single node
@@ -3609,6 +3645,8 @@ pub fn evaluate_assertion(
         "assert_node_count" => eval_assert_node_count(params, callback_info),
         "assert_layout" => eval_assert_layout(params, callback_info),
         "assert_css" => eval_assert_css(params, callback_info),
+        "assert_window_state" => eval_assert_window_state(params, callback_info),
+        "assert_dom" => eval_assert_dom(params, callback_info),
         "assert_app_state" => eval_assert_app_state(params, app_data),
         "assert_scroll" => eval_assert_scroll(params, callback_info),
         "assert_screenshot" => eval_assert_screenshot(params, callback_info),
@@ -3777,6 +3815,224 @@ fn eval_assert_node_count(
             actual.to_string(),
         )
     }
+}
+
+/// `assert_window_state`: assert a property of the LIVE window state.
+///
+/// This is the observation surface for the window-level ops (`focus`, `blur`,
+/// `move`, `dpi_changed`, `resize`) — without it those ops have no assertable
+/// effect and a test using them is vacuous.
+///
+/// `property` is one of:
+/// - `focused` / `window_focused` — bool (`expected` must be a bool)
+/// - `dpi`, `hidpi_factor`
+/// - `width` / `logical_width`, `height` / `logical_height`
+/// - `physical_width`, `physical_height`
+/// - `position_x`, `position_y` (fails if the window position is uninitialized)
+///
+/// Numeric comparisons take an optional `tolerance` (default 0.5).
+#[cfg(feature = "std")]
+fn eval_assert_window_state(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let property = match params.get("property").and_then(|v| v.as_str()) {
+        Some(p) if !p.is_empty() => p,
+        _ => return AssertionResult::fail("assert_window_state: missing 'property' parameter"),
+    };
+    let expected_val = match params.get("expected") {
+        Some(v) => v,
+        None => return AssertionResult::fail("assert_window_state: missing 'expected' parameter"),
+    };
+
+    let window_state = callback_info.get_current_window_state();
+    let size = &window_state.size;
+
+    // --- boolean properties ---
+    if property == "focused" || property == "window_focused" {
+        let expected = match expected_val.as_bool() {
+            Some(b) => b,
+            None => {
+                return AssertionResult::fail(format!(
+                    "assert_window_state: '{property}' needs a boolean 'expected'"
+                ))
+            }
+        };
+        // `flags.has_focus` is the OS-level flag; `window_focused` is the field
+        // the state-diff pass reads to emit WindowFocusIn / WindowFocusOut.
+        let actual = if property == "focused" {
+            window_state.flags.has_focus
+        } else {
+            window_state.window_focused
+        };
+        return if actual == expected {
+            AssertionResult::pass(format!("assert_window_state: {property} == {actual}"))
+        } else {
+            AssertionResult::fail_with(
+                format!("assert_window_state: '{property}' mismatch"),
+                expected.to_string(),
+                actual.to_string(),
+            )
+        };
+    }
+
+    // --- numeric properties ---
+    let expected = match expected_val.as_f64() {
+        Some(n) => n,
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_window_state: '{property}' needs a numeric 'expected'"
+            ))
+        }
+    };
+    let tolerance = params
+        .get("tolerance")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.5);
+
+    let physical = size.get_physical_size();
+    let actual = match property {
+        "dpi" => f64::from(size.dpi),
+        "hidpi_factor" => f64::from(size.get_hidpi_factor().inner.get()),
+        "width" | "logical_width" => f64::from(size.dimensions.width),
+        "height" | "logical_height" => f64::from(size.dimensions.height),
+        "physical_width" => f64::from(physical.width),
+        "physical_height" => f64::from(physical.height),
+        "position_x" | "position_y" => match window_state.position {
+            azul_core::window::WindowPosition::Initialized(p) => {
+                if property == "position_x" {
+                    f64::from(p.x)
+                } else {
+                    f64::from(p.y)
+                }
+            }
+            other => {
+                return AssertionResult::fail_with(
+                    "assert_window_state: window position is not initialized".to_string(),
+                    format!("{property} == {expected}"),
+                    format!("{other:?}"),
+                )
+            }
+        },
+        other => {
+            return AssertionResult::fail(format!(
+                "assert_window_state: unknown property '{other}'"
+            ))
+        }
+    };
+
+    if (actual - expected).abs() <= tolerance {
+        AssertionResult::pass(format!("assert_window_state: {property} == {actual}"))
+    } else {
+        AssertionResult::fail_with(
+            format!("assert_window_state: '{property}' mismatch"),
+            expected.to_string(),
+            actual.to_string(),
+        )
+    }
+}
+
+/// `assert_dom`: assert on the DOM returned by `get_dom`.
+///
+/// Evaluated through the very same `build_dom_response()` the `get_dom` op
+/// answers with, so the assertion covers the op's payload, not a parallel
+/// re-derivation of it. At least one of:
+/// - `node_count`   — total node count (exact)
+/// - `min_node_count` — total node count (lower bound)
+/// - `root_type`    — node type of the root (e.g. `body`)
+/// - `root_children`— number of children nested under the root
+/// - `contains`     — substring that must occur in the serialized HTML
+/// - `not_contains` — substring that must NOT occur (catches a stale DOM read)
+#[cfg(feature = "std")]
+fn eval_assert_dom(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let Some(dom) = build_dom_response(callback_info) else {
+        return AssertionResult::fail("assert_dom: no layout result for DOM 0");
+    };
+
+    let mut checks = 0usize;
+
+    if let Some(expected) = params.get("node_count").and_then(serde_json::Value::as_u64) {
+        checks += 1;
+        if dom.node_count as u64 != expected {
+            return AssertionResult::fail_with(
+                "assert_dom: node_count mismatch".to_string(),
+                expected.to_string(),
+                dom.node_count.to_string(),
+            );
+        }
+    }
+    if let Some(expected) = params
+        .get("min_node_count")
+        .and_then(serde_json::Value::as_u64)
+    {
+        checks += 1;
+        if (dom.node_count as u64) < expected {
+            return AssertionResult::fail_with(
+                "assert_dom: too few nodes".to_string(),
+                format!(">= {expected}"),
+                dom.node_count.to_string(),
+            );
+        }
+    }
+    if let Some(expected) = params.get("root_type").and_then(|v| v.as_str()) {
+        checks += 1;
+        if dom.root.node_type != expected {
+            return AssertionResult::fail_with(
+                "assert_dom: root_type mismatch".to_string(),
+                expected.to_string(),
+                dom.root.node_type.clone(),
+            );
+        }
+    }
+    if let Some(expected) = params
+        .get("root_children")
+        .and_then(serde_json::Value::as_u64)
+    {
+        checks += 1;
+        if dom.root.children.len() as u64 != expected {
+            return AssertionResult::fail_with(
+                "assert_dom: root_children mismatch".to_string(),
+                expected.to_string(),
+                dom.root.children.len().to_string(),
+            );
+        }
+    }
+    if let Some(needle) = params.get("contains").and_then(|v| v.as_str()) {
+        checks += 1;
+        if !dom.html.contains(needle) {
+            return AssertionResult::fail_with(
+                "assert_dom: HTML does not contain the expected substring".to_string(),
+                needle.to_string(),
+                dom.html.clone(),
+            );
+        }
+    }
+    if let Some(needle) = params.get("not_contains").and_then(|v| v.as_str()) {
+        checks += 1;
+        if dom.html.contains(needle) {
+            return AssertionResult::fail_with(
+                "assert_dom: HTML still contains a substring it must not (stale DOM read)"
+                    .to_string(),
+                format!("no '{needle}'"),
+                dom.html.clone(),
+            );
+        }
+    }
+
+    if checks == 0 {
+        return AssertionResult::fail(
+            "assert_dom: needs at least one of 'node_count' / 'root_type' / 'root_children' / \
+             'contains'",
+        );
+    }
+
+    AssertionResult::pass(format!(
+        "assert_dom: {} check(s) passed ({} nodes)",
+        checks, dom.node_count
+    ))
 }
 
 /// `assert_layout`: assert a layout property (`x`, `y`, `width`, `height`)
@@ -7243,6 +7499,81 @@ fn get_tag_specific_attributes(tag: &str) -> Vec<(&'static str, &'static str)> {
     }
 }
 
+/// Build the nested DOM tree returned by `DebugEvent::GetDom`.
+///
+/// `assert_dom` evaluates against the SAME builder, so an E2E test asserts the
+/// exact structure the op hands out — not a parallel re-implementation of it.
+#[cfg(feature = "std")]
+fn build_dom_response(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> Option<DomResponse> {
+    struct Flat {
+        node_type: String,
+        id: Option<String>,
+        classes: Vec<String>,
+        text: Option<String>,
+        children: Vec<usize>,
+    }
+
+    fn assemble(index: usize, flat: &[Flat]) -> DomNodeJson {
+        let f = &flat[index];
+        DomNodeJson {
+            index,
+            node_type: f.node_type.clone(),
+            id: f.id.clone(),
+            classes: f.classes.clone(),
+            text: f.text.clone(),
+            children: f.children.iter().map(|c| assemble(*c, flat)).collect(),
+        }
+    }
+
+    let dom_id = ROOT_DOM_ID;
+    let layout_result = callback_info
+        .get_layout_window()
+        .layout_results
+        .get(&dom_id)?;
+    let styled_dom = &layout_result.styled_dom;
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data = styled_dom.node_data.as_container();
+    let root = styled_dom.root.into_crate_internal()?;
+
+    let mut flat = Vec::with_capacity(hierarchy.len());
+    for i in 0..hierarchy.len() {
+        let node_id = azul_core::id::NodeId::new(i);
+        let data = &node_data[node_id];
+
+        let mut id_attr = None;
+        let mut classes = Vec::new();
+        for attr in data.attributes().as_ref().iter() {
+            if let Some(id) = attr.as_id() {
+                id_attr = Some(id.to_string());
+            } else if let Some(class) = attr.as_class() {
+                classes.push(class.to_string());
+            }
+        }
+
+        let text = match data.get_node_type() {
+            azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
+            _ => None,
+        };
+
+        flat.push(Flat {
+            node_type: data.get_node_type().get_path().to_string(),
+            id: id_attr,
+            classes,
+            text,
+            children: node_id.az_children(&hierarchy).map(|c| c.index()).collect(),
+        });
+    }
+
+    Some(DomResponse {
+        dom_id: 0,
+        node_count: flat.len(),
+        html: styled_dom.get_html_string("", "", true),
+        root: assemble(root.index(), &flat),
+    })
+}
+
 /// Process a single debug event
 #[cfg(feature = "std")]
 fn process_debug_event(
@@ -7296,6 +7627,99 @@ fn process_debug_event(
             let mut new_state = callback_info.get_current_window_state().clone();
             new_state.size.dimensions = LogicalSize::new(*width, *height);
             callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
+        }
+
+        // ─── Window focus / move / DPI ───────────────────────────────
+        //
+        // These three drive the SAME engine path a real platform event
+        // drives: the platform shells (WM_SETFOCUS/WM_KILLFOCUS,
+        // X11 FocusIn/FocusOut, ConfigureNotify, WM_DPICHANGED,
+        // wl_output scale) all do exactly one thing — they mutate
+        // `current_window_state` and let the state-diff pass
+        // (`process_window_events` → `event_determination`) derive the
+        // synthetic `WindowFocusIn` / `WindowFocusOut` / `WindowMove` /
+        // `WindowResize` events from current-vs-previous.
+        //
+        // From inside a callback the only door onto that path is
+        // `CallbackChange::ModifyWindowState`, which every shell applies
+        // through the single cross-platform `apply_user_change()`
+        // (dll/src/desktop/shell2/common/event.rs). That handler saves
+        // `previous_window_state`, applies the fields and runs the diff
+        // pass — i.e. the identical sequence WM_SETFOCUS performs.
+
+        DebugEvent::Focus => {
+            log(
+                LogLevel::Info,
+                LogCategory::Window,
+                "Window focus gained (debug)",
+                None,
+            );
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.window_focused = true;
+            new_state.flags.has_focus = true;
+            callback_info.modify_window_state(new_state);
+            // NOTE: deliberately NO `needs_update`. ModifyWindowState already
+            // runs the state-diff pass + repaint. `needs_update` would mean
+            // Update::RefreshDom — a full DOM rebuild, which a real focus
+            // event does not do.
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::Blur => {
+            log(
+                LogLevel::Info,
+                LogCategory::Window,
+                "Window focus lost (debug)",
+                None,
+            );
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.window_focused = false;
+            new_state.flags.has_focus = false;
+            callback_info.modify_window_state(new_state);
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::Move { x, y } => {
+            log(
+                LogLevel::Info,
+                LogCategory::Window,
+                format!("Moving window to ({}, {})", x, y),
+                None,
+            );
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.position = azul_core::window::WindowPosition::Initialized(
+                azul_core::geom::PhysicalPositionI32 { x: *x, y: *y },
+            );
+            callback_info.modify_window_state(new_state);
+            // Same as focus: the diff pass turns the position delta into a
+            // WindowMove event; `sync_window_state()` pushes the new position
+            // to the OS window on the platforms that have one.
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::DpiChanged { dpi } => {
+            // A real DPI change (WM_DPICHANGED / NSWindow backingScaleFactor /
+            // wl_surface.preferred_buffer_scale) keeps the LOGICAL window size
+            // and re-derives the physical/backing size from the new scale, then
+            // forces a full relayout + full repaint (every glyph and border was
+            // rasterised at the old scale).
+            let new_dpi = (*dpi).max(1);
+            let old_dpi = callback_info.get_current_window_state().size.dpi;
+            log(
+                LogLevel::Info,
+                LogCategory::Window,
+                format!("DPI change {} -> {}", old_dpi, new_dpi),
+                None,
+            );
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.size.dpi = new_dpi;
+            callback_info.modify_window_state(new_state);
+            // The relayout+repaint a real DPI change causes: the CPU/GPU surface
+            // re-allocates from the new physical dims (headless: `ws.size.dpi /
+            // 96.0` feeds `regenerate_layout`), so the whole window is damaged.
             needs_update = true;
 
             send_ok(request, None, None);
@@ -7959,6 +8383,19 @@ fn process_debug_event(
                 Err(e) => {
                     send_err(request, e.as_str().to_string());
                 }
+            }
+        }
+
+        DebugEvent::GetDom => {
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting DOM",
+                None,
+            );
+            match build_dom_response(callback_info) {
+                Some(dom) => send_ok(request, None, Some(ResponseData::Dom(dom))),
+                None => send_err(request, "No layout result for DOM 0"),
             }
         }
 
@@ -11529,6 +11966,15 @@ fn process_debug_event(
             }
         }
 
+        // UNREACHABLE TODAY — and that is the point. Every `DebugEvent` variant
+        // now has a real match arm (the last five zombies — Focus, Blur, Move,
+        // DpiChanged, GetDom — were implemented). The arm is kept, with the lint
+        // silenced, as the SAFETY NET for the next variant somebody adds: a new
+        // variant lands here, answers `ok` without doing anything, and
+        // `azul-doc gen-e2e`'s zombie scan (gene2e.rs::parse_schema, which keys
+        // off exactly this catch-all + the "Unhandled:" marker) refuses to
+        // generate any test using it. Delete this arm and that net goes away.
+        #[allow(unreachable_patterns)]
         _ => {
             log(
                 LogLevel::Warn,

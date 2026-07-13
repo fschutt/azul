@@ -1406,14 +1406,34 @@ pub trait PlatformWindow {
             // === Window State ===
 
             CallbackChange::ModifyWindowState { state } => {
-                let old_mouse_state = self.get_current_window_state().mouse_state;
-                let old_keyboard_state = self.get_current_window_state().keyboard_state.clone();
-                let mouse_state_changed = old_mouse_state != state.mouse_state;
-                let keyboard_state_changed = old_keyboard_state != state.keyboard_state;
+                let old_state = self.get_current_window_state().clone();
+
+                let mouse_state_changed = old_state.mouse_state != state.mouse_state;
+                let keyboard_state_changed = old_state.keyboard_state != state.keyboard_state;
+                // WINDOW-LEVEL transitions. `event_determination` derives
+                // WindowFocusIn / WindowFocusOut / WindowMove / WindowResize
+                // purely from current-vs-previous FullWindowState — which is
+                // exactly what the platform handlers rely on (WM_SETFOCUS,
+                // X11 FocusIn, ConfigureNotify, WM_DPICHANGED all just mutate
+                // the state and run the diff pass). Until now this handler
+                // neither COPIED `window_focused` nor ran the diff pass for a
+                // window-level change, so `modify_window_state()` could not
+                // focus, blur, move or rescale a window at all.
+                let focus_changed = old_state.window_focused != state.window_focused
+                    || old_state.flags.has_focus != state.flags.has_focus;
+                let position_changed = old_state.position != state.position;
+                let size_changed = old_state.size.dimensions != state.size.dimensions;
+                let dpi_changed = old_state.size.dpi != state.size.dpi;
+
+                let anything_changed = mouse_state_changed
+                    || keyboard_state_changed
+                    || focus_changed
+                    || position_changed
+                    || size_changed
+                    || dpi_changed;
 
                 // Save previous state BEFORE modifying (for synthetic event detection)
-                if mouse_state_changed || keyboard_state_changed {
-                    let old_state = self.get_current_window_state().clone();
+                if anything_changed {
                     self.set_previous_window_state(old_state);
                 }
 
@@ -1427,6 +1447,7 @@ pub trait PlatformWindow {
                     current.background_color = state.background_color;
                     current.mouse_state = state.mouse_state;
                     current.keyboard_state = state.keyboard_state.clone();
+                    current.window_focused = state.window_focused;
                 }
 
                 if state.flags.close_requested {
@@ -1435,19 +1456,29 @@ pub trait PlatformWindow {
 
                 let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
 
-                // Mouse state changed → update hit test and re-process events
+                // A size OR scale change invalidates every rasterised pixel:
+                // same thing WM_DPICHANGED / the X11 DPI path do
+                // (`frame_needs_regeneration` + RelayoutReason::Resize).
+                if size_changed || dpi_changed {
+                    self.get_common_mut().next_relayout_reason =
+                        azul_core::callbacks::RelayoutReason::Resize;
+                    self.mark_frame_needs_regeneration();
+                }
+
+                // Mouse state changed → update hit test before the event pass
                 if mouse_state_changed {
                     let mouse_pos = self.get_current_window_state()
                         .mouse_state.cursor_position.get_position();
                     if let Some(pos) = mouse_pos {
                         self.update_hit_test_at(pos);
                     }
-                    let nested = self.process_window_events(0);
-                    result = result.max(nested);
                 }
 
-                // Keyboard state changed → re-process events
-                if keyboard_state_changed && !mouse_state_changed {
+                // Run the state-diff pass ONCE for whatever changed. This is the
+                // single path that turns a state delta into synthetic events
+                // (MouseDown/Up, KeyDown/Up, WindowFocusIn/Out, WindowMove,
+                // WindowResize) and dispatches the user callbacks bound to them.
+                if anything_changed {
                     let nested = self.process_window_events(0);
                     result = result.max(nested);
                 }

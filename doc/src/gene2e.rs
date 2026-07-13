@@ -1659,12 +1659,20 @@ mod tests {
     // Zombie ops: declared in DebugEvent, no match arm -> silently `ok`
     // -----------------------------------------------------------------------
 
-    /// The five ops that, TODAY, are declared but fall through to the
+    /// Ops that are declared in `DebugEvent` but fall through to the
     /// `_ => { log("Unhandled"); send_ok() }` catch-all. This list is a PIN, not
     /// a source of truth: the detection is derived from `full.rs`. When one of
     /// them is given a real match arm it stops being a zombie automatically —
     /// and this test tells you to strike it off the pin.
-    const KNOWN_ZOMBIES: &[&str] = &["focus", "blur", "move", "dpi_changed", "get_dom"];
+    ///
+    /// EMPTY. `focus`, `blur`, `move`, `dpi_changed` and `get_dom` — the five
+    /// that used to live here — now have real match arms (window focus/blur and
+    /// move route through `CallbackChange::ModifyWindowState` → the shared
+    /// `apply_user_change()` state-diff pass, the same one the platform focus /
+    /// configure / DPI handlers drive; `get_dom` returns the nested DOM).
+    /// `no_zombie_is_reachable` keeps this honest: a NEW declared-but-unhandled
+    /// variant is still caught by `Schema::zombies()`, pin or no pin.
+    const KNOWN_ZOMBIES: &[&str] = &[];
 
     #[test]
     fn declared_but_unhandled_ops_are_detected_and_rejected() {
