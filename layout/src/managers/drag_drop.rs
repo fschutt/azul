@@ -1,26 +1,17 @@
-//! **Node** drag and drop state management (legacy compatibility shim)
+//! **Node** drag-and-drop *view types* (`DragState` / `DragType`).
 //!
-//! This module maintains the old API types for backwards compatibility.
-//! Internally, it now uses the unified `DragContext` from `azul_core::drag`.
+//! There is no drag-drop *manager* any more. The single source of truth for an
+//! active drag is [`crate::managers::gesture::GestureAndDragManager::active_drag`]
+//! (an `azul_core::drag::DragContext`).
 //!
-//! The primary drag-and-drop system is `GestureAndDragManager` in
-//! `managers/gesture.rs`. This `DragDropManager` is a read-only mirror
-//! whose `active_drag` field is populated by event-processing code in
-//! `event.rs`.
-//!
-//! TODO(superplan g6): finish collapsing this into a thin read-only view over
-//! `GestureAndDragManager::active_drag` to remove the state-drift risk of the
-//! mirrored clone. That clone is frozen at `InitDragVisualState` time, so a
-//! drag whose drop-target/position change later goes stale here. The remaining
-//! work lives in files this group does not own:
-//!   - `layout/src/callbacks.rs`: redirect `CallbackInfo::get_drag_context`
-//!     (~:3594) and the public `get_dragged_node` (~:3639) to read
-//!     `lw.gesture_drag_manager` instead of `lw.drag_drop_manager`.
-//!   - `layout/src/window.rs`: drop the `drag_drop_manager` field (~:371/:578).
-//!   - `event.rs`: remove the sync at ~:2545/:2668 (see the TODO there).
-//!     Once those readers no longer touch `active_drag`, this whole struct can be
-//!     reduced to the stateless `DragState`/`DragType` conversion helpers (which
-//!     are public API and must stay).
+//! The former `DragDropManager` held a SECOND `active_drag: Option<DragContext>`
+//! — a clone frozen at `InitDragVisualState` that never saw the later
+//! drop-target/position updates, and that nothing remapped on a DOM rebuild.
+//! Two sources of truth for one drag is a bug by construction, and the mirror
+//! was write-only in practice (every reader consulted `gesture_drag_manager`
+//! first, and the mirror was only ever populated *from* it), so it has been
+//! deleted (2026-07-13). What remains here is the stateless conversion into the
+//! public `DragState` API, which is built on demand from the live `DragContext`.
 
 use azul_core::dom::{DomNodeId, OptionDomNodeId};
 use azul_core::drag::{ActiveDragType, DragContext};
@@ -80,45 +71,3 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq]
 );
-
-/// Manager for drag-and-drop operations
-///
-/// **DEPRECATED**: Use `GestureAndDragManager` with `DragContext` instead.
-/// This type is kept for backwards compatibility only.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct DragDropManager {
-    /// Currently active drag operation (using new unified system)
-    pub active_drag: Option<DragContext>,
-}
-
-impl DragDropManager {
-    /// Create a new drag-drop manager
-    #[must_use] pub const fn new() -> Self {
-        Self { active_drag: None }
-    }
-
-    /// Check if a drag operation is active
-    #[must_use] pub const fn is_dragging(&self) -> bool {
-        self.active_drag.is_some()
-    }
-
-    /// Check if currently dragging a node
-    #[must_use] pub fn is_dragging_node(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(DragContext::is_node_drag)
-    }
-
-    /// Check if currently dragging a file
-    #[must_use] pub fn is_dragging_file(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(DragContext::is_file_drop)
-    }
-
-    /// Get the active drag context
-    #[must_use] pub const fn get_drag_context(&self) -> Option<&DragContext> {
-        self.active_drag.as_ref()
-    }
-
-    /// Get the active drag state (old API for backwards compatibility)
-    pub fn get_drag_state(&self) -> Option<DragState> {
-        self.active_drag.as_ref().and_then(DragState::from_context)
-    }
-}

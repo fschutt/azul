@@ -1682,17 +1682,17 @@ impl GestureAndDragManager {
         self.active_drag.as_ref()?.calculate_scrollbar_scroll_offset()
     }
 
-    /// Remap `NodeIds` in active drag context after DOM reconciliation.
+}
+
+impl crate::managers::NodeIdRemap for GestureAndDragManager {
+    /// Remap `NodeIds` in the active drag context after DOM reconciliation.
     ///
-    /// When the DOM is regenerated during an active drag, `NodeIds` can change.
-    /// If a critical `NodeId` was removed, the drag is cancelled.
-    pub fn remap_node_ids(
-        &mut self,
-        dom_id: DomId,
-        node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
-    ) {
+    /// When the DOM is regenerated during an active drag, `NodeIds` change.
+    /// If a critical `NodeId` was unmounted, the drag is cancelled (an active
+    /// drag whose source node no longer exists cannot be completed).
+    fn remap_node_ids(&mut self, dom_id: DomId, map: &crate::managers::NodeIdMap) {
         if let Some(ref mut drag) = self.active_drag {
-            if !drag.remap_node_ids(dom_id, node_id_map) {
+            if !drag.remap_node_ids(dom_id, map.as_btree_map()) {
                 // Critical node removed — cancel the drag
                 drag.cancelled = true;
                 self.active_drag = None;

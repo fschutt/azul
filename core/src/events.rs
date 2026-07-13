@@ -2692,7 +2692,7 @@ pub enum SystemChange {
     },
     /// Activate window drag (CSD titlebar).
     ActivateWindowDrag,
-    /// Set up drag visual state (:dragging pseudo-state, GPU transform key, `DragDropManager` sync).
+    /// Set up drag visual state (:dragging pseudo-state, GPU transform key).
     InitDragVisualState,
     /// Set :drag-over pseudo-state on a target node.
     SetDragOverState { target: DomNodeId, active: bool },

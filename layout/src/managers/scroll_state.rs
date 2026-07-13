@@ -1330,43 +1330,26 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     }
 }
 
-impl ScrollManager {
-    /// Remap `NodeIds` after DOM reconciliation
+impl crate::managers::NodeIdRemap for ScrollManager {
+    /// Rewrite every `(DomId, NodeId)` key for `dom` and DROP the scroll state of
+    /// nodes that were unmounted.
     ///
-    /// When the DOM is regenerated, `NodeIds` can change. This method updates all
-    /// internal state to use the new `NodeIds` based on the provided mapping.
-    pub fn remap_node_ids(
-        &mut self,
-        dom_id: DomId,
-        node_id_map: &BTreeMap<NodeId, NodeId>,
-    ) {
-        // Only remap nodes that actually moved (old_id != new_id).
-        // Nodes NOT in the map are stable (kept same NodeId) — don't touch them.
-        // We cannot distinguish "not moved" from "removed" with just node_moves,
-        // so we conservatively keep states that aren't in the map.
-        
-        // Remap states
-        for (&old_node_id, &new_node_id) in node_id_map {
-            if old_node_id != new_node_id {
-                if let Some(state) = self.states.remove(&(dom_id, old_node_id)) {
-                    self.states.insert((dom_id, new_node_id), state);
-                }
-            }
-        }
-        
-        // Remap scrollbar_states
-        let scrollbar_states_to_remap: Vec<_> = self.scrollbar_states.keys()
-            .filter(|(d, node_id, _)| {
-                *d == dom_id && node_id_map.get(node_id).is_some_and(|new_id| new_id != node_id)
-            })
-            .copied()
-            .collect();
-        
-        for (d, old_node_id, orientation) in scrollbar_states_to_remap {
-            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
-                if let Some(state) = self.scrollbar_states.remove(&(d, old_node_id, orientation)) {
-                    self.scrollbar_states.insert((d, new_node_id, orientation), state);
-                }
+    /// The previous implementation only rewrote keys whose id actually changed and
+    /// *kept* everything else "conservatively" — which silently re-attached the
+    /// scroll offset of a deleted node to whatever node inherited its index.
+    /// `node_moves` contains an entry for every matched node, so "absent from the
+    /// map" unambiguously means "unmounted".
+    fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        crate::managers::remap_dom_keys(&mut self.states, dom, map);
+
+        let old = core::mem::take(&mut self.scrollbar_states);
+        for ((d, old_node_id, orientation), state) in old {
+            if d != dom {
+                self.scrollbar_states
+                    .insert((d, old_node_id, orientation), state);
+            } else if let Some(new_node_id) = map.resolve(old_node_id) {
+                self.scrollbar_states
+                    .insert((d, new_node_id, orientation), state);
             }
         }
     }

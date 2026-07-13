@@ -233,28 +233,33 @@ impl HoverManager {
         deepest_node_across_doms(history.get(1)?)
     }
 
+}
+
+impl crate::managers::NodeIdRemap for HoverManager {
     /// Remap `NodeIds` in all hover histories after DOM reconciliation.
     ///
-    /// When the DOM is regenerated, `NodeIds` can change. This method updates
-    /// all stored `NodeIds` in hover histories using the old→new mapping from
-    /// reconciliation. Nodes not found in the map are removed from hit tests.
-    pub fn remap_node_ids(
-        &mut self,
-        dom_id: azul_core::dom::DomId,
-        node_id_map: &BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
-    ) {
+    /// Hits on unmounted nodes are dropped (they cannot be hovered any more) —
+    /// keeping them would make the hover history describe a node that no longer
+    /// exists at that index.
+    fn remap_node_ids(&mut self, dom_id: azul_core::dom::DomId, map: &crate::managers::NodeIdMap) {
+        let node_id_map = map.as_btree_map();
         for history in self.hover_histories.values_mut() {
             for hit_test in history.iter_mut() {
                 if let Some(ht) = hit_test.hovered_nodes.get_mut(&dom_id) {
-                    remap_btreemap(&mut ht.regular_hit_test_nodes, node_id_map);
-                    remap_btreemap(&mut ht.scroll_hit_test_nodes, node_id_map);
-                    remap_btreemap(&mut ht.cursor_hit_test_nodes, node_id_map);
+                    crate::managers::remap_keys(&mut ht.regular_hit_test_nodes, map);
+                    crate::managers::remap_keys(&mut ht.scroll_hit_test_nodes, map);
+                    crate::managers::remap_keys(&mut ht.cursor_hit_test_nodes, map);
 
                     // Remap scrollbar_hit_test_nodes (ScrollbarHitId contains NodeId)
                     let old_sb: Vec<_> = ht.scrollbar_hit_test_nodes.keys().copied().collect();
                     let mut new_sb = BTreeMap::new();
                     for old_key in old_sb {
-                        let new_key = remap_scrollbar_hit_id(&old_key, dom_id, node_id_map);
+                        let Some(new_key) = remap_scrollbar_hit_id(&old_key, dom_id, node_id_map)
+                        else {
+                            // node unmounted — drop the scrollbar hit
+                            ht.scrollbar_hit_test_nodes.remove(&old_key);
+                            continue;
+                        };
                         if let Some(item) = ht.scrollbar_hit_test_nodes.remove(&old_key) {
                             new_sb.insert(new_key, item);
                         }
@@ -272,45 +277,28 @@ impl Default for HoverManager {
     }
 }
 
-/// Remap all keys in a `BTreeMap`<`NodeId`, V> using the reconciliation map.
-/// Entries whose old `NodeId` is not in the map are dropped.
-fn remap_btreemap<V>(
-    map: &mut BTreeMap<azul_core::id::NodeId, V>,
-    node_id_map: &BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
-) {
-    let old_keys: Vec<_> = map.keys().copied().collect();
-    let mut new_map = BTreeMap::new();
-    for old_nid in old_keys {
-        if let Some(&new_nid) = node_id_map.get(&old_nid) {
-            if let Some(item) = map.remove(&old_nid) {
-                new_map.insert(new_nid, item);
-            }
-        }
-    }
-    *map = new_map;
-}
-
 /// Remap a `ScrollbarHitId`'s `NodeId` using the reconciliation map.
-/// If the `NodeId`'s `DomId` doesn't match, or the `NodeId` isn't in the map, returns unchanged.
+/// `None` = the node was unmounted, so the hit must be dropped.
+/// A `ScrollbarHitId` for a different `DomId` is returned unchanged.
 fn remap_scrollbar_hit_id(
     id: &azul_core::hit_test::ScrollbarHitId,
     dom_id: azul_core::dom::DomId,
     node_id_map: &BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
-) -> azul_core::hit_test::ScrollbarHitId {
+) -> Option<azul_core::hit_test::ScrollbarHitId> {
     use azul_core::hit_test::ScrollbarHitId;
-    match id {
+    Some(match id {
         ScrollbarHitId::VerticalTrack(d, n) if *d == dom_id => {
-            ScrollbarHitId::VerticalTrack(*d, *node_id_map.get(n).unwrap_or(n))
+            ScrollbarHitId::VerticalTrack(*d, *node_id_map.get(n)?)
         }
         ScrollbarHitId::VerticalThumb(d, n) if *d == dom_id => {
-            ScrollbarHitId::VerticalThumb(*d, *node_id_map.get(n).unwrap_or(n))
+            ScrollbarHitId::VerticalThumb(*d, *node_id_map.get(n)?)
         }
         ScrollbarHitId::HorizontalTrack(d, n) if *d == dom_id => {
-            ScrollbarHitId::HorizontalTrack(*d, *node_id_map.get(n).unwrap_or(n))
+            ScrollbarHitId::HorizontalTrack(*d, *node_id_map.get(n)?)
         }
         ScrollbarHitId::HorizontalThumb(d, n) if *d == dom_id => {
-            ScrollbarHitId::HorizontalThumb(*d, *node_id_map.get(n).unwrap_or(n))
+            ScrollbarHitId::HorizontalThumb(*d, *node_id_map.get(n)?)
         }
         other => *other,
-    }
+    })
 }

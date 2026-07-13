@@ -990,89 +990,26 @@ fn apply_runtime_states_before_layout(
     styled_dom
 }
 
-/// Update managers (FocusManager, ScrollManager, etc.) with new NodeIds after DOM reconciliation
+/// Fold a DOM reconciliation into every piece of `NodeId`-keyed window state.
 ///
-/// When the DOM is regenerated, NodeIds can change. The `node_moves` from reconciliation
-/// tell us which old NodeId maps to which new NodeId. We use this to update all managers
-/// that track NodeIds so they point to the correct nodes in the new DOM.
+/// `NodeId`s are arena indices: a rebuild renumbers them, so any manager that is
+/// not remapped keeps pointing at a live-but-WRONG node (deleting a preceding
+/// sibling shifts every later index down by one). `node_moves` maps every
+/// MATCHED old id to its new one; an old id ABSENT from it was unmounted, and
+/// its state must be dropped, not kept.
+///
+/// This function is deliberately a two-liner: the exhaustive, can't-forget
+/// dispatch lives in `LayoutWindow::remap_node_ids` (layout/src/window.rs),
+/// where a new `LayoutWindow` field fails to compile until it is classified as
+/// node-keyed or exempt, and every node-keyed manager implements
+/// `azul_layout::managers::NodeIdRemap`.
 fn update_managers_with_node_moves(
     layout_window: &mut LayoutWindow,
     node_moves: &[azul_core::diff::NodeMove],
     dom_id: azul_core::dom::DomId,
 ) {
-    use azul_core::dom::{DomNodeId, NodeId};
-    use azul_core::styled_dom::NodeHierarchyItemId;
-    
-    // Build a quick lookup map: old_node_id -> new_node_id
-    let mut node_id_map: std::collections::BTreeMap<NodeId, NodeId> = std::collections::BTreeMap::new();
-    for node_move in node_moves {
-        node_id_map.insert(node_move.old_node_id, node_move.new_node_id);
-    }
-    
-    // 1. Update FocusManager
-    if let Some(focused) = layout_window.focus_manager.get_focused_node() {
-        if focused.dom == dom_id {
-            if let Some(old_node_id) = focused.node.into_crate_internal() {
-                if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
-                    // Update the focused node to point to the new NodeId
-                    layout_window.focus_manager.set_focused_node(Some(DomNodeId {
-                        dom: dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(new_node_id)),
-                    }));
-                    log_debug!(
-                        LogCategory::Layout,
-                        "[update_managers] FocusManager: updated focus from {:?} to {:?}",
-                        old_node_id, new_node_id
-                    );
-                } else {
-                    // The focused node was not found in the new DOM - clear focus
-                    layout_window.focus_manager.clear_focus();
-                    log_debug!(
-                        LogCategory::Layout,
-                        "[update_managers] FocusManager: focused node {:?} not found in new DOM, clearing focus",
-                        old_node_id
-                    );
-                }
-            }
-        }
-    }
-    
-    // 2. Update ScrollManager
-    // The ScrollManager tracks scroll offsets by DomNodeId, which also needs to be updated
-    layout_window.scroll_manager.remap_node_ids(dom_id, &node_id_map);
-    
-    // 3. Update MultiCursorState node IDs
-    if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
-        mc.remap_node_ids(dom_id, &node_id_map);
-    }
-    
-    // 4. (SelectionManager removed — multi_cursor remap handled above in step 3)
-
-    // 5. Update HoverManager (BUG-1 fix: hover histories contain NodeIds that must be remapped)
-    layout_window.hover_manager.remap_node_ids(dom_id, &node_id_map);
-
-    // 6. Update GestureAndDragManager (BUG-2 fix: active drags contain NodeIds)
-    layout_window.gesture_drag_manager.remap_node_ids(dom_id, &node_id_map);
-
-    // 7. Update FocusManager pending contenteditable focus (BUG-3 fix)
-    layout_window.focus_manager.remap_pending_focus_node_ids(dom_id, &node_id_map);
-
-    // 8. Remap and apply dirty_text_nodes to preserve text edits across DOM rebuilds.
-    // The user's layout callback returns the original text, but if we have edits
-    // in dirty_text_nodes, we need to patch the new StyledDom with the edited content.
-    {
-        let mut new_dirty = std::collections::BTreeMap::new();
-        for ((old_dom, old_node), content) in layout_window.dirty_text_nodes.iter() {
-            if *old_dom == dom_id {
-                if let Some(&new_node_id) = node_id_map.get(old_node) {
-                    new_dirty.insert((*old_dom, new_node_id), content.clone());
-                }
-            } else {
-                new_dirty.insert((*old_dom, *old_node), content.clone());
-            }
-        }
-        layout_window.dirty_text_nodes = new_dirty;
-    }
+    let map = azul_layout::managers::NodeIdMap::from_node_moves(node_moves);
+    layout_window.remap_node_ids(dom_id, &map);
 }
 
 /// Helper function to generate WebRender frame

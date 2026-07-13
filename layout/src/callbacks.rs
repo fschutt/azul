@@ -54,7 +54,6 @@ use crate::icu::{
 use crate::{
     hit_test::FullHitTest,
     managers::{
-        drag_drop::DragDropManager,
         file_drop::FileDropManager,
         focus_cursor::FocusManager,
         gesture::{GestureAndDragManager, InputSample, PenState},
@@ -3642,17 +3641,15 @@ impl CallbackInfo {
     /// Check if a node or file drag is currently active
     ///
     /// Returns true if either a node drag or file drag is in progress.
-    /// Uses `gesture_drag_manager` as the primary source of truth,
-    /// with `drag_drop_manager` as fallback.
+    /// `gesture_drag_manager` is the single source of truth (the old
+    /// `drag_drop_manager` mirror has been deleted — see `managers/drag_drop.rs`).
     #[must_use] pub const fn is_drag_active(&self) -> bool {
-        let lw = self.get_layout_window();
-        lw.gesture_drag_manager.is_dragging() || lw.drag_drop_manager.is_dragging()
+        self.get_layout_window().gesture_drag_manager.is_dragging()
     }
 
     /// Check if a node drag is specifically active
     #[must_use] pub fn is_node_drag_active(&self) -> bool {
-        let lw = self.get_layout_window();
-        lw.gesture_drag_manager.is_node_drag_active() || lw.drag_drop_manager.is_dragging_node()
+        self.get_layout_window().gesture_drag_manager.is_node_drag_active()
     }
 
     /// Check if a file drag is specifically active
@@ -3663,22 +3660,15 @@ impl CallbackInfo {
         // intra-app drag managers — without this arm the query answered
         // false during exactly the drag it is most often asked about.
         lw.gesture_drag_manager.is_file_dropping()
-            || lw.drag_drop_manager.is_dragging_file()
             || !lw.file_drop_manager.get_hovered_files().is_empty()
     }
 
     /// Get the current drag/drop state (if any)
     ///
     /// Returns None if no drag is active, or Some with drag state.
-    /// Checks `gesture_drag_manager` first, then falls back to `drag_drop_manager`.
     #[must_use] pub fn get_drag_state(&self) -> Option<crate::managers::drag_drop::DragState> {
-        let lw = self.get_layout_window();
-        // Try gesture manager first (primary source of truth)
-        if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
-            return crate::managers::drag_drop::DragState::from_context(ctx);
-        }
-        // Fallback to drag_drop_manager
-        lw.drag_drop_manager.get_drag_state()
+        let ctx = self.get_layout_window().gesture_drag_manager.get_drag_context()?;
+        crate::managers::drag_drop::DragState::from_context(ctx)
     }
 
     /// Get the current drag context (if any)
@@ -3686,14 +3676,11 @@ impl CallbackInfo {
     /// Returns None if no drag is active, or Some with drag context.
     /// Prefer this over `get_drag_state` for new code.
     #[must_use] pub const fn get_drag_context(&self) -> Option<&azul_core::drag::DragContext> {
-        // MWA-C-drag_drop: the gesture manager holds the LIVE context — the
-        // drag_drop_manager mirror is a frozen clone from drag start, so its
-        // current_drop_target/position were stale for the whole drag. The
-        // mirror stays only as a legacy fallback.
-        match self.get_layout_window().gesture_drag_manager.get_drag_context() {
-            Some(ctx) => Some(ctx),
-            None => self.get_layout_window().drag_drop_manager.get_drag_context(),
-        }
+        // The gesture manager holds the LIVE context and is the ONLY source of
+        // truth. (The `drag_drop_manager` mirror was a frozen clone taken at
+        // drag start whose drop-target/position went stale for the whole drag;
+        // it has been deleted.)
+        self.get_layout_window().gesture_drag_manager.get_drag_context()
     }
 
     // Hover Manager Access
@@ -3731,14 +3718,9 @@ impl CallbackInfo {
 
     // Drag-Drop Manager Access
 
-    /// Get immutable reference to the drag-drop manager
-    #[must_use] pub const fn get_drag_drop_manager(&self) -> &DragDropManager {
-        &self.get_layout_window().drag_drop_manager
-    }
 
     /// Get the node being dragged (if any)
     #[must_use] pub fn get_dragged_node(&self) -> Option<DomNodeId> {
-        // MWA-C-drag_drop: gesture-primary (live), mirror fallback (frozen).
         self.get_drag_context()
             .and_then(|ctx| {
                 ctx.as_node_drag().map(|node_drag| {
@@ -3752,8 +3734,6 @@ impl CallbackInfo {
 
     /// Get the file path being dragged (if any)
     #[must_use] pub fn get_dragged_file(&self) -> Option<&AzString> {
-        // MWA-C-drag_drop: no path ever wrote a FileDrop context into the
-        // drag_drop_manager mirror, so this reader returned None forever.
         // Gesture context first (intra-app file drags), then the
         // FileDropManager's hovered/dropped state (external OS drags).
         self.get_drag_context()
@@ -3789,18 +3769,6 @@ impl CallbackInfo {
                     .collect();
             }
         }
-        // Fallback to drag_drop_manager
-        if let Some(ctx) = lw.drag_drop_manager.get_drag_context() {
-            if let Some(node_drag) = ctx.as_node_drag() {
-                return node_drag
-                    .drag_data
-                    .data
-                    .as_ref()
-                    .iter()
-                    .map(|e| e.mime_type.clone())
-                    .collect();
-            }
-        }
         Vec::new()
     }
 
@@ -3811,11 +3779,6 @@ impl CallbackInfo {
     #[must_use] pub fn get_drag_data(&self, mime_type: &str) -> Option<Vec<u8>> {
         let lw = self.get_layout_window();
         if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
-            if let Some(node_drag) = ctx.as_node_drag() {
-                return node_drag.drag_data.get_data(mime_type).map(<[u8]>::to_vec);
-            }
-        }
-        if let Some(ctx) = lw.drag_drop_manager.get_drag_context() {
             if let Some(node_drag) = ctx.as_node_drag() {
                 return node_drag.drag_data.get_data(mime_type).map(<[u8]>::to_vec);
             }

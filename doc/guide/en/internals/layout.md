@@ -390,7 +390,7 @@ Solver3LayoutCache` and `text_cache: TextLayoutCache`, the `font_manager`,
 `DomLayoutResult` per DOM — root plus virtual views), every input-side
 manager (`scroll_manager`, `focus_manager`, `text_edit_manager`,
 `text_input_manager`, `hover_manager`, `gesture_drag_manager`,
-`clipboard_manager`, `drag_drop_manager`, `a11y_manager`,
+`clipboard_manager`, `a11y_manager`,
 `gpu_state_manager`, `virtual_view_manager`), `dirty_text_nodes` for
 in-progress text edits, `pending_lifecycle_events` and
 `pending_unmount_invocations` produced by `regenerate_layout`, and the

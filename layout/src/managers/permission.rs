@@ -655,3 +655,22 @@ mod pump_provider_tests {
         assert!(mgr.get_pending_events(ts()).is_empty());
     }
 }
+
+impl crate::managers::NodeIdRemap for PermissionManager {
+    /// Remap the `last_subscriber` node of each capability (the node a
+    /// `PermissionChanged` event is targeted at) and the queued
+    /// `pending_changed` targets. An unmounted subscriber falls back to `None`
+    /// (→ the event targets the window root), never to a recycled index.
+    fn remap_node_ids(&mut self, dom: azul_core::dom::DomId, map: &crate::managers::NodeIdMap) {
+        for entry in self.statuses.values_mut() {
+            if let Some(node) = entry.last_subscriber {
+                entry.last_subscriber = map.resolve_dom_node_id(dom, node);
+            }
+        }
+        for (_capability, node) in &mut self.pending_changed {
+            if let Some(n) = *node {
+                *node = map.resolve_dom_node_id(dom, n);
+            }
+        }
+    }
+}

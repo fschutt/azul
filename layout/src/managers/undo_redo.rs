@@ -29,7 +29,7 @@
 use alloc::{collections::VecDeque, vec::Vec};
 
 use azul_core::{
-    dom::NodeId,
+    dom::{DomId, NodeId},
     selection::{OptionSelectionRange, OptionTextCursor},
     task::Instant,
 };
@@ -384,6 +384,80 @@ impl UndoRedoManager {
         stack.push_undo(operation);
     }
 
+}
+
+impl crate::managers::NodeIdRemap for UndoRedoManager {
+    /// Remap the per-node undo/redo stacks after a DOM rebuild.
+    ///
+    /// This is the worst offender of the "stale manager" family: the stacks are
+    /// keyed by a bare `NodeId`, so deleting a PRECEDING SIBLING (which shifts
+    /// every following index down by one) used to leave the whole undo history
+    /// silently re-attached to a DIFFERENT, still-live element — undo would edit
+    /// the wrong node, with no panic and no error.
+    ///
+    /// A stack is attributed to a DOM through the `DomNodeId` target of its
+    /// operations (an empty stack carries no information and is treated as
+    /// belonging to the DOM being reconciled). Stacks for unmounted nodes are
+    /// dropped, and the content snapshots they referenced are GC'd with them.
+    fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        let old_stacks = core::mem::take(&mut self.node_stacks);
+
+        for mut stack in old_stacks {
+            // Which DOM does this stack belong to? Derived from its operations.
+            let stack_dom = stack
+                .undo_stack
+                .front()
+                .or_else(|| stack.redo_stack.front())
+                .map(|op| op.changeset.target.dom);
+
+            if stack_dom.is_some_and(|d| d != dom) {
+                // Belongs to a different DOM — this reconciliation says nothing about it.
+                self.node_stacks.push(stack);
+                continue;
+            }
+
+            let Some(new_node_id) = map.resolve(stack.node_id) else {
+                // Node unmounted — drop the whole history (GC). Keeping it would
+                // re-attach this history to whichever node inherits the index.
+                continue;
+            };
+
+            stack.node_id = new_node_id;
+            for op in stack.undo_stack.iter_mut().chain(stack.redo_stack.iter_mut()) {
+                remap_operation(op, dom, map, new_node_id);
+            }
+            self.node_stacks.push(stack);
+        }
+
+        // GC content snapshots whose changesets no longer exist in any stack.
+        let live: alloc::collections::BTreeSet<_> = self
+            .node_stacks
+            .iter()
+            .flat_map(|s| s.undo_stack.iter().chain(s.redo_stack.iter()))
+            .map(|op| op.changeset.id)
+            .collect();
+        self.content_snapshots.retain(|(id, _)| live.contains(id));
+    }
+}
+
+/// Rewrite the `NodeIds` embedded inside a single undoable operation.
+fn remap_operation(
+    op: &mut UndoableOperation,
+    dom: DomId,
+    map: &crate::managers::NodeIdMap,
+    new_node_id: NodeId,
+) {
+    use azul_core::styled_dom::NodeHierarchyItemId;
+    if op.changeset.target.dom == dom {
+        op.changeset.target.node = NodeHierarchyItemId::from_crate_internal(Some(new_node_id));
+    }
+    if let Some(remapped) = map.resolve(op.pre_state.node_id) {
+        op.pre_state.node_id = remapped;
+    } else {
+        // The snapshot's node vanished but the stack's node survived: keep the
+        // stack coherent by pointing the snapshot at the (surviving) stack node.
+        op.pre_state.node_id = new_node_id;
+    }
 }
 
 

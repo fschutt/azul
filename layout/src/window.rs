@@ -391,8 +391,6 @@ pub struct LayoutWindow {
     pub file_drop_manager: crate::managers::file_drop::FileDropManager,
     /// Clipboard manager for system clipboard integration
     pub clipboard_manager: crate::managers::clipboard::ClipboardManager,
-    /// Drag-drop manager for node and file dragging operations
-    pub drag_drop_manager: crate::managers::drag_drop::DragDropManager,
     /// Hover manager for tracking hit test history over multiple frames
     pub hover_manager: crate::managers::hover::HoverManager,
     /// `VirtualView` manager for all nodes across all DOMs
@@ -603,7 +601,6 @@ impl LayoutWindow {
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
-            drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
             virtual_view_manager: VirtualViewManager::new(),
             gpu_state_manager: GpuStateManager::new(
@@ -7781,4 +7778,189 @@ pub enum TextEditType {
     ReplaceSelection(String),
     SetValue(String),
     SetNumericValue(f64),
+}
+
+// ============================================================================
+// NodeId remapping after DOM reconciliation — the single driver
+// ============================================================================
+
+impl LayoutWindow {
+    /// Rewrite every `NodeId`-keyed piece of window state onto the rebuilt DOM
+    /// and garbage-collect the state of unmounted nodes.
+    ///
+    /// This is THE place a DOM rebuild is folded into the managers. It is called
+    /// once, from `regenerate_layout`, with the `NodeIdMap` built from
+    /// `diff::reconcile_dom`'s `node_moves`.
+    ///
+    /// # Why this function destructures `Self` exhaustively
+    ///
+    /// A `NodeId` is an arena index. Deleting a node renumbers its following
+    /// siblings, so a manager that is not remapped does not dangle — it points at
+    /// a **live but wrong** node, and misbehaves silently. The failure has no
+    /// panic and no error to grep for, so the only durable defence is to make it
+    /// impossible to forget: the `let Self { .. }` below lists EVERY field with no
+    /// `..` rest-pattern, so **adding a field to `LayoutWindow` fails to compile
+    /// until it is classified here** as either node-keyed (remap it) or exempt
+    /// (with a reason).
+    ///
+    /// New node-keyed managers should implement [`crate::managers::NodeIdRemap`]
+    /// and be driven from here.
+    #[allow(clippy::too_many_lines)]
+    pub fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        use crate::managers::NodeIdRemap;
+
+        let Self {
+            // --- NODE-KEYED: managers implementing `NodeIdRemap` -------------
+            scroll_manager,
+            gesture_drag_manager,
+            focus_manager,
+            text_edit_manager,
+            hover_manager,
+            virtual_view_manager,
+            gpu_state_manager,
+            text_input_manager,
+            undo_redo_manager,
+            permission_manager,
+
+            // --- NODE-KEYED: plain caches owned directly by the window -------
+            text_constraints_cache,
+            dirty_text_nodes,
+            pending_virtual_view_updates,
+            gl_texture_cache,
+            currently_dragging_thumb,
+
+            // --- EXEMPT: not keyed by NodeId ---------------------------------
+            // Rebuilt wholesale by the very layout pass that triggered this remap:
+            layout_cache: _,
+            layout_results: _,
+            // Content-addressed (hashes / font ids / image ids), never NodeIds:
+            text_cache: _,
+            font_manager: _,
+            image_cache: _,
+            cpu_image_callback_results: _,
+            renderer_resources: _,
+            // Derived per frame from the CURRENT StyledDom (a11y tree is rebuilt
+            // from scratch in `A11yManager::build_tree_update`), so it cannot go stale:
+            a11y_manager: _,
+            // Capability/device-keyed, not node-keyed (their only DomNodeId is an
+            // event target that defaults to the root):
+            geolocation_manager: _,
+            biometric_manager: _,
+            keyring_manager: _,
+            sensor_manager: _,
+            gamepad_manager: _,
+            // Payload-only state (file paths / clipboard contents), no NodeIds:
+            file_drop_manager: _,
+            clipboard_manager: _,
+            // Plain window/render state, no NodeIds:
+            skip_gpu_sync: _,
+            #[cfg(feature = "pdf")]
+            fragmentation_context: _,
+            safe_area_insets: _,
+            timers: _,
+            threads: _,
+            renderer_type: _,
+            previous_window_state: _,
+            current_window_state: _,
+            document_id: _,
+            id_namespace: _,
+            epoch: _,
+            system_style: _,
+            monitors: _,
+            font_stacks_hash: _,
+            pre_preedit_content: _,
+            input_interpreter: _,
+            post_filter: _,
+            routes: _,
+            #[cfg(feature = "icu")]
+            icu_localizer: _,
+            // Lifecycle events carry NodeIds, but they are produced BY this very
+            // reconciliation and are already expressed in NEW ids (Mount/Update/
+            // Resize), or deliberately in OLD ids resolved before the swap
+            // (BeforeUnmount, see `pending_unmount_invocations`). Remapping them
+            // here would corrupt them.
+            pending_lifecycle_events: _,
+            pending_unmount_invocations: _,
+        } = self;
+
+        scroll_manager.remap_node_ids(dom, map);
+        gesture_drag_manager.remap_node_ids(dom, map);
+        focus_manager.remap_node_ids(dom, map);
+        text_edit_manager.remap_node_ids(dom, map);
+        hover_manager.remap_node_ids(dom, map);
+        virtual_view_manager.remap_node_ids(dom, map);
+        gpu_state_manager.remap_node_ids(dom, map);
+        text_input_manager.remap_node_ids(dom, map);
+        undo_redo_manager.remap_node_ids(dom, map);
+        permission_manager.remap_node_ids(dom, map);
+
+        // Window-owned caches (same contract: absent from `map` == unmounted).
+        crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);
+        crate::managers::remap_dom_keys(dirty_text_nodes, dom, map);
+
+        if let Some(pending) = pending_virtual_view_updates.remove(&dom) {
+            let remapped: BTreeMap<NodeId, _> = pending
+                .into_iter()
+                .filter_map(|(node_id, reason)| Some((map.resolve(node_id)?, reason)))
+                .collect();
+            if !remapped.is_empty() {
+                pending_virtual_view_updates.insert(dom, remapped);
+            }
+        }
+
+        if let Some(textures) = gl_texture_cache.solved_textures.remove(&dom) {
+            let remapped: BTreeMap<NodeId, _> = textures
+                .into_iter()
+                .filter_map(|(node_id, tex)| Some((map.resolve(node_id)?, tex)))
+                .collect();
+            gl_texture_cache.solved_textures.insert(dom, remapped);
+        }
+        let hashes = core::mem::take(&mut gl_texture_cache.hashes);
+        gl_texture_cache.hashes = hashes
+            .into_iter()
+            .filter_map(|((d, node_id, image_hash), v)| {
+                if d != dom {
+                    return Some(((d, node_id, image_hash), v));
+                }
+                Some(((d, map.resolve(node_id)?, image_hash), v))
+            })
+            .collect();
+
+        // An in-flight scrollbar-thumb drag holds the NodeId of its scroll
+        // container; if that node is gone the drag must end, not retarget.
+        if let Some(drag) = currently_dragging_thumb.as_ref() {
+            match remap_scrollbar_hit_id(drag.hit_id, dom, map) {
+                Some(new_id) => {
+                    if let Some(d) = currently_dragging_thumb.as_mut() {
+                        d.hit_id = new_id;
+                    }
+                }
+                None => *currently_dragging_thumb = None,
+            }
+        }
+    }
+}
+
+/// Remap the `NodeId` inside a `ScrollbarHitId`. `None` = the scroll container
+/// was unmounted (drop the state); ids from other DOMs pass through.
+fn remap_scrollbar_hit_id(
+    id: ScrollbarHitId,
+    dom: DomId,
+    map: &crate::managers::NodeIdMap,
+) -> Option<ScrollbarHitId> {
+    Some(match id {
+        ScrollbarHitId::VerticalTrack(d, n) if d == dom => {
+            ScrollbarHitId::VerticalTrack(d, map.resolve(n)?)
+        }
+        ScrollbarHitId::VerticalThumb(d, n) if d == dom => {
+            ScrollbarHitId::VerticalThumb(d, map.resolve(n)?)
+        }
+        ScrollbarHitId::HorizontalTrack(d, n) if d == dom => {
+            ScrollbarHitId::HorizontalTrack(d, map.resolve(n)?)
+        }
+        ScrollbarHitId::HorizontalThumb(d, n) if d == dom => {
+            ScrollbarHitId::HorizontalThumb(d, map.resolve(n)?)
+        }
+        other => other,
+    })
 }

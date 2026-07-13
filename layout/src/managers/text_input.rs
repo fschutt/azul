@@ -225,3 +225,23 @@ impl EventProvider for TextInputManager {
         events
     }
 }
+
+impl crate::managers::NodeIdRemap for TextInputManager {
+    /// Remap the pending (recorded, not-yet-applied) text edit.
+    ///
+    /// If the target node was unmounted between "record" and "apply", the
+    /// changeset is dropped: applying it would insert the text into whichever
+    /// node inherited the index.
+    fn remap_node_ids(&mut self, dom: azul_core::dom::DomId, map: &crate::managers::NodeIdMap) {
+        let Some(ref mut pending) = self.pending_changeset else {
+            return;
+        };
+        match map.resolve_dom_node_id(dom, pending.node) {
+            Some(new_id) => pending.node = new_id,
+            None => {
+                self.pending_changeset = None;
+                self.input_source = None;
+            }
+        }
+    }
+}

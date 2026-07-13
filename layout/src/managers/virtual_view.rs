@@ -446,3 +446,28 @@ impl From<EdgeType> for EdgeFlags {
         }
     }
 }
+
+impl crate::managers::NodeIdRemap for VirtualViewManager {
+    /// Remap the `(DomId, NodeId)` keys of every tracked `VirtualView`.
+    ///
+    /// A `VirtualView` whose host node was unmounted has its state dropped —
+    /// including the `nested_dom_id` binding, which would otherwise resurface
+    /// on whatever node inherited the index (rendering the *wrong* nested DOM
+    /// into it) and leak forever.
+    fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        crate::managers::remap_dom_keys(&mut self.states, dom, map);
+
+        self.reason_overrides.retain_mut(|((d, node_id), _)| {
+            if *d != dom {
+                return true;
+            }
+            match map.resolve(*node_id) {
+                Some(new_id) => {
+                    *node_id = new_id;
+                    true
+                }
+                None => false,
+            }
+        });
+    }
+}

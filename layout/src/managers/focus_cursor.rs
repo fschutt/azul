@@ -168,27 +168,51 @@ impl FocusManager {
         self.cursor_needs_initialization
     }
 
-    /// Remap `NodeIds` in pending contenteditable focus after DOM reconciliation.
+}
+
+impl crate::managers::NodeIdRemap for FocusManager {
+    /// Remap the focused node AND the pending contenteditable focus.
     ///
-    /// This handles the edge case where a DOM rebuild happens between setting
-    /// pending focus and consuming it after layout.
-    pub fn remap_pending_focus_node_ids(
-        &mut self,
-        dom_id: DomId,
-        node_id_map: &BTreeMap<NodeId, NodeId>,
-    ) {
+    /// Focus on an unmounted node is CLEARED (not kept — the index now denotes a
+    /// different element).
+    fn remap_node_ids(&mut self, dom_id: DomId, map: &crate::managers::NodeIdMap) {
+        // 1. currently focused node
+        if let Some(focused) = self.focused_node {
+            if focused.dom == dom_id {
+                match focused
+                    .node
+                    .into_crate_internal()
+                    .and_then(|old| map.resolve(old))
+                {
+                    Some(new_id) => {
+                        self.focused_node = Some(DomNodeId {
+                            dom: dom_id,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(new_id)),
+                        });
+                    }
+                    None => self.focused_node = None,
+                }
+            }
+        }
+
+        // 2. pending contenteditable focus (set during focus handling, consumed
+        //    after layout — a DOM rebuild can land in between).
         if let Some(ref mut pending) = self.pending_contenteditable_focus {
             if pending.dom_id != dom_id {
                 return;
             }
-            if let Some(&new_id) = node_id_map.get(&pending.container_node_id) { pending.container_node_id = new_id } else {
-                self.pending_contenteditable_focus = None;
-                self.cursor_needs_initialization = false;
-                return;
-            }
-            if let Some(&new_id) = node_id_map.get(&pending.text_node_id) { pending.text_node_id = new_id } else {
-                self.pending_contenteditable_focus = None;
-                self.cursor_needs_initialization = false;
+            match (
+                map.resolve(pending.container_node_id),
+                map.resolve(pending.text_node_id),
+            ) {
+                (Some(container), Some(text)) => {
+                    pending.container_node_id = container;
+                    pending.text_node_id = text;
+                }
+                _ => {
+                    self.pending_contenteditable_focus = None;
+                    self.cursor_needs_initialization = false;
+                }
             }
         }
     }

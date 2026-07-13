@@ -715,7 +715,6 @@ pub const INTERNAL_ONLY_TYPES: &[&str] = &[
     "VirtualViewManager",
     "FocusManager",
     "GestureAndDragManager",
-    "DragDropManager",
     "FileDropManager",
     "UndoRedoManager",
     "TextInputManager",

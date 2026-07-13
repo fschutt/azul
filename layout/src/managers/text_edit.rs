@@ -296,3 +296,33 @@ impl TextEditManager {
         map
     }
 }
+
+impl crate::managers::NodeIdRemap for TextEditManager {
+    /// Remap the multi-cursor / selection state onto the rebuilt DOM.
+    ///
+    /// `MultiCursorState::remap_node_ids` clears the selections when the edited
+    /// node is gone; here we additionally drop the whole editing session, since a
+    /// cursor whose IFC root no longer exists is not an editing session.
+    fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        let Some(ref mut mc) = self.multi_cursor else {
+            return;
+        };
+        if mc.node_id.dom != dom {
+            return;
+        }
+        let unmounted = mc
+            .node_id
+            .node
+            .into_crate_internal()
+            .is_none_or(|old| map.resolve(old).is_none());
+        if unmounted {
+            self.multi_cursor = None;
+            self.preedit_text = None;
+            self.preedit_cursor_begin = -1;
+            self.preedit_cursor_end = -1;
+            self.display_list_dirty = true;
+            return;
+        }
+        mc.remap_node_ids(dom, map.as_btree_map());
+    }
+}

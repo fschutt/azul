@@ -7,6 +7,11 @@
 
 use alloc::collections::BTreeMap;
 
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
+
 use azul_core::{
     dom::{DomId, NodeId},
     dom::ScrollbarOrientation,
@@ -254,5 +259,60 @@ fn update_scrollbar_transform_key(
                 transform_key,
                 transform,
             ));
+    }
+}
+
+impl crate::managers::NodeIdRemap for GpuStateManager {
+    /// Remap the per-node GPU caches (transform / opacity keys and values).
+    ///
+    /// Without this, a rebuild that shifts `NodeIds` left the scrollbar/CSS
+    /// transform + opacity keys attached to the wrong node — the visible symptom
+    /// being a scrollbar thumb (or an animated element) that keeps painting at a
+    /// stale offset, plus `scrollbar_fade_active` never settling because the
+    /// platform loop keeps generating frames for a node that is not the one
+    /// actually scrolling.
+    fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        let Some(cache) = self.caches.get_mut(&dom) else {
+            return;
+        };
+
+        remap_hashmap(&mut cache.transform_keys, map);
+        remap_hashmap(&mut cache.current_transform_values, map);
+        remap_hashmap(&mut cache.h_transform_keys, map);
+        remap_hashmap(&mut cache.h_current_transform_values, map);
+        remap_hashmap(&mut cache.css_transform_keys, map);
+        remap_hashmap(&mut cache.css_current_transform_values, map);
+        remap_hashmap(&mut cache.opacity_keys, map);
+        remap_hashmap(&mut cache.current_opacity_values, map);
+        remap_dom_hashmap(&mut cache.scrollbar_v_opacity_keys, dom, map);
+        remap_dom_hashmap(&mut cache.scrollbar_h_opacity_keys, dom, map);
+        remap_dom_hashmap(&mut cache.scrollbar_v_opacity_values, dom, map);
+        remap_dom_hashmap(&mut cache.scrollbar_h_opacity_values, dom, map);
+    }
+}
+
+/// Rewrite `NodeId` keys, dropping entries for unmounted nodes.
+fn remap_hashmap<V>(map: &mut HashMap<NodeId, V>, node_map: &crate::managers::NodeIdMap) {
+    let old = core::mem::take(map);
+    for (old_id, v) in old {
+        if let Some(new_id) = node_map.resolve(old_id) {
+            map.insert(new_id, v);
+        }
+    }
+}
+
+/// Rewrite `(DomId, NodeId)` keys for `dom` only, dropping unmounted nodes.
+fn remap_dom_hashmap<V>(
+    map: &mut HashMap<(DomId, NodeId), V>,
+    dom: DomId,
+    node_map: &crate::managers::NodeIdMap,
+) {
+    let old = core::mem::take(map);
+    for ((d, old_id), v) in old {
+        if d != dom {
+            map.insert((d, old_id), v);
+        } else if let Some(new_id) = node_map.resolve(old_id) {
+            map.insert((d, new_id), v);
+        }
     }
 }
