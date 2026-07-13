@@ -1,0 +1,44 @@
+{
+  "name": "bug_font_not_resolved_on_mount",
+  "description": "A DOM that arrives by wholesale replacement (an e2e `mount`, an Update::RefreshDom, a route change) never has its font stacks re-resolved: the skip heuristic in layout/src/window.rs asked only 'is any node font-dirty?', and a brand-new StyledDom has no dirty nodes relative to itself, so font resolution was skipped ENTIRELY. A node with a font-family the window has never seen got no font loaded and silently rendered in the previous DOM's font — measured directly: eight distinct font families on screen left parsed_fonts / font_chain_cache / font_hash_to_families flat. This is the same 'derived state is never recomputed after a DOM swap' family as the stale-screen bug, and it is what made the font-leak scenario vacuously green (nothing is ever acquired, so 'it came back to baseline' is trivially true). The test asserts the contract directly: mounting text in a distinct family must GROW the font tables, and the text must actually paint.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\"></div>"
+      ],
+      "css": [
+        "#root { width: 100px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "snapshot_resources", "as": "baseline" },
+    { "op": "snapshot_frame", "as": "no_text" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <p id=\"txt\">HELLO FONT</p>",
+        "</div>"
+      ],
+      "css": [
+        "#root { width: 100px; height: 40px; background: blue; }",
+        "#txt  { font-family: monospace; font-size: 40px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 300 },
+    { "op": "assert_exists", "selector": "#txt" },
+
+    { "op": "assert_resource_counts", "vs": "baseline", "font_chain_cache": "gt", "font_hash_to_families": "gt" },
+
+    { "op": "assert_changed", "vs": "no_text", "min_damage_rects": 1 }
+  ]
+}

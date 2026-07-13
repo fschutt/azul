@@ -1,0 +1,45 @@
+{
+  "name": "bug_inserted_node_no_author_css",
+  "description": "A node created at runtime by `insert_node` never receives the AUTHOR cascade. The document's stylesheet is cascaded once, at StyledDom::create, and then DROPPED (core/src/styled_dom.rs:1083 — `drop(css)`, a deliberate ~500 KiB memory saving); the XML/mount path routes all of its CSS through exactly that channel (layout/src/xml/mod.rs:218-227), so after the parse nothing holds the rules any more and nobody can re-run the cascade for a new node. The inserted node therefore gets UA defaults + inheritance only: here it carries class 'hot', whose rule paints it red at 80x50 — and it is laid out with neither. NOTE: this is NOT a structural impossibility. The rules ARE retained per node for the Dom-API `.with_css()` path (NodeData.style, core/src/dom.rs:1551); the fix is to keep the cascaded rules (or a compact form of them) on the StyledDom and re-run restyle for inserted nodes — the same 'derived state was never recomputed' family as the stale-screen bug.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"hot\" id=\"a\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "#root { display: block; }",
+        ".hot  { width: 80px; height: 50px; background: red; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+
+    { "op": "assert_node_count", "selector": ".hot", "expected": 1 },
+    { "op": "assert_layout", "selector": ".hot", "property": "width", "expected": 80, "tolerance": 1 },
+    { "op": "assert_layout", "selector": ".hot", "property": "height", "expected": 50, "tolerance": 1 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_insert" },
+
+    { "op": "insert_node", "parent_id": 1, "node_type": "div", "classes": ["hot"], "id": "b" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 250 },
+
+    { "op": "assert_exists", "selector": "#b" },
+    { "op": "assert_node_count", "selector": ".hot", "expected": 2 },
+
+    { "op": "assert_layout", "selector": "#b", "property": "width", "expected": 80, "tolerance": 1 },
+    { "op": "assert_layout", "selector": "#b", "property": "height", "expected": 50, "tolerance": 1 },
+
+    { "op": "assert_changed", "vs": "before_insert", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_insert" }
+  ]
+}
