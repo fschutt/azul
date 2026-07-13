@@ -58,6 +58,38 @@ happening: `tests/e2e/contenteditable_overflow_test.json` points at
 `layout/tests/reference_images/contenteditable_overflow/`, **which does not exist**, so all 12
 of its screenshot assertions silently auto-baseline to green today.
 
+## 0.1 Scope — what this is NOT
+
+**Layout correctness, box geometry, CSS conformance and pixel-perfect rendering are EXPLICITLY
+OUT OF SCOPE.** `azul-doc reftest` (Chrome, `doc/src/reftest/pipeline.rs`, 9,629 `.xht` files in
+`doc/xhtml1/`, §1.5) already owns that question and answers it against a real browser. This plan
+does not duplicate it, does not compete with it, and must never be graded on it.
+
+> **The rule, stated so it cannot be misread:** *no geometry assertions in the e2e JSON schema.*
+> If a generated test says **"assert node X is at (10,20,100,40)"**, the generator has gone
+> wrong. Delete it. "Is the box the right size?" is reftest's job.
+
+**What IS in scope: BEHAVIOUR — the `layout/src/managers/` composing correctly OVER TIME.**
+The bug class this plan exists to catch is not "the box is 3px too wide"; it is:
+
+> *the user clicks and drags → multi-node selection works → the node starts to scroll →
+> that scroll is animated → and the result is repainted **incrementally**, and all of it works
+> **together**, and it **settles**.*
+
+Every one of those five stages is a different manager (§2.B.1g). The bugs live in the seams
+between them, in the state each one keeps *after* the interaction ends, and in what happens when
+the DOM is rebuilt underneath them mid-interaction.
+
+**Consequence for the format: a test is a SCRIPTED INTERACTION TIMELINE** — a sequence of
+synthetic input events, time ticks and DOM/state mutations, with invariants asserted *between*
+the steps — **not a static DOM snapshot.** §2.C designs the schema as a timeline for exactly this
+reason.
+
+**Consequence for determinism: it gets much cheaper.** Almost every Tier-1 invariant below
+compares azul **against itself, inside one process** (frame N vs N+1; the full-repaint render vs
+the damage-driven render; manager state before vs after; run 1 vs run 2). Self-comparison is
+immune to font/DPI/runner variance. See §2.A.
+
 ---
 
 # PART 1 — GROUND TRUTH
@@ -468,28 +500,54 @@ either. Do not let it gate CI.
 
 # PART 2 — THE PLAN
 
-## A. Determinism contract
+## A. Determinism contract — small, because self-comparison does the work
 
-Thousands of tests are worthless if they flake. Pin all of the following. **Most of it is
-already solved in the Rust harness and simply needs to be lifted into the JSON runner's host.**
+**Do not over-engineer this.** Because layout correctness is out of scope (§0.1), *nearly every
+Tier-1 invariant compares azul against itself within a single process*:
+
+| Invariant | What it compares | Needs a pinned rendering? |
+|---|---|---|
+| (a) idle stability | frame N vs frame N+1 | **no** |
+| (b) liveness | pixels before vs after the same step | **no** |
+| (c) damage soundness | damage-driven render vs full-repaint render, same process | **no** |
+| (d) bounded work | a counter against a constant | **no** |
+| (e) resource leak | counts vs the same process's own baseline | **no** |
+| (f) no growth | a counter's slope | **no** |
+| (g) manager families | manager state vs the DOM / vs each other / before vs after | **no** |
+| Tier 2 LLM vibe-check | a screenshot vs a human-language description | **yes — advisory only** |
+
+**Whatever font the runner happens to have, both sides of every Tier-1 comparison use it.** Font
+metrics, DPI, and machine differences cancel. **Tier-1 tests therefore need NO pinned font and
+run on any runner.** That deletes the single most expensive item people usually put in a
+determinism contract.
+
+What *does* still have to be pinned — and it is a short list:
 
 | # | Must be pinned | Status | Where |
 |---|---|---|---|
 | A1 | **CPU renderer, no GPU** | **EXISTS** | `AZ_BACKEND=headless` (`common/compositor.rs:107`) → `run_headless` (`run.rs:186`) → `CpuBackend`. Already CI's config (`rust.yml:1944`). |
-| A2 | **Embedded test font, NO system font fallback** | **EXISTS in Rust tests; MUST be added to the JSON host** | `headless/mod.rs:1894-1932`: `HARNESS_FONT = include_bytes!("doc/fonts/InstrumentSerif-Regular.ttf")` + `FcFontCache::default()` (empty → **zero disk access, no system scan**) + `font_manager.insert_font(...)`. |
-| A3 | **Fixed window size + DPI** | **EXISTS** | `setup.window_width/height/dpi` (`full.rs:3237-3247`, defaults 800×600 @96). Make them **mandatory** in generated tests, not defaulted. |
-| A4 | **Frozen clock / no wall-clock animation** | **DOES NOT EXIST — must be added** | Scrollbar fade (`layout/src/window.rs:2968-2980`), scroll momentum (`headless/mod.rs:1548`), cursor blink and `SleepMs` all key off real time. Needs an `AZ_TEST_CLOCK` virtual clock + a `tick_ms` op that advances it deterministically. **Without this, idle-stability tests (Tier 1a) are flaky by construction** — a fading scrollbar legitimately damages every frame. |
-| A5 | **Seeded RNG** | audit needed | grep for `rand`/`SystemTime` in the layout+manager path; pin or stub. |
-| A6 | **Locale / theme / OS CSS at-rules** | partially exists | `GetComponentPreview` already has `override_os` / `override_theme` / `override_lang` (`full.rs:2049-2057`). The same three overrides must exist in `setup`, or `@os()`/`@theme()` CSS makes tests machine-dependent. |
-| A7 | **No `wait { ms }` in generated tests** | policy | `wait` is a real `std::thread::sleep` (`full.rs:6686`). It is the #1 flake source. Generated tests must use `wait_frame` / `tick` only. `hello_world_counter.json` uses `wait: 300` three times — that is a legacy pattern, do not copy it. |
+| A2 | **Frozen clock / no wall-clock animation** | **DOES NOT EXIST — must be added** | The **only genuinely load-bearing determinism item.** Scrollbar fade (`layout/src/window.rs:2968-2980`, gated by `gpu_state_manager.scrollbar_fade_active`, `gpu_state.rs:54`), scroll momentum/animation (`ScrollManager::tick`, `scroll_state.rs:695`), cursor blink (`text_edit.rs:29` `BlinkState`) and `SleepMs` all key off real time. Needs an `AZ_TEST_CLOCK` virtual clock + a `tick_ms` op. **Without it, idle-stability (Tier 1a) and every animation timeline is flaky by construction** — a fading scrollbar legitimately damages every frame, and an animation that must *finish* can never be asserted to have finished. |
+| A3 | **Fixed window size + DPI** | **EXISTS** | `setup.window_width/height/dpi` (`full.rs:3237-3247`, defaults 800×600 @96). Mandatory in generated tests — not for pixel-exactness, but so a scroll container is *actually* overflowing on every machine (an interaction timeline that autoscrolls needs the content to not fit). |
+| A4 | **No `wait { ms }` in generated tests** | policy | `wait` is a real `std::thread::sleep` (`full.rs:6686`). It is the #1 flake source. Generated tests use `wait_frame` / `tick_ms` only. `hello_world_counter.json` uses `wait: 300` three times — legacy pattern, do not copy it. |
+| A5 | **Seeded RNG** | audit needed | grep for `rand`/`SystemTime` in the layout+manager path; pin or stub. Cheap; do it once. |
 
-**A2 is the sharp edge and is worth reading `headless/mod.rs:1897-1921` in full.** The naive
-approach (register the font in `FcFontCache`) **does not work**: generic families ("serif",
-azul's default) are expanded to a hardcoded OS list and the generic is dropped, and the
-Unicode-fallback path skips codepoints < U+0400. The *only* thing that works is injecting the
-parsed font directly into `FontManager` and relying on the shaper's last-resort glyph probe over
-loaded fonts. This is a known rust-fontconfig footgun (it also breaks web/wasm fallback). **Copy
-the existing solution; do not re-derive it.**
+**Explicitly NOT required for Tier 1** (and cut from earlier drafts of this plan):
+- **A pinned/embedded font.** Both sides of every Tier-1 comparison use whatever font is present.
+- **Locale / theme / OS at-rule overrides.** They change *how it looks*, which is reftest's
+  problem, not ours. (`GetComponentPreview`'s `override_os`/`override_theme`/`override_lang`,
+  `full.rs:2049-2057`, exist if a specific case ever wants them — but do not make them a
+  contract.)
+
+**The one exception — Tier 2.** The advisory LLM screenshot sweep *does* want a stable rendering,
+so a nightly Tier-2 shard should use the embedded harness font. **That solution already exists —
+copy it, do not re-derive it:** `headless/mod.rs:1894-1932`, `HARNESS_FONT =
+include_bytes!("doc/fonts/InstrumentSerif-Regular.ttf")` + `FcFontCache::default()` (empty ⇒ zero
+disk access, no system scan) + `font_manager.insert_font(...)`. Read `:1897-1921` before touching
+it: registering the font in `FcFontCache` **does not work** (generic families like "serif" —
+azul's default — are expanded to a hardcoded OS list and the generic is dropped; the
+Unicode-fallback path skips codepoints < U+0400). The only thing that works is injecting the
+parsed font straight into `FontManager`. A known rust-fontconfig footgun. **Tier 1 does not need
+any of this.**
 
 ## B. The three tiers of assertion
 
@@ -520,7 +578,7 @@ Semantics: tick K times with no input; assert (i) `frame_report.paint_damage == 
 
 *Precedent:* `damage_idle_scrollbar_window_skips` (`headless/mod.rs:2951`) — a real, previously
 shipped bug where an idle scrollbar'd window re-rendered and re-presented **forever**.
-*Depends on:* `FrameReport` (§1.3) **and A4 (frozen clock)** — an animating scrollbar fade
+*Depends on:* `FrameReport` (§1.3) **and A2 (frozen clock)** — an animating scrollbar fade
 legitimately damages every frame.
 
 ---
@@ -614,36 +672,192 @@ of `AZ_E2E_TEST`'s RSS probe (`e2e_test.rs:255-284`) and it catches indexing/lea
 managers.
 
 ---
-**(g) MANAGER STRUCTURAL INVARIANTS — the "~50 bugs" area**
+**(g) THE MANAGER FAMILIES — the "~50 bugs" area, and the backbone of this plan**
 
-The 22 managers (`layout/src/managers/`) key per-node state by `NodeId` / `(DomId, NodeId)`.
-Keys are remapped only through `transfer_states` (`core/src/diff.rs:860`) + `create_migration_map`
-(`:830`) on DOM rebuild. **`reconcile_dom` produces `node_moves` but no unmount info that anyone
-consumes for manager GC** — so entries for unmounted nodes are the classic leak.
+This is where §0.1's "BEHAVIOUR, not layout" cashes out. **First, the real managers**, read out of
+`layout/src/managers/` and `LayoutWindow` (`layout/src/window.rs:370-469`) rather than guessed:
+
+| Manager | Type & def | Per-node state it keys | Remapped on DOM rebuild? |
+|---|---|---|---|
+| **scroll** | `ScrollManager` `scroll_state.rs:296` | `states: BTreeMap<(DomId,NodeId), AnimatedScrollState>` `:298`; `scrollbar_states: BTreeMap<(DomId,NodeId,Orientation), ScrollbarState>` `:300`; `scroll_dirty: bool` `:317` | **YES** — `remap_node_ids` `scroll_state.rs:1338`, called `common/layout.rs:1042` |
+| **scroll animation** | `AnimatedScrollState.animation: Option<ScrollAnimation>` `scroll_state.rs:339`; driven by `ScrollManager::tick(now) -> ScrollTickResult { needs_repaint, updated_nodes }` `:695/:410`; `has_active_animations()` `:722` | the animation *is* scroll state | (with scroll) |
+| **scroll_into_view** | **free functions, no struct** — `scroll_node_into_view` `scroll_into_view.rs:177`, `scroll_cursor_into_view` `:209`, `calculate_axis_delta` `:387`; emits `ScrollAdjustment { container, delta, behavior }` `:47`, applied **into `ScrollManager`** (`&mut ScrollManager` param, `:101/:180/:213`) | none of its own — it *writes* scroll's | n/a (stateless) |
+| **gesture / drag** | `GestureAndDragManager` `gesture.rs:456` | `input_sessions: Vec<InputSession>` `:459`; `active_drag: Option<DragContext>` `:461`; `long_press_callbacks_invoked: Vec<u64>`; `touch_sessions: BTreeMap<u64,u64>`; `next_session_id` | **YES** — `remap_node_ids` `gesture.rs:1689` → `DragContext::remap_node_ids` `core/src/drag.rs:702`, called `common/layout.rs:1055` |
+| **drag context** | `DragContext` `core/src/drag.rs:365`, `ActiveDragType` `:28` = `TextSelection(TextSelectionDrag)` `:48` / `ScrollbarThumb` / `Node(NodeDrag)` `:106` / `WindowMove` / `WindowResize` / `FileDrop` | source node, drop target, current mouse pos | (with gesture) |
+| **selection (text/multi-cursor)** | `MultiCursorState` `core/src/selection.rs:257`; `TextSelection { anchor, focus, ... }` `:642`, `SelectionAnchor` `:588` — *"the anchor remains constant during a drag; only the focus moves"* (`:590`) | anchor/focus `(DomId,NodeId,cursor)` pairs | **YES** — `MultiCursorState::remap_node_ids` `core/src/selection.rs:540`, called `common/layout.rs:1046` (drops selections whose node vanished — `selection.rs:1847` test) |
+| **text_edit** | `TextEditManager` `text_edit.rs:91` | `multi_cursor: Option<MultiCursorState>` `:93` (owns the selection above); `blink: BlinkState` `:29`; preedit; `display_list_dirty: bool` | via multi_cursor (above) |
+| **focus** | `FocusManager` `focus_cursor.rs:53` | `focused_node: Option<DomNodeId>` `:55`; `pending_focus_request` `:57`; `pending_contenteditable_focus` `:64` | **YES** — hand-rolled at `common/layout.rs:1015-1037` (remap or **clear**), + `remap_pending_focus_node_ids` `focus_cursor.rs:175` @ `layout.rs:1058` |
+| **hover / hit-test history** | `HoverManager` `hover.rs:53` | `hover_histories: BTreeMap<InputPointId, VecDeque<FullHitTest>>` `:56` — the last N frames of hit-tests, per pointer | **YES** — `remap_node_ids` `hover.rs:241`, called `common/layout.rs:1052`; also `purge_dom` `:152` |
+| **gpu_state (incl. scrollbar fade)** | `GpuStateManager` `gpu_state.rs:43` | `caches: BTreeMap<DomId, GpuValueCache>` `:45`; **`scrollbar_fade_active: bool` `:54`** — set by `synchronize_scrollbar_opacity` (`window.rs:3084`), read by the platform loops to **keep generating frames** (`macos/mod.rs:6047`, `windows/mod.rs:1064`) | **NO** |
+| **virtual_view** | `VirtualViewManager` `virtual_view.rs:26` | `states: BTreeMap<(DomId,NodeId), VirtualViewState>` `:28`; `reason_overrides` `:36` | **NO** |
+| **undo_redo** | `UndoRedoManager` `undo_redo.rs:192` | `node_stacks: Vec<NodeUndoRedoStack>` keyed by `NodeId` (`:86/:96`) | **NO** |
+| **drag_drop (legacy)** | `DragDropManager` `drag_drop.rs:89` — *"**DEPRECATED**: use `GestureAndDragManager`"* (`:85`) | a **second** `active_drag: Option<DragContext>` `:91` | **NO** |
+| **a11y** | `A11yManager` `a11y.rs:51` | `tree`, `last_tree_update`, `tree_initialized` | **NO** |
+| others | `clipboard` `:110`, `file_drop`, `text_input`, `changeset`, `permission`/`geolocation`/`biometric`/`keyring`/`sensors`/`gamepad` (device managers, out of the redraw path) | | |
+
+`selection.rs` in `managers/` is **only `StyledTextRun`/`ClipboardContent`** (`:24`, `:48`) — the
+real selection state lives in `core/src/selection.rs`. Do not look for a `SelectionManager`; it
+was removed (`common/layout.rs:1051`: *"SelectionManager removed — multi_cursor remap handled
+above"*).
+
+**The remap gap, precisely.** `update_managers_with_node_moves` (`dll/src/desktop/shell2/common/
+layout.rs:998`, called `:420`) remaps exactly **five** things — focus, scroll, multi-cursor,
+hover, gesture/drag — from `create_migration_map(&diff_result.node_moves)` (`core/src/diff.rs:830`).
+`transfer_states` (`diff.rs:860`) is a *different* function: it only merges **datasets** via merge
+callbacks; it does **not** touch manager `NodeId`s. **Not remapped, and each keys per-node state:
+`undo_redo` (`Vec<NodeUndoRedoStack>` by `NodeId`), `virtual_view` (`(DomId,NodeId)`),
+`gpu_state`, the legacy `drag_drop.active_drag`.** And `node_moves` carries *matched* nodes only —
+**there is no unmount list any manager consumes for GC**, so entries for nodes that simply
+disappeared are only dropped where a manager's own `remap_node_ids` chooses to drop them (scroll,
+hover, gesture, multi-cursor do; the four above have no such code at all). **That asymmetry is the
+hypothesis family (g4) below is built to prove or refute.**
+
+Five families follow. **(g4) is the mechanically-generatable one and should be the biggest.**
+
+---
+**(g1) COMPOSITION — the managers fire together, in order, and reach a fixpoint**
+
+> The canonical scenario, verbatim from the user: *click and drag → multi-node selection works →
+> the node starts to scroll → the scroll is animated → and it is repainted incrementally.*
+
+One timeline, five managers: `gesture` (drag detected) → `selection`/`text_edit` (anchor pinned,
+focus follows) → `scroll_into_view`+`scroll` (autoscroll at the edge) → `scroll` animation ticks →
+`cpurender` damage (a *patch*, not `Full`).
 
 ```json
-{ "op": "assert_manager_invariants", "managers": ["scroll", "hover", "focus", "gesture"] }
+{ "op": "assert_composition", "expect": ["drag_active","selection_grew","scroll_started","scroll_animating","damage_patch"] }
 ```
-Asserts, for each: **(i) no key refers to a node that no longer exists in the StyledDom**
-(the staleness invariant — this is the direct expression of the manager bug class);
-(ii) counts bounded; (iii) no duplicate/overlapping sessions.
+Asserts, over the steps since the last checkpoint: each named stage was **entered**, in the
+**listed order**, and — critically — **the whole thing reaches a fixpoint**: after the final
+`tick_ms`s the drag is over, the animation is over, and `assert_idle_stable` (a) holds.
+*Observability today:* `get_drag_state`/`get_drag_context` (`full.rs:1829/1831`),
+`get_selection_state`/`dump_selection_manager` (`:1823/:1825`), `get_scroll_states` (`:1737`),
+`ScrollManager::has_active_animations()` (`scroll_state.rs:722`) — the state is all reachable from
+`CallbackInfo::get_layout_window()`; only the **damage** half needs `FrameReport` (§1.3).
 
-**Prerequisite:** `debug_counts()` exists on only 4 of 22 (`virtual_view.rs:95`, `hover.rs:69`,
-`scroll_state.rs:460`, `gesture.rs:538`). **Add it to `focus_cursor`, `text_edit`, `gpu_state`,
-`undo_redo`, `a11y`, `drag_drop`** — all hold per-node state, none are observable. Extend the
-trait to also expose *the key set*, not just the count, so (i) is checkable.
+---
+**(g2) CROSS-MANAGER CONSISTENCY — the pairwise invariants, derived from the code above**
+
+Not guesses. Each one is a seam that exists in the source:
+
+| # | Pair | Invariant that must hold |
+|---|---|---|
+| X1 | `scroll_into_view` ↔ `scroll_state` | `scroll_into_view` computes a `ScrollAdjustment` (`:47`) against the *same* `(DomId,NodeId)` that `ScrollManager.states` keys (`:298`) and applies it through `&mut ScrollManager`. **After a `scroll_into_view`, the target must be inside the container's visible rect according to `ScrollManager`'s own offset** — the two must not disagree about which container scrolls or by how much. A `ScrollAdjustment` for a container with no `AnimatedScrollState` entry is a bug. |
+| X2 | `scroll` ↔ `scroll` animation | `has_active_animations()` (`:722`) is `true` **iff** some `AnimatedScrollState.animation` is `Some` (`:339`), **iff** `tick()` returns `needs_repaint` (`:412`). An animation that has reached its target must clear itself — see (g3). |
+| X3 | `gesture.active_drag` ↔ `hover` hit-test | during a `TextSelection`/`Node` drag, the drag's source node (`core/src/drag.rs:106/:48`) must still exist in the StyledDom and `hover_manager.current_hover_node()` (`hover.rs:193`) must resolve against the **same** DOM. Drag says node 7, hit-test says node 7 doesn't exist ⇒ stale index. |
+| X4 | `gesture.active_drag` ↔ `drag_drop.active_drag` | there are **two** `Option<DragContext>` in the tree (`gesture.rs:461`, `drag_drop.rs:91`) and only the first is remapped. **They must never disagree** about whether a drag is active or about its source node. (If they routinely do, delete the deprecated one — that is a finding.) |
+| X5 | `selection` anchor ↔ DOM | `SelectionAnchor` is *"constant during a drag; only the focus moves"* (`core/src/selection.rs:590`). **The anchor's node must exist for the whole drag.** If the anchor's node is removed, `remap_node_ids` (`:540`) must **clear** the selection (`selection.rs:1847`), not leave a dangling anchor. |
+| X6 | `focus` ↔ `text_edit.multi_cursor` | `multi_cursor` is *"`Some` whenever a contenteditable element has focus"* (`text_edit.rs:93`). **So: `multi_cursor.is_some()` ⇒ `focus_manager.focused_node` is `Some` and points at a contenteditable node that exists.** Blur must clear both (`clear_editing` `:201` / `clear_focus` `focus_cursor.rs:109`). |
+| X7 | `focus` ↔ `scroll` | `scroll_cursor_into_view` (`scroll_into_view.rs:209`) scrolls the *focused* editor's cursor. If focus was cleared, no scroll adjustment may still be pending for it. |
+| X8 | `text_edit` selection ↔ `scroll` autoscroll | a selection drag past the container edge must produce scroll **through `ScrollManager`**, not by moving the selection focus to a node that is not under the pointer. Selection focus and the scrolled container must stay mutually consistent frame-to-frame. |
+| X9 | `gpu_state.scrollbar_fade_active` ↔ damage | `scrollbar_fade_active` (`gpu_state.rs:54`) keeps the platform loop generating frames (`macos/mod.rs:6047`). **It must go `false` within the fade duration of the last scroll**, or the window damages forever — see (g3). |
+| X10 | any manager ↔ the StyledDom | **no manager key may refer to a node that no longer exists.** The universal one; it is what (g4) hammers. |
+
+```json
+{ "op": "assert_manager_invariants", "managers": ["scroll","hover","focus","gesture","selection","text_edit","virtual_view","undo_redo"],
+  "cross": ["X1","X3","X5","X6","X9","X10"] }
+```
+
+---
+**(g3) STATE-MACHINE LEAKS — "it ended, but the manager didn't notice"**
+
+The interaction is over; the manager is not. Three shapes, all real code paths:
+
+- **drag ended, drag still active.** After `mouse_up`, `gesture_drag_manager.active_drag`
+  (`gesture.rs:461`) **and** `drag_drop.active_drag` (`drag_drop.rs:91`) must both be `None`, and
+  `input_sessions` (`:459`) must not accumulate (`end_current_session` `:729`,
+  `clear_old_sessions` `:856` exist — assert they *ran*).
+- **animation finished, still scheduling frames. This is a direct infinite-redraw source.** After
+  the scroll animation reaches its target, `has_active_animations()` (`scroll_state.rs:722`) must
+  be `false`, `tick().needs_repaint` (`:412`) must be `false`, `scroll_dirty` (`:317`) must be
+  cleared, and `gpu_state.scrollbar_fade_active` (`:54`) must return to `false` after the fade —
+  otherwise the platform loop keeps generating frames forever (`macos/mod.rs:6047`,
+  `windows/mod.rs:1064`). **This is precisely `damage_idle_scrollbar_window_skips`
+  (`headless/mod.rs:2951`) — a bug that already shipped once.**
+- **selection cleared, listeners still armed.** After a blur / `clear_editing` (`text_edit.rs:201`),
+  `multi_cursor` must be `None`, `blink` cleared (`:78`), and `display_list_dirty` (`text_edit.rs:107`)
+  must not stay latched `true` (a permanently-dirty flag = a permanent repaint).
+
+Every one of these reduces to: **do the interaction, end it, then `assert_idle_stable` (a) +
+`assert_state_machines_idle`.**
+```json
+{ "op": "assert_state_machines_idle" }
+```
+Asserts: no active drag (both managers), no active gesture session, no active scroll animation,
+`scroll_dirty == false`, `scrollbar_fade_active == false`, no latched `display_list_dirty`,
+and `FrameDamage::None`.
+
+---
+**(g4) DANGLING INDICES UNDER MUTATION — a FIRST-CLASS GENERATOR TEMPLATE**
+
+> **Remove or replace the node that is currently being dragged / selected / scrolled / animated /
+> focused / hovered — MID-INTERACTION — and assert: no panic, no stale index, manager state
+> consistent, and the frame still settles.**
+
+This is the family that targets the indexing bugs directly, and it is **mechanically
+generatable**: it is a cross-product, not a set of ideas.
+
+```
+  for interaction in { text-selection drag, node drag, scrollbar-thumb drag,
+                       momentum scroll, scroll_into_view animation, focus+caret,
+                       hover, virtual-view scroll, undo stack on a node }
+    for mutation   in { delete the node, delete its parent, delete a *preceding*
+                        sibling (shifts every NodeId after it — the nastiest),
+                        replace the subtree, reorder siblings, full DOM rebuild
+                        via set_app_state }
+      for phase    in { just after mouse_down, mid-drag, during the animation,
+                        one frame before mouse_up }
+        emit one JSON timeline
+```
+That is ~9 × 6 × 4 ≈ **200 tests from one template**, and they are the highest-yield tests in the
+whole plan. Each ends with: `assert_no_panic` (free — process exit), `assert_manager_invariants`
+(X10 — no key points at a dead node), `assert_state_machines_idle` (g3), `assert_idle_stable` (a).
+
+**The hypothesis this family tests** (from the table above): `undo_redo`, `virtual_view`,
+`gpu_state` and the legacy `drag_drop.active_drag` are **not in
+`update_managers_with_node_moves`** (`common/layout.rs:998-1060`) at all, and *nothing* consumes an
+unmount list for manager GC. **Expect (g4) to go red there first.** Note the "delete a preceding
+sibling" case: it does not remove the node under interaction, it **renumbers** it — a manager that
+stored a raw `NodeId` and was never remapped will now silently point at *a different, live node*.
+That is a wrong-node bug, not a crash, and no other test in this plan would see it.
+
+---
+**(g5) INCREMENTALITY — "repainted incrementally" is an assertion, not an aspiration**
+
+The user's fifth stage. During a drag-select-autoscroll, the repaint must be a **PATCH**:
+`frame_report.paint_damage` must be `Rects(_)`, **never `Full`**, and the damage-driven buffer
+must be pixel-identical to the full-repaint buffer (that is exactly (c) `assert_damage_sound`,
+reused here — no new machinery). A scroll is the sharpest case: the fast path memmoves the clip
+(large *present* damage) but only *paints* the newly exposed strip (small *paint* damage)
+(`headless/mod.rs:829-834`), and `png_scroll_vertical_fast_matches_full_render` (`:3450`) already
+proves the pixel identity for it in Rust.
+
+```json
+{ "op": "assert_damage_sound", "max_overpaint_ratio": 4.0, "forbid_full": true }
+```
+
+---
+**Prerequisite for all of (g):** `debug_counts()` exists on only 4 of the managers
+(`virtual_view.rs:95`, `hover.rs:69`, `scroll_state.rs:460`, `gesture.rs:538`). **Add it to
+`focus_cursor`, `text_edit`, `gpu_state`, `undo_redo`, `a11y`, `drag_drop`** — all hold per-node
+state, none are observable. And extend it to expose **the key set**, not just the count, or X10 is
+not checkable.
 
 ---
 
 ### TIER 2 — LLM SANITY CHECK ("vibe test") — ADVISORY, **NEVER A CI GATE**
 
-A judge model sees the headless screenshot + the one-line case description and returns
-`looks-right | looks-wrong | suspicious` + a reason.
+A judge model sees the headless screenshot **(or the frame *sequence* of an interaction
+timeline)** + the one-line scenario description and returns `looks-right | looks-wrong |
+suspicious` + a reason.
 
-**It is good at** gross failures no invariant expresses: blank screen, garbled/overlapping text,
-element off-screen, content obviously not matching the description, z-order nonsense.
-**It is bad at** pixel precision. **Do not ask it for numbers.** Never ask "is this box 100px
-wide" — ask "does this look like a broken render?"
+**Ask it about the BEHAVIOUR, in the language of the scenario:** *"this is a click-drag down a
+list — does it look like a multi-node selection that scrolled?"*, *"is anything obviously
+garbled, blank, or half-painted?"*, *"did the highlight follow the cursor?"*
+**Never ask it about geometry or numbers.** Not "is this box 100px wide", not "is the gap 8px" —
+**that is `azul-doc reftest`'s job (§0.1) and the judge is bad at it.** It is good at gross
+failures no invariant expresses: blank screen, garbled/overlapping text, content that plainly
+contradicts the description, z-order nonsense, a half-applied incremental patch.
 
 **HARD CONSTRAINTS:**
 - **Not a blocking gate.** It is nondeterministic, costs tokens, and rate-limits. CI runs
@@ -700,11 +914,34 @@ points at a directory that **does not exist** → 12 assertions auto-baseline to
 Note the asymmetry that makes this workable: **Tier 1 needs no expected values at all.** That is
 precisely why it is the backbone and why cheap agents can safely generate it.
 
-## C. Test file format
+## C. Test file format — a test is an INTERACTION TIMELINE
+
+**A test file is a scripted timeline, not a DOM snapshot** (§0.1). It reads, top to bottom, as:
+
+```
+  mount a DOM  →  [ input event | time tick | DOM/state mutation ]*  →  invariants asserted
+                  ─────────── interleaved, order is the test ───────────    BETWEEN the steps
+```
+The canonical shape the schema must express cleanly — the user's own scenario —
+**`mouse_down` on a node → several `mouse_move`s dragging across its siblings (multi-node
+selection grows) → the pointer reaches the container edge (autoscroll starts) → `tick_ms` ×N
+(the scroll animates) → assert the repaint was a *patch* → `mouse_up` → assert everything
+settles.** §C.6 is that file, literally.
+
+Every op needed to write it **already exists**: `mouse_down` (`full.rs:1532`), `mouse_move`
+(`:1528`), `mouse_up` (`:1538`), `scroll` (`:1569`), `key_down` (`:1577`), `delete_node`
+(`:1898`), `insert_node` (`:1882`), `set_app_state` (`:1851`), plus the state probes
+`get_drag_state` (`:1829`), `get_drag_context` (`:1831`), `get_selection_state` (`:1823`),
+`get_scroll_states` (`:1737`), `get_focus_state` (`:1863`). **The timeline is not the gap. The
+gap is the assertions** (§B) **and `tick_ms`.**
 
 Keep the **existing** `E2eTest`/`E2eStep` schema (`full.rs:3218/3263`) — it already works, it
-already runs in CI, and every debug op is already a valid step. Add: one `mount` op, one `setup`
-block extension, and six assertion ops.
+already runs in CI, and every debug op is already a valid step. Add: a way to mount a DOM, a
+`setup` block extension, `tick_ms`, and the Tier-1 assertion ops.
+
+**There is deliberately no geometry assertion in this schema.** `assert_layout` (`full.rs:3360`)
+exists and stays for legacy files, but **generated tests must not emit it** (§0.1). The gate in
+§D.3 rejects it.
 
 ### C.1 The `mount` op — the one enabling primitive
 
@@ -716,7 +953,7 @@ Build `examples/azul-e2e-host` whose app state is `{ "xml": "...", "css": "..." 
 **`setup.app_state` (`full.rs:3246`) and the `set_app_state` op (`full.rs:8621`) mount arbitrary
 DOM+CSS with ZERO engine changes** — the plumbing already exists (it needs a `RefAny` with a
 `deserialize_fn`, `full.rs:8625`, which an azul-owned Rust host trivially provides).
-This also fixes determinism A2 for free: the host injects `HARNESS_FONT` at startup.
+It also gives the Tier-2 shard a free home for the pinned `HARNESS_FONT` (§2.A).
 
 **Option B — a new `mount` op** (`DebugEvent::Mount { xml, css }`) that swaps the root StyledDom
 directly. More invasive, touches the shell, but works against *any* app binary.
@@ -732,42 +969,53 @@ binary to compile once and run thousands of JSON files against.
   "description": "string",                // the one-line case; the LLM judge sees this
   "tier": 1,                              // 1 = CI gate, 2 = advisory-only
   "setup": {
-    "window_width": 800, "window_height": 600, "dpi": 96,   // A3 — MANDATORY in generated tests
+    "window_width": 800, "window_height": 600, "dpi": 96,   // A3 — MANDATORY (so the container really overflows)
     "app_state": { "xml": "<div class='a'>hi</div>", "css": ".a { width: 100px; }" },  // C.1
-    "theme": "light", "os": "linux", "lang": "en",          // A6 — NEW, mirrors full.rs:2049-2057
-    "freeze_clock": true                                    // A4 — NEW
+    "freeze_clock": true                                    // A2 — NEW. The one that matters.
   },
   "steps": [
+    // ── TIMELINE: input events, time ticks and mutations, interleaved ──
     // ACTIONS — all of these EXIST today (full.rs:1526-2073)
     { "op": "wait_frame" },
-    { "op": "tick_ms", "ms": 16 },                          // NEW (A4) — advances the virtual clock
-    { "op": "resize", "width": 400, "height": 300 },
+    { "op": "tick_ms", "ms": 16 },                          // NEW (A2) — advances the virtual clock
+    { "op": "mouse_down", "x": 10, "y": 20, "button": "left" },   // full.rs:1532
+    { "op": "mouse_move", "x": 40, "y": 90 },                     // full.rs:1528  (drag)
+    { "op": "mouse_up",   "x": 40, "y": 90, "button": "left" },   // full.rs:1538
     { "op": "click", "selector": ".btn" },                  // or x/y, or node_id, or text
-    { "op": "mouse_move", "x": 10, "y": 20 },
     { "op": "key_down", "key": "a" },
     { "op": "text_input", "text": "hello" },
     { "op": "scroll", "x": 50, "y": 50, "delta_x": 0, "delta_y": -100 },
-    { "op": "set_node_css_override", "node_id": 3, "property": "width", "value": "200px" },
+    { "op": "resize", "width": 400, "height": 300 },
+    { "op": "set_node_css_override", "node_id": 3, "property": "background-color", "value": "red" },
     { "op": "insert_node", "parent_id": 1, "node_type": "div", "classes": ["x"] },
-    { "op": "delete_node", "node_id": 3 },
+    { "op": "delete_node", "node_id": 3 },                  // ← the (g4) weapon: fire it MID-drag
     { "op": "set_app_state", "state": { "xml": "...", "css": "..." } },   // = remount
 
-    // ASSERTIONS — Tier 1. ALL SIX ARE NEW.
+    // ── ASSERTIONS — Tier 1. ALL OF THESE ARE NEW. ──
     { "op": "assert_idle_stable",     "ticks": 5 },                            // B.1a
     { "op": "assert_changed",         "min_damage_rects": 1 },                 // B.1b
-    { "op": "assert_damage_sound",    "max_overpaint_ratio": 4.0 },            // B.1c
+    { "op": "assert_damage_sound",    "max_overpaint_ratio": 4.0,
+                                      "forbid_full": true },                   // B.1c + B.1g5
     { "op": "assert_work_bounded",    "max_relayouts": 2, "max_dom_regens": 1 },// B.1d
     { "op": "snapshot_resources",     "as": "baseline" },                      // B.1e
     { "op": "assert_resource_counts", "vs": "baseline", "fonts": "eq" },       // B.1e
     { "op": "assert_no_growth",       "frames": 200 },                         // B.1f
-    { "op": "assert_manager_invariants", "managers": ["scroll","hover","focus"] }, // B.1g
+    { "op": "assert_composition",     "expect": ["drag_active","selection_grew",
+                                                 "scroll_started","scroll_animating",
+                                                 "damage_patch"] },            // B.1g1
+    { "op": "assert_manager_invariants", "managers": ["scroll","hover","focus","gesture",
+                                                      "selection","text_edit","undo_redo"],
+                                         "cross": ["X1","X3","X5","X6","X9","X10"] },  // B.1g2
+    { "op": "assert_state_machines_idle" },                                    // B.1g3
 
-    // ASSERTIONS — existing, safe only when the expected value comes from the DESCRIPTION
-    { "op": "assert_layout", "selector": ".a", "property": "width", "expected": 100 },
+    // ASSERTIONS — existing, and still fine: they are about EXISTENCE and CONTENT, not geometry
     { "op": "assert_exists", "selector": ".a" },
+    { "op": "assert_text", "selector": ".a", "expected": "hi" },
+    // FORBIDDEN in generated tests (§0.1): assert_layout, assert_css, assert_screenshot.
+    // Geometry belongs to `azul-doc reftest`. The §D.3 gate rejects these.
 
     // TIER 2 only — never in a tier-1 file
-    { "op": "capture", "as": "after_click" }                 // NEW — writes a PNG for the judge
+    { "op": "capture", "as": "after_drag" }                 // NEW — writes a PNG for the judge
   ]
 }
 ```
@@ -872,38 +1120,172 @@ redraw loop". This is the canonical template and most generated cases are a vari
 }
 ```
 
+### C.6 Worked example 4 — **THE CANONICAL ONE.** drag → multi-select → autoscroll → animate → incremental repaint (Tier 1g1/g2/g5).
+
+This is the user's scenario, as a timeline. Note: **not one geometry assertion in it.**
+
+```json
+{
+  "name": "compose_drag_multiselect_autoscroll_animate_incremental",
+  "description": "The user presses in the first list row and drags down past the bottom edge: the multi-node text selection must grow, the list must autoscroll, the scroll must animate to a stop, every repaint must be an incremental patch (never a full redraw), and on mouse-up everything must settle to zero damage with no manager left active.",
+  "tier": 1,
+  "setup": {
+    "window_width": 400, "window_height": 200, "dpi": 96, "freeze_clock": true,
+    "app_state": {
+      "xml": "<body><div id='list'><p class='row'>row one</p><p class='row'>row two</p><p class='row'>row three</p><p class='row'>row four</p><p class='row'>row five</p><p class='row'>row six</p><p class='row'>row seven</p><p class='row'>row eight</p></div></body>",
+      "css": "#list { height:100px; overflow-y:scroll; } .row { height:30px; user-select:text; }"
+    }
+  },
+  "steps": [
+    { "op": "wait_frame" },
+    { "op": "assert_idle_stable", "ticks": 3 },
+    { "op": "snapshot_resources", "as": "baseline" },
+
+    // ── press inside row 1 ──────────────────────────────────────────────
+    { "op": "mouse_down", "x": 20, "y": 10, "button": "left" },
+    { "op": "wait_frame" },
+
+    // ── drag down: selection must GROW across rows ─────────────────────
+    { "op": "mouse_move", "x": 60, "y": 40 }, { "op": "wait_frame" },
+    { "op": "mouse_move", "x": 60, "y": 70 }, { "op": "wait_frame" },
+    { "op": "assert_changed", "min_damage_rects": 1 },
+    { "op": "assert_damage_sound", "max_overpaint_ratio": 4.0, "forbid_full": true },
+
+    // ── drag PAST the bottom edge: autoscroll must start ───────────────
+    { "op": "mouse_move", "x": 60, "y": 130 },
+    { "op": "wait_frame" },
+    { "op": "tick_ms", "ms": 16 }, { "op": "tick_ms", "ms": 16 }, { "op": "tick_ms", "ms": 16 },
+    { "op": "tick_ms", "ms": 16 }, { "op": "tick_ms", "ms": 16 },
+
+    // ── every stage fired, in order, and the repaint stayed a PATCH ────
+    { "op": "assert_composition",
+      "expect": ["drag_active", "selection_grew", "scroll_started",
+                 "scroll_animating", "damage_patch"] },
+    { "op": "assert_damage_sound", "max_overpaint_ratio": 4.0, "forbid_full": true },
+    { "op": "assert_work_bounded", "max_relayouts": 2, "max_dom_regens": 0 },
+    { "op": "assert_manager_invariants",
+      "managers": ["gesture", "selection", "text_edit", "scroll", "hover", "focus"],
+      "cross": ["X1", "X3", "X5", "X6", "X8", "X10"] },
+
+    // ── release, let the momentum/fade run out, and SETTLE ─────────────
+    { "op": "mouse_up", "x": 60, "y": 130, "button": "left" },
+    { "op": "tick_ms", "ms": 400 },
+    { "op": "assert_state_machines_idle" },
+    { "op": "assert_idle_stable", "ticks": 5 },
+    { "op": "assert_resource_counts", "vs": "baseline", "images": "eq" }
+  ]
+}
+```
+Read what each block buys: the drag block is **(g1) composition**; `forbid_full` is **(g5)
+incrementality**; `cross` is **(g2)**; the tail is **(g3) state-machine leaks** — after `mouse_up`
++ 400 ms of virtual time, `active_drag` must be `None` in **both** drag managers (X4),
+`has_active_animations()` must be `false`, and `scrollbar_fade_active` must have gone back down
+(X9). **The trailing `assert_idle_stable` is what catches the infinite-redraw tail** that a
+scroll-fade or a never-cleared animation leaves behind.
+
+### C.7 Worked example 5 — mid-interaction mutation: delete the node being dragged (Tier 1g4).
+
+The generator template. **This one is expected to find bugs.**
+
+```json
+{
+  "name": "mutate_delete_dragged_node_midflight",
+  "description": "While a node-drag is in flight, the dragged node is deleted from the DOM. Nothing may panic, no manager may keep a key to the dead node, the drag state machine must terminate, and the window must settle.",
+  "tier": 1,
+  "setup": {
+    "window_width": 400, "window_height": 200, "dpi": 96, "freeze_clock": true,
+    "app_state": {
+      "xml": "<body><div id='list'><p class='row' id='r1'>one</p><p class='row' id='r2'>two</p><p class='row' id='r3'>three</p></div></body>",
+      "css": "#list { height:60px; overflow-y:scroll; } .row { height:30px; }"
+    }
+  },
+  "steps": [
+    { "op": "wait_frame" },
+
+    { "op": "mouse_down", "x": 20, "y": 10, "button": "left" },
+    { "op": "mouse_move", "x": 20, "y": 45 },
+    { "op": "wait_frame" },
+
+    // the drag is live and the managers have keys pointing at node 2 …
+    { "op": "delete_node", "node_id": 2 },          // … now it is gone. MID-DRAG.
+    { "op": "wait_frame" },
+
+    // no panic (free: process exit code), no dangling key, no zombie drag
+    { "op": "assert_manager_invariants",
+      "managers": ["gesture", "hover", "focus", "scroll", "selection", "text_edit",
+                   "undo_redo", "virtual_view"],
+      "cross": ["X3", "X4", "X5", "X10"] },
+
+    { "op": "mouse_move", "x": 20, "y": 55 },        // keep dragging a node that no longer exists
+    { "op": "wait_frame" },
+    { "op": "mouse_up", "x": 20, "y": 55, "button": "left" },
+    { "op": "tick_ms", "ms": 400 },
+
+    { "op": "assert_state_machines_idle" },
+    { "op": "assert_work_bounded", "max_relayouts": 2, "max_dom_regens": 1 },
+    { "op": "assert_idle_stable", "ticks": 5 }
+  ]
+}
+```
+**Why this is the highest-yield template in the plan.** `update_managers_with_node_moves`
+(`common/layout.rs:998`) remaps five things and **`undo_redo`, `virtual_view`, `gpu_state` and the
+legacy `drag_drop.active_drag` are not among them** (§B.1g). And `node_moves` only describes
+*matched* nodes — **nothing hands any manager an unmount list.** Vary `delete_node` → *delete a
+preceding sibling* and the node under the drag is not deleted but **renumbered**: a manager that
+was never remapped now points at a live but **wrong** node. Silent. This is the exact bug shape
+the family exists to surface.
+
 **Note how small each file is.** A cheap model can emit one of these from a single one-line
-description **without ever reasoning about expected geometry** — which is exactly the property
-§B was designed to give it.
+*scenario* **without ever reasoning about expected geometry** — which is exactly the property
+§0.1 and §B were designed to give it.
 
 ## D. The generation pipeline
 
 Mirrors `scripts/autotest_fleet.sh` conventions. **Read that script before writing this one** —
 its lessons were expensive.
 
-### Stage 1 — ONE strong agent writes the case list
+### Stage 1 — ONE strong agent writes the case list. **The one-liners are INTERACTION SCENARIOS.**
 
 ```
-scripts/e2e/cases/<subsystem>.txt     # one one-line case per line
+scripts/e2e/cases/<subsystem>.txt     # one one-line INTERACTION SCENARIO per line
 ```
-Subsystems: `damage`, `idle`, `managers-scroll`, `managers-hover`, `managers-focus`,
-`managers-gesture`, `managers-text-edit`, `resources`, `css-cascade`, `layout-flex`,
-`layout-text`, `virtual-view`.
+Subsystems, and note what is **not** here: no `layout-flex`, no `layout-text`, no `css-cascade`
+— **that is `azul-doc reftest`'s territory (§0.1).** The list is behavioural:
+`compose-drag-select-scroll`, `mutate-midflight` *(the (g4) cross-product — the biggest shard)*,
+`managers-scroll`, `managers-scroll-into-view`, `managers-gesture-drag`, `managers-selection`,
+`managers-focus-caret`, `managers-hover`, `managers-text-edit`, `managers-undo-redo`,
+`virtual-view`, `state-machine-leaks`, `damage`, `idle`, `resources`.
 
-Fable/Opus at high effort **reads the subsystem source** (e.g. `layout/src/managers/scroll_state.rs`)
-and writes N one-line cases. Bias the prompt hard toward the redraw/staleness/loop classes:
+A one-liner looks like this — **a story, not a measurement**:
 
-> *"For `layout/src/managers/hover.rs`: write 120 one-line e2e case descriptions. Each must be a
-> scenario where a REDRAW bug would show: a state change that must repaint, a settle that must
-> reach zero damage, a node removal that must drop manager state, a rapid sequence that must not
-> loop. One per line. No expected numbers — describe the SCENARIO, not the answer."*
+> *"drag from node A across B and C while the list autoscrolls, then delete B mid-drag"*
+> *"scroll a container with momentum, then blur the window mid-fling"*
+> *"focus a contenteditable at the bottom of a scroll container, type until the caret scrolls
+> itself into view, then rebuild the DOM"*
 
-The "no expected numbers" instruction is load-bearing: it keeps Stage 2 in Tier-1 territory.
+Fable/Opus at high effort **reads the subsystem source** (e.g.
+`layout/src/managers/scroll_state.rs`) and writes N of them. Bias the prompt hard:
+
+> *"For `layout/src/managers/gesture.rs` + `core/src/drag.rs`: write 120 one-line e2e INTERACTION
+> SCENARIOS. Each is a sequence a user performs — press, drag, tick, mutate, release. Each must be
+> a scenario where a BEHAVIOUR bug would show: managers that must compose (drag→selection→
+> autoscroll→animation→incremental repaint); a state machine that must terminate; a node deleted
+> or renumbered MID-interaction; a settle that must reach zero damage. **Layout correctness is NOT
+> your problem — Chrome reftests own that. Never mention a pixel, a size, or a coordinate as an
+> expected value.** One per line. Describe the SCENARIO, not the answer."*
+
+The "never an expected value" instruction is load-bearing: it keeps Stage 2 in Tier-1 territory,
+where the harness itself is the oracle.
 
 ### Stage 2 — MANY cheap agents fan out, one line → one `.json`
 
-`haiku`/`sonnet`, `--jobs 12`. Each agent gets: **the schema (§C.2), two worked examples
-(§C.3/§C.4), and one line.** It must NOT need to reason about expected geometry.
+`haiku`/`sonnet`, `--jobs 12`. Each agent gets: **the schema (§C.2), the two canonical timeline
+examples (§C.6 composition, §C.7 mid-flight mutation), and one line.** It must NOT need to reason
+about expected geometry — and per §D.3 it is *not allowed* to emit a geometry assertion at all.
+
+**The (g4) shard is not written by an LLM at all** — it is the cross-product in §B.1g4 emitted by
+a ~50-line script over `{interaction} × {mutation} × {phase}`. ~200 tests, zero token spend, and
+the highest expected bug yield in the suite.
 
 ```
 scripts/e2e/tests/<subsystem>/<nnn>_<slug>.json
@@ -917,7 +1299,11 @@ FINE — it may be a real bug.**
 1. **Schema validation** — parses as `E2eTest`, every `op` is in the known set, every required
    param present. (Reject unknown ops: `evaluate_assertion` silently returns
    `fail("Unknown assertion: …")` (`full.rs:3382`), so a typo'd op looks like a *bug*, not a
-   malformed test. Catch it here.)
+   malformed test. Catch it here.) **Also reject, hard: any `assert_layout`, `assert_css` or
+   `assert_screenshot` step, and any numeric coordinate/size used as an *expected* value.** That
+   is out of scope (§0.1) and a generator that emits one has misunderstood the task — delete and
+   regenerate. And reject a "test" with no input events and no ticks: it is a snapshot, not a
+   timeline.
 2. **Executes** — runs to completion, no crash, no timeout, no "Unknown assertion".
 3. **Assertions may be red.** A red Tier-1 assertion is a *finding*, not a broken test. Triage
    separately; do not delete.
@@ -977,7 +1363,8 @@ The dominant cost is **process startup + font/layout warmup**, not the steps (a 
 - `pub` on `damage_area()` (`headless/mod.rs:1969`).
 - **Kill the `assert_screenshot` auto-baseline** (`full.rs:3877-3889`) → missing ref = FAIL.
 - `debug_counts()` (+ key-set accessor) on the 6 unobserved managers.
-- Virtual clock (`AZ_TEST_CLOCK` + `tick_ms`) — **A4; without it Tier 1a is flaky.**
+- Virtual clock (`AZ_TEST_CLOCK` + `tick_ms`) — **A2; without it Tier 1a and every animated
+  interaction timeline is flaky.**
 
 **Phase 1 — Assertions + host.** The six Tier-1 ops (§C.2). `examples/azul-e2e-host`
 (XML+CSS via `setup.app_state`, embedded font). Hand-write ~30 tests covering the §1.3.1 Rust
@@ -1002,8 +1389,8 @@ Native screenshots need a **real window** (headless returns `RawWindowHandle::Un
 | # | Risk | Mitigation |
 |---|---|---|
 | **F1** | **Bug-enshrinement.** Tier 3. **Already happening** (`full.rs:3877` auto-baseline; `contenteditable_overflow_test.json`'s 12 phantom-green asserts). | Kill auto-baseline in Phase 0. Tier 1 needs **no** expected values — that is the structural defence. `provisional: true` for anything recorded. |
-| **F2** | **Nondeterminism from system fonts.** A system-font scan makes every runner different. | A2: embedded `HARNESS_FONT` + empty `FcFontCache`. **The solution already exists** (`headless/mod.rs:1894-1932`) — copy it, and read `:1897-1921` for why the obvious approach fails. |
-| **F3** | **Wall-clock nondeterminism.** Scrollbar fade / momentum / blink damage the frame on a timer. **Tier 1a is flaky without a frozen clock.** | A4 virtual clock. **This is the highest-risk unbuilt item**; do it in Phase 0 or idle-stability tests will be quarantined within a week. |
+| **F2** | **Nondeterminism from system fonts.** | **Mostly a non-risk, by design (§2.A):** every Tier-1 invariant compares azul against *itself* in one process, so the runner's font cancels on both sides. Only the advisory Tier-2 screenshot sweep wants a pinned rendering: embedded `HARNESS_FONT` + empty `FcFontCache`. **That solution already exists** (`headless/mod.rs:1894-1932`) — copy it, and read `:1897-1921` for why the obvious approach fails. |
+| **F3** | **Wall-clock nondeterminism.** Scrollbar fade / momentum / blink / scroll animation damage the frame on a timer, and an interaction timeline cannot assert that an animation *finished*. | A2 virtual clock. **This is the highest-risk unbuilt item and now the ONLY hard determinism requirement**; do it in Phase 0 or idle-stability and every animated timeline gets quarantined within a week. |
 | **F4** | **Cheap agents produce near-duplicates.** | Three-layer dedupe (§D): strong agent owns non-overlap → structural hash → coverage-gap overlay. |
 | **F5** | **Rate-limited agent writes garbage and marks it done.** Exit 0 + plain text. | Verify the artifact, never the exit code (`autotest_fleet.sh:161-170`). Applies to the **Tier-2 judge** too. |
 | **F6** | **CI cost.** 2000 tests × process startup. | Batch into one process per shard (`RunE2eTests` takes a `Vec`). Separate lane for `isolated: true` leak tests. Reuse the `build_dll_e2e` artifact. Tier 2 never runs in CI. |
@@ -1027,57 +1414,7 @@ Native screenshots need a **real window** (headless returns `RawWindowHandle::Un
 2. **`examples/azul-e2e-host` (Option A) vs. a `mount` op (Option B).** A is zero engine change
    and reuses `setup.app_state`; B works against any app binary. **Recommend A.** Confirm.
 
-3. **The virtual clock (A4) is in Phase 0, not deferred.** It is the least glamorous item and the
+3. **The virtual clock (A2) is in Phase 0, not deferred.** It is the least glamorous item and the
    one most likely to get cut — and if it is cut, `assert_idle_stable` (the infinite-redraw
    detector, i.e. the highest-value assertion in the plan) is flaky and gets quarantined.
    **Confirm it stays in Phase 0.**
-
----
-
-```
-  "we already have azul-doc reftest for the actual tests against Chrome, so testing the layout should explicitly be
-  EXCLUDED from this - its not about whether the layout is correct (chrome reftest tests that), but whether the
-  BEHAVIOUR (i.e.: if a user clicks and drags, then multi-node-selection works and the node starts to scroll, and
-  this is animated and repainted incrementally) all works TOGETHER"
-
-  Consequences — restructure the plan accordingly:
-
-  1. EXPLICITLY OUT OF SCOPE: layout correctness, box geometry, CSS conformance, pixel-perfect rendering. `azul-doc
-  reftest` (Chrome) already owns that; say so in the doc and do not duplicate it. NO geometry assertions in the
-  e2e JSON schema. If you find yourself proposing "assert node X is at (10,20,100,40)", you have gone wrong.
-
-  2. IN SCOPE: BEHAVIOUR — the managers composing correctly OVER TIME. A test is therefore a SCRIPTED INTERACTION
-  TIMELINE (a sequence of synthetic input events + time ticks + DOM/state mutations), not a static DOM snapshot.
-  Design the JSON schema as a timeline. The canonical example the user gave, and which the schema must express
-  cleanly: "user clicks and drags -> multi-node selection works -> the node starts to scroll -> this is animated ->
-  and is repainted incrementally".
-
-  3. THE HIGH-VALUE ASSERTION FAMILIES (bias the whole plan here; this is the ~50-bug `layout/src/managers/` area):
-     a) COMPOSITION: drag -> selection -> autoscroll -> animation -> incremental repaint all fire, in the right
-  order, and reach a fixpoint.
-     b) CROSS-MANAGER CONSISTENCY: e.g. scroll_state vs scroll_into_view agree; selection anchor stays valid;
-  focus/hit-test/drag agree about the same node. Enumerate the real managers by reading layout/src/managers/ and
-  derive the pairwise consistency invariants that must hold.
-     c) STATE-MACHINE LEAKS: drag ended but the drag manager is still active; animation finished but is still
-  scheduling frames (a direct infinite-redraw source); selection cleared but listeners still armed.
-     d) DANGLING INDICES UNDER MUTATION: remove/replace the node that is currently being dragged / selected /
-  scrolled / animated, MID-INTERACTION, and assert no panic, no stale index, manager state consistent. This family
-  is mechanically generatable and is exactly the "indexing issues" the user cares about — make it a first-class
-  generator template.
-     e) INCREMENTALITY: the repaint is a PATCH, not a full redraw (the user explicitly says "repainted
-  incrementally"), plus the damage soundness/liveness/idle-stability invariants from my previous message.
-
-  4. DETERMINISM GETS MUCH CHEAPER — exploit this and simplify the determinism contract: nearly every Tier-1
-  invariant compares azul AGAINST ITSELF WITHIN ONE PROCESS (frame N vs N+1; full-repaint vs damage-driven render;
-  manager state before vs after; two identical runs). Self-comparison is immune to font/DPI/runner variance, so
-  those tests need NO pinned fonts and run anywhere. ONLY the Tier-2 LLM screenshot pass needs a stable rendering,
-  and it is advisory. Do not over-engineer a determinism contract for assertions that do not need it — but DO state
-  which few things (the LLM screenshot pass) still want a pinned font.
-
-  5. The LLM's job (Tier 2) is now: (i) GENERATE the interaction scenarios as one-liners ("drag from node A across
-  B and C while the list autoscrolls, then delete B mid-drag"), and (ii) VIBE-CHECK the resulting
-  screenshot/sequence ("does this look like a drag-selection that scrolled?"). It is NOT asked about geometry or
-  numbers. Still advisory, still never a CI gate.
-
-  Rewrite the worked JSON examples to be interaction timelines demonstrating (a)-(e), not layout snapshots.
-```
