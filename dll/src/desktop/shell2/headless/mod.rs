@@ -147,93 +147,13 @@ fn record_headless_input(
     window.record_input_sample(pos, button_state, is_button_down, is_button_up, None);
 }
 
-/// Outcome of a single `CpuBackend::render_frame` call — the seed of the
-/// unified `DamageRegion` type described in `DAMAGE_REGION_PLAN.md`.
+/// Outcome of a single `CpuBackend::render_frame` call.
 ///
-/// `render_frame` historically returned `Vec<LogicalRect>`, where an empty vec
-/// was ambiguous: it meant *both* "nothing changed, render skipped" AND "full
-/// repaint (first frame / structural change), no incremental rects". This enum
-/// disambiguates so the headless damage harness (and later the platform
-/// presenters) can tell a no-op from a full repaint.
-#[derive(Debug, Clone, PartialEq)]
-pub enum FrameDamage {
-    /// Nothing changed; render was skipped, the previous frame is still valid.
-    None,
-    /// Incremental repaint of exactly these logical rects.
-    Rects(Vec<azul_core::geom::LogicalRect>),
-    /// Full repaint (first frame, structural change, or shrink-resize).
-    Full,
-}
-
-impl FrameDamage {
-    /// Convert this damage record into physical-pixel present rects for a
-    /// `buf_w`×`buf_h` buffer at `dpi_factor` — the ONE conversion every
-    /// platform presenter should use to hand damage to its compositor
-    /// (`XPutImage` sub-rects / `wl_surface_damage` / partial `StretchDIBits`
-    /// / `setNeedsDisplayInRect:`).
-    ///
-    /// - `None` → returns `None`: the previous frame is still on screen and
-    ///   valid — present nothing. Callers must STILL present in full when the
-    ///   OS asked for a re-present (Expose / WM_PAINT-from-uncover / drawRect)
-    ///   — pass `force_full = true` there.
-    /// - `Rects` → `Some(rects)` as `(x, y, w, h)` physical px, rounded
-    ///   OUTWARD (floor origin / ceil far edge — truncation would under-cover
-    ///   fractional edges and leave 1px stale seams), clamped to the buffer.
-    ///   More than 16 rects collapses to one full-buffer rect (bounded cost,
-    ///   per DAMAGE_REGION_PLAN §3).
-    /// - `Full` → one full-buffer rect.
-    ///
-    /// "Present must never silently be empty when a present is required" —
-    /// when in doubt, callers should treat errors/unknowns as `Full`.
-    #[must_use]
-    pub fn to_present_rects_physical(
-        &self,
-        dpi_factor: f32,
-        buf_w: u32,
-        buf_h: u32,
-        force_full: bool,
-    ) -> Option<Vec<(u32, u32, u32, u32)>> {
-        const MAX_PRESENT_RECTS: usize = 16;
-        if buf_w == 0 || buf_h == 0 {
-            return None;
-        }
-        let full = || Some(vec![(0u32, 0u32, buf_w, buf_h)]);
-        if force_full {
-            // OS-driven expose: the on-screen content may be stale/undefined
-            // regardless of what we last painted — push the whole retained
-            // frame.
-            return full();
-        }
-        match self {
-            FrameDamage::None => None,
-            FrameDamage::Full => full(),
-            FrameDamage::Rects(rects) => {
-                if rects.is_empty() {
-                    return None;
-                }
-                if rects.len() > MAX_PRESENT_RECTS {
-                    return full();
-                }
-                let mut out = Vec::with_capacity(rects.len());
-                for r in rects {
-                    let x0 =
-                        ((r.origin.x * dpi_factor).floor() as i64).clamp(0, i64::from(buf_w));
-                    let y0 =
-                        ((r.origin.y * dpi_factor).floor() as i64).clamp(0, i64::from(buf_h));
-                    let x1 = (((r.origin.x + r.size.width) * dpi_factor).ceil() as i64)
-                        .clamp(0, i64::from(buf_w));
-                    let y1 = (((r.origin.y + r.size.height) * dpi_factor).ceil() as i64)
-                        .clamp(0, i64::from(buf_h));
-                    if x1 > x0 && y1 > y0 {
-                        #[allow(clippy::cast_sign_loss)] // clamped to [0, buf] above
-                        out.push((x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32));
-                    }
-                }
-                if out.is_empty() { None } else { Some(out) }
-            }
-        }
-    }
-}
+/// MOVED to `azul_layout::window::FrameDamage` so that it can be stored on
+/// `LayoutWindow` (and therefore be reachable from `CallbackInfo`, i.e. from an
+/// E2E assertion). Re-exported here so that every existing
+/// `crate::desktop::shell2::headless::FrameDamage` path keeps working.
+pub use azul_layout::window::{FrameDamage, FrameReport};
 
 // ---------------------------------------------------------------------------
 // CpuBackend — replaces WebRender in headless / CPU-only windows
@@ -1073,6 +993,15 @@ impl HeadlessWindow {
                     height,
                     dpi,
                 );
+            }
+            // Publish the damage of the frame we just rendered onto the
+            // LayoutWindow, where `CallbackInfo::get_layout_window()` — and
+            // therefore an E2E assertion — can actually see it. Without this the
+            // damage machinery is invisible from outside the engine.
+            let paint = self.cpu_backend.last_frame_damage.clone();
+            let present = self.cpu_backend.last_present_damage.clone();
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.frame_report.record_frame(paint, present);
             }
         }
 

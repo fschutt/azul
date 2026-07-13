@@ -19,6 +19,7 @@
 //! curl -X POST http://localhost:8765/ -d '{"type":"get_state"}'
 //! ```
 
+use alloc::collections::BTreeMap;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -124,6 +125,8 @@ pub enum ResponseData {
     CursorState(CursorStateResponse),
     /// E2E test results
     E2eResults(E2eResultsResponse),
+    /// Per-frame damage + frame-work counters (`get_frame_report`)
+    FrameReport(FrameReportResponse),
     /// Node inserted result (returns new node_id)
     NodeInserted(NodeInsertedResponse),
     /// Node deleted result
@@ -222,6 +225,44 @@ pub struct NodeClassesSetResponse {
     pub node_id: u64,
     pub classes: Vec<String>,
     pub id: Option<String>,
+}
+
+/// One damage rect, in logical px.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct DamageRectJson {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Response for `get_frame_report` — the whole `FrameReport`, queryable from the
+/// E2E API (and from `POST /` in the inspector).
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FrameReportResponse {
+    pub frame_index: u64,
+    /// `"none"`, `"rects"` or `"full"`.
+    pub paint_damage_kind: String,
+    pub paint_damage_rects: Vec<DamageRectJson>,
+    pub paint_damage_area_ratio: f32,
+    pub present_damage_kind: String,
+    pub present_damage_rects: Vec<DamageRectJson>,
+    pub present_damage_area_ratio: f32,
+    /// Damage accumulated since the last `reset_frame_counters` (what the
+    /// `assert_damage*` ops look at by default).
+    pub accumulated_paint_damage_kind: String,
+    pub accumulated_paint_damage_rects: Vec<DamageRectJson>,
+    pub accumulated_present_damage_kind: String,
+    pub frames_since_reset: u32,
+    pub relayout_iterations: u32,
+    pub dom_regenerations: u32,
+    pub hit_depth_cap: bool,
+    /// Terminal `ProcessEventResult` discriminant (0 = DoNothing … 6 = RegenerateDomAllWindows).
+    pub terminal_result: u8,
+    /// Injectable test-clock offset in ms (advanced by `tick_ms`).
+    pub test_clock_offset_ms: u64,
 }
 
 /// Response for SetNodeCssOverride
@@ -1520,6 +1561,50 @@ pub struct CursorInfo {
 
 // ==================== Debug Events ====================
 
+/// A block of text embedded in a JSON test file, written as an ARRAY OF LINES
+/// so it stays readable and diffable:
+///
+/// ```json
+/// "html": ["<div class=\"a\">", "  <p>hi</p>", "</div>"]
+/// ```
+///
+/// A single string is also accepted (`"html": "<div/>"`). [`TextLines::join`]
+/// produces the source text.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "std", serde(untagged))]
+pub enum TextLines {
+    /// One JSON string per source line — the readable, preferred form.
+    Lines(Vec<String>),
+    /// A single string containing the whole block (embedded `\n` allowed).
+    Single(String),
+    /// Omitted entirely.
+    #[default]
+    Empty,
+}
+
+impl TextLines {
+    /// Join the lines back into one source string (`\n`-separated).
+    #[must_use]
+    pub fn join(&self) -> String {
+        match self {
+            Self::Lines(lines) => lines.join("\n"),
+            Self::Single(s) => s.clone(),
+            Self::Empty => String::new(),
+        }
+    }
+
+    /// `true` when there is no text at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Lines(lines) => lines.iter().all(|l| l.trim().is_empty()),
+            Self::Single(s) => s.trim().is_empty(),
+            Self::Empty => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize))]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -1863,6 +1948,77 @@ pub enum DebugEvent {
     GetFocusState,
     /// Get the current cursor state (position, blink state)
     GetCursorState,
+
+    // E2E Mount / Observability
+    /// Mount an inline HTML/XML + CSS document as the window's DOM, replacing
+    /// the app's `layout_callback` output for the rest of the process.
+    ///
+    /// `html` and `css` are given as an ARRAY OF LINES (one JSON string per
+    /// source line) so that the markup stays human-readable and editable inside
+    /// the test file; a single string is also accepted. The lines are joined
+    /// with `\n` on load, the CSS is injected as a `<style>` element and the
+    /// document is parsed with azul's own XML→StyledDom parser
+    /// (`azul_layout::xml::parse_xml_to_styled_dom`).
+    ///
+    /// ```json
+    /// { "op": "mount",
+    ///   "html": ["<div class=\"a\">", "  <p>hi</p>", "</div>"],
+    ///   "css":  [".a { width: 100px; }"] }
+    /// ```
+    Mount {
+        /// The markup, one array element per line (or a single string).
+        html: TextLines,
+        /// The stylesheet, one array element per line (or a single string).
+        #[serde(default)]
+        css: TextLines,
+    },
+    /// Remove the `mount` override: the next DOM regeneration goes back to the
+    /// app's own `layout_callback`.
+    Unmount,
+    /// Render the current frame with the FULL-repaint path and store the PNG
+    /// under `as` for later `assert_changed` / `assert_damage_covers_changes`.
+    SnapshotFrame {
+        #[serde(rename = "as")]
+        name: String,
+    },
+    /// Store the current font/image/resource counters under `as`, for a later
+    /// `assert_resource_counts`.
+    SnapshotResources {
+        #[serde(rename = "as")]
+        name: String,
+    },
+    /// Advance the injectable engine clock by `ms` and render a frame — WITHOUT
+    /// sleeping. Everything time-driven (scroll momentum, scrollbar fade, cursor
+    /// blink, animations, timers) reads `Instant::now()`, which honours this
+    /// offset, so an animation can be driven to completion deterministically and
+    /// then asserted to CONVERGE (`assert_idle_stable` → damage drains to none).
+    TickMs {
+        ms: u64,
+    },
+    /// Return the current `FrameReport` (damage rects + work counters) as JSON —
+    /// the same data the `assert_damage*` / `assert_work_bounded` ops read.
+    GetFrameReport,
+    /// Write the PARTIAL screen update as a PNG: the full frame, masked to the
+    /// damage region (everything outside the damaged rects is transparent), plus
+    /// optionally cropped to the damage bounding box. This is how a human (or a
+    /// Tier-2 judge) can LOOK at what was actually repainted and see that an
+    /// incremental repaint is real rather than a full redraw in disguise.
+    CaptureDamagePng {
+        /// Where to write the PNG.
+        path: String,
+        /// `"paint"` (default) or `"present"` damage.
+        #[serde(default)]
+        which: Option<String>,
+        /// Crop the output to the damage bounding box instead of keeping the
+        /// full window size with transparent surroundings. Default: false.
+        #[serde(default)]
+        crop: bool,
+    },
+    /// Zero the sticky frame-work counters (`relayout_iterations`,
+    /// `dom_regenerations`, `hit_depth_cap`) on the `LayoutWindow`'s
+    /// `FrameReport`. Everything `assert_work_bounded` measures is "since the
+    /// last reset".
+    ResetFrameCounters,
 
     // E2E Test Execution
     /// Run one or more E2E tests.
@@ -2385,6 +2541,77 @@ static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
 /// (e.g., after a resize step that requires relayout before the next step).
 #[cfg(feature = "std")]
 static E2E_CONTINUATION: Mutex<Option<E2eContinuation>> = Mutex::new(None);
+
+/// Named full-repaint PNG snapshots taken by the `snapshot_frame` op.
+///
+/// `CallbackInfo::take_screenshot` re-renders the display list from scratch with
+/// a fresh glyph cache — i.e. it is an INDEPENDENT full-repaint oracle, not the
+/// incremental buffer. That is exactly what the damage assertions need.
+#[cfg(feature = "std")]
+static E2E_FRAME_SNAPSHOTS: Mutex<BTreeMap<String, Vec<u8>>> = Mutex::new(BTreeMap::new());
+
+/// Named resource-counter snapshots taken by the `snapshot_resources` op.
+#[cfg(feature = "std")]
+static E2E_RESOURCE_SNAPSHOTS: Mutex<BTreeMap<String, BTreeMap<String, u64>>> =
+    Mutex::new(BTreeMap::new());
+
+/// Build the XML document for a `mount` op out of the (line-array) html + css.
+///
+/// The CSS is injected as a `<style>` element inside a `<head>` — the XML parser
+/// collects `<style>` text into the cascade and drops `<head>` from the DOM.
+#[cfg(feature = "std")]
+fn build_mount_document(html: &TextLines, css: &TextLines) -> String {
+    let html_src = html.join();
+    let css_src = css.join();
+    let trimmed = html_src.trim_start();
+    let has_body = trimmed.starts_with("<body") || trimmed.starts_with("<html");
+    let body = if has_body {
+        html_src.clone()
+    } else {
+        format!("<body>\n{html_src}\n</body>")
+    };
+    format!("<html>\n<head>\n<style>\n{css_src}\n</style>\n</head>\n{body}\n</html>")
+}
+
+/// Snapshot the (already `pub`) resource + font-manager counters that a leak
+/// assertion needs. Reachable today from `CallbackInfo::get_layout_window()`.
+#[cfg(feature = "std")]
+fn collect_resource_counts(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> BTreeMap<String, u64> {
+    let lw = callback_info.get_layout_window();
+    let rr = &lw.renderer_resources;
+    let fm = &lw.font_manager;
+    let mut out = BTreeMap::new();
+    out.insert(
+        "fonts".to_string(),
+        rr.currently_registered_fonts.len() as u64,
+    );
+    out.insert("font_hash_map".to_string(), rr.font_hash_map.len() as u64);
+    out.insert("font_id_map".to_string(), rr.font_id_map.len() as u64);
+    out.insert(
+        "font_families_map".to_string(),
+        rr.font_families_map.len() as u64,
+    );
+    out.insert(
+        "images".to_string(),
+        rr.currently_registered_images.len() as u64,
+    );
+    out.insert("image_key_map".to_string(), rr.image_key_map.len() as u64);
+    out.insert(
+        "parsed_fonts".to_string(),
+        fm.parsed_fonts.lock().map(|p| p.len() as u64).unwrap_or(0),
+    );
+    out.insert(
+        "font_hash_to_families".to_string(),
+        fm.font_hash_to_families.len() as u64,
+    );
+    out.insert(
+        "font_chain_cache".to_string(),
+        fm.font_chain_cache.len() as u64,
+    );
+    out
+}
 
 /// Saved state for resuming E2E test execution across timer ticks.
 #[cfg(feature = "std")]
@@ -3379,6 +3606,14 @@ pub fn evaluate_assertion(
         "assert_app_state" => eval_assert_app_state(params, app_data),
         "assert_scroll" => eval_assert_scroll(params, callback_info),
         "assert_screenshot" => eval_assert_screenshot(params, callback_info),
+        // Damage / frame-work / resource observability (see FrameReport)
+        "assert_damage" => eval_assert_damage(params, callback_info),
+        "assert_changed" => eval_assert_changed(params, callback_info),
+        "assert_damage_covers_changes" => eval_assert_damage_covers_changes(params, callback_info),
+        "assert_damage_incremental" => eval_assert_damage_incremental(params, callback_info),
+        "assert_idle_stable" => eval_assert_idle_stable(params, callback_info),
+        "assert_work_bounded" => eval_assert_work_bounded(params, callback_info),
+        "assert_resource_counts" => eval_assert_resource_counts(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -3822,6 +4057,20 @@ fn eval_assert_scroll(
     ))
 }
 
+/// Baseline-recording opt-in for `assert_screenshot` (`AZ_E2E_RECORD=1`).
+///
+/// OFF by default, on purpose: a missing reference must be RED, never a silent
+/// "record whatever azul does today and call it expected".
+#[cfg(feature = "std")]
+fn e2e_record_mode() -> bool {
+    static RECORD: OnceLock<bool> = OnceLock::new();
+    *RECORD.get_or_init(|| {
+        std::env::var("AZ_E2E_RECORD")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
 /// `assert_screenshot`: compare current CPU-rendered frame against a reference PNG.
 ///
 /// Parameters:
@@ -3875,17 +4124,46 @@ fn eval_assert_screenshot(
         let ref_bytes = match std::fs::read(reference_path) {
             Ok(b) => b,
             Err(e) => {
-                // If reference doesn't exist, save the actual as baseline
+                // A MISSING REFERENCE IS A FAILURE.
+                //
+                // This used to write azul's own output as the reference and
+                // return `pass` — i.e. it enshrined whatever the engine did
+                // today as "expected", forever. Recording a baseline is now an
+                // explicit opt-in (`AZ_E2E_RECORD=1`), and a baseline recorded
+                // that way is reported as PROVISIONAL and still FAILS the run,
+                // so it cannot silently gate green until a human has reviewed
+                // the PNG and re-run without the env var.
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    if let Err(we) = std::fs::write(reference_path, &png_bytes) {
-                        return AssertionResult::fail(
-                            format!("assert_screenshot: reference not found and could not save baseline: {}", we)
+                    if e2e_record_mode() {
+                        if let Some(parent) = std::path::Path::new(reference_path).parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        if let Err(we) = std::fs::write(reference_path, &png_bytes) {
+                            return AssertionResult::fail(format!(
+                                "assert_screenshot: reference not found and could not record \
+                                 baseline: {we}"
+                            ));
+                        }
+                        return AssertionResult::fail_with(
+                            format!(
+                                "assert_screenshot: PROVISIONAL baseline recorded to {} ({}x{}) \
+                                 — review it and re-run WITHOUT AZ_E2E_RECORD to gate on it",
+                                reference_path,
+                                rendered.width(),
+                                rendered.height()
+                            ),
+                            "an existing, reviewed reference PNG".to_string(),
+                            "provisional (just recorded, unreviewed)".to_string(),
                         );
                     }
-                    return AssertionResult::pass(format!(
-                        "assert_screenshot: baseline saved to {} ({}x{})",
-                        reference_path, rendered.width(), rendered.height()
-                    ));
+                    return AssertionResult::fail_with(
+                        format!(
+                            "assert_screenshot: reference {reference_path} does not exist (run \
+                             with AZ_E2E_RECORD=1 to record a provisional baseline)"
+                        ),
+                        "an existing reference PNG".to_string(),
+                        "missing".to_string(),
+                    );
                 }
                 return AssertionResult::fail(
                     format!("assert_screenshot: cannot read reference {}: {}", reference_path, e)
@@ -3928,6 +4206,765 @@ fn eval_assert_screenshot(
             result.diff_count, result.total_pixels, threshold
         ))
     }
+}
+
+// ==================== Damage / frame-work / resource assertions ====================
+//
+// All of these read `LayoutWindow::frame_report` (`azul_layout::window::FrameReport`),
+// which the CPU backend fills after every `render_frame` and the event loop fills
+// with the frame-work counters. Before this existed, `FrameDamage` lived only on
+// `CpuBackend` (the *window*), which an assertion — which only ever sees
+// `CallbackInfo -> LayoutWindow` — could not reach.
+
+/// The window's logical size, used to express damage area as a ratio.
+#[cfg(feature = "std")]
+fn window_logical_area(callback_info: &azul_layout::callbacks::CallbackInfo) -> f32 {
+    let size = callback_info.get_current_window_state().size.dimensions;
+    (size.width * size.height).max(1.0)
+}
+
+/// Pick the paint (default) or present damage out of the frame report.
+///
+/// By default this is the damage ACCUMULATED SINCE THE LAST `reset_frame_counters`,
+/// not the last frame's: between the step that changed something and the
+/// assertion, the engine may render further idle frames whose damage is `None`,
+/// and those would otherwise clobber the damage the test wants to see. Pass
+/// `"frame": "last"` to look at the most recent frame only (that is what
+/// `assert_idle_stable` does).
+#[cfg(feature = "std")]
+fn damage_of(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> (azul_layout::window::FrameDamage, &'static str) {
+    let report = &callback_info.get_layout_window().frame_report;
+    let last_only = params.get("frame").and_then(|v| v.as_str()) == Some("last");
+    match params.get("which").and_then(|v| v.as_str()) {
+        Some("present") => (
+            if last_only {
+                report.present_damage.clone()
+            } else {
+                report.accumulated_present_damage.clone()
+            },
+            "present",
+        ),
+        _ => (
+            if last_only {
+                report.paint_damage.clone()
+            } else {
+                report.accumulated_paint_damage.clone()
+            },
+            "paint",
+        ),
+    }
+}
+
+#[cfg(feature = "std")]
+fn damage_kind_str(d: &azul_layout::window::FrameDamage) -> &'static str {
+    if d.is_none() {
+        "none"
+    } else if d.is_full() {
+        "full"
+    } else {
+        "rects"
+    }
+}
+
+/// Serialise a `FrameReport` for `get_frame_report`.
+#[cfg(feature = "std")]
+fn build_frame_report_response(
+    report: &azul_layout::window::FrameReport,
+    window_area: f32,
+) -> FrameReportResponse {
+    let to_json = |d: &azul_layout::window::FrameDamage| {
+        d.rects()
+            .unwrap_or(&[])
+            .iter()
+            .map(|r| DamageRectJson {
+                x: r.origin.x,
+                y: r.origin.y,
+                width: r.size.width,
+                height: r.size.height,
+            })
+            .collect::<Vec<_>>()
+    };
+    FrameReportResponse {
+        frame_index: report.frame_index,
+        paint_damage_kind: damage_kind_str(&report.paint_damage).to_string(),
+        paint_damage_rects: to_json(&report.paint_damage),
+        paint_damage_area_ratio: report.paint_damage.area(window_area) / window_area,
+        present_damage_kind: damage_kind_str(&report.present_damage).to_string(),
+        present_damage_rects: to_json(&report.present_damage),
+        present_damage_area_ratio: report.present_damage.area(window_area) / window_area,
+        accumulated_paint_damage_kind: damage_kind_str(&report.accumulated_paint_damage)
+            .to_string(),
+        accumulated_paint_damage_rects: to_json(&report.accumulated_paint_damage),
+        accumulated_present_damage_kind: damage_kind_str(&report.accumulated_present_damage)
+            .to_string(),
+        frames_since_reset: report.frames_since_reset,
+        relayout_iterations: report.relayout_iterations,
+        dom_regenerations: report.dom_regenerations,
+        hit_depth_cap: report.hit_depth_cap,
+        terminal_result: report.terminal_result,
+        test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
+    }
+}
+
+/// Render the PARTIAL SCREEN UPDATE as a PNG: the current frame masked to the
+/// damage region (pixels outside the damaged rects are transparent), optionally
+/// cropped to the damage bounding box.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+fn capture_damage_png(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    which: Option<&str>,
+    crop: bool,
+) -> Result<Vec<u8>, String> {
+    use azul_layout::cpurender::AzulPixmap;
+
+    // Accumulated since the last `reset_frame_counters` — see `damage_of`.
+    let report = &callback_info.get_layout_window().frame_report;
+    let damage = if which == Some("present") {
+        report.accumulated_present_damage.clone()
+    } else {
+        report.accumulated_paint_damage.clone()
+    };
+
+    let frame = render_current(callback_info)?;
+    let (w, h) = (frame.width(), frame.height());
+    let logical_w = callback_info
+        .get_current_window_state()
+        .size
+        .dimensions
+        .width
+        .max(1.0);
+    #[allow(clippy::cast_precision_loss)]
+    let scale = w as f32 / logical_w;
+
+    // Physical-pixel rects of the damage region.
+    let rects: Vec<(i64, i64, i64, i64)> = match &damage {
+        azul_layout::window::FrameDamage::None => Vec::new(),
+        azul_layout::window::FrameDamage::Full => vec![(0, 0, i64::from(w), i64::from(h))],
+        azul_layout::window::FrameDamage::Rects(rs) => rs
+            .iter()
+            .map(|r| {
+                (
+                    (r.origin.x * scale).floor() as i64,
+                    (r.origin.y * scale).floor() as i64,
+                    ((r.origin.x + r.size.width) * scale).ceil() as i64,
+                    ((r.origin.y + r.size.height) * scale).ceil() as i64,
+                )
+            })
+            .collect(),
+    };
+
+    // Bounding box (also the crop window).
+    let (mut bx0, mut by0, mut bx1, mut by1) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
+    for (x0, y0, x1, y1) in &rects {
+        bx0 = bx0.min(*x0);
+        by0 = by0.min(*y0);
+        bx1 = bx1.max(*x1);
+        by1 = by1.max(*y1);
+    }
+    if rects.is_empty() {
+        // No damage → a 1x1 fully transparent PNG, so the file still exists and
+        // its emptiness is the signal.
+        let mut empty = AzulPixmap::new(1, 1).ok_or("cannot allocate 1x1 pixmap")?;
+        empty.fill(0, 0, 0, 0);
+        return empty.encode_png();
+    }
+    let (bx0, by0, bx1, by1) = (
+        bx0.clamp(0, i64::from(w)),
+        by0.clamp(0, i64::from(h)),
+        bx1.clamp(0, i64::from(w)),
+        by1.clamp(0, i64::from(h)),
+    );
+
+    let (out_w, out_h, off_x, off_y) = if crop {
+        (
+            (bx1 - bx0).max(1) as u32,
+            (by1 - by0).max(1) as u32,
+            bx0,
+            by0,
+        )
+    } else {
+        (w, h, 0, 0)
+    };
+
+    let mut out = AzulPixmap::new(out_w, out_h).ok_or("cannot allocate output pixmap")?;
+    out.fill(0, 0, 0, 0); // transparent everywhere outside the damage region
+    {
+        let src = frame.data().to_vec();
+        let dst = out.data_mut();
+        for (x0, y0, x1, y1) in &rects {
+            for y in (*y0).max(0)..(*y1).min(i64::from(h)) {
+                for x in (*x0).max(0)..(*x1).min(i64::from(w)) {
+                    let (dx, dy) = (x - off_x, y - off_y);
+                    if dx < 0 || dy < 0 || dx >= i64::from(out_w) || dy >= i64::from(out_h) {
+                        continue;
+                    }
+                    let si = ((y as usize) * (w as usize) + (x as usize)) * 4;
+                    let di = ((dy as usize) * (out_w as usize) + (dx as usize)) * 4;
+                    dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
+                }
+            }
+        }
+    }
+    out.encode_png()
+}
+
+/// `assert_damage`: the raw predicate over the last frame's damage.
+///
+/// Parameters (all optional except that at least one should be given):
+/// - `which`: `"paint"` (default) or `"present"`
+/// - `kind`: `"none"` | `"rects"` | `"full"` — exact damage kind
+/// - `min_rects` / `max_rects`: bounds on the rect count
+/// - `max_area_ratio`: damaged area / window area upper bound
+#[cfg(feature = "std")]
+fn eval_assert_damage(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let (damage, which) = damage_of(params, callback_info);
+    let kind = damage_kind_str(&damage);
+    let rects = damage.rect_count();
+    let area = damage.area(window_logical_area(callback_info));
+    let ratio = f64::from(area / window_logical_area(callback_info));
+
+    if let Some(expected) = params.get("kind").and_then(|v| v.as_str()) {
+        if expected != kind {
+            return AssertionResult::fail_with(
+                format!("assert_damage: wrong {which} damage kind"),
+                expected.to_string(),
+                kind.to_string(),
+            );
+        }
+    }
+    if let Some(min) = params.get("min_rects").and_then(serde_json::Value::as_u64) {
+        if (rects as u64) < min {
+            return AssertionResult::fail_with(
+                format!("assert_damage: too few {which} damage rects"),
+                format!(">= {min}"),
+                rects.to_string(),
+            );
+        }
+    }
+    if let Some(max) = params.get("max_rects").and_then(serde_json::Value::as_u64) {
+        if (rects as u64) > max {
+            return AssertionResult::fail_with(
+                format!("assert_damage: too many {which} damage rects"),
+                format!("<= {max}"),
+                rects.to_string(),
+            );
+        }
+    }
+    if let Some(max_ratio) = params
+        .get("max_area_ratio")
+        .and_then(serde_json::Value::as_f64)
+    {
+        if ratio > max_ratio {
+            return AssertionResult::fail_with(
+                format!("assert_damage: {which} damage area too large"),
+                format!("<= {max_ratio:.4} of the window"),
+                format!("{ratio:.4}"),
+            );
+        }
+    }
+    AssertionResult::pass(format!(
+        "assert_damage: {which} damage = {kind} ({rects} rect(s), {:.2}% of the window)",
+        ratio * 100.0
+    ))
+}
+
+/// Decode a named `snapshot_frame` PNG.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+fn load_snapshot(name: &str) -> Result<azul_layout::cpurender::AzulPixmap, String> {
+    let bytes = E2E_FRAME_SNAPSHOTS
+        .lock()
+        .unwrap()
+        .get(name)
+        .cloned()
+        .ok_or_else(|| format!("no frame snapshot named '{name}' (use snapshot_frame first)"))?;
+    azul_layout::cpurender::AzulPixmap::decode_png(&bytes)
+}
+
+/// Render the current frame through the independent full-repaint path.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+fn render_current(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> Result<azul_layout::cpurender::AzulPixmap, String> {
+    let png = callback_info
+        .take_screenshot(ROOT_DOM_ID)
+        .map_err(|e| e.as_str().to_string())?;
+    azul_layout::cpurender::AzulPixmap::decode_png(&png)
+}
+
+/// `assert_changed` — LIVENESS, the stale-screen detector.
+///
+/// After a step that must alter pixels: the damage set must be NON-EMPTY *and*
+/// the pixels must actually differ from the named `snapshot_frame`.
+///
+/// Parameters: `vs` (snapshot name, required), `min_damage_rects` (default 1),
+/// `threshold` (per-channel, default 2).
+#[cfg(feature = "std")]
+fn eval_assert_changed(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    #[cfg(not(feature = "cpurender"))]
+    {
+        let _ = (params, callback_info);
+        return AssertionResult::fail("assert_changed: cpurender feature not enabled");
+    }
+    #[cfg(feature = "cpurender")]
+    {
+        let min_rects = params
+            .get("min_damage_rects")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1);
+        let threshold = params
+            .get("threshold")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(2) as u8;
+
+        let (damage, which) = damage_of(params, callback_info);
+        if damage.is_none() {
+            return AssertionResult::fail_with(
+                "assert_changed: nothing was repainted (stale screen)".to_string(),
+                format!("{which} damage != none"),
+                "none".to_string(),
+            );
+        }
+        if (damage.rect_count() as u64) < min_rects {
+            return AssertionResult::fail_with(
+                "assert_changed: too few damage rects".to_string(),
+                format!(">= {min_rects}"),
+                damage.rect_count().to_string(),
+            );
+        }
+
+        let Some(vs) = params.get("vs").and_then(|v| v.as_str()) else {
+            return AssertionResult::pass(format!(
+                "assert_changed: {which} damage = {} ({} rect(s)); no 'vs' snapshot given, pixels \
+                 not compared",
+                damage_kind_str(&damage),
+                damage.rect_count()
+            ));
+        };
+        let before = match load_snapshot(vs) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_changed: {e}")),
+        };
+        let after = match render_current(callback_info) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_changed: {e}")),
+        };
+        let diff = azul_layout::cpurender::pixel_diff(&before, &after, threshold);
+        if !diff.dimensions_match {
+            return AssertionResult::pass(
+                "assert_changed: frame size changed (pixels necessarily differ)".to_string(),
+            );
+        }
+        if diff.diff_count == 0 {
+            return AssertionResult::fail_with(
+                "assert_changed: damage was reported but NO pixel changed (the engine repainted \
+                 to the same value — the stale-content signature)"
+                    .to_string(),
+                "diff_count > 0".to_string(),
+                "0".to_string(),
+            );
+        }
+        AssertionResult::pass(format!(
+            "assert_changed: {} px changed, {which} damage = {} ({} rect(s))",
+            diff.diff_count,
+            damage_kind_str(&damage),
+            damage.rect_count()
+        ))
+    }
+}
+
+/// `assert_damage_covers_changes` — SOUNDNESS (coverage / under-paint).
+///
+/// Every pixel that differs between the named snapshot and the current
+/// full-repaint render must lie inside the union of the paint-damage rects.
+/// An uncovered changed pixel is a stale pixel on a real screen.
+///
+/// Parameters: `vs` (snapshot name, required), `threshold`, `slack_px`
+/// (rect inflation, default 1 — damage is logical, pixels are physical).
+#[cfg(feature = "std")]
+fn eval_assert_damage_covers_changes(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    #[cfg(not(feature = "cpurender"))]
+    {
+        let _ = (params, callback_info);
+        return AssertionResult::fail("assert_damage_covers_changes: cpurender not enabled");
+    }
+    #[cfg(feature = "cpurender")]
+    {
+        let Some(vs) = params.get("vs").and_then(|v| v.as_str()) else {
+            return AssertionResult::fail("assert_damage_covers_changes: missing 'vs'");
+        };
+        let threshold = params
+            .get("threshold")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(2) as u8;
+        let slack = params
+            .get("slack_px")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(1.0) as f32;
+
+        let (damage, _) = damage_of(params, callback_info);
+        if damage.is_full() {
+            return AssertionResult::pass(
+                "assert_damage_covers_changes: full repaint trivially covers every changed pixel \
+                 (use assert_damage_incremental to forbid that)"
+                    .to_string(),
+            );
+        }
+        let before = match load_snapshot(vs) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_damage_covers_changes: {e}")),
+        };
+        let after = match render_current(callback_info) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_damage_covers_changes: {e}")),
+        };
+        if before.width() != after.width() || before.height() != after.height() {
+            return AssertionResult::fail(
+                "assert_damage_covers_changes: frame size changed between snapshot and now",
+            );
+        }
+
+        // logical → physical scale of the screenshot
+        let logical_w = callback_info
+            .get_current_window_state()
+            .size
+            .dimensions
+            .width
+            .max(1.0);
+        let scale = after.width() as f32 / logical_w;
+
+        let rects: Vec<(f32, f32, f32, f32)> = damage
+            .rects()
+            .unwrap_or(&[])
+            .iter()
+            .map(|r| {
+                (
+                    r.origin.x * scale - slack,
+                    r.origin.y * scale - slack,
+                    (r.origin.x + r.size.width) * scale + slack,
+                    (r.origin.y + r.size.height) * scale + slack,
+                )
+            })
+            .collect();
+
+        let (bd, ad) = (before.data(), after.data());
+        let w = after.width() as usize;
+        let h = after.height() as usize;
+        let mut uncovered = 0u64;
+        let mut first: Option<(usize, usize)> = None;
+        let mut changed = 0u64;
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) * 4;
+                let differs = (0..4).any(|c| bd[i + c].abs_diff(ad[i + c]) > threshold);
+                if !differs {
+                    continue;
+                }
+                changed += 1;
+                let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                let covered = rects
+                    .iter()
+                    .any(|(x0, y0, x1, y1)| px >= *x0 && px < *x1 && py >= *y0 && py < *y1);
+                if !covered {
+                    uncovered += 1;
+                    if first.is_none() {
+                        first = Some((x, y));
+                    }
+                }
+            }
+        }
+        if uncovered > 0 {
+            let (fx, fy) = first.unwrap_or((0, 0));
+            return AssertionResult::fail_with(
+                "assert_damage_covers_changes: the damage set does NOT cover every changed pixel \
+                 (under-paint → stale pixels on screen)"
+                    .to_string(),
+                "0 uncovered changed pixels".to_string(),
+                format!("{uncovered} uncovered (of {changed} changed), first at ({fx}, {fy})"),
+            );
+        }
+        AssertionResult::pass(format!(
+            "assert_damage_covers_changes: all {changed} changed px lie inside the {} damage rect(s)",
+            rects.len()
+        ))
+    }
+}
+
+/// `assert_damage_incremental` — INCREMENTALITY: the repaint is a PATCH, not a
+/// full redraw.
+///
+/// Parameters: `max_area_ratio` (default 0.5), `which`.
+#[cfg(feature = "std")]
+fn eval_assert_damage_incremental(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let max_ratio = params
+        .get("max_area_ratio")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.5);
+    let (damage, which) = damage_of(params, callback_info);
+    if damage.is_full() {
+        return AssertionResult::fail_with(
+            format!("assert_damage_incremental: {which} damage is a FULL repaint, not a patch"),
+            "rects".to_string(),
+            "full".to_string(),
+        );
+    }
+    if damage.is_none() {
+        return AssertionResult::fail_with(
+            format!("assert_damage_incremental: {which} damage is empty — nothing was repainted"),
+            "rects".to_string(),
+            "none".to_string(),
+        );
+    }
+    let area = window_logical_area(callback_info);
+    let ratio = f64::from(damage.area(area) / area);
+    if ratio > max_ratio {
+        return AssertionResult::fail_with(
+            format!("assert_damage_incremental: {which} repaint is not incremental enough"),
+            format!("area <= {max_ratio:.4} of the window"),
+            format!("{ratio:.4}"),
+        );
+    }
+    AssertionResult::pass(format!(
+        "assert_damage_incremental: {which} repaint is a patch ({} rect(s), {:.2}% of the window)",
+        damage.rect_count(),
+        ratio * 100.0
+    ))
+}
+
+/// `assert_idle_stable` — the infinite-redraw detector.
+///
+/// With no input, the last frame must have produced NO damage. Optionally
+/// (`vs`) the pixels must also be identical to a snapshot taken earlier.
+///
+/// Drive it as: `wait_frame` × K → `assert_idle_stable`.
+#[cfg(feature = "std")]
+fn eval_assert_idle_stable(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let report = callback_info.get_layout_window().frame_report.clone();
+    if !report.paint_damage.is_none() {
+        return AssertionResult::fail_with(
+            "assert_idle_stable: an IDLE window still reports paint damage — it will re-render \
+             (and burn CPU) forever"
+                .to_string(),
+            "paint damage = none".to_string(),
+            format!(
+                "{} ({} rect(s))",
+                damage_kind_str(&report.paint_damage),
+                report.paint_damage.rect_count()
+            ),
+        );
+    }
+    if !report.present_damage.is_none() {
+        return AssertionResult::fail_with(
+            "assert_idle_stable: an IDLE window still reports PRESENT damage".to_string(),
+            "present damage = none".to_string(),
+            damage_kind_str(&report.present_damage).to_string(),
+        );
+    }
+
+    #[cfg(feature = "cpurender")]
+    if let Some(vs) = params.get("vs").and_then(|v| v.as_str()) {
+        let threshold = params
+            .get("threshold")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u8;
+        let before = match load_snapshot(vs) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_idle_stable: {e}")),
+        };
+        let after = match render_current(callback_info) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_idle_stable: {e}")),
+        };
+        let diff = azul_layout::cpurender::pixel_diff(&before, &after, threshold);
+        if !diff.dimensions_match || diff.diff_count > 0 {
+            return AssertionResult::fail_with(
+                "assert_idle_stable: frame N+1 differs from frame N with no input".to_string(),
+                "identical pixels".to_string(),
+                format!("{} px differ", diff.diff_count),
+            );
+        }
+    }
+    #[cfg(not(feature = "cpurender"))]
+    let _ = params;
+
+    AssertionResult::pass("assert_idle_stable: idle window is stable (damage drained to none)")
+}
+
+/// `assert_work_bounded` — the invalidation-loop detector.
+///
+/// Measures the frame-work counters SINCE THE LAST `reset_frame_counters`.
+/// Today an invalidation loop just hits `MAX_EVENT_RECURSION_DEPTH` and is
+/// swallowed with a `log_warn`; `hit_depth_cap` turns that into a red test.
+///
+/// Parameters: `max_relayouts`, `max_dom_regens`, `allow_depth_cap` (default
+/// false).
+#[cfg(feature = "std")]
+fn eval_assert_work_bounded(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let report = callback_info.get_layout_window().frame_report.clone();
+    let relayouts = report.relayout_iterations;
+    let regens = report.dom_regenerations;
+    let depth_cap = report.hit_depth_cap;
+
+    if depth_cap && !params.get("allow_depth_cap").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        return AssertionResult::fail_with(
+            "assert_work_bounded: MAX_EVENT_RECURSION_DEPTH was hit — the event did not converge \
+             (invalidation loop)"
+                .to_string(),
+            "hit_depth_cap = false".to_string(),
+            "true".to_string(),
+        );
+    }
+    if let Some(max) = params
+        .get("max_relayouts")
+        .and_then(serde_json::Value::as_u64)
+    {
+        if u64::from(relayouts) > max {
+            return AssertionResult::fail_with(
+                "assert_work_bounded: too many event-processing iterations".to_string(),
+                format!("<= {max}"),
+                relayouts.to_string(),
+            );
+        }
+    }
+    if let Some(max) = params
+        .get("max_dom_regens")
+        .and_then(serde_json::Value::as_u64)
+    {
+        if u64::from(regens) > max {
+            return AssertionResult::fail_with(
+                "assert_work_bounded: too many DOM regenerations".to_string(),
+                format!("<= {max}"),
+                regens.to_string(),
+            );
+        }
+    }
+    AssertionResult::pass(format!(
+        "assert_work_bounded: {relayouts} event iteration(s), {regens} DOM regen(s), depth cap not \
+         hit"
+    ))
+}
+
+/// `assert_resource_counts` — the leak detector.
+///
+/// Compares the resource counters against a named `snapshot_resources`.
+/// Each counter is given a mode: `"eq"` (must return to the baseline), `"le"`
+/// (must not grow), `"ge"`, or an explicit number.
+///
+/// ```json
+/// { "op": "assert_resource_counts", "vs": "baseline",
+///   "images": "eq", "fonts": "eq", "parsed_fonts": "eq" }
+/// ```
+/// Known counters: `fonts`, `font_hash_map`, `font_id_map`, `font_families_map`,
+/// `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`,
+/// `font_chain_cache`.
+#[cfg(feature = "std")]
+fn eval_assert_resource_counts(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let current = collect_resource_counts(callback_info);
+    let baseline = match params.get("vs").and_then(|v| v.as_str()) {
+        Some(name) => match E2E_RESOURCE_SNAPSHOTS.lock().unwrap().get(name).cloned() {
+            Some(b) => Some(b),
+            None => {
+                return AssertionResult::fail(format!(
+                    "assert_resource_counts: no resource snapshot named '{name}' (use \
+                     snapshot_resources first)"
+                ))
+            }
+        },
+        None => None,
+    };
+
+    let Some(obj) = params.as_object() else {
+        return AssertionResult::fail("assert_resource_counts: params must be an object");
+    };
+
+    let mut checked = 0usize;
+    for (key, want) in obj {
+        if key == "op" || key == "vs" || key == "screenshot" {
+            continue;
+        }
+        let Some(&actual) = current.get(key.as_str()) else {
+            return AssertionResult::fail(format!(
+                "assert_resource_counts: unknown counter '{key}' (known: {})",
+                current.keys().cloned().collect::<Vec<_>>().join(", ")
+            ));
+        };
+        checked += 1;
+
+        if let Some(expected) = want.as_u64() {
+            if actual != expected {
+                return AssertionResult::fail_with(
+                    format!("assert_resource_counts: '{key}' mismatch"),
+                    expected.to_string(),
+                    actual.to_string(),
+                );
+            }
+            continue;
+        }
+        let Some(mode) = want.as_str() else {
+            return AssertionResult::fail(format!(
+                "assert_resource_counts: '{key}' must be a number or one of \"eq\"/\"le\"/\"ge\""
+            ));
+        };
+        let Some(base) = baseline.as_ref().and_then(|b| b.get(key.as_str()).copied()) else {
+            return AssertionResult::fail(format!(
+                "assert_resource_counts: '{key}': \"{mode}\" needs a 'vs' baseline snapshot"
+            ));
+        };
+        let ok = match mode {
+            "eq" => actual == base,
+            "le" => actual <= base,
+            "ge" => actual >= base,
+            other => {
+                return AssertionResult::fail(format!(
+                    "assert_resource_counts: unknown mode '{other}' for '{key}'"
+                ))
+            }
+        };
+        if !ok {
+            return AssertionResult::fail_with(
+                format!("assert_resource_counts: '{key}' leaked / drifted from the baseline"),
+                format!("{mode} {base}"),
+                actual.to_string(),
+            );
+        }
+    }
+
+    if checked == 0 {
+        return AssertionResult::fail(
+            "assert_resource_counts: no counters given (e.g. \"fonts\": \"eq\")",
+        );
+    }
+    AssertionResult::pass(format!(
+        "assert_resource_counts: {checked} counter(s) within bounds ({})",
+        current
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    ))
 }
 
 // ==================== E2E Continuation ====================
@@ -6583,6 +7620,125 @@ fn process_debug_event(
             // Setting needs_update would cause Update::RefreshDom → full DOM rebuild
             // (~1s for 500 rows), during which the scrollbar opacity fades to 0.
 
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::Mount { html, css } => {
+            if html.is_empty() {
+                send_err(request, "mount: 'html' is empty".to_string());
+            } else {
+                let xml = build_mount_document(html, css);
+                // Validate up-front so a broken test fails at the mount step
+                // rather than silently rendering the app's own DOM.
+                match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
+                    Ok(_) => {
+                        crate::desktop::shell2::common::layout::set_e2e_mount_xml(Some(xml));
+                        needs_update = true; // → Update::RefreshDom → regenerate_layout
+                        send_ok(request, None, None);
+                    }
+                    Err(e) => {
+                        send_err(request, format!("mount: XML parse error: {e:?}"));
+                    }
+                }
+            }
+        }
+
+        DebugEvent::Unmount => {
+            crate::desktop::shell2::common::layout::set_e2e_mount_xml(None);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::SnapshotFrame { name } => {
+            #[cfg(feature = "cpurender")]
+            {
+                match callback_info.take_screenshot(ROOT_DOM_ID) {
+                    Ok(png) => {
+                        E2E_FRAME_SNAPSHOTS
+                            .lock()
+                            .unwrap()
+                            .insert(name.clone(), png);
+                        send_ok(request, None, None);
+                    }
+                    Err(e) => send_err(
+                        request,
+                        format!("snapshot_frame: screenshot failed: {}", e.as_str()),
+                    ),
+                }
+            }
+            #[cfg(not(feature = "cpurender"))]
+            {
+                let _ = name;
+                send_err(request, "snapshot_frame: cpurender not enabled".to_string());
+            }
+        }
+
+        DebugEvent::SnapshotResources { name } => {
+            let counts = collect_resource_counts(callback_info);
+            E2E_RESOURCE_SNAPSHOTS
+                .lock()
+                .unwrap()
+                .insert(name.clone(), counts);
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::TickMs { ms } => {
+            let total = azul_core::task::advance_test_clock_ms(*ms);
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("[E2E] tick_ms: +{ms} ms (clock offset now {total} ms)"),
+                None,
+            );
+            // Force a frame so that time-driven state (fade / momentum / blink /
+            // animation) actually advances and re-renders; an idle engine then
+            // reports FrameDamage::None, which is what `assert_idle_stable` asserts.
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::GetFrameReport => {
+            let report = callback_info.get_layout_window().frame_report.clone();
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::FrameReport(build_frame_report_response(
+                    &report,
+                    window_logical_area(callback_info),
+                ))),
+            );
+        }
+
+        DebugEvent::CaptureDamagePng { path, which, crop } => {
+            #[cfg(feature = "cpurender")]
+            {
+                match capture_damage_png(callback_info, which.as_deref(), *crop) {
+                    Ok(png) => match std::fs::write(path, &png) {
+                        Ok(()) => send_ok(request, None, None),
+                        Err(e) => send_err(
+                            request,
+                            format!("capture_damage_png: cannot write {path}: {e}"),
+                        ),
+                    },
+                    Err(e) => send_err(request, format!("capture_damage_png: {e}")),
+                }
+            }
+            #[cfg(not(feature = "cpurender"))]
+            {
+                let _ = (path, which, crop);
+                send_err(
+                    request,
+                    "capture_damage_png: cpurender not enabled".to_string(),
+                );
+            }
+        }
+
+        DebugEvent::ResetFrameCounters => {
+            // Zeroes the work counters AND the accumulated damage at the next
+            // frame-report write (an assertion only holds `&LayoutWindow`, so the
+            // reset goes through a generation counter — see
+            // `azul_layout::window::request_frame_report_reset`).
+            azul_layout::window::request_frame_report_reset();
             send_ok(request, None, None);
         }
 

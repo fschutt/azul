@@ -103,7 +103,39 @@ Every `op` accepted by `POST /` (covered in [Debugging](debugging.md)) is a vali
 - `assert_css` (params: `selector`, `property`, `expected`). Computed CSS value equals `expected`.
 - `assert_app_state` (params: `path`, `expected`). Dot-path against the JSON-serialised app data.
 - `assert_scroll` (params: `selector`, `x?`, `y?`, `tolerance?`). Scroll position of the first match.
-- `assert_screenshot` (params: `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?`). Compares the current screenshot against a reference PNG.
+- `assert_screenshot` (params: `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?`). Compares the current screenshot against a reference PNG. **A missing reference PNG is a FAILURE.** Run with `AZ_E2E_RECORD=1` to record a provisional baseline — the step still fails, so an unreviewed baseline can never gate green.
+
+### Mounting a DOM from the test file
+
+`mount` replaces the app's `layout_callback` output with an inline document, so a test does not depend on whatever DOM the host binary happens to build. Markup and CSS are given as an **array of lines** (a single string is also accepted):
+
+```json
+{ "op": "mount",
+  "html": ["<div class=\"a\">", "  <p>hi</p>", "</div>"],
+  "css":  [".a { width: 100px; background: blue; }"] }
+```
+
+The lines are joined with `\n`, the CSS is injected as a `<style>` element and the document is parsed by azul's XML→StyledDom parser. `unmount` restores the app's own DOM.
+
+### Damage, frame-work and resource assertions
+
+`snapshot_frame` (`as`), `snapshot_resources` (`as`) and `reset_frame_counters` are plain ops that record state for the assertions below. They read `LayoutWindow::frame_report` (paint/present damage + work counters).
+
+Three more plain ops make the frame report directly observable:
+
+- `tick_ms` (params: `ms`). Advances the engine clock by `ms` **without sleeping** and renders a frame. Animations, scroll momentum, scrollbar fade and cursor blink all read `Instant::now()`, which honours this offset — so an animation can be driven to completion and then asserted to converge (`assert_idle_stable`).
+- `get_frame_report`. Returns the whole `FrameReport` as JSON: `paint_damage_kind`/`paint_damage_rects`/`paint_damage_area_ratio`, the same for `present_*`, `relayout_iterations`, `dom_regenerations`, `hit_depth_cap`, `terminal_result`, `frame_index`, `test_clock_offset_ms`.
+- `capture_damage_png` (params: `path`, `which?` = `paint`|`present`, `crop?`). Writes the **partial screen update** as a PNG: the frame masked to the damage region (everything else transparent), optionally cropped to the damage bounding box. No damage ⇒ a 1×1 transparent PNG.
+
+The `assert_damage*` ops look at the damage **accumulated since the last `reset_frame_counters`**, not at the last frame — between the step that changed something and the assertion, the engine may render further idle frames whose damage is `None`, and those would otherwise clobber it. Pass `"frame": "last"` to look at the most recent frame only. `assert_idle_stable` always looks at the last frame.
+
+- `assert_damage` (params: `which?` = `paint`|`present`, `kind?` = `none`|`rects`|`full`, `min_rects?`, `max_rects?`, `max_area_ratio?`, `frame?`).
+- `assert_changed` (params: `vs`, `min_damage_rects?`, `threshold?`). LIVENESS: damage must be non-empty **and** pixels must actually differ from the snapshot.
+- `assert_damage_covers_changes` (params: `vs`, `threshold?`, `slack_px?`). SOUNDNESS: every changed pixel lies inside the damage rects (under-paint ⇒ stale screen).
+- `assert_damage_incremental` (params: `max_area_ratio?`, default `0.5`). The repaint is a PATCH, not a full redraw.
+- `assert_idle_stable` (params: `vs?`). No input ⇒ damage drained to `none` (and pixels identical to `vs`). The infinite-redraw detector.
+- `assert_work_bounded` (params: `max_relayouts?`, `max_dom_regens?`, `allow_depth_cap?`). Measured since the last `reset_frame_counters`. Fails if `MAX_EVENT_RECURSION_DEPTH` was hit — an invalidation loop is now a red test rather than a `log_warn`.
+- `assert_resource_counts` (params: `vs`, then one mode per counter: `"eq"`|`"le"`|`"ge"` or an exact number). Counters: `fonts`, `font_hash_map`, `font_id_map`, `font_families_map`, `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`, `font_chain_cache`.
 
 Selector resolution accepts CSS selectors (`.btn`, `#counter`, `div > span`), explicit `node_id` integers, or a `text` substring match. Pick whichever is least brittle. `selector` is preferred because the inspector can build them by clicking nodes in the DOM tree.
 

@@ -3983,6 +3983,28 @@ pub trait PlatformWindow {
     /// Recursively processes events with depth limiting (max 5 levels) to prevent
     /// infinite loops from callbacks that regenerate the DOM.
     fn process_window_events(&mut self, depth: usize) -> ProcessEventResult {
+        // Observability wrapper (E2E): record how much work this event took, so
+        // that an invalidation loop TRIPS AN ASSERTION instead of being silently
+        // capped at MAX_EVENT_RECURSION_DEPTH and log_warn'd. The counters are
+        // sticky until `reset_frame_counters`.
+        #[allow(clippy::cast_possible_truncation)]
+        let depth_u32 = depth as u32;
+        if let Some(lw) = self.get_layout_window_mut() {
+            let r = &mut lw.frame_report;
+            r.sync_generation();
+            r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
+        }
+
+        let result = self.process_window_events_inner(depth);
+
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.frame_report.terminal_result = result as u8;
+        }
+        result
+    }
+
+    /// The real body of [`Self::process_window_events`] — see that method.
+    fn process_window_events_inner(&mut self, depth: usize) -> ProcessEventResult {
 
         if depth >= MAX_EVENT_RECURSION_DEPTH {
             log_warn!(
@@ -3990,6 +4012,9 @@ pub trait PlatformWindow {
                 "[PlatformWindow] Max event recursion depth {} reached",
                 MAX_EVENT_RECURSION_DEPTH
             );
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.frame_report.hit_depth_cap = true;
+            }
             return ProcessEventResult::DoNothing;
         }
 

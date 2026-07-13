@@ -275,6 +275,242 @@ extern "C" fn cursor_blink_timer_destructor(_: RefAny) {
     }
 }
 
+/// Outcome of a single CPU `render_frame` call — the seed of the unified
+/// `DamageRegion` type described in `DAMAGE_REGION_PLAN.md`.
+///
+/// Lives in `azul-layout` (rather than in the dll's headless backend, where it
+/// was originally defined) so that it can be stored on [`LayoutWindow`] and
+/// therefore be reachable from a `CallbackInfo` — i.e. from an E2E assertion.
+/// `dll::desktop::shell2::headless::FrameDamage` is a re-export of this type.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum FrameDamage {
+    /// Nothing changed; render was skipped, the previous frame is still valid.
+    #[default]
+    None,
+    /// Incremental repaint of exactly these logical rects.
+    Rects(Vec<LogicalRect>),
+    /// Full repaint (first frame, structural change, or shrink-resize).
+    Full,
+}
+
+impl FrameDamage {
+    /// `true` if no pixel was repainted at all.
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// `true` if the whole window was repainted.
+    #[must_use]
+    pub const fn is_full(&self) -> bool {
+        matches!(self, Self::Full)
+    }
+
+    /// Number of damage rects (`None` → 0, `Full` → 1).
+    #[must_use]
+    pub fn rect_count(&self) -> usize {
+        match self {
+            Self::None => 0,
+            Self::Full => 1,
+            Self::Rects(r) => r.len(),
+        }
+    }
+
+    /// The damage rects, if this is an incremental repaint.
+    #[must_use]
+    pub fn rects(&self) -> Option<&[LogicalRect]> {
+        match self {
+            Self::Rects(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    /// Total damaged area in logical px². `None` → 0.0, `Full` → the full
+    /// `window_area` passed in (the caller knows the window size).
+    #[must_use]
+    pub fn area(&self, window_area: f32) -> f32 {
+        match self {
+            Self::None => 0.0,
+            Self::Full => window_area,
+            Self::Rects(r) => r.iter().map(|r| r.size.width * r.size.height).sum(),
+        }
+    }
+
+    /// Convert this damage record into physical-pixel present rects for a
+    /// `buf_w`×`buf_h` buffer at `dpi_factor` — the ONE conversion every
+    /// platform presenter should use to hand damage to its compositor
+    /// (`XPutImage` sub-rects / `wl_surface_damage` / partial `StretchDIBits`
+    /// / `setNeedsDisplayInRect:`).
+    ///
+    /// - `None` → returns `None`: the previous frame is still on screen and
+    ///   valid — present nothing. Callers must STILL present in full when the
+    ///   OS asked for a re-present (Expose / WM_PAINT-from-uncover / drawRect)
+    ///   — pass `force_full = true` there.
+    /// - `Rects` → `Some(rects)` as `(x, y, w, h)` physical px, rounded
+    ///   OUTWARD (floor origin / ceil far edge — truncation would under-cover
+    ///   fractional edges and leave 1px stale seams), clamped to the buffer.
+    ///   More than 16 rects collapses to one full-buffer rect (bounded cost,
+    ///   per DAMAGE_REGION_PLAN §3).
+    /// - `Full` → one full-buffer rect.
+    ///
+    /// "Present must never silently be empty when a present is required" —
+    /// when in doubt, callers should treat errors/unknowns as `Full`.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn to_present_rects_physical(
+        &self,
+        dpi_factor: f32,
+        buf_w: u32,
+        buf_h: u32,
+        force_full: bool,
+    ) -> Option<Vec<(u32, u32, u32, u32)>> {
+        const MAX_PRESENT_RECTS: usize = 16;
+        if buf_w == 0 || buf_h == 0 {
+            return None;
+        }
+        let full = || Some(vec![(0u32, 0u32, buf_w, buf_h)]);
+        if force_full {
+            // OS-driven expose: the on-screen content may be stale/undefined
+            // regardless of what we last painted — push the whole retained
+            // frame.
+            return full();
+        }
+        match self {
+            Self::None => None,
+            Self::Full => full(),
+            Self::Rects(rects) => {
+                if rects.is_empty() {
+                    return None;
+                }
+                if rects.len() > MAX_PRESENT_RECTS {
+                    return full();
+                }
+                let mut out = Vec::with_capacity(rects.len());
+                for r in rects {
+                    let x0 = ((r.origin.x * dpi_factor).floor() as i64).clamp(0, i64::from(buf_w));
+                    let y0 = ((r.origin.y * dpi_factor).floor() as i64).clamp(0, i64::from(buf_h));
+                    let x1 = (((r.origin.x + r.size.width) * dpi_factor).ceil() as i64)
+                        .clamp(0, i64::from(buf_w));
+                    let y1 = (((r.origin.y + r.size.height) * dpi_factor).ceil() as i64)
+                        .clamp(0, i64::from(buf_h));
+                    if x1 > x0 && y1 > y0 {
+                        out.push((x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32));
+                    }
+                }
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(out)
+                }
+            }
+        }
+    }
+}
+
+/// Per-frame observability record hung off [`LayoutWindow`].
+///
+/// This is what makes damage + frame-work counters visible to an E2E assertion:
+/// `CallbackInfo::get_layout_window().frame_report`. The CPU backend writes
+/// `paint_damage` / `present_damage` / `frame_index` after every `render_frame`;
+/// the event loop writes the work counters.
+///
+/// The `*_since_reset` counters are STICKY: they are never cleared automatically
+/// (a per-tick reset would race the assertion that wants to read them). Use the
+/// `reset_frame_counters` debug op to zero them at a known point in a test.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FrameReport {
+    /// Monotonic index of the last CPU-rendered frame.
+    pub frame_index: u64,
+    /// PAINT damage of the last frame — the pixels actually re-rasterised.
+    pub paint_damage: FrameDamage,
+    /// PRESENT damage of the last frame — the pixels that changed on screen
+    /// (⊇ paint damage; a scroll memmoves a large region but paints a strip).
+    pub present_damage: FrameDamage,
+    /// UNION of the paint damage of every frame since the last counter reset.
+    ///
+    /// This is what a test must assert on: between the step that changed
+    /// something and the assertion, the engine may render further (idle) frames
+    /// whose damage is `None`, which would clobber `paint_damage`. The
+    /// accumulated damage is stable across those.
+    pub accumulated_paint_damage: FrameDamage,
+    /// UNION of the present damage of every frame since the last counter reset.
+    pub accumulated_present_damage: FrameDamage,
+    /// Frames rendered since the last counter reset.
+    pub frames_since_reset: u32,
+    /// Generation of the last observed reset request (see [`request_frame_report_reset`]).
+    pub reset_generation: u64,
+    /// Highest `process_window_events` recursion depth reached since the last
+    /// counter reset. > 1 means the frame did not converge in one pass.
+    pub relayout_iterations: u32,
+    /// Number of `regenerate_layout()` (i.e. `layout_callback`) runs since the
+    /// last counter reset.
+    pub dom_regenerations: u32,
+    /// `true` if `MAX_EVENT_RECURSION_DEPTH` was ever hit since the last reset.
+    /// Today the engine only `log_warn`s on this; this flag is what lets a test
+    /// turn an invalidation loop into a red assertion instead of a silent cap.
+    pub hit_depth_cap: bool,
+    /// The last terminal `ProcessEventResult` (as its `u8` discriminant order).
+    pub terminal_result: u8,
+}
+
+/// Global "please reset the frame-report counters" generation.
+///
+/// The `reset_frame_counters` debug op bumps this; every writer of the
+/// `FrameReport` calls [`FrameReport::sync_generation`] before it writes, which
+/// zeroes the counters + accumulated damage exactly once. This indirection
+/// exists because an E2E assertion only ever holds `&LayoutWindow` (through
+/// `CallbackInfo`) and cannot clear the counters itself.
+pub static FRAME_REPORT_RESET_GENERATION: AtomicUsize = AtomicUsize::new(0);
+
+/// Ask every window to zero its frame-report counters before the next write.
+pub fn request_frame_report_reset() {
+    FRAME_REPORT_RESET_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+impl FrameReport {
+    /// Zero the work counters + accumulated damage if a reset was requested.
+    /// Called by every writer of the report before it writes.
+    pub fn sync_generation(&mut self) {
+        let current = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64;
+        if current != self.reset_generation {
+            self.reset_generation = current;
+            self.reset_counters();
+        }
+    }
+
+    /// Zero the sticky work counters + accumulated damage.
+    pub fn reset_counters(&mut self) {
+        self.relayout_iterations = 0;
+        self.dom_regenerations = 0;
+        self.hit_depth_cap = false;
+        self.frames_since_reset = 0;
+        self.accumulated_paint_damage = FrameDamage::None;
+        self.accumulated_present_damage = FrameDamage::None;
+    }
+
+    /// Record the damage of a freshly rendered frame: it becomes the last-frame
+    /// damage AND is merged into the accumulated damage since the last reset.
+    pub fn record_frame(&mut self, paint: FrameDamage, present: FrameDamage) {
+        self.sync_generation();
+        self.frame_index = self.frame_index.wrapping_add(1);
+        self.frames_since_reset = self.frames_since_reset.saturating_add(1);
+        Self::merge_into(&mut self.accumulated_paint_damage, &paint);
+        Self::merge_into(&mut self.accumulated_present_damage, &present);
+        self.paint_damage = paint;
+        self.present_damage = present;
+    }
+
+    fn merge_into(acc: &mut FrameDamage, next: &FrameDamage) {
+        match (&mut *acc, next) {
+            (_, FrameDamage::None) => {}
+            (FrameDamage::Full, _) => {}
+            (_, FrameDamage::Full) => *acc = FrameDamage::Full,
+            (FrameDamage::None, FrameDamage::Rects(r)) => *acc = FrameDamage::Rects(r.clone()),
+            (FrameDamage::Rects(a), FrameDamage::Rects(b)) => a.extend(b.iter().cloned()),
+        }
+    }
+}
+
 /// Result of a layout pass for a single DOM, before display list generation
 #[derive(Debug)]
 pub struct DomLayoutResult {
@@ -359,6 +595,10 @@ pub struct LayoutWindow {
     /// `SKIP_DISPLAY_LIST` `__bss` static, whose store/load is inconsistent
     /// in the lifted wasm). Default false → desktop is unaffected.
     pub skip_gpu_sync: bool,
+    /// Per-frame damage + frame-work observability record. Written by the CPU
+    /// backend after each `render_frame` and by the event loop; read by E2E
+    /// assertions through `CallbackInfo::get_layout_window()`.
+    pub frame_report: FrameReport,
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
     pub fragmentation_context: crate::paged::FragmentationContext,
@@ -574,6 +814,7 @@ impl LayoutWindow {
         Self {
             // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
+            frame_report: FrameReport::default(),
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             layout_cache: Solver3LayoutCache {

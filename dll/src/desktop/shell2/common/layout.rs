@@ -124,6 +124,46 @@ pub enum LayoutRegenerateResult {
     LayoutUnchanged,
 }
 
+// ---------------------------------------------------------------------------
+// E2E DOM mount override
+// ---------------------------------------------------------------------------
+
+/// The XML document installed by the debug-server `mount` op, if any.
+///
+/// When set, `regenerate_layout` uses it INSTEAD of the app's `layout_callback`
+/// output for the whole DOM. This is what makes independent e2e test cases
+/// possible: without it every test runs against whatever DOM the host binary
+/// happens to build.
+static E2E_MOUNT_XML: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// `true` while the mount XML still has to be (re-)parsed into a DOM.
+///
+/// After the first regeneration the mounted DOM is KEPT AS IS across subsequent
+/// DOM regenerations (it is cloned forward, not re-parsed) — otherwise every
+/// `RefreshDom` would rebuild the DOM from the XML and silently discard the
+/// DOM-mutation ops (`insert_node`, `set_node_css_override`, …) the test just
+/// applied, which makes every damage assertion see "nothing changed".
+static E2E_MOUNT_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Install (`Some`) or clear (`None`) the e2e DOM mount override.
+pub fn set_e2e_mount_xml(xml: Option<String>) {
+    if let Ok(mut g) = E2E_MOUNT_XML.lock() {
+        *g = xml;
+    }
+    E2E_MOUNT_DIRTY.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The currently mounted e2e XML document, if any.
+#[must_use]
+pub fn get_e2e_mount_xml() -> Option<String> {
+    E2E_MOUNT_XML.lock().ok().and_then(|g| g.clone())
+}
+
+/// Take the "the mount must be (re-)parsed" flag.
+fn take_e2e_mount_dirty() -> bool {
+    E2E_MOUNT_DIRTY.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Regenerate layout after DOM changes.
 ///
 /// This function implements the complete layout regeneration workflow:
@@ -162,6 +202,13 @@ pub fn regenerate_layout(
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
     azul_layout::probe::emit_phase_heap("start");
+
+    // E2E observability: count DOM regenerations (sticky until
+    // `reset_frame_counters`) so that a test can assert an interaction did not
+    // trigger a DOM rebuild storm.
+    layout_window.frame_report.sync_generation();
+    layout_window.frame_report.dom_regenerations =
+        layout_window.frame_report.dom_regenerations.saturating_add(1);
 
     // If the async font registry is available, request commonly-used fonts
     // and block until they are ready (eliminates FOUC). On cache hits this
@@ -252,7 +299,45 @@ pub fn regenerate_layout(
     //
     // The user callback now returns a recursive `Dom` with CSS attached via `.with_css()` (@scope-like).
     // We collect all CSS objects, flatten the tree, and run a single cascade pass.
-    let mut user_styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(user_dom);
+    // E2E `mount` override: replace the app's DOM wholesale with the test's
+    // inline XML+CSS document (reusing the existing XML→StyledDom parser).
+    let mut user_styled_dom = match get_e2e_mount_xml() {
+        Some(xml) => {
+            let must_reparse = take_e2e_mount_dirty();
+            let existing = (!must_reparse)
+                .then(|| {
+                    layout_window
+                        .layout_results
+                        .get(&azul_core::dom::DomId { inner: 0 })
+                        .map(|lr| lr.styled_dom.clone())
+                })
+                .flatten();
+            match existing {
+                // Keep the already-mounted DOM (with any debug DOM mutations
+                // applied to it) instead of rebuilding it from the XML.
+                Some(styled) => styled,
+                None => match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
+                    Ok(styled) => {
+                        log_debug!(
+                            LogCategory::Layout,
+                            "[regenerate_layout] using E2E mount override ({} bytes of XML)",
+                            xml.len()
+                        );
+                        styled
+                    }
+                    Err(e) => {
+                        crate::log_error!(
+                            LogCategory::Layout,
+                            "[regenerate_layout] E2E mount XML failed to parse: {e:?} — falling \
+                             back to the app DOM"
+                        );
+                        azul_core::styled_dom::StyledDom::create_from_dom(user_dom)
+                    }
+                },
+            }
+        }
+        None => azul_core::styled_dom::StyledDom::create_from_dom(user_dom),
+    };
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
 
     // 2. Resolve icon nodes to their actual content (text glyphs, images, etc.)

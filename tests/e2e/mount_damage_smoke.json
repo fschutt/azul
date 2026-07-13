@@ -1,0 +1,73 @@
+{
+  "name": "mount_damage_smoke",
+  "description": "Mount a hand-written DOM+CSS, then exercise the damage/frame-work/resource observability: idle stability (damage drains to none), liveness (a change repaints AND pixels differ), damage soundness (every changed pixel is inside the damage set), bounded work, and resource counts.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box\" id=\"b\"></div>",
+        "  <div class=\"box\" id=\"c\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "#root { display: flex; flex-direction: row; }",
+        ".box  { width: 60px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "assert_exists", "selector": "#root" },
+    { "op": "assert_node_count", "selector": ".box", "expected": 3 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before" },
+    { "op": "snapshot_resources", "as": "baseline" },
+
+    { "op": "tick_ms", "ms": 16 },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_idle_stable", "vs": "before" },
+
+    { "op": "reset_frame_counters" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box hot\" id=\"b\"></div>",
+        "  <div class=\"box\" id=\"c\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "#root { display: flex; flex-direction: row; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        ".hot  { background: red; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "get_frame_report" },
+    { "op": "capture_damage_png", "path": "target/e2e/mount_damage_smoke_patch.png" },
+
+    { "op": "assert_changed", "vs": "before", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before" },
+    { "op": "assert_damage_incremental", "max_area_ratio": 0.5 },
+    { "op": "assert_work_bounded", "max_relayouts": 4, "max_dom_regens": 3 },
+
+    { "op": "snapshot_frame", "as": "after" },
+    { "op": "tick_ms", "ms": 16 },
+    { "op": "wait", "ms": 100 },
+    { "op": "assert_idle_stable", "vs": "after" },
+
+    { "op": "assert_resource_counts", "vs": "baseline", "images": "eq", "fonts": "le" }
+  ]
+}

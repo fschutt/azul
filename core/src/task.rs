@@ -189,14 +189,52 @@ impl From<StdInstant> for Instant {
     }
 }
 
+/// Injectable test-clock offset, in milliseconds, added to every `Instant::now()`.
+///
+/// Driven by the E2E `tick_ms` op. Everything time-driven in the engine — scroll
+/// momentum, scrollbar fade, cursor blink, animations, timers — reads the clock
+/// through `Instant::now()` / `get_system_time_libstd()`, so advancing this
+/// offset moves all of them forward by exactly N ms WITHOUT sleeping. That is
+/// what makes "drive the animation to completion and assert it converges"
+/// deterministic instead of a `wait { ms }` race.
+///
+/// Zero in production; only the debug-server `tick_ms` op ever writes it.
+#[cfg(feature = "std")]
+pub static TEST_CLOCK_OFFSET_MS: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+
+/// Advance the injectable test clock by `ms` (E2E `tick_ms`).
+#[cfg(feature = "std")]
+pub fn advance_test_clock_ms(ms: u64) -> u64 {
+    TEST_CLOCK_OFFSET_MS.fetch_add(ms, core::sync::atomic::Ordering::SeqCst) + ms
+}
+
+/// The current test-clock offset in ms (0 unless `tick_ms` was used).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn test_clock_offset_ms() -> u64 {
+    TEST_CLOCK_OFFSET_MS.load(core::sync::atomic::Ordering::SeqCst)
+}
+
+/// `std::time::Instant::now()` shifted by the injectable test-clock offset.
+#[cfg(feature = "std")]
+fn std_now_with_test_offset() -> StdInstant {
+    let offset = test_clock_offset_ms();
+    if offset == 0 {
+        StdInstant::now()
+    } else {
+        StdInstant::now() + core::time::Duration::from_millis(offset)
+    }
+}
+
 impl Instant {
     /// Returns the current system time.
-    /// 
+    ///
     /// On systems with std, this uses `std::time::Instant::now()`.
     /// On `no_std` systems, this returns a zero tick.
     #[cfg(feature = "std")]
     #[must_use] pub fn now() -> Self {
-        StdInstant::now().into()
+        std_now_with_test_offset().into()
     }
 
     /// Returns the current system time (no_std fallback).
@@ -932,7 +970,8 @@ impl_callback_simple!(GetSystemTimeCallback);
 /// a zero-tick instant instead.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 #[must_use] pub extern "C" fn get_system_time_libstd() -> Instant {
-    StdInstant::now().into()
+    // Honours the injectable E2E test clock (see TEST_CLOCK_OFFSET_MS).
+    std_now_with_test_offset().into()
 }
 
 /// Fallback for WASM (where `Instant::now()` panics) and no-std targets.
