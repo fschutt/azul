@@ -325,8 +325,10 @@ fn main() -> anyhow::Result<()> {
             // Fan out a fleet of cheap Claude agents that turn each ONE-LINE test
             // description in <txt> into a real e2e JSON test in <out-dir>.
             // GENERATES tests only — running them is a separate step.
+            // Incremental + content-addressed: re-running never regenerates a
+            // line whose artifact is present and valid, whatever the corpus did.
             // Usage: gen-e2e <txt> <out-dir> [--jobs N] [--model M] [--effort E]
-            //                [--limit N] [--filter <tag>] [--dry-run] [--redo]
+            //                [--limit N] [--filter <tag>] [--dry-run] [--redo] [--prune]
             let opts = gene2e::GenE2eOptions::parse(rest)?;
             gene2e::run(&project_root, &opts)?;
             return Ok(());
@@ -2315,7 +2317,13 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    gen-e2e <txt> <out-dir>       - Fan out cheap LLM agents: one line of <txt>");
     println!("                                    -> one validated e2e JSON test in <out-dir>");
     println!("      [--jobs N] [--model M] [--effort E] [--limit N] [--filter <tag>]");
-    println!("      [--dry-run] [--redo]        - dry-run lists the work; redo ignores resume");
+    println!("      [--dry-run] [--redo] [--prune]");
+    println!("                                    INCREMENTAL: a line is done when its artifact");
+    println!("                                    exists AND passes the gate (content-hashed, so");
+    println!("                                    the corpus can be regenerated/reordered).");
+    println!("                                    --limit N = generate N MORE; --dry-run reports");
+    println!("                                    total/done/to-generate/stale; --prune removes");
+    println!("                                    artifacts no corpus line claims; --redo = all.");
     println!();
     println!("  OTHER:");
     println!("    v2 dll                        - Generate v2 DLL bindings");
