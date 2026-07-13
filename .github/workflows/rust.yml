@@ -1971,6 +1971,112 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # ===========================================================================
+  # Headless engine E2E — every JSON scenario in e2e/ (damage / stale-screen /
+  # window-size / resource-leak invariants), run against the real engine with
+  # AZ_BACKEND=headless.
+  #
+  # The scenarios `mount` their own DOM+CSS, so the host binary is irrelevant —
+  # any debug-server-enabled binary works; we reuse the prebuilt E2E DLL from
+  # build_dll_e2e and link the rust hello-world example against it (exactly the
+  # recipe e2e_native's `rust` family uses).
+  #
+  # BLOCKING: this job is in deploy_pages.needs, same as build_rust9x /
+  # e2e_native — a red damage/leak invariant must not ship.
+  # ===========================================================================
+  e2e_headless:
+    name: E2E Headless (e2e/*.json)
+    needs: build_dll_e2e
+    timeout-minutes: 30
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    env:
+      AZ_BACKEND: headless
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install dependencies (Linux)
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev fonts-dejavu-core
+
+      # House-style cache: content-hash key + restore-keys, CACHE_BUST as the
+      # key PREFIX. Caches only the dep subdirs of target/release — the prebuilt
+      # libazul is copied into target/release below and must not be re-uploaded.
+      - name: Rust build cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/release/build
+            target/release/.fingerprint
+          key: e2e-headless-${{ env.CACHE_BUST }}-ubuntu-22.04-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          restore-keys: |
+            e2e-headless-${{ env.CACHE_BUST }}-ubuntu-22.04-${{ hashFiles('Cargo.lock') }}-
+            e2e-headless-${{ env.CACHE_BUST }}-ubuntu-22.04-
+
+      - name: Download prebuilt E2E DLL + codegen
+        uses: actions/download-artifact@v8
+        with:
+          name: azul-e2e-dll-ubuntu-22.04
+          path: e2e-dll
+
+      - name: Place DLL + codegen into the target tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/release target/codegen
+          cp -a e2e-dll/codegen/. target/codegen/
+          cp -a e2e-dll/release/. target/release/
+          rm -rf e2e-dll
+          echo "AZ_LINK_PATH=$PWD/target/release" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
+
+      # link-dynamic links the PREBUILT debug-server DLL (link-static would
+      # rebuild azul-dll WITHOUT debug-server, and AZ_E2E would be a silent
+      # no-op — see the note in scripts/e2e_language_matrix.sh).
+      - name: Build the headless host binary (links the prebuilt DLL)
+        run: cargo build --release -p azul-examples --example hello-world --no-default-features --features link-dynamic
+
+      - name: Run every e2e/*.json scenario (BLOCKING)
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p target/e2e
+          shopt -s nullglob
+          scenarios=(e2e/*.json)
+          if [ ${#scenarios[@]} -eq 0 ]; then
+            echo "FATAL: no scenarios in e2e/ — the gate would be vacuous" >&2
+            exit 1
+          fi
+          failed=0
+          for f in "${scenarios[@]}"; do
+            echo "::group::$f"
+            if AZ_E2E="$f" timeout 300 ./target/release/examples/hello-world; then
+              echo "PASS $f"
+            else
+              echo "::error file=$f::e2e scenario FAILED: $f"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
+
+      - name: Upload damage PNGs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-headless-damage-pngs
+          path: target/e2e/
+          if-no-files-found: ignore
+          retention-days: 7
+
   e2e_native:
     name: AZ_E2E ${{ matrix.family.key }} (${{ matrix.os }})
     needs: build_dll_e2e
@@ -2987,13 +3093,16 @@ jobs:
     # publish a release whose shipped language bindings are red. SKIP (missing
     # toolchain / unrunnable-on-this-OS) never trips the gate, so per-OS gaps
     # don't block; only a real FAILS does.
+    # e2e_headless is likewise BLOCKING: it runs every e2e/*.json engine
+    # scenario (damage / stale-screen / window-size / resource-leak invariants)
+    # headlessly, and a red invariant must not ship.
     # pypi/npm/rubygems/nuget/maven-central are in `needs` so their package
     # artifacts are ready when this job lays out the self-hosted mirrors under
     # azul.rs/ui/{pypi,npm,gems,nuget,maven}. All five (plus their shared
     # build_dll_linux producer) are continue-on-error, so a packager failure
     # can delay but never block the deploy; a missing artifact just makes the
     # corresponding channel skip gracefully.
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, pypi, npm, rubygems, nuget, maven-central]
+    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_headless, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.
