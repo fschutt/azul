@@ -160,6 +160,11 @@ pub struct Schema {
     asserts: Vec<OpDef>,
     /// Ops handled directly by the E2E step loop (not `DebugEvent` variants).
     extra: Vec<String>,
+    /// `DebugEvent` variants that ACTUALLY HAVE A MATCH ARM in the dispatch.
+    /// A declared variant missing from this set is a ZOMBIE: it falls through to
+    /// the catch-all, which logs "Unhandled" and answers `ok` — so a test using
+    /// it PASSES WHILE DOING NOTHING. See `Schema::zombies`.
+    handled: BTreeSet<String>,
 }
 
 impl Schema {
@@ -185,6 +190,25 @@ impl Schema {
     pub fn unclassified(&self) -> Vec<&str> {
         self.all_op_names()
             .filter(|o| classify(o) == OpClass::Unclassified)
+            .collect()
+    }
+    /// Is this op DECLARED in `DebugEvent` but UNHANDLED by the dispatch?
+    ///
+    /// An op with no match arm is not a real op: the catch-all logs "Unhandled"
+    /// and returns `ok`, so the harness reports SUCCESS FOR WORK IT DID NOT DO
+    /// — a vacuously-green test, which is worse than no test because it counts
+    /// as coverage. Derived from the code, never hardcoded: the moment somebody
+    /// gives the variant a real match arm, it stops being a zombie and becomes
+    /// usable again, with no change to `OP_POLICY` and no change here.
+    pub fn is_zombie(&self, op: &str) -> bool {
+        self.ops.iter().any(|o| o.name == op) && !self.handled.contains(op)
+    }
+    /// Every declared-but-unhandled op, in enum order.
+    pub fn zombies(&self) -> Vec<&str> {
+        self.ops
+            .iter()
+            .map(|o| o.name.as_str())
+            .filter(|o| !self.handled.contains(*o))
             .collect()
     }
     /// Classified entries that the engine no longer has — a stale table row.
@@ -216,6 +240,14 @@ impl Schema {
 // is law). An op that appears in `DebugEvent` but NOT in this table is
 // UNCLASSIFIED: it is reported loudly and treated as denied, so a newly added
 // op can never be silently allowed nor silently swallowed.
+//
+// ORTHOGONAL to this table, and NOT expressible in it, is the ZOMBIE check
+// (`Schema::is_zombie`): an op DECLARED in `DebugEvent` but with NO MATCH ARM
+// falls through to the dispatch's catch-all, which answers `ok` without doing
+// anything — so a test using it is vacuously green. That is derived from the
+// code, not from this table, precisely so that an op stops being a zombie the
+// instant it is implemented, with no edit here. An op must be BOTH allowed and
+// non-zombie to reach the generator.
 
 /// Why an op may not appear in a generated behaviour test. `None` == allowed.
 pub type DenyReason = &'static str;
@@ -516,6 +548,39 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         bail!("gen-e2e: no assert_* ops found in full.rs — the dispatch shape changed");
     }
 
+    // ---- 2b. WHICH VARIANTS ACTUALLY HAVE A MATCH ARM ----------------------
+    // The dispatch is `match request.event { DebugEvent::Foo {..} => {…} … _ =>
+    // { log("Unhandled"); send_ok() } }`. A variant with no arm hits that
+    // catch-all and answers OK WITHOUT DOING ANYTHING — a test against it is
+    // vacuously green. Detect it exactly the way the enum itself is detected:
+    // an arm head is a line whose first token is `DebugEvent::<Variant>` (the
+    // head may then continue over several lines for a wide field list, so we
+    // must NOT require `=>` on the same line).
+    let mut handled: BTreeSet<String> = BTreeSet::new();
+    for line in src.lines() {
+        let Some(rest) = line.trim_start().strip_prefix("DebugEvent::") else {
+            continue;
+        };
+        let ident: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if !ident.is_empty() {
+            handled.insert(snake(&ident));
+        }
+    }
+    // Sanity: if the catch-all ever disappears (every variant handled, or the
+    // dispatch restructured), say so rather than silently trusting the scan.
+    if !src.contains("Unhandled:") {
+        eprintln!(
+            "!! [gen-e2e] the `_ => Unhandled` catch-all is gone from {FULL_RS}; re-check the \
+             zombie-op scan in gene2e.rs::parse_schema"
+        );
+    }
+    if handled.is_empty() {
+        bail!("gen-e2e: no `DebugEvent::` match arms found in full.rs — the dispatch shape changed");
+    }
+
     // ---- 3. ops the E2E step loop handles itself (not DebugEvent variants) --
     let extra: Vec<String> = ["commit_undo_snapshot", "undo_app_state", "redo_app_state"]
         .into_iter()
@@ -527,6 +592,7 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         ops,
         asserts,
         extra,
+        handled,
     })
 }
 
@@ -562,13 +628,18 @@ fn eval_fn_params(src: &str, fn_name: &str) -> Vec<(String, bool)> {
 // ===========================================================================
 
 /// The schema section of the agent prompt — rendered from the parsed `full.rs`,
-/// FILTERED THROUGH `OP_POLICY`: only ALLOWED ops are ever shown. A cheap model
-/// cannot use what it is not shown; the gate then enforces the same rule for
-/// real (see `validate`).
+/// FILTERED THROUGH `OP_POLICY` (only ALLOWED ops are ever shown) and through the
+/// ZOMBIE scan (an op with no match arm does nothing, so it is not offered
+/// either). A cheap model cannot use what it is not shown; the gate then enforces
+/// both rules for real (see `validate`).
 fn schema_doc(schema: &Schema) -> String {
     let mut s = String::new();
     s.push_str("### TIMELINE OPS (`{\"op\": \"<name>\", …}`)\n");
-    for op in schema.ops.iter().filter(|o| classify(&o.name) == OpClass::Allowed) {
+    for op in schema
+        .ops
+        .iter()
+        .filter(|o| classify(&o.name) == OpClass::Allowed && !schema.is_zombie(&o.name))
+    {
         let params = if op.params.is_empty() {
             "(no params)".to_string()
         } else {
@@ -764,6 +835,18 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
 
         if !schema.is_known(op) {
             bail!("step {i}: unknown op `{op}` (not in full.rs)");
+        }
+        // ZOMBIE — declared in `DebugEvent`, but no match arm: the dispatch's
+        // catch-all logs "Unhandled" and answers `ok`. A test using it PASSES
+        // WHILE DOING NOTHING. That is the same false-green class as `redraw`,
+        // and it is derived from the code, so it heals itself the moment the op
+        // is implemented.
+        if schema.is_zombie(op) {
+            bail!(
+                "step {i}: op `{op}` is declared in DebugEvent but has no match arm — it \
+                 silently returns ok and does nothing; implement it or remove it before it may \
+                 appear in a test"
+            );
         }
         // SCOPE — the classification table is the law (`OP_POLICY`). The prompt
         // only SHOWS the allowed ops; this is what ENFORCES it.
@@ -1146,7 +1229,7 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
     );
     let allowed = schema
         .all_op_names()
-        .filter(|o| classify(o) == OpClass::Allowed)
+        .filter(|o| classify(o) == OpClass::Allowed && !schema.is_zombie(o))
         .count();
     let denied = schema
         .all_op_names()
@@ -1154,7 +1237,33 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
         .count();
     println!("[gen-e2e] schema: {} ops + {} assertions + {} step-loop ops (parsed from {})",
         schema.ops.len(), schema.asserts.len(), schema.extra.len(), FULL_RS);
-    println!("[gen-e2e] policy: {allowed} allowed / {denied} denied (gene2e.rs::OP_POLICY)");
+    let zombies = schema.zombies();
+    println!(
+        "[gen-e2e] policy: {allowed} allowed / {denied} denied (gene2e.rs::OP_POLICY) / {} zombie \
+         (declared but unhandled in full.rs)",
+        zombies.len()
+    );
+
+    // ZOMBIE OPS: declared in `DebugEvent`, no match arm — the dispatch's
+    // catch-all logs "Unhandled" and returns ok. A test against one is
+    // VACUOUSLY GREEN: it passes while doing nothing, and reports as coverage.
+    // Not offered to the generator, rejected by the gate, shouted about here.
+    if !zombies.is_empty() {
+        eprintln!(
+            "\n!! [gen-e2e] {} ZOMBIE OP(S): declared in DebugEvent but with NO MATCH ARM in the \
+             dispatch. The catch-all logs \"Unhandled\" and answers `ok`, so a test using one \
+             PASSES WHILE DOING NOTHING:",
+            zombies.len()
+        );
+        for o in &zombies {
+            eprintln!("!!   {o}");
+        }
+        eprintln!(
+            "!! They are NOT shown to the generator and are REJECTED by the gate. Implement them \
+             in {FULL_RS} (or delete the variant); they light up again automatically — this scan \
+             is derived from the code, not from a list.\n"
+        );
+    }
 
     // A NEW `DebugEvent` variant must never be silently allowed nor silently
     // denied — it is reported here, and the gate rejects it until classified.
@@ -1546,6 +1655,132 @@ mod tests {
         assert_eq!(classify("brand_new_op"), OpClass::Unclassified);
     }
 
+    // -----------------------------------------------------------------------
+    // Zombie ops: declared in DebugEvent, no match arm -> silently `ok`
+    // -----------------------------------------------------------------------
+
+    /// The five ops that, TODAY, are declared but fall through to the
+    /// `_ => { log("Unhandled"); send_ok() }` catch-all. This list is a PIN, not
+    /// a source of truth: the detection is derived from `full.rs`. When one of
+    /// them is given a real match arm it stops being a zombie automatically —
+    /// and this test tells you to strike it off the pin.
+    const KNOWN_ZOMBIES: &[&str] = &["focus", "blur", "move", "dpi_changed", "get_dom"];
+
+    #[test]
+    fn declared_but_unhandled_ops_are_detected_and_rejected() {
+        let s = parse_schema(&root()).unwrap();
+        for op in KNOWN_ZOMBIES {
+            assert!(s.is_known(op), "`{op}` is not even declared — fix the pin");
+            assert!(
+                s.is_zombie(op),
+                "`{op}` is no longer a zombie (someone implemented it) — remove it from \
+                 KNOWN_ZOMBIES; nothing else needs to change, it is usable again automatically"
+            );
+            // The GATE rejects it: a test using it would pass while doing nothing.
+            let json = with_op(&format!("{{\"op\":\"{op}\"}}"));
+            let e = validate(&s, &json).unwrap_err().to_string();
+            assert!(
+                e.contains("no match arm") && e.contains(op),
+                "gate let the zombie `{op}` through: {e}"
+            );
+        }
+        // ...and an op that IS handled is not a zombie.
+        for op in ["click", "mount", "set_node_text", "scroll", "key_down"] {
+            assert!(!s.is_zombie(op), "`{op}` has a match arm — must not be a zombie");
+        }
+    }
+
+    /// A zombie must never reach the generator: not in the prompt, not in the
+    /// allowed count.
+    #[test]
+    fn no_zombie_is_reachable() {
+        let s = parse_schema(&root()).unwrap();
+        let doc = schema_doc(&s);
+        for z in s.zombies() {
+            assert!(
+                !doc.contains(&format!("- {z} :")),
+                "the prompt offers the zombie op `{z}` — it would generate a vacuously-green test"
+            );
+            assert!(validate(&s, &with_op(&format!("{{\"op\":\"{z}\"}}"))).is_err());
+        }
+        // The pin and the code-derived scan must agree (the scan is in enum
+        // order, so compare as sets).
+        let found: BTreeSet<&str> = s.zombies().into_iter().collect();
+        let pinned: BTreeSet<&str> = KNOWN_ZOMBIES.iter().copied().collect();
+        assert_eq!(
+            found, pinned,
+            "the set of declared-but-unhandled ops changed — update KNOWN_ZOMBIES (an op that \
+             gained a match arm is usable again automatically)"
+        );
+    }
+
+    /// THE SELF-HEALING PROPERTY, proven on a synthetic `full.rs`: the zombie
+    /// scan is derived from the code, so the moment somebody gives `Focus` a
+    /// real match arm it becomes usable again — no edit to `OP_POLICY`, no edit
+    /// to `KNOWN_ZOMBIES`, no edit anywhere in this file.
+    fn synthetic_root(dir: &Path, focus_arm: &str) -> PathBuf {
+        let root = dir.to_path_buf();
+        let f = root.join(FULL_RS);
+        fs::create_dir_all(f.parent().unwrap()).unwrap();
+        fs::write(
+            &f,
+            format!(
+                r#"
+pub enum DebugEvent {{
+    Focus,
+    WaitFrame,
+    SnapshotFrame {{ name: String }},
+}}
+
+fn dispatch(request: Request) {{
+    match request.event {{
+{focus_arm}        DebugEvent::WaitFrame => {{ }}
+        DebugEvent::SnapshotFrame {{ name }} => {{ }}
+        _ => {{
+            log(LogLevel::Warn, format!("Unhandled: {{:?}}", request.event), None);
+            send_ok(request, None, None);
+        }}
+    }}
+}}
+
+fn evaluate_assertion(op: &str) {{
+    match op {{
+        "assert_changed" => eval_assert_changed(params),
+        _ => {{}}
+    }}
+}}
+"#
+            ),
+        )
+        .unwrap();
+        root
+    }
+
+    #[test]
+    fn implementing_a_zombie_re_enables_it_automatically() {
+        let dir = std::env::temp_dir().join(format!("gene2e-zombie-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+
+        // 1. `Focus` is declared but has NO arm -> zombie: hidden from the
+        //    prompt, rejected by the gate.
+        let root = synthetic_root(&dir, "");
+        let s = parse_schema(&root).unwrap();
+        assert!(s.is_zombie("focus"));
+        assert!(!schema_doc(&s).contains("- focus :"));
+        let t = r#"{"name":"x","steps":[{"op":"snapshot_frame","as":"b"},{"op":"focus"},
+            {"op":"assert_changed","vs":"b"}]}"#;
+        assert!(validate(&s, t).unwrap_err().to_string().contains("no match arm"));
+
+        // 2. Somebody implements it in full.rs. NOTHING in gene2e.rs changes.
+        let root = synthetic_root(&dir, "        DebugEvent::Focus => { do_focus(); }\n");
+        let s = parse_schema(&root).unwrap();
+        assert!(!s.is_zombie("focus"), "an implemented op must stop being a zombie");
+        assert!(schema_doc(&s).contains("- focus :"), "and be offered again");
+        validate(&s, t).expect("and be accepted by the gate again");
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn the_prompt_shows_allowed_ops_only() {
         let s = parse_schema(&root()).unwrap();
@@ -1556,6 +1791,9 @@ mod tests {
         for bad in [
             "- redraw", "- relayout", "- create_component", "- export_code", "- get_node_layout",
             "- get_display_list", "- assert_layout", "- assert_screenshot", "- close", "- open_file",
+            // zombies (allowed by policy, but they do nothing — see
+            // `no_zombie_is_reachable`)
+            "- focus :", "- blur :", "- move :", "- dpi_changed :", "- get_dom :",
         ] {
             assert!(!doc.contains(bad), "prompt must not offer `{bad}`");
         }
