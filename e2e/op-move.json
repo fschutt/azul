@@ -1,6 +1,6 @@
 {
   "name": "op_move",
-  "description": "ZOMBIE-OP PROOF (move): `move` was declared with no match arm — it answered `ok` and the window never moved. It now sets FullWindowState.position = WindowPosition::Initialized(x, y) through CallbackChange::ModifyWindowState, the same channel a platform ConfigureNotify / WM_MOVE lands on: apply_user_change() saves previous_window_state, applies the position and runs the state-diff pass, which emits WindowMove (event_determination.rs) and — on a real platform — sync_window_state() pushes the position to the OS window. This test reads the LIVE position back: a vacuous `ok` leaves it Uninitialized and assert_window_state fails with 'window position is not initialized'.",
+  "description": "ZOMBIE-OP PROOF (move): `move` was declared with no match arm — it answered `ok` and the window never moved. It now sets FullWindowState.position = WindowPosition::Initialized(x, y) through CallbackChange::ModifyWindowState, the same channel a platform ConfigureNotify / WM_MOVE lands on: apply_user_change() saves previous_window_state, applies the position and runs the state-diff pass, which emits WindowMove (event_determination.rs) and — on a real platform — sync_window_state() pushes the position to the OS window. This test reads the LIVE position back: a vacuous `ok` leaves it Uninitialized and assert_window_state fails with 'window position is not initialized'. The size is driven with an explicit `resize` op (the `setup` block's window_width / window_height do not currently reach the headless window — separate tracked bug, see e2e/bug-window-size-ignored.json) so that the final two assertions can prove a move does NOT resize the window.",
   "setup": {
     "window_width": 320,
     "window_height": 240,
@@ -20,6 +20,9 @@
     { "op": "wait_frame" },
     { "op": "wait", "ms": 150 },
     { "op": "assert_exists", "selector": "#root" },
+
+    { "op": "resize", "width": 320, "height": 240 },
+    { "op": "wait", "ms": 150 },
 
     { "op": "move", "x": 120, "y": 64 },
     { "op": "wait", "ms": 150 },

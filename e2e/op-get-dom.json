@@ -1,6 +1,6 @@
 {
   "name": "op_get_dom",
-  "description": "ZOMBIE-OP PROOF (get_dom): `get_dom` was declared with no match arm — it answered `ok` with NO DATA AT ALL, so a caller reading the DOM got nothing back and the test still went green. It now returns the current DOM as a nested tree (index / type / id / classes / text / children) plus the serialized HTML, built by build_dom_response() from the live StyledDom in layout_results. `assert_dom` is evaluated through THAT SAME builder, so these assertions cover the payload the op hands out, not a parallel re-derivation of it. The second half proves the read is LIVE and not a canned/stale answer: after re-mounting a different DOM, the tree must carry the new content and must no longer carry the old.",
+  "description": "ZOMBIE-OP PROOF (get_dom): `get_dom` was declared with no match arm — it answered `ok` with NO DATA AT ALL, so a caller reading the DOM got nothing back and the test still went green. It now returns the current DOM as a nested tree (index / type / id / classes / text / children) plus the serialized HTML, built by build_dom_response() from the live StyledDom in layout_results. `assert_dom` is evaluated through THAT SAME builder, so these assertions cover the payload the op hands out, not a parallel re-derivation of it. The second half proves the read is LIVE and not a canned/stale answer: after re-mounting a different DOM, the tree must carry the new content and must no longer carry the old. NOTE ON WHY `assert_response` IS HERE: a query op's whole product IS its response, and every other assertion re-reads the engine, so it would stay green even if `get_dom` returned nothing — which is exactly what the zombie did (`ok` with `data: None`). `assert_response` asserts the payload the op actually handed back (its ResponseData tag + content), so THIS test goes red against the zombie. `assert_dom` then checks the tree's shape through the same builder the op uses.",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -27,6 +27,10 @@
     { "op": "assert_exists", "selector": "#root" },
 
     { "op": "get_dom" },
+    { "op": "assert_response", "type": "dom" },
+    { "op": "assert_response", "contains": "GET_DOM_BEFORE" },
+    { "op": "assert_response", "contains": "\"children\"" },
+
     { "op": "assert_dom", "min_node_count": 4 },
     { "op": "assert_dom", "contains": "GET_DOM_BEFORE" },
     { "op": "assert_dom", "contains": "root" },
@@ -52,6 +56,9 @@
 
     { "op": "assert_exists", "selector": "#root2" },
     { "op": "get_dom" },
+    { "op": "assert_response", "type": "dom" },
+    { "op": "assert_response", "contains": "GET_DOM_AFTER" },
+
     { "op": "assert_dom", "contains": "GET_DOM_AFTER" },
     { "op": "assert_dom", "not_contains": "GET_DOM_BEFORE" },
     { "op": "assert_dom", "contains": "card" },

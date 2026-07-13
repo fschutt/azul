@@ -5348,6 +5348,101 @@ fn resume_e2e_continuation(
                 return needs_update;
             }
 
+            // `assert_response` asserts on the RESPONSE PAYLOAD of the previous
+            // step. It lives here, not in `evaluate_assertion`, because it is the
+            // only assertion that needs the step history (`cont`) rather than the
+            // engine state.
+            //
+            // WHY IT EXISTS: a QUERY op (get_dom, get_state, …) has no side effect
+            // — its whole product is the response. Every other assertion re-reads
+            // the engine, so it would pass even if the op returned nothing at all.
+            // That is exactly the zombie failure mode: the `_ => Unhandled`
+            // catch-all answers `ok` with `data: None`. This is the assertion that
+            // catches it: `{"op":"get_dom"}, {"op":"assert_response","type":"dom"}`
+            // goes RED against a zombie and green against a real handler.
+            //
+            // Params: `type` (the ResponseData tag, e.g. "dom") and/or `contains`
+            // (substring of the serialized response JSON).
+            if op == "assert_response" {
+                let prev = cont
+                    .current_step_results
+                    .iter()
+                    .rev()
+                    .find(|r| r.op != "assert_response");
+                let response = prev.and_then(|r| r.response.as_ref());
+
+                let result = match response {
+                    None => AssertionResult::fail_with(
+                        "assert_response: the previous step returned NO response data (an op \
+                         that answers `ok` with nothing is doing nothing — see the zombie-op \
+                         catch-all in process_debug_event)"
+                            .to_string(),
+                        "a response payload".to_string(),
+                        "null".to_string(),
+                    ),
+                    Some(resp) => {
+                        let text = resp.to_string();
+                        let want_type = step.params.get("type").and_then(|v| v.as_str());
+                        let want_sub = step.params.get("contains").and_then(|v| v.as_str());
+                        let actual_type =
+                            resp.get("type").and_then(|v| v.as_str()).unwrap_or("<none>");
+
+                        if want_type.is_none() && want_sub.is_none() {
+                            AssertionResult::fail(
+                                "assert_response: needs 'type' and/or 'contains'",
+                            )
+                        } else if want_type.is_some_and(|t| t != actual_type) {
+                            AssertionResult::fail_with(
+                                "assert_response: wrong response type".to_string(),
+                                want_type.unwrap_or_default().to_string(),
+                                actual_type.to_string(),
+                            )
+                        } else if want_sub.is_some_and(|s| !text.contains(s)) {
+                            AssertionResult::fail_with(
+                                "assert_response: response does not contain the expected \
+                                 substring"
+                                    .to_string(),
+                                want_sub.unwrap_or_default().to_string(),
+                                text,
+                            )
+                        } else {
+                            AssertionResult::pass(format!(
+                                "assert_response: type='{actual_type}' ({} bytes)",
+                                text.len()
+                            ))
+                        }
+                    }
+                };
+
+                if result.passed {
+                    cont.current_step_results.push(E2eStepResult {
+                        step_index, op: op.to_string(), status: "pass".into(),
+                        duration_ms: step_start.elapsed().as_millis() as u64,
+                        logs: vec![result.message], screenshot: None, error: None, response: None,
+                    });
+                } else {
+                    cont.current_test_failed = true;
+                    let error_msg = if let (Some(ref exp), Some(ref act)) =
+                        (&result.expected, &result.actual)
+                    {
+                        format!("{}: expected {}, got {}", result.message, exp, act)
+                    } else {
+                        result.message.clone()
+                    };
+                    cont.current_step_results.push(E2eStepResult {
+                        step_index, op: op.to_string(), status: "fail".into(),
+                        duration_ms: step_start.elapsed().as_millis() as u64,
+                        logs: vec![], screenshot: None, error: Some(error_msg), response: None,
+                    });
+                }
+
+                cont.step_idx = step_index + 1;
+                if cont.current_test_failed && !continue_on_failure {
+                    break;
+                }
+                continue;
+            }
+
             // Assertion steps
             if op.starts_with("assert_") {
                 let result = evaluate_assertion(op, &step.params, callback_info, &app_data);
