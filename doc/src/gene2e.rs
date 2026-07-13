@@ -172,6 +172,207 @@ impl Schema {
     fn is_known(&self, op: &str) -> bool {
         self.known_op(op).is_some() || self.extra.iter().any(|e| e == op)
     }
+    /// Every op the engine has, in one list (timeline ops, step-loop ops, asserts).
+    fn all_op_names(&self) -> impl Iterator<Item = &str> {
+        self.ops
+            .iter()
+            .chain(self.asserts.iter())
+            .map(|o| o.name.as_str())
+            .chain(self.extra.iter().map(String::as_str))
+    }
+    /// Ops the engine has that NOBODY classified — a new `DebugEvent` variant.
+    /// These are denied by the gate and must be surfaced loudly, never ignored.
+    pub fn unclassified(&self) -> Vec<&str> {
+        self.all_op_names()
+            .filter(|o| classify(o) == OpClass::Unclassified)
+            .collect()
+    }
+    /// Classified entries that the engine no longer has — a stale table row.
+    pub fn stale_policy_entries(&self) -> Vec<&'static str> {
+        OP_POLICY
+            .iter()
+            .map(|(n, _)| *n)
+            .filter(|n| !self.is_known(n))
+            .collect()
+    }
+}
+
+// ===========================================================================
+// OP CLASSIFICATION — the test surface, carved out of the debug protocol
+// ===========================================================================
+//
+// `DebugEvent` is the DEBUG / VISUAL-EDITOR protocol. It is NOT a test surface,
+// and handing all of it to a cheap generator produces self-defeating tests.
+//
+// What these tests ARE: HEADLESS BEHAVIOUR tests over the cpurender path —
+//     MOCK INPUT EVENT -> engine -> CORRECT DAMAGE PATCH / correct behaviour.
+// Real OS input is out of scope (manual testing owns it). Layout/geometry
+// correctness is out of scope (`azul-doc reftest` owns it). Everything below
+// the OS boundary — every Callback API path — is in scope.
+//
+// The table below classifies EVERY op. It is the law: the prompt is rendered
+// from the ALLOWED half (a cheap model cannot use what it is not shown), and
+// the validation gate rejects the DENIED half (the prompt is advisory, the gate
+// is law). An op that appears in `DebugEvent` but NOT in this table is
+// UNCLASSIFIED: it is reported loudly and treated as denied, so a newly added
+// op can never be silently allowed nor silently swallowed.
+
+/// Why an op may not appear in a generated behaviour test. `None` == allowed.
+pub type DenyReason = &'static str;
+
+/// THE CLASSIFICATION TABLE. `(op, None)` = allowed, `(op, Some(reason))` = denied.
+/// Keyed by the snake_case `op` string as it appears in the JSON.
+#[rustfmt::skip]
+const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
+    // -- ALLOW: MOCK INPUT — the primary drive surface ----------------------
+    ("mouse_move",                None),
+    ("mouse_down",                None),
+    ("mouse_up",                  None),
+    ("click",                     None),
+    ("click_node",                None),
+    ("double_click",              None),
+    ("scroll",                    None),
+    ("key_down",                  None),
+    ("key_up",                    None),
+    ("text_input",                None),
+    ("touch_start",               None),
+    ("touch_move",                None),
+    ("touch_end",                 None),
+    ("touch_cancel",              None),
+    ("pen_down",                  None),
+    ("pen_move",                  None),
+    ("pen_up",                    None),
+    ("swipe",                     None),
+    ("pinch",                     None),
+    ("rotate",                    None),
+    ("long_press",                None),
+    ("resize",                    None),
+    ("move",                      None),
+    ("dpi_changed",               None),
+    ("hit_test",                  None),
+    ("focus",                     None),
+    ("blur",                      None),
+
+    // -- ALLOW: APP-CALLBACK API — a real app mutates the DOM from a callback,
+    //    so this is a legitimate second drive surface. ----------------------
+    ("set_node_text",             None),
+    ("set_node_css_override",     None),
+    ("set_node_classes",          None),
+    ("insert_node",               None),
+    ("delete_node",               None),
+    ("set_app_state",             None),
+    ("scroll_node_to",            None),
+    ("scroll_node_by",            None),
+    ("scroll_into_view",          None),
+    ("commit_undo_snapshot",      None),
+    ("undo_app_state",            None),
+    ("redo_app_state",            None),
+
+    // -- ALLOW: HARNESS CONTROL --------------------------------------------
+    ("mount",                     None),
+    ("unmount",                   None),
+    ("tick_ms",                   None),
+    ("wait",                      None),
+    ("wait_frame",                None),
+    ("reset_frame_counters",      None),
+    ("snapshot_frame",            None),
+    ("snapshot_resources",        None),
+    ("get_frame_report",          None),
+    ("capture_damage_png",        None),
+    ("take_screenshot",           None),
+    ("take_native_screenshot",    None),
+
+    // -- ALLOW: OBSERVATION (state queries; they carry no geometry) ---------
+    ("get_state",                 None),
+    ("get_app_state",             None),
+    ("get_dom",                   None),
+    ("get_dom_tree",              None),
+    ("get_node_hierarchy",        None),
+    ("get_html_string",           None),
+    ("get_node_css_properties",   None),
+    ("get_node_dataset",          None),
+    ("get_focus_state",           None),
+    ("get_cursor_state",          None),
+    ("get_selection_state",       None),
+    ("dump_selection_manager",    None),
+    ("get_scroll_states",         None),
+    ("get_scrollable_nodes",      None),
+    ("get_scrollbar_info",        None),
+    ("get_virtual_view_states",   None),
+    ("get_drag_state",            None),
+    ("get_drag_context",          None),
+    ("find_node_by_text",         None),
+
+    // -- DENY 1: THE CRITICAL ONES -----------------------------------------
+    // No real caller can reach these; they exist for the debugger, and they
+    // MANUFACTURE THE VERY EFFECT UNDER TEST. `set_node_text` -> `redraw` ->
+    // `assert_changed` passes even when the invalidation path is completely
+    // broken — i.e. it masks the exact stale-screen bug this suite exists to
+    // catch. The engine must decide to redraw/relayout BY ITSELF.
+    ("redraw",   Some("debugger-only: forces the repaint the test is supposed to prove the engine \
+                       schedules by itself — masks a broken invalidation path")),
+    ("relayout", Some("debugger-only: forces the relayout the test is supposed to prove the engine \
+                       schedules by itself — masks a broken invalidation path")),
+
+    // -- DENY 2: the component / IDE family — out of scope entirely ---------
+    ("create_component",           Some("visual-editor/IDE surface, not engine behaviour")),
+    ("delete_component",           Some("visual-editor/IDE surface, not engine behaviour")),
+    ("update_component",           Some("visual-editor/IDE surface, not engine behaviour")),
+    ("update_component_render_fn", Some("visual-editor/IDE surface, not engine behaviour")),
+    ("update_component_compile_fn",Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_component_preview",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_component_registry",     Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_component_render_tree",  Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_component_source",       Some("visual-editor/IDE surface, not engine behaviour")),
+    ("create_library",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("delete_library",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_libraries",              Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_library_components",     Some("visual-editor/IDE surface, not engine behaviour")),
+    ("import_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
+    ("export_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
+    ("export_code",                Some("codegen surface, not engine behaviour")),
+    ("export_code_zip",            Some("codegen surface, not engine behaviour")),
+    ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),
+    ("run_e2e_tests",              Some("the test runner itself — a test may not recurse into it")),
+    ("get_logs",                   Some("debug-server tooling, asserts nothing about the engine")),
+    ("open_file",                  Some("editor/host file I/O, outside the headless engine")),
+    ("close",                      Some("tears the window down — ends the timeline, tests nothing")),
+
+    // -- DENY 3: geometry queries ------------------------------------------
+    // `azul-doc reftest` owns layout/geometry correctness. These are the side
+    // door through which a generator smuggles a geometry assertion back in.
+    ("get_node_layout",        Some("geometry — `azul-doc reftest` owns layout correctness")),
+    ("get_all_nodes_layout",   Some("geometry — `azul-doc reftest` owns layout correctness")),
+    ("get_layout_tree",        Some("geometry — `azul-doc reftest` owns layout correctness")),
+    ("get_display_list",       Some("geometry — `azul-doc reftest` owns layout correctness")),
+    ("get_virtual_view_layout",Some("geometry — `azul-doc reftest` owns layout correctness")),
+
+    // -- DENY: assertions that leave the behaviour surface ------------------
+    ("assert_layout",     Some("geometry — `azul-doc reftest` owns layout correctness")),
+    ("assert_screenshot", Some("needs a reference PNG the generator cannot have; assert \
+                                RELATIVELY, vs. an earlier snapshot")),
+];
+
+/// The verdict for one op.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpClass {
+    Allowed,
+    Denied(DenyReason),
+    /// In `DebugEvent`, but nobody classified it. Reported loudly; denied, so it
+    /// can never be silently smuggled into a generated test.
+    Unclassified,
+}
+
+/// Classify one op. `assert_*` ops are observation by construction (they read
+/// engine state and can only fail a test), so any assertion not explicitly
+/// denied above is allowed.
+pub fn classify(op: &str) -> OpClass {
+    match OP_POLICY.iter().find(|(n, _)| *n == op) {
+        Some((_, None)) => OpClass::Allowed,
+        Some((_, Some(why))) => OpClass::Denied(why),
+        None if op.starts_with("assert_") => OpClass::Allowed,
+        None => OpClass::Unclassified,
+    }
 }
 
 fn snake(camel: &str) -> String {
@@ -360,11 +561,14 @@ fn eval_fn_params(src: &str, fn_name: &str) -> Vec<(String, bool)> {
 // The prompt
 // ===========================================================================
 
-/// The schema section of the agent prompt — rendered from the parsed `full.rs`.
+/// The schema section of the agent prompt — rendered from the parsed `full.rs`,
+/// FILTERED THROUGH `OP_POLICY`: only ALLOWED ops are ever shown. A cheap model
+/// cannot use what it is not shown; the gate then enforces the same rule for
+/// real (see `validate`).
 fn schema_doc(schema: &Schema) -> String {
     let mut s = String::new();
     s.push_str("### TIMELINE OPS (`{\"op\": \"<name>\", …}`)\n");
-    for op in &schema.ops {
+    for op in schema.ops.iter().filter(|o| classify(&o.name) == OpClass::Allowed) {
         let params = if op.params.is_empty() {
             "(no params)".to_string()
         } else {
@@ -379,11 +583,19 @@ fn schema_doc(schema: &Schema) -> String {
             None => s.push_str(&format!("- {} : {}\n", op.name, params)),
         }
     }
-    for e in &schema.extra {
+    for e in schema
+        .extra
+        .iter()
+        .filter(|e| classify(e) == OpClass::Allowed)
+    {
         s.push_str(&format!("- {e} : (no params)\n"));
     }
     s.push_str("\n### ASSERTIONS\n");
-    for a in &schema.asserts {
+    for a in schema
+        .asserts
+        .iter()
+        .filter(|a| classify(&a.name) == OpClass::Allowed)
+    {
         let params = if a.params.is_empty() {
             "(no params)".to_string()
         } else {
@@ -397,6 +609,10 @@ fn schema_doc(schema: &Schema) -> String {
     }
     s.push_str(
         "\n`?` = optional. Params NOT listed here do not exist — do not invent any.\n\
+         The op list above is EXHAUSTIVE: an op you do not see above is REJECTED by the \
+         validator, and your test is thrown away. In particular there is NO op that forces a \
+         repaint or a relayout — the engine must decide to do that BY ITSELF in response to the \
+         input/mutation you perform; that decision is exactly what these tests measure.\n\
          `vs` always names a snapshot created EARLIER in the same timeline by \
          `snapshot_frame {\"as\": …}` (pixels) or `snapshot_resources {\"as\": …}` \
          (resource counters).\n",
@@ -441,6 +657,12 @@ pixel coordinate, size, colour or screenshot: every assertion must be about the
 ENGINE's behaviour, expressed RELATIVELY (vs. a snapshot you took earlier in the
 same timeline). `assert_screenshot` is likewise forbidden — it needs a reference PNG
 you cannot have.
+
+NEVER force the effect you are testing. A test may DRIVE the engine (mock input, or a
+DOM/state mutation of the kind an app callback performs) and then OBSERVE what the
+engine decided to do. It may never tell the engine to repaint or to re-layout: that
+decision IS the thing under test, and forcing it would make the test pass even with the
+invalidation path completely broken. Only the ops listed above exist; use nothing else.
 
 ## HOW TO TURN THE ONE-LINER INTO A TIMELINE
 1. `mount` the DOM the line describes (invent plausible, minimal HTML+CSS for it).
@@ -543,9 +765,20 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
         if !schema.is_known(op) {
             bail!("step {i}: unknown op `{op}` (not in full.rs)");
         }
-        // SCOPE: layout-correctness is reftest's job, not e2e's.
-        if op == "assert_layout" || op == "assert_screenshot" {
-            bail!("step {i}: `{op}` is out of scope for a generated behaviour test");
+        // SCOPE — the classification table is the law (`OP_POLICY`). The prompt
+        // only SHOWS the allowed ops; this is what ENFORCES it.
+        match classify(op) {
+            OpClass::Allowed => {}
+            OpClass::Denied(why) => {
+                bail!("step {i}: op `{op}` is DENIED for generated behaviour tests — {why}");
+            }
+            OpClass::Unclassified => {
+                bail!(
+                    "step {i}: op `{op}` is UNCLASSIFIED — it exists in DebugEvent but no row of \
+                     gene2e.rs::OP_POLICY covers it. Classify it (allow or deny, with a reason) \
+                     before it may appear in a test."
+                );
+            }
         }
         if let Some(def) = schema.known_op(op) {
             for (p, required) in &def.params {
@@ -911,8 +1144,37 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
         opts.effort,
         opts.jobs
     );
+    let allowed = schema
+        .all_op_names()
+        .filter(|o| classify(o) == OpClass::Allowed)
+        .count();
+    let denied = schema
+        .all_op_names()
+        .filter(|o| matches!(classify(o), OpClass::Denied(_)))
+        .count();
     println!("[gen-e2e] schema: {} ops + {} assertions + {} step-loop ops (parsed from {})",
         schema.ops.len(), schema.asserts.len(), schema.extra.len(), FULL_RS);
+    println!("[gen-e2e] policy: {allowed} allowed / {denied} denied (gene2e.rs::OP_POLICY)");
+
+    // A NEW `DebugEvent` variant must never be silently allowed nor silently
+    // denied — it is reported here, and the gate rejects it until classified.
+    let unclassified = schema.unclassified();
+    if !unclassified.is_empty() {
+        eprintln!(
+            "\n!! [gen-e2e] {} UNCLASSIFIED OP(S) in DebugEvent — no OP_POLICY row covers them:",
+            unclassified.len()
+        );
+        for o in &unclassified {
+            eprintln!("!!   {o}");
+        }
+        eprintln!(
+            "!! They are NOT shown to the generator and are REJECTED by the gate. Add a row to \
+             gene2e.rs::OP_POLICY (allow, or deny with a one-line reason).\n"
+        );
+    }
+    for o in schema.stale_policy_entries() {
+        eprintln!("!! [gen-e2e] OP_POLICY classifies `{o}`, which no longer exists in full.rs");
+    }
     if renamed > 0 {
         println!("[gen-e2e] {renamed} artifact(s) renumbered after corpus drift.");
     }
@@ -1162,6 +1424,141 @@ mod tests {
         // no assertion at all
         let inert = r#"{"name":"x","steps":[{"op":"wait_frame"}]}"#;
         assert!(validate(&s, inert).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Op classification
+    // -----------------------------------------------------------------------
+
+    /// A step list wrapped in the minimum a test needs to reach the op check.
+    fn with_op(step: &str) -> String {
+        format!(
+            r#"{{"name":"x","steps":[{{"op":"snapshot_frame","as":"before"}},{step},
+                {{"op":"assert_changed","vs":"before"}}]}}"#
+        )
+    }
+
+    #[test]
+    fn the_gate_rejects_a_test_that_forces_the_effect_under_test() {
+        let s = parse_schema(&root()).unwrap();
+
+        // THE regression this whole classification exists for: `set_node_text`
+        // -> `redraw` -> `assert_changed` PASSES even when the invalidation
+        // path is broken, because `redraw` manufactures the damage itself.
+        let masked = r#"{"name":"stale_text","steps":[
+            {"op":"mount","html":["<div id=\"a\">hi</div>"]},
+            {"op":"snapshot_frame","as":"before"},
+            {"op":"set_node_text","node_id":1,"text":"bye"},
+            {"op":"redraw"},
+            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"#;
+        let e = validate(&s, masked).unwrap_err().to_string();
+        assert!(e.contains("`redraw`") && e.contains("DENIED"), "{e}");
+
+        // ...and the same test WITHOUT the forced redraw is exactly what we want.
+        let honest = r#"{"name":"stale_text","steps":[
+            {"op":"mount","html":["<div id=\"a\">hi</div>"]},
+            {"op":"snapshot_frame","as":"before"},
+            {"op":"set_node_text","node_id":1,"text":"bye"},
+            {"op":"wait_frame"},
+            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"#;
+        validate(&s, honest).unwrap();
+
+        // `relayout` is denied for the same reason.
+        assert!(validate(&s, &with_op(r#"{"op":"relayout"}"#)).is_err());
+        assert!(matches!(classify("redraw"), OpClass::Denied(_)));
+        assert!(matches!(classify("relayout"), OpClass::Denied(_)));
+    }
+
+    #[test]
+    fn the_gate_rejects_the_ide_and_geometry_families() {
+        let s = parse_schema(&root()).unwrap();
+        for op in [
+            "create_component",
+            "delete_component",
+            "update_component",
+            "update_component_render_fn",
+            "update_component_compile_fn",
+            "create_library",
+            "delete_library",
+            "export_code",
+            "export_code_zip",
+            "get_component_registry",
+            "resolve_function_pointers",
+            "run_e2e_tests",
+            "get_logs",
+            "open_file",
+            "close",
+            // geometry — reftest's job, and the side door for a smuggled
+            // geometry assertion
+            "get_node_layout",
+            "get_all_nodes_layout",
+            "get_layout_tree",
+            "get_display_list",
+            "get_virtual_view_layout",
+            "assert_layout",
+            "assert_screenshot",
+        ] {
+            assert!(s.is_known(op), "`{op}` is not a real op — fix the table");
+            assert!(
+                matches!(classify(op), OpClass::Denied(_)),
+                "`{op}` must be denied"
+            );
+            let json = with_op(&format!("{{\"op\":\"{op}\"}}"));
+            assert!(validate(&s, &json).is_err(), "gate let `{op}` through");
+        }
+    }
+
+    #[test]
+    fn the_drive_and_observe_surfaces_are_allowed() {
+        for op in [
+            "click", "click_node", "double_click", "mouse_down", "mouse_move", "mouse_up",
+            "key_down", "key_up", "text_input", "scroll", "touch_start", "touch_move", "touch_end",
+            "touch_cancel", "pen_down", "pen_move", "pen_up", "pinch", "rotate", "swipe",
+            "long_press", "move", "resize", "dpi_changed", "hit_test", "focus", "blur",
+            "set_node_text", "set_node_css_override", "set_node_classes", "insert_node",
+            "delete_node", "set_app_state", "scroll_node_to", "scroll_node_by", "scroll_into_view",
+            "commit_undo_snapshot", "undo_app_state", "redo_app_state", "mount", "unmount",
+            "tick_ms", "wait", "wait_frame", "reset_frame_counters", "snapshot_frame",
+            "snapshot_resources", "get_frame_report", "capture_damage_png", "get_state",
+            "get_app_state", "get_dom", "get_focus_state", "get_scroll_states",
+            "get_selection_state", "get_cursor_state", "assert_changed", "assert_idle_stable",
+        ] {
+            assert_eq!(classify(op), OpClass::Allowed, "`{op}` must be allowed");
+        }
+    }
+
+    /// A NEW `DebugEvent` variant must be surfaced, not silently allowed/denied.
+    #[test]
+    fn every_real_op_is_classified() {
+        let s = parse_schema(&root()).unwrap();
+        assert_eq!(
+            s.unclassified(),
+            Vec::<&str>::new(),
+            "these ops exist in DebugEvent but no OP_POLICY row covers them — classify them \
+             (allow, or deny with a one-line reason). Until then gen-e2e reports them loudly and \
+             the gate rejects any test using them."
+        );
+        assert_eq!(
+            s.stale_policy_entries(),
+            Vec::<&'static str>::new(),
+            "OP_POLICY classifies ops that no longer exist in full.rs"
+        );
+        assert_eq!(classify("brand_new_op"), OpClass::Unclassified);
+    }
+
+    #[test]
+    fn the_prompt_shows_allowed_ops_only() {
+        let s = parse_schema(&root()).unwrap();
+        let doc = schema_doc(&s);
+        for good in ["- click :", "- set_node_text :", "- assert_changed :", "- undo_app_state :"] {
+            assert!(doc.contains(good), "prompt is missing `{good}`");
+        }
+        for bad in [
+            "- redraw", "- relayout", "- create_component", "- export_code", "- get_node_layout",
+            "- get_display_list", "- assert_layout", "- assert_screenshot", "- close", "- open_file",
+        ] {
+            assert!(!doc.contains(bad), "prompt must not offer `{bad}`");
+        }
     }
 
     // -----------------------------------------------------------------------
