@@ -8072,6 +8072,8 @@ impl LayoutWindow {
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
             // Rebuilt wholesale by the very layout pass that triggered this remap:
+            // Exempt: damage rects + frame counters only, keyed by nothing.
+            frame_report: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
