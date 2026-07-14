@@ -37,9 +37,9 @@ comrak = { version = "0.48.0", default-features = false }
 # NB: `a11y` is required — layout/src/window.rs references managers::a11y::A11yManager
 # unconditionally, so azul-layout cannot compile without it (the Cargo `a11y` feature
 # is effectively mandatory). Without it this dep build fails with unresolved `accesskit`.
-azul-layout = { version = "0.0.9", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "text_layout_hyphenation", "font_loading", "font_async_registry", "cpurender", "a11y"]}
-azul-core = { version = "0.0.8", path = "../core", default-features = false, features = ["std"]}
-azul-css = { version = "0.0.8", path = "../css", default-features = false, features = ["parser"]}
+azul-layout = { version = "0.0.10", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "text_layout_hyphenation", "font_loading", "font_async_registry", "cpurender", "a11y"]}
+azul-core = { version = "0.0.9", path = "../core", default-features = false, features = ["std"]}
+azul-css = { version = "0.0.9", path = "../css", default-features = false, features = ["parser"]}
 chrono = "0.4.40"
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 base64 = "0.22.1"

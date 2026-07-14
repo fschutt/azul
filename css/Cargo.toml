@@ -1,7 +1,7 @@
 [package]
 readme = "../README.md"
 name = "azul-css"
-version = "0.0.8"
+version = "0.0.9"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''

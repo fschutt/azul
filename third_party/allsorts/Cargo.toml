@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.83"
 name = "allsorts-azul"
-version = "0.17.0"
+version = "0.17.1"
 authors = [
     "YesLogic Pty. Ltd. <info@yeslogic.com>",
     "Felix Schütt <felix.schuett@maps4print.com>",

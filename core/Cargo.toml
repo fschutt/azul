@@ -1,7 +1,7 @@
 [package]
 readme = "../README.md"
 name = "azul-core"
-version = "0.0.8"
+version = "0.0.9"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -16,7 +16,7 @@ resolver = "2"
 autoexamples = false
 
 [dependencies]
-azul-css                = { version = "0.0.8", path = "../css", default-features = false, features = ["parser"] }
+azul-css                = { version = "0.0.9", path = "../css", default-features = false, features = ["parser"] }
 libm                    = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
 rust-fontconfig = { version = "4.4.4", default-features = false, features = ["std"] }
