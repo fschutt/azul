@@ -5947,3 +5947,1988 @@ get_css_property_value!(get_grid_row_prop, get_grid_row, LayoutGridRowValue);
         .and_then(|v| v.get_property())
         .cloned()
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use azul_core::{dom::Dom, ua_css::ResolvedUaScrollbar};
+    use azul_css::{
+        css::Css,
+        props::style::{
+            background::StyleBackgroundContent,
+            scrollbar::{ScrollbarColorCustom, ScrollbarFadeDelay, ScrollbarFadeDuration},
+        },
+    };
+    use rust_fontconfig::{CssFallbackGroup, FontMatch};
+
+    use super::*;
+
+    // ---------------------------------------------------------------------
+    // helpers
+    // ---------------------------------------------------------------------
+
+    /// Every `LayoutOverflow` variant.
+    const ALL_OVERFLOW: [LayoutOverflow; 5] = [
+        LayoutOverflow::Scroll,
+        LayoutOverflow::Auto,
+        LayoutOverflow::Hidden,
+        LayoutOverflow::Visible,
+        LayoutOverflow::Clip,
+    ];
+
+    /// Every `LayoutDisplay` variant.
+    const ALL_DISPLAY: [LayoutDisplay; 23] = [
+        LayoutDisplay::None,
+        LayoutDisplay::Block,
+        LayoutDisplay::Inline,
+        LayoutDisplay::InlineBlock,
+        LayoutDisplay::Flex,
+        LayoutDisplay::InlineFlex,
+        LayoutDisplay::Table,
+        LayoutDisplay::InlineTable,
+        LayoutDisplay::TableRowGroup,
+        LayoutDisplay::TableHeaderGroup,
+        LayoutDisplay::TableFooterGroup,
+        LayoutDisplay::TableRow,
+        LayoutDisplay::TableColumnGroup,
+        LayoutDisplay::TableColumn,
+        LayoutDisplay::TableCell,
+        LayoutDisplay::TableCaption,
+        LayoutDisplay::FlowRoot,
+        LayoutDisplay::ListItem,
+        LayoutDisplay::RunIn,
+        LayoutDisplay::Marker,
+        LayoutDisplay::Grid,
+        LayoutDisplay::InlineGrid,
+        LayoutDisplay::Contents,
+    ];
+
+    /// Every `PageBreak` variant.
+    const ALL_PAGE_BREAK: [PageBreak; 12] = [
+        PageBreak::Auto,
+        PageBreak::Avoid,
+        PageBreak::Always,
+        PageBreak::All,
+        PageBreak::Page,
+        PageBreak::AvoidPage,
+        PageBreak::Left,
+        PageBreak::Right,
+        PageBreak::Recto,
+        PageBreak::Verso,
+        PageBreak::Column,
+        PageBreak::AvoidColumn,
+    ];
+
+    /// Every `BreakInside` variant.
+    const ALL_BREAK_INSIDE: [BreakInside; 4] = [
+        BreakInside::Auto,
+        BreakInside::Avoid,
+        BreakInside::AvoidPage,
+        BreakInside::AvoidColumn,
+    ];
+
+    /// Every `LayoutScrollbarWidth` variant.
+    const ALL_SCROLLBAR_WIDTH: [LayoutScrollbarWidth; 3] = [
+        LayoutScrollbarWidth::Auto,
+        LayoutScrollbarWidth::Thin,
+        LayoutScrollbarWidth::None,
+    ];
+
+    /// Every `ScrollbarVisibilityMode` variant.
+    const ALL_VISIBILITY: [ScrollbarVisibilityMode; 3] = [
+        ScrollbarVisibilityMode::Always,
+        ScrollbarVisibilityMode::WhenScrolling,
+        ScrollbarVisibilityMode::Auto,
+    ];
+
+    fn parse(css: &str) -> Css {
+        azul_css::parser2::new_from_str(css).0
+    }
+
+    /// `<body>` with `n` `<div>` children, cascaded against `css`.
+    /// Node ids are pre-order: `0` = body, `1..=n` = the children.
+    fn body_with_divs(n: usize, css: &str) -> StyledDom {
+        let children: Vec<Dom> = (0..n).map(|_| Dom::create_div()).collect();
+        let mut dom = Dom::create_body().with_children(children.into());
+        StyledDom::create(&mut dom, parse(css))
+    }
+
+    /// `<body>` with a single text child.
+    fn body_with_text(text: &str) -> StyledDom {
+        let mut dom = Dom::create_body().with_children(vec![Dom::create_text(text)].into());
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    fn normal() -> StyledNodeState {
+        StyledNodeState::default()
+    }
+
+    /// A non-`Normal` pseudo-state; forces every getter off its compact-cache
+    /// fast path and onto the full cascade walk.
+    fn hovered() -> StyledNodeState {
+        StyledNodeState {
+            hover: true,
+            ..StyledNodeState::default()
+        }
+    }
+
+    fn state_of(sd: &StyledDom, id: NodeId) -> StyledNodeState {
+        sd.get_styled_node_state(&id)
+    }
+
+    fn empty_chains() -> ResolvedFontChains {
+        ResolvedFontChains {
+            chains: HashMap::new(),
+        }
+    }
+
+    fn chain_key(family: &str) -> FontChainKey {
+        FontChainKey {
+            font_families: vec![family.to_string()],
+            weight: FcWeight::Normal,
+            italic: false,
+            oblique: false,
+        }
+    }
+
+    /// A `FontMatch` covering exactly `ranges`.
+    fn font_match(id: u128, ranges: &[(u32, u32)]) -> FontMatch {
+        FontMatch {
+            id: FontId(id),
+            unicode_ranges: ranges
+                .iter()
+                .map(|&(start, end)| UnicodeRange { start, end })
+                .collect(),
+            fallbacks: Vec::new(),
+        }
+    }
+
+    fn chain_with(groups: Vec<CssFallbackGroup>, unicode: Vec<FontMatch>) -> FontFallbackChain {
+        FontFallbackChain {
+            css_fallbacks: groups,
+            unicode_fallbacks: unicode,
+            original_stack: Vec::new(),
+        }
+    }
+
+    /// A `LayoutNode` carrying nothing but the `scrollbar_info` under test.
+    fn bare_layout_node(scrollbar_info: Option<ScrollbarRequirements>) -> LayoutNode {
+        use azul_core::{diff::NodeDataFingerprint, dom::FormattingContext};
+
+        use crate::solver3::{
+            geometry::{BoxProps, UnresolvedBoxProps},
+            layout_tree::{ComputedLayoutStyle, DirtyFlag, SubtreeHash},
+        };
+
+        LayoutNode {
+            box_props: BoxProps::default(),
+            dom_node_id: None,
+            children: Vec::new(),
+            used_size: None,
+            formatting_context: FormattingContext::Inline,
+            parent: None,
+            intrinsic_sizes: None,
+            baseline: None,
+            inline_layout_result: None,
+            scrollbar_info,
+            relative_position: None,
+            overflow_content_size: None,
+            taffy_cache: taffy::Cache::new(),
+            computed_style: ComputedLayoutStyle::default(),
+            pseudo_element: None,
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
+            parent_formatting_context: None,
+            ifc_membership: None,
+            containing_block_index: None,
+            anonymous_type: None,
+            node_data_fingerprint: NodeDataFingerprint::default(),
+            subtree_hash: SubtreeHash(0),
+            dirty_flag: DirtyFlag::Layout,
+            unresolved_box_props: UnresolvedBoxProps::default(),
+            ifc_id: None,
+        }
+    }
+
+    // =====================================================================
+    // MultiValue<T> — generic predicates and combinators
+    // =====================================================================
+
+    #[test]
+    fn multivalue_default_is_auto() {
+        let v: MultiValue<i32> = MultiValue::default();
+        assert!(v.is_auto());
+        assert!(!v.is_exact());
+    }
+
+    #[test]
+    fn multivalue_is_auto_and_is_exact_are_mutually_exclusive() {
+        let cases: [MultiValue<i32>; 4] = [
+            MultiValue::Auto,
+            MultiValue::Initial,
+            MultiValue::Inherit,
+            MultiValue::Exact(7),
+        ];
+        for v in cases {
+            assert!(
+                !(v.is_auto() && v.is_exact()),
+                "a value cannot be both Auto and Exact: {v:?}"
+            );
+        }
+        assert!(MultiValue::<i32>::Auto.is_auto());
+        assert!(!MultiValue::<i32>::Initial.is_auto());
+        assert!(!MultiValue::<i32>::Inherit.is_auto());
+        assert!(!MultiValue::Exact(7).is_auto());
+
+        assert!(MultiValue::Exact(7).is_exact());
+        assert!(!MultiValue::<i32>::Auto.is_exact());
+        assert!(!MultiValue::<i32>::Initial.is_exact());
+        assert!(!MultiValue::<i32>::Inherit.is_exact());
+    }
+
+    #[test]
+    fn multivalue_exact_returns_some_only_for_the_exact_variant() {
+        assert_eq!(MultiValue::Exact(42_i32).exact(), Some(42));
+        assert_eq!(MultiValue::<i32>::Auto.exact(), None);
+        assert_eq!(MultiValue::<i32>::Initial.exact(), None);
+        assert_eq!(MultiValue::<i32>::Inherit.exact(), None);
+    }
+
+    #[test]
+    fn multivalue_exact_round_trips_extreme_payloads() {
+        // Boundary integers survive Exact() → exact() unchanged.
+        for probe in [i32::MIN, -1, 0, 1, i32::MAX] {
+            assert_eq!(MultiValue::Exact(probe).exact(), Some(probe));
+        }
+        // NaN is not equal to itself: assert the *shape*, not equality.
+        let nan = MultiValue::Exact(f32::NAN).exact().unwrap();
+        assert!(nan.is_nan());
+        assert_eq!(MultiValue::Exact(f32::INFINITY).exact(), Some(f32::INFINITY));
+        assert_eq!(
+            MultiValue::Exact(f32::NEG_INFINITY).exact(),
+            Some(f32::NEG_INFINITY)
+        );
+    }
+
+    #[test]
+    fn multivalue_unwrap_or_uses_the_default_for_every_non_exact_variant() {
+        assert_eq!(MultiValue::Exact(5_i32).unwrap_or(99), 5);
+        assert_eq!(MultiValue::<i32>::Auto.unwrap_or(99), 99);
+        assert_eq!(MultiValue::<i32>::Initial.unwrap_or(99), 99);
+        assert_eq!(MultiValue::<i32>::Inherit.unwrap_or(99), 99);
+        // The default is returned verbatim, even when it is a degenerate float.
+        assert!(MultiValue::<f32>::Auto.unwrap_or(f32::NAN).is_nan());
+    }
+
+    #[test]
+    fn multivalue_unwrap_or_default_falls_back_to_t_default() {
+        assert_eq!(MultiValue::Exact(5_i32).unwrap_or_default(), 5);
+        assert_eq!(MultiValue::<i32>::Auto.unwrap_or_default(), 0);
+        assert_eq!(MultiValue::<i32>::Initial.unwrap_or_default(), 0);
+        assert_eq!(MultiValue::<i32>::Inherit.unwrap_or_default(), 0);
+        // T = LayoutOverflow → Default is Visible (the CSS initial value).
+        assert_eq!(
+            MultiValue::<LayoutOverflow>::Inherit.unwrap_or_default(),
+            LayoutOverflow::Visible
+        );
+    }
+
+    #[test]
+    fn multivalue_map_transforms_exact_and_preserves_the_keyword_variants() {
+        assert_eq!(MultiValue::Exact(2_i32).map(|v| v * 2), MultiValue::Exact(4));
+        assert_eq!(MultiValue::<i32>::Auto.map(|v| v * 2), MultiValue::Auto);
+        assert_eq!(
+            MultiValue::<i32>::Initial.map(|v| v * 2),
+            MultiValue::Initial
+        );
+        assert_eq!(
+            MultiValue::<i32>::Inherit.map(|v| v * 2),
+            MultiValue::Inherit
+        );
+    }
+
+    #[test]
+    fn multivalue_map_never_invokes_the_closure_for_keyword_variants() {
+        // A keyword variant carries no T, so the mapper must not be called at all.
+        let auto: MultiValue<i32> = MultiValue::Auto;
+        let _ = auto.map(|_| -> i32 { panic!("map() called f() on MultiValue::Auto") });
+        let initial: MultiValue<i32> = MultiValue::Initial;
+        let _ = initial.map(|_| -> i32 { panic!("map() called f() on MultiValue::Initial") });
+        let inherit: MultiValue<i32> = MultiValue::Inherit;
+        let _ = inherit.map(|_| -> i32 { panic!("map() called f() on MultiValue::Inherit") });
+    }
+
+    #[test]
+    fn multivalue_map_can_change_the_payload_type() {
+        let mapped: MultiValue<usize> = MultiValue::Exact("hello").map(str::len);
+        assert_eq!(mapped, MultiValue::Exact(5));
+        // Overflow-adjacent payload: i32::MIN mapped to its (wrapping) absolute value
+        // must not debug-panic inside map itself.
+        let abs: MultiValue<i32> = MultiValue::Exact(i32::MIN).map(i32::wrapping_abs);
+        assert_eq!(abs, MultiValue::Exact(i32::MIN));
+    }
+
+    // =====================================================================
+    // MultiValue<LayoutOverflow> — overflow predicates
+    // =====================================================================
+
+    #[test]
+    fn overflow_predicates_match_the_spec_for_every_exact_variant() {
+        for o in ALL_OVERFLOW {
+            let v = MultiValue::Exact(o);
+            assert_eq!(
+                v.is_clipped(),
+                o != LayoutOverflow::Visible,
+                "is_clipped is every value except Visible ({o:?})"
+            );
+            assert_eq!(
+                v.is_scroll(),
+                matches!(o, LayoutOverflow::Scroll | LayoutOverflow::Auto),
+                "is_scroll ({o:?})"
+            );
+            assert_eq!(
+                v.is_auto_overflow(),
+                o == LayoutOverflow::Auto,
+                "is_auto_overflow ({o:?})"
+            );
+            assert_eq!(
+                v.is_hidden(),
+                o == LayoutOverflow::Hidden,
+                "is_hidden ({o:?})"
+            );
+            assert_eq!(
+                v.is_hidden_or_clip(),
+                matches!(o, LayoutOverflow::Hidden | LayoutOverflow::Clip),
+                "is_hidden_or_clip ({o:?})"
+            );
+            assert_eq!(
+                v.is_scroll_explicit(),
+                o == LayoutOverflow::Scroll,
+                "is_scroll_explicit ({o:?})"
+            );
+            assert_eq!(v.is_clip(), o == LayoutOverflow::Clip, "is_clip ({o:?})");
+            assert_eq!(
+                v.is_visible_or_clip(),
+                matches!(o, LayoutOverflow::Visible | LayoutOverflow::Clip),
+                "is_visible_or_clip ({o:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn overflow_predicates_are_false_for_every_keyword_variant() {
+        // Gotcha guard: MultiValue::Auto is the CSS *keyword* `auto`, which is NOT
+        // the same thing as Exact(LayoutOverflow::Auto). None of the LayoutOverflow
+        // predicates may fire for a keyword variant.
+        let keywords: [MultiValue<LayoutOverflow>; 3] = [
+            MultiValue::Auto,
+            MultiValue::Initial,
+            MultiValue::Inherit,
+        ];
+        for v in keywords {
+            assert!(!v.is_clipped(), "{v:?}");
+            assert!(!v.is_scroll(), "{v:?}");
+            assert!(!v.is_auto_overflow(), "{v:?}");
+            assert!(!v.is_hidden(), "{v:?}");
+            assert!(!v.is_hidden_or_clip(), "{v:?}");
+            assert!(!v.is_scroll_explicit(), "{v:?}");
+            assert!(!v.is_clip(), "{v:?}");
+            assert!(!v.is_visible_or_clip(), "{v:?}");
+        }
+    }
+
+    #[test]
+    fn overflow_scroll_implies_clipped_and_clip_implies_hidden_or_clip() {
+        for o in ALL_OVERFLOW {
+            let v = MultiValue::Exact(o);
+            assert!(
+                !v.is_scroll() || v.is_clipped(),
+                "anything that scrolls also clips ({o:?})"
+            );
+            assert!(
+                !v.is_clip() || v.is_hidden_or_clip(),
+                "clip is a subset of hidden_or_clip ({o:?})"
+            );
+            assert!(
+                !v.is_scroll_explicit() || v.is_scroll(),
+                "explicit scroll is a subset of scroll ({o:?})"
+            );
+        }
+    }
+
+    /// Exercises the rule tagged `+spec:overflow:833078` on `resolve_computed`.
+    #[test]
+    fn overflow_resolve_computed_matches_css_overflow_3_section_3_1() {
+        for this in ALL_OVERFLOW {
+            for other in ALL_OVERFLOW {
+                let got = MultiValue::Exact(this).resolve_computed(&MultiValue::Exact(other));
+                let other_is_scrollable =
+                    !matches!(other, LayoutOverflow::Visible | LayoutOverflow::Clip);
+                let want = if other_is_scrollable {
+                    match this {
+                        LayoutOverflow::Visible => LayoutOverflow::Auto,
+                        LayoutOverflow::Clip => LayoutOverflow::Hidden,
+                        keep => keep,
+                    }
+                } else {
+                    this
+                };
+                assert_eq!(
+                    got,
+                    MultiValue::Exact(want),
+                    "resolve_computed({this:?}, {other:?})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn overflow_resolve_computed_is_a_no_op_unless_both_axes_are_exact() {
+        let keywords: [MultiValue<LayoutOverflow>; 3] = [
+            MultiValue::Auto,
+            MultiValue::Initial,
+            MultiValue::Inherit,
+        ];
+        // Non-Exact self → returned unchanged, whatever the other axis is.
+        for v in keywords {
+            for other in ALL_OVERFLOW {
+                assert_eq!(v.resolve_computed(&MultiValue::Exact(other)), v);
+            }
+            assert_eq!(v.resolve_computed(&MultiValue::Auto), v);
+        }
+        // Non-Exact *other* axis → self is returned unchanged, no blockification.
+        for this in ALL_OVERFLOW {
+            let v = MultiValue::Exact(this);
+            for other in keywords {
+                assert_eq!(v.resolve_computed(&other), v, "{this:?} vs {other:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn overflow_resolve_computed_is_idempotent() {
+        for this in ALL_OVERFLOW {
+            for other in ALL_OVERFLOW {
+                let other_mv = MultiValue::Exact(other);
+                let once = MultiValue::Exact(this).resolve_computed(&other_mv);
+                let twice = once.resolve_computed(&other_mv);
+                assert_eq!(once, twice, "resolve_computed({this:?}, {other:?}) twice");
+            }
+        }
+    }
+
+    // =====================================================================
+    // MultiValue<LayoutPosition> / MultiValue<LayoutFloat>
+    // =====================================================================
+
+    #[test]
+    fn position_is_absolute_or_fixed_only_for_absolute_and_fixed() {
+        let all = [
+            LayoutPosition::Static,
+            LayoutPosition::Relative,
+            LayoutPosition::Absolute,
+            LayoutPosition::Fixed,
+            LayoutPosition::Sticky,
+        ];
+        for p in all {
+            assert_eq!(
+                MultiValue::Exact(p).is_absolute_or_fixed(),
+                matches!(p, LayoutPosition::Absolute | LayoutPosition::Fixed),
+                "{p:?}"
+            );
+        }
+        // Keyword variants carry no position → never out-of-flow.
+        assert!(!MultiValue::<LayoutPosition>::Auto.is_absolute_or_fixed());
+        assert!(!MultiValue::<LayoutPosition>::Initial.is_absolute_or_fixed());
+        assert!(!MultiValue::<LayoutPosition>::Inherit.is_absolute_or_fixed());
+    }
+
+    #[test]
+    fn float_is_none_treats_every_keyword_variant_as_not_floated() {
+        assert!(MultiValue::Exact(LayoutFloat::None).is_none());
+        assert!(!MultiValue::Exact(LayoutFloat::Left).is_none());
+        assert!(!MultiValue::Exact(LayoutFloat::Right).is_none());
+        // Unlike the overflow predicates, `is_none` deliberately folds the keyword
+        // variants in: an unset float is not a float.
+        assert!(MultiValue::<LayoutFloat>::Auto.is_none());
+        assert!(MultiValue::<LayoutFloat>::Initial.is_none());
+        assert!(MultiValue::<LayoutFloat>::Inherit.is_none());
+        assert!(MultiValue::<LayoutFloat>::default().is_none());
+    }
+
+    // =====================================================================
+    // blockify_display / get_computed_display
+    // =====================================================================
+
+    #[test]
+    fn blockify_display_follows_the_css_display_3_table() {
+        for d in ALL_DISPLAY {
+            let want = match d {
+                LayoutDisplay::Inline | LayoutDisplay::InlineBlock => LayoutDisplay::Block,
+                LayoutDisplay::InlineFlex => LayoutDisplay::Flex,
+                LayoutDisplay::InlineTable => LayoutDisplay::Table,
+                LayoutDisplay::InlineGrid => LayoutDisplay::Grid,
+                LayoutDisplay::TableRowGroup
+                | LayoutDisplay::TableColumn
+                | LayoutDisplay::TableColumnGroup
+                | LayoutDisplay::TableHeaderGroup
+                | LayoutDisplay::TableFooterGroup
+                | LayoutDisplay::TableRow
+                | LayoutDisplay::TableCell
+                | LayoutDisplay::TableCaption => LayoutDisplay::Block,
+                other => other,
+            };
+            assert_eq!(blockify_display(d), want, "blockify_display({d:?})");
+        }
+    }
+
+    #[test]
+    fn blockify_display_is_idempotent_and_never_produces_an_inline_level_value() {
+        for d in ALL_DISPLAY {
+            let once = blockify_display(d);
+            assert_eq!(
+                blockify_display(once),
+                once,
+                "blockify_display is not idempotent for {d:?}"
+            );
+            assert!(
+                !matches!(
+                    once,
+                    LayoutDisplay::Inline
+                        | LayoutDisplay::InlineBlock
+                        | LayoutDisplay::InlineFlex
+                        | LayoutDisplay::InlineTable
+                        | LayoutDisplay::InlineGrid
+                ),
+                "blockified {d:?} is still inline-level: {once:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn get_computed_display_keeps_none_regardless_of_the_flags() {
+        // display:none boxes are never generated, so no flag may resurrect them.
+        for flags in 0_u8..16 {
+            let got = get_computed_display(
+                LayoutDisplay::None,
+                flags & 1 != 0,
+                flags & 2 != 0,
+                flags & 4 != 0,
+                flags & 8 != 0,
+            );
+            assert_eq!(got, LayoutDisplay::None, "flags={flags:#06b}");
+        }
+    }
+
+    #[test]
+    fn get_computed_display_is_the_identity_when_no_flag_is_set() {
+        for d in ALL_DISPLAY {
+            assert_eq!(
+                get_computed_display(d, false, false, false, false),
+                d,
+                "an in-flow, non-root, non-flex-child box keeps its specified display ({d:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn get_computed_display_blockifies_whenever_any_flag_is_set() {
+        for d in ALL_DISPLAY {
+            if d == LayoutDisplay::None {
+                continue; // covered by the dedicated None test
+            }
+            // Each of the four flags on its own must blockify, and so must every
+            // combination of them.
+            for flags in 1_u8..16 {
+                let got = get_computed_display(
+                    d,
+                    flags & 1 != 0,
+                    flags & 2 != 0,
+                    flags & 4 != 0,
+                    flags & 8 != 0,
+                );
+                assert_eq!(
+                    got,
+                    blockify_display(d),
+                    "get_computed_display({d:?}, flags={flags:#06b})"
+                );
+            }
+        }
+    }
+
+    // =====================================================================
+    // Fragmentation predicates
+    // =====================================================================
+
+    #[test]
+    fn is_forced_page_break_covers_exactly_the_forcing_keywords() {
+        for pb in ALL_PAGE_BREAK {
+            let want = matches!(
+                pb,
+                PageBreak::Always
+                    | PageBreak::Page
+                    | PageBreak::Left
+                    | PageBreak::Right
+                    | PageBreak::Recto
+                    | PageBreak::Verso
+                    | PageBreak::All
+            );
+            assert_eq!(is_forced_page_break(pb), want, "{pb:?}");
+        }
+        // `column` forces a *column* break, not a page break.
+        assert!(!is_forced_page_break(PageBreak::Column));
+        assert!(!is_forced_page_break(PageBreak::Auto));
+        assert!(!is_forced_page_break(PageBreak::default()));
+    }
+
+    #[test]
+    fn is_avoid_page_break_covers_exactly_avoid_and_avoid_page() {
+        for pb in ALL_PAGE_BREAK {
+            let want = matches!(pb, PageBreak::Avoid | PageBreak::AvoidPage);
+            assert_eq!(is_avoid_page_break(&pb), want, "{pb:?}");
+        }
+        // `avoid-column` avoids a column break, not a page break.
+        assert!(!is_avoid_page_break(&PageBreak::AvoidColumn));
+    }
+
+    #[test]
+    fn forced_and_avoid_page_break_are_never_both_true() {
+        for pb in ALL_PAGE_BREAK {
+            assert!(
+                !(is_forced_page_break(pb) && is_avoid_page_break(&pb)),
+                "{pb:?} is simultaneously forced and avoided"
+            );
+        }
+    }
+
+    #[test]
+    fn is_avoid_break_inside_is_true_for_every_variant_except_auto() {
+        for bi in ALL_BREAK_INSIDE {
+            assert_eq!(is_avoid_break_inside(&bi), bi != BreakInside::Auto, "{bi:?}");
+        }
+        assert!(!is_avoid_break_inside(&BreakInside::default()));
+    }
+
+    // =====================================================================
+    // ComputedScrollbarStyle::from_ua_resolved
+    // =====================================================================
+
+    fn ua(
+        width: LayoutScrollbarWidth,
+        visibility: ScrollbarVisibilityMode,
+        color: StyleScrollbarColor,
+        delay_ms: u32,
+        duration_ms: u32,
+    ) -> ResolvedUaScrollbar {
+        ResolvedUaScrollbar {
+            color,
+            width,
+            visibility,
+            fade_delay: ScrollbarFadeDelay { ms: delay_ms },
+            fade_duration: ScrollbarFadeDuration { ms: duration_ms },
+        }
+    }
+
+    #[test]
+    fn from_ua_resolved_holds_its_invariants_across_the_whole_width_visibility_matrix() {
+        for width in ALL_SCROLLBAR_WIDTH {
+            for visibility in ALL_VISIBILITY {
+                let s = ComputedScrollbarStyle::from_ua_resolved(&ua(
+                    width,
+                    visibility,
+                    StyleScrollbarColor::Auto,
+                    0,
+                    0,
+                ));
+
+                assert_eq!(s.width_mode, width);
+                assert_eq!(s.visibility, visibility);
+
+                let expected_visual = match width {
+                    LayoutScrollbarWidth::Thin => SCROLLBAR_WIDTH_THIN,
+                    LayoutScrollbarWidth::Auto => SCROLLBAR_WIDTH_AUTO,
+                    LayoutScrollbarWidth::None => 0.0,
+                };
+                assert_eq!(s.visual_width_px, expected_visual, "{width:?}");
+
+                // Only `WhenScrolling` is an overlay scrollbar. `Auto` is NOT.
+                let is_overlay = visibility == ScrollbarVisibilityMode::WhenScrolling;
+                assert_eq!(s.clip_to_container_border, is_overlay);
+                assert_eq!(s.show_scroll_buttons, !is_overlay);
+                assert_eq!(s.show_corner_rect, !is_overlay);
+                if is_overlay {
+                    assert_eq!(s.reserve_width_px, 0.0, "overlay reserves no layout space");
+                    assert_eq!(s.scroll_button_size_px, 0.0);
+                } else {
+                    assert_eq!(s.reserve_width_px, s.visual_width_px);
+                    assert_eq!(s.scroll_button_size_px, s.visual_width_px);
+                }
+
+                // Hover/active widths are always the visual width plus the expand delta.
+                assert_eq!(
+                    s.visual_width_px_hover,
+                    Some(s.visual_width_px + SCROLLBAR_HOVER_EXPAND_PX)
+                );
+                assert_eq!(
+                    s.visual_width_px_active,
+                    Some(s.visual_width_px + SCROLLBAR_HOVER_EXPAND_PX)
+                );
+                assert!(s.reserve_width_px <= s.visual_width_px);
+                assert!(s.visual_width_px.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn from_ua_resolved_saturates_the_hover_and_active_colour_maths_at_the_u8_boundaries() {
+        // Max channels: +30 lighten / +40 alpha must saturate, not wrap or panic.
+        let white = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let s = ComputedScrollbarStyle::from_ua_resolved(&ua(
+            LayoutScrollbarWidth::Auto,
+            ScrollbarVisibilityMode::Always,
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: white,
+                track: white,
+            }),
+            0,
+            0,
+        ));
+        let hover = s.thumb_color_hover.expect("hover thumb colour");
+        assert_eq!((hover.r, hover.g, hover.b, hover.a), (255, 255, 255, 255));
+        let track_hover = s.track_color_hover.expect("hover track colour");
+        assert_eq!(track_hover.a, 255);
+
+        // Min channels: -15 darken must saturate at 0, and the active alpha is pinned
+        // to 255 regardless of the source alpha.
+        let black0 = ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        let s = ComputedScrollbarStyle::from_ua_resolved(&ua(
+            LayoutScrollbarWidth::Auto,
+            ScrollbarVisibilityMode::Always,
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: black0,
+                track: black0,
+            }),
+            0,
+            0,
+        ));
+        let active = s.thumb_color_active.expect("active thumb colour");
+        assert_eq!((active.r, active.g, active.b), (0, 0, 0));
+        assert_eq!(active.a, 255, "the active thumb is always fully opaque");
+        let hover = s.thumb_color_hover.expect("hover thumb colour");
+        assert_eq!(
+            (hover.r, hover.g, hover.b, hover.a),
+            (
+                THUMB_HOVER_LIGHTEN,
+                THUMB_HOVER_LIGHTEN,
+                THUMB_HOVER_LIGHTEN,
+                THUMB_HOVER_ALPHA_ADD
+            )
+        );
+    }
+
+    #[test]
+    fn from_ua_resolved_passes_extreme_fade_timings_through_without_overflow() {
+        let s = ComputedScrollbarStyle::from_ua_resolved(&ua(
+            LayoutScrollbarWidth::Thin,
+            ScrollbarVisibilityMode::WhenScrolling,
+            StyleScrollbarColor::Auto,
+            u32::MAX,
+            u32::MAX,
+        ));
+        assert_eq!(s.fade_delay_ms, u32::MAX);
+        assert_eq!(s.fade_duration_ms, u32::MAX);
+
+        let s = ComputedScrollbarStyle::from_ua_resolved(&ua(
+            LayoutScrollbarWidth::Thin,
+            ScrollbarVisibilityMode::WhenScrolling,
+            StyleScrollbarColor::Auto,
+            0,
+            0,
+        ));
+        assert_eq!(s.fade_delay_ms, 0);
+        assert_eq!(s.fade_duration_ms, 0);
+    }
+
+    #[test]
+    fn from_ua_resolved_maps_scrollbar_color_auto_to_transparent() {
+        let s = ComputedScrollbarStyle::from_ua_resolved(&ua(
+            LayoutScrollbarWidth::Auto,
+            ScrollbarVisibilityMode::Always,
+            StyleScrollbarColor::Auto,
+            0,
+            0,
+        ));
+        assert_eq!(s.thumb_color, ColorU::TRANSPARENT);
+        assert_eq!(s.track_color, ColorU::TRANSPARENT);
+        assert_eq!(s.button_color, ColorU::TRANSPARENT);
+        assert_eq!(s.corner_color, ColorU::TRANSPARENT);
+    }
+
+    #[test]
+    fn computed_scrollbar_style_default_is_internally_consistent() {
+        let d = ComputedScrollbarStyle::default();
+        assert!(d.visual_width_px.is_finite() && d.visual_width_px >= 0.0);
+        assert!(d.reserve_width_px.is_finite() && d.reserve_width_px >= 0.0);
+        assert!(d.reserve_width_px <= d.visual_width_px);
+        let overlay = d.visibility == ScrollbarVisibilityMode::WhenScrolling;
+        assert_eq!(d.show_scroll_buttons, !overlay);
+        assert_eq!(d.clip_to_container_border, overlay);
+    }
+
+    // =====================================================================
+    // extract_color_from_background
+    // =====================================================================
+
+    #[test]
+    fn extract_color_from_background_returns_the_solid_colour_verbatim() {
+        for probe in [
+            ColorU::TRANSPARENT,
+            ColorU::BLACK,
+            ColorU::WHITE,
+            ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 4,
+            },
+            ColorU {
+                r: 255,
+                g: 0,
+                b: 255,
+                a: 0,
+            },
+        ] {
+            assert_eq!(
+                extract_color_from_background(&StyleBackgroundContent::Color(probe)),
+                probe
+            );
+        }
+    }
+
+    #[test]
+    fn extract_color_from_background_falls_back_to_transparent_for_non_colour_layers() {
+        // An image layer has no solid colour to extract → transparent, not a panic.
+        let img = StyleBackgroundContent::Image("does-not-exist.png".into());
+        assert_eq!(extract_color_from_background(&img), ColorU::TRANSPARENT);
+        // Empty / unicode image names are still just "not a colour".
+        let empty = StyleBackgroundContent::Image(String::new().into());
+        assert_eq!(extract_color_from_background(&empty), ColorU::TRANSPARENT);
+        let unicode = StyleBackgroundContent::Image("картинка-🎉.png".into());
+        assert_eq!(extract_color_from_background(&unicode), ColorU::TRANSPARENT);
+    }
+
+    // =====================================================================
+    // get_scrollbar_info_from_layout
+    // =====================================================================
+
+    #[test]
+    fn get_scrollbar_info_from_layout_defaults_to_no_scrollbars_when_layout_never_set_it() {
+        let node = bare_layout_node(None);
+        let got = get_scrollbar_info_from_layout(&node);
+        assert!(!got.needs_horizontal);
+        assert!(!got.needs_vertical);
+        assert_eq!(got.scrollbar_width, 0.0);
+        assert_eq!(got.scrollbar_height, 0.0);
+        assert_eq!(got.visual_width_px, 0.0);
+    }
+
+    #[test]
+    fn get_scrollbar_info_from_layout_returns_whatever_layout_stored_including_degenerate_floats() {
+        let stored = ScrollbarRequirements {
+            needs_horizontal: true,
+            needs_vertical: true,
+            scrollbar_width: f32::NAN,
+            scrollbar_height: f32::INFINITY,
+            visual_width_px: -1.0,
+        };
+        let got = get_scrollbar_info_from_layout(&bare_layout_node(Some(stored)));
+        assert!(got.needs_horizontal && got.needs_vertical);
+        assert!(got.scrollbar_width.is_nan(), "the getter must not sanitise");
+        assert_eq!(got.scrollbar_height, f32::INFINITY);
+        assert_eq!(got.visual_width_px, -1.0);
+    }
+
+    // =====================================================================
+    // ResolvedFontChains
+    // =====================================================================
+
+    #[test]
+    fn resolved_font_chains_empty_instance_answers_every_query_with_none() {
+        let r = empty_chains();
+        assert_eq!(r.len(), 0);
+        assert!(r.is_empty());
+        assert_eq!(r.font_refs_len(), 0);
+
+        assert!(r.get(&FontChainKeyOrRef::Ref(0)).is_none());
+        assert!(r.get_by_chain_key(&chain_key("Arial")).is_none());
+        assert!(r.get_for_font_stack(&[]).is_none());
+        assert!(r.get_for_font_ref(0).is_none());
+        assert!(r.get_for_font_ref(usize::MAX).is_none());
+        assert!(r.get_for_font_ref(usize::MAX / 2).is_none());
+
+        assert!(r.clone().into_inner().is_empty());
+        assert!(r.into_fontconfig_chains().is_empty());
+    }
+
+    #[test]
+    fn resolved_font_chains_get_by_chain_key_round_trips_the_inserted_key() {
+        let key = chain_key("Iosevka");
+        let mut chains = HashMap::new();
+        chains.insert(
+            FontChainKeyOrRef::Chain(key.clone()),
+            chain_with(Vec::new(), Vec::new()),
+        );
+        let r = ResolvedFontChains { chains };
+
+        assert!(r.get_by_chain_key(&key).is_some());
+        assert!(r.get(&FontChainKeyOrRef::Chain(key.clone())).is_some());
+        // A key that differs only in weight is a different key.
+        let heavier = FontChainKey {
+            weight: FcWeight::Bold,
+            ..key.clone()
+        };
+        assert!(r.get_by_chain_key(&heavier).is_none());
+        // …and so is one that differs only in the italic flag.
+        let italic = FontChainKey {
+            italic: true,
+            ..key
+        };
+        assert!(r.get_by_chain_key(&italic).is_none());
+    }
+
+    #[test]
+    fn resolved_font_chains_counts_and_filters_ref_entries() {
+        let mut chains = HashMap::new();
+        chains.insert(
+            FontChainKeyOrRef::Chain(chain_key("Arial")),
+            chain_with(Vec::new(), Vec::new()),
+        );
+        chains.insert(
+            FontChainKeyOrRef::Ref(0xDEAD_BEEF),
+            chain_with(Vec::new(), Vec::new()),
+        );
+        chains.insert(
+            FontChainKeyOrRef::Ref(usize::MAX),
+            chain_with(Vec::new(), Vec::new()),
+        );
+        let r = ResolvedFontChains { chains };
+
+        assert_eq!(r.len(), 3);
+        assert!(!r.is_empty());
+        assert_eq!(r.font_refs_len(), 2, "two Ref keys, one Chain key");
+        assert!(r.get_for_font_ref(0xDEAD_BEEF).is_some());
+        assert!(r.get_for_font_ref(usize::MAX).is_some());
+        assert!(r.get_for_font_ref(0).is_none());
+
+        // into_fontconfig_chains drops every Ref entry.
+        let fc_only = r.into_fontconfig_chains();
+        assert_eq!(fc_only.len(), 1);
+        assert!(fc_only.contains_key(&chain_key("Arial")));
+    }
+
+    #[test]
+    fn resolved_font_chains_get_for_font_stack_uses_the_canonical_selector_key() {
+        let selectors = vec![FontSelector {
+            family: "Arial".to_string(),
+            weight: FcWeight::Normal,
+            style: FontStyle::Normal,
+            unicode_ranges: Vec::new(),
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let mut chains = HashMap::new();
+        chains.insert(
+            FontChainKeyOrRef::Chain(key),
+            chain_with(Vec::new(), Vec::new()),
+        );
+        let r = ResolvedFontChains { chains };
+
+        assert!(r.get_for_font_stack(&selectors).is_some());
+        // An empty stack must not accidentally alias the "Arial" key.
+        assert!(r.get_for_font_stack(&[]).is_none());
+    }
+
+    // =====================================================================
+    // collect_font_ids_from_chains / compute_fonts_to_load
+    // =====================================================================
+
+    #[test]
+    fn collect_font_ids_from_chains_dedupes_across_groups_and_unicode_fallbacks() {
+        let mut chains = HashMap::new();
+        chains.insert(
+            FontChainKeyOrRef::Chain(chain_key("Arial")),
+            chain_with(
+                vec![
+                    CssFallbackGroup {
+                        css_name: "Arial".to_string(),
+                        fonts: vec![font_match(1, &[]), font_match(2, &[])],
+                    },
+                    CssFallbackGroup {
+                        css_name: "sans-serif".to_string(),
+                        // FontId(1) also appears in the first group.
+                        fonts: vec![font_match(1, &[]), font_match(3, &[])],
+                    },
+                ],
+                vec![font_match(3, &[]), font_match(u128::MAX, &[])],
+            ),
+        );
+        let ids = collect_font_ids_from_chains(&ResolvedFontChains { chains });
+        assert_eq!(ids.len(), 4, "ids 1, 2, 3 and u128::MAX, each exactly once");
+        for probe in [1_u128, 2, 3, u128::MAX] {
+            assert!(ids.contains(&FontId(probe)), "missing FontId({probe})");
+        }
+        assert!(!ids.contains(&FontId(0)));
+    }
+
+    #[test]
+    fn collect_font_ids_from_chains_returns_empty_for_an_empty_or_fontless_chain_set() {
+        assert!(collect_font_ids_from_chains(&empty_chains()).is_empty());
+
+        // A chain that exists but carries no fonts at all (the empty-fc_cache result).
+        let mut chains = HashMap::new();
+        chains.insert(
+            FontChainKeyOrRef::Chain(chain_key("Nonexistent")),
+            chain_with(
+                vec![CssFallbackGroup {
+                    css_name: "Nonexistent".to_string(),
+                    fonts: Vec::new(),
+                }],
+                Vec::new(),
+            ),
+        );
+        assert!(collect_font_ids_from_chains(&ResolvedFontChains { chains }).is_empty());
+    }
+
+    #[test]
+    fn compute_fonts_to_load_is_the_set_difference_and_bails_early_on_an_empty_requirement() {
+        let a = FontId(0);
+        let b = FontId(1);
+        let c = FontId(u128::MAX);
+
+        let empty: HashSet<FontId> = HashSet::new();
+        let all: HashSet<FontId> = [a, b, c].into_iter().collect();
+        let loaded_b: HashSet<FontId> = [b].into_iter().collect();
+
+        // Nothing required → nothing to load, regardless of what is loaded.
+        assert!(compute_fonts_to_load(&empty, &empty).is_empty());
+        assert!(compute_fonts_to_load(&empty, &all).is_empty());
+
+        // Nothing loaded → load everything.
+        assert_eq!(compute_fonts_to_load(&all, &empty), all);
+
+        // Partial overlap → only the missing ones.
+        let todo = compute_fonts_to_load(&all, &loaded_b);
+        assert_eq!(todo.len(), 2);
+        assert!(todo.contains(&a) && todo.contains(&c));
+        assert!(!todo.contains(&b));
+
+        // Already-loaded is a superset → nothing to do (and no underflow).
+        assert!(compute_fonts_to_load(&loaded_b, &all).is_empty());
+        assert!(compute_fonts_to_load(&all, &all).is_empty());
+    }
+
+    // =====================================================================
+    // prune_chain_to_used_chars
+    // =====================================================================
+
+    #[test]
+    fn prune_chain_to_used_chars_keeps_the_first_match_of_every_group_when_nothing_is_needed() {
+        let mut chain = chain_with(
+            vec![
+                CssFallbackGroup {
+                    css_name: "A".to_string(),
+                    fonts: vec![font_match(1, &[(0, 0x10_FFFF)]), font_match(2, &[]), font_match(3, &[])],
+                },
+                CssFallbackGroup {
+                    css_name: "B".to_string(),
+                    fonts: vec![font_match(4, &[]), font_match(5, &[])],
+                },
+            ],
+            vec![font_match(6, &[(0x4E00, 0x9FFF)])],
+        );
+
+        prune_chain_to_used_chars(&mut chain, &std::collections::BTreeSet::new());
+
+        // Nothing to cover → every group collapses to its single best match…
+        assert_eq!(chain.css_fallbacks[0].fonts.len(), 1);
+        assert_eq!(chain.css_fallbacks[0].fonts[0].id, FontId(1));
+        assert_eq!(chain.css_fallbacks[1].fonts.len(), 1);
+        assert_eq!(chain.css_fallbacks[1].fonts[0].id, FontId(4));
+        // …and no unicode fallback can intersect an empty codepoint set.
+        assert!(chain.unicode_fallbacks.is_empty());
+    }
+
+    #[test]
+    fn prune_chain_to_used_chars_keeps_walking_until_every_codepoint_is_covered() {
+        // 'é' (U+00E9) is only covered by the *second* font in the group.
+        let mut chain = chain_with(
+            vec![CssFallbackGroup {
+                css_name: "A".to_string(),
+                fonts: vec![
+                    font_match(1, &[(0x20, 0x7F)]),   // ASCII only
+                    font_match(2, &[(0x80, 0x24F)]),  // Latin-1 supplement + extended
+                    font_match(3, &[(0x0, 0x10_FFFF)]), // everything (must be dropped)
+                ],
+            }],
+            Vec::new(),
+        );
+        let used: std::collections::BTreeSet<u32> = [0xE9_u32].into_iter().collect();
+
+        prune_chain_to_used_chars(&mut chain, &used);
+
+        assert_eq!(
+            chain.css_fallbacks[0].fonts.len(),
+            2,
+            "walk stops as soon as the needed codepoints are covered"
+        );
+        assert_eq!(chain.css_fallbacks[0].fonts[1].id, FontId(2));
+    }
+
+    #[test]
+    fn prune_chain_to_used_chars_keeps_the_whole_group_when_nothing_ever_covers_the_codepoint() {
+        let mut chain = chain_with(
+            vec![CssFallbackGroup {
+                css_name: "A".to_string(),
+                fonts: vec![font_match(1, &[(0x20, 0x7F)]), font_match(2, &[(0x20, 0x7F)])],
+            }],
+            vec![font_match(3, &[(0x20, 0x7F)])],
+        );
+        // A codepoint no font claims — and the numeric boundary of the u32 space.
+        let used: std::collections::BTreeSet<u32> = [u32::MAX].into_iter().collect();
+
+        prune_chain_to_used_chars(&mut chain, &used);
+
+        assert_eq!(
+            chain.css_fallbacks[0].fonts.len(),
+            2,
+            "an uncoverable codepoint must not silently drop CSS fonts"
+        );
+        assert!(
+            chain.unicode_fallbacks.is_empty(),
+            "no unicode fallback intersects U+FFFFFFFF"
+        );
+    }
+
+    #[test]
+    fn prune_chain_to_used_chars_treats_unicode_ranges_as_inclusive_on_both_ends() {
+        for probe in [0x4E00_u32, 0x9FFF] {
+            let mut chain = chain_with(
+                Vec::new(),
+                vec![font_match(1, &[(0x4E00, 0x9FFF)]), font_match(2, &[(0x20, 0x7F)])],
+            );
+            let used: std::collections::BTreeSet<u32> = [probe].into_iter().collect();
+            prune_chain_to_used_chars(&mut chain, &used);
+            assert_eq!(
+                chain.unicode_fallbacks.len(),
+                1,
+                "U+{probe:04X} is inside the inclusive CJK range"
+            );
+            assert_eq!(chain.unicode_fallbacks[0].id, FontId(1));
+        }
+        // One past each end of the range → no intersection.
+        for probe in [0x4DFF_u32, 0xA000] {
+            let mut chain = chain_with(Vec::new(), vec![font_match(1, &[(0x4E00, 0x9FFF)])]);
+            let used: std::collections::BTreeSet<u32> = [probe].into_iter().collect();
+            prune_chain_to_used_chars(&mut chain, &used);
+            assert!(chain.unicode_fallbacks.is_empty(), "U+{probe:04X}");
+        }
+    }
+
+    #[test]
+    fn prune_chain_to_used_chars_survives_empty_chains_and_empty_groups() {
+        let mut empty = chain_with(Vec::new(), Vec::new());
+        prune_chain_to_used_chars(&mut empty, &std::collections::BTreeSet::new());
+        assert!(empty.css_fallbacks.is_empty());
+        assert!(empty.unicode_fallbacks.is_empty());
+
+        // A group with zero fonts is skipped rather than truncated to a phantom entry.
+        let mut fontless = chain_with(
+            vec![CssFallbackGroup {
+                css_name: "A".to_string(),
+                fonts: Vec::new(),
+            }],
+            Vec::new(),
+        );
+        let used: std::collections::BTreeSet<u32> = [0x1F389_u32].into_iter().collect();
+        prune_chain_to_used_chars(&mut fontless, &used);
+        assert_eq!(fontless.css_fallbacks.len(), 1);
+        assert!(fontless.css_fallbacks[0].fonts.is_empty());
+    }
+
+    // =====================================================================
+    // build_font_selector_stack
+    // =====================================================================
+
+    #[test]
+    fn build_font_selector_stack_always_appends_the_three_generic_fallbacks() {
+        let families = StyleFontFamilyVec::from_vec(Vec::new());
+        let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
+
+        let names: Vec<&str> = stack.iter().map(|s| s.family.as_str()).collect();
+        assert_eq!(names, ["sans-serif", "serif", "monospace"]);
+        for s in &stack {
+            assert_eq!(s.weight, FcWeight::Normal);
+            assert_eq!(s.style, FontStyle::Normal);
+        }
+    }
+
+    #[test]
+    fn build_font_selector_stack_puts_the_authored_families_first() {
+        let families = StyleFontFamilyVec::from_vec(vec![
+            StyleFontFamily::System("Iosevka".to_string().into()),
+            StyleFontFamily::System("Menlo".to_string().into()),
+        ]);
+        let stack = build_font_selector_stack(&families, None, FcWeight::Bold, FontStyle::Italic);
+
+        assert_eq!(stack.len(), 5, "2 authored + 3 generic fallbacks");
+        assert_eq!(stack[0].family, "Iosevka");
+        assert_eq!(stack[1].family, "Menlo");
+        // Authored families carry the requested weight/style…
+        assert_eq!(stack[0].weight, FcWeight::Bold);
+        assert_eq!(stack[0].style, FontStyle::Italic);
+        // …while the appended generics are always the neutral Normal/Normal.
+        assert_eq!(stack[4].family, "monospace");
+        assert_eq!(stack[4].weight, FcWeight::Normal);
+        assert_eq!(stack[4].style, FontStyle::Normal);
+    }
+
+    #[test]
+    fn build_font_selector_stack_does_not_duplicate_a_generic_the_author_already_listed() {
+        // Case-insensitive: "MONOSPACE" must suppress the "monospace" fallback.
+        let families =
+            StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("MONOSPACE".to_string().into())]);
+        let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
+
+        assert_eq!(stack.len(), 3, "MONOSPACE + sans-serif + serif");
+        assert_eq!(stack[0].family, "MONOSPACE");
+        let lower: Vec<String> = stack.iter().map(|s| s.family.to_lowercase()).collect();
+        assert_eq!(
+            lower.iter().filter(|f| f.as_str() == "monospace").count(),
+            1,
+            "the generic must appear exactly once"
+        );
+
+        // All three generics authored → nothing is appended.
+        let families = StyleFontFamilyVec::from_vec(vec![
+            StyleFontFamily::System("serif".to_string().into()),
+            StyleFontFamily::System("Sans-Serif".to_string().into()),
+            StyleFontFamily::System("monospace".to_string().into()),
+        ]);
+        let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
+        assert_eq!(stack.len(), 3);
+    }
+
+    #[test]
+    fn build_font_selector_stack_passes_hostile_family_names_through_untouched() {
+        let huge = "A".repeat(10_000);
+        let families = StyleFontFamilyVec::from_vec(vec![
+            StyleFontFamily::System(String::new().into()),
+            StyleFontFamily::System("  \t\n  ".to_string().into()),
+            StyleFontFamily::System("Ｍ🎉 ǝɔɐɟdʎʇ — «Шрифт»".to_string().into()),
+            StyleFontFamily::System(huge.clone().into()),
+        ]);
+        let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
+
+        assert_eq!(stack.len(), 7, "4 authored + 3 generic fallbacks");
+        assert_eq!(stack[0].family, "");
+        assert_eq!(stack[2].family, "Ｍ🎉 ǝɔɐɟdʎʇ — «Шрифт»");
+        assert_eq!(stack[3].family.len(), huge.len());
+        assert_eq!(stack[6].family, "monospace");
+    }
+
+    // =====================================================================
+    // Font chain resolution against an empty FcFontCache
+    // =====================================================================
+
+    #[test]
+    fn resolve_font_chains_yields_nothing_for_an_empty_or_degenerate_collection() {
+        let fc = FcFontCache::default();
+
+        let collected = CollectedFontStacks {
+            font_stacks: Vec::new(),
+            hash_to_index: HashMap::new(),
+            font_refs: HashMap::new(),
+        };
+        assert!(resolve_font_chains(&collected, &fc, Some(&[])).is_empty());
+
+        // An empty *inner* stack is skipped, not turned into a phantom chain.
+        let collected = CollectedFontStacks {
+            font_stacks: vec![Vec::new()],
+            hash_to_index: HashMap::new(),
+            font_refs: HashMap::new(),
+        };
+        assert!(resolve_font_chains(&collected, &fc, Some(&[])).is_empty());
+    }
+
+    // =====================================================================
+    // Font-size resolution against a real StyledDom
+    // =====================================================================
+
+    #[test]
+    fn font_size_getters_return_the_default_for_an_unstyled_dom() {
+        let sd = StyledDom::default();
+        let root = NodeId::new(0);
+        let st = normal();
+
+        assert_eq!(get_element_font_size(&sd, root, &st), DEFAULT_FONT_SIZE);
+        assert_eq!(get_root_font_size(&sd, &st), DEFAULT_FONT_SIZE);
+        // The root has no parent → the parent size falls back to the default.
+        assert_eq!(get_parent_font_size(&sd, root, &st), DEFAULT_FONT_SIZE);
+        assert_eq!(
+            resolve_font_size_slow(&sd, root, &st),
+            DEFAULT_FONT_SIZE,
+            "the slow path must agree with the memoised one"
+        );
+    }
+
+    #[test]
+    fn font_size_resolution_is_identical_on_the_normal_and_the_pseudo_state_paths() {
+        // A non-normal state skips every compact-cache fast path; with no :hover rule
+        // in the stylesheet it must still land on exactly the same pixel value.
+        let sd = body_with_divs(1, "body { font-size: 32px; }");
+        let child = NodeId::new(1);
+        assert_eq!(
+            get_element_font_size(&sd, child, &normal()),
+            get_element_font_size(&sd, child, &hovered()),
+        );
+    }
+
+    #[test]
+    fn font_size_em_resolves_against_the_parent_and_not_the_default() {
+        let sd = body_with_divs(1, "body { font-size: 32px; } div { font-size: 2em; }");
+        let root = NodeId::new(0);
+        let child = NodeId::new(1);
+
+        assert_eq!(get_element_font_size(&sd, root, &state_of(&sd, root)), 32.0);
+        assert_eq!(
+            get_element_font_size(&sd, child, &state_of(&sd, child)),
+            64.0,
+            "2em under a 32px parent is 64px — resolving against DEFAULT_FONT_SIZE would give 32"
+        );
+        assert_eq!(
+            get_parent_font_size(&sd, child, &state_of(&sd, child)),
+            32.0
+        );
+        assert_eq!(get_root_font_size(&sd, &state_of(&sd, child)), 32.0);
+    }
+
+    #[test]
+    fn font_size_getters_stay_finite_for_hostile_stylesheet_values() {
+        // Zero, huge and negative authored font sizes must not produce NaN/inf, and
+        // must not panic on the em-inheritance walk.
+        for css in [
+            "body { font-size: 0px; }",
+            "body { font-size: 0; }",
+            "body { font-size: 999999px; }",
+            "body { font-size: -10px; }",
+            "body { font-size: 1e30px; }",
+            "div { font-size: 1000em; }",
+            "div { font-size: 0em; }",
+        ] {
+            let sd = body_with_divs(1, css);
+            for id in [NodeId::new(0), NodeId::new(1)] {
+                let st = state_of(&sd, id);
+                let px = get_element_font_size(&sd, id, &st);
+                assert!(
+                    px.is_finite(),
+                    "{css:?} produced a non-finite font-size ({px}) on node {id:?}"
+                );
+                assert_eq!(
+                    px,
+                    resolve_font_size_slow(&sd, id, &st),
+                    "memoised and slow paths disagree for {css:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn font_size_resolution_walks_a_deep_ancestor_chain_without_recursing() {
+        // resolve_font_size_slow used to self-recurse up the parent chain and blow the
+        // stack. Build a 64-deep chain and check the iterative walk survives it.
+        const DEPTH: usize = 64;
+        let mut dom = Dom::create_div();
+        for _ in 0..DEPTH {
+            dom = Dom::create_div().with_children(vec![dom].into());
+        }
+        let mut root = Dom::create_body().with_children(vec![dom].into());
+        let sd = StyledDom::create(&mut root, parse("body { font-size: 20px; }"));
+
+        let deepest = NodeId::new(sd.node_data.len() - 1);
+        let st = state_of(&sd, deepest);
+        let px = get_element_font_size(&sd, deepest, &st);
+        assert!(px.is_finite() && px > 0.0);
+        assert_eq!(px, resolve_font_size_slow(&sd, deepest, &st));
+    }
+
+    #[test]
+    fn resolve_font_size_one_is_stable_under_nan_and_infinite_context_sizes() {
+        // parent/root font sizes are f32 inputs the caller supplies; degenerate values
+        // must not panic, and (with no authored font-size) must not leak into the result.
+        let sd = StyledDom::default();
+        let root = NodeId::new(0);
+        let st = normal();
+        for (parent, rootsz) in [
+            (0.0_f32, 0.0_f32),
+            (f32::NAN, f32::NAN),
+            (f32::INFINITY, f32::NEG_INFINITY),
+            (f32::MAX, f32::MIN),
+            (-1.0, -1.0),
+        ] {
+            let px = resolve_font_size_one(&sd, root, &st, parent, rootsz);
+            assert_eq!(
+                px, DEFAULT_FONT_SIZE,
+                "an unstyled node ignores the context and falls back to the default \
+                 (parent={parent}, root={rootsz})"
+            );
+        }
+    }
+
+    // =====================================================================
+    // Option<NodeId> getters — the None branch
+    // =====================================================================
+
+    #[test]
+    fn optional_node_getters_return_their_documented_defaults_for_none() {
+        let sd = StyledDom::default();
+
+        assert_eq!(get_z_index(&sd, None), 0);
+        assert!(is_z_index_auto(&sd, None));
+        assert_eq!(get_break_before(&sd, None), PageBreak::Auto);
+        assert_eq!(get_break_after(&sd, None), PageBreak::Auto);
+        assert_eq!(get_break_inside(&sd, None), BreakInside::Auto);
+        assert_eq!(get_orphans(&sd, None), 2);
+        assert_eq!(get_widows(&sd, None), 2);
+        assert_eq!(
+            get_box_decoration_break(&sd, None),
+            BoxDecorationBreak::Slice
+        );
+        assert_eq!(
+            get_display_property(&sd, None),
+            MultiValue::Exact(LayoutDisplay::Inline),
+            "a missing node is treated as anonymous inline content"
+        );
+        assert_eq!(get_list_style_type(&sd, None), StyleListStyleType::default());
+        assert_eq!(
+            get_list_style_position(&sd, None),
+            StyleListStylePosition::default()
+        );
+        assert_eq!(get_caret_style(&sd, None).width, DEFAULT_CARET_WIDTH_PX);
+        assert_eq!(
+            get_caret_style(&sd, None).animation_duration,
+            DEFAULT_CARET_BLINK_MS
+        );
+        let sel = get_selection_style(&sd, None, None);
+        assert_eq!(sel.radius, 0.0);
+        assert_eq!(sel.text_color, None);
+    }
+
+    #[test]
+    fn z_index_defaults_to_auto_and_reads_back_explicit_integers() {
+        let sd = body_with_divs(1, "");
+        let root = NodeId::new(0);
+        assert_eq!(get_z_index(&sd, Some(root)), 0);
+        assert!(is_z_index_auto(&sd, Some(root)));
+
+        for (css, want) in [
+            ("div { z-index: 0; }", 0_i32),
+            ("div { z-index: 7; }", 7),
+            ("div { z-index: -7; }", -7),
+        ] {
+            let sd = body_with_divs(1, css);
+            let child = Some(NodeId::new(1));
+            assert_eq!(get_z_index(&sd, child), want, "{css:?}");
+            assert!(
+                !is_z_index_auto(&sd, child),
+                "an explicit integer is not auto ({css:?})"
+            );
+        }
+
+        // `z-index: auto` reads back as 0 but is still reported as auto.
+        let sd = body_with_divs(1, "div { z-index: auto; }");
+        let child = Some(NodeId::new(1));
+        assert_eq!(get_z_index(&sd, child), 0);
+        assert!(is_z_index_auto(&sd, child));
+    }
+
+    #[test]
+    fn z_index_reads_back_the_i16_encoding_boundaries_and_falls_through_above_them() {
+        // The compact cache packs z-index into an i16 whose top four values are
+        // sentinels (I16_SENTINEL_THRESHOLD = 32764). Values at or above the threshold
+        // must be stored as the sentinel and re-read via the cascade, NOT truncated.
+        for (css, want) in [
+            ("div { z-index: 32763; }", 32_763_i32), // largest directly encodable
+            ("div { z-index: -32768; }", -32_768),   // i16 lower bound
+            ("div { z-index: 32764; }", 32_764),     // == threshold → sentinel → cascade
+            ("div { z-index: 99999; }", 99_999),     // far above → sentinel → cascade
+            ("div { z-index: 2147483647; }", i32::MAX),
+        ] {
+            let sd = body_with_divs(1, css);
+            let child = Some(NodeId::new(1));
+            assert_eq!(
+                get_z_index(&sd, child),
+                want,
+                "{css:?} must survive the i16 compact encoding"
+            );
+            assert!(
+                !is_z_index_auto(&sd, child),
+                "an explicit (if huge) integer is not auto ({css:?})"
+            );
+        }
+    }
+
+    // =====================================================================
+    // Border radius
+    // =====================================================================
+
+    #[test]
+    fn border_radius_is_zero_by_default_for_every_degenerate_element_and_viewport_size() {
+        let sd = StyledDom::default();
+        let root = NodeId::new(0);
+        let st = normal();
+
+        let sizes = [
+            (0.0_f32, 0.0_f32),
+            (-100.0, -100.0),
+            (f32::NAN, f32::NAN),
+            (f32::INFINITY, f32::INFINITY),
+            (f32::MAX, f32::MAX),
+            (f32::MIN_POSITIVE, f32::MIN_POSITIVE),
+        ];
+        for (w, h) in sizes {
+            let element = PhysicalSizeImport {
+                width: w,
+                height: h,
+            };
+            let viewport = LogicalSize::new(w, h);
+            let r = get_border_radius(&sd, root, &st, element, viewport);
+            assert_eq!(r.top_left, 0.0, "element=({w}, {h})");
+            assert_eq!(r.top_right, 0.0, "element=({w}, {h})");
+            assert_eq!(r.bottom_left, 0.0, "element=({w}, {h})");
+            assert_eq!(r.bottom_right, 0.0, "element=({w}, {h})");
+        }
+    }
+
+    #[test]
+    fn border_radius_resolves_authored_pixels_on_both_the_normal_and_the_pseudo_path() {
+        let sd = body_with_divs(1, "div { border-radius: 12px; }");
+        let child = NodeId::new(1);
+        let element = PhysicalSizeImport {
+            width: 100.0,
+            height: 50.0,
+        };
+        let viewport = LogicalSize::new(800.0, 600.0);
+
+        for st in [normal(), hovered()] {
+            let r = get_border_radius(&sd, child, &st, element, viewport);
+            for corner in [r.top_left, r.top_right, r.bottom_left, r.bottom_right] {
+                assert!(corner.is_finite(), "corner must stay finite");
+                assert_eq!(corner, 12.0);
+            }
+        }
+
+        let raw = get_style_border_radius(&sd, child, &normal());
+        assert!(raw.top_left.number.get().is_finite());
+    }
+
+    #[test]
+    fn border_radius_percentages_stay_finite_for_zero_and_infinite_element_sizes() {
+        let sd = body_with_divs(1, "div { border-radius: 50%; }");
+        let child = NodeId::new(1);
+        let viewport = LogicalSize::new(0.0, 0.0);
+
+        for (w, h) in [
+            (0.0_f32, 0.0_f32),
+            (f32::MAX, f32::MAX),
+            (-10.0, -10.0),
+            (f32::INFINITY, 1.0),
+        ] {
+            let element = PhysicalSizeImport {
+                width: w,
+                height: h,
+            };
+            // Only the pseudo-state path actually resolves the % (the compact cache
+            // stores pre-resolved px), so exercise it explicitly.
+            let r = get_border_radius(&sd, child, &hovered(), element, viewport);
+            for corner in [r.top_left, r.top_right, r.bottom_left, r.bottom_right] {
+                assert!(
+                    !corner.is_nan(),
+                    "a {w}x{h} element produced a NaN corner radius"
+                );
+            }
+        }
+    }
+
+    // =====================================================================
+    // Smoke coverage for the remaining StyledDom getters
+    // =====================================================================
+
+    #[test]
+    fn optional_style_getters_are_all_none_on_an_unstyled_node() {
+        let sd = body_with_divs(1, "");
+        let id = NodeId::new(1);
+
+        for st in [normal(), hovered()] {
+            assert!(get_shape_inside(&sd, id, &st).is_none());
+            assert!(get_shape_outside(&sd, id, &st).is_none());
+            assert!(get_line_clamp(&sd, id, &st).is_none());
+            assert!(get_initial_letter(&sd, id, &st).is_none());
+            assert!(get_hanging_punctuation(&sd, id, &st).is_none());
+            assert!(get_text_combine_upright(&sd, id, &st).is_none());
+            assert!(get_hyphenation_language(&sd, id, &st).is_none());
+            assert!(get_column_count(&sd, id, &st).is_none());
+            assert!(get_filter(&sd, id, &st).is_none());
+            assert!(get_backdrop_filter(&sd, id, &st).is_none());
+            assert!(get_box_shadow_left(&sd, id, &st).is_none());
+            assert!(get_box_shadow_right(&sd, id, &st).is_none());
+            assert!(get_box_shadow_top(&sd, id, &st).is_none());
+            assert!(get_box_shadow_bottom(&sd, id, &st).is_none());
+            assert!(get_text_shadow(&sd, id, &st).is_none());
+            assert!(get_transform(&sd, id, &st).is_none());
+            assert!(get_counter_reset(&sd, id, &st).is_none());
+            assert!(get_counter_increment(&sd, id, &st).is_none());
+            assert!(get_clip_path(&sd, id, &st).is_none());
+            assert!(get_grid_template_areas_prop(&sd, id, &st).is_none());
+        }
+    }
+
+    #[test]
+    fn numeric_style_getters_use_their_documented_defaults() {
+        let sd = body_with_divs(1, "");
+        let id = NodeId::new(1);
+
+        for st in [normal(), hovered()] {
+            assert_eq!(get_opacity(&sd, id, &st), 1.0, "opacity defaults to 1.0");
+            assert_eq!(
+                get_exclusion_margin(&sd, id, &st),
+                0.0,
+                "exclusion-margin defaults to 0.0"
+            );
+            assert!(get_scrollbar_width_px(&sd, id, &st).is_finite());
+            assert!(get_scrollbar_width_px(&sd, id, &st) >= 0.0);
+        }
+    }
+
+    #[test]
+    fn opacity_in_range_agrees_on_the_compact_and_the_cascade_path() {
+        for css in [
+            "div { opacity: 0; }",
+            "div { opacity: 1; }",
+            "div { opacity: 0.5; }",
+        ] {
+            let sd = body_with_divs(1, css);
+            let id = NodeId::new(1);
+            let fast = get_opacity(&sd, id, &normal()); // compact-cache u8 path
+            let slow = get_opacity(&sd, id, &hovered()); // full cascade path
+            assert!(fast.is_finite() && slow.is_finite(), "{css:?}");
+            assert!(
+                (0.0..=1.0).contains(&fast),
+                "{css:?} read back out of range on the compact path: {fast}"
+            );
+            assert!(
+                (fast - slow).abs() < 0.01,
+                "{css:?}: compact path says {fast}, cascade path says {slow}"
+            );
+        }
+
+        // A mid-range value must actually take effect (i.e. differ from the 1.0 default).
+        let half = get_opacity(&body_with_divs(1, "div { opacity: 0.5; }"), NodeId::new(1), &normal());
+        assert!(half < 1.0 && half > 0.0, "opacity: 0.5 read back as {half}");
+    }
+
+    #[test]
+    fn opacity_never_returns_nan_or_infinity_for_out_of_range_authored_values() {
+        // NOTE: CSS Color 3 clamps opacity to [0,1]. The compact-cache encoder does
+        // clamp (`normalized().clamp(0.0, 1.0)`), but `get_opacity`'s cascade path
+        // returns `inner.normalized()` unclamped — so a non-Normal pseudo-state can
+        // report an out-of-range opacity. That divergence is reported separately; the
+        // invariant asserted here (always a finite number) must hold on BOTH paths.
+        for css in [
+            "div { opacity: 5; }",
+            "div { opacity: -3; }",
+            "div { opacity: 1e30; }",
+        ] {
+            let sd = body_with_divs(1, css);
+            let id = NodeId::new(1);
+            for st in [normal(), hovered()] {
+                let o = get_opacity(&sd, id, &st);
+                assert!(o.is_finite(), "{css:?} produced a non-finite opacity: {o}");
+            }
+            // The compact path is the one the encoder clamps, so it is always in range.
+            let fast = get_opacity(&sd, id, &normal());
+            assert!(
+                (0.0..=1.0).contains(&fast),
+                "{css:?} escaped the compact-cache clamp: {fast}"
+            );
+        }
+    }
+
+    #[test]
+    fn enum_property_getters_stay_deterministic_across_pseudo_states() {
+        let sd = body_with_divs(1, "");
+        let id = NodeId::new(1);
+
+        for st in [normal(), hovered()] {
+            // These may be Auto or Exact depending on the UA sheet; the contract under
+            // test is only that they answer without panicking and answer consistently.
+            let gutter = get_scrollbar_gutter_property(&sd, id, &st);
+            assert_eq!(gutter, get_scrollbar_gutter_property(&sd, id, &st));
+            let orientation = get_text_orientation_property(&sd, id, &st);
+            assert_eq!(orientation, get_text_orientation_property(&sd, id, &st));
+            let valign = get_vertical_align_property(&sd, id, &st);
+            assert_eq!(valign, get_vertical_align_property(&sd, id, &st));
+
+            let _ = get_background_color(&sd, id, &st);
+            let _ = get_background_contents(&sd, id, &st);
+            let _ = get_border_info(&sd, id, &st);
+            let _ = get_border_spacing(&sd, id, &st);
+            let _ = get_height_value(&sd, id, &st);
+            let _ = get_line_height_value(&sd, id, &st);
+            let _ = get_text_indent_value(&sd, id, &st);
+        }
+
+        // vertical-align defaults to the baseline for an unstyled div.
+        assert!(matches!(
+            get_vertical_align_for_node(&sd, id),
+            crate::text3::cache::VerticalAlign::Baseline
+        ));
+    }
+
+    #[test]
+    fn get_inline_border_info_is_none_without_borders_and_survives_a_degenerate_viewport() {
+        let sd = body_with_divs(1, "");
+        let id = NodeId::new(1);
+        let st = normal();
+        let info = get_border_info(&sd, id, &st);
+
+        for viewport in [
+            PhysicalSize::new(0.0, 0.0),
+            PhysicalSize::new(f32::NAN, f32::NAN),
+            PhysicalSize::new(f32::INFINITY, f32::INFINITY),
+            PhysicalSize::new(-1.0, -1.0),
+            PhysicalSize::new(f32::MAX, f32::MAX),
+        ] {
+            assert!(
+                get_inline_border_info(&sd, id, &st, &info, viewport).is_none(),
+                "a node with neither border nor padding has no inline border box"
+            );
+        }
+    }
+
+    #[test]
+    fn get_inline_border_info_reports_finite_widths_for_a_bordered_node() {
+        let sd = body_with_divs(1, "div { border: 3px solid red; padding: 5px; }");
+        let id = NodeId::new(1);
+        let st = normal();
+        let info = get_border_info(&sd, id, &st);
+
+        let inline = get_inline_border_info(&sd, id, &st, &info, PhysicalSize::new(800.0, 600.0))
+            .expect("a bordered + padded node must produce an InlineBorderInfo");
+        for w in [inline.top, inline.right, inline.bottom, inline.left] {
+            assert!(w.is_finite() && w >= 0.0, "border width {w}");
+        }
+        for p in [
+            inline.padding_top,
+            inline.padding_right,
+            inline.padding_bottom,
+            inline.padding_left,
+        ] {
+            assert!(p.is_finite() && p >= 0.0, "padding {p}");
+        }
+        assert!(inline.is_first_fragment && inline.is_last_fragment);
+        assert!(!inline.is_rtl, "the default direction is ltr");
+
+        // The same node under a NaN viewport: px lengths do not consult the viewport,
+        // so the result must stay finite rather than turn into NaN.
+        let nan_vp = get_inline_border_info(&sd, id, &st, &info, PhysicalSize::new(f32::NAN, f32::NAN))
+            .expect("px borders do not depend on the viewport");
+        assert!(nan_vp.top.is_finite() && nan_vp.padding_top.is_finite());
+    }
+
+    #[test]
+    fn get_style_properties_stays_finite_for_every_degenerate_viewport() {
+        let sd = body_with_text("hello");
+        for viewport in [
+            PhysicalSize::new(0.0, 0.0),
+            PhysicalSize::new(-1.0, -1.0),
+            PhysicalSize::new(f32::NAN, f32::NAN),
+            PhysicalSize::new(f32::INFINITY, f32::INFINITY),
+            PhysicalSize::new(f32::MAX, f32::MAX),
+        ] {
+            for id in [NodeId::new(0), NodeId::new(1)] {
+                let props = get_style_properties(&sd, id, None, viewport);
+                assert!(
+                    props.font_size_px.is_finite(),
+                    "viewport {viewport:?} produced a non-finite font size"
+                );
+                assert!(props.font_size_px > 0.0);
+            }
+        }
+    }
+
+    // =====================================================================
+    // user-select / contenteditable predicates
+    // =====================================================================
+
+    #[test]
+    fn is_text_selectable_is_true_by_default_and_false_for_user_select_none() {
+        let sd = body_with_divs(1, "");
+        assert!(
+            is_text_selectable(&sd, NodeId::new(1), &normal()),
+            "text is selectable unless user-select says otherwise"
+        );
+
+        let sd = body_with_divs(1, "div { user-select: none; }");
+        assert!(!is_text_selectable(&sd, NodeId::new(1), &normal()));
+
+        let sd = body_with_divs(1, "div { user-select: text; }");
+        assert!(is_text_selectable(&sd, NodeId::new(1), &normal()));
+    }
+
+    #[test]
+    fn contenteditable_is_false_everywhere_on_a_plain_dom() {
+        let sd = body_with_divs(2, "");
+        for idx in 0..sd.node_data.len() {
+            let id = NodeId::new(idx);
+            assert!(!is_node_contenteditable(&sd, id), "node {idx}");
+            assert!(!is_node_contenteditable_inherited(&sd, id), "node {idx}");
+            assert_eq!(find_contenteditable_ancestor(&sd, id), None, "node {idx}");
+        }
+    }
+
+    #[test]
+    fn contenteditable_is_inherited_by_descendants_but_not_reported_as_direct() {
+        // body(0) > editable div(1) > plain div(2)
+        let mut editable = Dom::create_div().with_children(vec![Dom::create_div()].into());
+        editable.root.set_contenteditable(true);
+        let mut dom = Dom::create_body().with_children(vec![editable].into());
+        let sd = StyledDom::create(&mut dom, Css::empty());
+        assert_eq!(sd.node_data.len(), 3);
+
+        let (body, editable, child) = (NodeId::new(0), NodeId::new(1), NodeId::new(2));
+
+        assert!(!is_node_contenteditable(&sd, body));
+        assert!(is_node_contenteditable(&sd, editable));
+        assert!(
+            !is_node_contenteditable(&sd, child),
+            "the direct check must not walk up the tree"
+        );
+
+        assert!(!is_node_contenteditable_inherited(&sd, body));
+        assert!(is_node_contenteditable_inherited(&sd, editable));
+        assert!(
+            is_node_contenteditable_inherited(&sd, child),
+            "editability is inherited from the ancestor"
+        );
+
+        assert_eq!(find_contenteditable_ancestor(&sd, body), None);
+        assert_eq!(find_contenteditable_ancestor(&sd, editable), Some(editable));
+        assert_eq!(
+            find_contenteditable_ancestor(&sd, child),
+            Some(editable),
+            "a nested node resolves to its editable container, not to itself"
+        );
+    }
+
+    // =====================================================================
+    // Codepoint / script collection
+    // =====================================================================
+
+    #[test]
+    fn collect_used_codepoints_strips_ascii_while_the_all_variant_keeps_it() {
+        // ASCII + Latin-1 + CJK + an astral-plane emoji (a surrogate pair in UTF-16).
+        let sd = body_with_text("aé漢🎉");
+
+        let non_ascii = collect_used_codepoints(&sd);
+        assert_eq!(non_ascii.len(), 3, "the ASCII 'a' is dropped");
+        assert!(non_ascii.contains(&0x00E9));
+        assert!(non_ascii.contains(&0x6F22));
+        assert!(non_ascii.contains(&0x0001_F389), "astral plane codepoint");
+        assert!(!non_ascii.contains(&u32::from(b'a')));
+
+        let all = collect_used_codepoints_all(&sd);
+        assert_eq!(all.len(), 4);
+        assert!(all.contains(&'a'));
+        assert!(all.contains(&'🎉'));
+    }
+
+    #[test]
+    fn collect_used_codepoints_dedupes_and_handles_empty_and_ascii_only_text() {
+        // Repeats collapse (BTreeSet), and a DOM with no text at all yields nothing.
+        let sd = body_with_text("ααα");
+        assert_eq!(collect_used_codepoints(&sd).len(), 1);
+
+        let sd = body_with_text("");
+        assert!(collect_used_codepoints(&sd).is_empty());
+        assert!(collect_used_codepoints_all(&sd).is_empty());
+
+        let sd = body_with_divs(3, "");
+        assert!(
+            collect_used_codepoints(&sd).is_empty(),
+            "element nodes carry no codepoints"
+        );
+
+        let sd = body_with_text("plain ascii");
+        assert!(collect_used_codepoints(&sd).is_empty());
+        assert!(!collect_used_codepoints_all(&sd).is_empty());
+    }
+
+    #[test]
+    fn scripts_present_in_styled_dom_is_empty_for_ascii_and_bounded_by_the_default_set() {
+        let ascii = body_with_text("hello world");
+        assert!(
+            scripts_present_in_styled_dom(&ascii).is_empty(),
+            "an ASCII-only page must not drag in any unicode fallback script"
+        );
+
+        let empty = StyledDom::default();
+        assert!(scripts_present_in_styled_dom(&empty).is_empty());
+
+        let cjk = body_with_text("漢字");
+        let scripts = scripts_present_in_styled_dom(&cjk);
+        assert!(!scripts.is_empty(), "CJK text must report at least one script");
+        assert!(
+            scripts.len() <= DEFAULT_UNICODE_FALLBACK_SCRIPTS.len(),
+            "the result is always a subset of the default script set"
+        );
+        for r in &scripts {
+            assert!(r.start <= r.end, "a script range must not be inverted");
+        }
+    }
+
+    #[test]
+    fn collect_font_stacks_from_styled_dom_keeps_its_index_map_consistent() {
+        let platform = azul_css::system::Platform::current();
+
+        for sd in [
+            StyledDom::default(),
+            body_with_text("hello"),
+            body_with_divs(3, "div { font-family: Iosevka, monospace; }"),
+        ] {
+            let collected = collect_font_stacks_from_styled_dom(&sd, &platform);
+            assert_eq!(
+                collected.hash_to_index.len(),
+                collected.font_stacks.len(),
+                "every recorded hash must map to exactly one stack"
+            );
+            for &idx in collected.hash_to_index.values() {
+                assert!(
+                    idx < collected.font_stacks.len(),
+                    "hash_to_index points past the end of font_stacks"
+                );
+            }
+            for stack in &collected.font_stacks {
+                assert!(!stack.is_empty(), "an empty font stack is never recorded");
+            }
+        }
+    }
+}

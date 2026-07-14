@@ -506,3 +506,813 @@ pub(crate) fn text_subpixel_enabled() -> bool {
 fn f26_to_px(v: i32) -> f32 {
     v as f32 / 64.0
 }
+
+#[cfg(test)]
+#[allow(
+    // exact float comparisons are intentional: power-of-two / midpoint
+    // arithmetic with exactly representable results
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_lossless
+)]
+mod autotest_generated {
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::Arc,
+    };
+
+    use agg_rust::basics::{
+        PATH_CMD_CURVE3, PATH_CMD_END_POLY, PATH_CMD_LINE_TO, PATH_CMD_MOVE_TO, PATH_FLAGS_CLOSE,
+    };
+    use azul_core::resources::OwnedGlyphBoundingBox;
+
+    use super::*;
+
+    // ---------------------------------------------------------------------
+    // helpers
+    // ---------------------------------------------------------------------
+
+    /// A real system/repo font, or `None` — font-dependent tests skip rather
+    /// than guess. Source bytes are retained so `glyph_lsb` can read `hmtx`.
+    fn test_font() -> Option<ParsedFont> {
+        let candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../examples/assets/fonts/SourceSerifPro-Regular.ttf"
+            ),
+        ];
+        for path in candidates {
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(
+                bytes.as_slice(),
+            )));
+            if let Some(font) =
+                ParsedFont::from_bytes(&bytes, 0, &mut Vec::new()).map(|f| f.with_source_bytes(arc))
+            {
+                return Some(font);
+            }
+        }
+        None
+    }
+
+    /// A glyph with no outline at all (the "space character" shape the
+    /// `get_or_build` doc mentions) — buildable without a font.
+    fn empty_glyph() -> OwnedGlyph {
+        OwnedGlyph {
+            bounding_box: OwnedGlyphBoundingBox {
+                max_x: 0,
+                max_y: 0,
+                min_x: 0,
+                min_y: 0,
+            },
+            horz_advance: 0,
+            outline: Vec::new(),
+            phantom_points: None,
+            raw_points: None,
+            raw_on_curve: None,
+            raw_contour_ends: None,
+            instructions: None,
+        }
+    }
+
+    /// `('A', decoded glyph)` from `font`, if the font has one with an outline.
+    fn glyph_a(font: &ParsedFont) -> Option<(u16, Arc<OwnedGlyph>)> {
+        let gid = font.lookup_glyph_index('A' as u32)?;
+        let glyph = font.get_or_decode_glyph(gid)?;
+        Some((gid, glyph))
+    }
+
+    // ---------------------------------------------------------------------
+    // quantize_subpx — numeric
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn quantize_subpx_zero_and_quarter_buckets() {
+        assert_eq!(quantize_subpx(0.0), 0);
+        assert_eq!(quantize_subpx(0.24), 0);
+        assert_eq!(quantize_subpx(0.25), 1);
+        assert_eq!(quantize_subpx(0.5), 2);
+        assert_eq!(quantize_subpx(0.75), 3);
+        // 0.999 * 4 == 3.996, clamped by `.min(3.0)` — must not reach bucket 4.
+        assert_eq!(quantize_subpx(0.999), 3);
+        // Only the fractional part matters: whole pixels drop out.
+        assert_eq!(quantize_subpx(1.0), 0);
+        assert_eq!(quantize_subpx(2.25), 1);
+        assert_eq!(quantize_subpx(1024.5), 2);
+    }
+
+    #[test]
+    fn quantize_subpx_negative_inputs_use_floor_not_truncation() {
+        // frac - frac.floor() is always in [0, 1), so a negative x lands in the
+        // bucket of its positive fractional remainder (-0.25 => 0.75 => 3).
+        assert_eq!(quantize_subpx(-0.25), 3);
+        assert_eq!(quantize_subpx(-0.5), 2);
+        assert_eq!(quantize_subpx(-0.75), 1);
+        assert_eq!(quantize_subpx(-1.0), 0);
+        assert_eq!(quantize_subpx(-0.0), 0);
+        assert_eq!(quantize_subpx(-7.25), 3);
+    }
+
+    #[test]
+    fn quantize_subpx_nan_and_infinities_are_defined() {
+        // NaN.floor() == NaN, NaN - NaN == NaN, and f32::min ignores NaN, so the
+        // clamp yields 3.0. Defined and non-panicking, if arguably surprising:
+        // a NaN position buckets as if it were 3/4 of a pixel.
+        assert_eq!(quantize_subpx(f32::NAN), 3);
+        assert_eq!(quantize_subpx(f32::INFINITY), 3);
+        assert_eq!(quantize_subpx(f32::NEG_INFINITY), 3);
+    }
+
+    #[test]
+    fn quantize_subpx_never_exceeds_three() {
+        let extremes = [
+            f32::MAX,
+            f32::MIN,
+            f32::MIN_POSITIVE,
+            -f32::MIN_POSITIVE,
+            f32::EPSILON,
+            1e30,
+            -1e30,
+            16_777_216.0, // 2^24: f32 loses the fractional bit entirely
+            -16_777_217.0,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ];
+        for v in extremes {
+            assert!(
+                quantize_subpx(v) <= 3,
+                "quantize_subpx({v}) escaped the 0..=3 bucket range"
+            );
+        }
+        for i in -2000..2000 {
+            let v = f64_to_f32(f64::from(i) * 0.017);
+            assert!(quantize_subpx(v) <= 3, "quantize_subpx({v}) > 3");
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn f64_to_f32(v: f64) -> f32 {
+        v as f32
+    }
+
+    // ---------------------------------------------------------------------
+    // f26_to_px — numeric
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn f26_to_px_zero_and_exact_fractions() {
+        assert_eq!(f26_to_px(0), 0.0);
+        assert_eq!(f26_to_px(64), 1.0);
+        assert_eq!(f26_to_px(-64), -1.0);
+        assert_eq!(f26_to_px(32), 0.5);
+        assert_eq!(f26_to_px(16), 0.25);
+        assert_eq!(f26_to_px(1), 1.0 / 64.0);
+        assert_eq!(f26_to_px(-1), -1.0 / 64.0);
+    }
+
+    #[test]
+    fn f26_to_px_min_max_stay_finite() {
+        // i32::MAX rounds up to 2^31 in f32; both ends are exactly ±2^25 px.
+        assert_eq!(f26_to_px(i32::MAX), 33_554_432.0);
+        assert_eq!(f26_to_px(i32::MIN), -33_554_432.0);
+        assert!(f26_to_px(i32::MAX).is_finite());
+        assert!(f26_to_px(i32::MIN).is_finite());
+    }
+
+    #[test]
+    fn f26_to_px_round_trips_for_exactly_representable_inputs() {
+        // /64 is a power-of-two scaling: exact (no rounding) for |v| <= 2^24.
+        for v in [
+            0,
+            1,
+            -1,
+            63,
+            64,
+            -64,
+            4096,
+            -4096,
+            8_388_607,
+            -8_388_607,
+            16_777_216,
+            -16_777_216,
+        ] {
+            let px = f26_to_px(v);
+            assert_eq!(px * 64.0, v as f32, "f26_to_px({v}) did not round-trip");
+        }
+    }
+
+    #[test]
+    fn f26_to_px_is_monotonic() {
+        let ladder = [
+            i32::MIN,
+            -1_000_000,
+            -64,
+            -1,
+            0,
+            1,
+            64,
+            1_000_000,
+            i32::MAX,
+        ];
+        for w in ladder.windows(2) {
+            assert!(
+                f26_to_px(w[0]) <= f26_to_px(w[1]),
+                "f26_to_px is not monotonic between {} and {}",
+                w[0],
+                w[1]
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // build_path_from_contours — structure / round-trip of the TrueType rules
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn build_path_from_contours_empty_inputs_return_none() {
+        assert!(build_path_from_contours(&[], &[], &[]).is_none());
+        // Points but no contours => nothing emitted.
+        assert!(build_path_from_contours(&[(0, 0), (64, 0)], &[true, true], &[]).is_none());
+        // Contour end but no points => out-of-range end, skipped.
+        assert!(build_path_from_contours(&[], &[], &[0]).is_none());
+    }
+
+    #[test]
+    fn build_path_from_contours_single_point_contour_is_skipped() {
+        // n < 2 => degenerate contour, no path ops at all.
+        assert!(build_path_from_contours(&[(0, 0)], &[true], &[0]).is_none());
+    }
+
+    #[test]
+    fn build_path_from_contours_out_of_range_contour_end_is_skipped_not_indexed() {
+        let pts = [(0, 0), (64, 64)];
+        let oc = [true, true];
+        assert!(build_path_from_contours(&pts, &oc, &[10]).is_none());
+        // u16::MAX end: `end + 1` must not overflow the usize cursor either.
+        assert!(build_path_from_contours(&pts, &oc, &[u16::MAX]).is_none());
+        // Skipping a bogus end still advances the cursor to `end + 1`, so every
+        // later contour falls into the `contour_start > end` branch too. The
+        // whole glyph fails closed (None) instead of indexing out of bounds.
+        assert!(
+            build_path_from_contours(&pts, &oc, &[99, 1]).is_none(),
+            "a bogus contour end poisons the cursor for the rest of the glyph"
+        );
+    }
+
+    #[test]
+    fn build_path_from_contours_line_contour_emits_move_line_close() {
+        let path = build_path_from_contours(&[(0, 0), (128, 64)], &[true, true], &[1])
+            .expect("two on-curve points form a contour");
+        let v = path.vertices();
+        assert_eq!(v.len(), 3, "expected move_to + line_to + close");
+        assert_eq!(v[0].cmd, PATH_CMD_MOVE_TO);
+        assert_eq!(v[0].x, 0.0);
+        assert_eq!(v[0].y, 0.0);
+        assert_eq!(v[1].cmd, PATH_CMD_LINE_TO);
+        assert_eq!(v[1].x, 2.0, "128 F26Dot6 units == 2 px");
+        assert_eq!(v[1].y, -1.0, "Y must be negated for screen coords");
+        assert_eq!(v[2].cmd, PATH_CMD_END_POLY | PATH_FLAGS_CLOSE);
+    }
+
+    #[test]
+    fn build_path_from_contours_offcurve_point_becomes_curve3() {
+        let path = build_path_from_contours(
+            &[(0, 0), (64, 64), (128, 0)],
+            &[true, false, true],
+            &[2],
+        )
+        .expect("on/off/on contour");
+        let v = path.vertices();
+        assert_eq!(v.len(), 4, "move_to + curve3(ctrl,to) + close");
+        assert_eq!(v[0].cmd, PATH_CMD_MOVE_TO);
+        assert_eq!(v[1].cmd, PATH_CMD_CURVE3);
+        assert_eq!((v[1].x, v[1].y), (1.0, -1.0), "control point");
+        assert_eq!(v[2].cmd, PATH_CMD_CURVE3);
+        assert_eq!((v[2].x, v[2].y), (2.0, 0.0), "curve endpoint");
+        assert_eq!(v[3].cmd, PATH_CMD_END_POLY | PATH_FLAGS_CLOSE);
+    }
+
+    #[test]
+    fn build_path_from_contours_two_offcurve_points_insert_implicit_midpoint() {
+        let path = build_path_from_contours(
+            &[(0, 0), (64, 64), (128, 64), (192, 0)],
+            &[true, false, false, true],
+            &[3],
+        )
+        .expect("on/off/off/on contour");
+        let v = path.vertices();
+        assert_eq!(v.len(), 6, "move_to + 2 curve3 + close");
+        // First quad ends at the implicit midpoint of the two control points:
+        // mid((1,-1), (2,-1)) == (1.5, -1).
+        assert_eq!((v[1].x, v[1].y), (1.0, -1.0));
+        assert_eq!((v[2].x, v[2].y), (1.5, -1.0), "implicit on-curve midpoint");
+        assert_eq!((v[3].x, v[3].y), (2.0, -1.0));
+        assert_eq!((v[4].x, v[4].y), (3.0, 0.0));
+    }
+
+    #[test]
+    fn build_path_from_contours_all_offcurve_closes_back_to_the_synthetic_origin() {
+        // No on-curve point anywhere: origin is the midpoint of first & last,
+        // and the final curve must return to it.
+        let path = build_path_from_contours(
+            &[(0, 0), (64, 64), (128, 0)],
+            &[false, false, false],
+            &[2],
+        )
+        .expect("all-off-curve contour");
+        let v = path.vertices();
+        assert_eq!(v.len(), 8, "move_to + 3 curve3 + close");
+        assert_eq!(v[0].cmd, PATH_CMD_MOVE_TO);
+        assert_eq!((v[0].x, v[0].y), (1.0, 0.0), "origin = mid(first, last)");
+        let last_pt = v[6];
+        assert_eq!(
+            (last_pt.x, last_pt.y),
+            (v[0].x, v[0].y),
+            "final curve3 must land back on the origin"
+        );
+        assert_eq!(v[7].cmd, PATH_CMD_END_POLY | PATH_FLAGS_CLOSE);
+    }
+
+    #[test]
+    fn build_path_from_contours_leading_offcurve_uses_trailing_oncurve_as_origin() {
+        // flags[0] off, flags[n-1] on => origin is the LAST point, range [0, n-1).
+        let path = build_path_from_contours(&[(64, 64), (128, 0)], &[false, true], &[1])
+            .expect("off/on contour");
+        let v = path.vertices();
+        assert_eq!(v.len(), 4);
+        assert_eq!(v[0].cmd, PATH_CMD_MOVE_TO);
+        assert_eq!((v[0].x, v[0].y), (2.0, 0.0), "origin is the on-curve point");
+        assert_eq!(v[1].cmd, PATH_CMD_CURVE3);
+        assert_eq!((v[2].x, v[2].y), (2.0, 0.0), "curve returns to the origin");
+    }
+
+    #[test]
+    fn build_path_from_contours_multiple_contours_emit_multiple_subpaths() {
+        let pts = [(0, 0), (64, 0), (0, 64), (64, 64)];
+        let oc = [true; 4];
+        let path = build_path_from_contours(&pts, &oc, &[1, 3]).expect("two contours");
+        let v = path.vertices();
+        assert_eq!(v.len(), 6, "two × (move_to + line_to + close)");
+        let moves = v.iter().filter(|x| x.cmd == PATH_CMD_MOVE_TO).count();
+        assert_eq!(moves, 2, "each contour must start its own subpath");
+    }
+
+    #[test]
+    fn build_path_from_contours_non_monotonic_contour_ends_do_not_panic() {
+        let pts = [(0, 0), (64, 0), (0, 64), (64, 64)];
+        let oc = [true; 4];
+        // Descending ends: the second contour has contour_start > end => skipped.
+        let path = build_path_from_contours(&pts, &oc, &[1, 0]).expect("first contour builds");
+        assert_eq!(path.vertices().len(), 3);
+        // Duplicate ends: likewise skipped, not re-emitted.
+        let dup = build_path_from_contours(&pts, &oc, &[1, 1]).expect("first contour builds");
+        assert_eq!(dup.vertices().len(), 3);
+    }
+
+    #[test]
+    fn build_path_from_contours_extra_on_curve_flags_are_harmless() {
+        // on_curve longer than points: the extra flags must simply go unread.
+        let path = build_path_from_contours(&[(0, 0), (64, 0)], &[true; 8], &[1])
+            .expect("contour builds with a too-long flag slice");
+        assert_eq!(path.vertices().len(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range")]
+    fn build_path_from_contours_short_on_curve_slice_panics() {
+        // BUG (documented, not weakened): the bounds check only compares the
+        // contour end against `points.len()`, then slices `on_curve` with the
+        // same range. A caller passing a shorter `on_curve` than `points` gets
+        // an index-out-of-bounds panic out of a `pub fn` that otherwise
+        // signals failure by returning `None`.
+        let _ = build_path_from_contours(&[(0, 0), (64, 0)], &[true], &[1]);
+    }
+
+    #[test]
+    fn build_path_from_contours_extreme_coordinates_stay_finite() {
+        let pts = [(i32::MIN, i32::MAX), (i32::MAX, i32::MIN), (0, 0)];
+        let oc = [true, false, true];
+        let path = build_path_from_contours(&pts, &oc, &[2]).expect("extreme contour still builds");
+        for v in path.vertices() {
+            assert!(
+                v.x.is_finite() && v.y.is_finite(),
+                "F26Dot6 extremes produced a non-finite vertex: ({}, {})",
+                v.x,
+                v.y
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // env-backed predicates
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn hint_light_enabled_is_stable_across_calls() {
+        // OnceLock-backed: whatever the env says, every call must agree.
+        let first = hint_light_enabled();
+        assert_eq!(first, hint_light_enabled());
+        assert_eq!(first, hint_light_enabled());
+    }
+
+    #[test]
+    fn text_subpixel_enabled_is_stable_across_calls() {
+        let first = text_subpixel_enabled();
+        assert_eq!(first, text_subpixel_enabled());
+        assert_eq!(first, text_subpixel_enabled());
+    }
+
+    // ---------------------------------------------------------------------
+    // GlyphCache::new / paths_len / cells_len
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn new_cache_is_empty_and_default_matches_new() {
+        let cache = GlyphCache::new();
+        assert_eq!(cache.paths_len(), 0);
+        assert_eq!(cache.cells_len(), 0);
+
+        let def = GlyphCache::default();
+        assert_eq!(def.paths_len(), 0);
+        assert_eq!(def.cells_len(), 0);
+    }
+
+    #[test]
+    fn debug_impl_reports_entry_counts_without_touching_agg_types() {
+        let cache = GlyphCache::new();
+        let s = format!("{cache:?}");
+        assert!(s.contains("GlyphCache"), "{s}");
+        assert!(s.contains("paths"), "{s}");
+        assert!(s.contains("cells"), "{s}");
+    }
+
+    // ---------------------------------------------------------------------
+    // get_or_build_cells — numeric (needs no font: a path-cache miss is a
+    // legitimate, reachable state)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn get_or_build_cells_without_a_cached_path_returns_none_and_negative_caches() {
+        let mut cache = GlyphCache::new();
+        let got = cache
+            .get_or_build_cells(1, 2, 16, 0.0, 0.0, 1.0, false, 1.0)
+            .map(|(cells, x, y)| (cells.len(), x, y));
+        assert_eq!(got, None, "no path cached => no cells");
+        assert_eq!(cache.cells_len(), 1, "the miss must be negative-cached");
+
+        // Idempotent: a repeat lookup does not add a second entry.
+        let again = cache
+            .get_or_build_cells(1, 2, 16, 0.0, 0.0, 1.0, false, 1.0)
+            .map(|(cells, _, _)| cells.len());
+        assert_eq!(again, None);
+        assert_eq!(cache.cells_len(), 1);
+    }
+
+    #[test]
+    fn get_or_build_cells_keys_on_the_quarter_pixel_bucket_not_the_raw_position() {
+        let mut cache = GlyphCache::new();
+        // All of these have a fractional part < 0.25 => same sub-pixel bucket.
+        for x in [0.0_f32, 0.1, 0.2, 5.24, 100.0] {
+            let _ = cache.get_or_build_cells(7, 3, 16, x, 0.0, 1.0, false, 1.0);
+        }
+        assert_eq!(cache.cells_len(), 1, "same bucket must reuse one entry");
+
+        // A different bucket (0.5 => bucket 2) is a different key.
+        let _ = cache.get_or_build_cells(7, 3, 16, 0.5, 0.0, 1.0, false, 1.0);
+        assert_eq!(cache.cells_len(), 2);
+
+        // A different scale is a different key too (scale_fixed is in the key).
+        let _ = cache.get_or_build_cells(7, 3, 16, 0.5, 0.0, 2.0, false, 1.0);
+        assert_eq!(cache.cells_len(), 3);
+    }
+
+    #[test]
+    fn get_or_build_cells_extreme_arguments_do_not_panic() {
+        let mut cache = GlyphCache::new();
+        // is_hinted + scale 0.0 keeps the fixed-point debug_assert satisfied
+        // while pushing every *other* argument to its limit.
+        for x in [
+            0.0_f32,
+            f32::MAX,
+            f32::MIN,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            -0.75,
+        ] {
+            let got = cache
+                .get_or_build_cells(u64::MAX, u16::MAX, u16::MAX, x, x, 0.0, true, 1.0)
+                .map(|(cells, _, _)| cells.len());
+            assert_eq!(got, None, "empty path cache must yield None for x = {x}");
+        }
+        // Zero everywhere.
+        let zeroed = cache
+            .get_or_build_cells(0, 0, 0, 0.0, 0.0, 0.0, false, 0.0)
+            .map(|(cells, _, _)| cells.len());
+        assert_eq!(zeroed, None);
+        // Largest in-range scale (the debug_assert's exclusive upper bound - 1).
+        let big = cache
+            .get_or_build_cells(0, 0, 0, 0.0, 0.0, 65_535.0, false, 1.0)
+            .map(|(cells, _, _)| cells.len());
+        assert_eq!(big, None);
+    }
+
+    #[test]
+    fn get_or_build_cells_nan_hint_correction_falls_back_to_grid_snapped() {
+        // (NaN - 1.0).abs() > 1e-4 is FALSE, so a NaN hint_correction is treated
+        // exactly like the no-rescale case (scale_fixed = 0) rather than being
+        // cast to a garbage fixed-point key. Same key => no extra entry.
+        let mut cache = GlyphCache::new();
+        let _ = cache.get_or_build_cells(9, 1, 12, 3.5, 4.5, 0.0, true, 1.0);
+        assert_eq!(cache.cells_len(), 1);
+        let _ = cache.get_or_build_cells(9, 1, 12, 3.5, 4.5, 0.0, true, f32::NAN);
+        assert_eq!(
+            cache.cells_len(),
+            1,
+            "NaN hint_correction must collapse onto the grid-snapped key"
+        );
+    }
+
+    #[test]
+    fn get_or_build_cells_negative_scale_is_debug_asserted() {
+        let mut cache = GlyphCache::new();
+        let res = catch_unwind(AssertUnwindSafe(|| {
+            cache
+                .get_or_build_cells(1, 1, 16, 0.0, 0.0, -1.0, false, 1.0)
+                .map(|(cells, _, _)| cells.len())
+        }));
+        if cfg!(debug_assertions) {
+            assert!(
+                res.is_err(),
+                "a negative scale must trip the fixed-point range debug_assert"
+            );
+        } else {
+            // Release: the f32 -> u32 cast saturates to 0 instead of wrapping.
+            assert_eq!(res.ok().flatten(), None);
+        }
+    }
+
+    #[test]
+    fn get_or_build_cells_evicts_wholesale_at_the_entry_limit() {
+        let mut cache = GlyphCache::new();
+        for i in 0..MAX_CELL_ENTRIES as u64 {
+            let _ = cache.get_or_build_cells(i, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        }
+        assert_eq!(cache.cells_len(), MAX_CELL_ENTRIES);
+        // One past the limit: the whole map is cleared, then the new key lands.
+        let _ = cache.get_or_build_cells(u64::MAX, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        assert_eq!(cache.cells_len(), 1, "cell cache must not grow unbounded");
+    }
+
+    // ---------------------------------------------------------------------
+    // get_or_build — needs a ParsedFont (skipped when no font is available)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn get_or_build_outlineless_glyph_returns_none_and_caches_the_miss() {
+        let Some(font) = test_font() else {
+            return; // no font on this machine: skip rather than guess
+        };
+        let mut cache = GlyphCache::new();
+        let glyph = empty_glyph();
+        let got = cache
+            .get_or_build(1, 0, &glyph, &font, 0)
+            .map(|c| c.is_hinted);
+        assert_eq!(got, None, "a glyph with no outline must yield None");
+        assert_eq!(cache.paths_len(), 1, "the miss must be negative-cached");
+    }
+
+    #[test]
+    fn get_or_build_extreme_ids_and_ppem_do_not_panic() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let mut cache = GlyphCache::new();
+        let glyph = empty_glyph();
+        for (hash, gid, ppem) in [
+            (0_u64, 0_u16, 0_u16),
+            (u64::MAX, u16::MAX, u16::MAX),
+            (u64::MAX, 0, 1),
+            (0, u16::MAX, u16::MAX),
+        ] {
+            let got = cache
+                .get_or_build(hash, gid, &glyph, &font, ppem)
+                .map(|c| c.is_hinted);
+            assert_eq!(got, None, "outline-less glyph at ppem {ppem}");
+        }
+        assert_eq!(cache.paths_len(), 4, "each (hash, gid, ppem) is its own key");
+    }
+
+    #[test]
+    fn get_or_build_is_idempotent_and_ppem_is_part_of_the_key() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let Some((gid, glyph)) = glyph_a(&font) else {
+            return;
+        };
+        let mut cache = GlyphCache::new();
+
+        // ppem == 0 => unhinted path, in font units.
+        let first = cache
+            .get_or_build(font.hash, gid, &glyph, &font, 0)
+            .map(|c| (c.is_hinted, c.path.total_vertices()));
+        let Some((is_hinted, verts)) = first else {
+            return; // 'A' has no outline in this font: nothing to assert
+        };
+        assert!(!is_hinted, "ppem == 0 must not produce a hinted path");
+        assert!(verts > 0, "an outlined glyph must emit vertices");
+        assert_eq!(cache.paths_len(), 1);
+
+        // Second lookup is a cache hit: same result, no new entry.
+        let second = cache
+            .get_or_build(font.hash, gid, &glyph, &font, 0)
+            .map(|c| (c.is_hinted, c.path.total_vertices()));
+        assert_eq!(second, Some((is_hinted, verts)));
+        assert_eq!(cache.paths_len(), 1, "a hit must not insert a second entry");
+
+        // A different ppem is a different key.
+        let _ = cache.get_or_build(font.hash, gid, &glyph, &font, 16);
+        assert_eq!(cache.paths_len(), 2);
+    }
+
+    #[test]
+    fn get_or_build_evicts_wholesale_at_the_entry_limit() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let mut cache = GlyphCache::new();
+        let glyph = empty_glyph(); // no outline => cheap negative entries
+        for i in 0..MAX_PATH_ENTRIES as u64 {
+            let _ = cache.get_or_build(i, 0, &glyph, &font, 0);
+        }
+        assert_eq!(cache.paths_len(), MAX_PATH_ENTRIES);
+        let _ = cache.get_or_build(u64::MAX, 0, &glyph, &font, 0);
+        assert_eq!(cache.paths_len(), 1, "path cache must not grow unbounded");
+    }
+
+    // ---------------------------------------------------------------------
+    // glyph_lsb — numeric / bounds
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn glyph_lsb_without_source_bytes_is_none() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let mut stripped = font;
+        stripped.original_bytes = None;
+        assert_eq!(
+            glyph_lsb(&stripped, 0),
+            None,
+            "no retained font bytes => no hmtx to read"
+        );
+    }
+
+    #[test]
+    fn glyph_lsb_zero_h_metrics_is_none() {
+        let Some(mut font) = test_font() else {
+            return;
+        };
+        font.hhea_table.num_h_metrics = 0;
+        assert_eq!(glyph_lsb(&font, 0), None, "num_h_metrics == 0 must bail out");
+    }
+
+    #[test]
+    fn glyph_lsb_reads_gid_zero_and_rejects_out_of_range_gids() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let (_, len) = font.hmtx_range;
+        let num = usize::from(font.hhea_table.num_h_metrics);
+        if len > 0 && num > 0 && font.original_bytes.is_some() {
+            assert!(
+                glyph_lsb(&font, 0).is_some(),
+                "gid 0 sits inside hmtx and must read back"
+            );
+        }
+
+        // A gid whose lsb offset lands past the table must be bounds-rejected,
+        // not indexed. (Mirrors the impl's offset arithmetic to know it is out
+        // of range for THIS font rather than assuming a glyph count.)
+        let gid = usize::from(u16::MAX);
+        let lsb_off = if gid < num {
+            gid * 4 + 2
+        } else {
+            num * 4 + (gid - num) * 2
+        };
+        if lsb_off + 2 > len {
+            assert_eq!(
+                glyph_lsb(&font, u16::MAX),
+                None,
+                "an out-of-table gid must return None, not panic"
+            );
+        }
+
+        // Sweep the boundary around num_h_metrics (long metrics -> trailing
+        // lsb-only array) — none of these may panic.
+        for gid in [0_u16, 1, u16::MAX] {
+            let _ = glyph_lsb(&font, gid);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // build_hinted_path — guard clauses (the interpreter path itself is only
+    // smoke-tested at a realistic ppem)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn build_hinted_path_without_raw_hinting_data_is_none() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let glyph = empty_glyph(); // raw_points / instructions all None
+        assert!(build_hinted_path(0, &glyph, &font, 16).is_none());
+        assert!(
+            build_hinted_path(u16::MAX, &glyph, &font, u16::MAX).is_none(),
+            "missing raw data must short-circuit before any hinting arithmetic"
+        );
+    }
+
+    #[test]
+    fn build_hinted_path_with_empty_contours_is_none() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let mut glyph = empty_glyph();
+        glyph.raw_points = Some(Vec::new());
+        glyph.raw_on_curve = Some(Vec::new());
+        glyph.raw_contour_ends = Some(Vec::new());
+        glyph.instructions = Some(Vec::new());
+        assert!(
+            build_hinted_path(0, &glyph, &font, 16).is_none(),
+            "an empty point/contour list must bail out, not hint an empty glyph"
+        );
+    }
+
+    #[test]
+    fn build_hinted_path_without_a_hint_instance_is_none() {
+        let Some(mut font) = test_font() else {
+            return;
+        };
+        let Some((gid, glyph)) = glyph_a(&font) else {
+            return;
+        };
+        if glyph.raw_points.is_none() || glyph.instructions.is_none() {
+            return; // CFF / composite glyph: nothing to hint, test not applicable
+        }
+        font.hint_instance = None;
+        assert!(
+            build_hinted_path(gid, &glyph, &font, 16).is_none(),
+            "no interpreter => no hinted path"
+        );
+    }
+
+    #[test]
+    fn build_hinted_path_with_zero_upem_is_none() {
+        let Some(mut font) = test_font() else {
+            return;
+        };
+        let Some((gid, glyph)) = glyph_a(&font) else {
+            return;
+        };
+        if font.hint_instance.is_none() || glyph.raw_points.is_none() {
+            return; // the upem guard sits behind the hint-instance guard
+        }
+        font.font_metrics.units_per_em = 0;
+        assert!(
+            build_hinted_path(gid, &glyph, &font, 16).is_none(),
+            "upem == 0 must bail out before the divide-by-upem scale"
+        );
+    }
+
+    #[test]
+    fn build_hinted_path_at_a_realistic_ppem_produces_a_finite_path() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let Some((gid, glyph)) = glyph_a(&font) else {
+            return;
+        };
+        let Some(path) = build_hinted_path(gid, &glyph, &font, 16) else {
+            return; // unhinted font (CFF / no instructions): nothing to assert
+        };
+        assert!(path.total_vertices() > 0, "hinted path must have vertices");
+        for v in path.vertices() {
+            assert!(
+                v.x.is_finite() && v.y.is_finite(),
+                "hinting produced a non-finite vertex: ({}, {})",
+                v.x,
+                v.y
+            );
+        }
+    }
+}

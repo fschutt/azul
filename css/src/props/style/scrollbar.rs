@@ -1180,3 +1180,1114 @@ mod tests {
         assert!(parse_style_scrollbar_color("red blue green").is_err());
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unreadable_literal, clippy::float_cmp)]
+mod autotest_generated {
+    use super::*;
+    use crate::codegen::format::FormatAsRustCode;
+
+    /// Largest integer an `f32` represents exactly (`2^24`). Every millisecond
+    /// count at or below this survives the `f32` hop inside `parse_duration`;
+    /// above it, neighbouring `f32`s are more than 1ms apart.
+    #[cfg(feature = "parser")]
+    const TWO_POW_24: u32 = 16_777_216;
+
+    /// Inputs that must never parse as anything, whatever the property.
+    #[cfg(feature = "parser")]
+    const GARBAGE: &[&str] = &[
+        "",
+        " ",
+        "   ",
+        "\t\n",
+        "\u{a0}",          // non-breaking space (trimmed away -> empty)
+        "\0",
+        "\u{1F600}",       // emoji
+        "e\u{0301}",       // combining acute accent
+        "\u{202e}auto",    // RTL override prefix
+        "аuto",            // Cyrillic 'а' homoglyph
+        "AUTO",
+        "auto;",
+        "auto garbage",
+        "-1",
+        "NaN",
+        "inf",
+        "0x10",
+        "9223372036854775807", // i64::MAX
+        "1e400",
+        "{[(<",
+    ];
+
+    // ======================================================================
+    // ScrollPhysics presets  (other)
+    // ======================================================================
+
+    /// Every preset must be usable as-is by a scroll animator: no NaN/inf can
+    /// reach the physics integrator, the deceleration rate has to stay strictly
+    /// below 1.0 (at 1.0 momentum never decays -> the scroll timer never stops),
+    /// and the timer tick must be non-zero (a 0ms tick is a busy-loop).
+    fn assert_physics_invariants(p: ScrollPhysics, name: &str) {
+        for (field, v) in [
+            ("deceleration_rate", p.deceleration_rate),
+            ("min_velocity_threshold", p.min_velocity_threshold),
+            ("max_velocity", p.max_velocity),
+            ("wheel_multiplier", p.wheel_multiplier),
+            ("overscroll_elasticity", p.overscroll_elasticity),
+            ("max_overscroll_distance", p.max_overscroll_distance),
+        ] {
+            assert!(v.is_finite(), "{name}.{field} is not finite: {v}");
+            assert!(!v.is_nan(), "{name}.{field} is NaN");
+            assert!(v >= 0.0, "{name}.{field} is negative: {v}");
+        }
+
+        assert!(
+            p.deceleration_rate > 0.0 && p.deceleration_rate < 1.0,
+            "{name}.deceleration_rate must stay inside (0.0, 1.0) or momentum never stops: {}",
+            p.deceleration_rate
+        );
+        assert!(
+            (0.0..=1.0).contains(&p.overscroll_elasticity),
+            "{name}.overscroll_elasticity out of [0.0, 1.0]: {}",
+            p.overscroll_elasticity
+        );
+        assert!(
+            p.max_velocity > p.min_velocity_threshold,
+            "{name}: max_velocity ({}) must exceed min_velocity_threshold ({})",
+            p.max_velocity,
+            p.min_velocity_threshold
+        );
+        assert!(
+            p.wheel_multiplier > 0.0,
+            "{name}.wheel_multiplier must be > 0 or the wheel does nothing"
+        );
+        assert!(
+            p.timer_interval_ms > 0,
+            "{name}.timer_interval_ms == 0 would spin the physics timer"
+        );
+        assert!(
+            p.smooth_scroll_duration_ms > 0,
+            "{name}.smooth_scroll_duration_ms == 0 makes `scroll-behavior: smooth` a no-op"
+        );
+    }
+
+    #[test]
+    fn scroll_physics_presets_hold_their_invariants() {
+        assert_physics_invariants(ScrollPhysics::default(), "default");
+        assert_physics_invariants(ScrollPhysics::ios(), "ios");
+        assert_physics_invariants(ScrollPhysics::macos(), "macos");
+        assert_physics_invariants(ScrollPhysics::windows(), "windows");
+        assert_physics_invariants(ScrollPhysics::android(), "android");
+    }
+
+    #[test]
+    fn scroll_physics_presets_are_pure_and_distinct() {
+        // Called twice: no interior state, no drift.
+        assert_eq!(ScrollPhysics::ios(), ScrollPhysics::ios());
+        assert_eq!(ScrollPhysics::windows(), ScrollPhysics::windows());
+
+        // A preset that silently equals another would mean a copy/paste bug.
+        assert_ne!(ScrollPhysics::ios(), ScrollPhysics::macos());
+        assert_ne!(ScrollPhysics::ios(), ScrollPhysics::android());
+        assert_ne!(ScrollPhysics::macos(), ScrollPhysics::windows());
+        assert_ne!(ScrollPhysics::android(), ScrollPhysics::windows());
+        assert_ne!(ScrollPhysics::default(), ScrollPhysics::ios());
+    }
+
+    /// The documented platform character of each preset, asserted rather than
+    /// assumed: Windows must not bounce, iOS/macOS must scroll naturally.
+    #[test]
+    fn scroll_physics_presets_match_their_documented_platform_behavior() {
+        let win = ScrollPhysics::windows();
+        assert_eq!(win.overscroll_elasticity, 0.0);
+        assert_eq!(win.max_overscroll_distance, 0.0);
+        assert!(!win.invert_direction);
+
+        assert!(ScrollPhysics::ios().invert_direction);
+        assert!(ScrollPhysics::macos().invert_direction);
+        assert!(!ScrollPhysics::android().invert_direction);
+
+        // iOS is the "slowest to stop" of the presets.
+        assert!(ScrollPhysics::ios().deceleration_rate > ScrollPhysics::windows().deceleration_rate);
+
+        // The default is Windows-like: no bounce.
+        assert_eq!(ScrollPhysics::default().overscroll_elasticity, 0.0);
+    }
+
+    // ======================================================================
+    // ScrollbarFadeDelay::new / ScrollbarFadeDuration::new  (constructors)
+    // ======================================================================
+
+    #[test]
+    fn fade_delay_and_duration_constructors_store_their_argument_verbatim() {
+        for ms in [0u32, 1, 16, 500, u32::MAX / 2, u32::MAX - 1, u32::MAX] {
+            assert_eq!(ScrollbarFadeDelay::new(ms).ms, ms);
+            assert_eq!(ScrollbarFadeDuration::new(ms).ms, ms);
+        }
+    }
+
+    #[test]
+    fn fade_zero_constants_agree_with_new_and_default() {
+        assert_eq!(ScrollbarFadeDelay::ZERO, ScrollbarFadeDelay::new(0));
+        assert_eq!(ScrollbarFadeDelay::ZERO, ScrollbarFadeDelay::default());
+        assert_eq!(ScrollbarFadeDuration::ZERO, ScrollbarFadeDuration::new(0));
+        assert_eq!(ScrollbarFadeDuration::ZERO, ScrollbarFadeDuration::default());
+        assert_eq!(ScrollbarFadeDelay::ZERO.ms, 0);
+        assert_eq!(ScrollbarFadeDuration::ZERO.ms, 0);
+    }
+
+    /// The derived `Ord` must order by milliseconds, not by declaration order of
+    /// some future field, otherwise "fades sooner" comparisons invert.
+    #[test]
+    fn fade_delay_orders_by_millisecond_count() {
+        assert!(ScrollbarFadeDelay::new(0) < ScrollbarFadeDelay::new(1));
+        assert!(ScrollbarFadeDelay::new(499) < ScrollbarFadeDelay::new(500));
+        assert!(ScrollbarFadeDelay::new(u32::MAX) > ScrollbarFadeDelay::new(u32::MAX - 1));
+        assert!(ScrollbarFadeDuration::new(0) < ScrollbarFadeDuration::new(u32::MAX));
+    }
+
+    // ======================================================================
+    // print_as_css_value  (encoders)
+    // ======================================================================
+
+    #[test]
+    fn enum_printers_emit_the_css_keywords() {
+        assert_eq!(ScrollBehavior::Auto.print_as_css_value(), "auto");
+        assert_eq!(ScrollBehavior::Smooth.print_as_css_value(), "smooth");
+        assert_eq!(ScrollBehavior::default(), ScrollBehavior::Auto);
+
+        assert_eq!(OverscrollBehavior::Auto.print_as_css_value(), "auto");
+        assert_eq!(OverscrollBehavior::Contain.print_as_css_value(), "contain");
+        assert_eq!(OverscrollBehavior::None.print_as_css_value(), "none");
+        assert_eq!(OverscrollBehavior::default(), OverscrollBehavior::Auto);
+
+        assert_eq!(OverflowScrolling::Auto.print_as_css_value(), "auto");
+        assert_eq!(OverflowScrolling::Touch.print_as_css_value(), "touch");
+        assert_eq!(OverflowScrolling::default(), OverflowScrolling::Auto);
+
+        assert_eq!(LayoutScrollbarWidth::Auto.print_as_css_value(), "auto");
+        assert_eq!(LayoutScrollbarWidth::Thin.print_as_css_value(), "thin");
+        assert_eq!(LayoutScrollbarWidth::None.print_as_css_value(), "none");
+        assert_eq!(LayoutScrollbarWidth::default(), LayoutScrollbarWidth::Auto);
+
+        assert_eq!(ScrollbarVisibilityMode::Always.print_as_css_value(), "always");
+        assert_eq!(
+            ScrollbarVisibilityMode::WhenScrolling.print_as_css_value(),
+            "when-scrolling"
+        );
+        assert_eq!(ScrollbarVisibilityMode::Auto.print_as_css_value(), "auto");
+        assert_eq!(
+            ScrollbarVisibilityMode::default(),
+            ScrollbarVisibilityMode::Always
+        );
+    }
+
+    /// `0` is printed unit-less (a bare `0` is legal CSS for a time), everything
+    /// else carries the `ms` unit — dropping the unit on a non-zero value would
+    /// emit invalid CSS.
+    #[test]
+    fn fade_printers_special_case_zero_and_keep_the_unit_otherwise() {
+        assert_eq!(ScrollbarFadeDelay::new(0).print_as_css_value(), "0");
+        assert_eq!(ScrollbarFadeDelay::new(1).print_as_css_value(), "1ms");
+        assert_eq!(ScrollbarFadeDelay::new(500).print_as_css_value(), "500ms");
+        assert_eq!(
+            ScrollbarFadeDelay::new(u32::MAX).print_as_css_value(),
+            "4294967295ms"
+        );
+        assert_eq!(ScrollbarFadeDuration::new(0).print_as_css_value(), "0");
+        assert_eq!(ScrollbarFadeDuration::new(200).print_as_css_value(), "200ms");
+        assert_eq!(
+            ScrollbarFadeDuration::new(u32::MAX).print_as_css_value(),
+            "4294967295ms"
+        );
+    }
+
+    #[test]
+    fn scrollbar_color_printer_emits_two_eight_digit_hashes() {
+        assert_eq!(StyleScrollbarColor::Auto.print_as_css_value(), "auto");
+        assert_eq!(StyleScrollbarColor::default(), StyleScrollbarColor::Auto);
+
+        let custom = StyleScrollbarColor::Custom(ScrollbarColorCustom {
+            thumb: ColorU::RED,
+            track: ColorU::TRANSPARENT,
+        });
+        assert_eq!(custom.print_as_css_value(), "#ff0000ff #00000000");
+    }
+
+    /// The aggregate printers are non-standard debug formats; they must at least
+    /// not panic and must include both sub-scrollbars.
+    #[test]
+    fn aggregate_printers_do_not_panic_and_mention_both_axes() {
+        let printed = ScrollbarStyle::default().print_as_css_value();
+        assert!(printed.contains("horz("), "{printed}");
+        assert!(printed.contains("vert("), "{printed}");
+
+        let info = ScrollbarInfo::default().print_as_css_value();
+        assert!(info.contains("width:"), "{info}");
+        assert!(info.contains("thumb:"), "{info}");
+        assert!(info.contains("resizer:"), "{info}");
+    }
+
+    // ======================================================================
+    // FormatAsRustCode  (codegen encoders)
+    // ======================================================================
+
+    #[test]
+    fn format_as_rust_code_emits_constructible_expressions() {
+        assert_eq!(
+            LayoutScrollbarWidth::Thin.format_as_rust_code(0),
+            "LayoutScrollbarWidth::Thin"
+        );
+        assert_eq!(
+            LayoutScrollbarWidth::None.format_as_rust_code(7),
+            "LayoutScrollbarWidth::None",
+            "indent depth must not leak into a unit-variant literal"
+        );
+        assert_eq!(
+            ScrollbarVisibilityMode::WhenScrolling.format_as_rust_code(0),
+            "ScrollbarVisibilityMode::WhenScrolling"
+        );
+        assert_eq!(
+            StyleScrollbarColor::Auto.format_as_rust_code(0),
+            "StyleScrollbarColor::Auto"
+        );
+
+        // The `new(..)` codegen must round-trip the exact u32, including the extremes.
+        assert_eq!(
+            ScrollbarFadeDelay::new(0).format_as_rust_code(0),
+            "ScrollbarFadeDelay::new(0)"
+        );
+        assert_eq!(
+            ScrollbarFadeDelay::new(u32::MAX).format_as_rust_code(3),
+            "ScrollbarFadeDelay::new(4294967295)"
+        );
+        assert_eq!(
+            ScrollbarFadeDuration::new(u32::MAX).format_as_rust_code(0),
+            "ScrollbarFadeDuration::new(4294967295)"
+        );
+    }
+
+    #[test]
+    fn format_as_rust_code_of_aggregates_does_not_panic() {
+        let custom = StyleScrollbarColor::Custom(ScrollbarColorCustom {
+            thumb: ColorU::TRANSPARENT,
+            track: ColorU::WHITE,
+        })
+        .format_as_rust_code(0);
+        assert!(
+            custom.starts_with("StyleScrollbarColor::Custom(ScrollbarColorCustom {"),
+            "{custom}"
+        );
+        assert!(custom.contains("thumb:") && custom.contains("track:"), "{custom}");
+
+        for tabs in [0usize, 1, 4] {
+            let code = ScrollbarStyle::default().format_as_rust_code(tabs);
+            assert!(code.starts_with("ScrollbarStyle {"), "{code}");
+            assert!(code.contains("horizontal:"), "{code}");
+            assert!(code.contains("vertical:"), "{code}");
+        }
+    }
+
+    // ======================================================================
+    // Defaults / constants  (invariants)
+    // ======================================================================
+
+    #[test]
+    fn scrollbar_info_default_is_the_classic_light_constant() {
+        assert_eq!(ScrollbarInfo::default(), SCROLLBAR_CLASSIC_LIGHT);
+
+        let style = ScrollbarStyle::default();
+        assert_eq!(style.horizontal, SCROLLBAR_CLASSIC_LIGHT);
+        assert_eq!(style.vertical, SCROLLBAR_CLASSIC_LIGHT);
+    }
+
+    /// `ComputedScrollbarStyle::default()` reads its colors out of the default
+    /// `ScrollbarInfo`; if the default track/thumb ever became a gradient the
+    /// `match` would silently fall through to `None` (UA default) instead.
+    #[test]
+    fn computed_default_mirrors_the_default_scrollbar_info() {
+        let computed = ComputedScrollbarStyle::default();
+        let info = ScrollbarInfo::default();
+
+        assert_eq!(computed.width, Some(info.width));
+        assert_eq!(
+            computed.thumb_color,
+            Some(ColorU { r: 193, g: 193, b: 193, a: 255 })
+        );
+        assert_eq!(
+            computed.track_color,
+            Some(ColorU { r: 241, g: 241, b: 241, a: 255 })
+        );
+        assert!(
+            computed.thumb_color.is_some() && computed.track_color.is_some(),
+            "the classic-light default must resolve to solid colors, not None"
+        );
+    }
+
+    /// Overlay presets must clip to the container border, classic (space-reserving)
+    /// ones must not — the flag is what decides whether the bar is drawn inside
+    /// rounded corners.
+    #[test]
+    fn preset_constants_agree_on_the_overlay_clipping_flag() {
+        for info in [SCROLLBAR_CLASSIC_LIGHT, SCROLLBAR_CLASSIC_DARK] {
+            assert!(!info.clip_to_container_border);
+            assert_eq!(info.scroll_behavior, ScrollBehavior::Auto);
+        }
+        for info in [
+            SCROLLBAR_MACOS_LIGHT,
+            SCROLLBAR_MACOS_DARK,
+            SCROLLBAR_IOS_LIGHT,
+            SCROLLBAR_IOS_DARK,
+            SCROLLBAR_ANDROID_LIGHT,
+            SCROLLBAR_ANDROID_DARK,
+        ] {
+            assert!(info.clip_to_container_border);
+            assert_eq!(info.scroll_behavior, ScrollBehavior::Smooth);
+        }
+        for info in [SCROLLBAR_WINDOWS_LIGHT, SCROLLBAR_WINDOWS_DARK] {
+            assert!(!info.clip_to_container_border);
+            assert_eq!(info.overscroll_behavior_x, OverscrollBehavior::None);
+            assert_eq!(info.overscroll_behavior_y, OverscrollBehavior::None);
+        }
+    }
+
+    /// Light and dark variants of the same platform must differ only in color,
+    /// never in geometry — a width drift would make theme switching relayout.
+    #[test]
+    fn light_and_dark_presets_share_their_geometry() {
+        for (light, dark) in [
+            (SCROLLBAR_CLASSIC_LIGHT, SCROLLBAR_CLASSIC_DARK),
+            (SCROLLBAR_MACOS_LIGHT, SCROLLBAR_MACOS_DARK),
+            (SCROLLBAR_WINDOWS_LIGHT, SCROLLBAR_WINDOWS_DARK),
+            (SCROLLBAR_IOS_LIGHT, SCROLLBAR_IOS_DARK),
+            (SCROLLBAR_ANDROID_LIGHT, SCROLLBAR_ANDROID_DARK),
+        ] {
+            assert_eq!(light.width, dark.width);
+            assert_eq!(light.padding_left, dark.padding_left);
+            assert_eq!(light.padding_right, dark.padding_right);
+            assert_eq!(light.clip_to_container_border, dark.clip_to_container_border);
+            assert_ne!(light.thumb, dark.thumb, "light/dark thumbs must differ");
+        }
+    }
+
+    // ======================================================================
+    // parse_layout_scrollbar_width  (parser)
+    // ======================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_width_parses_the_three_legal_keywords() {
+        assert_eq!(
+            parse_layout_scrollbar_width("auto"),
+            Ok(LayoutScrollbarWidth::Auto)
+        );
+        assert_eq!(
+            parse_layout_scrollbar_width("thin"),
+            Ok(LayoutScrollbarWidth::Thin)
+        );
+        assert_eq!(
+            parse_layout_scrollbar_width("none"),
+            Ok(LayoutScrollbarWidth::None)
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_width_trims_surrounding_whitespace_but_rejects_inner_junk() {
+        assert_eq!(
+            parse_layout_scrollbar_width("  \t thin \n "),
+            Ok(LayoutScrollbarWidth::Thin)
+        );
+        assert!(parse_layout_scrollbar_width("thin;").is_err());
+        assert!(parse_layout_scrollbar_width("thin thin").is_err());
+        assert!(parse_layout_scrollbar_width("th in").is_err());
+    }
+
+    /// Keyword matching is byte-exact: CSS keywords are case-insensitive in the
+    /// spec, so an upper-case `AUTO` being rejected here is a real (if minor)
+    /// conformance gap. Pinned so a future fix is a deliberate change.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_width_keyword_matching_is_case_sensitive() {
+        assert!(parse_layout_scrollbar_width("AUTO").is_err());
+        assert!(parse_layout_scrollbar_width("Thin").is_err());
+        assert!(parse_layout_scrollbar_width("NONE").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_width_rejects_every_garbage_input_without_panicking() {
+        for input in GARBAGE {
+            assert!(
+                parse_layout_scrollbar_width(input).is_err(),
+                "expected {input:?} to be rejected"
+            );
+        }
+    }
+
+    /// The error must carry the caller's *untrimmed* slice so diagnostics can
+    /// point back at the original source text.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_width_error_keeps_the_raw_untrimmed_input() {
+        let raw = "  thick  ";
+        assert_eq!(
+            parse_layout_scrollbar_width(raw),
+            Err(LayoutScrollbarWidthParseError::InvalidValue(raw))
+        );
+        let msg = format!("{}", parse_layout_scrollbar_width(raw).unwrap_err());
+        assert!(msg.contains(raw), "{msg}");
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_width_survives_a_megabyte_of_input_and_deep_nesting() {
+        let huge = "a".repeat(1_000_000);
+        assert!(parse_layout_scrollbar_width(&huge).is_err());
+
+        let repeated_token = "auto".repeat(250_000);
+        assert!(parse_layout_scrollbar_width(&repeated_token).is_err());
+
+        let nested = "(".repeat(10_000);
+        assert!(parse_layout_scrollbar_width(&nested).is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_width_round_trips_through_its_printer() {
+        for value in [
+            LayoutScrollbarWidth::Auto,
+            LayoutScrollbarWidth::Thin,
+            LayoutScrollbarWidth::None,
+        ] {
+            let encoded = value.print_as_css_value();
+            assert_eq!(
+                parse_layout_scrollbar_width(&encoded),
+                Ok(value),
+                "{encoded} did not decode back to {value:?}"
+            );
+        }
+    }
+
+    // ======================================================================
+    // parse_style_scrollbar_color  (parser)
+    // ======================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_needs_exactly_two_colors_or_the_auto_keyword() {
+        assert_eq!(parse_style_scrollbar_color("auto"), Ok(StyleScrollbarColor::Auto));
+        assert_eq!(
+            parse_style_scrollbar_color("  auto  "),
+            Ok(StyleScrollbarColor::Auto)
+        );
+        assert_eq!(
+            parse_style_scrollbar_color("red blue"),
+            Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: ColorU::RED,
+                track: ColorU::BLUE,
+            }))
+        );
+
+        // Too few / too many components: rejected as InvalidValue, not as a color error.
+        for input in ["red", "#fff", "red blue green", "a b c d"] {
+            assert!(
+                matches!(
+                    parse_style_scrollbar_color(input),
+                    Err(StyleScrollbarColorParseError::InvalidValue(_))
+                ),
+                "expected {input:?} to be an InvalidValue error"
+            );
+        }
+    }
+
+    /// Component splitting is on *any* whitespace run, so tabs, newlines and
+    /// repeated spaces are all legal separators.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_accepts_any_whitespace_run_as_the_separator() {
+        let expected = StyleScrollbarColor::Custom(ScrollbarColorCustom {
+            thumb: ColorU::RED,
+            track: ColorU::BLUE,
+        });
+        assert_eq!(parse_style_scrollbar_color("red\tblue"), Ok(expected));
+        assert_eq!(parse_style_scrollbar_color("red\n blue"), Ok(expected));
+        assert_eq!(parse_style_scrollbar_color("  red     blue  "), Ok(expected));
+    }
+
+    /// Color *names* are case-insensitive (the color parser lowercases), unlike
+    /// the `auto` keyword right above it, which is compared verbatim.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_names_are_case_insensitive_but_the_auto_keyword_is_not() {
+        assert_eq!(
+            parse_style_scrollbar_color("RED BLUE"),
+            Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: ColorU::RED,
+                track: ColorU::BLUE,
+            }))
+        );
+        // "AUTO" is a single token -> not the auto keyword, and not two colors.
+        assert!(matches!(
+            parse_style_scrollbar_color("AUTO"),
+            Err(StyleScrollbarColorParseError::InvalidValue(_))
+        ));
+        // ...and `auto` is not a named color either, so it cannot sneak in as one.
+        assert!(matches!(
+            parse_style_scrollbar_color("auto auto"),
+            Err(StyleScrollbarColorParseError::Color(_))
+        ));
+    }
+
+    /// Whitespace-splitting happens *before* the color parser runs, so a
+    /// functional color with spaces after its commas is torn into pieces.
+    /// `rgb(255, 0, 0) blue` is valid CSS but is rejected here; the space-free
+    /// spelling works. Pinned as a known limitation.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_rejects_functional_colors_containing_spaces() {
+        assert_eq!(
+            parse_style_scrollbar_color("rgb(255,0,0) blue"),
+            Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: ColorU::RED,
+                track: ColorU::BLUE,
+            }))
+        );
+        assert!(matches!(
+            parse_style_scrollbar_color("rgb(255, 0, 0) blue"),
+            Err(StyleScrollbarColorParseError::InvalidValue(_))
+        ));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_reports_which_component_failed() {
+        // A bad thumb is reported as a color error, not as InvalidValue.
+        assert!(matches!(
+            parse_style_scrollbar_color("notacolor blue"),
+            Err(StyleScrollbarColorParseError::Color(_))
+        ));
+        assert!(matches!(
+            parse_style_scrollbar_color("red notacolor"),
+            Err(StyleScrollbarColorParseError::Color(_))
+        ));
+        assert!(matches!(
+            parse_style_scrollbar_color("#gggggg #000000"),
+            Err(StyleScrollbarColorParseError::Color(_))
+        ));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_rejects_garbage_without_panicking() {
+        for input in GARBAGE {
+            assert!(
+                parse_style_scrollbar_color(input).is_err(),
+                "expected {input:?} to be rejected"
+            );
+        }
+        // Boundary numerics as color components.
+        for input in [
+            "0 0",
+            "-0 -0",
+            "NaN NaN",
+            "inf inf",
+            "9223372036854775807 1",
+            "1e400 1e400",
+            "-1 -1",
+        ] {
+            assert!(
+                parse_style_scrollbar_color(input).is_err(),
+                "expected {input:?} to be rejected"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_survives_huge_and_deeply_nested_input() {
+        let huge = "z".repeat(500_000);
+        let two_huge = format!("{huge} {huge}");
+        assert!(parse_style_scrollbar_color(&two_huge).is_err());
+
+        let nested = "(".repeat(10_000);
+        assert!(parse_style_scrollbar_color(&format!("{nested} {nested}")).is_err());
+
+        // Many components: must be rejected on count, not walked color-by-color.
+        let many = "red ".repeat(100_000);
+        assert!(matches!(
+            parse_style_scrollbar_color(&many),
+            Err(StyleScrollbarColorParseError::InvalidValue(_))
+        ));
+    }
+
+    /// The color error carries the *trimmed* input (the function rebinds `input`
+    /// to the trimmed slice), unlike `parse_layout_scrollbar_width`, which keeps
+    /// the raw slice. Pinned so the inconsistency is visible.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_error_carries_the_trimmed_input() {
+        assert_eq!(
+            parse_style_scrollbar_color("  red  "),
+            Err(StyleScrollbarColorParseError::InvalidValue("red"))
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_round_trips_through_its_printer() {
+        let samples = [
+            StyleScrollbarColor::Auto,
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: ColorU::RED,
+                track: ColorU::BLUE,
+            }),
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: ColorU::TRANSPARENT,
+                track: ColorU::TRANSPARENT,
+            }),
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: ColorU { r: 0, g: 0, b: 0, a: 100 },
+                track: ColorU { r: 1, g: 2, b: 3, a: 4 },
+            }),
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb: ColorU::WHITE,
+                track: ColorU::BLACK,
+            }),
+        ];
+        for value in samples {
+            let encoded = value.print_as_css_value();
+            assert_eq!(
+                parse_style_scrollbar_color(&encoded),
+                Ok(value),
+                "{encoded} did not decode back to {value:?}"
+            );
+        }
+    }
+
+    // ======================================================================
+    // parse_scrollbar_visibility_mode  (parser)
+    // ======================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn visibility_mode_parses_its_three_keywords_and_trims() {
+        assert_eq!(
+            parse_scrollbar_visibility_mode("always"),
+            Ok(ScrollbarVisibilityMode::Always)
+        );
+        assert_eq!(
+            parse_scrollbar_visibility_mode(" when-scrolling\t"),
+            Ok(ScrollbarVisibilityMode::WhenScrolling)
+        );
+        assert_eq!(
+            parse_scrollbar_visibility_mode("auto"),
+            Ok(ScrollbarVisibilityMode::Auto)
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn visibility_mode_rejects_near_misses_and_garbage() {
+        for input in [
+            "when scrolling", // space instead of hyphen
+            "whenscrolling",
+            "when-scrolling-",
+            "-when-scrolling",
+            "ALWAYS",
+            "always;",
+            "always auto",
+        ] {
+            assert!(
+                parse_scrollbar_visibility_mode(input).is_err(),
+                "expected {input:?} to be rejected"
+            );
+        }
+        for input in GARBAGE {
+            assert!(
+                parse_scrollbar_visibility_mode(input).is_err(),
+                "expected {input:?} to be rejected"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn visibility_mode_survives_huge_and_nested_input() {
+        assert!(parse_scrollbar_visibility_mode(&"a".repeat(1_000_000)).is_err());
+        assert!(parse_scrollbar_visibility_mode(&"always".repeat(200_000)).is_err());
+        assert!(parse_scrollbar_visibility_mode(&"[".repeat(10_000)).is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn visibility_mode_round_trips_through_its_printer() {
+        for value in [
+            ScrollbarVisibilityMode::Always,
+            ScrollbarVisibilityMode::WhenScrolling,
+            ScrollbarVisibilityMode::Auto,
+        ] {
+            let encoded = value.print_as_css_value();
+            assert_eq!(
+                parse_scrollbar_visibility_mode(&encoded),
+                Ok(value),
+                "{encoded} did not decode back to {value:?}"
+            );
+        }
+    }
+
+    // ======================================================================
+    // parse_time_ms  (private parser)
+    // ======================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_accepts_bare_zero_and_both_units() {
+        assert_eq!(parse_time_ms("0"), Some(0));
+        assert_eq!(parse_time_ms("0ms"), Some(0));
+        assert_eq!(parse_time_ms("0s"), Some(0));
+        assert_eq!(parse_time_ms("500ms"), Some(500));
+        assert_eq!(parse_time_ms("1s"), Some(1000));
+        assert_eq!(parse_time_ms("1.5s"), Some(1500));
+        assert_eq!(parse_time_ms("  200ms  "), Some(200));
+        assert_eq!(parse_time_ms("200MS"), Some(200), "units are case-insensitive");
+    }
+
+    /// A unit is mandatory (except for a bare `0`) and must be attached to the
+    /// number — `"1 s"` has an interior space and cannot parse.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_requires_an_attached_unit() {
+        assert_eq!(parse_time_ms("500"), None);
+        assert_eq!(parse_time_ms("1 s"), None);
+        assert_eq!(parse_time_ms("500 ms"), None);
+        assert_eq!(parse_time_ms("ms"), None);
+        assert_eq!(parse_time_ms("s"), None);
+        assert_eq!(parse_time_ms("500px"), None);
+        assert_eq!(parse_time_ms("500msms"), None);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_rejects_empty_blank_unicode_and_garbage() {
+        for input in ["", " ", "   ", "\t\n", "\u{1F600}", "e\u{0301}", "٥ms", "５００ms"] {
+            assert_eq!(parse_time_ms(input), None, "expected {input:?} to be rejected");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_rejects_negative_durations() {
+        assert_eq!(parse_time_ms("-1ms"), None);
+        assert_eq!(parse_time_ms("-0.5s"), None);
+        assert_eq!(parse_time_ms("-inf ms"), None);
+    }
+
+    /// Negative *zero* is not less than zero in IEEE-754, so it slips past the
+    /// `< 0.0` guard and casts to 0 — harmless, but worth pinning.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_accepts_negative_zero_as_zero() {
+        assert_eq!(parse_time_ms("-0ms"), Some(0));
+        assert_eq!(parse_time_ms("-0.0s"), Some(0));
+    }
+
+    /// The float -> u32 cast saturates instead of wrapping or panicking:
+    /// `inf` clamps to `u32::MAX`, `NaN` becomes 0. Both are *safe* (no UB, no
+    /// panic), but note that `"infms"` and `"NaNms"` are accepted as durations
+    /// at all — a stricter parser would reject non-finite times outright.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_saturates_on_non_finite_and_huge_values() {
+        assert_eq!(parse_time_ms("infms"), Some(u32::MAX));
+        assert_eq!(parse_time_ms("infinityms"), Some(u32::MAX));
+        assert_eq!(parse_time_ms("infs"), Some(u32::MAX));
+        assert_eq!(parse_time_ms("nanms"), Some(0));
+        assert_eq!(parse_time_ms("NaNms"), Some(0));
+
+        assert_eq!(parse_time_ms("1e30ms"), Some(u32::MAX));
+        assert_eq!(parse_time_ms("1e400ms"), Some(u32::MAX), "overflows f32 to inf");
+        assert_eq!(parse_time_ms("4294967296ms"), Some(u32::MAX), "2^32 clamps");
+        assert_eq!(parse_time_ms("1e-30ms"), Some(0), "underflows to zero");
+
+        // A million digits must saturate, not hang.
+        let long_number = format!("{}ms", "9".repeat(100_000));
+        assert_eq!(parse_time_ms(&long_number), Some(u32::MAX));
+    }
+
+    /// Seconds are multiplied by 1000 *before* the cast, so a value that fits in
+    /// a u32 as seconds can still saturate as milliseconds.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_time_ms_saturates_when_seconds_overflow_milliseconds() {
+        // Exact while the millisecond product stays inside f32's integer range.
+        assert_eq!(parse_time_ms("1000s"), Some(1_000_000));
+        assert_eq!(parse_time_ms("16777s"), Some(16_777_000));
+
+        // Past u32::MAX milliseconds the cast clamps instead of wrapping.
+        assert_eq!(parse_time_ms("4294968s"), Some(u32::MAX));
+        assert_eq!(parse_time_ms("5000000s"), Some(u32::MAX));
+
+        // Just under the clamp, the f32 product is only accurate to ~256ms
+        // (the ulp at that magnitude) — near, but no longer exact.
+        let ms = parse_time_ms("4294967s").expect("4294967s must parse");
+        assert!(
+            ms.abs_diff(4_294_967_000) <= 512,
+            "4294967s decoded to {ms}, which is nowhere near 4294967000ms"
+        );
+
+        assert_eq!(parse_time_ms("0.0005s"), Some(0), "sub-ms truncates toward zero");
+    }
+
+    // ======================================================================
+    // parse_scrollbar_fade_delay / parse_scrollbar_fade_duration  (parsers)
+    // ======================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn fade_parsers_accept_the_documented_syntax() {
+        assert_eq!(
+            parse_scrollbar_fade_delay("500ms"),
+            Ok(ScrollbarFadeDelay::new(500))
+        );
+        assert_eq!(parse_scrollbar_fade_delay("0"), Ok(ScrollbarFadeDelay::ZERO));
+        assert_eq!(
+            parse_scrollbar_fade_delay(" 1s "),
+            Ok(ScrollbarFadeDelay::new(1000))
+        );
+        assert_eq!(
+            parse_scrollbar_fade_duration("200ms"),
+            Ok(ScrollbarFadeDuration::new(200))
+        );
+        assert_eq!(
+            parse_scrollbar_fade_duration("0"),
+            Ok(ScrollbarFadeDuration::ZERO)
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn fade_parsers_reject_garbage_and_keep_the_raw_input_in_the_error() {
+        for input in GARBAGE {
+            assert!(
+                parse_scrollbar_fade_delay(input).is_err(),
+                "delay: expected {input:?} to be rejected"
+            );
+            assert!(
+                parse_scrollbar_fade_duration(input).is_err(),
+                "duration: expected {input:?} to be rejected"
+            );
+        }
+
+        let raw = "  bogus  ";
+        assert_eq!(
+            parse_scrollbar_fade_delay(raw),
+            Err(ScrollbarFadeDelayParseError::InvalidValue(raw))
+        );
+        assert_eq!(
+            parse_scrollbar_fade_duration(raw),
+            Err(ScrollbarFadeDurationParseError::InvalidValue(raw))
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn fade_parsers_reject_negative_delays() {
+        assert!(parse_scrollbar_fade_delay("-1ms").is_err());
+        assert!(parse_scrollbar_fade_delay("-500ms").is_err());
+        assert!(parse_scrollbar_fade_duration("-0.5s").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn fade_parsers_saturate_instead_of_overflowing() {
+        assert_eq!(
+            parse_scrollbar_fade_delay("1e30ms"),
+            Ok(ScrollbarFadeDelay::new(u32::MAX))
+        );
+        assert_eq!(
+            parse_scrollbar_fade_duration("99999999999999s"),
+            Ok(ScrollbarFadeDuration::new(u32::MAX))
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn fade_parsers_survive_huge_and_nested_input() {
+        assert!(parse_scrollbar_fade_delay(&"a".repeat(1_000_000)).is_err());
+        assert!(parse_scrollbar_fade_duration(&"0ms".repeat(300_000)).is_err());
+        assert!(parse_scrollbar_fade_delay(&"(".repeat(10_000)).is_err());
+        assert!(parse_scrollbar_fade_duration(&"[".repeat(10_000)).is_err());
+    }
+
+    /// encode -> decode is the identity for every millisecond count an `f32` can
+    /// represent exactly (`<= 2^24`), including the `0` special case and the
+    /// `u32::MAX` extreme (whose f32 rounding lands back on `u32::MAX` after the
+    /// saturating cast).
+    #[cfg(feature = "parser")]
+    #[test]
+    fn fade_delay_round_trips_exactly_up_to_two_pow_24() {
+        for ms in [
+            0u32,
+            1,
+            8,
+            16,
+            200,
+            500,
+            65_535,
+            1_000_000,
+            TWO_POW_24 - 1,
+            TWO_POW_24,
+            u32::MAX,
+        ] {
+            let value = ScrollbarFadeDelay::new(ms);
+            let encoded = value.print_as_css_value();
+            assert_eq!(
+                parse_scrollbar_fade_delay(&encoded),
+                Ok(value),
+                "{ms}ms encoded as {encoded:?} did not decode back"
+            );
+
+            let value = ScrollbarFadeDuration::new(ms);
+            let encoded = value.print_as_css_value();
+            assert_eq!(
+                parse_scrollbar_fade_duration(&encoded),
+                Ok(value),
+                "{ms}ms encoded as {encoded:?} did not decode back"
+            );
+        }
+    }
+
+    /// Above 2^24 the round-trip is lossy: the value is snapped to the nearest
+    /// representable `f32`. Pinned as a precision limit of the shared duration
+    /// parser (a delay is never realistically > 4.6 hours, so this is benign).
+    #[cfg(feature = "parser")]
+    #[test]
+    fn fade_delay_round_trip_is_lossy_above_two_pow_24() {
+        let value = ScrollbarFadeDelay::new(TWO_POW_24 + 1);
+        let decoded = parse_scrollbar_fade_delay(&value.print_as_css_value()).unwrap();
+        assert_ne!(decoded, value, "expected precision loss above 2^24");
+        assert_eq!(decoded.ms, TWO_POW_24, "must snap down to the nearest f32");
+    }
+
+    // ======================================================================
+    // Error to_contained / to_shared  (getters)
+    // ======================================================================
+
+    /// Strings that stress the owned<->borrowed error conversions: empty, blank,
+    /// multibyte, embedded NUL, and a 100k-byte payload.
+    fn error_payloads() -> [String; 6] {
+        [
+            String::new(),
+            String::from(" "),
+            String::from("thick"),
+            String::from("\u{1F600}\u{0301}"),
+            String::from("nul\0inside"),
+            "x".repeat(100_000),
+        ]
+    }
+
+    #[test]
+    fn layout_scrollbar_width_error_round_trips_through_owned_and_back() {
+        for payload in error_payloads() {
+            let shared = LayoutScrollbarWidthParseError::InvalidValue(&payload);
+            let owned = shared.to_contained();
+            assert_eq!(
+                owned,
+                LayoutScrollbarWidthParseErrorOwned::InvalidValue(payload.clone().into())
+            );
+            assert_eq!(owned.to_shared(), shared, "owned -> shared lost information");
+            assert_eq!(
+                owned.to_shared().to_contained(),
+                owned,
+                "conversion is not idempotent"
+            );
+        }
+    }
+
+    #[test]
+    fn visibility_mode_error_round_trips_through_owned_and_back() {
+        for payload in error_payloads() {
+            let shared = ScrollbarVisibilityModeParseError::InvalidValue(&payload);
+            let owned = shared.to_contained();
+            assert_eq!(owned.to_shared(), shared);
+            assert_eq!(owned.to_shared().to_contained(), owned);
+        }
+    }
+
+    #[test]
+    fn fade_delay_and_duration_errors_round_trip_through_owned_and_back() {
+        for payload in error_payloads() {
+            let delay = ScrollbarFadeDelayParseError::InvalidValue(&payload);
+            let owned_delay = delay.to_contained();
+            assert_eq!(owned_delay.to_shared(), delay);
+            assert_eq!(owned_delay.to_shared().to_contained(), owned_delay);
+
+            let duration = ScrollbarFadeDurationParseError::InvalidValue(&payload);
+            let owned_duration = duration.to_contained();
+            assert_eq!(owned_duration.to_shared(), duration);
+            assert_eq!(owned_duration.to_shared().to_contained(), owned_duration);
+        }
+    }
+
+    #[test]
+    fn scrollbar_color_invalid_value_error_round_trips_through_owned_and_back() {
+        for payload in error_payloads() {
+            let shared = StyleScrollbarColorParseError::InvalidValue(&payload);
+            let owned = shared.to_contained();
+            assert_eq!(
+                owned,
+                StyleScrollbarColorParseErrorOwned::InvalidValue(payload.clone().into())
+            );
+            assert_eq!(owned.to_shared(), shared);
+            assert_eq!(owned.to_shared().to_contained(), owned);
+        }
+    }
+
+    /// The nested `Color` variant must delegate to the color error's own
+    /// conversion rather than flattening to a string.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn scrollbar_color_nested_color_error_round_trips_through_owned_and_back() {
+        let shared = parse_style_scrollbar_color("notacolor blue").unwrap_err();
+        assert!(matches!(shared, StyleScrollbarColorParseError::Color(_)));
+
+        let owned = shared.to_contained();
+        assert!(matches!(owned, StyleScrollbarColorParseErrorOwned::Color(_)));
+        assert_eq!(owned.to_shared(), shared, "nested color error lost information");
+        assert_eq!(owned.to_shared().to_contained(), owned);
+    }
+
+    /// Error `Display` must always name the offending input, otherwise a CSS
+    /// diagnostic is useless. (`Debug` is implemented as `Display` here.)
+    #[cfg(feature = "parser")]
+    #[test]
+    fn error_display_mentions_the_offending_input() {
+        let width = parse_layout_scrollbar_width("thick").unwrap_err();
+        assert!(format!("{width}").contains("thick"), "{width}");
+        assert!(format!("{width:?}").contains("thick"), "{width:?}");
+
+        let color = parse_style_scrollbar_color("red").unwrap_err();
+        assert!(format!("{color}").contains("red"), "{color}");
+
+        let vis = parse_scrollbar_visibility_mode("sometimes").unwrap_err();
+        assert!(format!("{vis}").contains("sometimes"), "{vis}");
+
+        let delay = parse_scrollbar_fade_delay("soon").unwrap_err();
+        assert!(format!("{delay}").contains("soon"), "{delay}");
+
+        let duration = parse_scrollbar_fade_duration("briefly").unwrap_err();
+        assert!(format!("{duration}").contains("briefly"), "{duration}");
+    }
+
+    /// Displaying an error whose payload is empty or exotic must not panic on a
+    /// byte/char boundary.
+    #[test]
+    fn error_display_does_not_panic_on_exotic_payloads() {
+        for payload in error_payloads() {
+            let err = LayoutScrollbarWidthParseError::InvalidValue(&payload);
+            assert!(!format!("{err}").is_empty());
+            let owned = err.to_contained();
+            assert!(!format!("{}", owned.to_shared()).is_empty());
+        }
+    }
+}

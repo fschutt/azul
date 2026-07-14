@@ -1106,3 +1106,873 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // fixed-point (1/1000) values are exactly representable in f32
+mod autotest_generated {
+    use super::*;
+    use crate::props::basic::{length::FloatValue, pixel::PixelValue};
+
+    // ---------------------------------------------------------------------
+    // LayoutFlexGrow::new / const_new  (constructor + numeric)
+    // ---------------------------------------------------------------------
+
+    /// `new()` goes through f32 (`isize -> f32 -> *1000 -> isize`) while
+    /// `const_new()` uses pure integer math (`value * 1000`). For magnitudes
+    /// where both encodings are exact they must agree bit-for-bit.
+    #[test]
+    fn flex_grow_new_agrees_with_const_new_for_exact_ints() {
+        for v in [-10_000_isize, -1000, -7, -1, 0, 1, 7, 1000, 10_000] {
+            assert_eq!(
+                LayoutFlexGrow::new(v).inner.number(),
+                LayoutFlexGrow::const_new(v).inner.number(),
+                "new()/const_new() disagree for {v}"
+            );
+            assert_eq!(LayoutFlexGrow::new(v).inner.get(), v as f32);
+        }
+    }
+
+    /// `new()` runs the value through `f32 as isize`, which saturates rather
+    /// than wrapping or panicking: MIN/MAX must survive without UB or overflow.
+    #[test]
+    fn flex_grow_new_saturates_at_isize_extremes() {
+        let max = LayoutFlexGrow::new(isize::MAX);
+        let min = LayoutFlexGrow::new(isize::MIN);
+
+        assert_eq!(max.inner.number(), isize::MAX, "MAX must saturate, not wrap");
+        assert_eq!(min.inner.number(), isize::MIN, "MIN must saturate, not wrap");
+        assert!(max.inner.get().is_finite());
+        assert!(min.inner.get().is_finite());
+        assert!(max.inner.get() > 0.0);
+        assert!(min.inner.get() < 0.0);
+    }
+
+    /// `const_new()` stores `value * 1000` in an `isize`, so the largest safe
+    /// input is `isize::MAX / 1000`. Anything above that overflows the
+    /// multiplication (debug-panic / release-wrap) — this pins the documented
+    /// safe boundary. See the report note on `const_new` overflow.
+    #[test]
+    fn flex_grow_const_new_at_safe_encoding_boundary() {
+        let hi = isize::MAX / 1000;
+        let lo = isize::MIN / 1000;
+
+        assert_eq!(LayoutFlexGrow::const_new(hi).inner.number(), hi * 1000);
+        assert_eq!(LayoutFlexGrow::const_new(lo).inner.number(), lo * 1000);
+        assert!(LayoutFlexGrow::const_new(hi).inner.get().is_finite());
+        assert!(LayoutFlexGrow::const_new(lo).inner.get().is_finite());
+    }
+
+    /// Zero / negative inputs are stored verbatim: the constructors perform no
+    /// CSS validation (`flex-grow` may not be negative), only the parser does.
+    #[test]
+    fn flex_grow_const_new_zero_and_negative_are_not_clamped() {
+        const ZERO: LayoutFlexGrow = LayoutFlexGrow::const_new(0);
+        const NEG: LayoutFlexGrow = LayoutFlexGrow::const_new(-3);
+
+        assert_eq!(ZERO.inner.get(), 0.0);
+        assert_eq!(ZERO.inner.number(), 0);
+        assert_eq!(NEG.inner.get(), -3.0);
+        assert_eq!(LayoutFlexGrow::new(-3).inner.get(), -3.0);
+    }
+
+    #[test]
+    fn flex_grow_and_shrink_defaults_match_css_initial_values() {
+        assert_eq!(LayoutFlexGrow::default().inner.get(), 0.0);
+        assert_eq!(LayoutFlexShrink::default().inner.get(), 1.0);
+        // Ord is derived over the fixed-point isize, so it must track the float.
+        assert!(LayoutFlexGrow::const_new(1) < LayoutFlexGrow::const_new(2));
+        assert!(LayoutFlexGrow::const_new(-1) < LayoutFlexGrow::const_new(0));
+    }
+
+    // ---------------------------------------------------------------------
+    // interpolate()  (numeric: zero / limits / NaN / inf / overflow)
+    // ---------------------------------------------------------------------
+
+    fn grow(v: f32) -> LayoutFlexGrow {
+        LayoutFlexGrow {
+            inner: FloatValue::new(v),
+        }
+    }
+
+    fn shrink(v: f32) -> LayoutFlexShrink {
+        LayoutFlexShrink {
+            inner: FloatValue::new(v),
+        }
+    }
+
+    #[test]
+    fn flex_grow_interpolate_endpoints_midpoint_and_extrapolation() {
+        let a = grow(0.0);
+        let b = grow(10.0);
+
+        assert_eq!(a.interpolate(&b, 0.0).inner.get(), 0.0);
+        assert_eq!(a.interpolate(&b, 1.0).inner.get(), 10.0);
+        assert_eq!(a.interpolate(&b, 0.5).inner.get(), 5.0);
+        // t is not clamped: extrapolation past the endpoints is well-defined.
+        assert_eq!(a.interpolate(&b, 2.0).inner.get(), 20.0);
+        assert_eq!(a.interpolate(&b, -1.0).inner.get(), -10.0);
+    }
+
+    /// A NaN `t` produces NaN internally; the `f32 as isize` cast maps NaN to 0,
+    /// so the result is a defined 0.0 rather than a NaN or a panic.
+    #[test]
+    fn flex_grow_interpolate_nan_t_collapses_to_zero() {
+        let a = grow(2.0);
+        let b = grow(8.0);
+
+        let out = a.interpolate(&b, f32::NAN);
+        assert!(out.inner.get().is_finite(), "NaN must not leak into the value");
+        assert_eq!(out.inner.get(), 0.0);
+        assert_eq!(out.inner.number(), 0);
+    }
+
+    /// Infinite `t` overflows the lerp; the saturating cast must keep the result
+    /// finite and correctly signed instead of panicking.
+    #[test]
+    fn flex_grow_interpolate_infinite_t_saturates_finite() {
+        let a = grow(0.0);
+        let b = grow(10.0);
+
+        let pos = a.interpolate(&b, f32::INFINITY);
+        assert!(pos.inner.get().is_finite());
+        assert!(pos.inner.get() > 0.0);
+        assert_eq!(pos.inner.number(), isize::MAX);
+
+        let neg = a.interpolate(&b, f32::NEG_INFINITY);
+        assert!(neg.inner.get().is_finite());
+        assert!(neg.inner.get() < 0.0);
+        assert_eq!(neg.inner.number(), isize::MIN);
+
+        // Degenerate case: equal endpoints => (b - a) * inf == NaN => 0.0.
+        let same = grow(4.0).interpolate(&grow(4.0), f32::INFINITY);
+        assert!(same.inner.get().is_finite());
+        assert_eq!(same.inner.get(), 0.0);
+    }
+
+    /// Interpolating between the saturated extremes must never panic and must
+    /// always yield a finite, decodable value.
+    #[test]
+    fn flex_grow_interpolate_extreme_endpoints_stay_finite() {
+        let a = LayoutFlexGrow::new(isize::MAX);
+        let b = LayoutFlexGrow::new(isize::MIN);
+
+        for t in [
+            0.0_f32,
+            0.5,
+            1.0,
+            -1.0,
+            1e30,
+            -1e30,
+            f32::MIN_POSITIVE,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ] {
+            let out = a.interpolate(&b, t);
+            assert!(
+                out.inner.get().is_finite(),
+                "interpolate(MAX, MIN, {t}) produced a non-finite value"
+            );
+        }
+
+        // t = 0 must return `self` even at the saturation boundary.
+        assert_eq!(a.interpolate(&b, 0.0).inner.get(), a.inner.get());
+    }
+
+    #[test]
+    fn flex_shrink_interpolate_endpoints_nan_and_inf() {
+        let a = shrink(1.0);
+        let b = shrink(3.0);
+
+        assert_eq!(a.interpolate(&b, 0.0).inner.get(), 1.0);
+        assert_eq!(a.interpolate(&b, 1.0).inner.get(), 3.0);
+        assert_eq!(a.interpolate(&b, 0.5).inner.get(), 2.0);
+        assert_eq!(a.interpolate(&b, -2.0).inner.get(), -3.0);
+
+        assert_eq!(a.interpolate(&b, f32::NAN).inner.get(), 0.0);
+        assert!(a.interpolate(&b, f32::INFINITY).inner.get().is_finite());
+        assert!(a.interpolate(&b, f32::NEG_INFINITY).inner.get().is_finite());
+
+        let extreme = LayoutFlexShrink {
+            inner: FloatValue::new(f32::MAX),
+        };
+        assert!(extreme.interpolate(&a, 0.5).inner.get().is_finite());
+        assert!(extreme.interpolate(&a, f32::NAN).inner.get().is_finite());
+    }
+
+    // ---------------------------------------------------------------------
+    // LayoutFlexDirection::get_axis / is_reverse  (getter + predicate)
+    // ---------------------------------------------------------------------
+
+    const ALL_DIRECTIONS: [LayoutFlexDirection; 4] = [
+        LayoutFlexDirection::Row,
+        LayoutFlexDirection::RowReverse,
+        LayoutFlexDirection::Column,
+        LayoutFlexDirection::ColumnReverse,
+    ];
+
+    #[test]
+    fn flex_direction_get_axis_is_exhaustive_and_reverse_invariant() {
+        assert_eq!(LayoutFlexDirection::Row.get_axis(), LayoutAxis::Horizontal);
+        assert_eq!(
+            LayoutFlexDirection::RowReverse.get_axis(),
+            LayoutAxis::Horizontal
+        );
+        assert_eq!(LayoutFlexDirection::Column.get_axis(), LayoutAxis::Vertical);
+        assert_eq!(
+            LayoutFlexDirection::ColumnReverse.get_axis(),
+            LayoutAxis::Vertical
+        );
+
+        // Invariant: reversing a direction never changes its axis.
+        assert_eq!(
+            LayoutFlexDirection::Row.get_axis(),
+            LayoutFlexDirection::RowReverse.get_axis()
+        );
+        assert_eq!(
+            LayoutFlexDirection::Column.get_axis(),
+            LayoutFlexDirection::ColumnReverse.get_axis()
+        );
+        // Default (`row`) must be the horizontal, non-reversed axis.
+        assert_eq!(LayoutFlexDirection::default().get_axis(), LayoutAxis::Horizontal);
+        assert!(!LayoutFlexDirection::default().is_reverse());
+    }
+
+    #[test]
+    fn flex_direction_is_reverse_exhaustive() {
+        assert!(!LayoutFlexDirection::Row.is_reverse());
+        assert!(LayoutFlexDirection::RowReverse.is_reverse());
+        assert!(!LayoutFlexDirection::Column.is_reverse());
+        assert!(LayoutFlexDirection::ColumnReverse.is_reverse());
+
+        // Every variant answers deterministically, and exactly half are reverse.
+        let reversed = ALL_DIRECTIONS.iter().filter(|d| d.is_reverse()).count();
+        assert_eq!(reversed, 2);
+        // get_axis()/is_reverse() are orthogonal: both axes have a reverse form.
+        for axis in [LayoutAxis::Horizontal, LayoutAxis::Vertical] {
+            assert_eq!(
+                ALL_DIRECTIONS
+                    .iter()
+                    .filter(|d| d.get_axis() == axis && d.is_reverse())
+                    .count(),
+                1
+            );
+        }
+    }
+
+    // =====================================================================
+    // Parser-gated tests
+    // =====================================================================
+
+    // --- flex-grow / flex-shrink (numeric parsers) -----------------------
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_grow_parse_empty_and_whitespace_only_are_err() {
+        for input in ["", " ", "   ", "\t", "\n", "\r\n", "\t \n "] {
+            assert!(
+                parse_layout_flex_grow(input).is_err(),
+                "empty/whitespace input {input:?} must not parse"
+            );
+            assert!(parse_layout_flex_shrink(input).is_err());
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_grow_parse_garbage_and_unicode_never_panics() {
+        let deep_nesting = "(".repeat(10_000) + &")".repeat(10_000);
+        let long_junk = "x".repeat(1_000_000);
+        let long_digits = "9".repeat(100_000);
+
+        let garbage = [
+            "none",
+            "auto",
+            "null",
+            "1/2",
+            "0x10",
+            "1,0",
+            "--1",
+            "1-",
+            "+-1",
+            "1e",
+            "e1",
+            "\u{1F600}",             // emoji
+            "1\u{1F600}",            // digit + emoji
+            "e\u{0301}",             // combining acute accent
+            "\u{0661}\u{0662}",      // arabic-indic digits
+            "１",                     // fullwidth digit
+            "1\u{0}",                // embedded NUL
+            "\u{200B}1",             // zero-width space
+            deep_nesting.as_str(),
+            long_junk.as_str(),
+        ];
+
+        for input in garbage {
+            assert!(
+                parse_layout_flex_grow(input).is_err(),
+                "garbage input {:?} must be rejected",
+                input.chars().take(8).collect::<String>()
+            );
+            assert!(parse_layout_flex_shrink(input).is_err());
+        }
+
+        // 100k digits overflows f32 to +inf; it must saturate, not hang or panic.
+        let huge = parse_layout_flex_grow(&long_digits).expect("huge finite-overflow input");
+        assert!(huge.inner.get().is_finite());
+        assert!(huge.inner.get() >= 0.0);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_grow_parse_boundary_numbers() {
+        // Positive controls.
+        assert_eq!(parse_layout_flex_grow("0").unwrap().inner.get(), 0.0);
+        assert_eq!(parse_layout_flex_grow("1").unwrap().inner.get(), 1.0);
+        assert_eq!(parse_layout_flex_grow("+2.5").unwrap().inner.get(), 2.5);
+        assert_eq!(parse_layout_flex_grow(".5").unwrap().inner.get(), 0.5);
+
+        // Signed zero is accepted and normalised to +0.
+        let neg_zero = parse_layout_flex_grow("-0").unwrap();
+        assert_eq!(neg_zero.inner.get(), 0.0);
+        assert_eq!(neg_zero.inner.number(), 0);
+
+        // Genuinely negative values are rejected.
+        assert!(matches!(
+            parse_layout_flex_grow("-1"),
+            Err(FlexGrowParseError::NegativeValue("-1"))
+        ));
+        assert!(parse_layout_flex_grow("-0.01").is_err());
+        assert!(parse_layout_flex_grow("-1e10").is_err());
+
+        // -inf underflows the fixed point to isize::MIN => still caught as negative.
+        assert!(matches!(
+            parse_layout_flex_grow("-inf"),
+            Err(FlexGrowParseError::NegativeValue(_))
+        ));
+
+        // Sub-quantum negatives (|v| < 0.001) truncate to 0 and are ACCEPTED —
+        // the negative check runs after the fixed-point quantisation.
+        let tiny_neg = parse_layout_flex_grow("-0.0001").unwrap();
+        assert_eq!(tiny_neg.inner.get(), 0.0);
+        assert_eq!(parse_layout_flex_grow("-1e-30").unwrap().inner.get(), 0.0);
+
+        // Values beyond f32 range become +inf, then saturate to a finite maximum.
+        for input in ["inf", "1e40", "9223372036854775807", "3.5e38"] {
+            let parsed = parse_layout_flex_grow(input)
+                .unwrap_or_else(|e| panic!("{input:?} unexpectedly rejected: {e}"));
+            assert!(
+                parsed.inner.get().is_finite(),
+                "{input:?} decoded to a non-finite value"
+            );
+            assert!(parsed.inner.get() >= 0.0);
+        }
+
+        // Denormal-scale positives quantise to 0 rather than erroring.
+        assert_eq!(parse_layout_flex_grow("1e-40").unwrap().inner.get(), 0.0);
+
+        // "NaN" is a valid Rust float literal, so it reaches the fixed-point
+        // cast, which maps NaN -> 0. It is accepted as flex-grow: 0.
+        let nan = parse_layout_flex_grow("NaN").unwrap();
+        assert!(nan.inner.get().is_finite());
+        assert_eq!(nan.inner.get(), 0.0);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_shrink_parse_boundary_numbers() {
+        assert_eq!(parse_layout_flex_shrink("0").unwrap().inner.get(), 0.0);
+        assert_eq!(parse_layout_flex_shrink("1").unwrap().inner.get(), 1.0);
+        assert_eq!(parse_layout_flex_shrink("-0").unwrap().inner.get(), 0.0);
+
+        assert!(matches!(
+            parse_layout_flex_shrink("-1"),
+            Err(FlexShrinkParseError::NegativeValue("-1"))
+        ));
+        assert!(parse_layout_flex_shrink("-inf").is_err());
+
+        let huge = parse_layout_flex_shrink("1e40").unwrap();
+        assert!(huge.inner.get().is_finite() && huge.inner.get() > 0.0);
+        assert_eq!(parse_layout_flex_shrink("NaN").unwrap().inner.get(), 0.0);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_grow_parse_leading_trailing_junk() {
+        // Surrounding whitespace is trimmed.
+        assert_eq!(parse_layout_flex_grow("  0.5  ").unwrap().inner.get(), 0.5);
+        assert_eq!(parse_layout_flex_grow("\t2\n").unwrap().inner.get(), 2.0);
+
+        // Trailing junk / units / extra tokens are rejected.
+        for input in ["1;", "1 2", "1px", "1%", "valid;garbage", "1 1 1"] {
+            assert!(
+                parse_layout_flex_grow(input).is_err(),
+                "{input:?} must be rejected"
+            );
+        }
+    }
+
+    /// The error must carry the *original* (untrimmed) input, not the trimmed
+    /// slice — callers rely on it to point back into the source CSS.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_grow_error_preserves_untrimmed_input() {
+        match parse_layout_flex_grow("  bogus  ") {
+            Err(FlexGrowParseError::ParseFloat(_, s)) => assert_eq!(s, "  bogus  "),
+            other => panic!("expected ParseFloat error, got {other:?}"),
+        }
+        match parse_layout_flex_shrink(" -2 ") {
+            Err(FlexShrinkParseError::NegativeValue(s)) => assert_eq!(s, " -2 "),
+            other => panic!("expected NegativeValue error, got {other:?}"),
+        }
+    }
+
+    /// Round-trip: print -> parse must reproduce the value for anything that is
+    /// exactly representable in the 1/1000 fixed point.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_grow_shrink_print_parse_round_trip() {
+        for v in [0.0_f32, 1.0, 2.5, 0.25, 0.125, 100.0, 12.5] {
+            let g = grow(v);
+            let printed = g.print_as_css_value();
+            assert_eq!(
+                parse_layout_flex_grow(&printed).unwrap().inner.number(),
+                g.inner.number(),
+                "flex-grow round-trip failed for {printed}"
+            );
+
+            let s = shrink(v);
+            let printed = s.print_as_css_value();
+            assert_eq!(
+                parse_layout_flex_shrink(&printed).unwrap().inner.number(),
+                s.inner.number(),
+                "flex-shrink round-trip failed for {printed}"
+            );
+        }
+    }
+
+    // --- keyword parsers -------------------------------------------------
+
+    /// Every enum variant must survive `print_as_css_value() -> parse()`.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn keyword_enums_print_parse_round_trip() {
+        for d in ALL_DIRECTIONS {
+            assert_eq!(parse_layout_flex_direction(&d.print_as_css_value()).unwrap(), d);
+        }
+        for w in [
+            LayoutFlexWrap::Wrap,
+            LayoutFlexWrap::NoWrap,
+            LayoutFlexWrap::WrapReverse,
+        ] {
+            assert_eq!(parse_layout_flex_wrap(&w.print_as_css_value()).unwrap(), w);
+        }
+        for j in [
+            LayoutJustifyContent::FlexStart,
+            LayoutJustifyContent::FlexEnd,
+            LayoutJustifyContent::Start,
+            LayoutJustifyContent::End,
+            LayoutJustifyContent::Center,
+            LayoutJustifyContent::SpaceBetween,
+            LayoutJustifyContent::SpaceAround,
+            LayoutJustifyContent::SpaceEvenly,
+        ] {
+            assert_eq!(parse_layout_justify_content(&j.print_as_css_value()).unwrap(), j);
+        }
+        for a in [
+            LayoutAlignItems::Stretch,
+            LayoutAlignItems::Center,
+            LayoutAlignItems::Start,
+            LayoutAlignItems::End,
+            LayoutAlignItems::Baseline,
+        ] {
+            assert_eq!(parse_layout_align_items(&a.print_as_css_value()).unwrap(), a);
+        }
+        for a in [
+            LayoutAlignContent::Stretch,
+            LayoutAlignContent::Center,
+            LayoutAlignContent::Start,
+            LayoutAlignContent::End,
+            LayoutAlignContent::SpaceBetween,
+            LayoutAlignContent::SpaceAround,
+        ] {
+            assert_eq!(parse_layout_align_content(&a.print_as_css_value()).unwrap(), a);
+        }
+        for a in [
+            LayoutAlignSelf::Auto,
+            LayoutAlignSelf::Stretch,
+            LayoutAlignSelf::Center,
+            LayoutAlignSelf::Start,
+            LayoutAlignSelf::End,
+            LayoutAlignSelf::Baseline,
+        ] {
+            assert_eq!(parse_layout_align_self(&a.print_as_css_value()).unwrap(), a);
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn keyword_parsers_reject_empty_whitespace_and_garbage() {
+        let deep_nesting = "[".repeat(10_000) + &"]".repeat(10_000);
+        let long_junk = "row".repeat(300_000); // ~900k chars, no hang
+        let bad = [
+            "",
+            " ",
+            "\t\n",
+            "0",
+            "-1",
+            "NaN",
+            "inf",
+            "9223372036854775807",
+            "\u{1F600}",
+            "row\u{200B}",  // zero-width space is NOT css whitespace
+            "row\u{0}",     // embedded NUL
+            "row row",
+            "row;",
+            ";row",
+            "row/**/",
+            deep_nesting.as_str(),
+            long_junk.as_str(),
+        ];
+
+        for input in bad {
+            assert!(parse_layout_flex_direction(input).is_err());
+            assert!(parse_layout_flex_wrap(input).is_err());
+            assert!(parse_layout_justify_content(input).is_err());
+            assert!(parse_layout_align_items(input).is_err());
+            assert!(parse_layout_align_content(input).is_err());
+            assert!(parse_layout_align_self(input).is_err());
+        }
+    }
+
+    /// CSS keywords are ASCII case-insensitive, but these parsers match
+    /// case-sensitively. Pinned as current behaviour (see report).
+    #[cfg(feature = "parser")]
+    #[test]
+    fn keyword_parsers_are_case_sensitive() {
+        assert!(parse_layout_flex_direction("ROW").is_err());
+        assert!(parse_layout_flex_direction("Row").is_err());
+        assert!(parse_layout_flex_wrap("NoWrap").is_err());
+        assert!(parse_layout_justify_content("Center").is_err());
+        assert!(parse_layout_align_items("STRETCH").is_err());
+        assert!(parse_layout_align_content("Stretch").is_err());
+        assert!(parse_layout_align_self("AUTO").is_err());
+
+        // lowercase positive controls still work
+        assert_eq!(
+            parse_layout_flex_direction("row").unwrap(),
+            LayoutFlexDirection::Row
+        );
+        assert_eq!(parse_layout_align_self("auto").unwrap(), LayoutAlignSelf::Auto);
+    }
+
+    /// Keyword errors must echo the original, untrimmed input.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn keyword_errors_preserve_untrimmed_input() {
+        assert_eq!(
+            parse_layout_flex_direction("  bogus  ").unwrap_err(),
+            FlexDirectionParseError::InvalidValue("  bogus  ")
+        );
+        assert_eq!(
+            parse_layout_flex_wrap("\twrap!\n").unwrap_err(),
+            FlexWrapParseError::InvalidValue("\twrap!\n")
+        );
+        assert_eq!(
+            parse_layout_justify_content("").unwrap_err(),
+            JustifyContentParseError::InvalidValue("")
+        );
+        assert_eq!(
+            parse_layout_align_items(" nope ").unwrap_err(),
+            AlignItemsParseError::InvalidValue(" nope ")
+        );
+        assert_eq!(
+            parse_layout_align_content(" nope ").unwrap_err(),
+            AlignContentParseError::InvalidValue(" nope ")
+        );
+        assert_eq!(
+            parse_layout_align_self(" nope ").unwrap_err(),
+            AlignSelfParseError::InvalidValue(" nope ")
+        );
+    }
+
+    /// Aliases: `start`/`flex-start` and `end`/`flex-end` collapse to the same
+    /// variant for align-*, while justify-content keeps them distinct.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn align_aliases_collapse_but_justify_keeps_them_distinct() {
+        assert_eq!(
+            parse_layout_align_items("start").unwrap(),
+            parse_layout_align_items("flex-start").unwrap()
+        );
+        assert_eq!(
+            parse_layout_align_content("end").unwrap(),
+            parse_layout_align_content("flex-end").unwrap()
+        );
+        assert_eq!(
+            parse_layout_align_self("start").unwrap(),
+            parse_layout_align_self("flex-start").unwrap()
+        );
+        assert_ne!(
+            parse_layout_justify_content("start").unwrap(),
+            parse_layout_justify_content("flex-start").unwrap()
+        );
+        // space-evenly exists for justify-content but not for align-content.
+        assert!(parse_layout_justify_content("space-evenly").is_ok());
+        assert!(parse_layout_align_content("space-evenly").is_err());
+        // align-self has `auto`; align-items does not.
+        assert!(parse_layout_align_self("auto").is_ok());
+        assert!(parse_layout_align_items("auto").is_err());
+    }
+
+    // --- flex-basis ------------------------------------------------------
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_basis_print_parse_round_trip() {
+        for basis in [
+            LayoutFlexBasis::Auto,
+            LayoutFlexBasis::Exact(PixelValue::px(0.0)),
+            LayoutFlexBasis::Exact(PixelValue::px(200.0)),
+            LayoutFlexBasis::Exact(PixelValue::px(-5.0)),
+            LayoutFlexBasis::Exact(PixelValue::percent(50.0)),
+            LayoutFlexBasis::Exact(PixelValue::em(10.5)),
+            LayoutFlexBasis::Exact(PixelValue::rem(1.25)),
+            LayoutFlexBasis::Exact(PixelValue::pt(12.0)),
+        ] {
+            let printed = basis.print_as_css_value();
+            assert_eq!(
+                parse_layout_flex_basis(&printed).unwrap(),
+                basis,
+                "flex-basis round-trip failed for {printed}"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_basis_rejects_empty_units_only_and_garbage() {
+        let deep_nesting = "(".repeat(10_000) + &")".repeat(10_000);
+        let long_junk = "z".repeat(1_000_000);
+
+        for input in [
+            "",
+            "   ",
+            "\t\n",
+            "px",          // unit with no value
+            "%",
+            "em",
+            " px ",
+            "none",
+            "auto auto",
+            "200px;",
+            "200 px extra",
+            "AUTO",        // case-sensitive
+            "5PX",
+            "\u{1F600}",
+            "５０px",       // fullwidth digits
+            "200\u{200B}px",
+            deep_nesting.as_str(),
+            long_junk.as_str(),
+        ] {
+            assert!(
+                parse_layout_flex_basis(input).is_err(),
+                "flex-basis {:?} must be rejected",
+                input.chars().take(10).collect::<String>()
+            );
+        }
+
+        // The error echoes the original, untrimmed input.
+        assert_eq!(
+            parse_layout_flex_basis("  none  ").unwrap_err(),
+            FlexBasisParseError::InvalidValue("  none  ")
+        );
+    }
+
+    /// Adversarial numeric flex-basis inputs: NaN/inf reach the fixed-point cast
+    /// through the unit suffix and must saturate to a finite, defined value.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_basis_nan_and_inf_units_saturate() {
+        // "NaN" is a valid float literal => NaNpx decodes to 0px, not an error.
+        assert_eq!(
+            parse_layout_flex_basis("NaNpx").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(0.0))
+        );
+        // Overflowing magnitudes saturate rather than panicking.
+        assert_eq!(
+            parse_layout_flex_basis("infpx").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(f32::INFINITY))
+        );
+        assert_eq!(
+            parse_layout_flex_basis("1e40px").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(f32::INFINITY))
+        );
+        assert_eq!(
+            parse_layout_flex_basis(&"9".repeat(100_000)).unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(f32::INFINITY))
+        );
+
+        // Unitless numbers are accepted and treated as px (liberal parsing).
+        assert_eq!(
+            parse_layout_flex_basis("-0").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(0.0))
+        );
+        // Negative lengths are accepted even though CSS forbids them (see report).
+        assert_eq!(
+            parse_layout_flex_basis("-5px").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(-5.0))
+        );
+        // Whitespace *inside* the token is tolerated (see report).
+        assert_eq!(
+            parse_layout_flex_basis("5 px").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(5.0))
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Error to_contained() / to_shared()  (getters, borrow <-> owned)
+    // ---------------------------------------------------------------------
+
+    /// `to_contained()` then `to_shared()` must be the identity for every error
+    /// variant, including empty / unicode / long payloads.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn flex_grow_shrink_error_owned_round_trip() {
+        let invalid = "x".parse::<f32>().unwrap_err();
+        let empty = "".parse::<f32>().unwrap_err();
+        let long = "q".repeat(10_000);
+
+        for payload in ["", "abc", "\u{1F600}\u{0301}", "  spaced  ", long.as_str()] {
+            for err in [
+                FlexGrowParseError::ParseFloat(invalid.clone(), payload),
+                FlexGrowParseError::ParseFloat(empty.clone(), payload),
+                FlexGrowParseError::NegativeValue(payload),
+            ] {
+                assert_eq!(err.to_contained().to_shared(), err);
+            }
+            for err in [
+                FlexShrinkParseError::ParseFloat(invalid.clone(), payload),
+                FlexShrinkParseError::NegativeValue(payload),
+            ] {
+                assert_eq!(err.to_contained().to_shared(), err);
+            }
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn keyword_error_owned_round_trip() {
+        let long = "k".repeat(10_000);
+
+        for payload in ["", " ", "\u{1F600}", "bogus", long.as_str()] {
+            let d = FlexDirectionParseError::InvalidValue(payload);
+            assert_eq!(d.to_contained().to_shared(), d);
+
+            let w = FlexWrapParseError::InvalidValue(payload);
+            assert_eq!(w.to_contained().to_shared(), w);
+
+            let j = JustifyContentParseError::InvalidValue(payload);
+            assert_eq!(j.to_contained().to_shared(), j);
+
+            let ai = AlignItemsParseError::InvalidValue(payload);
+            assert_eq!(ai.to_contained().to_shared(), ai);
+
+            let ac = AlignContentParseError::InvalidValue(payload);
+            assert_eq!(ac.to_contained().to_shared(), ac);
+
+            let asf = AlignSelfParseError::InvalidValue(payload);
+            assert_eq!(asf.to_contained().to_shared(), asf);
+
+            let b = FlexBasisParseError::InvalidValue(payload);
+            assert_eq!(b.to_contained().to_shared(), b);
+        }
+    }
+
+    /// `to_shared()` must not panic on a directly-constructed owned error with a
+    /// degenerate (empty) payload, and must hand back the exact same string.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn owned_errors_to_shared_on_degenerate_payloads() {
+        let empty: AzString = String::new().into();
+
+        assert_eq!(
+            FlexDirectionParseErrorOwned::InvalidValue(empty.clone()).to_shared(),
+            FlexDirectionParseError::InvalidValue("")
+        );
+        assert_eq!(
+            FlexWrapParseErrorOwned::InvalidValue(empty.clone()).to_shared(),
+            FlexWrapParseError::InvalidValue("")
+        );
+        assert_eq!(
+            JustifyContentParseErrorOwned::InvalidValue(empty.clone()).to_shared(),
+            JustifyContentParseError::InvalidValue("")
+        );
+        assert_eq!(
+            AlignItemsParseErrorOwned::InvalidValue(empty.clone()).to_shared(),
+            AlignItemsParseError::InvalidValue("")
+        );
+        assert_eq!(
+            AlignContentParseErrorOwned::InvalidValue(empty.clone()).to_shared(),
+            AlignContentParseError::InvalidValue("")
+        );
+        assert_eq!(
+            AlignSelfParseErrorOwned::InvalidValue(empty.clone()).to_shared(),
+            AlignSelfParseError::InvalidValue("")
+        );
+        assert_eq!(
+            FlexBasisParseErrorOwned::InvalidValue(empty.clone()).to_shared(),
+            FlexBasisParseError::InvalidValue("")
+        );
+        assert_eq!(
+            FlexGrowParseErrorOwned::NegativeValue(empty.clone()).to_shared(),
+            FlexGrowParseError::NegativeValue("")
+        );
+        assert_eq!(
+            FlexShrinkParseErrorOwned::NegativeValue(empty).to_shared(),
+            FlexShrinkParseError::NegativeValue("")
+        );
+    }
+
+    /// Errors surfaced by the real parsers must convert to owned form and
+    /// render a non-empty message that names the offending property.
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parser_errors_to_contained_and_display() {
+        let e = parse_layout_flex_grow("bogus").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("flex-grow"));
+
+        let e = parse_layout_flex_shrink("-1").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("flex-shrink"));
+
+        let e = parse_layout_flex_direction("\u{1F600}").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("flex-direction"));
+
+        let e = parse_layout_flex_wrap("").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("flex-wrap"));
+
+        let e = parse_layout_justify_content("nope").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("justify-content"));
+
+        let e = parse_layout_align_items("nope").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("align-items"));
+
+        let e = parse_layout_align_content("nope").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("align-content"));
+
+        let e = parse_layout_align_self("nope").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("align-self"));
+
+        let e = parse_layout_flex_basis("none").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+        assert!(format!("{e}").contains("flex-basis"));
+    }
+}

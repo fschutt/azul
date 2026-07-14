@@ -372,3 +372,968 @@ mod tests {
         assert!(!point_in_rect(LogicalPosition { x: 200.0, y: 30.0 }, &rect));
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // clip/hit geometry must round-trip bit-exactly, not "approximately"
+mod autotest_generated {
+    use std::collections::HashMap;
+
+    use azul_core::dom::{Dom, FormattingContext};
+
+    use super::*;
+    use crate::{
+        solver3::{
+            display_list::{DisplayList, DisplayListItem, WindowLogicalRect},
+            layout_tree::LayoutTree,
+        },
+        window::DomLayoutResult,
+    };
+
+    // -----------------------------------------------------------------------
+    // fixtures
+    // -----------------------------------------------------------------------
+
+    fn p(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition { x, y }
+    }
+
+    fn r(x: f32, y: f32, width: f32, height: f32) -> LogicalRect {
+        LogicalRect {
+            origin: p(x, y),
+            size: LogicalSize { width, height },
+        }
+    }
+
+    fn dom(inner: usize) -> DomId {
+        DomId { inner }
+    }
+
+    /// A layout node: `dom_node_id` as a raw index (`None` = anonymous box),
+    /// `size` as (w, h) (`None` = never laid out), `parent` as a node index.
+    fn hot(
+        dom_node_id: Option<usize>,
+        size: Option<(f32, f32)>,
+        parent: Option<usize>,
+    ) -> LayoutNodeHot {
+        LayoutNodeHot {
+            box_props: Default::default(),
+            dom_node_id: dom_node_id.map(NodeId::new),
+            used_size: size.map(|(width, height)| LogicalSize { width, height }),
+            formatting_context: FormattingContext::default(),
+            parent,
+        }
+    }
+
+    /// `body > div.clip > div` (`NodeId` 0, 1, 2), styled by `css_src`.
+    fn styled(css_src: &str) -> StyledDom {
+        let css = azul_css::parser2::new_from_str(css_src).0;
+        let mut d = Dom::create_body().with_children(
+            vec![Dom::create_div()
+                .with_class("clip".to_string().into())
+                .with_children(vec![Dom::create_div()].into())]
+            .into(),
+        );
+        StyledDom::create(&mut d, css)
+    }
+
+    fn layout_result(
+        styled_dom: StyledDom,
+        nodes: Vec<LayoutNodeHot>,
+        calculated_positions: PositionVec,
+        items: Vec<DisplayListItem>,
+    ) -> DomLayoutResult {
+        DomLayoutResult {
+            styled_dom,
+            layout_tree: LayoutTree {
+                nodes,
+                warm: Vec::new(),
+                cold: Vec::new(),
+                root: 0,
+                dom_to_layout: BTreeMap::new(),
+                children_arena: Vec::new(),
+                children_offsets: Vec::new(),
+                subtree_needs_intrinsic: Vec::new(),
+            },
+            calculated_positions,
+            viewport: LogicalRect::zero(),
+            display_list: DisplayList {
+                items,
+                ..Default::default()
+            },
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+        }
+    }
+
+    fn virtual_view(child: usize, bounds: LogicalRect) -> DisplayListItem {
+        DisplayListItem::VirtualView {
+            child_dom_id: dom(child),
+            bounds: WindowLogicalRect::new(bounds.origin, bounds.size),
+            clip_rect: WindowLogicalRect::new(bounds.origin, bounds.size),
+        }
+    }
+
+    /// Every f32 that can plausibly reach a hit test from a broken input event.
+    const HOSTILE_F32: [f32; 8] = [
+        0.0,
+        -0.0,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::MAX,
+        f32::MIN,
+        f32::MIN_POSITIVE,
+    ];
+
+    // -----------------------------------------------------------------------
+    // point_in_rect  (numeric)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn point_in_rect_is_half_open_top_left_inclusive_bottom_right_exclusive() {
+        let rect = r(10.0, 10.0, 100.0, 50.0);
+
+        assert!(point_in_rect(p(10.0, 10.0), &rect), "top-left is inclusive");
+        assert!(point_in_rect(p(109.999, 59.999), &rect));
+        assert!(
+            !point_in_rect(p(110.0, 30.0), &rect),
+            "right edge is exclusive"
+        );
+        assert!(
+            !point_in_rect(p(50.0, 60.0), &rect),
+            "bottom edge is exclusive"
+        );
+        assert!(!point_in_rect(p(110.0, 60.0), &rect));
+    }
+
+    #[test]
+    fn point_in_rect_zero_sized_rect_contains_nothing_not_even_its_origin() {
+        let rect = r(0.0, 0.0, 0.0, 0.0);
+        assert!(!point_in_rect(p(0.0, 0.0), &rect));
+        assert!(!point_in_rect(p(-0.0, -0.0), &rect));
+
+        let elsewhere = r(7.0, 9.0, 0.0, 0.0);
+        assert!(!point_in_rect(p(7.0, 9.0), &elsewhere));
+    }
+
+    #[test]
+    fn point_in_rect_negative_size_rect_is_empty() {
+        // A rect whose size is negative has max < min on both axes: nothing is
+        // "inside" it, and in particular the test must not silently swap the
+        // edges and report a hit.
+        let rect = r(100.0, 100.0, -50.0, -50.0);
+        for x in [50.0_f32, 75.0, 99.0, 100.0, 125.0] {
+            for y in [50.0_f32, 75.0, 99.0, 100.0, 125.0] {
+                assert!(!point_in_rect(p(x, y), &rect), "({x}, {y}) must not hit");
+            }
+        }
+    }
+
+    #[test]
+    fn point_in_rect_negative_zero_origin_still_contains_zero() {
+        // -0.0 >= 0.0 and 0.0 >= -0.0 both hold: signed zero must not flip a hit.
+        let rect = r(-0.0, -0.0, 10.0, 10.0);
+        assert!(point_in_rect(p(0.0, 0.0), &rect));
+        assert!(point_in_rect(p(-0.0, -0.0), &rect));
+
+        let zero_origin = r(0.0, 0.0, 10.0, 10.0);
+        assert!(point_in_rect(p(-0.0, -0.0), &zero_origin));
+    }
+
+    #[test]
+    fn point_in_rect_nan_point_never_hits() {
+        let rect = r(-1000.0, -1000.0, 5000.0, 5000.0);
+        assert!(!point_in_rect(p(f32::NAN, 0.0), &rect));
+        assert!(!point_in_rect(p(0.0, f32::NAN), &rect));
+        assert!(!point_in_rect(p(f32::NAN, f32::NAN), &rect));
+    }
+
+    #[test]
+    fn point_in_rect_nan_rect_never_hits() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let nan_origin = r(bad, 0.0, 10.0, 10.0);
+            let nan_size = r(0.0, 0.0, bad, 10.0);
+            // NaN origin/size makes every comparison false except the trivially
+            // true ones; the only thing that matters is that it doesn't panic and
+            // that a NaN box can't claim an arbitrary point.
+            let _ = point_in_rect(p(5.0, 5.0), &nan_origin);
+            let _ = point_in_rect(p(5.0, 5.0), &nan_size);
+        }
+        assert!(!point_in_rect(p(5.0, 5.0), &r(f32::NAN, 0.0, 10.0, 10.0)));
+        assert!(!point_in_rect(p(5.0, 5.0), &r(0.0, 0.0, f32::NAN, 10.0)));
+    }
+
+    #[test]
+    fn point_in_rect_infinite_extent_is_empty_which_is_why_clip_unbounded_exists() {
+        // origin = -inf, size = +inf  =>  origin + size = NaN  =>  `x < NaN` is
+        // false  =>  nothing is inside. This is exactly the trap CLIP_UNBOUNDED
+        // documents; the assertion pins the failure mode so nobody "optimizes"
+        // CLIP_UNBOUNDED back into f32::INFINITY.
+        let infinite = LogicalRect {
+            origin: p(f32::NEG_INFINITY, f32::NEG_INFINITY),
+            size: LogicalSize {
+                width: f32::INFINITY,
+                height: f32::INFINITY,
+            },
+        };
+        assert!(!point_in_rect(p(0.0, 0.0), &infinite));
+        assert!(!point_in_rect(p(-1.0e6, 1.0e6), &infinite));
+    }
+
+    #[test]
+    fn point_in_rect_clip_unbounded_extent_contains_every_realistic_coordinate() {
+        // The finite stand-in that compute_node_clip uses must behave like
+        // "unbounded" for any coordinate a real window can produce.
+        let unbounded = r(
+            -CLIP_UNBOUNDED,
+            -CLIP_UNBOUNDED,
+            2.0 * CLIP_UNBOUNDED,
+            2.0 * CLIP_UNBOUNDED,
+        );
+        for c in [0.0_f32, -0.0, 1.0, -1.0, 99_999.0, -99_999.0, 1.0e6, -1.0e6] {
+            assert!(point_in_rect(p(c, c), &unbounded), "{c} must be inside");
+        }
+        // ...but it is finite, so it does NOT swallow f32::MAX.
+        assert!(!point_in_rect(p(f32::MAX, 0.0), &unbounded));
+    }
+
+    #[test]
+    fn point_in_rect_saturates_at_f32_max_without_panicking() {
+        // origin + size overflows to +inf here; `x < inf` is true, so the point
+        // is reported inside. No debug-panic, no wraparound.
+        let huge = r(f32::MAX, f32::MAX, f32::MAX, f32::MAX);
+        assert!(point_in_rect(p(f32::MAX, f32::MAX), &huge));
+        assert!(!point_in_rect(p(0.0, 0.0), &huge));
+
+        let from_zero = r(0.0, 0.0, f32::MAX, f32::MAX);
+        assert!(point_in_rect(p(0.0, 0.0), &from_zero));
+        assert!(
+            !point_in_rect(p(f32::MAX, f32::MAX), &from_zero),
+            "the far edge stays exclusive even at f32::MAX"
+        );
+    }
+
+    #[test]
+    fn point_in_rect_never_panics_for_any_hostile_f32_combination() {
+        for &x in &HOSTILE_F32 {
+            for &y in &HOSTILE_F32 {
+                for &w in &HOSTILE_F32 {
+                    let rect = r(x, y, w, w);
+                    let _ = point_in_rect(p(y, x), &rect);
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // CpuHitTester::new / node_rects_total  (constructor + getter)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn new_hit_tester_is_empty_and_matches_default() {
+        let tester = CpuHitTester::new();
+        assert_eq!(tester.node_rects_total(), 0);
+        assert!(tester.hit_test(p(0.0, 0.0)).is_empty());
+
+        let defaulted = CpuHitTester::default();
+        assert_eq!(defaulted.node_rects_total(), tester.node_rects_total());
+    }
+
+    #[test]
+    fn node_rects_total_sums_entries_across_doms_and_skips_unlaid_nodes() {
+        let mut results = BTreeMap::new();
+        // dom 0: 2 hit-testable nodes + 1 anonymous + 1 without a used_size
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                vec![
+                    hot(Some(0), Some((10.0, 10.0)), None),
+                    hot(Some(1), Some((10.0, 10.0)), None),
+                    hot(None, Some((10.0, 10.0)), None), // anonymous box
+                    hot(Some(2), None, None),            // never laid out
+                ],
+                vec![p(0.0, 0.0), p(0.0, 0.0), p(0.0, 0.0), p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        // dom 1: 1 hit-testable node
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(0), Some((10.0, 10.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+        assert_eq!(tester.node_rects_total(), 3);
+    }
+
+    #[test]
+    fn node_rects_total_does_not_grow_when_the_same_layout_is_rebuilt() {
+        // Leak probe: rebuild_from_layout must clear, not append.
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                vec![hot(Some(0), Some((10.0, 10.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+
+        let mut tester = CpuHitTester::new();
+        for _ in 0..16 {
+            tester.rebuild_from_layout(&results);
+            assert_eq!(tester.node_rects_total(), 1);
+        }
+
+        tester.rebuild_from_layout(&BTreeMap::new());
+        assert_eq!(tester.node_rects_total(), 0);
+        assert!(tester.hit_test(p(1.0, 1.0)).is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // CpuHitTester::hit_test  (numeric)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn hit_test_on_empty_tester_never_panics_for_hostile_positions() {
+        let tester = CpuHitTester::new();
+        for &x in &HOSTILE_F32 {
+            for &y in &HOSTILE_F32 {
+                assert!(tester.hit_test(p(x, y)).is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn hit_test_with_hostile_positions_against_a_real_node_returns_no_spurious_hits() {
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                vec![hot(Some(0), Some((100.0, 100.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        // Sanity: the node IS hittable at a normal coordinate.
+        assert_eq!(tester.hit_test(p(50.0, 50.0)).len(), 1);
+
+        for pos in [
+            p(f32::NAN, f32::NAN),
+            p(f32::NAN, 50.0),
+            p(50.0, f32::NAN),
+            p(f32::INFINITY, f32::INFINITY),
+            p(f32::NEG_INFINITY, f32::NEG_INFINITY),
+            p(f32::MAX, f32::MAX),
+            p(f32::MIN, f32::MIN),
+        ] {
+            assert!(
+                tester.hit_test(pos).is_empty(),
+                "({}, {}) must not hit a 0,0,100x100 node",
+                pos.x,
+                pos.y
+            );
+        }
+
+        // Zero and negative zero are inside (origin is inclusive).
+        assert_eq!(tester.hit_test(p(0.0, 0.0)).len(), 1);
+        assert_eq!(tester.hit_test(p(-0.0, -0.0)).len(), 1);
+        // The exclusive far edge.
+        assert!(tester.hit_test(p(100.0, 100.0)).is_empty());
+        assert_eq!(tester.hit_test(p(99.999, 99.999)).len(), 1);
+    }
+
+    #[test]
+    fn hit_test_returns_topmost_first() {
+        // Two fully overlapping siblings: the one that paints last (higher index)
+        // must come back first.
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                vec![
+                    hot(Some(1), Some((100.0, 100.0)), None),
+                    hot(Some(2), Some((100.0, 100.0)), None),
+                ],
+                vec![p(0.0, 0.0), p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(
+            tester.hit_test(p(50.0, 50.0)),
+            vec![(dom(0), NodeId::new(2)), (dom(0), NodeId::new(1))]
+        );
+    }
+
+    #[test]
+    fn hit_test_skips_nodes_with_no_calculated_position() {
+        // `calculated_positions` shorter than `nodes` is a torn/partial layout:
+        // the extra nodes must be dropped, not indexed out of bounds.
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                vec![
+                    hot(Some(0), Some((100.0, 100.0)), None),
+                    hot(Some(1), Some((100.0, 100.0)), None),
+                    hot(Some(2), Some((100.0, 100.0)), None),
+                ],
+                vec![p(0.0, 0.0)], // only node 0 has a position
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(tester.node_rects_total(), 1);
+        assert_eq!(tester.hit_test(p(50.0, 50.0)), vec![(dom(0), NodeId::ZERO)]);
+    }
+
+    #[test]
+    fn hit_test_respects_an_overflow_hidden_ancestor() {
+        // body(0) 500x500 > div.clip(1) 100x100 overflow:hidden > div(2) 400x400.
+        // A point at (200,200) is inside node 2's rect but scrolled/clipped out of
+        // its ancestor, so only the body may claim it.
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled("div.clip { overflow: hidden; }"),
+                vec![
+                    hot(Some(0), Some((500.0, 500.0)), None),
+                    hot(Some(1), Some((100.0, 100.0)), Some(0)),
+                    hot(Some(2), Some((400.0, 400.0)), Some(1)),
+                ],
+                vec![p(0.0, 0.0), p(0.0, 0.0), p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(
+            tester.hit_test(p(50.0, 50.0)),
+            vec![
+                (dom(0), NodeId::new(2)),
+                (dom(0), NodeId::new(1)),
+                (dom(0), NodeId::new(0)),
+            ],
+            "inside the clip: all three nodes are hit, topmost first"
+        );
+        assert_eq!(
+            tester.hit_test(p(200.0, 200.0)),
+            vec![(dom(0), NodeId::new(0))],
+            "outside the clip: the clipped-out child must not eat the event"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // CpuHitTester::rebuild_from_layout  (VirtualView placement)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rebuild_from_layout_with_no_doms_is_a_no_op() {
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&BTreeMap::new());
+        assert_eq!(tester.node_rects_total(), 0);
+        assert!(tester.hit_test(p(0.0, 0.0)).is_empty());
+    }
+
+    #[test]
+    fn rebuild_translates_and_clips_virtual_view_child_doms() {
+        // Host dom 0 hosts child dom 1 at (100,100) 50x50. The child lays out in
+        // local coordinates with a 200x200 node at (0,0): it must be translated to
+        // (100,100) AND clipped to the 50x50 composite box, otherwise it claims
+        // pointer events across the whole window (the azul-maps tile-grid bug).
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                Vec::new(),
+                Vec::new(),
+                vec![virtual_view(1, r(100.0, 100.0, 50.0, 50.0))],
+            ),
+        );
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((200.0, 200.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert!(
+            tester.hit_test(p(10.0, 10.0)).is_empty(),
+            "the child's local (10,10) is not its window position"
+        );
+        assert_eq!(
+            tester.hit_test(p(120.0, 120.0)),
+            vec![(dom(1), NodeId::new(1))],
+            "translated into the host's VirtualView bounds"
+        );
+        assert!(
+            tester.hit_test(p(180.0, 180.0)).is_empty(),
+            "inside the child's 200x200 rect but outside the 50x50 composite clip"
+        );
+    }
+
+    #[test]
+    fn rebuild_accumulates_offsets_through_nested_virtual_views() {
+        // dom0 --VV(10,10)--> dom1 --VV(5,5 local)--> dom2, whose node sits at
+        // local (0,0): absolute origin must be (15,15).
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                Vec::new(),
+                Vec::new(),
+                vec![virtual_view(1, r(10.0, 10.0, 200.0, 200.0))],
+            ),
+        );
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                Vec::new(),
+                Vec::new(),
+                vec![virtual_view(2, r(5.0, 5.0, 100.0, 100.0))],
+            ),
+        );
+        results.insert(
+            dom(2),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((20.0, 20.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(
+            tester.hit_test(p(16.0, 16.0)),
+            vec![(dom(2), NodeId::new(1))]
+        );
+        assert!(
+            tester.hit_test(p(14.0, 14.0)).is_empty(),
+            "(14,14) is before the doubly-offset origin (15,15)"
+        );
+        assert!(tester.hit_test(p(36.0, 36.0)).is_empty());
+    }
+
+    #[test]
+    fn rebuild_ignores_virtual_views_pointing_at_a_missing_child_dom() {
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                vec![hot(Some(0), Some((10.0, 10.0)), None)],
+                vec![p(0.0, 0.0)],
+                vec![virtual_view(42, r(0.0, 0.0, 10.0, 10.0))],
+            ),
+        );
+
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(tester.node_rects_total(), 1);
+        assert_eq!(tester.hit_test(p(5.0, 5.0)), vec![(dom(0), NodeId::ZERO)]);
+    }
+
+    #[test]
+    fn rebuild_terminates_on_a_cyclic_virtual_view_graph() {
+        // dom1 hosts dom2 and dom2 hosts dom1: neither is reachable from the root
+        // dom, so neither gets placed. The placement loop is bounded, so this must
+        // terminate (a hang here would freeze every layout pass).
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((10.0, 10.0)), None)],
+                vec![p(0.0, 0.0)],
+                vec![virtual_view(2, r(1.0, 1.0, 10.0, 10.0))],
+            ),
+        );
+        results.insert(
+            dom(2),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((10.0, 10.0)), None)],
+                vec![p(0.0, 0.0)],
+                vec![virtual_view(1, r(2.0, 2.0, 10.0, 10.0))],
+            ),
+        );
+
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+        assert_eq!(tester.node_rects_total(), 2);
+    }
+
+    #[test]
+    fn rebuild_handles_a_virtual_view_with_hostile_bounds() {
+        // A NaN/infinite composite box must not produce a NaN clip that panics or
+        // makes the child hit-testable everywhere.
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+            let mut results = BTreeMap::new();
+            results.insert(
+                dom(0),
+                layout_result(
+                    styled(""),
+                    Vec::new(),
+                    Vec::new(),
+                    vec![virtual_view(1, r(bad, bad, bad, bad))],
+                ),
+            );
+            results.insert(
+                dom(1),
+                layout_result(
+                    styled(""),
+                    vec![hot(Some(1), Some((20.0, 20.0)), None)],
+                    vec![p(0.0, 0.0)],
+                    Vec::new(),
+                ),
+            );
+
+            let mut tester = CpuHitTester::new();
+            tester.rebuild_from_layout(&results);
+            assert_eq!(tester.node_rects_total(), 1);
+            // Whatever the clip degenerates to, hit testing must not panic.
+            let _ = tester.hit_test(p(10.0, 10.0));
+            let _ = tester.hit_test(p(f32::NAN, 0.0));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_node_clip  (numeric)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn compute_node_clip_without_ancestors_or_dom_clip_is_unclipped() {
+        let styled_dom = styled("");
+        let nodes = vec![hot(Some(0), Some((10.0, 10.0)), None)];
+        let positions: PositionVec = vec![p(0.0, 0.0)];
+
+        assert_eq!(
+            compute_node_clip(&styled_dom, &nodes, &positions, 0, p(0.0, 0.0), None),
+            None
+        );
+    }
+
+    #[test]
+    fn compute_node_clip_out_of_bounds_node_index_does_not_panic() {
+        let styled_dom = styled("");
+        let nodes: Vec<LayoutNodeHot> = Vec::new();
+        let positions: PositionVec = Vec::new();
+
+        for idx in [0_usize, 1, 999, usize::MAX] {
+            assert_eq!(
+                compute_node_clip(&styled_dom, &nodes, &positions, idx, p(0.0, 0.0), None),
+                None
+            );
+            // ...and with a DOM clip it still returns exactly that clip.
+            let clip = compute_node_clip(
+                &styled_dom,
+                &nodes,
+                &positions,
+                idx,
+                p(0.0, 0.0),
+                Some(r(1.0, 2.0, 3.0, 4.0)),
+            );
+            assert_eq!(clip, Some(r(1.0, 2.0, 3.0, 4.0)));
+        }
+    }
+
+    #[test]
+    fn compute_node_clip_round_trips_a_dom_clip_when_no_ancestor_clips() {
+        // encode == decode: with no clipping ancestor the composite box must come
+        // back byte-identical, offset included (the offset is already baked into
+        // the placement, so it must NOT be applied twice).
+        let styled_dom = styled("");
+        let nodes = vec![hot(Some(0), Some((10.0, 10.0)), None)];
+        let positions: PositionVec = vec![p(0.0, 0.0)];
+        let dom_clip = r(100.0, 200.0, 50.0, 25.0);
+
+        let clip = compute_node_clip(
+            &styled_dom,
+            &nodes,
+            &positions,
+            0,
+            p(100.0, 200.0),
+            Some(dom_clip),
+        )
+        .expect("dom_clip must survive");
+
+        assert_eq!(clip.origin.x, dom_clip.origin.x);
+        assert_eq!(clip.origin.y, dom_clip.origin.y);
+        assert_eq!(clip.size.width, dom_clip.size.width);
+        assert_eq!(clip.size.height, dom_clip.size.height);
+    }
+
+    #[test]
+    fn compute_node_clip_never_lets_nan_escape_into_the_clip_rect() {
+        let styled_dom = styled("");
+        let nodes = vec![hot(Some(0), Some((10.0, 10.0)), None)];
+        let positions: PositionVec = vec![p(0.0, 0.0)];
+
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for dom_clip in [
+                r(bad, 0.0, 10.0, 10.0),
+                r(0.0, bad, 10.0, 10.0),
+                r(0.0, 0.0, bad, 10.0),
+                r(0.0, 0.0, 10.0, bad),
+                r(bad, bad, bad, bad),
+            ] {
+                let clip = compute_node_clip(
+                    &styled_dom,
+                    &nodes,
+                    &positions,
+                    0,
+                    p(0.0, 0.0),
+                    Some(dom_clip),
+                )
+                .expect("a dom_clip always yields a clip");
+
+                assert!(
+                    clip.origin.x.is_finite()
+                        && clip.origin.y.is_finite()
+                        && clip.size.width.is_finite()
+                        && clip.size.height.is_finite(),
+                    "clip {clip:?} from dom_clip {dom_clip:?} must stay finite"
+                );
+                assert!(clip.size.width >= 0.0 && clip.size.height >= 0.0);
+                assert!(
+                    clip.max_x().is_finite() && clip.max_y().is_finite(),
+                    "origin + size must not overflow to inf/NaN"
+                );
+                // point_in_rect over the result must be a real answer, not a NaN
+                // comparison that silently drops every event.
+                let _ = point_in_rect(p(0.0, 0.0), &clip);
+            }
+        }
+    }
+
+    #[test]
+    fn compute_node_clip_clamps_an_infinite_dom_clip_to_clip_unbounded() {
+        let styled_dom = styled("");
+        let nodes = vec![hot(Some(0), Some((10.0, 10.0)), None)];
+        let positions: PositionVec = vec![p(0.0, 0.0)];
+
+        let clip = compute_node_clip(
+            &styled_dom,
+            &nodes,
+            &positions,
+            0,
+            p(0.0, 0.0),
+            Some(LogicalRect {
+                origin: p(0.0, 0.0),
+                size: LogicalSize {
+                    width: f32::INFINITY,
+                    height: f32::INFINITY,
+                },
+            }),
+        )
+        .expect("a dom_clip always yields a clip");
+
+        assert_eq!(clip.origin.x, 0.0);
+        assert_eq!(clip.origin.y, 0.0);
+        assert_eq!(clip.size.width, CLIP_UNBOUNDED);
+        assert_eq!(clip.size.height, CLIP_UNBOUNDED);
+        assert!(point_in_rect(p(1.0e6, 1.0e6), &clip));
+    }
+
+    #[test]
+    fn compute_node_clip_saturates_a_negative_sized_dom_clip_to_zero_not_negative() {
+        let styled_dom = styled("");
+        let nodes = vec![hot(Some(0), Some((10.0, 10.0)), None)];
+        let positions: PositionVec = vec![p(0.0, 0.0)];
+
+        let clip = compute_node_clip(
+            &styled_dom,
+            &nodes,
+            &positions,
+            0,
+            p(0.0, 0.0),
+            Some(r(100.0, 100.0, -50.0, -50.0)),
+        )
+        .expect("a dom_clip always yields a clip");
+
+        assert_eq!(clip.size.width, 0.0);
+        assert_eq!(clip.size.height, 0.0);
+        assert!(!point_in_rect(p(100.0, 100.0), &clip));
+        assert!(!point_in_rect(p(75.0, 75.0), &clip));
+    }
+
+    #[test]
+    fn compute_node_clip_intersects_a_clipping_ancestor_with_the_dom_clip() {
+        // ancestor div.clip at (10,10) 100x50; dom_clip (0,0) 60x60
+        // => intersection (10,10) 50x50
+        let styled_dom = styled("div.clip { overflow: hidden; }");
+        let nodes = vec![
+            hot(Some(0), Some((500.0, 500.0)), None),
+            hot(Some(1), Some((100.0, 50.0)), Some(0)),
+            hot(Some(2), Some((400.0, 400.0)), Some(1)),
+        ];
+        let positions: PositionVec = vec![p(0.0, 0.0), p(10.0, 10.0), p(10.0, 10.0)];
+
+        let clip = compute_node_clip(
+            &styled_dom,
+            &nodes,
+            &positions,
+            2,
+            p(0.0, 0.0),
+            Some(r(0.0, 0.0, 60.0, 60.0)),
+        )
+        .expect("an overflow:hidden ancestor must clip");
+
+        assert_eq!(clip.origin.x, 10.0);
+        assert_eq!(clip.origin.y, 10.0);
+        assert_eq!(clip.size.width, 50.0);
+        assert_eq!(clip.size.height, 50.0);
+    }
+
+    #[test]
+    fn compute_node_clip_applies_the_offset_to_the_ancestor_box() {
+        let styled_dom = styled("div.clip { overflow: hidden; }");
+        let nodes = vec![
+            hot(Some(0), Some((500.0, 500.0)), None),
+            hot(Some(1), Some((100.0, 50.0)), Some(0)),
+            hot(Some(2), Some((400.0, 400.0)), Some(1)),
+        ];
+        let positions: PositionVec = vec![p(0.0, 0.0), p(10.0, 10.0), p(10.0, 10.0)];
+
+        let clip = compute_node_clip(&styled_dom, &nodes, &positions, 2, p(1000.0, 2000.0), None)
+            .expect("an overflow:hidden ancestor must clip");
+
+        assert_eq!(clip.origin.x, 1010.0);
+        assert_eq!(clip.origin.y, 2010.0);
+        assert_eq!(clip.size.width, 100.0);
+        assert_eq!(clip.size.height, 50.0);
+    }
+
+    #[test]
+    fn compute_node_clip_leaves_the_unclipped_axis_unbounded() {
+        // overflow-x: hidden / overflow-y: visible — the y axis must stay
+        // unbounded (finite stand-in), not collapse onto the ancestor's box.
+        let styled_dom = styled("div.clip { overflow-x: hidden; }");
+        let nodes = vec![
+            hot(Some(0), Some((500.0, 500.0)), None),
+            hot(Some(1), Some((100.0, 50.0)), Some(0)),
+            hot(Some(2), Some((400.0, 400.0)), Some(1)),
+        ];
+        let positions: PositionVec = vec![p(0.0, 0.0), p(10.0, 10.0), p(10.0, 10.0)];
+
+        let clip = compute_node_clip(&styled_dom, &nodes, &positions, 2, p(0.0, 0.0), None)
+            .expect("overflow-x: hidden must clip the x axis");
+
+        assert_eq!(clip.origin.x, 10.0);
+        assert_eq!(clip.size.width, 100.0);
+        assert_eq!(clip.origin.y, -CLIP_UNBOUNDED);
+        assert_eq!(clip.size.height, 2.0 * CLIP_UNBOUNDED);
+        assert!(clip.max_y().is_finite());
+
+        // A point far below the ancestor is still inside the clip (y unbounded),
+        // but a point to the right of it is not.
+        assert!(point_in_rect(p(50.0, 900_000.0), &clip));
+        assert!(!point_in_rect(p(500.0, 20.0), &clip));
+    }
+
+    #[test]
+    fn compute_node_clip_skips_a_clipping_ancestor_that_was_never_laid_out() {
+        // used_size: None on the clipping ancestor => nothing to intersect with;
+        // it must be skipped rather than contributing a garbage/zero box.
+        let styled_dom = styled("div.clip { overflow: hidden; }");
+        let nodes = vec![
+            hot(Some(0), Some((500.0, 500.0)), None),
+            hot(Some(1), None, Some(0)), // clips, but has no used_size
+            hot(Some(2), Some((400.0, 400.0)), Some(1)),
+        ];
+        let positions: PositionVec = vec![p(0.0, 0.0), p(10.0, 10.0), p(10.0, 10.0)];
+
+        assert_eq!(
+            compute_node_clip(&styled_dom, &nodes, &positions, 2, p(0.0, 0.0), None),
+            None
+        );
+    }
+
+    #[test]
+    fn compute_node_clip_terminates_on_a_parent_cycle() {
+        // Two anonymous boxes that are each other's parent. The `guard` counter is
+        // the only thing standing between this and an infinite loop inside a
+        // hit-test rebuild.
+        let styled_dom = styled("");
+        let nodes = vec![
+            hot(None, Some((10.0, 10.0)), Some(1)),
+            hot(None, Some((10.0, 10.0)), Some(0)),
+        ];
+        let positions: PositionVec = vec![p(0.0, 0.0), p(0.0, 0.0)];
+
+        assert_eq!(
+            compute_node_clip(&styled_dom, &nodes, &positions, 0, p(0.0, 0.0), None),
+            None
+        );
+        // The DOM clip still survives the bounded walk.
+        assert_eq!(
+            compute_node_clip(
+                &styled_dom,
+                &nodes,
+                &positions,
+                1,
+                p(0.0, 0.0),
+                Some(r(0.0, 0.0, 5.0, 5.0))
+            ),
+            Some(r(0.0, 0.0, 5.0, 5.0))
+        );
+    }
+
+    #[test]
+    fn compute_node_clip_terminates_on_a_self_parent_cycle() {
+        let styled_dom = styled("");
+        let nodes = vec![hot(None, Some((10.0, 10.0)), Some(0))];
+        let positions: PositionVec = vec![p(0.0, 0.0)];
+
+        assert_eq!(
+            compute_node_clip(&styled_dom, &nodes, &positions, 0, p(0.0, 0.0), None),
+            None
+        );
+    }
+
+    #[test]
+    fn compute_node_clip_tolerates_a_parent_index_past_the_end_of_the_node_slice() {
+        let styled_dom = styled("");
+        let nodes = vec![hot(Some(0), Some((10.0, 10.0)), Some(usize::MAX))];
+        let positions: PositionVec = vec![p(0.0, 0.0)];
+
+        assert_eq!(
+            compute_node_clip(&styled_dom, &nodes, &positions, 0, p(0.0, 0.0), None),
+            None
+        );
+    }
+}

@@ -970,3 +970,1267 @@ pub fn shape_text_for_parsed_font(
     // Delegate to the single internal implementation
     shape_text_internal(parsed_font, text, script, language, direction, style)
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::cast_lossless, clippy::unreadable_literal)]
+mod autotest_generated {
+    use std::time::Duration;
+
+    use rust_fontconfig::{FcFontCache, FontBytes, FontId};
+
+    use super::*;
+    use crate::text3::script::Language;
+
+    /// Positive control: a real TrueType face that ships with the repo.
+    const KOHO: &[u8] = include_bytes!("../../../examples/assets/fonts/KoHo-Light.ttf");
+
+    /// Every `Script` variant, so the exhaustive mapping tables below can never
+    /// silently miss one.
+    const ALL_SCRIPTS: [Script; 24] = [
+        Script::Arabic,
+        Script::Bengali,
+        Script::Cyrillic,
+        Script::Devanagari,
+        Script::Ethiopic,
+        Script::Georgian,
+        Script::Greek,
+        Script::Gujarati,
+        Script::Gurmukhi,
+        Script::Hangul,
+        Script::Hebrew,
+        Script::Hiragana,
+        Script::Kannada,
+        Script::Katakana,
+        Script::Khmer,
+        Script::Latin,
+        Script::Malayalam,
+        Script::Mandarin,
+        Script::Myanmar,
+        Script::Oriya,
+        Script::Sinhala,
+        Script::Tamil,
+        Script::Telugu,
+        Script::Thai,
+    ];
+
+    /// Eager parse (`LocaGlyfState::Loaded`).
+    fn koho() -> ParsedFont {
+        let mut warnings = Vec::new();
+        ParsedFont::from_bytes(KOHO, 0, &mut warnings).expect("KoHo-Light.ttf must parse")
+    }
+
+    /// Lazy parse (`LocaGlyfState::Deferred`) — the production path.
+    fn koho_deferred() -> ParsedFont {
+        let bytes = Arc::new(FontBytes::Owned(Arc::from(KOHO.to_vec())));
+        let mut warnings = Vec::new();
+        ParsedFont::from_bytes_shared(bytes, 0, &mut warnings)
+            .expect("from_bytes_shared must parse the positive control")
+    }
+
+    fn style_at(font_size_px: f32) -> StyleProperties {
+        StyleProperties {
+            font_size_px,
+            ..StyleProperties::default()
+        }
+    }
+
+    fn shape(font: &ParsedFont, text: &str) -> Result<Vec<Glyph>, LayoutError> {
+        shape_text_internal(
+            font,
+            text,
+            Script::Latin,
+            Language::EnglishUS,
+            BidiDirection::Ltr,
+            &style_at(16.0),
+        )
+    }
+
+    /// Invariants that must hold for *any* shaping result, no matter how hostile
+    /// the input: byte spans stay inside the source, land on char boundaries and
+    /// never run backwards.
+    fn assert_spans_are_sane(glyphs: &[Glyph], text: &str) {
+        let mut prev_index = 0usize;
+        for g in glyphs {
+            assert!(
+                g.logical_byte_index <= text.len(),
+                "byte index {} escapes the {}-byte source",
+                g.logical_byte_index,
+                text.len()
+            );
+            let end = g.logical_byte_index + g.logical_byte_len;
+            assert!(
+                end <= text.len(),
+                "span {}..{end} escapes the {}-byte source",
+                g.logical_byte_index,
+                text.len()
+            );
+            assert!(
+                text.is_char_boundary(g.logical_byte_index) && text.is_char_boundary(end),
+                "span {}..{end} splits a UTF-8 sequence",
+                g.logical_byte_index
+            );
+            assert!(
+                g.logical_byte_index >= prev_index,
+                "byte cursor ran backwards: {} after {prev_index}",
+                g.logical_byte_index
+            );
+            prev_index = g.logical_byte_index;
+            assert_eq!(
+                u64::from(g.cluster),
+                g.logical_byte_index as u64,
+                "cluster must mirror the logical byte index"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // font_ref_from_bytes (parser)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn font_ref_from_bytes_rejects_empty_and_malformed_input() {
+        // empty / whitespace-only / invalid-UTF-8 / garbage: None, never a panic
+        assert!(font_ref_from_bytes(b"", 0, false).is_none());
+        assert!(font_ref_from_bytes(b"   \t\n", 0, false).is_none());
+        assert!(font_ref_from_bytes(&[0xFF, 0xFE, 0x00], 0, false).is_none());
+        assert!(font_ref_from_bytes(b"not a font at all, just prose", 0, false).is_none());
+        // a 4-byte "sfnt-ish" header with nothing behind it
+        assert!(font_ref_from_bytes(&[0x00, 0x01, 0x00, 0x00], 0, false).is_none());
+        // truncated real font: header only, then a torso
+        assert!(font_ref_from_bytes(&KOHO[..12], 0, false).is_none());
+        assert!(font_ref_from_bytes(&KOHO[..64], 0, false).is_none());
+        // leading junk in front of an otherwise valid font must not parse
+        let mut prefixed = vec![0xABu8; 32];
+        prefixed.extend_from_slice(KOHO);
+        assert!(font_ref_from_bytes(&prefixed, 0, false).is_none());
+    }
+
+    #[test]
+    fn font_ref_from_bytes_extremely_long_garbage_terminates() {
+        // 1 MiB of NULs must be rejected without hanging or allocating wildly
+        assert!(font_ref_from_bytes(&vec![0u8; 1_000_000], 0, false).is_none());
+        // a "ttcf" collection header followed by a megabyte of noise
+        let mut ttc_junk = b"ttcf".to_vec();
+        ttc_junk.extend_from_slice(&vec![0xCDu8; 1_000_000]);
+        assert!(font_ref_from_bytes(&ttc_junk, 0, false).is_none());
+    }
+
+    #[test]
+    fn font_ref_from_bytes_valid_minimal_positive_control() {
+        let font_ref = font_ref_from_bytes(KOHO, 0, false).expect("KoHo must parse into a FontRef");
+        assert!(font_ref.num_glyphs() > 0, "a real font has glyphs");
+        assert_eq!(font_ref.get_hash(), koho().get_hash());
+        assert!(font_ref.has_glyph('a' as u32));
+    }
+
+    #[test]
+    fn font_ref_from_bytes_ignores_the_parse_outlines_flag() {
+        // NOTE: `parse_outlines` is accepted but never forwarded to
+        // `ParsedFont::from_bytes` — both settings must therefore produce
+        // an identical face. This pins the current (no-op) behaviour.
+        let with = font_ref_from_bytes(KOHO, 0, true).expect("parse with outlines");
+        let without = font_ref_from_bytes(KOHO, 0, false).expect("parse without outlines");
+        assert_eq!(with.get_hash(), without.get_hash());
+        assert_eq!(with.num_glyphs(), without.num_glyphs());
+        assert_eq!(with.get_space_width(), without.get_space_width());
+    }
+
+    #[test]
+    fn font_ref_from_bytes_extreme_font_index_does_not_panic() {
+        // Out-of-range collection indices must resolve to Some/None, never an
+        // out-of-bounds index panic.
+        for index in [0usize, 1, 255, usize::MAX / 2, usize::MAX] {
+            let _ = font_ref_from_bytes(KOHO, index, false);
+            let _ = font_ref_from_bytes(b"", index, false);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // PathLoader::new / load_from_path / load_font_shared
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn path_loader_new_is_a_zero_sized_stateless_handle() {
+        assert_eq!(core::mem::size_of::<PathLoader>(), 0);
+        let a = PathLoader::new();
+        let b = PathLoader::default();
+        // both handles behave identically: no hidden per-instance state
+        assert!(a.load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0).is_err());
+        assert!(b.load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0).is_err());
+    }
+
+    #[test]
+    fn load_from_path_missing_empty_and_directory_paths_are_font_not_found() {
+        let loader = PathLoader::new();
+        for path in [
+            "",
+            "/nonexistent/definitely/not/a/font.ttf",
+            "/dev/null",
+            env!("CARGO_MANIFEST_DIR"), // a directory, not a file
+        ] {
+            match loader.load_from_path(Path::new(path), 0) {
+                Err(LayoutError::FontNotFound(selector)) => {
+                    assert_eq!(selector.family, path, "the failing path is reported back");
+                    assert!(selector.unicode_ranges.is_empty());
+                }
+                // /dev/null reads as zero bytes on Linux -> the parse fails instead
+                Err(LayoutError::ShapingError(_)) => {}
+                other => panic!("{path:?} must not load a font: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn load_from_path_parses_a_real_font_and_survives_extreme_indices() {
+        let loader = PathLoader::new();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../examples/assets/fonts/KoHo-Light.ttf"
+        );
+        let font_ref = loader
+            .load_from_path(Path::new(path), 0)
+            .expect("the positive control must load from disk");
+        assert_eq!(font_ref.num_glyphs(), koho().num_glyphs());
+
+        // 0 / MAX face index: either resolves or errors, but never panics
+        for index in [0usize, 1, usize::MAX] {
+            let _ = loader.load_from_path(Path::new(path), index);
+        }
+    }
+
+    #[test]
+    fn load_font_shared_rejects_empty_and_garbage_byte_blobs() {
+        let loader = PathLoader::new();
+        let cases: Vec<Vec<u8>> = vec![
+            Vec::new(),
+            b"   \t\n".to_vec(),
+            vec![0xFF, 0xFE, 0x00],
+            KOHO[..32].to_vec(),
+            vec![0u8; 1_000_000],
+        ];
+        for bytes in cases {
+            let shared = Arc::new(FontBytes::Owned(Arc::from(bytes)));
+            match loader.load_font_shared(shared, 0) {
+                Err(LayoutError::ShapingError(msg)) => assert!(!msg.is_empty()),
+                other => panic!("garbage must not parse: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn load_font_shared_matches_the_eager_parse_and_tolerates_extreme_indices() {
+        let loader = PathLoader::new();
+        let shared = Arc::new(FontBytes::Owned(Arc::from(KOHO.to_vec())));
+        let font_ref = loader
+            .load_font_shared(Arc::clone(&shared), 0)
+            .expect("the positive control must parse");
+        let eager = koho();
+        assert_eq!(font_ref.num_glyphs(), eager.num_glyphs());
+        assert_eq!(font_ref.get_hash(), eager.get_hash());
+
+        // font_index at the numeric extremes must not index out of bounds
+        for index in [0usize, 1, usize::MAX] {
+            let _ = loader.load_font_shared(Arc::clone(&shared), index);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // FontManager::evict_unused
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn evict_unused_on_an_empty_manager_is_zero_for_extreme_durations() {
+        let manager: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("an empty FontManager must build");
+        // Duration::MAX truncates when cast to u64 nanos; with no faces cached
+        // the result is 0 either way — the point is that it must not panic.
+        for idle in [
+            Duration::ZERO,
+            Duration::from_nanos(1),
+            Duration::from_secs(3600),
+            Duration::MAX,
+        ] {
+            assert_eq!(manager.evict_unused(idle), 0);
+        }
+    }
+
+    #[test]
+    fn evict_unused_only_reclaims_stale_deferred_faces() {
+        let manager: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("an empty FontManager must build");
+
+        let deferred = crate::parsed_font_to_font_ref(koho_deferred());
+        let eager = crate::parsed_font_to_font_ref(koho());
+        {
+            let mut fonts = manager.parsed_fonts.lock().unwrap();
+            fonts.insert(FontId::new(), deferred.clone());
+            fonts.insert(FontId::new(), eager.clone());
+        }
+
+        // Nothing has decoded a glyph yet: the deferred face holds no LocaGlyf,
+        // so there is nothing to release even though it is "never touched".
+        assert_eq!(manager.evict_unused(Duration::ZERO), 0);
+
+        // Touch the deferred face -> it materialises loca+glyf and stamps last_used.
+        let parsed = crate::font_ref_to_parsed_font(&deferred);
+        assert!(parsed.get_or_decode_glyph(1).is_some(), "gid 1 must decode");
+        let _ = crate::font_ref_to_parsed_font(&eager).get_or_decode_glyph(1);
+
+        // A face used microseconds ago is not idle for an hour.
+        assert_eq!(manager.evict_unused(Duration::from_secs(3600)), 0);
+
+        // With a zero idle window it is stale immediately. The eager face keeps
+        // no source bytes, so it can never be evicted -> exactly one eviction.
+        assert_eq!(manager.evict_unused(Duration::ZERO), 1);
+        // Evicting twice is a no-op.
+        assert_eq!(manager.evict_unused(Duration::ZERO), 0);
+
+        // The evicted face still decodes: it re-parses from its retained bytes.
+        assert!(parsed.get_or_decode_glyph(2).is_some());
+    }
+
+    // -----------------------------------------------------------------
+    // shape_text_internal / shape_text_for_parsed_font / FontRef::shape_text
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn shape_text_empty_input_yields_no_glyphs() {
+        let font = koho();
+        let glyphs = shape(&font, "").expect("empty text is not an error");
+        assert!(glyphs.is_empty());
+
+        let via_public = shape_text_for_parsed_font(
+            &font,
+            "",
+            Script::Latin,
+            Language::EnglishUS,
+            BidiDirection::Ltr,
+            &style_at(16.0),
+        )
+        .expect("empty text is not an error");
+        assert!(via_public.is_empty());
+
+        let font_ref = crate::parsed_font_to_font_ref(koho());
+        let via_ref = font_ref
+            .shape_text(
+                "",
+                Script::Latin,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &style_at(16.0),
+            )
+            .expect("empty text is not an error");
+        assert!(via_ref.is_empty());
+    }
+
+    #[test]
+    fn shape_text_valid_minimal_input_maps_bytes_one_to_one() {
+        let font = koho();
+        let glyphs = shape(&font, "abc").expect("plain ASCII must shape");
+        assert_eq!(glyphs.len(), 3);
+        assert_spans_are_sane(&glyphs, "abc");
+
+        for (i, (g, ch)) in glyphs.iter().zip("abc".chars()).enumerate() {
+            assert_eq!(g.codepoint, ch);
+            assert_eq!(g.logical_byte_index, i);
+            assert_eq!(g.logical_byte_len, 1);
+            assert_eq!(g.glyph_id, font.lookup_glyph_index(ch as u32).unwrap_or(0));
+            assert!(g.advance > 0.0, "a real glyph has a positive advance");
+            assert!(g.advance.is_finite());
+            assert_eq!(g.font_hash, font.get_hash());
+            assert_eq!(g.script, Script::Latin);
+        }
+    }
+
+    #[test]
+    fn shape_text_whitespace_only_input_is_shaped_not_trimmed() {
+        let font = koho();
+        let text = " \t\n\r ";
+        let glyphs = shape(&font, text).expect("whitespace must shape");
+        assert!(!glyphs.is_empty(), "whitespace is not silently dropped");
+        assert_spans_are_sane(&glyphs, text);
+        for g in &glyphs {
+            assert!(g.advance.is_finite());
+        }
+    }
+
+    #[test]
+    fn shape_text_unicode_and_missing_glyphs_keep_multibyte_spans_intact() {
+        let font = koho();
+        // emoji (almost certainly absent from a text face), combining marks, RTL,
+        // CJK and an unassigned plane-15 codepoint
+        for text in [
+            "\u{1F600}",
+            "e\u{0301}\u{0327}",
+            "\u{0627}\u{0644}\u{0639}\u{0631}\u{0628}\u{064A}\u{0629}",
+            "\u{4E2D}\u{6587}",
+            "\u{FFFD}\u{FDD0}\u{F0000}",
+            "a\u{200B}b\u{00AD}c",
+        ] {
+            let glyphs = shape(&font, text).unwrap_or_else(|e| panic!("{text:?} must shape: {e:?}"));
+            assert!(!glyphs.is_empty(), "{text:?} produced no glyphs");
+            assert_spans_are_sane(&glyphs, text);
+        }
+
+        // a missing glyph falls back to .notdef but must still carry the full
+        // 4-byte span of the source character
+        let emoji = "\u{1F600}";
+        let glyphs = shape(&font, emoji).expect("emoji must shape");
+        assert_eq!(glyphs.len(), 1);
+        assert_eq!(glyphs[0].codepoint, '\u{1F600}');
+        assert_eq!(glyphs[0].logical_byte_index, 0);
+        assert_eq!(glyphs[0].logical_byte_len, 4, "the whole 4-byte char is covered");
+        assert_eq!(
+            glyphs[0].glyph_id,
+            font.lookup_glyph_index('\u{1F600}' as u32).unwrap_or(0)
+        );
+    }
+
+    #[test]
+    fn shape_text_extremely_long_input_terminates() {
+        let font = koho();
+        let text = "a".repeat(10_000);
+        let glyphs = shape(&font, &text).expect("a long run must shape");
+        assert_eq!(glyphs.len(), 10_000);
+        assert_spans_are_sane(&glyphs, &text);
+        // the cursor must have walked the whole source, not stalled at 0
+        assert_eq!(glyphs.last().unwrap().logical_byte_index, 9_999);
+    }
+
+    #[test]
+    fn shape_text_deeply_nested_brackets_does_not_stack_overflow() {
+        let font = koho();
+        let text = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
+        let glyphs = shape(&font, &text).expect("nested brackets are just characters");
+        assert_eq!(glyphs.len(), 20_000);
+        assert_spans_are_sane(&glyphs, &text);
+    }
+
+    #[test]
+    fn shape_text_boundary_numeric_text_is_shaped_verbatim() {
+        let font = koho();
+        let text = "0 -0 9223372036854775807 -9223372036854775808 NaN inf 1e309 0.0000001";
+        let glyphs = shape(&font, text).expect("numeric-looking text is still text");
+        assert_spans_are_sane(&glyphs, text);
+        assert!(!glyphs.is_empty());
+        for g in &glyphs {
+            assert!(g.advance.is_finite(), "a 16px advance must stay finite");
+        }
+    }
+
+    #[test]
+    fn shape_text_nan_and_infinite_font_sizes_do_not_panic() {
+        let font = koho();
+        // ppem is `font_size.round().max(1.0) as u16` — an unchecked float->int
+        // cast. NaN/inf must saturate, not trap.
+        for size in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let glyphs = shape_text_internal(
+                &font,
+                "ab",
+                Script::Latin,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &style_at(size),
+            )
+            .unwrap_or_else(|e| panic!("font_size {size} must not fail shaping: {e:?}"));
+            assert_eq!(glyphs.len(), 2);
+            assert_spans_are_sane(&glyphs, "ab");
+            for g in &glyphs {
+                assert!(
+                    !g.advance.is_finite(),
+                    "a non-finite font size must not manufacture a finite advance ({size})"
+                );
+            }
+        }
+
+        // Finite-but-absurd sizes drive the float->u16 ppem cast to its
+        // saturation points; they may overflow to ±inf but must not panic and
+        // must not turn a non-NaN size into a NaN advance.
+        for size in [f32::MAX, -f32::MAX, 1e30f32] {
+            let glyphs = shape_text_internal(
+                &font,
+                "ab",
+                Script::Latin,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &style_at(size),
+            )
+            .unwrap_or_else(|e| panic!("font_size {size} must not fail shaping: {e:?}"));
+            assert_eq!(glyphs.len(), 2);
+            for g in &glyphs {
+                assert!(!g.advance.is_nan(), "size {size} produced a NaN advance");
+            }
+        }
+    }
+
+    #[test]
+    fn shape_text_zero_and_tiny_font_sizes_produce_zero_or_finite_advances() {
+        let font = koho();
+        for (size, expect_zero) in [(0.0f32, true), (-0.0f32, true), (f32::MIN_POSITIVE, false)] {
+            let glyphs = shape_text_internal(
+                &font,
+                "ab",
+                Script::Latin,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &style_at(size),
+            )
+            .expect("degenerate font sizes must still shape");
+            assert_eq!(glyphs.len(), 2);
+            for g in &glyphs {
+                assert!(g.advance.is_finite(), "size {size} produced {}", g.advance);
+                if expect_zero {
+                    assert_eq!(g.advance, 0.0, "a 0px font has zero-width glyphs");
+                    assert_eq!(g.kerning, 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shape_text_negative_font_size_mirrors_the_advance_sign() {
+        let font = koho();
+        let positive = shape_text_internal(
+            &font,
+            "a",
+            Script::Latin,
+            Language::EnglishUS,
+            BidiDirection::Ltr,
+            &style_at(16.0),
+        )
+        .expect("shape at +16px");
+        let negative = shape_text_internal(
+            &font,
+            "a",
+            Script::Latin,
+            Language::EnglishUS,
+            BidiDirection::Ltr,
+            &style_at(-16.0),
+        )
+        .expect("a negative font size must not panic");
+        assert_eq!(positive.len(), 1);
+        assert_eq!(negative.len(), 1);
+        assert_eq!(positive[0].glyph_id, negative[0].glyph_id);
+        assert!(negative[0].advance.is_finite());
+        assert!(
+            negative[0].advance <= 0.0,
+            "a negative size cannot yield a positive advance"
+        );
+    }
+
+    #[test]
+    fn shape_text_garbage_font_features_are_skipped_not_fatal() {
+        let font = koho();
+        let style = StyleProperties {
+            font_features: vec![
+                String::new(),
+                "   ".to_string(),
+                "waytoolongtag".to_string(),
+                "liga=-1".to_string(),
+                "liga=99999999999999999999".to_string(),
+                "\u{1F600}".to_string(),
+                "liga".to_string(),   // one good one, to prove the filter is per-item
+                "ss01=2".to_string(),
+            ],
+            ..StyleProperties::default()
+        };
+        let glyphs = shape_text_internal(
+            &font,
+            "abc",
+            Script::Latin,
+            Language::EnglishUS,
+            BidiDirection::Ltr,
+            &style,
+        )
+        .expect("malformed feature strings must be dropped, not fatal");
+        assert_eq!(glyphs.len(), 3);
+        assert_spans_are_sane(&glyphs, "abc");
+    }
+
+    #[test]
+    fn shape_text_direction_drives_the_bidi_level() {
+        let font = koho();
+        for (direction, expected) in [(BidiDirection::Ltr, 0u8), (BidiDirection::Rtl, 1u8)] {
+            let glyphs = shape_text_internal(
+                &font,
+                "abc",
+                Script::Latin,
+                Language::EnglishUS,
+                direction,
+                &style_at(16.0),
+            )
+            .expect("both directions must shape");
+            assert!(!glyphs.is_empty());
+            for g in &glyphs {
+                assert_eq!(g.bidi_level.level(), expected);
+                assert_eq!(g.bidi_level.is_rtl(), direction.is_rtl());
+            }
+        }
+    }
+
+    #[test]
+    fn shape_text_every_script_and_language_pairing_is_shapeable() {
+        let font = koho();
+        // A script tag that the font has no coverage for must degrade to
+        // .notdef glyphs, never to an Err or a panic.
+        for script in ALL_SCRIPTS {
+            let glyphs = shape_text_internal(
+                &font,
+                "Hello \u{0e2a}\u{0e27}\u{0e31}\u{0e2a}\u{0e14}\u{0e35}",
+                script,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &style_at(16.0),
+            )
+            .unwrap_or_else(|e| panic!("{script:?} must shape: {e:?}"));
+            assert!(!glyphs.is_empty(), "{script:?} produced no glyphs");
+            for g in &glyphs {
+                assert_eq!(g.script, script, "the requested script is stamped on the glyph");
+            }
+        }
+    }
+
+    #[test]
+    fn shape_text_public_internal_and_font_ref_paths_agree() {
+        // Round-trip / consistency: the three entry points are documented as
+        // sharing one implementation, so they must produce identical glyphs.
+        let font = koho();
+        let font_ref = crate::parsed_font_to_font_ref(koho());
+        let text = "Wafer fi\u{0301}x \u{1F600}";
+        let style = style_at(13.5);
+
+        let internal = shape_text_internal(
+            &font,
+            text,
+            Script::Latin,
+            Language::EnglishUS,
+            BidiDirection::Ltr,
+            &style,
+        )
+        .expect("internal shaping");
+        let public = shape_text_for_parsed_font(
+            &font,
+            text,
+            Script::Latin,
+            Language::EnglishUS,
+            BidiDirection::Ltr,
+            &style,
+        )
+        .expect("public shaping");
+        let via_ref = font_ref
+            .shape_text(
+                text,
+                Script::Latin,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &style,
+            )
+            .expect("FontRef shaping");
+        let via_helper = font
+            .shape_text_for_font_ref(
+                &font_ref,
+                text,
+                Script::Latin,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &style,
+            )
+            .expect("shape_text_for_font_ref");
+
+        assert_eq!(internal.len(), public.len());
+        assert_eq!(internal.len(), via_ref.len());
+        assert_eq!(internal.len(), via_helper.len());
+        for (((a, b), c), d) in internal
+            .iter()
+            .zip(public.iter())
+            .zip(via_ref.iter())
+            .zip(via_helper.iter())
+        {
+            for other in [b, c, d] {
+                assert_eq!(a.glyph_id, other.glyph_id);
+                assert_eq!(a.codepoint, other.codepoint);
+                assert_eq!(a.advance, other.advance);
+                assert_eq!(a.kerning, other.kerning);
+                assert_eq!(a.logical_byte_index, other.logical_byte_index);
+                assert_eq!(a.logical_byte_len, other.logical_byte_len);
+                assert_eq!(a.font_hash, other.font_hash);
+            }
+        }
+        assert_spans_are_sane(&internal, text);
+    }
+
+    // -----------------------------------------------------------------
+    // ParsedFont::get_hash (getter)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn get_hash_is_stable_and_shared_with_the_font_ref_view() {
+        let a = koho();
+        let b = koho();
+        assert_eq!(a.get_hash(), b.get_hash(), "parsing is deterministic");
+        assert_eq!(a.get_hash(), a.hash, "the getter reads the cached field");
+
+        let font_ref = crate::parsed_font_to_font_ref(koho());
+        assert_eq!(font_ref.get_hash(), a.get_hash());
+
+        // the lazy constructor must not change identity
+        assert_eq!(koho_deferred().get_hash(), a.get_hash());
+    }
+
+    // -----------------------------------------------------------------
+    // ParsedFont::get_glyph_size (numeric)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn get_glyph_size_out_of_range_glyph_ids_are_none() {
+        let font = koho();
+        assert!(font.get_glyph_size(u16::MAX, 16.0).is_none());
+        assert!(font.get_glyph_size(font.num_glyphs, 16.0).is_none());
+        // an in-range gid still decodes (positive control)
+        let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+        assert!(gid < font.num_glyphs);
+        assert!(font.get_glyph_size(gid, 16.0).is_some());
+    }
+
+    #[test]
+    fn get_glyph_size_zero_negative_and_non_finite_font_sizes() {
+        let font = koho();
+        let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+
+        let zero = font.get_glyph_size(gid, 0.0).expect("gid decodes");
+        assert_eq!(zero.width, 0.0);
+        assert_eq!(zero.height, 0.0);
+
+        let base = font.get_glyph_size(gid, 16.0).expect("gid decodes");
+        assert!(base.width > 0.0 && base.height > 0.0);
+
+        // scaling is linear in the font size
+        let doubled = font.get_glyph_size(gid, 32.0).expect("gid decodes");
+        assert!((doubled.width - 2.0 * base.width).abs() <= 1e-3 * base.width.max(1.0));
+
+        let negative = font.get_glyph_size(gid, -16.0).expect("gid decodes");
+        assert!(negative.width <= 0.0 && negative.width.is_finite());
+
+        for size in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN_POSITIVE] {
+            let size_result = font
+                .get_glyph_size(gid, size)
+                .unwrap_or_else(|| panic!("gid must still decode at {size}"));
+            assert!(
+                !size_result.width.is_nan() || size.is_nan(),
+                "only a NaN input may produce a NaN width"
+            );
+        }
+    }
+
+    #[test]
+    fn get_glyph_size_zero_units_per_em_uses_the_constant_fallback_scale() {
+        assert_eq!(FALLBACK_SCALE, 0.01);
+        let mut font = koho();
+        let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+        font.font_metrics.units_per_em = 0; // corrupt/broken font
+
+        // With upem == 0 the scale is the constant FALLBACK_SCALE, so the size no
+        // longer depends on the requested font size at all.
+        let small = font.get_glyph_size(gid, 16.0).expect("gid decodes");
+        let huge = font.get_glyph_size(gid, 1000.0).expect("gid decodes");
+        assert!(small.width > 0.0 && small.height > 0.0, "no divide-by-zero NaN");
+        assert_eq!(small.width, huge.width);
+        assert_eq!(small.height, huge.height);
+    }
+
+    // -----------------------------------------------------------------
+    // ParsedFont::get_hyphen_glyph_and_advance / get_kashida_glyph_and_advance
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn get_hyphen_glyph_and_advance_follows_the_cmap_and_scales_linearly() {
+        let font = koho();
+        let expected_gid = font
+            .lookup_glyph_index('-' as u32)
+            .expect("the positive control has a hyphen");
+
+        let (gid, zero_advance) = font.get_hyphen_glyph_and_advance(0.0).expect("hyphen at 0px");
+        assert_eq!(gid, expected_gid);
+        assert_eq!(zero_advance, 0.0, "a 0px font gives a 0px advance");
+
+        let (_, a16) = font.get_hyphen_glyph_and_advance(16.0).expect("hyphen at 16px");
+        let (_, a32) = font.get_hyphen_glyph_and_advance(32.0).expect("hyphen at 32px");
+        assert!(a16 > 0.0 && a16.is_finite());
+        assert!((a32 - 2.0 * a16).abs() <= 1e-3 * a16, "advance is linear in font size");
+
+        let (_, negative) = font.get_hyphen_glyph_and_advance(-16.0).expect("hyphen at -16px");
+        assert!(negative.is_finite() && negative <= 0.0);
+    }
+
+    #[test]
+    fn get_kashida_glyph_and_advance_presence_matches_the_cmap() {
+        let font = koho();
+        // U+0640 ARABIC TATWEEL: present or not, the two views must agree.
+        let has_tatweel = font.has_glyph(0x0640);
+        let result = font.get_kashida_glyph_and_advance(16.0);
+        assert_eq!(
+            result.is_some(),
+            has_tatweel,
+            "kashida availability must track the cmap"
+        );
+        if let Some((gid, advance)) = result {
+            assert_eq!(Some(gid), font.lookup_glyph_index(0x0640));
+            assert!(advance.is_finite() && advance >= 0.0);
+            let (_, doubled) = font.get_kashida_glyph_and_advance(32.0).expect("still mapped");
+            assert!((doubled - 2.0 * advance).abs() <= 1e-3 * advance.max(1.0));
+        }
+    }
+
+    #[test]
+    fn hyphen_and_kashida_survive_nan_inf_and_extreme_font_sizes() {
+        let font = koho();
+        let hyphen_gid = font
+            .lookup_glyph_index('-' as u32)
+            .expect("the positive control has a hyphen");
+        assert!(
+            font.get_horizontal_advance(hyphen_gid) > 0,
+            "the hyphen must have a non-zero advance for this test to mean anything"
+        );
+
+        // NaN / ±inf in -> non-finite out, and never a panic.
+        for size in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let (gid, advance) = font
+                .get_hyphen_glyph_and_advance(size)
+                .expect("the glyph id does not depend on the font size");
+            assert_eq!(gid, hyphen_gid);
+            assert!(!advance.is_finite(), "{size} produced a finite advance");
+            let _ = font.get_kashida_glyph_and_advance(size);
+        }
+
+        // The numeric extremes may overflow to ±inf, but a non-NaN size must
+        // never produce a NaN advance and must never panic.
+        for size in [f32::MAX, -f32::MAX, f32::MIN_POSITIVE, -f32::MIN_POSITIVE] {
+            let (gid, advance) = font
+                .get_hyphen_glyph_and_advance(size)
+                .expect("the glyph id does not depend on the font size");
+            assert_eq!(gid, hyphen_gid);
+            assert!(!advance.is_nan(), "size {size} produced a NaN advance");
+            let _ = font.get_kashida_glyph_and_advance(size);
+        }
+    }
+
+    #[test]
+    fn hyphen_and_kashida_return_none_when_units_per_em_is_zero() {
+        let mut font = koho();
+        font.font_metrics.units_per_em = 0;
+        // A zero upem would divide by zero: both getters must bail out instead.
+        assert!(font.get_hyphen_glyph_and_advance(16.0).is_none());
+        assert!(font.get_kashida_glyph_and_advance(16.0).is_none());
+        assert!(font.get_hyphen_glyph_and_advance(f32::NAN).is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // build_feature_mask_for_script (other)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn build_feature_mask_always_contains_the_default_mask() {
+        let default_bits = FeatureMask::default_mask().bits();
+        for script in ALL_SCRIPTS {
+            let mask = build_feature_mask_for_script(script);
+            assert_eq!(
+                mask.bits() & default_bits,
+                default_bits,
+                "{script:?} dropped a default feature"
+            );
+            assert!(
+                mask.contains(Feature::LIGA) && mask.contains(Feature::CCMP),
+                "{script:?} must keep LIGA/CCMP"
+            );
+        }
+    }
+
+    #[test]
+    fn build_feature_mask_adds_the_script_specific_features() {
+        // Arabic needs positional forms, or cursive joining silently breaks.
+        let arabic = build_feature_mask_for_script(Script::Arabic);
+        for feature in [Feature::INIT, Feature::MEDI, Feature::FINA, Feature::ISOL] {
+            assert!(arabic.contains(feature), "Arabic is missing a positional form");
+        }
+
+        // Indic needs conjunct formation.
+        for script in [
+            Script::Devanagari,
+            Script::Bengali,
+            Script::Gujarati,
+            Script::Gurmukhi,
+            Script::Kannada,
+            Script::Malayalam,
+            Script::Oriya,
+            Script::Tamil,
+            Script::Telugu,
+        ] {
+            let mask = build_feature_mask_for_script(script);
+            for feature in [Feature::CJCT, Feature::HALF, Feature::RPHF, Feature::NUKT] {
+                assert!(mask.contains(feature), "{script:?} is missing an Indic feature");
+            }
+        }
+
+        // Sinhala is Indic-derived but explicitly simpler: no conjunct feature.
+        let sinhala = build_feature_mask_for_script(Script::Sinhala);
+        assert!(sinhala.contains(Feature::AKHN) && sinhala.contains(Feature::RPHF));
+        assert!(!sinhala.contains(Feature::CJCT));
+
+        // Myanmar/Khmer get pre/below/post-base forms.
+        assert!(build_feature_mask_for_script(Script::Myanmar).contains(Feature::PSTF));
+        assert!(build_feature_mask_for_script(Script::Khmer).contains(Feature::ABVF));
+
+        // Simple scripts must be exactly the default mask — no accidental extras.
+        for script in [Script::Latin, Script::Greek, Script::Cyrillic, Script::Georgian] {
+            assert_eq!(
+                build_feature_mask_for_script(script).bits(),
+                FeatureMask::default_mask().bits(),
+                "{script:?} must not add script-specific features"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // to_opentype_script_tag (other)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn script_tags_are_four_printable_ascii_bytes() {
+        for script in ALL_SCRIPTS {
+            let tag = to_opentype_script_tag(script);
+            let bytes = tag.to_be_bytes();
+            assert_eq!(bytes.len(), 4);
+            for b in bytes {
+                assert!(
+                    b.is_ascii_lowercase() || b.is_ascii_digit(),
+                    "{script:?} -> {tag:#010x} is not a lowercase OpenType tag"
+                );
+            }
+            assert_ne!(tag, 0, "{script:?} must not map to the null tag");
+        }
+    }
+
+    #[test]
+    fn script_tags_match_the_opentype_registry_and_alias_kana() {
+        assert_eq!(to_opentype_script_tag(Script::Latin), u32::from_be_bytes(*b"latn"));
+        assert_eq!(to_opentype_script_tag(Script::Arabic), u32::from_be_bytes(*b"arab"));
+        assert_eq!(to_opentype_script_tag(Script::Mandarin), u32::from_be_bytes(*b"hani"));
+        assert_eq!(to_opentype_script_tag(Script::Devanagari), u32::from_be_bytes(*b"deva"));
+
+        // Hiragana and Katakana intentionally share "kana" (documented).
+        assert_eq!(
+            to_opentype_script_tag(Script::Hiragana),
+            to_opentype_script_tag(Script::Katakana)
+        );
+        assert_eq!(to_opentype_script_tag(Script::Hiragana), u32::from_be_bytes(*b"kana"));
+
+        // Every other pair must be distinct: 24 scripts, 23 distinct tags.
+        let mut tags: Vec<u32> = ALL_SCRIPTS.iter().map(|s| to_opentype_script_tag(*s)).collect();
+        tags.sort_unstable();
+        tags.dedup();
+        assert_eq!(tags.len(), 23, "only the kana pair may collide");
+    }
+
+    // -----------------------------------------------------------------
+    // parse_font_feature (parser)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parse_font_feature_valid_minimal_inputs() {
+        assert_eq!(
+            parse_font_feature("liga"),
+            Some((u32::from_be_bytes(*b"liga"), 1)),
+            "a bare tag defaults to value 1"
+        );
+        assert_eq!(parse_font_feature("liga=0"), Some((u32::from_be_bytes(*b"liga"), 0)));
+        assert_eq!(parse_font_feature("ss01"), Some((u32::from_be_bytes(*b"ss01"), 1)));
+        assert_eq!(parse_font_feature("smcp=2"), Some((u32::from_be_bytes(*b"smcp"), 2)));
+        // u32::MAX is the largest accepted value
+        assert_eq!(
+            parse_font_feature("ss01=4294967295"),
+            Some((u32::from_be_bytes(*b"ss01"), u32::MAX))
+        );
+    }
+
+    #[test]
+    fn parse_font_feature_pads_short_tags_with_spaces() {
+        assert_eq!(parse_font_feature("aa"), Some((u32::from_be_bytes(*b"aa  "), 1)));
+        assert_eq!(parse_font_feature("a"), Some((u32::from_be_bytes(*b"a   "), 1)));
+        assert_eq!(parse_font_feature("abc=3"), Some((u32::from_be_bytes(*b"abc "), 3)));
+    }
+
+    #[test]
+    fn parse_font_feature_trims_surrounding_whitespace() {
+        assert_eq!(parse_font_feature("  liga  "), Some((u32::from_be_bytes(*b"liga"), 1)));
+        assert_eq!(parse_font_feature("\tliga\n=\t2 "), Some((u32::from_be_bytes(*b"liga"), 2)));
+    }
+
+    #[test]
+    fn parse_font_feature_empty_and_whitespace_only_yield_the_all_space_tag() {
+        // Documents current behaviour: an empty/blank tag is NOT rejected — it is
+        // padded to the four-space tag (0x20202020), which no font can match.
+        let space_tag = u32::from_be_bytes(*b"    ");
+        assert_eq!(parse_font_feature(""), Some((space_tag, 1)));
+        assert_eq!(parse_font_feature("   "), Some((space_tag, 1)));
+        assert_eq!(parse_font_feature("\t\n"), Some((space_tag, 1)));
+        // ...but an empty *value* is still rejected.
+        assert_eq!(parse_font_feature("="), None);
+        assert_eq!(parse_font_feature("liga="), None);
+        assert_eq!(parse_font_feature("liga=  "), None);
+    }
+
+    #[test]
+    fn parse_font_feature_rejects_over_long_tags_and_junk() {
+        assert_eq!(parse_font_feature("toolongtag"), None);
+        assert_eq!(parse_font_feature("lig a"), None); // 5 bytes after trim
+        assert_eq!(parse_font_feature("liga;garbage"), None);
+        assert_eq!(parse_font_feature("valid;garbage=1"), None);
+        // a megabyte-long tag must be rejected by the length check, not parsed
+        assert_eq!(parse_font_feature(&"x".repeat(1_000_000)), None);
+        assert_eq!(parse_font_feature(&format!("{}=1", "x".repeat(1_000_000))), None);
+    }
+
+    #[test]
+    fn parse_font_feature_rejects_boundary_and_non_numeric_values() {
+        for bad in [
+            "liga=-1",
+            "liga=-0",
+            "liga=1.5",
+            "liga=NaN",
+            "liga=inf",
+            "liga=0x1",
+            "liga=4294967296",          // u32::MAX + 1
+            "liga=9223372036854775807", // i64::MAX
+            "liga=99999999999999999999999999",
+            "liga= 1 2",
+        ] {
+            assert_eq!(parse_font_feature(bad), None, "{bad:?} must be rejected");
+        }
+        // `u32::from_str` accepts a leading '+', so this one is (surprisingly) valid
+        assert_eq!(parse_font_feature("liga=+1"), Some((u32::from_be_bytes(*b"liga"), 1)));
+        // a trailing extra '=' segment is ignored: only the first value is read
+        assert_eq!(parse_font_feature("liga=1=2"), Some((u32::from_be_bytes(*b"liga"), 1)));
+    }
+
+    #[test]
+    fn parse_font_feature_unicode_input_does_not_panic() {
+        // Multibyte tags pad by *chars* but the tag must be exactly 4 *bytes*,
+        // so every one of these must fall out as None rather than slicing a
+        // char boundary or panicking on the array conversion.
+        for input in [
+            "\u{1F600}",         // 4 bytes, 1 char
+            "\u{1F600}\u{1F600}",
+            "é",
+            "ß=1",
+            "e\u{0301}",         // combining acute
+            "\u{202E}liga",      // RTL override
+            "\u{0000}\u{0001}",
+        ] {
+            let _ = parse_font_feature(input); // must not panic
+        }
+        assert_eq!(parse_font_feature("\u{1F600}"), None);
+        assert_eq!(parse_font_feature("é"), None);
+    }
+
+    // -----------------------------------------------------------------
+    // add_variant_features (other)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn add_variant_features_maps_css_variants_to_opentype_tags() {
+        let tags = |style: &StyleProperties| -> Vec<u32> {
+            let mut features = Vec::new();
+            add_variant_features(style, &mut features);
+            assert!(
+                features.iter().all(|f| f.alternate.is_none()),
+                "variant features are on/off, never alternates"
+            );
+            features.iter().map(|f| f.feature_tag).collect()
+        };
+
+        // the default style adds nothing
+        assert!(tags(&StyleProperties::default()).is_empty());
+
+        let small_caps = StyleProperties {
+            font_variant_caps: FontVariantCaps::SmallCaps,
+            ..StyleProperties::default()
+        };
+        assert_eq!(tags(&small_caps), vec![u32::from_be_bytes(*b"smcp")]);
+
+        let all_small = StyleProperties {
+            font_variant_caps: FontVariantCaps::AllSmallCaps,
+            ..StyleProperties::default()
+        };
+        assert_eq!(
+            tags(&all_small),
+            vec![u32::from_be_bytes(*b"c2sc"), u32::from_be_bytes(*b"smcp")]
+        );
+
+        let combined = StyleProperties {
+            font_variant_ligatures: FontVariantLigatures::Discretionary,
+            font_variant_numeric: FontVariantNumeric::TabularNums,
+            font_variant_caps: FontVariantCaps::TitlingCaps,
+            ..StyleProperties::default()
+        };
+        assert_eq!(
+            tags(&combined),
+            vec![
+                u32::from_be_bytes(*b"dlig"),
+                u32::from_be_bytes(*b"titl"),
+                u32::from_be_bytes(*b"tnum"),
+            ],
+            "ligature, caps and numeric features are all emitted, in that order"
+        );
+    }
+
+    #[test]
+    fn add_variant_features_is_additive_and_never_panics_for_any_variant() {
+        let ligatures = [
+            FontVariantLigatures::Normal,
+            FontVariantLigatures::None,
+            FontVariantLigatures::Common,
+            FontVariantLigatures::NoCommon,
+            FontVariantLigatures::Discretionary,
+            FontVariantLigatures::NoDiscretionary,
+            FontVariantLigatures::Historical,
+            FontVariantLigatures::NoHistorical,
+            FontVariantLigatures::Contextual,
+            FontVariantLigatures::NoContextual,
+        ];
+        let caps = [
+            FontVariantCaps::Normal,
+            FontVariantCaps::SmallCaps,
+            FontVariantCaps::AllSmallCaps,
+            FontVariantCaps::PetiteCaps,
+            FontVariantCaps::AllPetiteCaps,
+            FontVariantCaps::Unicase,
+            FontVariantCaps::TitlingCaps,
+        ];
+        let numeric = [
+            FontVariantNumeric::Normal,
+            FontVariantNumeric::LiningNums,
+            FontVariantNumeric::OldstyleNums,
+            FontVariantNumeric::ProportionalNums,
+            FontVariantNumeric::TabularNums,
+            FontVariantNumeric::DiagonalFractions,
+            FontVariantNumeric::StackedFractions,
+            FontVariantNumeric::Ordinal,
+            FontVariantNumeric::SlashedZero,
+        ];
+
+        // a pre-existing feature must survive: the helper appends, never clears
+        let sentinel = FeatureInfo {
+            feature_tag: u32::from_be_bytes(*b"kern"),
+            alternate: Some(7),
+        };
+        for l in ligatures {
+            for c in caps {
+                for n in numeric {
+                    let style = StyleProperties {
+                        font_variant_ligatures: l,
+                        font_variant_caps: c,
+                        font_variant_numeric: n,
+                        ..StyleProperties::default()
+                    };
+                    let mut features = vec![sentinel];
+                    add_variant_features(&style, &mut features);
+                    assert_eq!(features[0].feature_tag, sentinel.feature_tag);
+                    assert_eq!(features[0].alternate, Some(7));
+                    // at most 2 (caps) + 1 (ligature) + 1 (numeric) new tags
+                    assert!(features.len() <= 5, "{l:?}/{c:?}/{n:?} emitted too many features");
+                    for f in &features[1..] {
+                        assert!(f.feature_tag.to_be_bytes().iter().all(u8::is_ascii_graphic));
+                    }
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // to_opentype_lang_tag (other, feature-gated)
+    // -----------------------------------------------------------------
+
+    #[cfg(feature = "text_layout_hyphenation")]
+    #[test]
+    fn lang_tags_are_four_byte_uppercase_padded_tags() {
+        use hyphenation::Language as HL;
+
+        // A representative spread across the mapping table, including the two
+        // arms that intentionally share a tag.
+        let sample = [
+            HL::EnglishUS,
+            HL::EnglishGB,
+            HL::German1901,
+            HL::German1996,
+            HL::French,
+            HL::Russian,
+            HL::Finnish,
+            HL::FinnishScholastic,
+            HL::Latin,
+            HL::LatinClassic,
+            HL::Welsh,
+            HL::Thai,
+        ];
+        for lang in sample {
+            let tag = to_opentype_lang_tag(lang);
+            let bytes = tag.to_be_bytes();
+            for b in bytes {
+                assert!(
+                    b.is_ascii_uppercase() || b == b' ',
+                    "{lang:?} -> {tag:#010x} is not an uppercase, space-padded tag"
+                );
+            }
+            assert_ne!(tag, 0);
+        }
+
+        assert_eq!(to_opentype_lang_tag(HL::EnglishUS), u32::from_be_bytes(*b"ENU "));
+        assert_eq!(to_opentype_lang_tag(HL::EnglishGB), u32::from_be_bytes(*b"ENG "));
+        assert_eq!(to_opentype_lang_tag(HL::German1996), u32::from_be_bytes(*b"DEU "));
+        assert_eq!(to_opentype_lang_tag(HL::French), u32::from_be_bytes(*b"FRA "));
+        assert_eq!(to_opentype_lang_tag(HL::Russian), u32::from_be_bytes(*b"RUS "));
+        // documented aliases: both German orthographies and both Finnish variants
+        assert_eq!(
+            to_opentype_lang_tag(HL::German1901),
+            to_opentype_lang_tag(HL::German1996)
+        );
+        assert_eq!(
+            to_opentype_lang_tag(HL::Finnish),
+            to_opentype_lang_tag(HL::FinnishScholastic)
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // FontRef trait surface: delegation invariants
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn font_ref_trait_getters_delegate_to_the_inner_parsed_font() {
+        let parsed = koho();
+        let font_ref = crate::parsed_font_to_font_ref(koho());
+
+        assert_eq!(font_ref.num_glyphs(), parsed.num_glyphs);
+        assert_eq!(font_ref.get_space_width(), parsed.get_space_width());
+        assert_eq!(font_ref.get_font_metrics().units_per_em, parsed.font_metrics.units_per_em);
+        assert!(font_ref.has_glyph('a' as u32) == parsed.has_glyph('a' as u32));
+        assert!(!font_ref.has_glyph(0x0011_0000), "an invalid scalar value has no glyph");
+
+        let gid = parsed.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+        let via_ref = font_ref.get_glyph_size(gid, 16.0).expect("gid decodes");
+        let via_parsed = parsed.get_glyph_size(gid, 16.0).expect("gid decodes");
+        assert_eq!(via_ref.width, via_parsed.width);
+        assert_eq!(via_ref.height, via_parsed.height);
+
+        assert_eq!(
+            font_ref.get_hyphen_glyph_and_advance(16.0).map(|(g, _)| g),
+            parsed.get_hyphen_glyph_and_advance(16.0).map(|(g, _)| g)
+        );
+        assert_eq!(
+            font_ref.get_kashida_glyph_and_advance(16.0).map(|(g, _)| g),
+            parsed.get_kashida_glyph_and_advance(16.0).map(|(g, _)| g)
+        );
+
+        // shallow_clone shares the same underlying face
+        let cloned = font_ref.shallow_clone();
+        assert_eq!(cloned.get_hash(), font_ref.get_hash());
+    }
+}

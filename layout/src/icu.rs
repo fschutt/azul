@@ -1848,3 +1848,1137 @@ mod tests {
         assert!(key_a < key_b);
     }
 }
+
+#[cfg(test)]
+mod autotest_generated {
+    use super::*;
+
+    // ─── IcuError / IcuResult ────────────────────────────────────────────────
+
+    #[test]
+    fn icu_error_new_preserves_message_verbatim() {
+        assert_eq!(IcuError::new("").message.as_str(), "");
+        assert_eq!(IcuError::new("boom").message.as_str(), "boom");
+        // From<String> as well as From<&str>
+        assert_eq!(
+            IcuError::new(String::from("owned")).message.as_str(),
+            "owned"
+        );
+    }
+
+    #[test]
+    fn icu_error_new_survives_hostile_payloads() {
+        // Embedded NUL, combining marks, emoji, RTL override, unpaired-looking escapes
+        let nasty = "a\0b\u{202e}\u{0301}\u{1f4a9}\u{fffd}";
+        assert_eq!(IcuError::new(nasty).message.as_str(), nasty);
+
+        // A megabyte-sized message must round-trip without truncation
+        let huge = "x".repeat(1_000_000);
+        let err = IcuError::new(huge.clone());
+        assert_eq!(err.message.as_str().len(), 1_000_000);
+        assert_eq!(err.message.as_str(), huge.as_str());
+    }
+
+    #[test]
+    fn icu_result_ok_err_round_trip_through_into_option() {
+        assert_eq!(
+            IcuResult::ok("value").into_option().map(|s| s.as_str().to_string()),
+            Some(String::from("value"))
+        );
+        assert_eq!(IcuResult::err("nope").into_option(), None);
+        // Empty payloads are still `Ok`, not silently coerced into `None`
+        assert_eq!(
+            IcuResult::ok("").into_option().map(|s| s.as_str().to_string()),
+            Some(String::new())
+        );
+    }
+
+    #[test]
+    fn icu_result_unwrap_or_only_uses_default_on_err() {
+        let fallback = AzString::from("FALLBACK");
+        assert_eq!(
+            IcuResult::ok("real").unwrap_or(fallback.clone()).as_str(),
+            "real"
+        );
+        // An empty `Ok` must win over the default — `unwrap_or` is not `unwrap_or_default`
+        assert_eq!(IcuResult::ok("").unwrap_or(fallback.clone()).as_str(), "");
+        assert_eq!(
+            IcuResult::err("bad").unwrap_or(fallback.clone()).as_str(),
+            "FALLBACK"
+        );
+    }
+
+    #[test]
+    fn icu_result_equality_distinguishes_ok_from_err_with_same_payload() {
+        assert_eq!(IcuResult::ok("x"), IcuResult::ok("x"));
+        assert_ne!(IcuResult::ok("x"), IcuResult::err("x"));
+        assert_ne!(IcuResult::ok("x"), IcuResult::ok("y"));
+    }
+
+    // ─── Plain data types ────────────────────────────────────────────────────
+
+    #[test]
+    fn plural_category_and_collation_strength_defaults() {
+        assert_eq!(PluralCategory::default(), PluralCategory::Other);
+        assert_eq!(CollationStrength::default(), CollationStrength::Tertiary);
+    }
+
+    #[test]
+    fn icu_date_time_constructors_store_fields_unvalidated() {
+        // These are `const fn`s with no validation: extreme values must construct
+        // fine (validation happens later, in `format_date` / `format_time`).
+        let d = IcuDate::new(i32::MIN, 0, 0);
+        assert_eq!((d.year, d.month, d.day), (i32::MIN, 0, 0));
+
+        let d = IcuDate::new(i32::MAX, u8::MAX, u8::MAX);
+        assert_eq!((d.year, d.month, d.day), (i32::MAX, 255, 255));
+
+        let t = IcuTime::new(u8::MAX, u8::MAX, u8::MAX);
+        assert_eq!((t.hour, t.minute, t.second), (255, 255, 255));
+
+        let dt = IcuDateTime::new(IcuDate::new(2025, 1, 15), IcuTime::new(16, 30, 45));
+        assert_eq!(dt.date, IcuDate::new(2025, 1, 15));
+        assert_eq!(dt.time, IcuTime::new(16, 30, 45));
+    }
+
+    #[test]
+    fn icu_date_new_is_usable_in_const_context() {
+        const D: IcuDate = IcuDate::new(2025, 1, 15);
+        const T: IcuTime = IcuTime::new(0, 0, 0);
+        const DT: IcuDateTime = IcuDateTime::new(D, T);
+        assert_eq!(DT.date.year, 2025);
+        assert_eq!(DT.time.hour, 0);
+    }
+
+    // ─── IcuStringVec (FFI vec) ──────────────────────────────────────────────
+
+    #[test]
+    fn icu_string_vec_round_trips_a_rust_vec() {
+        let items = vec![AzString::from("a"), AzString::from(""), AzString::from("\u{1f600}")];
+        let v = IcuStringVec::from(items.clone());
+        assert_eq!(v.len(), 3);
+        assert_eq!(v.as_slice(), items.as_slice());
+
+        let empty = IcuStringVec::from(Vec::<AzString>::new());
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+        assert!(empty.get(0).is_none());
+    }
+
+    // ─── IcuLocalizerHandle: construction / accessors ────────────────────────
+
+    #[test]
+    fn handle_new_stores_default_locale_verbatim() {
+        assert_eq!(IcuLocalizerHandle::new("de-DE").get_default_locale().as_str(), "de-DE");
+        // Garbage / empty locales are accepted at construction (no validation here)
+        assert_eq!(IcuLocalizerHandle::new("").get_default_locale().as_str(), "");
+        let junk = "!!! not a locale !!!";
+        assert_eq!(IcuLocalizerHandle::new(junk).get_default_locale().as_str(), junk);
+        // A pathologically long locale string must not panic
+        let huge = "x".repeat(100_000);
+        assert_eq!(IcuLocalizerHandle::new(&huge).get_default_locale().as_str().len(), 100_000);
+    }
+
+    #[test]
+    fn handle_default_and_from_system_language_agree_with_new() {
+        assert_eq!(IcuLocalizerHandle::default().get_default_locale().as_str(), "en-US");
+        let h = IcuLocalizerHandle::from_system_language(&AzString::from("ja-JP"));
+        assert_eq!(h.get_default_locale().as_str(), "ja-JP");
+        // Empty system language (detection failure) must not panic
+        let h = IcuLocalizerHandle::from_system_language(&AzString::from(""));
+        assert_eq!(h.get_default_locale().as_str(), "");
+    }
+
+    #[test]
+    fn handle_set_locale_is_an_alias_for_set_default_locale() {
+        let mut a = IcuLocalizerHandle::new("en-US");
+        let mut b = IcuLocalizerHandle::new("en-US");
+        a.set_default_locale("fr-FR");
+        b.set_locale("fr-FR");
+        assert_eq!(a.get_default_locale().as_str(), b.get_default_locale().as_str());
+        assert_eq!(a.get_default_locale().as_str(), "fr-FR");
+
+        // Setting an empty / invalid locale is silently accepted
+        a.set_locale("");
+        assert_eq!(a.get_default_locale().as_str(), "");
+    }
+
+    #[test]
+    fn handle_inner_is_stable_across_clones() {
+        let h = IcuLocalizerHandle::new("en-US");
+        let h2 = h.clone();
+        // Both handles must observe the *same* inner allocation
+        assert!(core::ptr::eq(h.inner(), h2.inner()));
+        assert_eq!(h.inner().default_locale.lock().unwrap().as_str(), "en-US");
+    }
+
+    // ─── IcuLocalizerHandle: locale cache ────────────────────────────────────
+
+    #[test]
+    fn handle_caches_one_localizer_per_distinct_locale_string() {
+        let h = IcuLocalizerHandle::new("en-US");
+        assert_eq!(h.cached_locale_count(), 0);
+        assert!(h.cached_locales().is_empty());
+
+        let _ = h.format_integer("en-US", 1);
+        assert_eq!(h.cached_locale_count(), 1);
+        // Second call with the same locale must reuse the cached localizer
+        let _ = h.format_integer("en-US", 2);
+        assert_eq!(h.cached_locale_count(), 1);
+
+        let _ = h.format_integer("de-DE", 1);
+        assert_eq!(h.cached_locale_count(), 2);
+
+        let mut locales: Vec<String> = h
+            .cached_locales()
+            .iter()
+            .map(|s| s.as_str().to_string())
+            .collect();
+        locales.sort();
+        assert_eq!(locales, vec![String::from("de-DE"), String::from("en-US")]);
+
+        h.clear_cache();
+        assert_eq!(h.cached_locale_count(), 0);
+        assert!(h.cached_locales().is_empty());
+        // The handle stays usable after a cache clear
+        assert!(!h.format_integer("en-US", 1).as_str().is_empty());
+        assert_eq!(h.cached_locale_count(), 1);
+    }
+
+    #[test]
+    fn handle_cache_key_is_the_raw_locale_string_not_the_parsed_locale() {
+        // The cache is keyed on the *unnormalized* string, so differently-spelled
+        // spellings of the same locale each get their own entry.
+        let h = IcuLocalizerHandle::new("en-US");
+        let _ = h.get_language("en-US");
+        let _ = h.get_language("EN-us");
+        assert_eq!(h.cached_locale_count(), 2);
+        // ...but both still resolve to the same language.
+        assert_eq!(h.get_language("en-US").as_str(), h.get_language("EN-us").as_str());
+    }
+
+    #[test]
+    fn handle_unparseable_locales_fall_back_instead_of_panicking() {
+        let h = IcuLocalizerHandle::new("en-US");
+        let absurdly_long = "en-US-x-".repeat(500);
+        for locale in ["", "!!!", "x", "-", absurdly_long.as_str()] {
+            let s = h.format_integer(locale, 1234);
+            assert!(!s.as_str().is_empty(), "empty output for locale {locale:?}");
+            let lang = h.get_language(locale);
+            assert!(!lang.as_str().is_empty(), "empty language for locale {locale:?}");
+        }
+    }
+
+    // ─── IcuLocalizerHandle: refcount / FFI drop semantics ───────────────────
+
+    #[test]
+    fn handle_clone_shares_the_cache_and_survives_the_original_being_dropped() {
+        let h = IcuLocalizerHandle::new("en-US");
+        let _ = h.format_integer("en-US", 1);
+        let h2 = h.clone();
+        assert_eq!(h2.cached_locale_count(), 1);
+
+        drop(h);
+        // The clone still owns the inner allocation (refcount > 0 at drop time)
+        assert_eq!(h2.cached_locale_count(), 1);
+        assert!(!h2.format_integer("en-US", 1000).as_str().is_empty());
+    }
+
+    #[test]
+    fn handle_many_clones_drop_exactly_once() {
+        let h = IcuLocalizerHandle::new("en-US");
+        let clones: Vec<IcuLocalizerHandle> = (0..64).map(|_| h.clone()).collect();
+        assert_eq!(
+            unsafe { (*h.copies).load(AtomicOrdering::SeqCst) },
+            65,
+            "one refcount per live handle"
+        );
+        drop(clones);
+        assert_eq!(unsafe { (*h.copies).load(AtomicOrdering::SeqCst) }, 1);
+        // Still alive and usable — no double-free, no use-after-free.
+        assert_eq!(h.get_default_locale().as_str(), "en-US");
+    }
+
+    #[test]
+    fn handle_drop_honors_run_destructor_flag() {
+        // This mirrors what codegen does across the FFI boundary: a bitwise copy of
+        // the handle with `run_destructor = false` must NOT decrement the refcount.
+        let h = IcuLocalizerHandle::new("en-US");
+        let shallow = IcuLocalizerHandle {
+            ptr: h.ptr,
+            copies: h.copies,
+            run_destructor: false,
+        };
+        drop(shallow);
+        assert_eq!(
+            unsafe { (*h.copies).load(AtomicOrdering::SeqCst) },
+            1,
+            "a non-owning FFI copy must not touch the refcount"
+        );
+        // `h` must still be alive (this would be a use-after-free if the flag were ignored)
+        assert_eq!(h.get_default_locale().as_str(), "en-US");
+    }
+
+    #[test]
+    fn handle_is_usable_from_multiple_threads() {
+        let h = IcuLocalizerHandle::new("en-US");
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let h = h.clone();
+                std::thread::spawn(move || {
+                    let locale = if i % 2 == 0 { "en-US" } else { "de-DE" };
+                    let s = h.format_integer(locale, 1_000_000 + i);
+                    assert!(!s.as_str().is_empty());
+                })
+            })
+            .collect();
+        for t in handles {
+            t.join().expect("worker thread panicked");
+        }
+        assert_eq!(h.cached_locale_count(), 2);
+    }
+
+    // ─── IcuLocalizerHandle: poisoned-lock fallbacks (with_localizer{,_or}) ──
+
+    #[test]
+    fn handle_falls_back_to_defaults_when_the_cache_mutex_is_poisoned() {
+        let h = IcuLocalizerHandle::new("en-US");
+
+        // Poison the cache mutex by panicking while holding the guard.
+        let h2 = h.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = h2.inner().cache.lock().unwrap();
+            panic!("intentional panic to poison the cache mutex");
+        })
+        .join();
+        assert!(h.inner().cache.lock().is_err(), "cache mutex should be poisoned");
+
+        // `with_localizer` → `R::default()`
+        assert_eq!(h.cached_locale_count(), 0);
+        assert!(h.cached_locales().is_empty());
+        assert_eq!(h.format_integer("en-US", 1234567).as_str(), "");
+        assert_eq!(h.format_decimal("en-US", 123456, 2).as_str(), "");
+        assert_eq!(h.get_language("en-US").as_str(), "");
+        assert_eq!(h.get_plural_category("en-US", 1), PluralCategory::Other);
+        assert_eq!(h.compare_strings("en-US", "a", "b"), 0);
+        assert!(h.get_sort_key("en-US", "a").is_empty());
+
+        // `with_localizer_or` → explicit fallbacks
+        assert_eq!(
+            h.pluralize("en-US", 1, "z", "o", "t", "f", "m", "OTHER").as_str(),
+            "OTHER"
+        );
+        let items = [AzString::from("A"), AzString::from("B")];
+        assert_eq!(h.format_list("en-US", &items, ListType::And).as_str(), "A, B");
+        assert!(matches!(
+            h.format_date("en-US", IcuDate::new(2025, 1, 15), FormatLength::Medium),
+            IcuResult::Err(_)
+        ));
+        assert!(matches!(
+            h.format_time("en-US", IcuTime::new(16, 30, 45), false),
+            IcuResult::Err(_)
+        ));
+        assert!(matches!(
+            h.format_datetime(
+                "en-US",
+                IcuDateTime::new(IcuDate::new(2025, 1, 15), IcuTime::new(16, 30, 45)),
+                FormatLength::Short
+            ),
+            IcuResult::Err(_)
+        ));
+        assert!(h.strings_equal("en-US", "same", "same"));
+        assert!(!h.strings_equal("en-US", "a", "b"));
+        let sorted = h.sort_strings("en-US", &items);
+        assert_eq!(sorted.len(), 2, "fallback returns the input unsorted");
+
+        // Neither of these may panic on a poisoned cache.
+        h.clear_cache();
+        assert!(h.load_data_blob(&[0xff, 0x00, 0x01]));
+    }
+
+    // ─── IcuLocalizerHandle: data blob ───────────────────────────────────────
+
+    #[test]
+    fn handle_load_data_blob_accepts_garbage_without_breaking_formatting() {
+        let h = IcuLocalizerHandle::new("en-US");
+        // Populate the cache first so `load_data_blob` walks existing localizers.
+        let before = h.format_integer("en-US", 1234567);
+
+        assert!(h.load_data_blob(&[]), "empty blob");
+        assert!(h.load_data_blob(&[0xde, 0xad, 0xbe, 0xef]), "garbage blob");
+        assert!(h.load_data_blob(&vec![0u8; 100_000]), "large blob");
+
+        // Formatting must still work (the blob is stored, formatters get rebuilt).
+        let after = h.format_integer("en-US", 1234567);
+        assert_eq!(before.as_str(), after.as_str());
+        // A locale created *after* the blob was stored also gets it, without panicking.
+        assert!(!h.format_integer("fr-FR", 1234567).as_str().is_empty());
+    }
+
+    // ─── shared_localizer_handle ─────────────────────────────────────────────
+
+    #[test]
+    fn shared_localizer_handle_is_a_process_wide_singleton() {
+        let a = shared_localizer_handle();
+        let b = shared_localizer_handle();
+        assert!(core::ptr::eq(a, b), "OnceLock must hand out the same handle");
+        assert!(core::ptr::eq(a.inner(), b.inner()));
+        assert_eq!(a.get_default_locale().as_str(), "en-US");
+        // It is a live, usable handle (and its cache persists between calls).
+        assert!(!a.format_integer("en-US", 1).as_str().is_empty());
+        assert!(b.cached_locale_count() >= 1);
+    }
+
+    // ─── ICU4X backend ───────────────────────────────────────────────────────
+
+    #[cfg(all(
+        feature = "icu",
+        not(all(target_os = "macos", feature = "icu_macos")),
+        not(all(target_os = "windows", feature = "icu_windows"))
+    ))]
+    mod icu4x {
+        use super::super::*;
+
+        #[test]
+        fn new_falls_back_to_en_us_for_unparseable_locales() {
+            for junk in ["!!!", "not a locale", "en US", "-", "@@@@"] {
+                let l = IcuLocalizer::new(junk);
+                assert_eq!(l.get_language().as_str(), "en", "junk locale {junk:?}");
+                assert_eq!(
+                    l.get_region().map(|r| r.as_str().to_string()),
+                    Some(String::from("US")),
+                    "junk locale {junk:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn new_with_extreme_inputs_does_not_panic() {
+            // Empty, huge, and non-ASCII locale strings must all resolve to *some*
+            // usable locale rather than panicking.
+            for locale in [
+                String::new(),
+                "x".repeat(100_000),
+                "\u{1f600}\u{202e}\0".to_string(),
+                "en-US-u-ca-buddhist-nu-thai".to_string(),
+            ] {
+                let l = IcuLocalizer::new(&locale);
+                assert!(
+                    !l.get_language().as_str().is_empty(),
+                    "empty language for {locale:?}"
+                );
+                assert!(!l.get_locale().as_str().is_empty());
+            }
+        }
+
+        #[test]
+        fn getters_reflect_the_parsed_locale() {
+            let l = IcuLocalizer::new("en-US");
+            assert_eq!(l.get_language().as_str(), "en");
+            assert_eq!(l.get_region().map(|r| r.as_str().to_string()), Some(String::from("US")));
+
+            // A language-only locale has no region
+            let l = IcuLocalizer::new("de");
+            assert_eq!(l.get_language().as_str(), "de");
+            assert_eq!(l.get_region(), None);
+
+            assert_eq!(IcuLocalizer::default().get_language().as_str(), "en");
+        }
+
+        #[test]
+        fn set_locale_rejects_garbage_and_leaves_the_old_locale_intact() {
+            let mut l = IcuLocalizer::new("de-DE");
+            assert!(!l.set_locale("!!!"), "garbage locale must be rejected");
+            // The failed set must not have mutated any state.
+            assert_eq!(l.get_language().as_str(), "de");
+            assert_eq!(l.get_region().map(|r| r.as_str().to_string()), Some(String::from("DE")));
+            assert_eq!(l.get_locale().as_str(), "de-DE");
+
+            assert!(l.set_locale("fr-FR"));
+            assert_eq!(l.get_language().as_str(), "fr");
+            assert_eq!(l.get_locale().as_str(), "fr-FR");
+        }
+
+        #[test]
+        fn set_locale_clears_cached_formatters() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(l.format_integer(1234567).as_str(), "1,234,567");
+            assert!(l.set_locale("de-DE"));
+            // If the decimal formatter cache were not cleared, this would still be en-US.
+            let de = l.format_integer(1234567);
+            assert_ne!(de.as_str(), "1,234,567");
+            assert!(de.as_str().contains('.') || de.as_str().contains('\u{a0}'));
+        }
+
+        #[test]
+        fn clone_preserves_the_locale_and_the_formatting_behaviour() {
+            let mut a = IcuLocalizer::new("de-DE");
+            let warmed = a.format_integer(1234567);
+            let mut b = a.clone();
+            assert_eq!(b.get_locale().as_str(), a.get_locale().as_str());
+            // The clone drops the cached formatters, but must rebuild identical ones.
+            assert_eq!(b.format_integer(1234567).as_str(), warmed.as_str());
+        }
+
+        #[test]
+        fn load_data_blob_with_garbage_does_not_break_formatters() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(l.format_integer(1000).as_str(), "1,000");
+            l.load_data_blob(vec![0xde, 0xad, 0xbe, 0xef]);
+            // Caches were cleared; rebuilding them must still work.
+            assert_eq!(l.format_integer(1000).as_str(), "1,000");
+            l.load_data_blob(Vec::new());
+            assert_eq!(l.format_integer(1000).as_str(), "1,000");
+        }
+
+        // ── numeric formatting ──
+
+        #[test]
+        fn format_integer_zero_and_negatives() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(l.format_integer(0).as_str(), "0");
+            assert_eq!(l.format_integer(1).as_str(), "1");
+            assert_eq!(l.format_integer(-1).as_str(), "-1");
+            assert_eq!(l.format_integer(999).as_str(), "999");
+            assert_eq!(l.format_integer(1000).as_str(), "1,000");
+            assert_eq!(l.format_integer(-1234567).as_str(), "-1,234,567");
+        }
+
+        #[test]
+        fn format_integer_round_trips_at_the_i64_limits() {
+            let mut l = IcuLocalizer::new("en-US");
+            for value in [i64::MIN, i64::MIN + 1, -1, 0, 1, i64::MAX - 1, i64::MAX] {
+                let s = l.format_integer(value);
+                let round_tripped: i64 = s
+                    .as_str()
+                    .replace(',', "")
+                    .parse()
+                    .unwrap_or_else(|e| panic!("cannot re-parse {:?} ({value}): {e}", s.as_str()));
+                assert_eq!(round_tripped, value, "lossy formatting of {value}");
+            }
+        }
+
+        #[test]
+        fn format_decimal_places_zero_and_negative() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(l.format_decimal(0, 0).as_str(), "0");
+            assert_eq!(l.format_decimal(0, 2).as_str(), "0.00");
+            assert_eq!(l.format_decimal(123456, 2).as_str(), "1,234.56");
+            assert_eq!(l.format_decimal(5, 3).as_str(), "0.005");
+            assert_eq!(l.format_decimal(-5, 3).as_str(), "-0.005");
+            assert_eq!(l.format_decimal(-123456, 2).as_str(), "-1,234.56");
+            // Negative decimal places multiply by 10^n
+            assert_eq!(l.format_decimal(5, -3).as_str(), "5,000");
+        }
+
+        #[test]
+        fn format_decimal_is_exact_for_large_i64_values() {
+            let mut l = IcuLocalizer::new("en-US");
+            // The whole point of the i64/i16 API (vs f64) is that this stays exact.
+            let s = l.format_decimal(i64::MAX, 2);
+            assert_eq!(s.as_str(), "92,233,720,368,547,758.07");
+            let s = l.format_decimal(i64::MIN, 2);
+            assert_eq!(s.as_str(), "-92,233,720,368,547,758.08");
+            // Every significant digit of i64::MAX survives 0 decimal places
+            assert_eq!(
+                l.format_decimal(i64::MAX, 0).as_str().replace(',', ""),
+                "9223372036854775807"
+            );
+        }
+
+        #[test]
+        fn format_decimal_extreme_decimal_places_do_not_panic() {
+            let mut l = IcuLocalizer::new("en-US");
+            // i16::MAX places → a very small number; must not panic or hang.
+            let s = l.format_decimal(1, i16::MAX);
+            assert!(s.as_str().starts_with('0'), "unexpected: {:?}", s.as_str());
+            // i16::MIN + 1 places → a very large number; must not panic.
+            //
+            // NOTE: i16::MIN itself is deliberately *not* tested here: the impl does
+            // `multiply_pow10(-decimal_places)`, and negating i16::MIN overflows.
+            // See the report — that is a genuine bug, not something to assert around.
+            let s = l.format_decimal(1, i16::MIN + 1);
+            assert!(!s.as_str().is_empty());
+        }
+
+        // ── plural rules ──
+
+        #[test]
+        fn plural_category_english_matches_the_documented_examples() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(l.get_plural_category(0), PluralCategory::Other);
+            assert_eq!(l.get_plural_category(1), PluralCategory::One);
+            assert_eq!(l.get_plural_category(2), PluralCategory::Other);
+            assert_eq!(l.get_plural_category(100), PluralCategory::Other);
+        }
+
+        #[test]
+        fn plural_category_uses_the_absolute_value_for_negatives() {
+            let mut l = IcuLocalizer::new("en-US");
+            // The impl calls `value.unsigned_abs()`, so -1 is categorised like 1.
+            assert_eq!(l.get_plural_category(-1), PluralCategory::One);
+            assert_eq!(l.get_plural_category(-2), PluralCategory::Other);
+        }
+
+        #[test]
+        fn plural_category_at_the_i64_limits_does_not_panic() {
+            let mut l = IcuLocalizer::new("en-US");
+            // `i64::MIN.unsigned_abs()` is the classic overflow trap here.
+            assert_eq!(l.get_plural_category(i64::MIN), PluralCategory::Other);
+            assert_eq!(l.get_plural_category(i64::MIN + 1), PluralCategory::Other);
+            assert_eq!(l.get_plural_category(i64::MAX), PluralCategory::Other);
+        }
+
+        #[test]
+        fn plural_category_polish_and_arabic_match_the_documented_examples() {
+            let mut pl = IcuLocalizer::new("pl");
+            assert_eq!(pl.get_plural_category(1), PluralCategory::One);
+            assert_eq!(pl.get_plural_category(2), PluralCategory::Few);
+            assert_eq!(pl.get_plural_category(5), PluralCategory::Many);
+
+            let mut ar = IcuLocalizer::new("ar");
+            assert_eq!(ar.get_plural_category(0), PluralCategory::Zero);
+            assert_eq!(ar.get_plural_category(1), PluralCategory::One);
+            assert_eq!(ar.get_plural_category(2), PluralCategory::Two);
+            assert_eq!(ar.get_plural_category(3), PluralCategory::Few);
+            assert_eq!(ar.get_plural_category(11), PluralCategory::Many);
+        }
+
+        #[test]
+        fn plural_category_conversion_is_exhaustive() {
+            assert_eq!(PluralCategory::from(IcuPluralCategory::Zero), PluralCategory::Zero);
+            assert_eq!(PluralCategory::from(IcuPluralCategory::One), PluralCategory::One);
+            assert_eq!(PluralCategory::from(IcuPluralCategory::Two), PluralCategory::Two);
+            assert_eq!(PluralCategory::from(IcuPluralCategory::Few), PluralCategory::Few);
+            assert_eq!(PluralCategory::from(IcuPluralCategory::Many), PluralCategory::Many);
+            assert_eq!(PluralCategory::from(IcuPluralCategory::Other), PluralCategory::Other);
+        }
+
+        #[test]
+        fn pluralize_selects_the_category_string_and_substitutes_every_placeholder() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(
+                l.pluralize(1, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+                "ONE"
+            );
+            // English has no `zero` category → 0 falls into `other`, NOT `zero`.
+            assert_eq!(
+                l.pluralize(0, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+                "OTHER"
+            );
+            // Every `{}` occurrence is replaced, not just the first
+            assert_eq!(l.pluralize(3, "", "", "", "", "", "{} of {}").as_str(), "3 of 3");
+            // Templates without a placeholder are passed through untouched
+            assert_eq!(l.pluralize(7, "", "", "", "", "", "items").as_str(), "items");
+            // Empty templates stay empty
+            assert_eq!(l.pluralize(7, "", "", "", "", "", "").as_str(), "");
+        }
+
+        #[test]
+        fn pluralize_at_the_i64_limits_substitutes_the_signed_value() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(
+                l.pluralize(i64::MIN, "z", "o", "t", "f", "m", "{}").as_str(),
+                "-9223372036854775808"
+            );
+            assert_eq!(
+                l.pluralize(i64::MAX, "z", "o", "t", "f", "m", "{}").as_str(),
+                "9223372036854775807"
+            );
+            // Note: the *category* uses |value|, so -1 selects `one` while the
+            // substituted number keeps its sign.
+            assert_eq!(l.pluralize(-1, "z", "{} one", "t", "f", "m", "{} other").as_str(), "-1 one");
+        }
+
+        // ── list formatting ──
+
+        #[test]
+        fn format_list_handles_empty_and_single_item_lists() {
+            let mut l = IcuLocalizer::new("en-US");
+            for list_type in [ListType::And, ListType::Or, ListType::Unit] {
+                assert_eq!(l.format_list(&[], list_type).as_str(), "");
+                assert_eq!(l.format_list(&[AzString::from("A")], list_type).as_str(), "A");
+            }
+        }
+
+        #[test]
+        fn format_list_uses_the_right_conjunction() {
+            let mut l = IcuLocalizer::new("en-US");
+            let items = [AzString::from("A"), AzString::from("B"), AzString::from("C")];
+            assert!(l.format_list(&items, ListType::And).as_str().contains("and"));
+            assert!(l.format_list(&items, ListType::Or).as_str().contains("or"));
+            // Unit lists are a plain comma join (documented TODO in the impl)
+            assert_eq!(l.format_list(&items, ListType::Unit).as_str(), "A, B, C");
+        }
+
+        #[test]
+        fn format_list_survives_hostile_items() {
+            let mut l = IcuLocalizer::new("en-US");
+            // Empty strings, embedded separators, NULs, emoji, RTL overrides
+            let items = [
+                AzString::from(""),
+                AzString::from(", and "),
+                AzString::from("a\0b"),
+                AzString::from("\u{1f600}\u{202e}"),
+            ];
+            assert!(!l.format_list(&items, ListType::And).as_str().is_empty());
+
+            // A large list must not blow up
+            let many: Vec<AzString> = (0..1000).map(|i| AzString::from(i.to_string())).collect();
+            let joined = l.format_list(&many, ListType::Unit);
+            assert_eq!(joined.as_str().split(", ").count(), 1000);
+            assert!(!l.format_list(&many, ListType::And).as_str().is_empty());
+        }
+
+        // ── date / time formatting ──
+
+        #[test]
+        fn format_date_rejects_out_of_range_months_and_days() {
+            let mut l = IcuLocalizer::new("en-US");
+            for (y, m, d) in [
+                (2025, 0, 15),   // month 0
+                (2025, 13, 15),  // month 13
+                (2025, 255, 15), // month 255
+                (2025, 1, 0),    // day 0
+                (2025, 1, 32),   // day 32
+                (2025, 1, 255),  // day 255
+                (2025, 2, 30),   // February 30th
+                (2025, 2, 29),   // 2025 is not a leap year
+            ] {
+                let r = l.format_date(IcuDate::new(y, m, d), FormatLength::Medium);
+                assert!(
+                    matches!(r, IcuResult::Err(_)),
+                    "expected Err for {y}-{m}-{d}, got {r:?}"
+                );
+            }
+            // ...but a real leap day is fine
+            assert!(matches!(
+                l.format_date(IcuDate::new(2024, 2, 29), FormatLength::Medium),
+                IcuResult::Ok(_)
+            ));
+        }
+
+        #[test]
+        fn format_date_formats_all_lengths_for_a_valid_date() {
+            let mut l = IcuLocalizer::new("en-US");
+            let date = IcuDate::new(2025, 1, 15);
+            for length in [FormatLength::Short, FormatLength::Medium, FormatLength::Long] {
+                match l.format_date(date, length) {
+                    IcuResult::Ok(s) => {
+                        assert!(s.as_str().contains("15"), "no day in {:?}", s.as_str());
+                        assert!(!s.as_str().is_empty());
+                    }
+                    IcuResult::Err(e) => panic!("valid date rejected: {e:?}"),
+                }
+            }
+        }
+
+        #[test]
+        fn format_date_at_extreme_years_returns_a_result_instead_of_panicking() {
+            let mut l = IcuLocalizer::new("en-US");
+            // Year 0 and negative (BCE) years cross the era boundary; the JS Date
+            // range endpoints are the widest years any caller can realistically hit.
+            //
+            // NOTE: i32::MIN / i32::MAX are deliberately excluded — the era-year
+            // conversion (`1 - extended_year`) overflows there, inside icu4x rather
+            // than in azul. See the report.
+            for year in [-271_821, -1, 0, 1, 275_760] {
+                // Ok or Err are both acceptable; a panic is not.
+                let r = l.format_date(IcuDate::new(year, 1, 1), FormatLength::Short);
+                assert!(matches!(r, IcuResult::Ok(_) | IcuResult::Err(_)));
+            }
+        }
+
+        #[test]
+        fn format_time_rejects_out_of_range_components() {
+            let mut l = IcuLocalizer::new("en-US");
+            for (h, m, s) in [
+                (24, 0, 0),
+                (255, 0, 0),
+                (0, 60, 0),
+                (0, 255, 0),
+                (0, 0, 255),
+            ] {
+                for include_seconds in [true, false] {
+                    let r = l.format_time(IcuTime::new(h, m, s), include_seconds);
+                    assert!(
+                        matches!(r, IcuResult::Err(_)),
+                        "expected Err for {h}:{m}:{s}, got {r:?}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn format_time_boundary_values_are_accepted() {
+            let mut l = IcuLocalizer::new("en-US");
+            for (h, m, s) in [(0, 0, 0), (23, 59, 59), (12, 0, 0)] {
+                for include_seconds in [true, false] {
+                    assert!(
+                        matches!(
+                            l.format_time(IcuTime::new(h, m, s), include_seconds),
+                            IcuResult::Ok(_)
+                        ),
+                        "valid time {h}:{m}:{s} rejected"
+                    );
+                }
+            }
+            // Seconds only show up when asked for
+            let with = l.format_time(IcuTime::new(16, 30, 45), true).unwrap_or(AzString::from(""));
+            let without = l.format_time(IcuTime::new(16, 30, 45), false).unwrap_or(AzString::from(""));
+            assert!(with.as_str().contains("45"));
+            assert!(!without.as_str().contains("45"));
+        }
+
+        #[test]
+        fn format_datetime_propagates_invalid_date_and_time_as_err() {
+            let mut l = IcuLocalizer::new("en-US");
+            let good_date = IcuDate::new(2025, 1, 15);
+            let good_time = IcuTime::new(16, 30, 45);
+
+            assert!(matches!(
+                l.format_datetime(IcuDateTime::new(good_date, good_time), FormatLength::Medium),
+                IcuResult::Ok(_)
+            ));
+            assert!(matches!(
+                l.format_datetime(
+                    IcuDateTime::new(IcuDate::new(2025, 13, 1), good_time),
+                    FormatLength::Medium
+                ),
+                IcuResult::Err(_)
+            ));
+            assert!(matches!(
+                l.format_datetime(
+                    IcuDateTime::new(good_date, IcuTime::new(24, 0, 0)),
+                    FormatLength::Medium
+                ),
+                IcuResult::Err(_)
+            ));
+        }
+
+        // ── collation ──
+
+        #[test]
+        fn compare_is_reflexive_and_antisymmetric() {
+            let mut l = IcuLocalizer::new("en-US");
+            let words = ["", "a", "A", "z", "\u{e9}", "\u{1f600}", "a\0b", "stra\u{df}e"];
+            for a in words {
+                assert_eq!(l.compare(a, a), core::cmp::Ordering::Equal, "not reflexive: {a:?}");
+                for b in words {
+                    assert_eq!(
+                        l.compare(a, b),
+                        l.compare(b, a).reverse(),
+                        "not antisymmetric: {a:?} vs {b:?}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn compare_treats_the_empty_string_as_smallest() {
+            let mut l = IcuLocalizer::new("en-US");
+            assert_eq!(l.compare("", ""), core::cmp::Ordering::Equal);
+            assert_eq!(l.compare("", "a"), core::cmp::Ordering::Less);
+            assert_eq!(l.compare("a", ""), core::cmp::Ordering::Greater);
+            assert!(l.strings_equal("", ""));
+        }
+
+        #[test]
+        fn collation_is_canonically_equivalent_but_case_sensitive() {
+            let mut l = IcuLocalizer::new("en-US");
+            // Precomposed "é" and decomposed "e" + U+0301 must collate as equal.
+            assert!(l.strings_equal("\u{e9}", "e\u{301}"));
+            assert_eq!(l.compare("\u{e9}", "e\u{301}"), core::cmp::Ordering::Equal);
+            // Default strength is tertiary → case differences still matter.
+            assert!(!l.strings_equal("a", "A"));
+        }
+
+        #[test]
+        fn sort_strings_is_stable_idempotent_and_preserves_the_multiset() {
+            let mut l = IcuLocalizer::new("en-US");
+            let input = vec![
+                AzString::from("cherry"),
+                AzString::from(""),
+                AzString::from("apple"),
+                AzString::from("apple"),
+                AzString::from("banana"),
+            ];
+            let once = l.sorted_strings(&input);
+            assert_eq!(once.len(), input.len(), "sorting must not drop duplicates");
+            for item in &input {
+                assert!(once.iter().any(|s| s.as_str() == item.as_str()));
+            }
+            // Output is non-decreasing under the same collator
+            for pair in once.windows(2) {
+                assert_ne!(
+                    l.compare(pair[0].as_str(), pair[1].as_str()),
+                    core::cmp::Ordering::Greater
+                );
+            }
+            // Sorting an already-sorted list changes nothing
+            let twice = l.sorted_strings(&once);
+            assert_eq!(twice, once);
+        }
+
+        #[test]
+        fn sort_strings_handles_degenerate_slices() {
+            let mut l = IcuLocalizer::new("en-US");
+            let mut empty: Vec<AzString> = Vec::new();
+            l.sort_strings(&mut empty);
+            assert!(empty.is_empty());
+
+            let mut single = vec![AzString::from("only")];
+            l.sort_strings(&mut single);
+            assert_eq!(single[0].as_str(), "only");
+        }
+
+        #[test]
+        fn sort_keys_order_the_same_way_compare_does() {
+            let mut l = IcuLocalizer::new("en-US");
+            let words = ["", "apple", "banana", "cherry", "\u{e9}clair", "zebra"];
+            for a in words {
+                for b in words {
+                    let key_a = l.get_sort_key(a);
+                    let key_b = l.get_sort_key(b);
+                    assert_eq!(
+                        key_a.cmp(&key_b),
+                        l.compare(a, b),
+                        "sort key order disagrees with compare() for {a:?} vs {b:?}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn collation_survives_very_long_and_hostile_inputs() {
+            let mut l = IcuLocalizer::new("en-US");
+            let long = "a".repeat(10_000);
+            let long_plus = format!("{long}b");
+            assert_eq!(l.compare(&long, &long), core::cmp::Ordering::Equal);
+            assert_eq!(l.compare(&long, &long_plus), core::cmp::Ordering::Less);
+            assert!(!l.get_sort_key(&long).is_empty());
+            // NULs and unpaired combining marks must not panic
+            let _ = l.get_sort_key("\0\u{301}\u{1f600}");
+            assert_eq!(l.compare("\0", "\0"), core::cmp::Ordering::Equal);
+        }
+    }
+
+    // ─── macOS / Windows native backend helpers ──────────────────────────────
+
+    #[cfg(any(
+        all(target_os = "macos", feature = "icu_macos"),
+        all(target_os = "windows", feature = "icu_windows"),
+    ))]
+    mod native_helpers {
+        use super::super::*;
+
+        #[test]
+        fn decimal_string_zero_and_positive_places() {
+            assert_eq!(decimal_string(0, 0), "0");
+            assert_eq!(decimal_string(0, 2), "0.00");
+            assert_eq!(decimal_string(123456, 2), "1234.56");
+            assert_eq!(decimal_string(5, 3), "0.005");
+            assert_eq!(decimal_string(1, 1), "0.1");
+            // Exactly as many digits as decimal places → leading "0."
+            assert_eq!(decimal_string(99, 2), "0.99");
+        }
+
+        #[test]
+        fn decimal_string_negative_values_keep_a_single_leading_minus() {
+            assert_eq!(decimal_string(-123456, 2), "-1234.56");
+            assert_eq!(decimal_string(-5, 3), "-0.005");
+            assert_eq!(decimal_string(-1, 0), "-1");
+            assert_eq!(decimal_string(-1, -2), "-100");
+        }
+
+        #[test]
+        fn decimal_string_negative_places_append_zeros() {
+            assert_eq!(decimal_string(5, -3), "5000");
+            assert_eq!(decimal_string(0, -3), "0000");
+            assert_eq!(decimal_string(i64::MIN, -1), "-92233720368547758080");
+        }
+
+        #[test]
+        fn decimal_string_is_exact_at_the_i64_limits() {
+            // The whole reason this helper exists: no f64 round-trip, no lost digits.
+            assert_eq!(decimal_string(i64::MAX, 0), "9223372036854775807");
+            assert_eq!(decimal_string(i64::MIN, 0), "-9223372036854775808");
+            assert_eq!(decimal_string(i64::MAX, 2), "92233720368547758.07");
+            // i64::MIN.abs() overflows i64 — the impl must go through i128/unsigned_abs.
+            assert_eq!(decimal_string(i64::MIN, 2), "-92233720368547758.08");
+            // Exactly 19 decimal places = the digit count of |i64::MIN|
+            assert_eq!(decimal_string(i64::MIN, 19), "-0.9223372036854775808");
+            assert_eq!(decimal_string(i64::MIN, 20), "-0.09223372036854775808");
+        }
+
+        #[test]
+        fn decimal_string_huge_decimal_places_do_not_panic() {
+            // NOTE: i16::MIN is deliberately not tested — `-decimal_places` overflows
+            // i16 there (debug panic). See the report; that is a genuine bug.
+            let s = decimal_string(1, i16::MAX);
+            assert!(s.starts_with("0."));
+            assert_eq!(s.len(), 2 + i16::MAX as usize);
+
+            let s = decimal_string(1, i16::MIN + 1);
+            assert!(s.starts_with('1'));
+            assert_eq!(s.len(), 1 + (i16::MAX as usize));
+        }
+
+        #[test]
+        fn plural_for_defaults_to_english_rules_for_unknown_languages() {
+            for lang in ["en", "xx", "", "klingon", "de"] {
+                assert_eq!(plural_for(1, lang), PluralCategory::One, "lang {lang:?}");
+                assert_eq!(plural_for(0, lang), PluralCategory::Other, "lang {lang:?}");
+                assert_eq!(plural_for(2, lang), PluralCategory::Other, "lang {lang:?}");
+            }
+        }
+
+        #[test]
+        fn plural_for_strips_region_and_script_subtags() {
+            assert_eq!(plural_for(2, "pl-PL"), plural_for(2, "pl"));
+            assert_eq!(plural_for(2, "pl_PL"), plural_for(2, "pl"));
+            assert_eq!(plural_for(1, "en-US"), PluralCategory::One);
+            assert_eq!(plural_for(0, "fr-CA"), PluralCategory::One);
+        }
+
+        #[test]
+        fn plural_for_arabic_covers_all_six_categories() {
+            assert_eq!(plural_for(0, "ar"), PluralCategory::Zero);
+            assert_eq!(plural_for(1, "ar"), PluralCategory::One);
+            assert_eq!(plural_for(2, "ar"), PluralCategory::Two);
+            assert_eq!(plural_for(3, "ar"), PluralCategory::Few);
+            assert_eq!(plural_for(10, "ar"), PluralCategory::Few);
+            assert_eq!(plural_for(11, "ar"), PluralCategory::Many);
+            assert_eq!(plural_for(99, "ar"), PluralCategory::Many);
+            assert_eq!(plural_for(100, "ar"), PluralCategory::Other);
+            assert_eq!(plural_for(103, "ar"), PluralCategory::Few);
+        }
+
+        #[test]
+        fn plural_for_slavic_and_polish_rules() {
+            assert_eq!(plural_for(1, "ru"), PluralCategory::One);
+            assert_eq!(plural_for(11, "ru"), PluralCategory::Many);
+            assert_eq!(plural_for(2, "ru"), PluralCategory::Few);
+            assert_eq!(plural_for(12, "ru"), PluralCategory::Many);
+            assert_eq!(plural_for(5, "ru"), PluralCategory::Many);
+
+            assert_eq!(plural_for(1, "pl"), PluralCategory::One);
+            assert_eq!(plural_for(2, "pl"), PluralCategory::Few);
+            assert_eq!(plural_for(5, "pl"), PluralCategory::Many);
+            assert_eq!(plural_for(22, "pl"), PluralCategory::Few);
+            assert_eq!(plural_for(12, "pl"), PluralCategory::Many);
+        }
+
+        #[test]
+        fn plural_for_negative_values_are_deterministic() {
+            // Languages whose rules go through `.abs()` mirror the positive result...
+            assert_eq!(plural_for(-2, "ru"), plural_for(2, "ru"));
+            assert_eq!(plural_for(-11, "ar"), PluralCategory::Many);
+            // ...while the English-style default branch compares against 1 directly,
+            // so -1 is `Other`, not `One`.
+            assert_eq!(plural_for(-1, "en"), PluralCategory::Other);
+        }
+
+        #[test]
+        fn plural_for_at_the_i64_limits_does_not_panic() {
+            // NOTE: `plural_for(i64::MIN, "ar")` (and any other `.abs()` branch) is
+            // deliberately not tested: `i64::MIN.abs()` overflows. See the report.
+            assert_eq!(plural_for(i64::MAX, "en"), PluralCategory::Other);
+            assert_eq!(plural_for(i64::MIN, "en"), PluralCategory::Other);
+            assert_eq!(plural_for(i64::MIN, "cs"), PluralCategory::Other);
+            assert_eq!(plural_for(i64::MIN, "fr"), PluralCategory::Other);
+            assert_eq!(plural_for(i64::MIN, "he"), PluralCategory::Other);
+            // The `.abs()` branches are safe for everything except i64::MIN itself.
+            // i64::MAX ends in ...807, so |n| % 100 == 7 → Arabic "few".
+            assert_eq!(plural_for(i64::MIN + 1, "ru"), PluralCategory::Many);
+            assert_eq!(plural_for(i64::MAX, "ar"), PluralCategory::Few);
+        }
+    }
+
+    // ─── chrono-backed constructors ──────────────────────────────────────────
+
+    #[cfg(feature = "icu_chrono")]
+    mod chrono_backed {
+        use super::super::*;
+
+        #[test]
+        fn now_constructors_return_in_range_fields() {
+            for d in [IcuDate::now(), IcuDate::now_utc()] {
+                assert!((1..=12).contains(&d.month), "month out of range: {d:?}");
+                assert!((1..=31).contains(&d.day), "day out of range: {d:?}");
+                assert!(d.year >= 2020, "clock looks broken: {d:?}");
+            }
+            for t in [IcuTime::now(), IcuTime::now_utc()] {
+                assert!(t.hour < 24, "hour out of range: {t:?}");
+                assert!(t.minute < 60, "minute out of range: {t:?}");
+                assert!(t.second <= 60, "second out of range: {t:?}");
+            }
+            for dt in [IcuDateTime::now(), IcuDateTime::now_utc()] {
+                assert!((1..=12).contains(&dt.date.month));
+                assert!(dt.time.hour < 24);
+            }
+        }
+
+        #[test]
+        fn timestamp_now_seconds_and_millis_agree() {
+            let millis = IcuDateTime::timestamp_now();
+            let secs = IcuDateTime::timestamp_now_seconds();
+            assert!(millis > 1_600_000_000_000, "millis look wrong: {millis}");
+            assert!(secs > 1_600_000_000, "seconds look wrong: {secs}");
+            assert!(
+                (millis / 1000 - secs).abs() <= 2,
+                "millis {millis} and seconds {secs} disagree"
+            );
+        }
+
+        #[test]
+        fn from_timestamp_at_the_epoch_and_just_before_it() {
+            let dt = IcuDateTime::from_timestamp(0).expect("epoch must be representable");
+            assert_eq!(dt.date, IcuDate::new(1970, 1, 1));
+            assert_eq!(dt.time, IcuTime::new(0, 0, 0));
+
+            let dt = IcuDateTime::from_timestamp(-1).expect("1969 must be representable");
+            assert_eq!(dt.date, IcuDate::new(1969, 12, 31));
+            assert_eq!(dt.time, IcuTime::new(23, 59, 59));
+        }
+
+        #[test]
+        fn from_timestamp_returns_none_at_the_i64_limits() {
+            assert_eq!(IcuDateTime::from_timestamp(i64::MAX), None);
+            assert_eq!(IcuDateTime::from_timestamp(i64::MIN), None);
+            assert_eq!(IcuDateTime::from_timestamp_millis(i64::MAX), None);
+            assert_eq!(IcuDateTime::from_timestamp_millis(i64::MIN), None);
+        }
+
+        #[test]
+        fn from_timestamp_millis_truncates_towards_zero() {
+            // Sub-second millis are dropped by the `/ 1000` integer division...
+            let dt = IcuDateTime::from_timestamp_millis(999).expect("representable");
+            assert_eq!(dt.date, IcuDate::new(1970, 1, 1));
+            assert_eq!(dt.time, IcuTime::new(0, 0, 0));
+
+            // ...and for negative millis the truncation rounds *up* (towards zero),
+            // so -1ms lands on the epoch rather than on 1969-12-31T23:59:59.
+            let dt = IcuDateTime::from_timestamp_millis(-1).expect("representable");
+            assert_eq!(dt.date, IcuDate::new(1970, 1, 1));
+            assert_eq!(dt.time, IcuTime::new(0, 0, 0));
+
+            let dt = IcuDateTime::from_timestamp_millis(-1000).expect("representable");
+            assert_eq!(dt.time, IcuTime::new(23, 59, 59));
+            assert_eq!(dt.date, IcuDate::new(1969, 12, 31));
+        }
+
+        #[test]
+        fn from_timestamp_round_trips_a_known_instant() {
+            // 2025-01-15T16:30:45Z
+            let dt = IcuDateTime::from_timestamp(1_736_958_645).expect("representable");
+            assert_eq!(dt.date, IcuDate::new(2025, 1, 15));
+            assert_eq!(dt.time, IcuTime::new(16, 30, 45));
+            // The millisecond constructor must agree with the seconds one
+            assert_eq!(
+                IcuDateTime::from_timestamp_millis(1_736_958_645_123),
+                Some(dt)
+            );
+        }
+    }
+}

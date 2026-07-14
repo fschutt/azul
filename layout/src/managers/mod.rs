@@ -581,3 +581,611 @@ mod preceding_sibling_remap_tests {
         let _unused: &BTreeMap<NodeId, NodeId> = map.as_btree_map();
     }
 }
+
+// ============================================================================
+// AUTOTEST: adversarial tests for `NodeIdMap`, `remap_keys`, `remap_dom_keys`
+// ============================================================================
+#[cfg(test)]
+mod autotest_generated {
+    use azul_core::diff::NodeMove;
+
+    use super::*;
+
+    const DOM0: DomId = DomId { inner: 0 };
+    const DOM1: DomId = DomId { inner: 1 };
+    /// A `DomId` at the top of the `usize` range — must be handled like any other.
+    const DOM_MAX: DomId = DomId { inner: usize::MAX };
+
+    fn nid(i: usize) -> NodeId {
+        NodeId::new(i)
+    }
+
+    fn mv(old: usize, new: usize) -> NodeMove {
+        NodeMove {
+            old_node_id: nid(old),
+            new_node_id: nid(new),
+        }
+    }
+
+    /// `NodeHierarchyItemId` uses a 1-based encoding, so the largest node index
+    /// that can round-trip through a `DomNodeId` is `usize::MAX - 1`
+    /// (`from_crate_internal` computes `inner + 1`). Anything above that is not
+    /// representable and is deliberately not exercised through `DomNodeId`.
+    const MAX_ENCODABLE: usize = usize::MAX - 1;
+
+    fn dom_node_at(dom: DomId, node: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+        }
+    }
+
+    // ------------------------------------------------------ constructors
+
+    #[test]
+    fn from_node_moves_on_an_empty_slice_yields_an_empty_map() {
+        let map = NodeIdMap::from_node_moves(&[]);
+        assert!(map.is_empty());
+        assert!(map.as_btree_map().is_empty());
+        assert_eq!(map, NodeIdMap::default());
+    }
+
+    #[test]
+    fn from_node_moves_agrees_with_from_pairs_on_the_same_data() {
+        let moves = [mv(0, 0), mv(5, 3), mv(9, 9)];
+        let from_moves = NodeIdMap::from_node_moves(&moves);
+        let from_pairs =
+            NodeIdMap::from_pairs([(nid(0), nid(0)), (nid(5), nid(3)), (nid(9), nid(9))]);
+        assert_eq!(
+            from_moves, from_pairs,
+            "the two constructors must produce identical maps for identical data"
+        );
+    }
+
+    /// A malformed `node_moves` slice (the same old id listed twice) must not
+    /// panic and must resolve deterministically — `BTreeMap::collect` keeps the
+    /// LAST entry.
+    #[test]
+    fn from_node_moves_with_a_duplicated_old_id_keeps_the_last_entry() {
+        let map = NodeIdMap::from_node_moves(&[mv(1, 10), mv(1, 20), mv(1, 30)]);
+        assert_eq!(map.as_btree_map().len(), 1, "duplicates collapse to one key");
+        assert_eq!(
+            map.resolve(nid(1)),
+            Some(nid(30)),
+            "the last NodeMove for an old id wins"
+        );
+    }
+
+    /// Two old nodes mapped onto the SAME new id is nonsense input, but it must
+    /// still build a well-formed (if lossy) map rather than panic.
+    #[test]
+    fn from_node_moves_with_a_non_injective_mapping_does_not_panic() {
+        let map = NodeIdMap::from_node_moves(&[mv(1, 7), mv(2, 7)]);
+        assert_eq!(map.as_btree_map().len(), 2, "both old ids are retained as keys");
+        assert_eq!(map.resolve(nid(1)), Some(nid(7)));
+        assert_eq!(map.resolve(nid(2)), Some(nid(7)));
+    }
+
+    /// `NodeId` wraps a `usize`; ids at the very top of the range are just
+    /// indices as far as the map is concerned — no arithmetic, no overflow.
+    #[test]
+    fn from_node_moves_handles_extreme_node_ids() {
+        let map = NodeIdMap::from_node_moves(&[
+            mv(usize::MAX, usize::MAX),
+            mv(usize::MAX - 1, 0),
+            mv(0, usize::MAX),
+        ]);
+        assert_eq!(map.resolve(nid(usize::MAX)), Some(nid(usize::MAX)));
+        assert_eq!(map.resolve(nid(usize::MAX - 1)), Some(nid(0)));
+        assert_eq!(map.resolve(nid(0)), Some(nid(usize::MAX)));
+        assert!(!map.is_empty());
+    }
+
+    #[test]
+    fn from_pairs_on_an_empty_iterator_yields_an_empty_map() {
+        let map = NodeIdMap::from_pairs(Vec::new());
+        assert!(map.is_empty());
+        assert!(map.resolve(NodeId::ZERO).is_none());
+        assert!(map.is_unmounted(NodeId::ZERO));
+    }
+
+    #[test]
+    fn from_pairs_with_a_duplicated_old_id_keeps_the_last_entry() {
+        let map = NodeIdMap::from_pairs([(nid(4), nid(1)), (nid(4), nid(2))]);
+        assert_eq!(map.as_btree_map().len(), 1);
+        assert_eq!(map.resolve(nid(4)), Some(nid(2)));
+    }
+
+    /// Post-construction invariants at volume: every pair fed in resolves back
+    /// out, the length matches the number of distinct old ids, and nothing that
+    /// was never inserted resolves.
+    #[test]
+    fn from_pairs_invariants_hold_at_volume() {
+        let n = 2048usize;
+        let pairs: Vec<(NodeId, NodeId)> = (0..n).map(|i| (nid(i), nid(n - 1 - i))).collect();
+        let map = NodeIdMap::from_pairs(pairs);
+
+        assert_eq!(map.as_btree_map().len(), n);
+        assert!(!map.is_empty());
+        for i in 0..n {
+            assert_eq!(map.resolve(nid(i)), Some(nid(n - 1 - i)));
+            assert!(!map.is_unmounted(nid(i)));
+        }
+        assert!(map.resolve(nid(n)).is_none(), "an id never inserted is unmounted");
+        assert!(map.is_unmounted(nid(n)));
+    }
+
+    /// Round-trip: `as_btree_map` is a faithful encoding of what went in, and
+    /// feeding it back through `from_pairs` reproduces the map exactly.
+    #[test]
+    fn as_btree_map_round_trips_through_from_pairs() {
+        let original = NodeIdMap::from_pairs([
+            (nid(0), nid(0)),
+            (nid(2), nid(1)),
+            (nid(3), nid(2)),
+            (nid(usize::MAX), nid(4)),
+        ]);
+        let decoded = NodeIdMap::from_pairs(
+            original
+                .as_btree_map()
+                .iter()
+                .map(|(old, new)| (*old, *new))
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(decoded, original, "encode == decode");
+        assert_eq!(decoded.as_btree_map(), original.as_btree_map());
+    }
+
+    #[test]
+    fn a_default_map_unmounts_everything() {
+        let map = NodeIdMap::default();
+        assert!(map.is_empty());
+        assert!(map.as_btree_map().is_empty());
+        for i in [0usize, 1, 2, 1024, usize::MAX - 1, usize::MAX] {
+            assert!(map.resolve(nid(i)).is_none());
+            assert!(
+                map.is_unmounted(nid(i)),
+                "an empty reconciliation means every old node was unmounted"
+            );
+        }
+    }
+
+    // --------------------------------------------- resolve / is_unmounted
+
+    /// The two accessors are two views of the same fact — they must never
+    /// disagree, for any id, on any map.
+    #[test]
+    fn resolve_and_is_unmounted_never_disagree() {
+        let map = NodeIdMap::from_pairs([(nid(0), nid(0)), (nid(2), nid(1)), (nid(3), nid(2))]);
+        for i in [0usize, 1, 2, 3, 4, 100, usize::MAX - 1, usize::MAX] {
+            assert_eq!(
+                map.resolve(nid(i)).is_none(),
+                map.is_unmounted(nid(i)),
+                "is_unmounted({i}) must be exactly !resolve({i}).is_some()"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_is_pure_repeated_calls_return_the_same_answer() {
+        let map = NodeIdMap::from_pairs([(nid(3), nid(2))]);
+        let first = map.resolve(nid(3));
+        assert_eq!(first, map.resolve(nid(3)));
+        assert_eq!(first, map.resolve(nid(3)));
+        assert_eq!(first, Some(nid(2)));
+    }
+
+    /// `resolve` is a single lookup, NOT a transitive closure. If it chased
+    /// chains, `1 → 2 → 3` would collapse and every remap would be wrong for
+    /// any map whose new ids overlap its old ids (which is the normal case).
+    #[test]
+    fn resolve_does_not_chase_chains() {
+        let map = NodeIdMap::from_pairs([(nid(1), nid(2)), (nid(2), nid(3))]);
+        assert_eq!(
+            map.resolve(nid(1)),
+            Some(nid(2)),
+            "resolve must apply exactly one hop"
+        );
+        assert_eq!(map.resolve(nid(2)), Some(nid(3)));
+    }
+
+    /// A node that kept its index is MATCHED, not unmounted — the whole GC rule
+    /// depends on identity entries being present and meaningful.
+    #[test]
+    fn an_identity_entry_means_matched_not_unmounted() {
+        let map = NodeIdMap::from_pairs([(nid(7), nid(7))]);
+        assert!(!map.is_unmounted(nid(7)));
+        assert_eq!(map.resolve(nid(7)), Some(nid(7)));
+        assert!(map.is_unmounted(nid(6)));
+        assert!(map.is_unmounted(nid(8)));
+    }
+
+    #[test]
+    fn is_empty_is_exactly_the_btree_maps_emptiness() {
+        let empty = NodeIdMap::from_pairs(Vec::new());
+        assert_eq!(empty.is_empty(), empty.as_btree_map().is_empty());
+        assert!(empty.is_empty());
+
+        let full = NodeIdMap::from_pairs([(nid(0), nid(0))]);
+        assert_eq!(full.is_empty(), full.as_btree_map().is_empty());
+        assert!(!full.is_empty());
+    }
+
+    // ------------------------------------------------- resolve_dom_node_id
+
+    /// The documented pass-through rule: a reconciliation of DOM 0 says NOTHING
+    /// about DOM 1, so an id from another DOM must come back byte-identical —
+    /// even when its node index happens to be unmounted in *this* map.
+    #[test]
+    fn a_foreign_dom_node_id_is_passed_through_untouched() {
+        let map = NodeIdMap::from_pairs([(nid(2), nid(1))]);
+        // Node 5 is "unmounted" as far as this map is concerned...
+        let foreign = dom_node_at(DOM1, nid(5));
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, foreign),
+            Some(foreign),
+            "an id in another DOM must never be dropped by this DOM's reconciliation"
+        );
+        // ...and a foreign id whose index IS in the map must not be rewritten either.
+        let foreign_colliding = dom_node_at(DOM1, nid(2));
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, foreign_colliding),
+            Some(foreign_colliding),
+            "a foreign id must not be remapped just because its index appears in the map"
+        );
+    }
+
+    #[test]
+    fn resolve_dom_node_id_rewrites_matched_nodes_and_drops_unmounted_ones() {
+        let map = NodeIdMap::from_pairs([(nid(2), nid(1))]);
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, dom_node_at(DOM0, nid(2))),
+            Some(dom_node_at(DOM0, nid(1)))
+        );
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, dom_node_at(DOM0, nid(1))),
+            None,
+            "a node absent from the map is unmounted, so the id must be dropped"
+        );
+    }
+
+    /// `NodeHierarchyItemId::NONE` decodes to `None`. For the reconciled DOM
+    /// that means "no node" → `None`; for a foreign DOM the pass-through branch
+    /// fires first, so it survives unchanged. Both are deterministic.
+    #[test]
+    fn a_none_node_id_is_handled_without_panicking() {
+        let map = NodeIdMap::from_pairs([(nid(0), nid(0))]);
+        let none_here = DomNodeId {
+            dom: DOM0,
+            node: NodeHierarchyItemId::NONE,
+        };
+        assert_eq!(map.resolve_dom_node_id(DOM0, none_here), None);
+
+        let none_elsewhere = DomNodeId {
+            dom: DOM1,
+            node: NodeHierarchyItemId::NONE,
+        };
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, none_elsewhere),
+            Some(none_elsewhere),
+            "the foreign-DOM pass-through happens before the node is decoded"
+        );
+    }
+
+    /// Boundary ids on both axes: the largest encodable node index and the
+    /// largest `DomId`. `MAX_ENCODABLE` maps to raw `usize::MAX` in the 1-based
+    /// encoding, i.e. the last value that fits.
+    #[test]
+    fn resolve_dom_node_id_survives_boundary_ids() {
+        let map = NodeIdMap::from_pairs([
+            (nid(MAX_ENCODABLE), nid(0)),
+            (nid(0), nid(MAX_ENCODABLE)),
+        ]);
+
+        // Largest encodable index as the OLD id.
+        let big_old = dom_node_at(DOM0, nid(MAX_ENCODABLE));
+        assert_eq!(big_old.node.into_raw(), usize::MAX, "1-based encoding is saturated");
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, big_old),
+            Some(dom_node_at(DOM0, nid(0)))
+        );
+
+        // Largest encodable index as the NEW id (re-encoding must not overflow).
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, dom_node_at(DOM0, nid(0))),
+            Some(dom_node_at(DOM0, nid(MAX_ENCODABLE)))
+        );
+
+        // An extreme DomId is still just a DomId.
+        let far_dom = dom_node_at(DOM_MAX, nid(0));
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, far_dom),
+            Some(far_dom),
+            "DomId::MAX is foreign to DOM 0 and passes through"
+        );
+        assert_eq!(
+            map.resolve_dom_node_id(DOM_MAX, far_dom),
+            Some(dom_node_at(DOM_MAX, nid(MAX_ENCODABLE))),
+            "when DomId::MAX *is* the reconciled DOM, its nodes are remapped"
+        );
+    }
+
+    #[test]
+    fn resolve_dom_node_id_on_an_empty_map_drops_own_dom_and_keeps_foreign() {
+        let map = NodeIdMap::default();
+        assert_eq!(map.resolve_dom_node_id(DOM0, dom_node_at(DOM0, nid(0))), None);
+        let foreign = dom_node_at(DOM1, nid(0));
+        assert_eq!(map.resolve_dom_node_id(DOM0, foreign), Some(foreign));
+    }
+
+    // ------------------------------------------------------- remap_keys
+
+    /// The reason `remap_keys` takes the map out before rebuilding it: a SWAP
+    /// (`1 → 2`, `2 → 1`) is a legal reconciliation, and an in-place rewrite
+    /// would overwrite one payload with the other. Both payloads must survive,
+    /// on the correct keys.
+    #[test]
+    fn remap_keys_handles_a_swap_without_clobbering_payloads() {
+        let mut map: BTreeMap<NodeId, &str> = BTreeMap::new();
+        map.insert(nid(1), "one");
+        map.insert(nid(2), "two");
+        let node_map = NodeIdMap::from_pairs([(nid(1), nid(2)), (nid(2), nid(1))]);
+
+        remap_keys(&mut map, &node_map);
+
+        assert_eq!(map.len(), 2, "a swap must not lose an entry");
+        assert_eq!(map.get(&nid(1)).copied(), Some("two"));
+        assert_eq!(map.get(&nid(2)).copied(), Some("one"));
+    }
+
+    /// The GC half of the contract: keys absent from the map are unmounted and
+    /// must be dropped, never kept "just in case".
+    #[test]
+    fn remap_keys_drops_state_for_unmounted_nodes() {
+        let mut map: BTreeMap<NodeId, u32> = BTreeMap::new();
+        map.insert(nid(1), 10);
+        map.insert(nid(2), 20);
+        map.insert(nid(3), 30);
+        let node_map = NodeIdMap::from_pairs([(nid(2), nid(1)), (nid(3), nid(2))]);
+
+        remap_keys(&mut map, &node_map);
+
+        assert_eq!(map.len(), 2, "node 1's state must be GC'd");
+        assert_eq!(map.get(&nid(1)).copied(), Some(20));
+        assert_eq!(map.get(&nid(2)).copied(), Some(30));
+        assert!(map.get(&nid(3)).is_none(), "no state may remain at a dead index");
+    }
+
+    #[test]
+    fn remap_keys_with_an_empty_node_map_clears_all_state() {
+        let mut map: BTreeMap<NodeId, u32> = BTreeMap::new();
+        map.insert(nid(0), 1);
+        map.insert(nid(9), 2);
+
+        remap_keys(&mut map, &NodeIdMap::default());
+
+        assert!(
+            map.is_empty(),
+            "an empty reconciliation unmounts everything, so all state is dropped"
+        );
+    }
+
+    #[test]
+    fn remap_keys_with_an_identity_map_is_a_no_op() {
+        let mut map: BTreeMap<NodeId, u32> = (0..64).map(|i| (nid(i), i as u32)).collect();
+        let before = map.clone();
+        let node_map = NodeIdMap::from_pairs((0..64).map(|i| (nid(i), nid(i))));
+
+        remap_keys(&mut map, &node_map);
+
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn remap_keys_on_an_empty_map_does_not_panic() {
+        let mut map: BTreeMap<NodeId, u32> = BTreeMap::new();
+        remap_keys(&mut map, &NodeIdMap::from_pairs([(nid(1), nid(0))]));
+        assert!(map.is_empty());
+    }
+
+    /// A non-injective reconciliation (`1 → 5` and `2 → 5`) cannot be
+    /// represented by a map keyed on `NodeId` — one entry must win. Assert the
+    /// outcome is deterministic (source keys are visited in ascending order, so
+    /// the HIGHEST old id lands last) rather than a panic or a silent duplicate.
+    #[test]
+    fn remap_keys_collision_is_lossy_but_deterministic() {
+        let mut map: BTreeMap<NodeId, &str> = BTreeMap::new();
+        map.insert(nid(1), "from-1");
+        map.insert(nid(2), "from-2");
+        let node_map = NodeIdMap::from_pairs([(nid(1), nid(5)), (nid(2), nid(5))]);
+
+        remap_keys(&mut map, &node_map);
+
+        assert_eq!(map.len(), 1, "two old keys collapsing onto one new key lose one entry");
+        assert_eq!(
+            map.get(&nid(5)).copied(),
+            Some("from-2"),
+            "the last-visited (highest) old id wins — deterministic, not arbitrary"
+        );
+    }
+
+    /// The preceding-sibling delete at scale: deleting node 1 of 256 shifts every
+    /// later index down by one. Every payload must land on exactly the key that
+    /// now denotes its element — an off-by-one here is the misattachment bug the
+    /// module doc-comment describes.
+    #[test]
+    fn remap_keys_preserves_payload_identity_under_a_shift_down() {
+        let n = 256usize;
+        let mut map: BTreeMap<NodeId, usize> = (0..n).map(|i| (nid(i), i * 1000)).collect();
+        // 0 stays, 1 is deleted, 2..n shift down by one.
+        let node_map = NodeIdMap::from_pairs(
+            core::iter::once((nid(0), nid(0))).chain((2..n).map(|i| (nid(i), nid(i - 1)))),
+        );
+
+        remap_keys(&mut map, &node_map);
+
+        assert_eq!(map.len(), n - 1, "exactly the deleted node's state is GC'd");
+        assert_eq!(map.get(&nid(0)).copied(), Some(0));
+        for i in 2..n {
+            assert_eq!(
+                map.get(&nid(i - 1)).copied(),
+                Some(i * 1000),
+                "node {i}'s payload must follow it to index {}",
+                i - 1
+            );
+        }
+        assert!(map.get(&nid(n - 1)).is_none(), "the vacated tail index is empty");
+    }
+
+    /// Ordering trap: an entry is rewritten ONTO an index that another (about to
+    /// be dropped) entry currently occupies. Because the source map is taken out
+    /// first, the survivor must not be eaten by the corpse.
+    #[test]
+    fn remap_keys_survivor_moving_onto_a_dead_index_is_not_dropped() {
+        let mut map: BTreeMap<NodeId, &str> = BTreeMap::new();
+        map.insert(nid(1), "doomed");
+        map.insert(nid(2), "survivor");
+        // Node 1 is unmounted; node 2 moves into its slot.
+        let node_map = NodeIdMap::from_pairs([(nid(2), nid(1))]);
+
+        remap_keys(&mut map, &node_map);
+
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get(&nid(1)).copied(),
+            Some("survivor"),
+            "the surviving payload occupies the recycled index — the dead one is gone"
+        );
+    }
+
+    // --------------------------------------------------- remap_dom_keys
+
+    #[test]
+    fn remap_dom_keys_never_touches_another_dom() {
+        let mut map: BTreeMap<(DomId, NodeId), u32> = BTreeMap::new();
+        map.insert((DOM0, nid(2)), 20);
+        // Same node index, different DOM — must survive verbatim.
+        map.insert((DOM1, nid(2)), 99);
+        // A foreign entry at an index that is unmounted in DOM 0.
+        map.insert((DOM1, nid(1)), 98);
+        let node_map = NodeIdMap::from_pairs([(nid(2), nid(1))]);
+
+        remap_dom_keys(&mut map, DOM0, &node_map);
+
+        assert_eq!(map.get(&(DOM0, nid(1))).copied(), Some(20), "DOM 0's entry is remapped");
+        assert!(map.get(&(DOM0, nid(2))).is_none(), "the old DOM 0 key is gone");
+        assert_eq!(
+            map.get(&(DOM1, nid(2))).copied(),
+            Some(99),
+            "DOM 1 is untouched by a DOM 0 reconciliation"
+        );
+        assert_eq!(map.get(&(DOM1, nid(1))).copied(), Some(98));
+        assert_eq!(map.len(), 3);
+    }
+
+    #[test]
+    fn remap_dom_keys_drops_unmounted_entries_of_the_target_dom_only() {
+        let mut map: BTreeMap<(DomId, NodeId), u32> = BTreeMap::new();
+        map.insert((DOM0, nid(1)), 10); // unmounted in DOM 0 -> dropped
+        map.insert((DOM1, nid(1)), 11); // same index, other DOM -> kept
+        let node_map = NodeIdMap::from_pairs([(nid(0), nid(0))]);
+
+        remap_dom_keys(&mut map, DOM0, &node_map);
+
+        assert!(map.get(&(DOM0, nid(1))).is_none());
+        assert_eq!(map.get(&(DOM1, nid(1))).copied(), Some(11));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn remap_dom_keys_handles_a_swap_within_the_target_dom() {
+        let mut map: BTreeMap<(DomId, NodeId), &str> = BTreeMap::new();
+        map.insert((DOM0, nid(1)), "one");
+        map.insert((DOM0, nid(2)), "two");
+        map.insert((DOM1, nid(1)), "other-dom");
+        let node_map = NodeIdMap::from_pairs([(nid(1), nid(2)), (nid(2), nid(1))]);
+
+        remap_dom_keys(&mut map, DOM0, &node_map);
+
+        assert_eq!(map.get(&(DOM0, nid(1))).copied(), Some("two"));
+        assert_eq!(map.get(&(DOM0, nid(2))).copied(), Some("one"));
+        assert_eq!(map.get(&(DOM1, nid(1))).copied(), Some("other-dom"));
+        assert_eq!(map.len(), 3, "a swap plus a bystander DOM loses nothing");
+    }
+
+    #[test]
+    fn remap_dom_keys_with_an_empty_node_map_clears_only_the_target_dom() {
+        let mut map: BTreeMap<(DomId, NodeId), u32> = BTreeMap::new();
+        map.insert((DOM0, nid(0)), 1);
+        map.insert((DOM0, nid(5)), 2);
+        map.insert((DOM1, nid(0)), 3);
+
+        remap_dom_keys(&mut map, DOM0, &NodeIdMap::default());
+
+        assert_eq!(map.len(), 1, "every DOM 0 node was unmounted");
+        assert_eq!(map.get(&(DOM1, nid(0))).copied(), Some(3));
+    }
+
+    #[test]
+    fn remap_dom_keys_on_an_empty_map_does_not_panic() {
+        let mut map: BTreeMap<(DomId, NodeId), u32> = BTreeMap::new();
+        remap_dom_keys(&mut map, DOM0, &NodeIdMap::from_pairs([(nid(1), nid(0))]));
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn remap_dom_keys_with_a_target_dom_that_has_no_entries_is_a_no_op() {
+        let mut map: BTreeMap<(DomId, NodeId), u32> = BTreeMap::new();
+        map.insert((DOM1, nid(1)), 1);
+        map.insert((DOM_MAX, nid(2)), 2);
+        let before = map.clone();
+
+        remap_dom_keys(&mut map, DOM0, &NodeIdMap::from_pairs([(nid(1), nid(9))]));
+
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn remap_dom_keys_handles_boundary_dom_and_node_ids() {
+        let mut map: BTreeMap<(DomId, NodeId), u32> = BTreeMap::new();
+        map.insert((DOM_MAX, nid(usize::MAX)), 1);
+        map.insert((DOM_MAX, nid(usize::MAX - 1)), 2);
+        map.insert((DOM0, nid(usize::MAX)), 3);
+        let node_map = NodeIdMap::from_pairs([(nid(usize::MAX), nid(0))]);
+
+        remap_dom_keys(&mut map, DOM_MAX, &node_map);
+
+        assert_eq!(
+            map.get(&(DOM_MAX, nid(0))).copied(),
+            Some(1),
+            "usize::MAX remaps like any other index"
+        );
+        assert!(
+            map.get(&(DOM_MAX, nid(usize::MAX - 1))).is_none(),
+            "unmounted in DOM_MAX -> dropped"
+        );
+        assert_eq!(
+            map.get(&(DOM0, nid(usize::MAX))).copied(),
+            Some(3),
+            "DOM 0 is a bystander here"
+        );
+        assert_eq!(map.len(), 2);
+    }
+
+    /// Applying the SAME reconciliation twice is not idempotent in general (the
+    /// second pass re-reads already-new ids as if they were old), which is why
+    /// callers must run it exactly once per rebuild. Pin the one case that IS
+    /// safe — the identity map — so the no-op guarantee cannot regress.
+    #[test]
+    fn remap_dom_keys_with_an_identity_map_is_a_no_op_even_when_repeated() {
+        let mut map: BTreeMap<(DomId, NodeId), u32> =
+            (0..32).map(|i| ((DOM0, nid(i)), i as u32)).collect();
+        let before = map.clone();
+        let node_map = NodeIdMap::from_pairs((0..32).map(|i| (nid(i), nid(i))));
+
+        remap_dom_keys(&mut map, DOM0, &node_map);
+        remap_dom_keys(&mut map, DOM0, &node_map);
+
+        assert_eq!(map, before);
+    }
+}

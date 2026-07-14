@@ -7789,3 +7789,1024 @@ fn print_css_property_value<T: FormatAsRustCode>(
         ),
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod autotest_generated {
+    use super::*;
+    use crate::props::basic::animation::AnimationInterpolationFunction;
+
+    // ---- helpers -----------------------------------------------------------
+
+    fn resolver() -> InterpolateResolver {
+        InterpolateResolver {
+            interpolate_func: AnimationInterpolationFunction::Linear,
+            parent_rect_width: 800.0,
+            parent_rect_height: 600.0,
+            current_rect_width: 400.0,
+            current_rect_height: 300.0,
+        }
+    }
+
+    fn font_size(px: f32) -> CssProperty {
+        CssProperty::font_size(StyleFontSize {
+            inner: PixelValue::px(px),
+        })
+    }
+
+    fn font_size_px_of(prop: &CssProperty) -> f32 {
+        match prop {
+            CssProperty::FontSize(CssPropertyValue::Exact(fs)) => fs.inner.number.get(),
+            other => panic!("expected an exact FontSize, got {other:?}"),
+        }
+    }
+
+    /// The five CSS table properties that `CssPropertyType::to_str()` names but
+    /// `CSS_PROPERTY_KEY_MAP` never registers, so `from_str` can't find them.
+    /// See `bug_table_properties_are_unreachable_from_stylesheet_text`.
+    const KEYS_MISSING_FROM_KEY_MAP: &[CssPropertyType] = &[
+        CssPropertyType::TableLayout,
+        CssPropertyType::BorderCollapse,
+        CssPropertyType::BorderSpacing,
+        CssPropertyType::CaptionSide,
+        CssPropertyType::EmptyCells,
+    ];
+
+    // ---- CssKeyMap / get_css_key_map ---------------------------------------
+
+    #[test]
+    fn key_map_is_populated_and_deterministic() {
+        let a = get_css_key_map();
+        let b = CssKeyMap::get();
+        assert_eq!(a, b, "CssKeyMap::get() must equal get_css_key_map()");
+        assert!(!a.non_shorthands.is_empty());
+        assert!(!a.shorthands.is_empty());
+        // Every registered key resolves back to the type it was registered under.
+        for (k, v) in &a.non_shorthands {
+            assert_eq!(CssPropertyType::from_str(k, &a), Some(*v), "key {k}");
+        }
+        for (k, v) in &a.shorthands {
+            assert_eq!(
+                CombinedCssPropertyType::from_str(k, &a),
+                Some(*v),
+                "shorthand {k}"
+            );
+        }
+    }
+
+    // ---- from_str: malformed / boundary / unicode ---------------------------
+
+    #[test]
+    fn from_str_empty_input_returns_none() {
+        let map = get_css_key_map();
+        assert_eq!(CssPropertyType::from_str("", &map), None);
+        assert_eq!(CombinedCssPropertyType::from_str("", &map), None);
+    }
+
+    #[test]
+    fn from_str_whitespace_only_returns_none() {
+        let map = get_css_key_map();
+        for input in ["   ", "\t", "\n", "\r\n", " \t \n \r ", "\u{a0}"] {
+            assert_eq!(CssPropertyType::from_str(input, &map), None, "{input:?}");
+            assert_eq!(
+                CombinedCssPropertyType::from_str(input, &map),
+                None,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_str_trims_surrounding_whitespace() {
+        let map = get_css_key_map();
+        assert_eq!(
+            CssPropertyType::from_str("  \t width \n ", &map),
+            Some(CssPropertyType::Width)
+        );
+        assert_eq!(
+            CombinedCssPropertyType::from_str("\n border \t", &map),
+            Some(CombinedCssPropertyType::Border)
+        );
+    }
+
+    #[test]
+    fn from_str_garbage_returns_none() {
+        let map = get_css_key_map();
+        for input in [
+            "asdfasdfasdf",
+            ";",
+            "{}",
+            "widthh",
+            "wid th",
+            "width:",
+            "width;garbage",
+            "width!important",
+            "\0",
+            "\u{0}width\u{0}",
+            "../../etc/passwd",
+            "%s%s%s%n",
+            "-",
+            "--",
+            "--custom-property",
+        ] {
+            assert_eq!(CssPropertyType::from_str(input, &map), None, "{input:?}");
+            assert_eq!(
+                CombinedCssPropertyType::from_str(input, &map),
+                None,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_str_is_case_sensitive() {
+        // CSS keys are case-insensitive per spec, but these lookups are raw map
+        // hits: normalisation is the caller's job (see parser2). Locked in so a
+        // future change to the casing contract is a deliberate, visible one.
+        let map = get_css_key_map();
+        for input in ["WIDTH", "Width", "wIdTh"] {
+            assert_eq!(CssPropertyType::from_str(input, &map), None, "{input:?}");
+        }
+        assert_eq!(
+            CssPropertyType::from_str("width", &map),
+            Some(CssPropertyType::Width)
+        );
+    }
+
+    #[test]
+    fn from_str_boundary_number_strings_return_none() {
+        let map = get_css_key_map();
+        for input in [
+            "0",
+            "-0",
+            "NaN",
+            "nan",
+            "inf",
+            "-inf",
+            "Infinity",
+            "9223372036854775807",  // i64::MAX
+            "-9223372036854775808", // i64::MIN
+            "340282350000000000000000000000000000000", // ~f32::MAX
+            "1e309",                // overflows f64
+            "0.00000000000000000001",
+        ] {
+            assert_eq!(CssPropertyType::from_str(input, &map), None, "{input:?}");
+            assert_eq!(
+                CombinedCssPropertyType::from_str(input, &map),
+                None,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_str_unicode_does_not_panic() {
+        let map = get_css_key_map();
+        for input in [
+            "\u{1F600}",                // emoji
+            "wi\u{0301}dth",            // combining acute accent
+            "\u{202E}width",            // RTL override
+            "ｗｉｄｔｈ",               // fullwidth latin
+            "width\u{FEFF}",            // BOM suffix
+            "𝓌𝒾𝒹𝓉𝒽",                    // mathematical script
+            "ширина",                   // cyrillic
+            "\u{0301}\u{0301}\u{0301}", // lone combining marks
+        ] {
+            assert_eq!(CssPropertyType::from_str(input, &map), None, "{input:?}");
+            assert_eq!(
+                CombinedCssPropertyType::from_str(input, &map),
+                None,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_str_extremely_long_input_does_not_panic_or_hang() {
+        let map = get_css_key_map();
+        let huge = "width".repeat(200_000); // 1_000_000 chars
+        assert_eq!(huge.len(), 1_000_000);
+        assert_eq!(CssPropertyType::from_str(&huge, &map), None);
+        assert_eq!(CombinedCssPropertyType::from_str(&huge, &map), None);
+
+        // A valid key buried in a megabyte of padding is still not a valid key.
+        let padded = format!("{}width{}", "x".repeat(500_000), "x".repeat(500_000));
+        assert_eq!(CssPropertyType::from_str(&padded, &map), None);
+    }
+
+    #[test]
+    fn from_str_deeply_nested_brackets_do_not_stack_overflow() {
+        let map = get_css_key_map();
+        let nested = format!("{}{}", "(".repeat(10_000), ")".repeat(10_000));
+        assert_eq!(CssPropertyType::from_str(&nested, &map), None);
+        assert_eq!(CombinedCssPropertyType::from_str(&nested, &map), None);
+    }
+
+    #[test]
+    fn from_str_valid_minimal_positive_control() {
+        let map = get_css_key_map();
+        assert_eq!(
+            CssPropertyType::from_str("width", &map),
+            Some(CssPropertyType::Width)
+        );
+        assert_eq!(
+            CssPropertyType::from_str("justify-content", &map),
+            Some(CssPropertyType::JustifyContent)
+        );
+        assert_eq!(
+            CombinedCssPropertyType::from_str("border", &map),
+            Some(CombinedCssPropertyType::Border)
+        );
+    }
+
+    #[test]
+    fn word_wrap_is_a_registered_alias_for_overflow_wrap() {
+        let map = get_css_key_map();
+        assert_eq!(
+            CssPropertyType::from_str("word-wrap", &map),
+            Some(CssPropertyType::OverflowWrap)
+        );
+        assert_eq!(
+            CssPropertyType::from_str("overflow-wrap", &map),
+            Some(CssPropertyType::OverflowWrap)
+        );
+        // The alias is not the canonical name.
+        assert_eq!(CssPropertyType::OverflowWrap.to_str(), "overflow-wrap");
+    }
+
+    #[test]
+    fn keys_present_in_both_maps_are_shorthand_shadowed() {
+        // These four strings are registered in *both* key maps. parser2 consults
+        // the shorthand map first, so the CombinedCssPropertyType always wins and
+        // the same-named CssPropertyType is never reached from stylesheet text.
+        let map = get_css_key_map();
+        for k in ["background", "font", "gap", "grid-gap"] {
+            assert!(
+                CssPropertyType::from_str(k, &map).is_some(),
+                "{k} should be in the non-shorthand map"
+            );
+            assert!(
+                CombinedCssPropertyType::from_str(k, &map).is_some(),
+                "{k} should be in the shorthand map"
+            );
+        }
+    }
+
+    // ---- to_str / Display / Debug round-trips -------------------------------
+
+    #[test]
+    fn css_property_type_to_str_is_non_empty_and_unique() {
+        let mut seen = BTreeMap::new();
+        for t in CssPropertyType::iter() {
+            let s = t.to_str();
+            assert!(!s.is_empty(), "{t:?} has an empty to_str()");
+            assert!(!s.contains(' '), "{t:?} to_str() contains whitespace: {s:?}");
+            assert_eq!(s.trim(), s, "{t:?} to_str() is not trimmed: {s:?}");
+            if let Some(prev) = seen.insert(s, t) {
+                panic!("to_str() collision: {prev:?} and {t:?} both return {s:?}");
+            }
+        }
+        assert_eq!(seen.len(), CssPropertyType::ALL.len());
+    }
+
+    #[test]
+    fn css_property_type_display_and_debug_agree_with_to_str() {
+        for t in CssPropertyType::iter() {
+            assert_eq!(format!("{t}"), t.to_str());
+            assert_eq!(format!("{t:?}"), t.to_str());
+        }
+    }
+
+    #[test]
+    fn css_property_type_iter_matches_all() {
+        let collected: Vec<CssPropertyType> = CssPropertyType::iter().collect();
+        assert_eq!(collected.as_slice(), CssPropertyType::ALL);
+        // Iteration is repeatable (no interior state).
+        let again: Vec<CssPropertyType> = CssPropertyType::iter().collect();
+        assert_eq!(collected, again);
+    }
+
+    #[test]
+    fn css_property_type_to_str_round_trips_except_known_gap() {
+        // parse(serialize(x)) == x for every property type that is actually
+        // registered in the key map. The set that fails to round-trip is pinned
+        // to the five table properties below; a sixth regression fails here.
+        let map = get_css_key_map();
+        let mut unreachable = Vec::new();
+        for t in CssPropertyType::iter() {
+            match CssPropertyType::from_str(t.to_str(), &map) {
+                Some(back) => assert_eq!(back, t, "{t:?} round-tripped to the wrong type"),
+                None => unreachable.push(t),
+            }
+        }
+        assert_eq!(
+            unreachable.as_slice(),
+            KEYS_MISSING_FROM_KEY_MAP,
+            "the set of property types missing from CSS_PROPERTY_KEY_MAP changed"
+        );
+    }
+
+    #[test]
+    #[ignore = "RED: 5 table properties are absent from CSS_PROPERTY_KEY_MAP, so they can never \
+                be parsed from stylesheet text. Remove the #[ignore] once they are registered."]
+    fn bug_table_properties_are_unreachable_from_stylesheet_text() {
+        let map = get_css_key_map();
+        for t in KEYS_MISSING_FROM_KEY_MAP {
+            assert_eq!(
+                CssPropertyType::from_str(t.to_str(), &map),
+                Some(*t),
+                "`{}` has a to_str() name and a working value parser, but no key-map \
+                 entry, so parser2 rejects the declaration outright",
+                t.to_str()
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn table_property_value_parsers_work_even_though_the_keys_do_not_resolve() {
+        // Proves the gap above is purely in CSS_PROPERTY_KEY_MAP: given the key
+        // *type*, every one of these values parses fine. Only the string -> type
+        // lookup is missing.
+        for (t, value) in [
+            (CssPropertyType::TableLayout, "fixed"),
+            (CssPropertyType::BorderCollapse, "collapse"),
+            (CssPropertyType::CaptionSide, "top"),
+            (CssPropertyType::EmptyCells, "hide"),
+        ] {
+            let parsed = parse_css_property(t, value)
+                .unwrap_or_else(|e| panic!("`{}: {value}` should parse: {e}", t.to_str()));
+            assert_eq!(parsed.get_type(), t);
+        }
+    }
+
+    #[test]
+    fn combined_css_property_type_round_trips_and_display_agrees() {
+        let map = get_css_key_map();
+        for (_, t) in &map.shorthands {
+            let s = t.to_str(&map);
+            assert!(!s.is_empty());
+            assert_eq!(
+                CombinedCssPropertyType::from_str(s, &map),
+                Some(*t),
+                "{t:?} did not round-trip"
+            );
+            // Display is derived from the static array, to_str from the map:
+            // the two sources must not drift apart.
+            assert_eq!(format!("{t}"), s, "Display disagrees with to_str for {t:?}");
+        }
+        assert_eq!(map.shorthands.len(), COMBINED_CSS_PROPERTIES_KEY_MAP.len());
+    }
+
+    // ---- predicates: totality + known true/false -----------------------------
+
+    #[test]
+    fn is_inheritable_matches_the_css_spec_for_known_properties() {
+        for t in [
+            CssPropertyType::TextColor,
+            CssPropertyType::FontFamily,
+            CssPropertyType::FontSize,
+            CssPropertyType::LineHeight,
+            CssPropertyType::Visibility,
+            CssPropertyType::Cursor,
+            CssPropertyType::WritingMode,
+        ] {
+            assert!(t.is_inheritable(), "{t:?} is inherited per CSS spec");
+        }
+        for t in [
+            CssPropertyType::Width,
+            CssPropertyType::Height,
+            CssPropertyType::Display,
+            CssPropertyType::Position,
+            CssPropertyType::Opacity,
+            CssPropertyType::Transform,
+            CssPropertyType::BackgroundContent,
+            CssPropertyType::UnicodeBidi, // explicitly non-inherited, see +spec:display-property
+        ] {
+            assert!(!t.is_inheritable(), "{t:?} is NOT inherited per CSS spec");
+        }
+    }
+
+    #[test]
+    fn predicates_are_total_over_every_property_type() {
+        // Every predicate must return a deterministic bool for all 180 variants
+        // without panicking, and must be pure (same answer twice).
+        for t in CssPropertyType::iter() {
+            assert_eq!(t.is_inheritable(), t.is_inheritable());
+            assert_eq!(t.has_compact_encoding(), t.has_compact_encoding());
+            assert_eq!(t.can_trigger_relayout(), t.can_trigger_relayout());
+            assert_eq!(t.is_gpu_only_property(), t.is_gpu_only_property());
+            assert_eq!(t.get_category(), t.get_category());
+            assert_eq!(t.relayout_scope(false), t.relayout_scope(false));
+            assert_eq!(t.relayout_scope(true), t.relayout_scope(true));
+        }
+    }
+
+    #[test]
+    fn is_gpu_only_property_is_exactly_opacity_and_transform() {
+        let gpu: Vec<CssPropertyType> = CssPropertyType::iter()
+            .filter(CssPropertyType::is_gpu_only_property)
+            .collect();
+        assert_eq!(
+            gpu,
+            vec![CssPropertyType::Opacity, CssPropertyType::Transform]
+        );
+    }
+
+    #[test]
+    fn has_compact_encoding_known_true_false() {
+        assert!(CssPropertyType::Display.has_compact_encoding());
+        assert!(CssPropertyType::Width.has_compact_encoding());
+        assert!(CssPropertyType::FlexGrow.has_compact_encoding());
+        assert!(!CssPropertyType::Transform.has_compact_encoding());
+        assert!(!CssPropertyType::Filter.has_compact_encoding());
+        assert!(!CssPropertyType::Content.has_compact_encoding());
+    }
+
+    #[test]
+    fn can_trigger_relayout_known_true_false() {
+        for t in [
+            CssPropertyType::Width,
+            CssPropertyType::Display,
+            CssPropertyType::FontSize,
+            CssPropertyType::MarginTop,
+        ] {
+            assert!(t.can_trigger_relayout(), "{t:?} affects geometry");
+        }
+        for t in [
+            CssPropertyType::TextColor,
+            CssPropertyType::Opacity,
+            CssPropertyType::Transform,
+            CssPropertyType::BackgroundContent,
+        ] {
+            assert!(!t.can_trigger_relayout(), "{t:?} is paint-only");
+        }
+    }
+
+    #[test]
+    fn get_category_is_derived_consistently_from_the_predicates() {
+        for t in CssPropertyType::iter() {
+            let expected = if t.is_gpu_only_property() {
+                CssPropertyCategory::GpuOnly
+            } else {
+                match (t.is_inheritable(), t.can_trigger_relayout()) {
+                    (true, true) => CssPropertyCategory::InheritedLayout,
+                    (true, false) => CssPropertyCategory::InheritedPaint,
+                    (false, true) => CssPropertyCategory::Layout,
+                    (false, false) => CssPropertyCategory::Paint,
+                }
+            };
+            assert_eq!(t.get_category(), expected, "{t:?}");
+        }
+        assert_eq!(
+            CssPropertyType::Opacity.get_category(),
+            CssPropertyCategory::GpuOnly
+        );
+        assert_eq!(
+            CssPropertyType::Width.get_category(),
+            CssPropertyCategory::Layout
+        );
+        assert_eq!(
+            CssPropertyType::FontSize.get_category(),
+            CssPropertyCategory::InheritedLayout
+        );
+    }
+
+    // ---- relayout_scope ------------------------------------------------------
+
+    #[test]
+    fn relayout_scope_never_contradicts_can_trigger_relayout() {
+        // relayout_scope is documented as "a more granular replacement for
+        // can_trigger_relayout()". The safe direction must hold: anything the
+        // coarse predicate calls paint-only must also be scope None, or an
+        // incremental-layout consumer would skip a relayout it actually needs.
+        for t in CssPropertyType::iter() {
+            if !t.can_trigger_relayout() {
+                for ifc in [false, true] {
+                    assert_eq!(
+                        t.relayout_scope(ifc),
+                        RelayoutScope::None,
+                        "{t:?} is paint-only but claims a relayout scope (ifc={ifc})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relayout_scope_paint_only_ignores_the_ifc_flag() {
+        for t in [
+            CssPropertyType::TextColor,
+            CssPropertyType::Opacity,
+            CssPropertyType::Transform,
+            CssPropertyType::BackgroundContent,
+            CssPropertyType::CaretColor,
+            CssPropertyType::ObjectFit,
+        ] {
+            assert_eq!(t.relayout_scope(false), RelayoutScope::None, "{t:?}");
+            assert_eq!(t.relayout_scope(true), RelayoutScope::None, "{t:?}");
+        }
+    }
+
+    #[test]
+    fn relayout_scope_upgrades_text_properties_only_inside_an_ifc() {
+        // Font/text changes reflow an inline formatting context but do not
+        // resize a block container that has only block children.
+        for t in [
+            CssPropertyType::FontSize,
+            CssPropertyType::FontFamily,
+            CssPropertyType::LineHeight,
+            CssPropertyType::LetterSpacing,
+        ] {
+            assert_eq!(t.relayout_scope(true), RelayoutScope::IfcOnly, "{t:?}");
+            assert_ne!(t.relayout_scope(false), RelayoutScope::IfcOnly, "{t:?}");
+        }
+    }
+
+    // ---- CssProperty keyword constructors: totality over all 180 variants -----
+
+    #[test]
+    fn keyword_constructors_preserve_the_property_type_for_every_variant() {
+        // css_property_from_type! is a 180-arm hand-written macro: a single
+        // copy-paste slip would silently build the wrong variant.
+        for t in CssPropertyType::iter() {
+            assert_eq!(CssProperty::none(t).get_type(), t, "none({t:?})");
+            assert_eq!(CssProperty::auto(t).get_type(), t, "auto({t:?})");
+            assert_eq!(CssProperty::initial(t).get_type(), t, "initial({t:?})");
+            assert_eq!(CssProperty::inherit(t).get_type(), t, "inherit({t:?})");
+        }
+    }
+
+    #[test]
+    fn key_agrees_with_get_type_for_every_variant() {
+        for t in CssPropertyType::iter() {
+            assert_eq!(CssProperty::none(t).key(), t.to_str(), "{t:?}");
+        }
+    }
+
+    #[test]
+    fn value_and_format_css_are_well_formed_for_every_keyword_variant() {
+        for t in CssPropertyType::iter() {
+            for (ctor, keyword) in [
+                (CssProperty::none as fn(CssPropertyType) -> CssProperty, "none"),
+                (CssProperty::auto, "auto"),
+                (CssProperty::initial, "initial"),
+                (CssProperty::inherit, "inherit"),
+            ] {
+                let prop = ctor(t);
+                assert_eq!(prop.value(), keyword, "{t:?} {keyword}");
+                assert!(!prop.value().is_empty());
+                assert_eq!(
+                    prop.format_css(),
+                    format!("{}: {keyword};", t.to_str()),
+                    "{t:?} {keyword}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn format_css_does_not_panic_on_extreme_and_non_finite_numbers() {
+        for px in [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            f32::MAX,
+            f32::MIN,
+            f32::MIN_POSITIVE,
+            f32::EPSILON,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ] {
+            let prop = font_size(px);
+            let css = prop.format_css();
+            assert!(!css.is_empty(), "empty css for font-size {px}");
+            assert!(css.starts_with("font-size: "), "malformed: {css:?}");
+            assert!(css.ends_with(';'), "malformed: {css:?}");
+            assert_eq!(prop.get_type(), CssPropertyType::FontSize);
+        }
+    }
+
+    #[test]
+    fn extreme_float_inputs_saturate_rather_than_wrap() {
+        // FloatValue stores a fixed-point isize; `f32 as isize` saturates, so
+        // huge magnitudes must clamp and NaN must land on a defined value.
+        assert!(font_size_px_of(&font_size(f32::INFINITY)) > 0.0);
+        assert!(font_size_px_of(&font_size(f32::NEG_INFINITY)) < 0.0);
+        assert_eq!(font_size_px_of(&font_size(f32::NAN)), 0.0);
+        assert_eq!(font_size_px_of(&font_size(0.0)), 0.0);
+        assert_eq!(font_size_px_of(&font_size(16.0)), 16.0);
+        assert_eq!(font_size_px_of(&font_size(-16.0)), -16.0);
+    }
+
+    // ---- interpolate ---------------------------------------------------------
+
+    #[test]
+    fn interpolate_at_and_beyond_the_endpoints() {
+        let r = resolver();
+        let a = font_size(10.0);
+        let b = font_size(20.0);
+
+        assert_eq!(a.interpolate(&b, 0.0, &r), a, "t=0 must return self");
+        assert_eq!(a.interpolate(&b, 1.0, &r), b, "t=1 must return other");
+        assert_eq!(a.interpolate(&b, -0.0, &r), a);
+        assert_eq!(a.interpolate(&b, -5.0, &r), a, "t<0 clamps to self");
+        assert_eq!(a.interpolate(&b, 5.0, &r), b, "t>1 clamps to other");
+        assert_eq!(a.interpolate(&b, f32::NEG_INFINITY, &r), a);
+        assert_eq!(a.interpolate(&b, f32::INFINITY, &r), b);
+        assert_eq!(a.interpolate(&b, f32::MIN, &r), a);
+        assert_eq!(a.interpolate(&b, f32::MAX, &r), b);
+    }
+
+    #[test]
+    fn interpolate_midpoint_is_the_linear_average() {
+        let r = resolver();
+        let out = font_size(0.0).interpolate(&font_size(100.0), 0.5, &r);
+        let px = font_size_px_of(&out);
+        assert!(
+            (px - 50.0).abs() < 1.0,
+            "linear midpoint of 0px..100px should be ~50px, got {px}"
+        );
+    }
+
+    #[test]
+    fn interpolate_nan_t_does_not_panic_and_keeps_the_property_type() {
+        let r = resolver();
+        let a = font_size(10.0);
+        let b = font_size(20.0);
+        // NaN fails both the `t <= 0.0` and `t >= 1.0` guards and survives
+        // f32::clamp, so it reaches the per-property interpolators.
+        let out = a.interpolate(&b, f32::NAN, &r);
+        assert_eq!(out.get_type(), CssPropertyType::FontSize);
+        assert!(!out.format_css().is_empty());
+    }
+
+    #[test]
+    fn interpolate_extreme_endpoints_do_not_panic() {
+        let r = resolver();
+        for (from, to) in [
+            (f32::MAX, f32::MIN),
+            (f32::MIN, f32::MAX),
+            (f32::INFINITY, f32::NEG_INFINITY),
+            (f32::NAN, 10.0),
+            (10.0, f32::NAN),
+            (0.0, 0.0),
+        ] {
+            for t in [0.25, 0.5, 0.75] {
+                let out = font_size(from).interpolate(&font_size(to), t, &r);
+                assert_eq!(out.get_type(), CssPropertyType::FontSize);
+                assert!(!out.format_css().is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn interpolate_between_mismatched_types_falls_back_without_panic() {
+        let r = resolver();
+        let width = CssProperty::width(LayoutWidth::Px(PixelValue::px(10.0)));
+        let height = CssProperty::height(LayoutHeight::Px(PixelValue::px(20.0)));
+
+        // Not animatable across types: snaps to the nearer endpoint.
+        assert_eq!(width.interpolate(&height, 0.25, &r), width);
+        assert_eq!(width.interpolate(&height, 0.75, &r), height);
+        // NaN takes neither branch of `t > 0.5`, so it must fall back to self.
+        assert_eq!(width.interpolate(&height, f32::NAN, &r), width);
+    }
+
+    #[test]
+    fn interpolate_keyword_operands_fall_back_to_defaults_without_panic() {
+        let r = resolver();
+        // `auto`/`inherit` carry no concrete value; interpolating them must not
+        // unwrap a missing property.
+        let auto = CssProperty::auto(CssPropertyType::FontSize);
+        let inherit = CssProperty::inherit(CssPropertyType::FontSize);
+        let exact = font_size(24.0);
+
+        for (a, b) in [
+            (&auto, &exact),
+            (&exact, &auto),
+            (&inherit, &exact),
+            (&auto, &inherit),
+        ] {
+            let out = a.interpolate(b, 0.5, &r);
+            assert_eq!(out.get_type(), CssPropertyType::FontSize);
+            assert!(!out.format_css().is_empty());
+        }
+    }
+
+    // ---- parse_css_property --------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_keyword_shortcut_works_for_every_property_type() {
+        // `initial` / `inherit` short-circuit before any key-specific parsing,
+        // so they must succeed for all 180 types and keep the requested type.
+        for t in CssPropertyType::iter() {
+            for keyword in ["initial", "inherit"] {
+                let parsed = parse_css_property(t, keyword)
+                    .unwrap_or_else(|e| panic!("{}: {keyword} failed: {e}", t.to_str()));
+                assert_eq!(parsed.get_type(), t, "{t:?} {keyword}");
+                assert_eq!(parsed.value(), keyword);
+            }
+            // Surrounding whitespace is trimmed before the keyword match.
+            let parsed = parse_css_property(t, "  \t initial \n ")
+                .unwrap_or_else(|e| panic!("{}: padded initial failed: {e}", t.to_str()));
+            assert_eq!(parsed, CssProperty::initial(t), "{t:?}");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_valid_minimal_positive_control() {
+        let width = parse_css_property(CssPropertyType::Width, "100px").expect("100px is valid");
+        assert_eq!(width.get_type(), CssPropertyType::Width);
+        assert_eq!(width.value(), "100px");
+        assert_eq!(width.format_css(), "width: 100px;");
+
+        let display =
+            parse_css_property(CssPropertyType::Display, "flex").expect("flex is valid display");
+        assert_eq!(display.get_type(), CssPropertyType::Display);
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_empty_and_whitespace_only_are_rejected() {
+        for value in ["", " ", "\t", "\n", "   \t\n  "] {
+            assert!(
+                parse_css_property(CssPropertyType::Width, value).is_err(),
+                "width: {value:?} should not parse"
+            );
+            assert!(
+                parse_css_property(CssPropertyType::TextColor, value).is_err(),
+                "color: {value:?} should not parse"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_garbage_is_rejected_without_panicking() {
+        for value in [
+            "!!!",
+            "not-a-value",
+            "100pxx",
+            "px100",
+            "100 px",
+            ";",
+            "}",
+            "100px;",
+            "100px !important",
+            "\0",
+            "#gg0000",
+            "rgb(",
+            "rgb(1,2",
+        ] {
+            assert!(
+                parse_css_property(CssPropertyType::Width, value).is_err()
+                    || parse_css_property(CssPropertyType::TextColor, value).is_err(),
+                "{value:?} parsed as both a width and a color"
+            );
+        }
+        // Spot-check the ones that must be rejected by *both* parsers.
+        for value in ["!!!", "not-a-value", "\0", ";"] {
+            assert!(parse_css_property(CssPropertyType::Width, value).is_err());
+            assert!(parse_css_property(CssPropertyType::TextColor, value).is_err());
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_unicode_is_rejected_without_panicking() {
+        for value in [
+            "\u{1F600}",
+            "100\u{0301}px",
+            "\u{202E}100px",
+            "１００ｐｘ",
+            "100px\u{FEFF}",
+            "红色",
+        ] {
+            // Must not panic; a multibyte slice must never be cut mid-codepoint.
+            let _ = parse_css_property(CssPropertyType::Width, value).is_err();
+            let _ = parse_css_property(CssPropertyType::TextColor, value).is_err();
+            let _ = parse_css_property(CssPropertyType::FontFamily, value).is_ok();
+        }
+        assert!(parse_css_property(CssPropertyType::Width, "\u{1F600}").is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_boundary_numbers_do_not_panic() {
+        for value in [
+            "0",
+            "0px",
+            "-0px",
+            "-1px",
+            "2147483647px",
+            "-2147483648px",
+            "9223372036854775807px",
+            "340282350000000000000000000000000000000px",
+            "1e309px",
+            "NaNpx",
+            "infpx",
+            "0.00000000000000000001px",
+            "99999999999999999999999999999999999999999999px",
+        ] {
+            // The contract is "no panic, no overflow trap" — a saturating Ok or a
+            // clean Err are both acceptable, a debug-overflow panic is not.
+            let parsed = parse_css_property(CssPropertyType::Width, value);
+            if let Ok(p) = parsed {
+                assert_eq!(p.get_type(), CssPropertyType::Width, "{value:?}");
+                assert!(!p.format_css().is_empty(), "{value:?}");
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_extremely_long_input_does_not_hang() {
+        // Long *digit* runs stay at 100k: the float parser is the expensive part
+        // and the point is to prove it terminates, not to benchmark it.
+        let huge = "1".repeat(100_000);
+        if let Ok(p) = parse_css_property(CssPropertyType::Width, &huge) {
+            assert_eq!(p.get_type(), CssPropertyType::Width);
+        }
+        let huge_px = format!("{}px", "9".repeat(100_000));
+        let _ = parse_css_property(CssPropertyType::Width, &huge_px);
+
+        // Pure garbage is rejected on the first byte, so a full megabyte is cheap.
+        let huge_garbage = "z".repeat(1_000_000);
+        assert!(parse_css_property(CssPropertyType::Width, &huge_garbage).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_deeply_nested_calc_does_not_stack_overflow() {
+        // parse_calc_expression is an iterative stack machine, not a recursive
+        // descent parser, so deep nesting must stay on the heap.
+        let depth = 10_000;
+        let nested = format!("calc({}1px{})", "(".repeat(depth), ")".repeat(depth));
+        let _ = parse_css_property(CssPropertyType::Width, &nested);
+
+        let unbalanced = format!("calc({})", "(".repeat(depth));
+        let _ = parse_css_property(CssPropertyType::Width, &unbalanced);
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_css_property_leading_trailing_junk_is_handled_deterministically() {
+        // Padding is trimmed...
+        let padded = parse_css_property(CssPropertyType::Width, "  \t 100px \n ")
+            .expect("surrounding whitespace should be trimmed");
+        assert_eq!(padded.value(), "100px");
+        assert_eq!(
+            padded,
+            parse_css_property(CssPropertyType::Width, "100px").unwrap()
+        );
+        // ...but embedded junk is not silently dropped.
+        assert!(parse_css_property(CssPropertyType::Width, "100px;garbage").is_err());
+        assert!(parse_css_property(CssPropertyType::Width, "garbage 100px").is_err());
+    }
+
+    // ---- parse_combined_css_property ------------------------------------------
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_combined_css_property_valid_minimal_positive_control() {
+        let props = parse_combined_css_property(CombinedCssPropertyType::Margin, "10px")
+            .expect("margin: 10px is valid");
+        let types: Vec<CssPropertyType> = props.iter().map(CssProperty::get_type).collect();
+        assert_eq!(
+            types,
+            vec![
+                CssPropertyType::MarginTop,
+                CssPropertyType::MarginBottom,
+                CssPropertyType::MarginLeft,
+                CssPropertyType::MarginRight,
+            ]
+        );
+        for p in &props {
+            assert_eq!(p.value(), "10px");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_combined_css_property_expands_every_shorthand_or_errors_cleanly() {
+        // `initial` short-circuits ahead of every value parser, so all 27
+        // shorthands must expand to a non-empty list of `initial` longhands.
+        let map = get_css_key_map();
+        for (_, key) in &map.shorthands {
+            let props = parse_combined_css_property(*key, "initial")
+                .unwrap_or_else(|e| panic!("{key:?}: initial failed: {e}"));
+            assert!(
+                !props.is_empty(),
+                "{key:?} expanded to an empty property list"
+            );
+            for p in &props {
+                assert_eq!(p.value(), "initial", "{key:?} -> {:?}", p.get_type());
+                assert_eq!(*p, CssProperty::initial(p.get_type()), "{key:?}");
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_combined_css_property_empty_and_whitespace_are_rejected() {
+        for value in ["", " ", "\t\n", "    "] {
+            assert!(
+                parse_combined_css_property(CombinedCssPropertyType::Margin, value).is_err(),
+                "margin: {value:?} should not parse"
+            );
+            assert!(
+                parse_combined_css_property(CombinedCssPropertyType::BorderRadius, value).is_err(),
+                "border-radius: {value:?} should not parse"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_combined_css_property_garbage_is_rejected_without_panicking() {
+        for value in ["!!!", "not-a-value", "10pxx", ";", "\0", "10px 20px 30px 40px 50px"] {
+            assert!(
+                parse_combined_css_property(CombinedCssPropertyType::Margin, value).is_err(),
+                "margin: {value:?} should not parse"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_combined_css_property_unicode_and_long_input_do_not_panic() {
+        for value in ["\u{1F600}", "1\u{0301}0px", "１０ｐｘ", "红色"] {
+            let _ = parse_combined_css_property(CombinedCssPropertyType::Margin, value).is_err();
+            let _ = parse_combined_css_property(CombinedCssPropertyType::Background, value).is_err();
+        }
+        // The padding/margin parser parses every value before it counts them, so
+        // 20k values already exercises the TooManyValues path without a long run.
+        let many = "10px ".repeat(20_000);
+        assert!(
+            parse_combined_css_property(CombinedCssPropertyType::Margin, &many).is_err(),
+            "20_000 margin values should be TooManyValues, not a panic"
+        );
+        let huge_garbage = "z".repeat(1_000_000);
+        assert!(
+            parse_combined_css_property(CombinedCssPropertyType::Margin, &huge_garbage).is_err()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parse_combined_css_property_nested_parens_do_not_stack_overflow() {
+        let nested = format!("{}10px{}", "(".repeat(1_000), ")".repeat(1_000));
+        let _ = parse_combined_css_property(CombinedCssPropertyType::Margin, &nested);
+        let _ = parse_combined_css_property(CombinedCssPropertyType::Border, &nested);
+    }
+
+    // ---- CssParsingError round-trip -------------------------------------------
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parsing_error_survives_the_owned_round_trip() {
+        let err = parse_css_property(CssPropertyType::Width, "definitely-not-a-width")
+            .expect_err("garbage width must fail");
+
+        let owned = err.to_contained();
+        let shared = owned.to_shared();
+
+        // to_contained/to_shared must preserve the error, not flatten it to a
+        // generic variant: the rendered message is the observable contract.
+        assert_eq!(format!("{err}"), format!("{shared}"));
+        assert!(!format!("{err}").is_empty());
+        // ...and the round-trip is idempotent.
+        let owned_again = shared.to_contained();
+        assert_eq!(format!("{}", owned_again.to_shared()), format!("{err}"));
+    }
+
+    #[test]
+    #[cfg(feature = "parser")]
+    fn parsing_errors_round_trip_for_a_spread_of_property_kinds() {
+        for t in [
+            CssPropertyType::Width,
+            CssPropertyType::TextColor,
+            CssPropertyType::FontSize,
+            CssPropertyType::Opacity,
+            CssPropertyType::Transform,
+            CssPropertyType::BackgroundContent,
+        ] {
+            let Err(err) = parse_css_property(t, "\u{1F600}not-valid\u{1F600}") else {
+                continue;
+            };
+            let owned = err.to_contained();
+            let round_tripped = owned.to_shared();
+            assert_eq!(
+                format!("{err}"),
+                format!("{round_tripped}"),
+                "{} error lost information in to_contained()",
+                t.to_str()
+            );
+        }
+    }
+}

@@ -805,3 +805,1052 @@ mod kp_fix_tests {
         assert!((max_x - 48.0).abs() < 0.01, "line 0 right edge {max_x} should be 48px");
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // exact geometry: every advance below is an exact f32
+#[allow(clippy::cast_precision_loss)] // small line counters
+mod autotest_generated {
+    use std::sync::Arc;
+
+    use azul_core::selection::{ContentIndex, GraphemeClusterId};
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+    use crate::text3::cache::{
+        BreakType, ClearType, InlineBreak, InlineContent, LineHeight, Rect, ShapedCluster,
+        StyleProperties,
+    };
+
+    // ---------------------------------------------------------------------
+    // Builders. Every item is a single-grapheme cluster with an explicit
+    // advance, mirroring what the shaper produces: 12px letters, 5px space,
+    // 6px hyphen. No glyphs -> get_item_measure() == advance exactly, so all
+    // expected coordinates below are exact integers.
+    // ---------------------------------------------------------------------
+
+    fn cl(text: &str, advance: f32) -> ShapedItem {
+        ShapedItem::Cluster(ShapedCluster {
+            text: text.to_string(),
+            source_cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            source_content_index: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
+            source_node_id: None,
+            glyphs: smallvec::SmallVec::new(),
+            advance,
+            direction: BidiDirection::Ltr,
+            style: Arc::new(StyleProperties::default()),
+            marker_position_outside: None,
+            is_first_fragment: true,
+            is_last_fragment: true,
+        })
+    }
+
+    fn advance_of(c: char) -> f32 {
+        match c {
+            ' ' => 5.0,
+            '-' => 6.0,
+            _ => 12.0,
+        }
+    }
+
+    /// One cluster per `char`, like the real shaper hands to `kp_layout`.
+    fn items_of(text: &str) -> Vec<ShapedItem> {
+        text.chars()
+            .map(|c| cl(&c.to_string(), advance_of(c)))
+            .collect()
+    }
+
+    fn no_fonts() -> LoadedFonts<FontRef> {
+        LoadedFonts::new()
+    }
+
+    /// `convert_items_to_nodes` with hyphenation disabled (the hyphenator is a
+    /// feature-gated type and needs a real dictionary; `None` is the path the
+    /// engine takes whenever `hyphens: none`).
+    fn nodes_of(items: &[ShapedItem]) -> Vec<LayoutNode> {
+        convert_items_to_nodes(items, None, &no_fonts())
+    }
+
+    fn nodes_for(text: &str) -> Vec<LayoutNode> {
+        nodes_of(&items_of(text))
+    }
+
+    fn definite(width: f32) -> UnifiedConstraints {
+        UnifiedConstraints {
+            available_width: AvailableSpace::Definite(width),
+            ..Default::default()
+        }
+    }
+
+    fn object(width: f32) -> ShapedItem {
+        ShapedItem::Object {
+            source: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
+            bounds: Rect {
+                x: 0.0,
+                y: 0.0,
+                width,
+                height: 10.0,
+            },
+            baseline_offset: 0.0,
+            content: InlineContent::Tab {
+                style: Arc::new(StyleProperties::default()),
+            },
+        }
+    }
+
+    fn tab(width: f32) -> ShapedItem {
+        ShapedItem::Tab {
+            source: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
+            bounds: Rect {
+                x: 0.0,
+                y: 0.0,
+                width,
+                height: 10.0,
+            },
+        }
+    }
+
+    fn hard_break() -> ShapedItem {
+        ShapedItem::Break {
+            source: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
+            break_info: InlineBreak {
+                break_type: BreakType::Hard,
+                clear: ClearType::None,
+                content_index: 0,
+            },
+        }
+    }
+
+    fn rtl_logical() -> Vec<LogicalItem> {
+        vec![LogicalItem::Text {
+            source: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
+            text: "\u{05E9}\u{05DC}\u{05D5}\u{05DD}".to_string(), // "שלום"
+            style: Arc::new(StyleProperties::default()),
+            marker_position_outside: None,
+            source_node_id: None,
+        }]
+    }
+
+    // ---------------------------------------------------------------------
+    // Inspectors
+    // ---------------------------------------------------------------------
+
+    fn is_forced(node: &LayoutNode) -> bool {
+        matches!(node, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS)
+    }
+
+    fn penalty_count(nodes: &[LayoutNode]) -> usize {
+        nodes
+            .iter()
+            .filter(|n| matches!(n, LayoutNode::Penalty { .. }))
+            .count()
+    }
+
+    fn line_text(layout: &UnifiedLayout, line: usize) -> String {
+        layout
+            .items
+            .iter()
+            .filter(|it| it.line_index == line)
+            .filter_map(|it| it.item.as_cluster().map(|c| c.text.clone()))
+            .collect()
+    }
+
+    fn line_count(layout: &UnifiedLayout) -> usize {
+        layout
+            .items
+            .iter()
+            .map(|it| it.line_index + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn line_left(layout: &UnifiedLayout, line: usize) -> f32 {
+        layout
+            .items
+            .iter()
+            .filter(|it| it.line_index == line)
+            .map(|it| it.position.x)
+            .fold(f32::INFINITY, f32::min)
+    }
+
+    fn line_right(layout: &UnifiedLayout, line: usize) -> f32 {
+        layout
+            .items
+            .iter()
+            .filter(|it| it.line_index == line)
+            .map(|it| it.position.x + get_item_measure(&it.item, false))
+            .fold(f32::NEG_INFINITY, f32::max)
+    }
+
+    /// Structural contract of `find_optimal_breakpoints`: the returned indices
+    /// are strictly increasing, in range, and the paragraph ends at `n`.
+    fn assert_breaks_well_formed(nodes: &[LayoutNode], breaks: &[usize], what: &str) {
+        for w in breaks.windows(2) {
+            assert!(
+                w[0] < w[1],
+                "{what}: breaks must be strictly increasing, got {breaks:?}"
+            );
+        }
+        for &b in breaks {
+            assert!(
+                b <= nodes.len(),
+                "{what}: break {b} out of range (n = {})",
+                nodes.len()
+            );
+        }
+        if !breaks.is_empty() {
+            assert_eq!(
+                *breaks.last().unwrap(),
+                nodes.len(),
+                "{what}: the paragraph must end at the last node"
+            );
+        }
+    }
+
+    // =====================================================================
+    // convert_items_to_nodes: structure of the Box/Glue/Penalty stream
+    // =====================================================================
+
+    #[test]
+    fn convert_empty_items_yields_no_nodes() {
+        // The terminal-forced-break append is guarded on !nodes.is_empty(),
+        // so an empty paragraph must stay empty (not gain a lone penalty).
+        assert!(nodes_of(&[]).is_empty());
+    }
+
+    #[test]
+    fn convert_appends_exactly_one_terminal_forced_break() {
+        let nodes = nodes_for("ab cd");
+        assert!(is_forced(nodes.last().unwrap()), "paragraph must be anchored");
+        assert_eq!(
+            nodes.iter().filter(|n| is_forced(n)).count(),
+            1,
+            "exactly one forced break for a paragraph with no explicit breaks"
+        );
+    }
+
+    #[test]
+    fn convert_does_not_duplicate_terminal_break_after_an_explicit_break() {
+        let items = vec![cl("a", 12.0), hard_break()];
+        let nodes = nodes_of(&items);
+        assert_eq!(nodes.len(), 2, "Box + the Break's own forced Penalty, no more");
+        assert!(is_forced(&nodes[1]));
+        assert_eq!(nodes.iter().filter(|n| is_forced(n)).count(), 1);
+    }
+
+    #[test]
+    fn convert_space_glue_uses_the_documented_stretch_shrink_ratios() {
+        let nodes = nodes_for("a b");
+        let glue = nodes
+            .iter()
+            .find(|n| matches!(n, LayoutNode::Glue { .. }))
+            .expect("a space must become Glue");
+        match glue {
+            LayoutNode::Glue {
+                width,
+                stretch,
+                shrink,
+                ..
+            } => {
+                assert_eq!(*width, 5.0);
+                assert_eq!(*stretch, 5.0 * SPACE_STRETCH_RATIO);
+                assert_eq!(*shrink, 5.0 * SPACE_SHRINK_RATIO);
+                assert!(
+                    *shrink < *width,
+                    "a space may never shrink past zero width"
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn convert_zero_width_space_becomes_an_itemless_penalty() {
+        // U+200B is a wrap opportunity with no glyph: it must produce a
+        // zero-width, zero-cost Penalty and contribute no Box.
+        let items = vec![cl("a", 12.0), cl("\u{200B}", 0.0), cl("b", 12.0)];
+        let nodes = nodes_of(&items);
+        let zwsp = match &nodes[1] {
+            LayoutNode::Penalty {
+                item,
+                width,
+                penalty,
+            } => (item.is_none(), *width, *penalty),
+            other => panic!("expected a Penalty for U+200B, got {other:?}"),
+        };
+        assert_eq!(zwsp, (true, 0.0, 0.0));
+        // ...and it really is a break opportunity at a narrow width.
+        let breaks = find_optimal_breakpoints(&nodes, &definite(12.0));
+        assert_breaks_well_formed(&nodes, &breaks, "zwsp");
+    }
+
+    #[test]
+    fn convert_both_hyphen_codepoints_are_soft_wrap_opportunities() {
+        // U+002D HYPHEN-MINUS and U+2010 HYPHEN are UAX#14 class BA: a break is
+        // allowed AFTER them, and no extra hyphen glyph is inserted.
+        for hyphen in ['\u{002D}', '\u{2010}'] {
+            let items = vec![cl("a", 12.0), cl(&hyphen.to_string(), 6.0), cl("b", 12.0)];
+            let nodes = nodes_of(&items);
+            match (&nodes[1], &nodes[2]) {
+                (
+                    LayoutNode::Box(ShapedItem::Cluster(c), w),
+                    LayoutNode::Penalty {
+                        item,
+                        width,
+                        penalty,
+                    },
+                ) => {
+                    assert_eq!(c.text, hyphen.to_string());
+                    assert_eq!(*w, 6.0);
+                    assert!(item.is_none(), "no extra hyphen glyph may be inserted");
+                    assert_eq!(*width, 0.0);
+                    assert!(
+                        *penalty > -INFINITY_BADNESS,
+                        "the hyphen break is optional, not forced"
+                    );
+                }
+                other => panic!("expected Box('{hyphen}') + zero-width Penalty, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn convert_atomic_inline_is_wrapped_in_wrap_opportunities() {
+        // CSS Text 3 §5.1: a soft wrap opportunity exists before AND after each
+        // replaced element / atomic inline.
+        let nodes = nodes_of(&[object(40.0)]);
+        assert!(matches!(nodes[0], LayoutNode::Penalty { .. }));
+        assert!(matches!(nodes[1], LayoutNode::Box(_, w) if w == 40.0));
+        assert!(matches!(nodes[2], LayoutNode::Penalty { .. }));
+    }
+
+    #[test]
+    fn convert_tab_is_glue_and_not_a_wrap_opportunity() {
+        // A tab is stretchable like a space but is NOT followed by a Penalty,
+        // so no line may break at it.
+        let nodes = nodes_of(&[cl("a", 12.0), tab(30.0), cl("b", 12.0)]);
+        match &nodes[1] {
+            LayoutNode::Glue {
+                width,
+                stretch,
+                shrink,
+                ..
+            } => {
+                assert_eq!(*width, 30.0);
+                assert_eq!(*stretch, 30.0 * SPACE_STRETCH_RATIO);
+                assert_eq!(*shrink, 30.0 * SPACE_SHRINK_RATIO);
+            }
+            other => panic!("a tab must become Glue, got {other:?}"),
+        }
+        assert_eq!(
+            penalty_count(&nodes),
+            1,
+            "only the terminal forced break; a tab offers no wrap opportunity"
+        );
+    }
+
+    #[test]
+    fn nbsp_must_not_be_a_soft_wrap_opportunity() {
+        // RED (expected to fail): UAX#14 class GL. cache.rs suppresses NBSP /
+        // NNBSP / WJ / ZWNBSP as break opportunities in the greedy path
+        // (`is_break_opportunity_with_word_break`, "otherwise 10\u{00A0}km
+        // wrongly wraps"), but convert_items_to_nodes keys off
+        // `is_word_separator`, which reports NBSP as a separator -- so the
+        // Knuth-Plass path emits Glue + Penalty and "10\u{00A0}km" CAN wrap at
+        // the no-break space. See the report accompanying this test batch.
+        for nbsp in ['\u{00A0}', '\u{202F}'] {
+            let items = vec![cl("1", 12.0), cl(&nbsp.to_string(), 5.0), cl("k", 12.0)];
+            let nodes = nodes_of(&items);
+            let optional_breaks = nodes
+                .iter()
+                .filter(|n| matches!(n, LayoutNode::Penalty { .. }) && !is_forced(n))
+                .count();
+            assert_eq!(
+                optional_breaks, 0,
+                "U+{:04X} is a no-break space: it must not offer a wrap opportunity, got {nodes:?}",
+                nbsp as u32
+            );
+        }
+    }
+
+    #[test]
+    fn cjk_ideographic_space_currently_offers_no_wrap_opportunity() {
+        // Characterization: U+3000 is deliberately NOT a word separator (CSS
+        // Text §7.1), and word_break is not threaded into kp_layout yet, so the
+        // whole run collapses into one unbreakable word. Locks in today's
+        // behavior; see the `word_break` TODO in convert_items_to_nodes.
+        let items = vec![cl("\u{4E00}", 16.0), cl("\u{3000}", 16.0), cl("\u{4E8C}", 16.0)];
+        let nodes = nodes_of(&items);
+        assert_eq!(
+            penalty_count(&nodes),
+            1,
+            "only the terminal forced break exists in the CJK run"
+        );
+        let breaks = find_optimal_breakpoints(&nodes, &definite(20.0));
+        assert_breaks_well_formed(&nodes, &breaks, "cjk");
+    }
+
+    #[test]
+    fn convert_survives_hostile_unicode_without_panicking() {
+        // Combining marks, an emoji ZWJ sequence, RTL text, a lone surrogate is
+        // impossible in Rust, so use the next-worst thing: unpaired combining
+        // marks, an unassigned plane-15 codepoint, and a zero-advance cluster.
+        let items = vec![
+            cl("e\u{0301}", 12.0),
+            cl("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", 48.0),
+            cl("\u{05D0}", 12.0),
+            cl("\u{FFFD}", 12.0),
+            cl("\u{F0000}", 0.0),
+            cl("", 0.0),
+        ];
+        let nodes = nodes_of(&items);
+        // Nothing is a separator or a hyphen, so every cluster stays a Box.
+        assert_eq!(
+            nodes.iter().filter(|n| matches!(n, LayoutNode::Box(..))).count(),
+            items.len()
+        );
+        let layout = kp_layout(&items, &[], &definite(30.0), None, &no_fonts());
+        assert_eq!(
+            layout.items.len(),
+            items.len(),
+            "no cluster may be dropped by the layout"
+        );
+    }
+
+    // =====================================================================
+    // find_optimal_breakpoints: numeric limits & structural invariants
+    // =====================================================================
+
+    #[test]
+    fn breakpoints_of_an_empty_paragraph_are_empty() {
+        assert!(find_optimal_breakpoints(&[], &definite(100.0)).is_empty());
+        assert!(find_optimal_breakpoints(&[], &UnifiedConstraints::default()).is_empty());
+    }
+
+    #[test]
+    fn breakpoints_of_an_empty_paragraph_under_min_content_stay_in_range() {
+        // The MinContent fast path appends nodes.len() unconditionally, so an
+        // empty node list yields [0]. That must still be a safe input to the
+        // positioner (kp_layout short-circuits before this, but the DP is
+        // callable on its own).
+        let breaks = find_optimal_breakpoints(
+            &[],
+            &UnifiedConstraints {
+                available_width: AvailableSpace::MinContent,
+                ..Default::default()
+            },
+        );
+        assert_breaks_well_formed(&[], &breaks, "empty min-content");
+        let layout = position_lines_from_breaks(
+            &[],
+            &breaks,
+            &[],
+            &UnifiedConstraints {
+                available_width: AvailableSpace::MinContent,
+                ..Default::default()
+            },
+        );
+        assert!(layout.items.is_empty());
+    }
+
+    #[test]
+    fn breaks_stay_well_formed_across_pathological_widths() {
+        let nodes = nodes_for("aa bb cccc");
+        let widths = [
+            AvailableSpace::Definite(0.0),
+            AvailableSpace::Definite(1.0),
+            AvailableSpace::Definite(-100.0),
+            AvailableSpace::Definite(f32::MIN),
+            AvailableSpace::Definite(f32::MAX),
+            AvailableSpace::Definite(f32::INFINITY),
+            AvailableSpace::Definite(f32::NEG_INFINITY),
+            AvailableSpace::Definite(f32::NAN),
+            AvailableSpace::Definite(f32::EPSILON),
+            AvailableSpace::MinContent,
+            AvailableSpace::MaxContent,
+        ];
+        for w in widths {
+            let c = UnifiedConstraints {
+                available_width: w,
+                ..Default::default()
+            };
+            let breaks = find_optimal_breakpoints(&nodes, &c);
+            assert_breaks_well_formed(&nodes, &breaks, &format!("{w:?}"));
+            // The positioner must survive whatever the DP produced.
+            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+            assert!(
+                layout.items.len() <= nodes.len(),
+                "{w:?}: cannot position more items than there are nodes"
+            );
+        }
+    }
+
+    #[test]
+    fn breaks_land_only_after_penalty_nodes_in_a_feasible_paragraph() {
+        // Knuth-Plass may only break at a Penalty: `breaks[k]` is the index one
+        // past the last node of a line, so nodes[breaks[k] - 1] must be one.
+        let nodes = nodes_for("aa bb cccc");
+        let breaks = find_optimal_breakpoints(&nodes, &definite(60.0));
+        assert!(breaks.len() >= 2, "must wrap at 60px, got {breaks:?}");
+        for &b in &breaks {
+            assert!(
+                matches!(nodes[b - 1], LayoutNode::Penalty { .. }),
+                "break at {b} follows {:?}, which is not a legal break point",
+                nodes[b - 1]
+            );
+        }
+    }
+
+    #[test]
+    fn nan_advances_do_not_panic_or_hang() {
+        let items = vec![
+            cl("a", f32::NAN),
+            cl(" ", f32::NAN),
+            cl("b", f32::NAN),
+            cl("c", 12.0),
+        ];
+        let nodes = nodes_of(&items);
+        let c = definite(50.0);
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        assert_breaks_well_formed(&nodes, &breaks, "NaN advances");
+        // Positioning NaN geometry may yield NaN coordinates, but must not panic
+        // and must not lose content.
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(
+            layout
+                .items
+                .iter()
+                .filter(|it| it.item.as_cluster().is_some_and(|cc| cc.text != " "))
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn infinite_advance_collapses_to_one_overfull_line_without_panicking() {
+        let items = vec![cl("a", f32::INFINITY)];
+        let nodes = nodes_of(&items);
+        let c = definite(100.0);
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        assert_breaks_well_formed(&nodes, &breaks, "infinite advance");
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(layout.items.len(), 1);
+        // Overflowing lines are start-aligned, so the pen never moves off zero.
+        assert_eq!(layout.items[0].position.x, 0.0);
+    }
+
+    #[test]
+    fn extreme_text_indent_does_not_panic() {
+        let nodes = nodes_for("aa bb cccc");
+        for indent in [f32::MAX, f32::MIN, -1000.0, f32::NAN, f32::INFINITY] {
+            for hanging in [false, true] {
+                let c = UnifiedConstraints {
+                    available_width: AvailableSpace::Definite(100.0),
+                    text_indent: indent,
+                    text_indent_hanging: hanging,
+                    ..Default::default()
+                };
+                let breaks = find_optimal_breakpoints(&nodes, &c);
+                assert_breaks_well_formed(&nodes, &breaks, &format!("indent {indent}"));
+                let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+                assert!(layout.items.len() <= nodes.len());
+            }
+        }
+    }
+
+    #[test]
+    fn zero_width_container_keeps_all_content() {
+        // width: 0px is a genuinely zero-width container, not "unresolved":
+        // every line overflows, but nothing may be dropped.
+        let nodes = nodes_for("aa bb");
+        let c = definite(0.0);
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        assert_breaks_well_formed(&nodes, &breaks, "zero width");
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let letters = layout
+            .items
+            .iter()
+            .filter(|it| it.item.as_cluster().is_some_and(|cc| cc.text != " "))
+            .count();
+        assert_eq!(letters, 4, "all four letters must still be positioned");
+    }
+
+    #[test]
+    fn min_content_breaks_at_every_penalty() {
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::MinContent,
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        assert_breaks_well_formed(&nodes, &breaks, "min-content");
+        // One break per Penalty node (the terminal penalty's break IS nodes.len()).
+        assert_eq!(breaks.len(), penalty_count(&nodes));
+        for &b in &breaks {
+            assert!(matches!(nodes[b - 1], LayoutNode::Penalty { .. }));
+        }
+    }
+
+    #[test]
+    fn max_content_puts_an_unforced_paragraph_on_a_single_line() {
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::MaxContent,
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        assert_eq!(
+            breaks,
+            vec![nodes.len()],
+            "max-content must not wrap without a forced break"
+        );
+    }
+
+    #[test]
+    fn forced_break_item_starts_a_new_line_even_under_max_content() {
+        let items = vec![cl("a", 12.0), hard_break(), cl("b", 12.0)];
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::MaxContent,
+            ..Default::default()
+        };
+        let layout = kp_layout(&items, &[], &c, None, &no_fonts());
+        assert_eq!(line_count(&layout), 2, "a Break must force a second line");
+        assert_eq!(line_text(&layout, 0), "a");
+        assert_eq!(line_text(&layout, 1), "b");
+    }
+
+    #[test]
+    fn dp_terminates_on_a_paragraph_that_is_all_break_opportunities() {
+        // 400 zero-width spaces: every node is a Penalty, i.e. the DP's worst
+        // case (O(n^2) candidate pairs). It must terminate and produce a
+        // well-formed, in-range break list.
+        let items: Vec<ShapedItem> = (0..400).map(|_| cl("\u{200B}", 0.0)).collect();
+        let nodes = nodes_of(&items);
+        assert_eq!(penalty_count(&nodes), nodes.len());
+        let breaks = find_optimal_breakpoints(&nodes, &definite(100.0));
+        assert_breaks_well_formed(&nodes, &breaks, "all-penalty");
+    }
+
+    #[test]
+    fn large_paragraph_keeps_every_glyph() {
+        let text = "aaa ".repeat(300);
+        let items = items_of(&text);
+        let layout = kp_layout(&items, &[], &definite(100.0), None, &no_fonts());
+        let letters = layout
+            .items
+            .iter()
+            .filter(|it| it.item.as_cluster().is_some_and(|c| c.text == "a"))
+            .count();
+        assert_eq!(letters, 900, "no glyph may be lost while wrapping");
+        // line_index is emitted in reading order.
+        assert!(layout
+            .items
+            .windows(2)
+            .all(|w| w[0].line_index <= w[1].line_index));
+    }
+
+    #[test]
+    fn a_multi_line_paragraph_must_not_collapse_onto_one_overfull_line() {
+        // RED (expected to fail): `breakpoints[].demerit` is seeded with
+        // INFINITY_BADNESS, a *finite* 10_000 -- but demerits ACCUMULATE across
+        // lines (`demerit = badness + breakpoints[j].demerit`). Once the optimal
+        // path's cumulative demerit passes 10_000, no candidate can ever satisfy
+        // `demerit < breakpoints[i + 1].demerit` again, so no further breakpoint
+        // is recorded and the backtrack falls through the default
+        // `previous: 0` -- putting the entire paragraph on one overfull line.
+        //
+        // Here each 2-word line has ratio 3.6 -> badness ~4_666, so the third
+        // line (cumulative ~13_997) is already unrepresentable. Any paragraph of
+        // loose lines hits this; even perfectly-fitting lines hit it once they
+        // are numerous enough. Fix: seed `demerit` with f32::INFINITY instead of
+        // reusing the badness constant as the sentinel.
+        let text = "aaa ".repeat(8); // 8 words, 36px each + 5px spaces
+        let items = items_of(&text);
+        let layout = kp_layout(&items, &[], &definite(100.0), None, &no_fonts());
+        let lines = line_count(&layout);
+        assert!(
+            lines >= 4,
+            "at most 2 of these 41px words fit per 100px line, so 8 words need \
+             >= 4 lines; got {lines}"
+        );
+        for line in 0..lines {
+            assert!(
+                line_right(&layout, line) <= 100.5,
+                "line {line} runs to {}px in a 100px container",
+                line_right(&layout, line)
+            );
+        }
+    }
+
+    // =====================================================================
+    // position_lines_from_breaks: geometry, alignment, justification
+    // =====================================================================
+
+    #[test]
+    fn position_with_no_breaks_yields_an_empty_layout() {
+        let nodes = nodes_for("ab");
+        let layout = position_lines_from_breaks(&nodes, &[], &[], &definite(100.0));
+        assert!(layout.items.is_empty());
+        assert_eq!(layout.overflow.unclipped_bounds.width, 0.0);
+    }
+
+    #[test]
+    fn position_tolerates_a_repeated_break_index() {
+        // A degenerate empty line (start == end) must not panic or shift content.
+        let nodes = nodes_for("aa bb cccc");
+        let n = nodes.len();
+        let layout = position_lines_from_breaks(&nodes, &[8, 8, n], &[], &definite(100.0));
+        assert_eq!(line_text(&layout, 0), "aa bb");
+        assert_eq!(line_text(&layout, 1), "", "the empty line holds nothing");
+        assert_eq!(line_text(&layout, 2), "cccc");
+    }
+
+    #[test]
+    fn lines_advance_by_exactly_the_resolved_line_height() {
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            line_height: LineHeight::Px(20.0),
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(c.resolved_line_height(), 20.0);
+        for it in &layout.items {
+            assert_eq!(
+                it.position.y,
+                20.0 * it.line_index as f32,
+                "line {} must sit at {}px",
+                it.line_index,
+                20.0 * it.line_index as f32
+            );
+        }
+    }
+
+    #[test]
+    fn left_aligned_pen_starts_at_zero_and_never_moves_backwards() {
+        let nodes = nodes_for("aa bb cccc");
+        let c = definite(60.0);
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        for line in 0..line_count(&layout) {
+            let xs: Vec<f32> = layout
+                .items
+                .iter()
+                .filter(|it| it.line_index == line)
+                .map(|it| it.position.x)
+                .collect();
+            assert_eq!(xs[0], 0.0, "line {line} must start at the left edge");
+            assert!(
+                xs.windows(2).all(|w| w[0] <= w[1]),
+                "the pen must advance monotonically on line {line}: {xs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn center_and_right_alignment_use_the_exact_remaining_space() {
+        // "aaaa" = 48px in a 100px box -> 52px of slack.
+        let nodes = nodes_for("aaaa");
+        for (align, expected_left) in [
+            (TextAlign::Left, 0.0f32),
+            (TextAlign::Center, 26.0),
+            (TextAlign::Right, 52.0),
+            (TextAlign::Start, 0.0),
+            (TextAlign::End, 52.0),
+        ] {
+            let c = UnifiedConstraints {
+                available_width: AvailableSpace::Definite(100.0),
+                text_align: align,
+                ..Default::default()
+            };
+            let breaks = find_optimal_breakpoints(&nodes, &c);
+            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+            assert_eq!(
+                line_left(&layout, 0),
+                expected_left,
+                "{align:?} must place the line at {expected_left}px"
+            );
+            assert_eq!(line_right(&layout, 0), expected_left + 48.0);
+        }
+    }
+
+    #[test]
+    fn an_overflowing_line_is_start_aligned_even_when_right_aligned() {
+        // +spec: overflowing lines overflow the END edge, so the pen stays at 0
+        // instead of going negative.
+        let nodes = nodes_for("aaaaaaaa"); // 96px
+        for align in [TextAlign::Right, TextAlign::Center, TextAlign::End] {
+            let c = UnifiedConstraints {
+                available_width: AvailableSpace::Definite(50.0),
+                text_align: align,
+                ..Default::default()
+            };
+            let breaks = find_optimal_breakpoints(&nodes, &c);
+            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+            assert_eq!(
+                line_left(&layout, 0),
+                0.0,
+                "{align:?}: an overfull line must not be pushed to a negative x"
+            );
+            assert_eq!(line_text(&layout, 0), "aaaaaaaa", "no glyph may be dropped");
+        }
+    }
+
+    #[test]
+    fn rtl_base_direction_flips_logical_start_and_end() {
+        // 3 clusters = 36px in a 100px box -> 64px of slack.
+        let nodes = nodes_for("abc");
+        let c_start = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(100.0),
+            text_align: TextAlign::Start,
+            ..Default::default()
+        };
+        let c_end = UnifiedConstraints {
+            text_align: TextAlign::End,
+            ..c_start.clone()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c_start);
+
+        // LTR paragraph: start = left, end = right.
+        assert_eq!(
+            line_left(&position_lines_from_breaks(&nodes, &breaks, &[], &c_start), 0),
+            0.0
+        );
+        assert_eq!(
+            line_left(&position_lines_from_breaks(&nodes, &breaks, &[], &c_end), 0),
+            64.0
+        );
+
+        // RTL paragraph (Hebrew logical items): start = right, end = left.
+        let rtl = rtl_logical();
+        assert_eq!(get_base_direction_from_logical(&rtl), BidiDirection::Rtl);
+        assert_eq!(
+            line_left(
+                &position_lines_from_breaks(&nodes, &breaks, &rtl, &c_start),
+                0
+            ),
+            64.0
+        );
+        assert_eq!(
+            line_left(&position_lines_from_breaks(&nodes, &breaks, &rtl, &c_end), 0),
+            0.0
+        );
+    }
+
+    #[test]
+    fn justification_stretches_inner_lines_and_leaves_the_last_line_alone() {
+        // "aa bb cccc" @60px wraps to ["aa bb ", "cccc"]. Line 0 is 53px wide
+        // after trimming its hanging space, so its single interior space must
+        // absorb all 7px of slack; the last line must stay at its natural width.
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            text_align: TextAlign::Justify,
+            text_justify: JustifyContent::InterWord,
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
+        assert_eq!(line_text(&layout, 0), "aa bb");
+        assert_eq!(line_text(&layout, 1), "cccc");
+        assert_eq!(line_right(&layout, 0), 60.0, "inner line must be justified");
+        assert_eq!(
+            line_right(&layout, 1),
+            48.0,
+            "text-align: justify must not stretch the last line"
+        );
+    }
+
+    #[test]
+    fn justification_of_a_space_less_line_does_not_divide_by_zero() {
+        // The only space is the line-terminating one, which is trimmed before
+        // the space count is taken: extra_per_space must stay 0, never NaN/inf.
+        let nodes = nodes_for("aaaa aaaa");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            text_align: TextAlign::Justify,
+            text_justify: JustifyContent::InterWord,
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert!(!layout.items.is_empty());
+        for it in &layout.items {
+            assert!(
+                it.position.x.is_finite() && it.position.y.is_finite(),
+                "no coordinate may be NaN or infinite: {:?}",
+                it.position
+            );
+        }
+        assert_eq!(line_right(&layout, 0), 48.0, "nothing to stretch, no stretch");
+    }
+
+    #[test]
+    fn text_indent_offsets_only_the_first_line() {
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(80.0),
+            text_indent: 10.0,
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
+        assert_eq!(line_left(&layout, 0), 10.0, "first line is indented");
+        assert_eq!(line_left(&layout, 1), 0.0, "later lines are not");
+    }
+
+    #[test]
+    fn hanging_text_indent_offsets_every_line_but_the_first() {
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(80.0),
+            text_indent: 10.0,
+            text_indent_hanging: true,
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
+        assert_eq!(line_left(&layout, 0), 0.0, "hanging: first line is flush");
+        assert_eq!(line_left(&layout, 1), 10.0, "hanging: later lines indent");
+    }
+
+    #[test]
+    fn every_line_trims_its_hanging_space() {
+        // CSS Text 3 §4.1.2: line-terminating spaces hang; they are not measured
+        // and are not justification opportunities.
+        let nodes = nodes_for("aaaa aaaa aaaa");
+        let c = definite(60.0);
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        assert!(line_count(&layout) >= 2, "breaks: {breaks:?}");
+        for line in 0..line_count(&layout) {
+            let text = line_text(&layout, line);
+            assert!(
+                !text.ends_with(' '),
+                "line {line} kept its hanging space: {text:?}"
+            );
+            assert!(!text.is_empty());
+        }
+    }
+
+    #[test]
+    fn unclipped_bounds_enclose_every_positioned_item() {
+        let nodes = nodes_for("aa bb cccc");
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            line_height: LineHeight::Px(20.0),
+            ..Default::default()
+        };
+        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let b = layout.overflow.unclipped_bounds;
+        assert!(layout.overflow.overflow_items.is_empty(), "nothing is dropped");
+        for it in &layout.items {
+            assert!(
+                it.position.x >= b.x - 0.01 && it.position.x <= b.x + b.width + 0.01,
+                "item at {:?} escapes the recorded bounds {b:?}",
+                it.position
+            );
+            assert!(it.position.y >= b.y - 0.01 && it.position.y <= b.y + b.height + 0.01);
+        }
+    }
+
+    // =====================================================================
+    // kp_layout: end-to-end smoke over extreme inputs
+    // =====================================================================
+
+    #[test]
+    fn kp_layout_of_an_empty_paragraph_is_empty() {
+        let layout = kp_layout(&[], &[], &definite(100.0), None, &no_fonts());
+        assert!(layout.items.is_empty());
+        assert!(layout.overflow.overflow_items.is_empty());
+        assert_eq!(layout.overflow.unclipped_bounds.width, 0.0);
+        assert_eq!(layout.overflow.unclipped_bounds.height, 0.0);
+    }
+
+    #[test]
+    fn kp_layout_round_trips_the_paragraph_text_minus_hanging_spaces() {
+        let items = items_of("aa bb cccc");
+        let layout = kp_layout(&items, &[], &definite(60.0), None, &no_fonts());
+        let round_tripped: String = (0..line_count(&layout))
+            .map(|l| line_text(&layout, l))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(
+            round_tripped, "aa bb cccc",
+            "re-joining the lines with their trimmed break spaces must \
+             reproduce the source text"
+        );
+    }
+
+    #[test]
+    fn kp_layout_no_panic_smoke_over_extreme_inputs() {
+        let inputs: Vec<Vec<ShapedItem>> = vec![
+            Vec::new(),
+            items_of(" "),
+            items_of("   "),
+            items_of("-"),
+            items_of("a-b"),
+            items_of("\u{200B}"),
+            vec![object(0.0)],
+            vec![object(f32::MAX)],
+            vec![tab(0.0), tab(f32::INFINITY)],
+            vec![hard_break(), hard_break()],
+            vec![cl("a", -50.0), cl(" ", -5.0), cl("b", -50.0)],
+            vec![cl("a", f32::MAX), cl(" ", f32::MAX), cl("b", f32::MAX)],
+            vec![cl("x", f32::NAN), tab(f32::NAN), object(f32::NAN)],
+        ];
+        let constraints = [
+            definite(0.0),
+            definite(-10.0),
+            definite(f32::NAN),
+            definite(f32::MAX),
+            UnifiedConstraints {
+                available_width: AvailableSpace::MinContent,
+                text_align: TextAlign::JustifyAll,
+                text_justify: JustifyContent::Distribute,
+                ..Default::default()
+            },
+            UnifiedConstraints {
+                available_width: AvailableSpace::MaxContent,
+                text_align: TextAlign::End,
+                text_align_last: TextAlign::Center,
+                text_indent: -25.0,
+                ..Default::default()
+            },
+        ];
+        for items in &inputs {
+            for c in &constraints {
+                let layout = kp_layout(items, &[], c, None, &no_fonts());
+                assert!(
+                    layout.items.len() <= items.len() + 2,
+                    "no item may be duplicated: {} positioned from {} shaped",
+                    layout.items.len(),
+                    items.len()
+                );
+                assert!(layout.overflow.overflow_items.is_empty());
+            }
+        }
+    }
+}

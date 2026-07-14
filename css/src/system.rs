@@ -2670,3 +2670,819 @@ pub mod defaults {
         }
     }
 }
+
+#[cfg(test)]
+mod autotest_generated {
+    use super::*;
+    use crate::css::rule_priority;
+
+    const ALL_FONT_TYPES: [SystemFontType; 11] = [
+        SystemFontType::Ui,
+        SystemFontType::UiBold,
+        SystemFontType::Monospace,
+        SystemFontType::MonospaceBold,
+        SystemFontType::MonospaceItalic,
+        SystemFontType::Title,
+        SystemFontType::TitleBold,
+        SystemFontType::Menu,
+        SystemFontType::Small,
+        SystemFontType::Serif,
+        SystemFontType::SerifBold,
+    ];
+
+    fn all_platforms() -> Vec<Platform> {
+        vec![
+            Platform::Windows,
+            Platform::MacOs,
+            Platform::Linux(DesktopEnvironment::Gnome),
+            Platform::Linux(DesktopEnvironment::Kde),
+            Platform::Linux(DesktopEnvironment::Other(AzString::from_const_str("Hyprland"))),
+            Platform::Android,
+            Platform::Ios,
+            Platform::Unknown,
+        ]
+    }
+
+    /// Every hard-coded default style, so the smoke tests can sweep all of them.
+    fn all_default_styles() -> Vec<(&'static str, SystemStyle)> {
+        vec![
+            ("windows_11_light", defaults::windows_11_light()),
+            ("windows_11_dark", defaults::windows_11_dark()),
+            ("windows_7_aero", defaults::windows_7_aero()),
+            ("windows_xp_luna", defaults::windows_xp_luna()),
+            ("macos_modern_light", defaults::macos_modern_light()),
+            ("macos_modern_dark", defaults::macos_modern_dark()),
+            ("macos_aqua", defaults::macos_aqua()),
+            ("gnome_adwaita_light", defaults::gnome_adwaita_light()),
+            ("gnome_adwaita_dark", defaults::gnome_adwaita_dark()),
+            ("gtk2_clearlooks", defaults::gtk2_clearlooks()),
+            ("kde_breeze_light", defaults::kde_breeze_light()),
+            ("android_material_light", defaults::android_material_light()),
+            ("android_holo_dark", defaults::android_holo_dark()),
+            ("ios_light", defaults::ios_light()),
+        ]
+    }
+
+    // ── SystemFontType::from_css_str — parser ────────────────────────────
+
+    #[test]
+    fn from_css_str_valid_minimal() {
+        assert_eq!(SystemFontType::from_css_str("system:ui"), Some(SystemFontType::Ui));
+        assert_eq!(
+            SystemFontType::from_css_str("system:monospace:italic"),
+            Some(SystemFontType::MonospaceItalic)
+        );
+    }
+
+    #[test]
+    fn from_css_str_empty_input_returns_none() {
+        assert_eq!(SystemFontType::from_css_str(""), None);
+    }
+
+    #[test]
+    fn from_css_str_whitespace_only_returns_none() {
+        for s in ["   ", "\t\n", "\r\n\r\n", "\t \t \n"] {
+            assert_eq!(SystemFontType::from_css_str(s), None, "input {s:?}");
+        }
+    }
+
+    #[test]
+    fn from_css_str_prefix_only_is_none_and_does_not_panic_on_slice() {
+        // Exactly 7 bytes: `&s[7..]` slices right at the end of the string.
+        assert_eq!(SystemFontType::from_css_str("system:"), None);
+        assert_eq!(SystemFontType::from_css_str("  system:  "), None);
+        assert_eq!(SystemFontType::from_css_str("system::"), None);
+    }
+
+    #[test]
+    fn from_css_str_garbage_returns_none() {
+        for s in [
+            ";;;",
+            "{}{}",
+            "\0\u{1}\u{2}\u{7f}",
+            "system",
+            "systemui",
+            "system;ui",
+            "system:ui:",
+            ":system:ui",
+            "font-family: system:ui;",
+            "\\system:ui",
+            "system:ui\0",
+            "system:\u{0}ui",
+        ] {
+            assert_eq!(SystemFontType::from_css_str(s), None, "input {s:?}");
+        }
+    }
+
+    #[test]
+    fn from_css_str_leading_trailing_junk() {
+        // Surrounding ASCII whitespace is trimmed …
+        assert_eq!(SystemFontType::from_css_str("  system:ui  "), Some(SystemFontType::Ui));
+        assert_eq!(
+            SystemFontType::from_css_str("\t\nsystem:monospace\r\n"),
+            Some(SystemFontType::Monospace)
+        );
+        // … but any other junk is rejected outright.
+        assert_eq!(SystemFontType::from_css_str("system:ui;garbage"), None);
+        assert_eq!(SystemFontType::from_css_str("garbage system:ui"), None);
+        assert_eq!(SystemFontType::from_css_str("system:ui system:ui"), None);
+        assert_eq!(SystemFontType::from_css_str("system: ui"), None);
+        assert_eq!(SystemFontType::from_css_str("system:ui:bold:extra"), None);
+    }
+
+    #[test]
+    fn from_css_str_is_case_sensitive() {
+        // Documents current behaviour: unlike `AZ_RICING`, the font keyword
+        // is matched case-sensitively, so upper/mixed case is rejected.
+        for s in ["SYSTEM:UI", "System:Ui", "system:UI", "System:ui", "sYsTeM:ui"] {
+            assert_eq!(SystemFontType::from_css_str(s), None, "input {s:?}");
+        }
+    }
+
+    #[test]
+    fn from_css_str_boundary_numbers() {
+        for s in [
+            "0",
+            "-0",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "NaN",
+            "inf",
+            "-inf",
+            "1e400",
+            "system:0",
+            "system:-1",
+            "system:NaN",
+            "system:inf",
+            "system:9223372036854775807",
+        ] {
+            assert_eq!(SystemFontType::from_css_str(s), None, "input {s:?}");
+        }
+    }
+
+    #[test]
+    fn from_css_str_unicode_does_not_panic() {
+        for s in [
+            "\u{1F600}",
+            "system:\u{1F600}",
+            "system:ui\u{0301}",          // combining acute accent
+            "\u{1F600}system:ui",
+            "systém:ui",                   // non-ASCII inside the prefix
+            "ｓｙｓｔｅｍ:ui",              // fullwidth latin
+            "system:\u{202E}ui",           // right-to-left override
+            "system:\u{FFFD}",
+            "system:ui\u{200B}",           // zero-width space (not trimmed)
+        ] {
+            assert_eq!(SystemFontType::from_css_str(s), None, "input {s:?}");
+        }
+    }
+
+    #[test]
+    fn from_css_str_extremely_long_input_does_not_hang() {
+        let long = format!("system:{}", "u".repeat(1_000_000));
+        assert_eq!(SystemFontType::from_css_str(&long), None);
+
+        // A valid keyword with a megabyte of trailing junk is still invalid.
+        let long_suffix = format!("system:ui{}", "x".repeat(1_000_000));
+        assert_eq!(SystemFontType::from_css_str(&long_suffix), None);
+
+        // A megabyte of whitespace around a valid keyword still parses.
+        let padded = format!("{}system:ui{}", " ".repeat(100_000), " ".repeat(100_000));
+        assert_eq!(SystemFontType::from_css_str(&padded), Some(SystemFontType::Ui));
+    }
+
+    #[test]
+    fn from_css_str_deeply_nested_input_does_not_stack_overflow() {
+        let nested = format!("system:{}{}", "(".repeat(10_000), ")".repeat(10_000));
+        assert_eq!(SystemFontType::from_css_str(&nested), None);
+
+        let brackets = format!("system:{}", "[".repeat(10_000));
+        assert_eq!(SystemFontType::from_css_str(&brackets), None);
+    }
+
+    // ── SystemFontType round-trip / getters ──────────────────────────────
+
+    #[test]
+    fn font_type_css_str_round_trips() {
+        for ty in ALL_FONT_TYPES {
+            let s = ty.as_css_str();
+            assert_eq!(SystemFontType::from_css_str(s), Some(ty), "round-trip of {ty:?}");
+            // Padding must not change the decoded value.
+            assert_eq!(
+                SystemFontType::from_css_str(&format!("  {s}\t")),
+                Some(ty),
+                "padded round-trip of {ty:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn font_type_css_str_is_well_formed_and_unique() {
+        let mut seen: Vec<&'static str> = Vec::new();
+        for ty in ALL_FONT_TYPES {
+            let s = ty.as_css_str();
+            assert!(s.starts_with("system:"), "{ty:?} -> {s:?}");
+            assert!(s.len() > "system:".len(), "{ty:?} has an empty keyword");
+            assert_eq!(s.trim(), s, "{ty:?} -> {s:?} has surrounding whitespace");
+            assert!(s.is_ascii(), "{ty:?} -> {s:?} is not ASCII");
+            seen.push(s);
+        }
+        seen.sort_unstable();
+        assert!(
+            seen.windows(2).all(|w| w[0] != w[1]),
+            "as_css_str() is not injective: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn font_type_default_is_ui() {
+        let d = SystemFontType::default();
+        assert_eq!(d, SystemFontType::Ui);
+        assert_eq!(d.as_css_str(), "system:ui");
+        assert!(!d.is_bold());
+        assert!(!d.is_italic());
+    }
+
+    // ── SystemFontType::is_bold / is_italic — predicates ─────────────────
+
+    #[test]
+    fn is_bold_matches_exactly_the_bold_variants() {
+        assert!(SystemFontType::UiBold.is_bold());
+        assert!(SystemFontType::MonospaceBold.is_bold());
+        assert!(SystemFontType::TitleBold.is_bold());
+        assert!(SystemFontType::SerifBold.is_bold());
+
+        assert!(!SystemFontType::Ui.is_bold());
+        assert!(!SystemFontType::Monospace.is_bold());
+        assert!(!SystemFontType::MonospaceItalic.is_bold());
+        assert!(!SystemFontType::Title.is_bold());
+        assert!(!SystemFontType::Menu.is_bold());
+        assert!(!SystemFontType::Small.is_bold());
+        assert!(!SystemFontType::Serif.is_bold());
+    }
+
+    #[test]
+    fn is_italic_matches_exactly_the_italic_variant() {
+        assert!(SystemFontType::MonospaceItalic.is_italic());
+        for ty in ALL_FONT_TYPES {
+            if ty != SystemFontType::MonospaceItalic {
+                assert!(!ty.is_italic(), "{ty:?} must not be italic");
+            }
+        }
+    }
+
+    #[test]
+    fn predicates_agree_with_the_css_keyword() {
+        for ty in ALL_FONT_TYPES {
+            let s = ty.as_css_str();
+            assert_eq!(ty.is_bold(), s.ends_with(":bold"), "{ty:?} -> {s:?}");
+            assert_eq!(ty.is_italic(), s.ends_with(":italic"), "{ty:?} -> {s:?}");
+            // No variant is both bold and italic.
+            assert!(!(ty.is_bold() && ty.is_italic()), "{ty:?} is bold *and* italic");
+        }
+    }
+
+    // ── SystemFontType::get_fallback_chain (+ private per-OS chains) ─────
+
+    #[test]
+    fn fallback_chains_are_non_empty_and_deduplicated() {
+        for platform in all_platforms() {
+            for ty in ALL_FONT_TYPES {
+                let chain = ty.get_fallback_chain(&platform);
+                assert!(!chain.is_empty(), "{ty:?} on {platform:?} has an empty chain");
+                assert!(
+                    chain.iter().all(|f| !f.trim().is_empty()),
+                    "{ty:?} on {platform:?} has a blank family: {chain:?}"
+                );
+                let mut sorted = chain.clone();
+                sorted.sort_unstable();
+                assert!(
+                    sorted.windows(2).all(|w| w[0] != w[1]),
+                    "{ty:?} on {platform:?} lists a duplicate family: {chain:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fallback_chain_is_deterministic() {
+        for platform in all_platforms() {
+            for ty in ALL_FONT_TYPES {
+                assert_eq!(
+                    ty.get_fallback_chain(&platform),
+                    ty.get_fallback_chain(&platform),
+                    "{ty:?} on {platform:?} is not deterministic"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ios_shares_the_macos_fallback_chain() {
+        for ty in ALL_FONT_TYPES {
+            assert_eq!(
+                ty.get_fallback_chain(&Platform::Ios),
+                ty.get_fallback_chain(&Platform::MacOs),
+                "{ty:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn linux_fallback_chain_ignores_the_desktop_environment() {
+        let gnome = Platform::Linux(DesktopEnvironment::Gnome);
+        let kde = Platform::Linux(DesktopEnvironment::Kde);
+        let other = Platform::Linux(DesktopEnvironment::Other(AzString::from_const_str("")));
+        for ty in ALL_FONT_TYPES {
+            let a = ty.get_fallback_chain(&gnome);
+            assert_eq!(a, ty.get_fallback_chain(&kde), "{ty:?}");
+            assert_eq!(a, ty.get_fallback_chain(&other), "{ty:?}");
+        }
+    }
+
+    #[test]
+    fn unknown_platform_falls_back_to_generic_css_families() {
+        for ty in ALL_FONT_TYPES {
+            let chain = ty.get_fallback_chain(&Platform::Unknown);
+            assert_eq!(chain.len(), 1, "{ty:?} -> {chain:?}");
+            let expected = if ty.is_italic() || matches!(
+                ty,
+                SystemFontType::Monospace | SystemFontType::MonospaceBold
+            ) {
+                "monospace"
+            } else if matches!(ty, SystemFontType::Serif | SystemFontType::SerifBold) {
+                "serif"
+            } else {
+                "sans-serif"
+            };
+            assert_eq!(chain[0], expected, "{ty:?}");
+        }
+    }
+
+    #[test]
+    fn monospace_variants_share_one_chain_per_platform() {
+        for platform in all_platforms() {
+            let base = SystemFontType::Monospace.get_fallback_chain(&platform);
+            assert_eq!(
+                SystemFontType::MonospaceBold.get_fallback_chain(&platform),
+                base,
+                "{platform:?}"
+            );
+            assert_eq!(
+                SystemFontType::MonospaceItalic.get_fallback_chain(&platform),
+                base,
+                "{platform:?}"
+            );
+        }
+    }
+
+    // ── Platform::current ────────────────────────────────────────────────
+
+    #[test]
+    fn platform_current_is_deterministic_and_matches_target_os() {
+        let a = Platform::current();
+        assert_eq!(a, Platform::current());
+
+        #[cfg(target_os = "linux")]
+        assert!(matches!(a, Platform::Linux(_)), "{a:?}");
+        #[cfg(target_os = "windows")]
+        assert_eq!(a, Platform::Windows);
+        #[cfg(target_os = "macos")]
+        assert_eq!(a, Platform::MacOs);
+        #[cfg(target_os = "android")]
+        assert_eq!(a, Platform::Android);
+        #[cfg(target_os = "ios")]
+        assert_eq!(a, Platform::Ios);
+
+        // `current()` never reports the fallback on a supported OS.
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "android",
+            target_os = "ios"
+        ))]
+        assert_ne!(a, Platform::Unknown);
+
+        // Default is the "we don't know" variant, not the compiled-for one.
+        assert_eq!(Platform::default(), Platform::Unknown);
+    }
+
+    // ── TitlebarMetrics constructors ─────────────────────────────────────
+
+    #[test]
+    fn titlebar_metrics_have_sane_geometry() {
+        let all = [
+            ("default", TitlebarMetrics::default()),
+            ("windows", TitlebarMetrics::windows()),
+            ("macos", TitlebarMetrics::macos()),
+            ("linux_gnome", TitlebarMetrics::linux_gnome()),
+            ("ios", TitlebarMetrics::ios()),
+            ("android", TitlebarMetrics::android()),
+        ];
+        for (name, tm) in all {
+            let height = tm
+                .height
+                .as_ref()
+                .map(|p| p.to_pixels_internal(0.0, 0.0, 0.0))
+                .expect("titlebar height must be set");
+            assert!(height.is_finite() && height > 0.0, "{name}: height {height}");
+
+            let button_area = tm
+                .button_area_width
+                .as_ref()
+                .map(|p| p.to_pixels_internal(0.0, 0.0, 0.0))
+                .expect("button area width must be set");
+            assert!(
+                button_area.is_finite() && button_area >= 0.0,
+                "{name}: button_area_width {button_area}"
+            );
+
+            let padding = tm
+                .padding_horizontal
+                .as_ref()
+                .map(|p| p.to_pixels_internal(0.0, 0.0, 0.0))
+                .expect("padding must be set");
+            assert!(padding.is_finite() && padding >= 0.0, "{name}: padding {padding}");
+
+            let size = tm.title_font_size.into_option().expect("font size must be set");
+            assert!(size.is_finite() && size > 0.0, "{name}: font size {size}");
+
+            let weight = tm.title_font_weight.into_option().expect("font weight must be set");
+            assert!((100..=900).contains(&weight), "{name}: weight {weight}");
+        }
+    }
+
+    #[test]
+    fn titlebar_metrics_match_their_platform_conventions() {
+        let win = TitlebarMetrics::windows();
+        assert_eq!(win.button_side, TitlebarButtonSide::Right);
+        assert!(win.buttons.has_close && win.buttons.has_minimize && win.buttons.has_maximize);
+        assert!(!win.buttons.has_fullscreen);
+
+        // macOS: traffic lights on the left, zoom replaced by fullscreen.
+        let mac = TitlebarMetrics::macos();
+        assert_eq!(mac.button_side, TitlebarButtonSide::Left);
+        assert!(mac.buttons.has_fullscreen);
+        assert!(!mac.buttons.has_maximize);
+
+        assert_eq!(TitlebarMetrics::linux_gnome().button_side, TitlebarButtonSide::Right);
+
+        // Mobile: no window controls at all.
+        for (name, tm) in [("ios", TitlebarMetrics::ios()), ("android", TitlebarMetrics::android())] {
+            let b = tm.buttons;
+            assert!(
+                !b.has_close && !b.has_minimize && !b.has_maximize && !b.has_fullscreen,
+                "{name} must not expose window controls"
+            );
+        }
+
+        // Only iOS declares a notch safe area.
+        let ios = TitlebarMetrics::ios();
+        assert!(ios.safe_area.top.is_some());
+        assert!(ios.safe_area.bottom.is_some());
+        assert_eq!(TitlebarMetrics::windows().safe_area, SafeAreaInsets::default());
+    }
+
+    // ── SystemStyle::new / detect / default_for_platform ─────────────────
+
+    #[test]
+    fn system_style_new_detect_and_default_for_platform_agree() {
+        let a = SystemStyle::new();
+        let b = SystemStyle::detect();
+        let c = SystemStyle::default_for_platform();
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+    }
+
+    #[test]
+    fn system_style_constructors_arm_the_ffi_drop_guard() {
+        // `run_destructor` is the double-drop guard; every freshly built style
+        // (and every clone of one) must own its heap pointers.
+        assert!(SystemStyle::default().run_destructor);
+        assert!(SystemStyle::new().run_destructor);
+        assert!(SystemStyle::detect().run_destructor);
+        for (name, style) in all_default_styles() {
+            assert!(style.run_destructor, "{name} does not own its heap pointers");
+            assert!(style.clone().run_destructor, "clone of {name} lost the guard");
+        }
+    }
+
+    #[test]
+    fn system_style_default_is_empty_but_valid() {
+        let d = SystemStyle::default();
+        assert_eq!(d.platform, Platform::Unknown);
+        assert_eq!(d.theme, Theme::Light);
+        assert!(d.app_specific_stylesheet.is_none());
+        assert!(d.scrollbar.is_none());
+        assert!(d.language.as_str().is_empty());
+        assert!(d.colors.text.is_none());
+    }
+
+    // ── defaults::* (+ the private scrollbar_info_to_computed helper) ─────
+
+    #[test]
+    fn default_styles_are_fully_populated() {
+        for (name, style) in all_default_styles() {
+            assert!(style.colors.text.is_some(), "{name}: no text color");
+            assert!(style.colors.background.is_some(), "{name}: no background color");
+            assert!(style.colors.accent.is_some(), "{name}: no accent color");
+            assert!(style.fonts.ui_font.is_some(), "{name}: no UI font");
+            assert!(style.fonts.monospace_font.is_some(), "{name}: no monospace font");
+            assert!(!style.language.as_str().is_empty(), "{name}: empty language");
+            assert_ne!(style.platform, Platform::Unknown, "{name}: unknown platform");
+
+            let size = style.fonts.ui_font_size.into_option().expect("ui font size");
+            assert!(size.is_finite() && size > 0.0, "{name}: ui font size {size}");
+
+            let radius = style
+                .metrics
+                .corner_radius
+                .as_ref()
+                .map(|p| p.to_pixels_internal(0.0, 0.0, 0.0))
+                .expect("corner radius");
+            assert!(radius.is_finite() && radius >= 0.0, "{name}: corner radius {radius}");
+        }
+    }
+
+    #[test]
+    fn default_styles_carry_a_fully_resolved_scrollbar() {
+        // Exercises the private `scrollbar_info_to_computed` helper: every
+        // built-in ScrollbarInfo uses solid colors, so nothing may map to None.
+        for (name, style) in all_default_styles() {
+            let sb = style.scrollbar.as_ref().unwrap_or_else(|| panic!("{name}: no scrollbar"));
+            assert!(sb.width.is_some(), "{name}: scrollbar width lost");
+            assert!(sb.thumb_color.is_some(), "{name}: thumb color lost");
+            assert!(sb.track_color.is_some(), "{name}: track color lost");
+        }
+    }
+
+    #[test]
+    fn light_and_dark_default_styles_differ() {
+        assert_ne!(defaults::windows_11_light(), defaults::windows_11_dark());
+        assert_ne!(defaults::macos_modern_light(), defaults::macos_modern_dark());
+        assert_ne!(defaults::gnome_adwaita_light(), defaults::gnome_adwaita_dark());
+        assert_ne!(defaults::android_material_light(), defaults::android_holo_dark());
+
+        assert_eq!(defaults::windows_11_dark().theme, Theme::Dark);
+        assert_eq!(defaults::macos_modern_dark().theme, Theme::Dark);
+        assert_eq!(defaults::gnome_adwaita_dark().theme, Theme::Dark);
+        assert_eq!(defaults::android_holo_dark().theme, Theme::Dark);
+
+        assert_eq!(defaults::kde_breeze_light().platform, Platform::Linux(DesktopEnvironment::Kde));
+        assert_eq!(defaults::ios_light().platform, Platform::Ios);
+    }
+
+    #[test]
+    fn default_style_constructors_are_deterministic() {
+        for _ in 0..3 {
+            assert_eq!(defaults::windows_xp_luna(), defaults::windows_xp_luna());
+            assert_eq!(defaults::macos_aqua(), defaults::macos_aqua());
+            assert_eq!(defaults::gtk2_clearlooks(), defaults::gtk2_clearlooks());
+            assert_eq!(defaults::windows_7_aero(), defaults::windows_7_aero());
+        }
+    }
+
+    // ── SystemStyle::to_json_string ──────────────────────────────────────
+
+    #[test]
+    fn to_json_string_has_balanced_braces_for_every_default() {
+        let mut styles = all_default_styles();
+        styles.push(("default", SystemStyle::default()));
+        for (name, style) in styles {
+            let json = style.to_json_string();
+            let s = json.as_str();
+            assert!(s.starts_with('{'), "{name}: does not start with '{{'");
+            assert!(s.ends_with('}'), "{name}: does not end with '}}'");
+            let open = s.chars().filter(|c| *c == '{').count();
+            let close = s.chars().filter(|c| *c == '}').count();
+            assert_eq!(open, close, "{name}: unbalanced braces");
+            for key in [
+                "\"theme\"",
+                "\"platform\"",
+                "\"colors\"",
+                "\"fonts\"",
+                "\"titlebar\"",
+                "\"input\"",
+                "\"accessibility\"",
+                "\"audio\"",
+            ] {
+                assert!(s.contains(key), "{name}: missing {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn to_json_string_reports_known_values() {
+        let json = defaults::windows_11_light().to_json_string();
+        let s = json.as_str();
+        assert!(s.contains("\"theme\": \"Light\""), "{s}");
+        assert!(s.contains("\"platform\": \"Windows\""), "{s}");
+        assert!(s.contains("\"language\": \"en-US\""), "{s}");
+        // text = rgb(0,0,0) -> "#000000ff" (alpha is included)
+        assert!(s.contains("\"text\": \"#000000ff\""), "{s}");
+        // Windows titlebar height is 32px, formatted with one decimal.
+        assert!(s.contains("\"height\": 32.0"), "{s}");
+        // Unset colors serialize as JSON null, not as an empty string.
+        assert!(s.contains("\"grid\": null"), "{s}");
+    }
+
+    #[test]
+    fn to_json_string_survives_nan_and_infinite_metrics() {
+        let mut style = SystemStyle::default();
+        style.accessibility.text_scale_factor = f32::NAN;
+        style.animation.animation_duration_factor = f32::INFINITY;
+        style.input.double_click_distance_px = f32::NEG_INFINITY;
+        style.input.drag_threshold_px = f32::MAX;
+        style.input.caret_width_px = f32::MIN_POSITIVE;
+        style.input.double_click_time_ms = u32::MAX;
+        style.input.caret_blink_rate_ms = u32::MAX;
+        style.input.wheel_scroll_lines = u32::MAX;
+        style.input.hover_time_ms = u32::MAX;
+        style.text_rendering.font_smoothing_gamma = u32::MAX;
+        style.linux.cursor_size = u32::MAX;
+
+        // Must not panic; the extreme values are formatted, not truncated away.
+        let json = style.to_json_string();
+        let s = json.as_str();
+        assert!(!s.is_empty());
+        assert!(s.contains(&format!("\"cursor_size\": {}", u32::MAX)), "{s}");
+        assert!(s.contains(&format!("\"double_click_time_ms\": {}", u32::MAX)), "{s}");
+    }
+
+    #[test]
+    fn to_json_string_survives_extreme_pixel_metrics() {
+        let mut style = SystemStyle::default();
+        style.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(f32::NAN));
+        style.metrics.titlebar.button_area_width =
+            OptionPixelValue::Some(PixelValue::px(f32::INFINITY));
+        style.metrics.titlebar.padding_horizontal =
+            OptionPixelValue::Some(PixelValue::px(f32::NEG_INFINITY));
+        style.metrics.titlebar.title_font_size = OptionF32::Some(f32::MAX);
+        style.metrics.titlebar.title_font_weight = OptionU16::Some(u16::MAX);
+
+        let json = style.to_json_string();
+        assert!(!json.as_str().is_empty());
+
+        // PixelValue stores fixed-point isize, so NaN saturates to 0 and the
+        // infinities saturate to the isize bounds — the JSON stays finite.
+        let nan_px = PixelValue::px(f32::NAN).to_pixels_internal(0.0, 0.0, 0.0);
+        assert_eq!(nan_px, 0.0);
+        assert!(PixelValue::px(f32::INFINITY)
+            .to_pixels_internal(0.0, 0.0, 0.0)
+            .is_finite());
+        assert!(PixelValue::px(f32::NEG_INFINITY)
+            .to_pixels_internal(0.0, 0.0, 0.0)
+            .is_finite());
+    }
+
+    #[test]
+    fn to_json_string_survives_hostile_strings() {
+        // Quote / backslash / newline / unicode in an OS-reported string must
+        // not panic the formatter.
+        let mut style = SystemStyle::default();
+        style.language = AzString::from("\"\\\n\t\u{1F600}");
+        style.fonts.ui_font = OptionString::Some(AzString::from("a\"b\\c"));
+        style.linux.gtk_theme = OptionString::Some(AzString::from("\u{202E}evil"));
+
+        let json = style.to_json_string();
+        let s = json.as_str();
+        assert!(!s.is_empty());
+        assert!(s.contains("\"language\":"), "{s}");
+    }
+
+    #[test]
+    fn to_json_string_is_deterministic() {
+        let style = defaults::gnome_adwaita_dark();
+        assert_eq!(style.to_json_string(), style.to_json_string());
+        assert_ne!(
+            defaults::gnome_adwaita_dark().to_json_string(),
+            defaults::gnome_adwaita_light().to_json_string()
+        );
+    }
+
+    // ── SystemStyle::create_csd_stylesheet ───────────────────────────────
+
+    #[test]
+    fn csd_stylesheet_rules_all_carry_system_priority() {
+        let mut styles = all_default_styles();
+        styles.push(("default", SystemStyle::default()));
+        for (name, style) in styles {
+            let css = style.create_csd_stylesheet();
+            let rules = css.rules.as_slice();
+            assert!(!rules.is_empty(), "{name}: produced no rules");
+            for rule in rules {
+                assert_eq!(
+                    rule.priority,
+                    rule_priority::SYSTEM,
+                    "{name}: rule escaped the SYSTEM layer"
+                );
+            }
+            // System rules must lose against author CSS.
+            assert!(rule_priority::SYSTEM < rule_priority::AUTHOR);
+        }
+    }
+
+    #[test]
+    fn csd_stylesheet_uses_fallback_colors_when_the_system_reports_none() {
+        // All colors unset -> the hard-coded fallbacks must still produce CSS.
+        let css = SystemStyle::default().create_csd_stylesheet();
+        assert!(!css.rules.as_slice().is_empty());
+        assert_ne!(css, Css::default());
+    }
+
+    #[test]
+    fn csd_stylesheet_is_platform_specific() {
+        let mac = defaults::macos_modern_light().create_csd_stylesheet();
+        let win = defaults::windows_11_light().create_csd_stylesheet();
+        let lin = defaults::gnome_adwaita_light().create_csd_stylesheet();
+        assert_ne!(mac, win);
+        assert_ne!(win, lin);
+        assert_ne!(mac, lin);
+        // macOS appends the traffic-light rules on top of the shared ones.
+        assert!(mac.rules.as_slice().len() > win.rules.as_slice().len());
+    }
+
+    #[test]
+    fn csd_stylesheet_survives_extreme_corner_radius() {
+        for radius in [
+            PixelValue::px(f32::NAN),
+            PixelValue::px(f32::INFINITY),
+            PixelValue::px(f32::NEG_INFINITY),
+            PixelValue::px(f32::MAX),
+            PixelValue::px(-1.0),
+            PixelValue::percent(f32::MAX),
+            PixelValue::em(f32::MIN),
+        ] {
+            let mut style = defaults::windows_11_light();
+            style.metrics.corner_radius = OptionPixelValue::Some(radius);
+            let css = style.create_csd_stylesheet();
+            assert!(
+                !css.rules.as_slice().is_empty(),
+                "radius {radius:?} produced no rules"
+            );
+            for rule in css.rules.as_slice() {
+                assert_eq!(rule.priority, rule_priority::SYSTEM);
+            }
+        }
+    }
+
+    #[test]
+    fn csd_stylesheet_is_deterministic() {
+        let style = defaults::kde_breeze_light();
+        assert_eq!(style.create_csd_stylesheet(), style.create_csd_stylesheet());
+    }
+
+    // ── AZ_RICING / environment probes ───────────────────────────────────
+    //
+    // These functions read process-global environment variables. The tests
+    // below deliberately do NOT mutate the environment (`set_var` races with
+    // every other test thread in the same binary), so they assert the
+    // invariants that must hold for *any* ambient environment.
+
+    #[test]
+    fn ricing_mode_is_deterministic_and_total() {
+        let mode = ricing_mode();
+        assert_eq!(mode, ricing_mode(), "ricing_mode() is not deterministic");
+        assert!(
+            matches!(mode, RicingMode::Off | RicingMode::Default | RicingMode::Force),
+            "{mode:?}"
+        );
+        assert_eq!(RicingMode::default(), RicingMode::Default);
+    }
+
+    #[test]
+    fn ricing_enabled_is_the_inverse_of_off() {
+        assert_eq!(ricing_enabled(), ricing_mode() != RicingMode::Off);
+        assert_eq!(ricing_enabled(), ricing_enabled());
+    }
+
+    #[test]
+    fn detect_linux_desktop_env_is_deterministic() {
+        let a = detect_linux_desktop_env();
+        assert_eq!(a, detect_linux_desktop_env());
+
+        // Unless the ambient env explicitly sets an *empty* desktop string
+        // (which the function forwards verbatim), the `Other` label is either
+        // a const name or the non-empty env value.
+        let blank_env = |k: &str| std::env::var(k).map(|v| v.is_empty()).unwrap_or(false);
+        if !blank_env("XDG_CURRENT_DESKTOP") && !blank_env("DESKTOP_SESSION") {
+            if let DesktopEnvironment::Other(ref name) = a {
+                assert!(!name.as_str().is_empty(), "empty desktop-environment label");
+            }
+        }
+    }
+
+    #[test]
+    fn detect_system_language_is_a_normalized_tag() {
+        let lang = detect_system_language();
+        let s = lang.as_str();
+        assert!(!s.is_empty(), "language tag must never be empty");
+        // The encoding suffix (".UTF-8"), the LANGUAGE list separator (':')
+        // and the POSIX underscore must all be normalized away.
+        assert!(!s.contains('.'), "{s:?} still carries an encoding suffix");
+        assert!(!s.contains(':'), "{s:?} still carries a locale list");
+        assert!(!s.contains('_'), "{s:?} is not BCP 47 (underscore)");
+        assert_eq!(lang, detect_system_language(), "not deterministic");
+    }
+}

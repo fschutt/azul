@@ -2698,3 +2698,1611 @@ fn compute_counters_recursive(
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod autotest_generated {
+    use azul_core::dom::{Dom, IdOrClass};
+    use azul_css::props::{
+        basic::{pixel::PixelValue, SizeMetric},
+        layout::dimensions::CalcAstItemVec,
+    };
+
+    use super::*;
+    use crate::solver3::{
+        display_list::DisplayList,
+        geometry::{EdgeSizes, MarginAuto, PackedBoxProps, ResolvedBoxProps},
+        layout_tree::{LayoutNodeCold, LayoutNodeWarm},
+        pos_get, PositionVec, POSITION_UNSET,
+    };
+
+    // ------------------------------------------------------------------
+    // Fixtures
+    // ------------------------------------------------------------------
+
+    fn size(w: f32, h: f32) -> LogicalSize {
+        LogicalSize::new(w, h)
+    }
+
+    fn pos(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition::new(x, y)
+    }
+
+    fn sizing_entry(available: LogicalSize, result: LogicalSize) -> SizingCacheEntry {
+        SizingCacheEntry {
+            available_size: available,
+            result_size: result,
+            baseline: None,
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
+        }
+    }
+
+    fn layout_entry(available: LogicalSize, result: LogicalSize) -> LayoutCacheEntry {
+        LayoutCacheEntry {
+            available_size: available,
+            result_size: result,
+            content_size: result,
+            child_positions: Vec::new(),
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
+            scrollbar_info: ScrollbarRequirements::default(),
+        }
+    }
+
+    fn edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
+        EdgeSizes {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+
+    fn box_props(margin: EdgeSizes, border: EdgeSizes, padding: EdgeSizes) -> ResolvedBoxProps {
+        ResolvedBoxProps {
+            margin,
+            padding,
+            border,
+            margin_auto: MarginAuto::default(),
+        }
+    }
+
+    fn zero_box_props() -> ResolvedBoxProps {
+        box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(0.0, 0.0, 0.0, 0.0),
+        )
+    }
+
+    fn hot(
+        parent: Option<usize>,
+        dom_node_id: Option<NodeId>,
+        used_size: Option<LogicalSize>,
+        bp: &ResolvedBoxProps,
+    ) -> LayoutNodeHot {
+        LayoutNodeHot {
+            box_props: PackedBoxProps::pack(bp),
+            dom_node_id,
+            used_size,
+            formatting_context: FormattingContext::Block {
+                establishes_new_context: false,
+            },
+            parent,
+        }
+    }
+
+    /// Plain hot node with no box props and no DOM id.
+    fn plain(parent: Option<usize>) -> LayoutNodeHot {
+        hot(parent, None, Some(size(0.0, 0.0)), &zero_box_props())
+    }
+
+    /// Builds a `LayoutTree` from hot nodes + per-node child lists.
+    /// `child_lists[i]` are the children of node `i`.
+    fn build_tree(
+        nodes: Vec<LayoutNodeHot>,
+        warm: Vec<LayoutNodeWarm>,
+        child_lists: &[Vec<usize>],
+    ) -> LayoutTree {
+        let n = nodes.len();
+        let mut children_arena: Vec<usize> = Vec::new();
+        let mut children_offsets: Vec<(u32, u32)> = Vec::with_capacity(n);
+        for cl in child_lists {
+            let start = u32::try_from(children_arena.len()).unwrap();
+            children_arena.extend_from_slice(cl);
+            children_offsets.push((start, u32::try_from(cl.len()).unwrap()));
+        }
+        while children_offsets.len() < n {
+            children_offsets.push((0, 0));
+        }
+        LayoutTree {
+            nodes,
+            warm,
+            cold: vec![LayoutNodeCold::default(); n],
+            root: 0,
+            dom_to_layout: BTreeMap::new(),
+            children_arena,
+            children_offsets,
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+
+    fn warm_default(n: usize) -> Vec<LayoutNodeWarm> {
+        vec![LayoutNodeWarm::default(); n]
+    }
+
+    fn div_class(class: &str) -> Dom {
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+    }
+
+    fn styled(dom: Dom, css_str: &str) -> StyledDom {
+        let mut dom = dom;
+        let (css, _warnings) = azul_css::parser2::new_from_str(css_str);
+        StyledDom::create(&mut dom, css)
+    }
+
+    /// `body(0) > .p(1) > [ text " \n\t"(2), text "hi"(3), div(4), text NBSP(5) ]`
+    ///
+    /// DOM ids follow the depth-first pre-order numbering of `CompactDom`.
+    fn whitespace_dom(css_str: &str) -> StyledDom {
+        styled(
+            Dom::create_body().with_child(
+                div_class("p")
+                    .with_child(Dom::create_text(" \n\t"))
+                    .with_child(Dom::create_text("hi"))
+                    .with_child(Dom::create_div())
+                    .with_child(Dom::create_text("\u{00A0}")),
+            ),
+            css_str,
+        )
+    }
+
+    // ==================================================================
+    // NodeCache — slot cache (numeric / round-trip)
+    // ==================================================================
+
+    #[test]
+    fn nodecache_default_is_empty_and_never_hits() {
+        let c = NodeCache::default();
+        assert!(c.is_empty);
+        assert!(c.layout_entry.is_none());
+        assert!(c.measure_entries.iter().all(Option::is_none));
+        for slot in 0..9 {
+            assert!(c.get_size(slot, size(0.0, 0.0)).is_none());
+            assert!(c.get_size(slot, size(100.0, 100.0)).is_none());
+        }
+        assert!(c.get_layout(size(0.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn nodecache_store_size_then_exact_lookup_round_trips() {
+        let mut c = NodeCache::default();
+        c.store_size(0, sizing_entry(size(200.0, 100.0), size(50.0, 40.0)));
+        assert!(!c.is_empty);
+
+        let hit = c.get_size(0, size(200.0, 100.0)).expect("exact hit");
+        assert_eq!(hit.available_size, size(200.0, 100.0));
+        assert_eq!(hit.result_size, size(50.0, 40.0));
+    }
+
+    #[test]
+    fn nodecache_get_size_result_matches_request() {
+        // Taffy's key optimization: Pass 2 hands back the size Pass 1 produced.
+        let mut c = NodeCache::default();
+        c.store_size(0, sizing_entry(size(200.0, 100.0), size(50.0, 40.0)));
+
+        let hit = c.get_size(0, size(50.0, 40.0)).expect("result-matches-request hit");
+        assert_eq!(hit.result_size, size(50.0, 40.0));
+        // A size matching neither the request nor the result must miss.
+        assert!(c.get_size(0, size(51.0, 41.0)).is_none());
+    }
+
+    #[test]
+    fn nodecache_get_size_epsilon_boundary() {
+        let mut c = NodeCache::default();
+        c.store_size(0, sizing_entry(size(100.0, 100.0), size(10.0, 10.0)));
+
+        // Sub-epsilon drift on either axis is still a hit (CACHE_SIZE_EPSILON = 0.1).
+        assert!(c.get_size(0, size(100.05, 99.95)).is_some());
+        // A drift clearly past the epsilon is a miss on both the request and the
+        // result comparison. (The exact `== EPSILON` boundary is deliberately not
+        // asserted: `100.1f32 - 100.0f32` rounds to 0.09999847, just under it.)
+        assert!(c.get_size(0, size(100.2, 100.0)).is_none());
+        assert!(c.get_size(0, size(100.0, 99.5)).is_none());
+    }
+
+    #[test]
+    fn nodecache_get_size_nan_request_misses_instead_of_panicking() {
+        let mut c = NodeCache::default();
+        c.store_size(0, sizing_entry(size(100.0, 100.0), size(10.0, 10.0)));
+
+        // NaN - x = NaN, and every NaN comparison is false → miss, not a hit.
+        assert!(c.get_size(0, size(f32::NAN, 100.0)).is_none());
+        assert!(c.get_size(0, size(100.0, f32::NAN)).is_none());
+        assert!(c.get_size(0, size(f32::NAN, f32::NAN)).is_none());
+    }
+
+    #[test]
+    fn nodecache_nan_and_infinite_entries_are_unreachable() {
+        // An entry stored with a non-finite available/result size can never be
+        // hit again (inf - inf = NaN, NaN - NaN = NaN) — the node simply gets
+        // re-measured. That is safe, but it means such slots are dead weight.
+        let mut c = NodeCache::default();
+        c.store_size(
+            0,
+            sizing_entry(size(f32::INFINITY, f32::INFINITY), size(f32::INFINITY, f32::INFINITY)),
+        );
+        assert!(c.get_size(0, size(f32::INFINITY, f32::INFINITY)).is_none());
+
+        c.store_size(1, sizing_entry(size(f32::NAN, f32::NAN), size(f32::NAN, f32::NAN)));
+        assert!(c.get_size(1, size(f32::NAN, f32::NAN)).is_none());
+        // ...but the cache still reports itself as populated.
+        assert!(!c.is_empty);
+    }
+
+    #[test]
+    fn nodecache_handles_zero_and_negative_sizes() {
+        let mut c = NodeCache::default();
+        c.store_size(0, sizing_entry(size(0.0, 0.0), size(0.0, 0.0)));
+        assert!(c.get_size(0, size(0.0, 0.0)).is_some());
+        assert!(c.get_size(0, size(-0.0, -0.0)).is_some());
+
+        c.store_size(1, sizing_entry(size(-100.0, -50.0), size(-1.0, -1.0)));
+        let hit = c.get_size(1, size(-100.0, -50.0)).expect("negative sizes are deterministic");
+        assert_eq!(hit.result_size, size(-1.0, -1.0));
+    }
+
+    #[test]
+    fn nodecache_extreme_finite_sizes_do_not_panic() {
+        let mut c = NodeCache::default();
+        c.store_size(0, sizing_entry(size(f32::MAX, f32::MIN), size(f32::MAX, f32::MIN)));
+        // MAX - MAX == 0 → exact hit; no overflow panic on the subtraction.
+        assert!(c.get_size(0, size(f32::MAX, f32::MIN)).is_some());
+        // MIN - MAX overflows to -inf, abs() = inf, inf < 0.1 is false → miss.
+        assert!(c.get_size(0, size(f32::MIN, f32::MAX)).is_none());
+    }
+
+    #[test]
+    fn nodecache_slots_are_independent() {
+        let mut c = NodeCache::default();
+        c.store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        c.store_size(8, sizing_entry(size(2.0, 2.0), size(2.0, 2.0)));
+
+        assert!(c.get_size(0, size(1.0, 1.0)).is_some());
+        assert!(c.get_size(8, size(2.0, 2.0)).is_some());
+        // No cross-talk between slots.
+        assert!(c.get_size(0, size(2.0, 2.0)).is_none());
+        assert!(c.get_size(8, size(1.0, 1.0)).is_none());
+        assert!(c.get_size(4, size(1.0, 1.0)).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn nodecache_get_size_slot_out_of_range_panics() {
+        // There are exactly 9 measurement slots; slot 9 is a caller bug and is
+        // reported as an index panic rather than silently returning None.
+        let c = NodeCache::default();
+        let _ = c.get_size(9, size(0.0, 0.0));
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn nodecache_store_size_slot_out_of_range_panics() {
+        let mut c = NodeCache::default();
+        c.store_size(9, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+    }
+
+    #[test]
+    fn nodecache_layout_slot_round_trips_and_matches_result() {
+        let mut c = NodeCache::default();
+        c.store_layout(layout_entry(size(800.0, 600.0), size(800.0, 123.0)));
+        assert!(!c.is_empty);
+
+        assert!(c.get_layout(size(800.0, 600.0)).is_some());
+        // "Result matches request" applies to the layout slot too.
+        let hit = c.get_layout(size(800.0, 123.0)).expect("result-matches-request");
+        assert_eq!(hit.result_size, size(800.0, 123.0));
+        assert!(c.get_layout(size(400.0, 300.0)).is_none());
+        assert!(c.get_layout(size(f32::NAN, f32::NAN)).is_none());
+    }
+
+    #[test]
+    fn nodecache_clear_wipes_every_slot() {
+        let mut c = NodeCache::default();
+        for slot in 0..9 {
+            c.store_size(slot, sizing_entry(size(10.0, 10.0), size(10.0, 10.0)));
+        }
+        c.store_layout(layout_entry(size(10.0, 10.0), size(10.0, 10.0)));
+        assert!(!c.is_empty);
+
+        c.clear();
+
+        assert!(c.is_empty);
+        assert!(c.layout_entry.is_none());
+        assert!(c.measure_entries.iter().all(Option::is_none));
+        assert!(c.get_size(0, size(10.0, 10.0)).is_none());
+        assert!(c.get_layout(size(10.0, 10.0)).is_none());
+
+        // Clearing twice is harmless.
+        c.clear();
+        assert!(c.is_empty);
+    }
+
+    #[test]
+    fn slot_index_always_lands_in_range_and_partitions_the_unknown_case() {
+        use AvailableWidthType::{Definite, MaxContent, MinContent};
+        let types = [Definite, MinContent, MaxContent];
+
+        for &wt in &types {
+            for &ht in &types {
+                for wk in [true, false] {
+                    for hk in [true, false] {
+                        let slot = NodeCache::slot_index(wk, hk, wt, ht);
+                        assert!(slot < 9, "slot {slot} out of the 9-slot range");
+                    }
+                }
+            }
+        }
+
+        // Both known → always slot 0, regardless of the constraint types.
+        for &wt in &types {
+            for &ht in &types {
+                assert_eq!(NodeCache::slot_index(true, true, wt, ht), 0);
+            }
+        }
+
+        // Neither known → the 4 MinContent combos partition slots 5..=8.
+        let mut neither: Vec<usize> = Vec::new();
+        for &wt in &[Definite, MinContent] {
+            for &ht in &[Definite, MinContent] {
+                neither.push(NodeCache::slot_index(false, false, wt, ht));
+            }
+        }
+        neither.sort_unstable();
+        assert_eq!(neither, vec![5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn slot_index_collapses_definite_and_maxcontent_onto_one_slot() {
+        use AvailableWidthType::{Definite, MaxContent, MinContent};
+        // Documented: "MaxContent/Definite vs MinContent" share a slot.
+        assert_eq!(
+            NodeCache::slot_index(true, false, Definite, Definite),
+            NodeCache::slot_index(true, false, MaxContent, Definite)
+        );
+        assert_ne!(
+            NodeCache::slot_index(true, false, Definite, Definite),
+            NodeCache::slot_index(true, false, MinContent, Definite)
+        );
+    }
+
+    #[test]
+    fn slot_index_keys_the_single_unknown_axis_off_the_known_axis_type() {
+        use AvailableWidthType::{Definite, MinContent};
+        // BEHAVIOUR PIN (deviates from Taffy): when only the width is known, the
+        // slot is chosen from `width_type` — the type of the *known* axis — even
+        // though the doc comment says it keys off "the unknown dimension(s)".
+        // Taffy keys slot 1/2 off the height (the unknown axis) here. Same for
+        // the mirrored (false, true) case, which keys off `height_type`.
+        // Consequence: the height's MinContent-ness cannot select slot 2 at all,
+        // so a MinContent and a Definite height measurement would collide in a
+        // single slot once slots 1-8 are wired up (they are unused today).
+        assert_eq!(NodeCache::slot_index(true, false, Definite, MinContent), 1);
+        assert_eq!(NodeCache::slot_index(true, false, MinContent, Definite), 2);
+        assert_eq!(NodeCache::slot_index(false, true, MinContent, Definite), 3);
+        assert_eq!(NodeCache::slot_index(false, true, Definite, MinContent), 4);
+    }
+
+    // ==================================================================
+    // LayoutCacheMap
+    // ==================================================================
+
+    #[test]
+    fn cachemap_resize_to_tree_grows_shrinks_and_zeroes() {
+        let mut m = LayoutCacheMap::default();
+        assert!(m.entries.is_empty());
+
+        m.resize_to_tree(0);
+        assert!(m.entries.is_empty());
+
+        m.resize_to_tree(3);
+        assert_eq!(m.entries.len(), 3);
+        assert!(m.entries.iter().all(|e| e.is_empty));
+
+        // Populated entries survive a grow; new entries are dirty.
+        m.get_mut(1).store_size(0, sizing_entry(size(5.0, 5.0), size(5.0, 5.0)));
+        m.resize_to_tree(5);
+        assert_eq!(m.entries.len(), 5);
+        assert!(!m.get(1).is_empty);
+        assert!(m.get(4).is_empty);
+
+        // Shrink drops the tail.
+        m.resize_to_tree(1);
+        assert_eq!(m.entries.len(), 1);
+        m.resize_to_tree(0);
+        assert!(m.entries.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn cachemap_get_out_of_range_panics() {
+        let m = LayoutCacheMap::default();
+        let _ = m.get(0);
+    }
+
+    #[test]
+    fn cachemap_mark_dirty_out_of_range_index_is_a_noop() {
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(2);
+        m.get_mut(0).store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+
+        m.mark_dirty(99, &[]);
+        m.mark_dirty(usize::MAX, &[]);
+
+        // Guard clause hit: nothing was touched.
+        assert!(!m.get(0).is_empty);
+        assert_eq!(m.entries.len(), 2);
+    }
+
+    #[test]
+    fn cachemap_mark_dirty_propagates_up_the_ancestor_chain() {
+        // 0 <- 1 <- 2
+        let tree = vec![plain(None), plain(Some(0)), plain(Some(1))];
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(3);
+        for i in 0..3 {
+            m.get_mut(i).store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        }
+
+        m.mark_dirty(2, &tree);
+
+        assert!(m.get(2).is_empty);
+        assert!(m.get(1).is_empty);
+        assert!(m.get(0).is_empty);
+    }
+
+    #[test]
+    fn cachemap_mark_dirty_stops_at_the_first_dirty_ancestor() {
+        // 0 (clean) <- 1 (already dirty) <- 2 (clean)
+        let tree = vec![plain(None), plain(Some(0)), plain(Some(1))];
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(3);
+        m.get_mut(0).store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        m.get_mut(2).store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+
+        m.mark_dirty(2, &tree);
+
+        assert!(m.get(2).is_empty);
+        assert!(m.get(1).is_empty);
+        // Early stop: the grandparent keeps its cached entry.
+        assert!(!m.get(0).is_empty);
+    }
+
+    #[test]
+    fn cachemap_mark_dirty_on_an_already_dirty_node_leaves_ancestors_alone() {
+        let tree = vec![plain(None), plain(Some(0))];
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(2);
+        m.get_mut(0).store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        // entry 1 is fresh → already dirty
+
+        m.mark_dirty(1, &tree);
+
+        assert!(m.get(1).is_empty);
+        assert!(!m.get(0).is_empty);
+    }
+
+    #[test]
+    fn cachemap_mark_dirty_terminates_on_cyclic_parent_links() {
+        // A malformed tree (0 <-> 1, and 2 as its own parent) must not spin
+        // forever: the `is_empty` early-stop breaks every cycle after one lap.
+        let tree = vec![plain(Some(1)), plain(Some(0)), plain(Some(2))];
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(3);
+        for i in 0..3 {
+            m.get_mut(i).store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        }
+
+        m.mark_dirty(0, &tree);
+        assert!(m.get(0).is_empty);
+        assert!(m.get(1).is_empty);
+
+        m.mark_dirty(2, &tree);
+        assert!(m.get(2).is_empty);
+    }
+
+    #[test]
+    fn cachemap_mark_dirty_survives_a_tree_that_disagrees_with_the_cache() {
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(3);
+        for i in 0..3 {
+            m.get_mut(i).store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        }
+
+        // Tree shorter than the cache: parent lookup returns None → stop.
+        let short_tree = vec![plain(None)];
+        m.mark_dirty(2, &short_tree);
+        assert!(m.get(2).is_empty);
+        assert!(!m.get(0).is_empty);
+
+        // Parent index past the end of the cache: break, don't index-panic.
+        let dangling = vec![plain(Some(usize::MAX)), plain(None), plain(None)];
+        m.mark_dirty(0, &dangling);
+        assert!(m.get(0).is_empty);
+    }
+
+    // ==================================================================
+    // Solver3CacheMemoryReport / LayoutCache (getters)
+    // ==================================================================
+
+    #[test]
+    fn memory_report_total_bytes_sums_every_field_exactly_once() {
+        assert_eq!(Solver3CacheMemoryReport::default().total_bytes(), 0);
+
+        // Distinct powers of two: a missing or double-counted field shows up as
+        // a wrong total rather than an accidental coincidence.
+        let r = Solver3CacheMemoryReport {
+            tree_bytes: 1,
+            tree_report: None,
+            calculated_positions_bytes: 2,
+            previous_positions_bytes: 4,
+            scroll_ids_bytes: 8,
+            scroll_id_to_node_id_bytes: 16,
+            counters_bytes: 32,
+            float_cache_bytes: 64,
+            cache_map_bytes: 128,
+            cached_display_list_bytes: 256,
+        };
+        assert_eq!(r.total_bytes(), 511);
+    }
+
+    #[test]
+    fn memory_report_of_a_default_cache_is_all_zero() {
+        let cache = LayoutCache::default();
+        let r = cache.memory_report();
+        assert_eq!(r.total_bytes(), 0);
+        assert_eq!(r.tree_bytes, 0);
+        assert!(r.tree_report.is_none());
+        assert_eq!(r.cache_map_bytes, 0);
+        assert_eq!(r.cached_display_list_bytes, 0);
+    }
+
+    #[test]
+    fn memory_report_accounts_for_populated_state() {
+        let mut cache = LayoutCache::default();
+        cache.cache_map.resize_to_tree(4);
+        cache.calculated_positions = vec![pos(1.0, 2.0), pos(3.0, 4.0), pos(5.0, 6.0)];
+        cache.previous_positions = vec![pos(0.0, 0.0)];
+        cache.counters.insert((0, "list-item".to_string()), 7);
+        cache.float_cache.insert(0, fc::FloatingContext::default());
+        cache.scroll_ids.insert(0, 42);
+        cache.scroll_id_to_node_id.insert(42, NodeId::ZERO);
+        cache.cached_display_list = Some((
+            SubtreeHash(1),
+            LogicalRect::new(pos(0.0, 0.0), size(10.0, 10.0)),
+            DisplayList::default(),
+        ));
+
+        let r = cache.memory_report();
+
+        assert!(r.cache_map_bytes >= 4 * size_of::<NodeCache>());
+        assert_eq!(r.calculated_positions_bytes, 3 * size_of::<LogicalPosition>());
+        assert_eq!(r.previous_positions_bytes, size_of::<LogicalPosition>());
+        assert!(r.counters_bytes >= "list-item".len());
+        assert_eq!(r.float_cache_bytes, 256);
+        assert_eq!(r.cached_display_list_bytes, 2048);
+        assert_eq!(
+            r.total_bytes(),
+            r.tree_bytes
+                + r.calculated_positions_bytes
+                + r.previous_positions_bytes
+                + r.scroll_ids_bytes
+                + r.scroll_id_to_node_id_bytes
+                + r.counters_bytes
+                + r.float_cache_bytes
+                + r.cache_map_bytes
+                + r.cached_display_list_bytes
+        );
+    }
+
+    #[test]
+    fn reset_incremental_drops_reuse_state_keeps_the_rest_and_is_idempotent() {
+        let mut cache = LayoutCache::default();
+        cache.tree = Some(build_tree(vec![plain(None)], warm_default(1), &[vec![]]));
+        cache.cache_map.resize_to_tree(2);
+        cache.cached_display_list = Some((
+            SubtreeHash(9),
+            LogicalRect::new(pos(0.0, 0.0), size(1.0, 1.0)),
+            DisplayList::default(),
+        ));
+        cache.prev_dom_ptr = 0xDEAD_BEEF;
+        cache.counters.insert((0, "c".to_string()), 1);
+        cache.float_cache.insert(0, fc::FloatingContext::default());
+        // Not incremental-reuse state — must survive.
+        cache.calculated_positions = vec![pos(1.0, 2.0)];
+        cache.scroll_ids.insert(0, 5);
+        cache.viewport = Some(LogicalRect::new(pos(0.0, 0.0), size(800.0, 600.0)));
+
+        cache.reset_incremental();
+
+        assert!(cache.tree.is_none());
+        assert!(cache.cache_map.entries.is_empty());
+        assert!(cache.cached_display_list.is_none());
+        assert_eq!(cache.prev_dom_ptr, 0);
+        assert!(cache.counters.is_empty());
+        assert!(cache.float_cache.is_empty());
+        assert_eq!(cache.calculated_positions.len(), 1);
+        assert_eq!(cache.scroll_ids.len(), 1);
+        assert!(cache.viewport.is_some());
+
+        // Idempotent: a second reset on the already-cold cache is a no-op.
+        cache.reset_incremental();
+        assert!(cache.tree.is_none());
+        // Only the two retained fields (1 position + 1 scroll id) still cost bytes.
+        assert_eq!(
+            cache.memory_report().total_bytes(),
+            size_of::<LogicalPosition>() + size_of::<usize>() + size_of::<u64>()
+        );
+    }
+
+    // ==================================================================
+    // ReconciliationResult (predicates)
+    // ==================================================================
+
+    #[test]
+    fn reconciliation_result_default_is_clean() {
+        let r = ReconciliationResult::default();
+        assert!(r.is_clean());
+        assert!(!r.needs_layout());
+        assert!(!r.needs_paint_only());
+    }
+
+    #[test]
+    fn reconciliation_result_predicates_hold_over_every_combination() {
+        for intrinsic in [false, true] {
+            for roots in [false, true] {
+                for paint in [false, true] {
+                    let mut r = ReconciliationResult::default();
+                    if intrinsic {
+                        r.intrinsic_dirty.insert(0);
+                    }
+                    if roots {
+                        r.layout_roots.insert(usize::MAX);
+                    }
+                    if paint {
+                        r.paint_dirty.insert(7);
+                    }
+
+                    let expect_layout = intrinsic || roots;
+                    assert_eq!(r.needs_layout(), expect_layout);
+                    assert_eq!(r.is_clean(), !intrinsic && !roots && !paint);
+                    assert_eq!(r.needs_paint_only(), !expect_layout && paint);
+                    // Invariants: clean ⇒ no work; layout and paint-only are exclusive.
+                    assert!(!(r.is_clean() && (r.needs_layout() || r.needs_paint_only())));
+                    assert!(!(r.needs_layout() && r.needs_paint_only()));
+                }
+            }
+        }
+    }
+
+    // ==================================================================
+    // to_overflow_behavior / style_text_align_to_fc (mapping tables)
+    // ==================================================================
+
+    #[test]
+    fn to_overflow_behavior_maps_every_layout_overflow_variant() {
+        assert_eq!(
+            to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Visible)),
+            fc::OverflowBehavior::Visible
+        );
+        assert_eq!(
+            to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Hidden)),
+            fc::OverflowBehavior::Hidden
+        );
+        assert_eq!(
+            to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Scroll)),
+            fc::OverflowBehavior::Scroll
+        );
+        assert_eq!(
+            to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Auto)),
+            fc::OverflowBehavior::Auto
+        );
+        // BEHAVIOUR PIN: `overflow: clip` is folded into Hidden, so the distinct
+        // `OverflowBehavior::Clip` variant is never produced here. Clip differs
+        // from hidden in CSS Overflow 3 (no scroll container, no scrollport), so
+        // a `clip` box is currently treated as a (non-scrollable) hidden box.
+        assert_eq!(
+            to_overflow_behavior(MultiValue::Exact(LayoutOverflow::Clip)),
+            fc::OverflowBehavior::Hidden
+        );
+    }
+
+    #[test]
+    fn to_overflow_behavior_falls_back_to_the_initial_value() {
+        // CSS Overflow 3: initial value is `visible`. Auto/Initial/Inherit here
+        // are the *CSS-wide keyword* arms of MultiValue, not `overflow: auto`.
+        for mv in [MultiValue::Auto, MultiValue::Initial, MultiValue::Inherit] {
+            assert_eq!(to_overflow_behavior(mv), fc::OverflowBehavior::Visible);
+        }
+    }
+
+    #[test]
+    fn overflow_auto_keyword_is_a_typed_value_not_a_css_wide_keyword() {
+        // Regression guard: if `overflow: auto` were parsed as the generic
+        // CSS-wide `auto` keyword it would arrive as MultiValue::Auto and
+        // to_overflow_behavior would silently downgrade it to Visible — i.e. no
+        // scrollbars at all. It must arrive as Exact(LayoutOverflow::Auto).
+        let sd = styled(
+            Dom::create_body().with_child(div_class("s")),
+            ".s { overflow-x: auto; overflow-y: scroll; }",
+        );
+        let id = NodeId::new(1);
+        let state = sd.styled_nodes.as_container()[id].styled_node_state;
+
+        assert_eq!(
+            to_overflow_behavior(get_overflow_x(&sd, id, &state)),
+            fc::OverflowBehavior::Auto
+        );
+        assert_eq!(
+            to_overflow_behavior(get_overflow_y(&sd, id, &state)),
+            fc::OverflowBehavior::Scroll
+        );
+    }
+
+    #[test]
+    fn style_text_align_to_fc_maps_every_variant() {
+        // fc::TextAlign has no PartialEq, so match on the variant.
+        assert!(matches!(
+            style_text_align_to_fc(StyleTextAlign::Start),
+            fc::TextAlign::Start
+        ));
+        assert!(matches!(
+            style_text_align_to_fc(StyleTextAlign::Left),
+            fc::TextAlign::Start
+        ));
+        assert!(matches!(
+            style_text_align_to_fc(StyleTextAlign::End),
+            fc::TextAlign::End
+        ));
+        assert!(matches!(
+            style_text_align_to_fc(StyleTextAlign::Right),
+            fc::TextAlign::End
+        ));
+        assert!(matches!(
+            style_text_align_to_fc(StyleTextAlign::Center),
+            fc::TextAlign::Center
+        ));
+        assert!(matches!(
+            style_text_align_to_fc(StyleTextAlign::Justify),
+            fc::TextAlign::Justify
+        ));
+    }
+
+    // ==================================================================
+    // should_use_content_height (predicate)
+    // ==================================================================
+
+    #[test]
+    fn should_use_content_height_for_css_wide_keywords_and_auto() {
+        assert!(should_use_content_height(&MultiValue::Auto));
+        assert!(should_use_content_height(&MultiValue::Initial));
+        assert!(should_use_content_height(&MultiValue::Inherit));
+        assert!(should_use_content_height(&MultiValue::Exact(LayoutHeight::Auto)));
+    }
+
+    #[test]
+    fn should_use_content_height_is_false_for_definite_lengths() {
+        for pv in [
+            PixelValue::px(100.0),
+            PixelValue::px(-10.0),
+            PixelValue::percent(50.0),
+            PixelValue::percent(0.0),
+            PixelValue::em(2.0),
+            PixelValue::rem(2.0),
+        ] {
+            assert!(
+                !should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(pv))),
+                "expected a definite height for {pv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_use_content_height_treats_zero_px_as_content_based() {
+        // BEHAVIOUR PIN: `height: 0px` is indistinguishable from `auto` here, so
+        // an explicitly zero-height box falls back to content sizing.
+        assert!(should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(
+            PixelValue::zero()
+        ))));
+        assert!(should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(
+            PixelValue::px(0.0)
+        ))));
+        // ...but `height: 0%` is NOT (its metric is Percent, not Px).
+        assert!(!should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(
+            PixelValue::percent(0.0)
+        ))));
+    }
+
+    #[test]
+    fn should_use_content_height_treats_non_px_metrics_as_content_based() {
+        // BEHAVIOUR PIN (suspected bug): only Px/Percent/Em/Rem are recognised as
+        // definite. Every other metric — pt, vh, vw, cm, in, mm — is reported as
+        // content-based, so `height: 100vh` behaves like a *minimum* height (see
+        // apply_content_based_height, which takes max(used, content)) instead of
+        // a definite one.
+        for metric in [
+            SizeMetric::Pt,
+            SizeMetric::Vh,
+            SizeMetric::Vw,
+            SizeMetric::Cm,
+            SizeMetric::Mm,
+            SizeMetric::In,
+        ] {
+            let pv = PixelValue::from_metric(metric, 100.0);
+            assert!(
+                should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(pv))),
+                "{metric:?} is currently treated as content-based"
+            );
+        }
+    }
+
+    #[test]
+    fn should_use_content_height_for_intrinsic_keywords_but_not_calc() {
+        assert!(should_use_content_height(&MultiValue::Exact(LayoutHeight::MinContent)));
+        assert!(should_use_content_height(&MultiValue::Exact(LayoutHeight::MaxContent)));
+        assert!(should_use_content_height(&MultiValue::Exact(LayoutHeight::FitContent(
+            PixelValue::px(10.0)
+        ))));
+        // calc() resolves to a definite value.
+        assert!(!should_use_content_height(&MultiValue::Exact(LayoutHeight::Calc(
+            CalcAstItemVec::from_vec(Vec::new())
+        ))));
+    }
+
+    // ==================================================================
+    // apply_content_based_height (numeric)
+    // ==================================================================
+
+    fn one_node_tree_with(bp: &ResolvedBoxProps) -> LayoutTree {
+        build_tree(
+            vec![hot(None, None, Some(size(100.0, 100.0)), bp)],
+            warm_default(1),
+            &[vec![]],
+        )
+    }
+
+    #[test]
+    fn apply_content_based_height_keeps_the_larger_of_min_height_and_content() {
+        let bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(10.0, 0.0, 10.0, 0.0), // padding: 20px on the block axis
+        );
+        let tree = one_node_tree_with(&bp);
+        let wm = LayoutWritingMode::HorizontalTb;
+
+        // Content (50 + 20 padding = 70) is smaller than the min-height-constrained
+        // 100 → the Phase-1 size wins (CSS 2.2 § 10.7).
+        let out = apply_content_based_height(size(100.0, 100.0), size(0.0, 50.0), &tree, 0, wm)
+            .expect("valid node");
+        assert_eq!(out, size(100.0, 100.0));
+
+        // Content wins when it is taller.
+        let out = apply_content_based_height(size(100.0, 40.0), size(0.0, 50.0), &tree, 0, wm)
+            .expect("valid node");
+        assert_eq!(out, size(100.0, 70.0));
+    }
+
+    #[test]
+    fn apply_content_based_height_at_zero_and_in_vertical_writing_modes() {
+        let tree = one_node_tree_with(&zero_box_props());
+
+        let out = apply_content_based_height(
+            size(0.0, 0.0),
+            size(0.0, 0.0),
+            &tree,
+            0,
+            LayoutWritingMode::HorizontalTb,
+        )
+        .expect("valid node");
+        assert_eq!(out, size(0.0, 0.0));
+
+        // Vertical writing mode: the main axis is the *width*.
+        let out = apply_content_based_height(
+            size(10.0, 80.0),
+            size(50.0, 0.0),
+            &tree,
+            0,
+            LayoutWritingMode::VerticalRl,
+        )
+        .expect("valid node");
+        assert_eq!(out, size(50.0, 80.0));
+    }
+
+    #[test]
+    fn apply_content_based_height_does_not_propagate_nan() {
+        let tree = one_node_tree_with(&zero_box_props());
+        let wm = LayoutWritingMode::HorizontalTb;
+
+        // f32::max ignores a NaN operand, so a NaN content size cannot poison the
+        // used size — the Phase-1 height survives.
+        let out = apply_content_based_height(size(100.0, 40.0), size(0.0, f32::NAN), &tree, 0, wm)
+            .expect("valid node");
+        assert!(!out.height.is_nan());
+        assert_eq!(out.height, 40.0);
+
+        // ...and symmetrically, a NaN used size is replaced by the content size.
+        let out =
+            apply_content_based_height(size(100.0, f32::NAN), size(0.0, 50.0), &tree, 0, wm)
+                .expect("valid node");
+        assert!(!out.height.is_nan());
+        assert_eq!(out.height, 50.0);
+    }
+
+    #[test]
+    fn apply_content_based_height_saturates_at_infinity_and_rejects_bad_indices() {
+        let tree = one_node_tree_with(&zero_box_props());
+        let wm = LayoutWritingMode::HorizontalTb;
+
+        let out =
+            apply_content_based_height(size(10.0, 10.0), size(0.0, f32::INFINITY), &tree, 0, wm)
+                .expect("valid node");
+        assert!(out.height.is_infinite() && out.height.is_sign_positive());
+
+        // A huge finite content size stays finite (no overflow panic).
+        let out = apply_content_based_height(size(10.0, 10.0), size(0.0, f32::MAX), &tree, 0, wm)
+            .expect("valid node");
+        assert_eq!(out.height, f32::MAX);
+
+        // Out-of-range node → Err, not a panic.
+        assert!(apply_content_based_height(size(1.0, 1.0), size(1.0, 1.0), &tree, 1, wm).is_err());
+        assert!(
+            apply_content_based_height(size(1.0, 1.0), size(1.0, 1.0), &tree, usize::MAX, wm)
+                .is_err()
+        );
+    }
+
+    // ==================================================================
+    // calculate_subtree_hash (numeric / round-trip-ish)
+    // ==================================================================
+
+    #[test]
+    fn subtree_hash_is_deterministic() {
+        let a = calculate_subtree_hash(42, &[1, 2, 3]);
+        let b = calculate_subtree_hash(42, &[1, 2, 3]);
+        assert_eq!(a, b);
+        assert_eq!(a, calculate_subtree_hash(42, &[1, 2, 3]));
+    }
+
+    #[test]
+    fn subtree_hash_depends_on_child_order_and_arity() {
+        let base = calculate_subtree_hash(1, &[10, 20]);
+        assert_ne!(base, calculate_subtree_hash(1, &[20, 10]), "order must matter");
+        assert_ne!(base, calculate_subtree_hash(1, &[10, 20, 30]), "arity must matter");
+        assert_ne!(base, calculate_subtree_hash(1, &[10]), "a dropped child must matter");
+        assert_ne!(base, calculate_subtree_hash(2, &[10, 20]), "self hash must matter");
+    }
+
+    #[test]
+    fn subtree_hash_distinguishes_no_children_from_a_zero_child() {
+        // Length is folded in (slice Hash writes the length), so an empty child
+        // list is not confusable with a single 0-hash child.
+        assert_ne!(
+            calculate_subtree_hash(0, &[]),
+            calculate_subtree_hash(0, &[0])
+        );
+        assert_ne!(
+            calculate_subtree_hash(0, &[0]),
+            calculate_subtree_hash(0, &[0, 0])
+        );
+    }
+
+    #[test]
+    fn subtree_hash_does_not_swap_self_hash_and_child_hash() {
+        assert_ne!(
+            calculate_subtree_hash(7, &[9]),
+            calculate_subtree_hash(9, &[7])
+        );
+    }
+
+    #[test]
+    fn subtree_hash_handles_extremes_and_large_child_lists() {
+        let extremes = calculate_subtree_hash(u64::MAX, &[u64::MAX, 0, u64::MAX]);
+        assert_eq!(
+            extremes,
+            calculate_subtree_hash(u64::MAX, &[u64::MAX, 0, u64::MAX])
+        );
+        assert_ne!(extremes, calculate_subtree_hash(0, &[0, 0, 0]));
+
+        // 10k children: no overflow, no panic, still deterministic.
+        let many: Vec<u64> = (0..10_000).collect();
+        assert_eq!(
+            calculate_subtree_hash(1, &many),
+            calculate_subtree_hash(1, &many)
+        );
+    }
+
+    // ==================================================================
+    // calculate_content_box_pos (numeric)
+    // ==================================================================
+
+    #[test]
+    fn content_box_pos_adds_border_and_padding_but_not_margin() {
+        let bp = box_props(
+            edges(999.0, 999.0, 999.0, 999.0), // margin must be ignored
+            edges(2.0, 0.0, 0.0, 3.0),         // border top/left
+            edges(5.0, 0.0, 0.0, 7.0),         // padding top/left
+        );
+        let out = calculate_content_box_pos(pos(10.0, 20.0), &bp);
+        assert_eq!(out, pos(10.0 + 3.0 + 7.0, 20.0 + 2.0 + 5.0));
+
+        // Zero box props → identity.
+        assert_eq!(
+            calculate_content_box_pos(pos(4.0, 5.0), &zero_box_props()),
+            pos(4.0, 5.0)
+        );
+    }
+
+    #[test]
+    fn content_box_pos_with_negative_edges_shifts_backwards() {
+        let bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(-1.0, 0.0, 0.0, -2.0),
+            edges(-3.0, 0.0, 0.0, -4.0),
+        );
+        assert_eq!(
+            calculate_content_box_pos(pos(0.0, 0.0), &bp),
+            pos(-6.0, -4.0)
+        );
+    }
+
+    #[test]
+    fn content_box_pos_with_non_finite_edges_is_deterministic() {
+        let nan_bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(f32::NAN, 0.0, 0.0, f32::NAN),
+            edges(0.0, 0.0, 0.0, 0.0),
+        );
+        let out = calculate_content_box_pos(pos(1.0, 1.0), &nan_bp);
+        assert!(out.x.is_nan() && out.y.is_nan(), "NaN edges propagate, no panic");
+
+        // +inf border with a -inf containing block → NaN, still no panic.
+        let inf_bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(f32::INFINITY, 0.0, 0.0, f32::INFINITY),
+            edges(0.0, 0.0, 0.0, 0.0),
+        );
+        let out = calculate_content_box_pos(pos(f32::NEG_INFINITY, f32::NEG_INFINITY), &inf_bp);
+        assert!(out.x.is_nan() && out.y.is_nan());
+
+        // Saturation rather than wrap-around at the top of the f32 range.
+        let max_bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(f32::MAX, 0.0, 0.0, f32::MAX),
+            edges(f32::MAX, 0.0, 0.0, f32::MAX),
+        );
+        let out = calculate_content_box_pos(pos(f32::MAX, f32::MAX), &max_bp);
+        assert!(out.x.is_infinite() && out.x.is_sign_positive());
+        assert!(out.y.is_infinite() && out.y.is_sign_positive());
+    }
+
+    // ==================================================================
+    // check_scrollbar_change (numeric / predicate)
+    // ==================================================================
+
+    fn scrollbars(h: bool, v: bool, w: f32) -> ScrollbarRequirements {
+        ScrollbarRequirements {
+            needs_horizontal: h,
+            needs_vertical: v,
+            scrollbar_width: w,
+            scrollbar_height: w,
+            visual_width_px: w,
+        }
+    }
+
+    fn tree_with_scrollbar_info(info: Option<ScrollbarRequirements>) -> LayoutTree {
+        let mut warm = warm_default(1);
+        warm[0].scrollbar_info = info;
+        build_tree(vec![plain(None)], warm, &[vec![]])
+    }
+
+    #[test]
+    fn check_scrollbar_change_skip_flag_short_circuits_everything() {
+        let tree = tree_with_scrollbar_info(Some(scrollbars(false, false, 0.0)));
+        // Even a full add of both scrollbars is suppressed by the skip flag.
+        assert!(!check_scrollbar_change(&tree, 0, &scrollbars(true, true, 16.0), true));
+    }
+
+    #[test]
+    fn check_scrollbar_change_out_of_range_node_is_false() {
+        let tree = tree_with_scrollbar_info(None);
+        assert!(!check_scrollbar_change(&tree, 1, &scrollbars(true, true, 16.0), false));
+        assert!(!check_scrollbar_change(&tree, usize::MAX, &scrollbars(true, true, 16.0), false));
+    }
+
+    #[test]
+    fn check_scrollbar_change_without_previous_info_uses_needs_reflow() {
+        let tree = tree_with_scrollbar_info(None);
+        // No reserved space → nothing to reflow for.
+        assert!(!check_scrollbar_change(&tree, 0, &scrollbars(true, true, 0.0), false));
+        // Reserved space → reflow.
+        assert!(check_scrollbar_change(&tree, 0, &scrollbars(false, false, 16.0), false));
+        // NaN reserved width: `NaN > 0.0` is false → deterministic `false`, no panic.
+        assert!(!check_scrollbar_change(&tree, 0, &scrollbars(true, true, f32::NAN), false));
+    }
+
+    #[test]
+    fn check_scrollbar_change_detects_both_addition_and_removal() {
+        let had_vertical = tree_with_scrollbar_info(Some(scrollbars(false, true, 16.0)));
+        // Removal (vertical true → false) must be detected, not suppressed.
+        assert!(check_scrollbar_change(&had_vertical, 0, &scrollbars(false, false, 0.0), false));
+        // Addition of the horizontal bar.
+        assert!(check_scrollbar_change(&had_vertical, 0, &scrollbars(true, true, 16.0), false));
+        // No change at all.
+        assert!(!check_scrollbar_change(&had_vertical, 0, &scrollbars(false, true, 16.0), false));
+    }
+
+    #[test]
+    fn check_scrollbar_change_ignores_width_only_changes() {
+        // BEHAVIOUR PIN: only the needs_horizontal/needs_vertical booleans are
+        // compared. A scrollbar that keeps existing but changes reserved width
+        // (e.g. a restyle from a classic to a thin scrollbar) does not trigger a
+        // reflow here.
+        let tree = tree_with_scrollbar_info(Some(scrollbars(false, true, 16.0)));
+        assert!(!check_scrollbar_change(&tree, 0, &scrollbars(false, true, 4.0), false));
+    }
+
+    // ==================================================================
+    // shift_subtree_position (numeric)
+    // ==================================================================
+
+    /// 0 -> [1, 2]; 1 -> [3]
+    fn shift_fixture() -> (LayoutTree, PositionVec) {
+        let tree = build_tree(
+            vec![plain(None), plain(Some(0)), plain(Some(0)), plain(Some(1))],
+            warm_default(4),
+            &[vec![1, 2], vec![3], vec![], vec![]],
+        );
+        let positions = vec![
+            pos(0.0, 0.0),
+            pos(10.0, 10.0),
+            pos(20.0, 20.0),
+            pos(30.0, 30.0),
+        ];
+        (tree, positions)
+    }
+
+    #[test]
+    fn shift_subtree_position_zero_delta_is_identity() {
+        let (tree, mut positions) = shift_fixture();
+        let before = positions.clone();
+        shift_subtree_position(0, pos(0.0, 0.0), &tree, &mut positions);
+        assert_eq!(positions, before);
+    }
+
+    #[test]
+    fn shift_subtree_position_moves_the_subtree_and_leaves_siblings_alone() {
+        let (tree, mut positions) = shift_fixture();
+        shift_subtree_position(1, pos(5.0, -3.0), &tree, &mut positions);
+
+        assert_eq!(positions[0], pos(0.0, 0.0), "parent untouched");
+        assert_eq!(positions[1], pos(15.0, 7.0), "shifted node");
+        assert_eq!(positions[2], pos(20.0, 20.0), "sibling untouched");
+        assert_eq!(positions[3], pos(35.0, 27.0), "descendant follows");
+    }
+
+    #[test]
+    fn shift_subtree_position_out_of_range_node_is_a_noop() {
+        let (tree, mut positions) = shift_fixture();
+        let before = positions.clone();
+        shift_subtree_position(99, pos(5.0, 5.0), &tree, &mut positions);
+        shift_subtree_position(usize::MAX, pos(5.0, 5.0), &tree, &mut positions);
+        assert_eq!(positions, before);
+    }
+
+    #[test]
+    fn shift_subtree_position_skips_nodes_without_a_stored_position() {
+        let (tree, _) = shift_fixture();
+        // Only node 0 has a position; 1..3 are missing from the vec entirely.
+        let mut positions = vec![pos(1.0, 1.0)];
+        shift_subtree_position(0, pos(2.0, 2.0), &tree, &mut positions);
+        assert_eq!(positions.len(), 1, "the vec is not grown by the shift");
+        assert_eq!(positions[0], pos(3.0, 3.0));
+    }
+
+    #[test]
+    fn shift_subtree_position_leaves_the_unset_sentinel_unset() {
+        // POSITION_UNSET is f32::MIN; adding a small delta to it is a no-op at
+        // f32 precision, so an un-positioned node stays "unset" after a shift
+        // instead of turning into a bogus near-MIN coordinate.
+        let (tree, _) = shift_fixture();
+        let mut positions = vec![pos(0.0, 0.0), POSITION_UNSET, POSITION_UNSET, POSITION_UNSET];
+        shift_subtree_position(0, pos(7.0, 9.0), &tree, &mut positions);
+
+        assert_eq!(pos_get(&positions, 0), Some(pos(7.0, 9.0)));
+        assert!(pos_get(&positions, 1).is_none());
+        assert!(pos_get(&positions, 3).is_none());
+    }
+
+    #[test]
+    fn shift_subtree_position_nan_delta_is_confined_to_the_subtree() {
+        let (tree, mut positions) = shift_fixture();
+        shift_subtree_position(1, pos(f32::NAN, f32::NAN), &tree, &mut positions);
+
+        assert!(positions[1].x.is_nan() && positions[1].y.is_nan());
+        assert!(positions[3].x.is_nan(), "NaN reaches the descendant");
+        assert!(!positions[2].x.is_nan(), "the sibling is untouched");
+        assert_eq!(positions[0], pos(0.0, 0.0));
+    }
+
+    #[test]
+    fn shift_subtree_position_walks_a_deep_chain_without_blowing_the_stack() {
+        const DEPTH: usize = 500;
+        let mut nodes = vec![plain(None)];
+        let mut child_lists: Vec<Vec<usize>> = vec![vec![1]];
+        for i in 1..DEPTH {
+            nodes.push(plain(Some(i - 1)));
+            child_lists.push(if i + 1 < DEPTH { vec![i + 1] } else { vec![] });
+        }
+        let tree = build_tree(nodes, warm_default(DEPTH), &child_lists);
+        let mut positions = vec![pos(0.0, 0.0); DEPTH];
+
+        shift_subtree_position(0, pos(1.0, 2.0), &tree, &mut positions);
+
+        assert_eq!(positions[0], pos(1.0, 2.0));
+        assert_eq!(positions[DEPTH - 1], pos(1.0, 2.0));
+    }
+
+    // ==================================================================
+    // position_bfc_child_descendants / position_flex_child_descendants
+    // ==================================================================
+
+    #[test]
+    fn position_bfc_child_descendants_out_of_range_node_is_a_noop() {
+        let (tree, mut positions) = shift_fixture();
+        let before = positions.clone();
+        position_bfc_child_descendants(&tree, 99, pos(1.0, 1.0), &mut positions);
+        assert_eq!(positions, before);
+    }
+
+    #[test]
+    fn position_bfc_child_descendants_converts_relative_to_absolute() {
+        // 0 -> [1] -> [2]; node 1 has a 2px border + 3px padding on top/left.
+        let bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(2.0, 0.0, 0.0, 2.0),
+            edges(3.0, 0.0, 0.0, 3.0),
+        );
+        let mut warm = warm_default(3);
+        warm[1].relative_position = Some(pos(10.0, 20.0));
+        warm[2].relative_position = Some(pos(1.0, 1.0));
+        let tree = build_tree(
+            vec![
+                plain(None),
+                hot(Some(0), None, Some(size(50.0, 50.0)), &bp),
+                plain(Some(1)),
+            ],
+            warm,
+            &[vec![1], vec![2], vec![]],
+        );
+
+        let mut positions: PositionVec = Vec::new();
+        position_bfc_child_descendants(&tree, 0, pos(100.0, 200.0), &mut positions);
+
+        // child: content-box origin + relative
+        assert_eq!(pos_get(&positions, 1), Some(pos(110.0, 220.0)));
+        // grandchild: child's own content box (abs + border + padding) + relative
+        assert_eq!(pos_get(&positions, 2), Some(pos(110.0 + 5.0 + 1.0, 220.0 + 5.0 + 1.0)));
+    }
+
+    #[test]
+    fn position_bfc_child_descendants_defaults_a_missing_relative_position_to_the_origin() {
+        let tree = build_tree(
+            vec![plain(None), plain(Some(0))],
+            warm_default(2), // relative_position: None
+            &[vec![1], vec![]],
+        );
+        let mut positions: PositionVec = Vec::new();
+        position_bfc_child_descendants(&tree, 0, pos(7.0, 8.0), &mut positions);
+        assert_eq!(pos_get(&positions, 1), Some(pos(7.0, 8.0)));
+    }
+
+    #[test]
+    fn position_flex_child_descendants_rejects_a_dangling_child_index() {
+        // children_arena points at a node that does not exist → Err, not a panic.
+        let mut tree = build_tree(vec![plain(None)], warm_default(1), &[vec![99]]);
+        let mut positions: PositionVec = Vec::new();
+        let r = position_flex_child_descendants(
+            &mut tree,
+            0,
+            pos(0.0, 0.0),
+            size(100.0, 100.0),
+            &mut positions,
+        );
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn position_flex_child_descendants_positions_children_and_grandchildren() {
+        let mut warm = warm_default(3);
+        warm[1].relative_position = Some(pos(5.0, 5.0));
+        warm[2].relative_position = Some(pos(2.0, 2.0));
+        let mut tree = build_tree(
+            vec![plain(None), plain(Some(0)), plain(Some(1))],
+            warm,
+            &[vec![1], vec![2], vec![]],
+        );
+
+        let mut positions: PositionVec = Vec::new();
+        position_flex_child_descendants(
+            &mut tree,
+            0,
+            pos(50.0, 60.0),
+            size(100.0, 100.0),
+            &mut positions,
+        )
+        .expect("well-formed tree");
+
+        assert_eq!(pos_get(&positions, 1), Some(pos(55.0, 65.0)));
+        assert_eq!(pos_get(&positions, 2), Some(pos(57.0, 67.0)));
+    }
+
+    // ==================================================================
+    // collect_children_dom_ids / layout_relevant_child_count
+    // ==================================================================
+
+    #[test]
+    fn collect_children_dom_ids_skips_display_none_children() {
+        // body(0) > [ div(1), div.hide(2), div(3) ]
+        let sd = styled(
+            Dom::create_body()
+                .with_child(Dom::create_div())
+                .with_child(div_class("hide"))
+                .with_child(Dom::create_div()),
+            ".hide { display: none; }",
+        );
+
+        let children = collect_children_dom_ids(&sd, NodeId::ZERO);
+        assert_eq!(children, vec![NodeId::new(1), NodeId::new(3)]);
+    }
+
+    #[test]
+    fn collect_children_dom_ids_for_leaves_and_unknown_parents_is_empty() {
+        let sd = styled(Dom::create_body().with_child(Dom::create_div()), "");
+
+        // A leaf has no children.
+        assert!(collect_children_dom_ids(&sd, NodeId::new(1)).is_empty());
+        // An id past the end of the hierarchy must not panic.
+        assert!(collect_children_dom_ids(&sd, NodeId::new(999)).is_empty());
+        assert!(collect_children_dom_ids(&sd, NodeId::new(usize::MAX)).is_empty());
+    }
+
+    #[test]
+    fn layout_relevant_child_count_counts_only_boxes_the_builder_would_emit() {
+        // body(0) > [ div(1), text " "(2), div.hide(3) ]
+        let sd = styled(
+            Dom::create_body()
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_text(" "))
+                .with_child(div_class("hide")),
+            ".hide { display: none; }",
+        );
+        let children = [NodeId::new(1), NodeId::new(2), NodeId::new(3)];
+
+        // display:none is dropped, and the whitespace-only inline run between
+        // block siblings collapses → only the first div survives.
+        assert_eq!(layout_relevant_child_count(&sd, &children, NodeId::ZERO), 1);
+        // Empty input → 0, no panic.
+        assert_eq!(layout_relevant_child_count(&sd, &[], NodeId::ZERO), 0);
+    }
+
+    // ==================================================================
+    // is_whitespace_only_inline_run (predicate)
+    // ==================================================================
+
+    #[test]
+    fn is_whitespace_only_inline_run_empty_run_is_true() {
+        let sd = whitespace_dom("");
+        assert!(is_whitespace_only_inline_run(&sd, &[], NodeId::new(1)));
+    }
+
+    #[test]
+    fn is_whitespace_only_inline_run_detects_collapsible_whitespace_text() {
+        let sd = whitespace_dom("");
+        // " \n\t" — only ASCII whitespace.
+        assert!(is_whitespace_only_inline_run(&sd, &[(0, NodeId::new(2))], NodeId::new(1)));
+        // "hi" — real text.
+        assert!(!is_whitespace_only_inline_run(&sd, &[(1, NodeId::new(3))], NodeId::new(1)));
+        // A mixed run is not whitespace-only.
+        assert!(!is_whitespace_only_inline_run(
+            &sd,
+            &[(0, NodeId::new(2)), (1, NodeId::new(3))],
+            NodeId::new(1)
+        ));
+    }
+
+    #[test]
+    fn is_whitespace_only_inline_run_rejects_elements_and_non_ascii_spaces() {
+        let sd = whitespace_dom("");
+        // A <div> in the run is not a text node → wrapper required.
+        assert!(!is_whitespace_only_inline_run(&sd, &[(2, NodeId::new(4))], NodeId::new(1)));
+        // U+00A0 NO-BREAK SPACE is *not* collapsible whitespace in CSS, and the
+        // ASCII-only char set correctly treats it as real content.
+        assert!(!is_whitespace_only_inline_run(&sd, &[(3, NodeId::new(5))], NodeId::new(1)));
+    }
+
+    #[test]
+    fn is_whitespace_only_inline_run_respects_white_space_pre() {
+        // With `white-space: pre` on the parent, whitespace is significant and the
+        // anonymous IFC wrapper must still be created.
+        let sd = whitespace_dom(".p { white-space: pre; }");
+        assert!(!is_whitespace_only_inline_run(&sd, &[(0, NodeId::new(2))], NodeId::new(1)));
+
+        // Sanity: the same run collapses without the `pre`.
+        let sd = whitespace_dom(".p { white-space: normal; }");
+        assert!(is_whitespace_only_inline_run(&sd, &[(0, NodeId::new(2))], NodeId::new(1)));
+    }
+
+    // ==================================================================
+    // reposition_clean_subtrees / reposition_block_flow_siblings
+    // ==================================================================
+
+    #[test]
+    fn reposition_clean_subtrees_ignores_empty_and_dangling_roots() {
+        let sd = styled(Dom::create_body().with_child(Dom::create_div()), "");
+        let tree = build_tree(
+            vec![
+                hot(None, Some(NodeId::ZERO), Some(size(100.0, 100.0)), &zero_box_props()),
+                plain(Some(0)),
+            ],
+            warm_default(2),
+            &[vec![1], vec![]],
+        );
+        let mut positions = vec![pos(0.0, 0.0), pos(1.0, 1.0)];
+        let before = positions.clone();
+
+        // No dirty roots → nothing to reposition.
+        reposition_clean_subtrees(&sd, &tree, &BTreeSet::new(), &mut positions);
+        assert_eq!(positions, before);
+
+        // A layout root that isn't in the tree must not panic.
+        let mut roots = BTreeSet::new();
+        roots.insert(99);
+        roots.insert(usize::MAX);
+        reposition_clean_subtrees(&sd, &tree, &roots, &mut positions);
+        assert_eq!(positions, before);
+    }
+
+    #[test]
+    fn reposition_clean_subtrees_skips_flex_parents() {
+        let sd = styled(Dom::create_body().with_child(Dom::create_div()), "");
+        let mut nodes = vec![
+            hot(None, Some(NodeId::ZERO), Some(size(100.0, 100.0)), &zero_box_props()),
+            plain(Some(0)),
+        ];
+        nodes[0].formatting_context = FormattingContext::Flex;
+        let tree = build_tree(nodes, warm_default(2), &[vec![1], vec![]]);
+
+        let mut positions = vec![pos(0.0, 0.0), pos(1.0, 1.0)];
+        let before = positions.clone();
+        let mut roots = BTreeSet::new();
+        roots.insert(1);
+
+        // Taffy owns flex layout; the sibling-repositioning shortcut is skipped.
+        reposition_clean_subtrees(&sd, &tree, &roots, &mut positions);
+        assert_eq!(positions, before);
+    }
+
+    #[test]
+    fn reposition_block_flow_siblings_stacks_clean_children_from_the_content_origin() {
+        // body(0) is the parent; children 1 and 2 are clean, 3 is a grandchild.
+        let sd = styled(Dom::create_body().with_child(Dom::create_div()), "");
+        let parent_bp = box_props(
+            edges(0.0, 0.0, 0.0, 0.0),
+            edges(5.0, 5.0, 5.0, 5.0), // border — see the note below
+            edges(3.0, 3.0, 3.0, 3.0), // padding
+        );
+        let tree = build_tree(
+            vec![
+                hot(None, Some(NodeId::ZERO), Some(size(200.0, 200.0)), &parent_bp),
+                hot(Some(0), None, Some(size(200.0, 50.0)), &zero_box_props()),
+                hot(Some(0), None, Some(size(200.0, 30.0)), &zero_box_props()),
+                plain(Some(1)),
+            ],
+            warm_default(4),
+            &[vec![1, 2], vec![3], vec![], vec![]],
+        );
+        let mut positions = vec![
+            pos(10.0, 20.0), // parent (border-box origin)
+            pos(0.0, 0.0),
+            pos(0.0, 0.0),
+            pos(0.0, 0.0),
+        ];
+
+        reposition_block_flow_siblings(&sd, 0, &tree, &BTreeSet::new(), &mut positions);
+
+        // BEHAVIOUR PIN: the content origin is computed as parent_pos + PADDING
+        // only — the parent's border is NOT added, unlike calculate_content_box_pos
+        // (which adds border + padding to the same border-box origin). With a
+        // bordered parent the clean siblings therefore land 5px up/left of where
+        // the full layout pass would put them.
+        assert_eq!(positions[1], pos(13.0, 23.0));
+        assert_eq!(positions[2], pos(13.0, 73.0), "second child stacked below the first");
+        // The grandchild moved with its parent's subtree.
+        assert_eq!(positions[3], pos(13.0, 23.0));
+    }
+
+    // ==================================================================
+    // compute_counters
+    // ==================================================================
+
+    #[test]
+    fn compute_counters_on_an_empty_or_anonymous_tree_does_not_panic() {
+        let sd = styled(Dom::create_body(), "");
+        let mut counters: HashMap<(usize, String), i32> = HashMap::new();
+
+        // Root index past the end of the node list.
+        let empty = build_tree(Vec::new(), Vec::new(), &[]);
+        compute_counters(&sd, &empty, &mut counters);
+        assert!(counters.is_empty());
+
+        // Anonymous root (no dom_node_id) with an anonymous child.
+        let anon = build_tree(
+            vec![plain(None), plain(Some(0))],
+            warm_default(2),
+            &[vec![1], vec![]],
+        );
+        compute_counters(&sd, &anon, &mut counters);
+        assert!(counters.is_empty());
+    }
+
+    #[test]
+    fn compute_counters_increments_the_list_item_counter_in_document_order() {
+        // body(0) > [ div.li(1), div.li(2) ]
+        let sd = styled(
+            Dom::create_body()
+                .with_child(div_class("li"))
+                .with_child(div_class("li")),
+            ".li { display: list-item; }",
+        );
+        let tree = build_tree(
+            vec![
+                hot(None, Some(NodeId::ZERO), Some(size(100.0, 100.0)), &zero_box_props()),
+                hot(Some(0), Some(NodeId::new(1)), Some(size(100.0, 10.0)), &zero_box_props()),
+                hot(Some(0), Some(NodeId::new(2)), Some(size(100.0, 10.0)), &zero_box_props()),
+            ],
+            warm_default(3),
+            &[vec![1, 2], vec![], vec![]],
+        );
+
+        let mut counters: HashMap<(usize, String), i32> = HashMap::new();
+        compute_counters(&sd, &tree, &mut counters);
+
+        // CSS Lists 3 § 3: `display: list-item` auto-increments "list-item".
+        assert_eq!(counters.get(&(1, "list-item".to_string())), Some(&1));
+        assert_eq!(counters.get(&(2, "list-item".to_string())), Some(&2));
+        // The non-list-item root never enters a counter scope.
+        assert_eq!(counters.get(&(0, "list-item".to_string())), None);
+    }
+
+    #[test]
+    fn compute_counters_leaves_plain_elements_alone() {
+        let sd = styled(
+            Dom::create_body().with_child(Dom::create_div()),
+            "",
+        );
+        let tree = build_tree(
+            vec![
+                hot(None, Some(NodeId::ZERO), Some(size(100.0, 100.0)), &zero_box_props()),
+                hot(Some(0), Some(NodeId::new(1)), Some(size(100.0, 10.0)), &zero_box_props()),
+            ],
+            warm_default(2),
+            &[vec![1], vec![]],
+        );
+
+        let mut counters: HashMap<(usize, String), i32> = HashMap::new();
+        compute_counters(&sd, &tree, &mut counters);
+        assert!(counters.is_empty(), "no counter-reset/increment → no counters");
+    }
+}

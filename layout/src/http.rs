@@ -649,3 +649,638 @@ mod tests {
         assert!(err2.to_string().contains("200"));
     }
 }
+
+#[cfg(test)]
+mod autotest_generated {
+    use super::*;
+
+    // =========================================================================
+    // Shared fixtures
+    //
+    // Everything below is offline: the `http`-gated tests only touch URIs that
+    // fail during URI parsing (no DNS lookup, no socket) or construct a ureq
+    // agent without ever calling it.
+    // =========================================================================
+
+    /// 256 KiB of ASCII — used to check the constructors don't choke on big payloads.
+    fn huge_ascii() -> String {
+        "A".repeat(256 * 1024)
+    }
+
+    /// A string designed to break naive formatting / escaping.
+    const NASTY: &str = "\u{0}\r\n\t\"{}{{}}%s%n\u{7f}héllo·🦀·\u{202e}\u{feff}";
+
+    fn response_with_status(status_code: u16) -> HttpResponse {
+        HttpResponse {
+            status_code,
+            body: U8Vec::from(Vec::new()),
+            content_type: AzString::from("application/octet-stream"),
+            content_length: 0,
+            headers: HttpHeaderVec::from_const_slice(&[]),
+        }
+    }
+
+    fn response_with_body(body: Vec<u8>) -> HttpResponse {
+        HttpResponse {
+            status_code: 200,
+            body: U8Vec::from(body),
+            content_type: AzString::from("text/plain"),
+            content_length: 0,
+            headers: HttpHeaderVec::from_const_slice(&[]),
+        }
+    }
+
+    // =========================================================================
+    // HttpError constructors (`other` category) — extreme AzString payloads
+    // =========================================================================
+
+    #[test]
+    fn http_error_string_constructors_store_payload_verbatim() {
+        for payload in ["", "http://example.com", NASTY, huge_ascii().as_str()] {
+            let s = AzString::from(payload);
+
+            assert_eq!(
+                HttpError::invalid_url(s.clone()),
+                HttpError::InvalidUrl(s.clone())
+            );
+            assert_eq!(
+                HttpError::connection_failed(s.clone()),
+                HttpError::ConnectionFailed(s.clone())
+            );
+            assert_eq!(
+                HttpError::tls_error(s.clone()),
+                HttpError::TlsError(s.clone())
+            );
+            assert_eq!(
+                HttpError::io_error(s.clone()),
+                HttpError::IoError(s.clone())
+            );
+            assert_eq!(HttpError::other(s.clone()), HttpError::Other(s.clone()));
+
+            // The payload survives the round-trip through the enum untouched:
+            // no truncation at NUL, no escaping, no normalization.
+            match HttpError::invalid_url(s.clone()) {
+                HttpError::InvalidUrl(inner) => assert_eq!(inner.as_str(), payload),
+                other => panic!("wrong variant: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn http_error_variants_are_not_conflated() {
+        let s = AzString::from("x");
+        assert_ne!(HttpError::invalid_url(s.clone()), HttpError::other(s.clone()));
+        assert_ne!(HttpError::tls_error(s.clone()), HttpError::io_error(s.clone()));
+        assert_ne!(HttpError::connection_failed(s.clone()), HttpError::Timeout);
+    }
+
+    // =========================================================================
+    // HttpError::http_status / response_too_large (`numeric` category)
+    // =========================================================================
+
+    #[test]
+    fn http_status_accepts_full_u16_range_without_clamping() {
+        // 0 and u16::MAX are not valid HTTP status codes, but the constructor is
+        // a plain data carrier: it must store them as-is rather than clamp/panic.
+        for code in [0_u16, 1, 99, 100, 200, 299, 400, 599, 600, 999, u16::MAX] {
+            let err = HttpError::http_status(code, AzString::from("msg"));
+            match err {
+                HttpError::HttpStatus(ref e) => {
+                    assert_eq!(e.status_code, code);
+                    assert_eq!(e.message.as_str(), "msg");
+                }
+                ref other => panic!("wrong variant: {other:?}"),
+            }
+            // Display must render the raw number, never a saturated stand-in.
+            assert!(err.to_string().contains(&code.to_string()));
+        }
+    }
+
+    #[test]
+    fn http_status_with_empty_and_huge_message() {
+        let empty = HttpError::http_status(u16::MAX, AzString::from(""));
+        assert_eq!(empty.to_string(), "HTTP 65535 - ");
+
+        let big = huge_ascii();
+        let huge = HttpError::http_status(0, AzString::from(big.as_str()));
+        assert_eq!(huge.to_string().len(), "HTTP 0 - ".len() + big.len());
+    }
+
+    #[test]
+    fn response_too_large_stores_both_sizes_at_u64_limits() {
+        // Includes the nonsensical actual < max ordering: the constructor performs
+        // no validation and no arithmetic, so nothing can overflow here.
+        for (max, actual) in [
+            (0_u64, 0_u64),
+            (0, u64::MAX),
+            (u64::MAX, 0),
+            (u64::MAX, u64::MAX),
+            (1, 1),
+            (100, 200),
+            (u64::MAX, u64::MAX - 1),
+        ] {
+            let err = HttpError::response_too_large(max, actual);
+            match err {
+                HttpError::ResponseTooLarge(ref e) => {
+                    assert_eq!(e.max_size, max);
+                    assert_eq!(e.actual_size, actual);
+                }
+                ref other => panic!("wrong variant: {other:?}"),
+            }
+            let msg = err.to_string();
+            assert!(msg.contains(&actual.to_string()));
+            assert!(msg.contains(&max.to_string()));
+        }
+    }
+
+    // =========================================================================
+    // Display impl (`serializer` category)
+    // =========================================================================
+
+    #[test]
+    fn display_is_non_empty_for_every_variant() {
+        let variants = [
+            HttpError::invalid_url(AzString::from("u")),
+            HttpError::connection_failed(AzString::from("c")),
+            HttpError::Timeout,
+            HttpError::tls_error(AzString::from("t")),
+            HttpError::http_status(500, AzString::from("s")),
+            HttpError::io_error(AzString::from("i")),
+            HttpError::response_too_large(1, 2),
+            HttpError::other(AzString::from("o")),
+        ];
+        for v in &variants {
+            let s = v.to_string();
+            assert!(!s.is_empty(), "empty Display for {v:?}");
+        }
+        assert_eq!(HttpError::Timeout.to_string(), "Request timed out");
+    }
+
+    #[test]
+    fn display_does_not_interpret_the_payload_as_a_format_string() {
+        // A payload full of `{}` / `%s` must be echoed literally — a Display impl
+        // that re-formatted its own output would either panic or eat the braces.
+        let err = HttpError::other(AzString::from("{} {0} {{}} %s %n"));
+        assert_eq!(err.to_string(), "HTTP error: {} {0} {{}} %s %n");
+    }
+
+    #[test]
+    fn display_preserves_nul_newlines_and_unicode() {
+        let err = HttpError::invalid_url(AzString::from(NASTY));
+        let s = err.to_string();
+        assert!(s.starts_with("Invalid URL: "));
+        assert!(s.ends_with(NASTY));
+        assert!(s.contains('\u{0}'));
+        assert!(s.contains('🦀'));
+    }
+
+    #[test]
+    fn display_of_edge_numeric_values_does_not_panic() {
+        assert_eq!(
+            HttpError::http_status(u16::MAX, AzString::from("x")).to_string(),
+            "HTTP 65535 - x"
+        );
+        assert_eq!(
+            HttpError::response_too_large(u64::MAX, u64::MAX).to_string(),
+            format!(
+                "Response too large: {} bytes (max: {})",
+                u64::MAX,
+                u64::MAX
+            )
+        );
+        assert_eq!(
+            HttpError::response_too_large(0, 0).to_string(),
+            "Response too large: 0 bytes (max: 0)"
+        );
+    }
+
+    // =========================================================================
+    // HttpHeader::new (`constructor` category)
+    // =========================================================================
+
+    #[test]
+    fn http_header_new_keeps_fields_exactly_as_given() {
+        for (name, value) in [
+            ("", ""),
+            ("Content-Type", "text/html; charset=utf-8"),
+            (NASTY, NASTY),
+            (huge_ascii().as_str(), ""),
+            ("", huge_ascii().as_str()),
+        ] {
+            let h = HttpHeader::new(name, value);
+            assert_eq!(h.name.as_str(), name);
+            assert_eq!(h.value.as_str(), value);
+        }
+    }
+
+    #[test]
+    fn http_header_new_does_not_sanitize_crlf() {
+        // Documented behaviour, not an endorsement: HttpHeader is a dumb pair, so a
+        // CRLF-bearing name is stored verbatim. Rejecting it is the transport's job
+        // (ureq validates at request time) — assert the value is at least not
+        // silently truncated at the newline, which would hide the injection attempt.
+        let h = HttpHeader::new("X-Evil\r\nInjected: 1", "v\r\nSet-Cookie: pwned=1");
+        assert_eq!(h.name.as_str(), "X-Evil\r\nInjected: 1");
+        assert_eq!(h.value.as_str(), "v\r\nSet-Cookie: pwned=1");
+    }
+
+    #[test]
+    fn http_header_new_accepts_string_and_str() {
+        let from_str = HttpHeader::new("a", "b");
+        let from_string = HttpHeader::new(String::from("a"), String::from("b"));
+        assert_eq!(from_str, from_string);
+    }
+
+    // =========================================================================
+    // HttpRequestConfig builders (`constructor` category)
+    // =========================================================================
+
+    #[test]
+    fn config_new_matches_default_and_documented_values() {
+        let a = HttpRequestConfig::new();
+        let b = HttpRequestConfig::default();
+        assert_eq!(a.timeout_secs, b.timeout_secs);
+        assert_eq!(a.max_response_size, b.max_response_size);
+        assert_eq!(a.user_agent.as_str(), b.user_agent.as_str());
+        assert_eq!(a.headers.len(), b.headers.len());
+        assert_eq!(
+            a.disable_tls_cert_verification,
+            b.disable_tls_cert_verification
+        );
+
+        assert_eq!(a.timeout_secs, 30);
+        assert_eq!(a.max_response_size, 100 * 1024 * 1024);
+        assert!(a.headers.is_empty());
+        // Secure by default: certificate verification must be ON unless opted out.
+        assert!(!a.disable_tls_cert_verification);
+    }
+
+    #[test]
+    fn with_timeout_stores_extremes_verbatim() {
+        for secs in [0_u64, 1, 30, u64::MAX / 2, u64::MAX - 1, u64::MAX] {
+            let cfg = HttpRequestConfig::new().with_timeout(secs);
+            assert_eq!(cfg.timeout_secs, secs);
+            // Nothing else may be disturbed by the setter.
+            assert_eq!(cfg.max_response_size, 100 * 1024 * 1024);
+            assert!(cfg.headers.is_empty());
+        }
+    }
+
+    #[test]
+    fn with_max_size_stores_extremes_verbatim() {
+        for max in [0_u64, 1, u64::MAX] {
+            let cfg = HttpRequestConfig::new().with_max_size(max);
+            assert_eq!(cfg.max_response_size, max);
+            assert_eq!(cfg.timeout_secs, 30);
+        }
+        // 0 is the documented "unlimited" sentinel, not a "reject everything" limit.
+        assert_eq!(HttpRequestConfig::new().with_max_size(0).max_response_size, 0);
+    }
+
+    #[test]
+    fn builder_setters_are_last_write_wins_and_independent() {
+        let cfg = HttpRequestConfig::new()
+            .with_timeout(1)
+            .with_timeout(u64::MAX)
+            .with_max_size(5)
+            .with_max_size(0)
+            .with_user_agent("first")
+            .with_user_agent("second");
+
+        assert_eq!(cfg.timeout_secs, u64::MAX);
+        assert_eq!(cfg.max_response_size, 0);
+        assert_eq!(cfg.user_agent.as_str(), "second");
+    }
+
+    #[test]
+    fn with_user_agent_accepts_empty_and_extreme_values() {
+        let empty = HttpRequestConfig::new().with_user_agent("");
+        // Empty UA is meaningful: http_get_with_config skips the header entirely.
+        assert!(empty.user_agent.as_str().is_empty());
+
+        let unicode = HttpRequestConfig::new().with_user_agent(NASTY);
+        assert_eq!(unicode.user_agent.as_str(), NASTY);
+
+        let big = huge_ascii();
+        let huge = HttpRequestConfig::new().with_user_agent(big.clone());
+        assert_eq!(huge.user_agent.as_str().len(), big.len());
+    }
+
+    #[test]
+    fn with_header_appends_in_order_and_keeps_duplicates() {
+        let mut cfg = HttpRequestConfig::new();
+        assert!(cfg.headers.is_empty());
+
+        for i in 0..100_usize {
+            cfg = cfg.with_header(format!("H{i}"), format!("v{i}"));
+        }
+        // Duplicate names are kept, not deduplicated or overwritten.
+        cfg = cfg.with_header("H0", "second-value");
+
+        assert_eq!(cfg.headers.len(), 101);
+        let slice = cfg.headers.as_slice();
+        for (i, h) in slice.iter().take(100).enumerate() {
+            assert_eq!(h.name.as_str(), format!("H{i}"));
+            assert_eq!(h.value.as_str(), format!("v{i}"));
+        }
+        assert_eq!(slice[100].name.as_str(), "H0");
+        assert_eq!(slice[100].value.as_str(), "second-value");
+    }
+
+    #[test]
+    fn with_header_accepts_empty_name_and_value() {
+        let cfg = HttpRequestConfig::new().with_header("", "");
+        assert_eq!(cfg.headers.len(), 1);
+        assert!(cfg.headers.as_slice()[0].name.as_str().is_empty());
+        assert!(cfg.headers.as_slice()[0].value.as_str().is_empty());
+    }
+
+    #[test]
+    fn cloning_a_config_gives_an_independent_header_vec() {
+        // The header vec is an FFI vec with a destructor field; a shallow clone that
+        // aliased the original's buffer would show up here (and later double-free).
+        let base = HttpRequestConfig::new().with_header("A", "1");
+        let cloned = base.clone().with_header("B", "2");
+
+        assert_eq!(base.headers.len(), 1);
+        assert_eq!(cloned.headers.len(), 2);
+        assert_eq!(base.headers.as_slice()[0].name.as_str(), "A");
+        assert_eq!(cloned.headers.as_slice()[0].name.as_str(), "A");
+        assert_eq!(cloned.headers.as_slice()[1].name.as_str(), "B");
+
+        drop(cloned);
+        // `base` must still be readable after the clone is dropped.
+        assert_eq!(base.headers.as_slice()[0].value.as_str(), "1");
+    }
+
+    // =========================================================================
+    // HttpResponse predicates (`predicate` category)
+    // =========================================================================
+
+    #[test]
+    fn status_predicates_at_class_boundaries() {
+        let cases: &[(u16, bool, bool, bool, bool)] = &[
+            // status, success, redirect, client_err, server_err
+            (0, false, false, false, false),
+            (100, false, false, false, false),
+            (199, false, false, false, false),
+            (200, true, false, false, false),
+            (204, true, false, false, false),
+            (299, true, false, false, false),
+            (300, false, true, false, false),
+            (399, false, true, false, false),
+            (400, false, false, true, false),
+            (499, false, false, true, false),
+            (500, false, false, false, true),
+            (599, false, false, false, true),
+            (600, false, false, false, false),
+            (999, false, false, false, false),
+            (u16::MAX, false, false, false, false),
+        ];
+
+        for &(status, success, redirect, client, server) in cases {
+            let r = response_with_status(status);
+            assert_eq!(r.is_success(), success, "is_success({status})");
+            assert_eq!(r.is_redirect(), redirect, "is_redirect({status})");
+            assert_eq!(r.is_client_error(), client, "is_client_error({status})");
+            assert_eq!(r.is_server_error(), server, "is_server_error({status})");
+        }
+    }
+
+    #[test]
+    fn status_predicates_are_mutually_exclusive_over_the_whole_u16_range() {
+        let mut r = response_with_status(0);
+        for status in 0..=u16::MAX {
+            r.status_code = status;
+            let hits = u8::from(r.is_success())
+                + u8::from(r.is_redirect())
+                + u8::from(r.is_client_error())
+                + u8::from(r.is_server_error());
+            assert!(hits <= 1, "status {status} matched {hits} classes");
+            // Exactly one class must match inside 200..=599, and none outside it.
+            let expected = u8::from((200_u16..600_u16).contains(&status));
+            assert_eq!(hits, expected, "status {status}");
+        }
+    }
+
+    #[test]
+    fn status_predicates_ignore_body_and_headers() {
+        let mut r = response_with_body(vec![0xFF; 1024]);
+        r.status_code = 503;
+        r.content_length = u64::MAX;
+        r.headers = HttpHeaderVec::from_vec(vec![HttpHeader::new("X", "Y")]);
+        assert!(r.is_server_error());
+        assert!(!r.is_success());
+    }
+
+    // =========================================================================
+    // HttpResponse::body_as_string (`getter` category)
+    // =========================================================================
+
+    #[test]
+    fn body_as_string_on_empty_body_is_some_empty_string() {
+        let r = response_with_body(Vec::new());
+        let s = r.body_as_string().expect("empty body is valid UTF-8");
+        assert_eq!(s.as_str(), "");
+    }
+
+    #[test]
+    fn body_as_string_round_trips_valid_utf8() {
+        for text in ["hello", NASTY, "🦀🦀🦀", "a\u{0}b"] {
+            let r = response_with_body(text.as_bytes().to_vec());
+            let s = r.body_as_string().expect("valid UTF-8 must decode");
+            assert_eq!(s.as_str(), text);
+            assert_eq!(s.as_str().len(), text.len());
+        }
+    }
+
+    #[test]
+    fn body_as_string_returns_none_for_invalid_utf8() {
+        let invalid: &[&[u8]] = &[
+            &[0xFF],                    // never valid
+            &[0x80],                    // lone continuation byte
+            &[0xC3],                    // truncated 2-byte sequence
+            &[0xE2, 0x82],              // truncated 3-byte sequence
+            &[0xED, 0xA0, 0x80],        // UTF-16 surrogate half (CESU-8)
+            &[0xF4, 0x90, 0x80, 0x80],  // above U+10FFFF
+            &[0xC0, 0x80],              // overlong NUL
+            &[b'o', b'k', 0xFE, b'!'],  // valid prefix, invalid tail
+        ];
+        for bytes in invalid {
+            let r = response_with_body(bytes.to_vec());
+            assert!(
+                r.body_as_string().is_none(),
+                "expected None for {bytes:02X?}"
+            );
+        }
+    }
+
+    #[test]
+    fn body_as_string_is_pure_and_repeatable() {
+        let r = response_with_body(b"payload".to_vec());
+        let first = r.body_as_string();
+        let second = r.body_as_string();
+        assert_eq!(first, second);
+        // The getter must not consume or mutate the body.
+        assert_eq!(r.body.as_slice(), &b"payload"[..]);
+    }
+
+    #[test]
+    fn body_as_string_ignores_a_lying_content_length() {
+        // content_length is untrusted server metadata and is not an invariant of
+        // `body`; the decoder must go by the actual byte slice.
+        let mut r = response_with_body(b"1234".to_vec());
+        r.content_length = u64::MAX;
+        assert_eq!(r.body_as_string().expect("valid").as_str(), "1234");
+
+        r.content_length = 0;
+        assert_eq!(r.body_as_string().expect("valid").as_str(), "1234");
+    }
+
+    #[test]
+    fn body_as_string_handles_a_large_body() {
+        let big = huge_ascii();
+        let r = response_with_body(big.clone().into_bytes());
+        let s = r.body_as_string().expect("ASCII is valid UTF-8");
+        assert_eq!(s.as_str().len(), big.len());
+    }
+
+    // =========================================================================
+    // FFI result round-trips (encode == decode)
+    // =========================================================================
+
+    #[test]
+    fn result_http_response_round_trips_through_the_ffi_enum() {
+        let ok: Result<HttpResponse, HttpError> = Ok(response_with_status(200));
+        let ffi: ResultHttpResponseHttpError = ok.clone().into();
+        assert!(ffi.is_ok());
+        assert!(!ffi.is_err());
+        assert_eq!(ffi.into_result(), ok);
+
+        let err: Result<HttpResponse, HttpError> =
+            Err(HttpError::http_status(u16::MAX, AzString::from(NASTY)));
+        let ffi: ResultHttpResponseHttpError = err.clone().into();
+        assert!(ffi.is_err());
+        assert!(!ffi.is_ok());
+        assert_eq!(ffi.into_result(), err);
+    }
+
+    #[test]
+    fn result_u8vec_round_trips_through_the_ffi_enum() {
+        let ok: Result<U8Vec, HttpError> = Ok(U8Vec::from(vec![0u8, 0xFF, 0x7F]));
+        let ffi: ResultU8VecHttpError = ok.clone().into();
+        assert!(ffi.is_ok());
+        assert_eq!(ffi.into_result(), ok);
+
+        let err: Result<U8Vec, HttpError> = Err(HttpError::response_too_large(0, u64::MAX));
+        let ffi: ResultU8VecHttpError = err.clone().into();
+        assert!(ffi.is_err());
+        assert_eq!(ffi.into_result(), err);
+
+        // An empty Ok payload must stay Ok — not collapse into Err.
+        let empty: ResultU8VecHttpError = Ok(U8Vec::from(Vec::new())).into();
+        assert!(empty.is_ok());
+        assert_eq!(empty.as_result().map(|v| v.len()), Ok(0));
+    }
+
+    #[test]
+    fn ffi_result_as_result_agrees_with_is_ok() {
+        let ffi: ResultHttpResponseHttpError = Ok(response_with_status(404)).into();
+        assert_eq!(ffi.is_ok(), ffi.as_result().is_ok());
+        assert_eq!(
+            ffi.as_result().map(HttpResponse::is_client_error),
+            Ok(true)
+        );
+    }
+
+    // =========================================================================
+    // `http` feature DISABLED — the stubs must fail closed
+    // =========================================================================
+
+    #[cfg(not(feature = "http"))]
+    #[test]
+    fn stub_free_functions_return_err_for_any_url() {
+        for url in ["", "https://example.com", NASTY, huge_ascii().as_str()] {
+            let cfg = HttpRequestConfig::new();
+            assert!(matches!(http_get(url), Err(HttpError::Other(_))));
+            assert!(matches!(
+                http_get_with_config(url, &cfg),
+                Err(HttpError::Other(_))
+            ));
+            assert!(matches!(download_bytes(url), Err(HttpError::Other(_))));
+            assert!(matches!(
+                download_bytes_with_config(url, &cfg),
+                Err(HttpError::Other(_))
+            ));
+        }
+    }
+
+    #[cfg(not(feature = "http"))]
+    #[test]
+    fn stub_is_url_reachable_is_always_false() {
+        // Fails closed: a disabled HTTP stack must never claim a URL is reachable.
+        for url in ["", "https://example.com", NASTY, huge_ascii().as_str()] {
+            assert!(!is_url_reachable(url));
+            assert!(!HttpRequestConfig::is_url_reachable(AzString::from(url)));
+        }
+    }
+
+    #[cfg(not(feature = "http"))]
+    #[test]
+    fn stub_config_methods_return_err_results() {
+        let cfg = HttpRequestConfig::new().with_timeout(u64::MAX).with_max_size(0);
+        for url in ["", "https://example.com", NASTY] {
+            let u = AzString::from(url);
+            assert!(HttpRequestConfig::http_get_default(u.clone()).is_err());
+            assert!(cfg.http_get(u.clone()).is_err());
+            assert!(HttpRequestConfig::download_bytes_default(u.clone()).is_err());
+            assert!(cfg.download_bytes(u.clone()).is_err());
+        }
+    }
+
+    // =========================================================================
+    // `http` feature ENABLED — offline-only checks
+    // =========================================================================
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn make_agent_builds_at_timeout_extremes() {
+        // Duration::from_secs(u64::MAX) is representable, so agent construction must
+        // not panic at either end of the range (the agent is never called here).
+        for secs in [0_u64, 1, 30, u64::MAX] {
+            for disable_tls in [false, true] {
+                let _agent = make_agent(secs, disable_tls);
+            }
+        }
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn malformed_urls_are_rejected_without_touching_the_network() {
+        // Each of these fails in ureq's URI parser: no DNS resolution, no socket.
+        let cfg = HttpRequestConfig::new().with_timeout(1);
+        for url in ["", "not a url", "://no-scheme", "ht tp://spaces"] {
+            assert!(http_get(url).is_err(), "expected Err for {url:?}");
+            assert!(
+                http_get_with_config(url, &cfg).is_err(),
+                "expected Err for {url:?}"
+            );
+            assert!(download_bytes(url).is_err(), "expected Err for {url:?}");
+            assert!(!is_url_reachable(url), "expected false for {url:?}");
+        }
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn malformed_urls_are_rejected_through_the_ffi_wrappers() {
+        let cfg = HttpRequestConfig::new().with_timeout(1);
+        for url in ["", "not a url"] {
+            let u = AzString::from(url);
+            assert!(HttpRequestConfig::http_get_default(u.clone()).is_err());
+            assert!(cfg.http_get(u.clone()).is_err());
+            assert!(HttpRequestConfig::download_bytes_default(u.clone()).is_err());
+            assert!(cfg.download_bytes(u.clone()).is_err());
+            assert!(!HttpRequestConfig::is_url_reachable(u.clone()));
+        }
+    }
+}

@@ -1193,3 +1193,1507 @@ pub(crate) fn find_absolute_containing_block_rect(
     // +spec:display-property:813192 - abspos containing block falls back to initial containing block (viewport) when no positioned ancestor
     Ok(viewport)
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use azul_core::dom::{Dom, FormattingContext, IdOrClass};
+
+    use super::*;
+    use crate::solver3::{
+        geometry::{EdgeSizes, MarginAuto, PackedBoxProps, ResolvedBoxProps},
+        layout_tree::{LayoutNodeCold, LayoutNodeHot, LayoutNodeWarm},
+        pos_set, PositionVec, POSITION_UNSET,
+    };
+
+    // ==================================================================
+    // Fixtures
+    // ==================================================================
+
+    fn close(a: f32, b: f32, eps: f32) -> bool {
+        (a - b).abs() <= eps
+    }
+
+    fn viewport() -> LogicalRect {
+        LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(800.0, 600.0),
+        )
+    }
+
+    fn styled(dom: Dom, css_str: &str) -> StyledDom {
+        let mut dom = dom;
+        let (css, _warnings) = azul_css::parser2::new_from_str(css_str);
+        StyledDom::create(&mut dom, css)
+    }
+
+    fn div_class(class: &str) -> Dom {
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+    }
+
+    fn body_class(class: &str) -> Dom {
+        Dom::create_body().with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+    }
+
+    /// Structural lookup — never hard-code `CompactDom` pre-order indices.
+    fn node_by_class(sd: &StyledDom, class: &str) -> NodeId {
+        let container = sd.node_data.as_container();
+        for i in 0..sd.node_data.len() {
+            let id = NodeId::new(i);
+            let ids_and_classes = container[id].get_ids_and_classes();
+            let hit = ids_and_classes
+                .as_ref()
+                .iter()
+                .any(|ioc| matches!(ioc, IdOrClass::Class(c) if c.as_str() == class));
+            if hit {
+                return id;
+            }
+        }
+        panic!("no node with class {class:?}");
+    }
+
+    fn edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
+        EdgeSizes {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+
+    fn uniform(v: f32) -> EdgeSizes {
+        edges(v, v, v, v)
+    }
+
+    fn bp(margin: EdgeSizes, padding: EdgeSizes, border: EdgeSizes) -> PackedBoxProps {
+        PackedBoxProps::pack(&ResolvedBoxProps {
+            margin,
+            padding,
+            border,
+            margin_auto: MarginAuto::default(),
+        })
+    }
+
+    fn bp_auto_margins(margin_auto: MarginAuto) -> PackedBoxProps {
+        PackedBoxProps::pack(&ResolvedBoxProps {
+            margin: uniform(0.0),
+            padding: uniform(0.0),
+            border: uniform(0.0),
+            margin_auto,
+        })
+    }
+
+    fn hot(parent: Option<usize>, dom_node_id: Option<NodeId>) -> LayoutNodeHot {
+        LayoutNodeHot {
+            box_props: PackedBoxProps::default(),
+            dom_node_id,
+            used_size: None,
+            formatting_context: FormattingContext::Block {
+                establishes_new_context: false,
+            },
+            parent,
+        }
+    }
+
+    /// Hand-assembles a `LayoutTree` so the index / dangling-parent edge cases the
+    /// real builder can never produce stay reachable.
+    fn raw_tree(nodes: Vec<LayoutNodeHot>, child_lists: &[Vec<usize>]) -> LayoutTree {
+        let n = nodes.len();
+        let mut children_arena: Vec<usize> = Vec::new();
+        let mut children_offsets: Vec<(u32, u32)> = Vec::with_capacity(n);
+        for cl in child_lists {
+            let start = u32::try_from(children_arena.len()).unwrap();
+            children_arena.extend_from_slice(cl);
+            children_offsets.push((start, u32::try_from(cl.len()).unwrap()));
+        }
+        while children_offsets.len() < n {
+            children_offsets.push((0, 0));
+        }
+        LayoutTree {
+            nodes,
+            warm: vec![LayoutNodeWarm::default(); n],
+            cold: vec![LayoutNodeCold::default(); n],
+            root: 0,
+            dom_to_layout: BTreeMap::new(),
+            children_arena,
+            children_offsets,
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+
+    /// `body.root > div.child`, both mirrored 1:1 into a two-node layout tree.
+    fn two_level(css: &str) -> (StyledDom, LayoutTree) {
+        let sd = styled(body_class("root").with_child(div_class("child")), css);
+        let root = node_by_class(&sd, "root");
+        let child = node_by_class(&sd, "child");
+        let tree = raw_tree(
+            vec![hot(None, Some(root)), hot(Some(0), Some(child))],
+            &[vec![1], vec![]],
+        );
+        (sd, tree)
+    }
+
+    /// `body.root > div.mid > div.child`.
+    fn three_level(css: &str) -> (StyledDom, LayoutTree) {
+        let sd = styled(
+            body_class("root").with_child(div_class("mid").with_child(div_class("child"))),
+            css,
+        );
+        let root = node_by_class(&sd, "root");
+        let mid = node_by_class(&sd, "mid");
+        let child = node_by_class(&sd, "child");
+        let tree = raw_tree(
+            vec![
+                hot(None, Some(root)),
+                hot(Some(0), Some(mid)),
+                hot(Some(1), Some(child)),
+            ],
+            &[vec![1], vec![2], vec![]],
+        );
+        (sd, tree)
+    }
+
+    fn positions(list: &[(f32, f32)]) -> PositionVec {
+        list.iter()
+            .map(|&(x, y)| LogicalPosition::new(x, y))
+            .collect()
+    }
+
+    // ==================================================================
+    // get_position_type (other / no-panic smoke + invariants)
+    // ==================================================================
+
+    #[test]
+    fn get_position_type_none_dom_id_is_static() {
+        let (sd, _tree) = two_level("");
+        assert_eq!(get_position_type(&sd, None), LayoutPosition::Static);
+    }
+
+    #[test]
+    fn get_position_type_unstyled_node_is_static() {
+        let (sd, _tree) = two_level("");
+        let child = node_by_class(&sd, "child");
+        assert_eq!(get_position_type(&sd, Some(child)), LayoutPosition::Static);
+    }
+
+    #[test]
+    fn get_position_type_reads_every_keyword() {
+        let sd = styled(
+            body_class("root")
+                .with_child(div_class("st"))
+                .with_child(div_class("rel"))
+                .with_child(div_class("abs"))
+                .with_child(div_class("fix"))
+                .with_child(div_class("sticky")),
+            ".st { position: static; } .rel { position: relative; } \
+             .abs { position: absolute; } .fix { position: fixed; } \
+             .sticky { position: sticky; }",
+        );
+        for (class, expected) in [
+            ("st", LayoutPosition::Static),
+            ("rel", LayoutPosition::Relative),
+            ("abs", LayoutPosition::Absolute),
+            ("fix", LayoutPosition::Fixed),
+            ("sticky", LayoutPosition::Sticky),
+        ] {
+            let id = node_by_class(&sd, class);
+            assert_eq!(get_position_type(&sd, Some(id)), expected, "class {class}");
+        }
+    }
+
+    #[test]
+    fn get_position_type_garbage_value_falls_back_to_static() {
+        // An unparseable declaration must not leak a bogus enum — it is dropped
+        // by the parser, so the cascade yields the initial value.
+        let (sd, _tree) = two_level(".child { position: rubbish-42; }");
+        let child = node_by_class(&sd, "child");
+        assert_eq!(get_position_type(&sd, Some(child)), LayoutPosition::Static);
+    }
+
+    #[test]
+    fn get_position_type_is_pure_and_stable_across_calls() {
+        let (sd, _tree) = two_level(".child { position: sticky; }");
+        let child = node_by_class(&sd, "child");
+        let a = get_position_type(&sd, Some(child));
+        let b = get_position_type(&sd, Some(child));
+        assert_eq!(a, b);
+        assert_eq!(a, LayoutPosition::Sticky);
+        // The invariant the whole positioning pass leans on.
+        assert!(a.is_positioned());
+    }
+
+    // ==================================================================
+    // resolve_position_offsets (numeric)
+    // ==================================================================
+
+    #[test]
+    fn resolve_position_offsets_none_dom_id_is_all_none() {
+        let (sd, _tree) = two_level(".child { top: 10px; }");
+        let o = resolve_position_offsets(
+            &sd,
+            None,
+            LogicalSize::new(100.0, 100.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert!(o.top.is_none() && o.right.is_none() && o.bottom.is_none() && o.left.is_none());
+    }
+
+    #[test]
+    fn resolve_position_offsets_unset_insets_are_none_not_zero() {
+        // `auto` must stay distinguishable from `0px` — the entire abspos
+        // constraint solver branches on it.
+        let (sd, _tree) = two_level("");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(100.0, 100.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert!(o.top.is_none() && o.right.is_none() && o.bottom.is_none() && o.left.is_none());
+    }
+
+    #[test]
+    fn resolve_position_offsets_zero_px_is_some_zero() {
+        let (sd, _tree) = two_level(".child { top: 0px; left: 0px; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(0.0, 0.0),
+            LogicalSize::new(0.0, 0.0),
+        );
+        assert_eq!(o.top, Some(0.0));
+        assert_eq!(o.left, Some(0.0));
+        assert!(o.right.is_none() && o.bottom.is_none());
+    }
+
+    #[test]
+    fn resolve_position_offsets_px_values_round_trip() {
+        let (sd, _tree) =
+            two_level(".child { top: 11px; right: 22px; bottom: 33px; left: 44px; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(200.0, 100.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(11.0));
+        assert_eq!(o.right, Some(22.0));
+        assert_eq!(o.bottom, Some(33.0));
+        assert_eq!(o.left, Some(44.0));
+    }
+
+    #[test]
+    fn resolve_position_offsets_percent_uses_the_correct_axis() {
+        // +spec:containing-block:d4b3b9 — top/bottom resolve against CB height,
+        // left/right against CB width. Swapping the axes is the classic bug here.
+        let (sd, _tree) =
+            two_level(".child { top: 50%; bottom: 25%; left: 50%; right: 10%; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(400.0, 200.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(100.0), "50% of CB height 200");
+        assert_eq!(o.bottom, Some(50.0), "25% of CB height 200");
+        assert_eq!(o.left, Some(200.0), "50% of CB width 400");
+        assert_eq!(o.right, Some(40.0), "10% of CB width 400");
+    }
+
+    #[test]
+    fn resolve_position_offsets_percent_of_zero_containing_block_is_zero() {
+        let (sd, _tree) = two_level(".child { top: 75%; left: 75%; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(0.0, 0.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(0.0));
+        assert_eq!(o.left, Some(0.0));
+    }
+
+    #[test]
+    fn resolve_position_offsets_negative_values_stay_negative() {
+        let (sd, _tree) = two_level(".child { top: -40px; left: -25%; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(400.0, 200.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(-40.0));
+        assert_eq!(o.left, Some(-100.0), "-25% of CB width 400");
+    }
+
+    #[test]
+    fn resolve_position_offsets_em_uses_element_font_size_rem_uses_root() {
+        let sd = styled(
+            body_class("root").with_child(div_class("child")),
+            ".root { font-size: 10px; } .child { font-size: 20px; top: 2em; left: 3rem; }",
+        );
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(400.0, 200.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(40.0), "2em of the element's own 20px font");
+        assert_eq!(o.left, Some(30.0), "3rem of the 10px root font");
+    }
+
+    #[test]
+    fn resolve_position_offsets_viewport_units_use_the_viewport_not_the_containing_block() {
+        let (sd, _tree) = two_level(".child { top: 10vh; left: 10vw; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(50.0, 50.0), // deliberately not the viewport
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(60.0), "10vh of a 600px viewport");
+        assert_eq!(o.left, Some(80.0), "10vw of an 800px viewport");
+    }
+
+    #[test]
+    fn resolve_position_offsets_huge_px_bypasses_the_i16_compact_cache_intact() {
+        // The compact cache encodes insets as i16 ×10 (±3276.7px) and emits a
+        // sentinel outside that range. The sentinel MUST fall through to the slow
+        // cascade path with the value intact — silently saturating to 3276.7px
+        // (or wrapping to a negative!) would be the nasty failure here.
+        let (sd, _tree) = two_level(".child { top: 100000px; left: -100000px; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(400.0, 200.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(100_000.0));
+        assert_eq!(o.left, Some(-100_000.0));
+    }
+
+    #[test]
+    fn resolve_position_offsets_around_the_i16_cache_boundary_agree_within_a_tenth_px() {
+        // 3276.3px is the largest encodable value; 3276.4px trips the sentinel and
+        // takes the slow path. Both paths must land on the authored value.
+        let (sd, _tree) = two_level(".child { top: 3276.3px; bottom: 3276.4px; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(400.0, 200.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        let top = o.top.expect("top is set");
+        let bottom = o.bottom.expect("bottom is set");
+        assert!(close(top, 3276.3, 0.1), "top was {top}");
+        assert!(close(bottom, 3276.4, 0.1), "bottom was {bottom}");
+    }
+
+    #[test]
+    fn resolve_position_offsets_sub_tenth_px_precision_loss_is_bounded() {
+        // The i16 ×10 cache quantises to 0.1px. That is allowed — but it must not
+        // drift further than that.
+        let (sd, _tree) = two_level(".child { top: 10.567px; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(400.0, 200.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        let top = o.top.expect("top is set");
+        assert!(close(top, 10.567, 0.05), "top was {top}");
+    }
+
+    #[test]
+    fn resolve_position_offsets_nan_containing_block_yields_nan_not_a_panic() {
+        let (sd, _tree) = two_level(".child { top: 50%; left: 50%; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(f32::NAN, f32::NAN),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert!(o.top.expect("top is set").is_nan());
+        assert!(o.left.expect("left is set").is_nan());
+    }
+
+    #[test]
+    fn resolve_position_offsets_infinite_containing_block_yields_infinity_not_a_panic() {
+        let (sd, _tree) = two_level(".child { top: 50%; left: 50%; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(f32::INFINITY, f32::INFINITY),
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(o.top, Some(f32::INFINITY));
+        assert_eq!(o.left, Some(f32::INFINITY));
+    }
+
+    #[test]
+    fn resolve_position_offsets_at_f32_max_containing_block_does_not_panic() {
+        let (sd, _tree) = two_level(".child { top: 100%; left: 100%; }");
+        let child = node_by_class(&sd, "child");
+        let o = resolve_position_offsets(
+            &sd,
+            Some(child),
+            LogicalSize::new(f32::MAX, f32::MAX),
+            LogicalSize::new(f32::MAX, f32::MAX),
+        );
+        // 100% of MAX is MAX (the normalized 1.0 multiply is exact).
+        assert_eq!(o.top, Some(f32::MAX));
+        assert_eq!(o.left, Some(f32::MAX));
+    }
+
+    // ==================================================================
+    // find_absolute_containing_block_rect (numeric)
+    // ==================================================================
+
+    #[test]
+    fn find_absolute_cb_rect_root_without_parent_is_the_viewport() {
+        let (sd, tree) = two_level(".root { position: relative; }");
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 0, &sd, &pos, viewport())
+            .expect("root resolves to the initial CB");
+        assert_eq!(got, viewport());
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_out_of_range_index_is_the_viewport_not_a_panic() {
+        let (sd, tree) = two_level(".root { position: relative; }");
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 9_999, &sd, &pos, viewport())
+            .expect("an out-of-range index falls back to the initial CB");
+        assert_eq!(got, viewport());
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_dangling_parent_index_is_an_error_not_a_panic() {
+        let (sd, mut tree) = two_level(".root { position: relative; }");
+        tree.nodes[1].parent = Some(9_999); // corrupt the tree
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 1, &sd, &pos, viewport());
+        assert!(matches!(got, Err(LayoutError::InvalidTree)));
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_static_ancestors_fall_back_to_the_viewport() {
+        let (sd, mut tree) = three_level("");
+        tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
+        tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+        let pos = positions(&[(0.0, 0.0), (10.0, 10.0), (20.0, 20.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 2, &sd, &pos, viewport())
+            .expect("no positioned ancestor → initial CB");
+        assert_eq!(got, viewport());
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_is_the_padding_box_of_the_positioned_ancestor() {
+        // CSS 2.1 §10.1: padding box, i.e. margin-box origin + border, size - borders.
+        let (sd, mut tree) = two_level(".root { position: relative; }");
+        tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
+        tree.nodes[0].box_props = bp(uniform(0.0), uniform(5.0), uniform(10.0));
+        let pos = positions(&[(20.0, 30.0), (0.0, 0.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 1, &sd, &pos, viewport())
+            .expect("relative parent is the CB");
+        assert_eq!(got.origin, LogicalPosition::new(30.0, 40.0));
+        assert_eq!(got.size, LogicalSize::new(380.0, 280.0));
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_accepts_every_positioned_ancestor_kind() {
+        for keyword in ["relative", "absolute", "fixed", "sticky"] {
+            let css = format!(".root {{ position: {keyword}; }}");
+            let (sd, mut tree) = two_level(&css);
+            tree.nodes[0].used_size = Some(LogicalSize::new(100.0, 100.0));
+            let pos = positions(&[(5.0, 5.0), (0.0, 0.0)]);
+            let got = find_absolute_containing_block_rect(&tree, 1, &sd, &pos, viewport())
+                .expect("positioned ancestor resolves");
+            assert_eq!(
+                got,
+                LogicalRect::new(
+                    LogicalPosition::new(5.0, 5.0),
+                    LogicalSize::new(100.0, 100.0)
+                ),
+                "position: {keyword}"
+            );
+        }
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_picks_the_nearest_positioned_ancestor() {
+        let (sd, mut tree) = three_level(".root { position: relative; } .mid { position: absolute; }");
+        tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
+        tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+        let pos = positions(&[(0.0, 0.0), (50.0, 60.0), (0.0, 0.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 2, &sd, &pos, viewport())
+            .expect("nearest positioned ancestor");
+        assert_eq!(got.origin, LogicalPosition::new(50.0, 60.0), "mid, not root");
+        assert_eq!(got.size, LogicalSize::new(200.0, 100.0));
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_saturating_borders_clamp_the_padding_box_to_zero() {
+        // PackedBoxProps saturates each edge at 3276.7px. Two of those exceed a
+        // 100px border box — the padding box must clamp to 0, never go negative.
+        let (sd, mut tree) = two_level(".root { position: relative; }");
+        tree.nodes[0].used_size = Some(LogicalSize::new(100.0, 100.0));
+        tree.nodes[0].box_props = bp(uniform(0.0), uniform(0.0), uniform(1e30));
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 1, &sd, &pos, viewport())
+            .expect("saturated borders still resolve");
+        assert_eq!(got.size, LogicalSize::new(0.0, 0.0));
+        assert!(got.size.width >= 0.0 && got.size.height >= 0.0);
+        assert!(got.origin.x.is_finite() && got.origin.y.is_finite());
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_unsized_ancestor_is_a_zero_sized_padding_box() {
+        let (sd, tree) = two_level(".root { position: relative; }"); // used_size stays None
+        let pos = positions(&[(7.0, 9.0), (0.0, 0.0)]);
+        let got = find_absolute_containing_block_rect(&tree, 1, &sd, &pos, viewport())
+            .expect("an unsized ancestor still resolves");
+        assert_eq!(got.origin, LogicalPosition::new(7.0, 9.0));
+        assert_eq!(got.size, LogicalSize::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn find_absolute_cb_rect_missing_position_entry_defaults_to_the_origin() {
+        let (sd, mut tree) = two_level(".root { position: relative; }");
+        tree.nodes[0].used_size = Some(LogicalSize::new(100.0, 100.0));
+        let pos: PositionVec = Vec::new(); // nothing laid out yet
+        let got = find_absolute_containing_block_rect(&tree, 1, &sd, &pos, viewport())
+            .expect("an empty position vec still resolves");
+        assert_eq!(got.origin, LogicalPosition::new(0.0, 0.0));
+        assert_eq!(got.size, LogicalSize::new(100.0, 100.0));
+    }
+
+    // ==================================================================
+    // find_nearest_scrollport (numeric)
+    // ==================================================================
+
+    #[test]
+    fn find_nearest_scrollport_without_a_scroll_ancestor_is_the_viewport() {
+        let (sd, tree) = two_level("");
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        assert_eq!(
+            find_nearest_scrollport(&tree, 1, &sd, &pos, viewport()),
+            viewport()
+        );
+    }
+
+    #[test]
+    fn find_nearest_scrollport_out_of_range_index_is_the_viewport_not_a_panic() {
+        let (sd, tree) = two_level(".root { overflow-y: scroll; }");
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        assert_eq!(
+            find_nearest_scrollport(&tree, 9_999, &sd, &pos, viewport()),
+            viewport()
+        );
+    }
+
+    #[test]
+    fn find_nearest_scrollport_returns_the_ancestor_content_box() {
+        for css in [
+            ".root { overflow-x: scroll; }",
+            ".root { overflow-y: scroll; }",
+            ".root { overflow-x: auto; }",
+            ".root { overflow-y: auto; }",
+        ] {
+            let (sd, mut tree) = two_level(css);
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 150.0));
+            tree.nodes[0].box_props = bp(uniform(0.0), uniform(5.0), uniform(10.0));
+            let pos = positions(&[(20.0, 30.0), (0.0, 0.0)]);
+            let got = find_nearest_scrollport(&tree, 1, &sd, &pos, viewport());
+            // content box = margin-box pos + border + padding, size - 2*(border+padding)
+            assert_eq!(got.origin, LogicalPosition::new(35.0, 45.0), "{css}");
+            assert_eq!(got.size, LogicalSize::new(170.0, 120.0), "{css}");
+        }
+    }
+
+    #[test]
+    fn find_nearest_scrollport_ignores_non_scrolling_overflow() {
+        for css in [
+            ".root { overflow-x: hidden; }",
+            ".root { overflow-y: visible; }",
+            ".root { overflow-x: clip; }",
+        ] {
+            let (sd, mut tree) = two_level(css);
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 150.0));
+            let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+            assert_eq!(
+                find_nearest_scrollport(&tree, 1, &sd, &pos, viewport()),
+                viewport(),
+                "{css}"
+            );
+        }
+    }
+
+    #[test]
+    fn find_nearest_scrollport_picks_the_nearest_of_two_scroll_ancestors() {
+        let (sd, mut tree) =
+            three_level(".root { overflow-y: scroll; } .mid { overflow-y: scroll; }");
+        tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
+        tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+        let pos = positions(&[(0.0, 0.0), (11.0, 12.0), (0.0, 0.0)]);
+        let got = find_nearest_scrollport(&tree, 2, &sd, &pos, viewport());
+        assert_eq!(got.origin, LogicalPosition::new(11.0, 12.0), "mid, not root");
+        assert_eq!(got.size, LogicalSize::new(200.0, 100.0));
+    }
+
+    #[test]
+    fn find_nearest_scrollport_walks_past_anonymous_boxes() {
+        // An anonymous box (dom_node_id: None) has no style — it must be skipped,
+        // not treated as the end of the ancestor chain.
+        let (sd, mut tree) = three_level(".root { overflow-y: scroll; }");
+        tree.nodes[1].dom_node_id = None; // .mid becomes anonymous
+        tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
+        let pos = positions(&[(1.0, 2.0), (0.0, 0.0), (0.0, 0.0)]);
+        let got = find_nearest_scrollport(&tree, 2, &sd, &pos, viewport());
+        assert_eq!(got.origin, LogicalPosition::new(1.0, 2.0));
+        assert_eq!(got.size, LogicalSize::new(400.0, 300.0));
+    }
+
+    #[test]
+    fn find_nearest_scrollport_clamps_the_content_box_to_zero_when_padding_exceeds_the_box() {
+        let (sd, mut tree) = two_level(".root { overflow-y: scroll; }");
+        tree.nodes[0].used_size = Some(LogicalSize::new(10.0, 10.0));
+        tree.nodes[0].box_props = bp(uniform(0.0), uniform(1e30), uniform(1e30));
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        let got = find_nearest_scrollport(&tree, 1, &sd, &pos, viewport());
+        assert_eq!(got.size, LogicalSize::new(0.0, 0.0));
+        assert!(got.size.width >= 0.0 && got.size.height >= 0.0);
+    }
+
+    #[test]
+    fn find_nearest_scrollport_unsized_scrollport_is_zero_sized() {
+        let (sd, tree) = two_level(".root { overflow-y: scroll; }"); // used_size None
+        let pos: PositionVec = Vec::new();
+        let got = find_nearest_scrollport(&tree, 1, &sd, &pos, viewport());
+        assert_eq!(got.origin, LogicalPosition::new(0.0, 0.0));
+        assert_eq!(got.size, LogicalSize::new(0.0, 0.0));
+    }
+
+    // ==================================================================
+    // find_nearest_scroll_offset (numeric)
+    // ==================================================================
+
+    fn scroll_at(parent: (f32, f32), children: (f32, f32)) -> ScrollPosition {
+        ScrollPosition {
+            parent_rect: LogicalRect::new(
+                LogicalPosition::new(parent.0, parent.1),
+                LogicalSize::new(100.0, 100.0),
+            ),
+            children_rect: LogicalRect::new(
+                LogicalPosition::new(children.0, children.1),
+                LogicalSize::new(100.0, 400.0),
+            ),
+        }
+    }
+
+    #[test]
+    fn find_nearest_scroll_offset_empty_map_is_zero() {
+        let (_sd, tree) = two_level("");
+        let offsets: BTreeMap<NodeId, ScrollPosition> = BTreeMap::new();
+        assert_eq!(
+            find_nearest_scroll_offset(&tree, 1, &offsets),
+            LogicalPosition::zero()
+        );
+    }
+
+    #[test]
+    fn find_nearest_scroll_offset_out_of_range_index_is_zero_not_a_panic() {
+        let (sd, tree) = two_level("");
+        let mut offsets = BTreeMap::new();
+        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 0.0), (0.0, -50.0)));
+        assert_eq!(
+            find_nearest_scroll_offset(&tree, 9_999, &offsets),
+            LogicalPosition::zero()
+        );
+    }
+
+    #[test]
+    fn find_nearest_scroll_offset_ignores_the_nodes_own_entry() {
+        // The walk starts at the PARENT — a node's own scroll offset must not
+        // shift the node itself.
+        let (sd, tree) = two_level("");
+        let mut offsets = BTreeMap::new();
+        offsets.insert(
+            node_by_class(&sd, "child"),
+            scroll_at((0.0, 0.0), (0.0, -50.0)),
+        );
+        assert_eq!(
+            find_nearest_scroll_offset(&tree, 1, &offsets),
+            LogicalPosition::zero()
+        );
+    }
+
+    #[test]
+    fn find_nearest_scroll_offset_is_children_origin_minus_parent_origin() {
+        let (sd, tree) = two_level("");
+        let mut offsets = BTreeMap::new();
+        offsets.insert(
+            node_by_class(&sd, "root"),
+            scroll_at((10.0, 20.0), (-5.0, -80.0)),
+        );
+        assert_eq!(
+            find_nearest_scroll_offset(&tree, 1, &offsets),
+            LogicalPosition::new(-15.0, -100.0)
+        );
+    }
+
+    #[test]
+    fn find_nearest_scroll_offset_picks_the_nearest_ancestor() {
+        let (sd, tree) = three_level("");
+        let mut offsets = BTreeMap::new();
+        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 0.0), (0.0, -999.0)));
+        offsets.insert(node_by_class(&sd, "mid"), scroll_at((0.0, 0.0), (0.0, -7.0)));
+        assert_eq!(
+            find_nearest_scroll_offset(&tree, 2, &offsets),
+            LogicalPosition::new(0.0, -7.0),
+            "mid wins over root"
+        );
+    }
+
+    #[test]
+    fn find_nearest_scroll_offset_walks_past_anonymous_ancestors() {
+        let (sd, mut tree) = three_level("");
+        tree.nodes[1].dom_node_id = None;
+        let mut offsets = BTreeMap::new();
+        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 0.0), (0.0, -30.0)));
+        assert_eq!(
+            find_nearest_scroll_offset(&tree, 2, &offsets),
+            LogicalPosition::new(0.0, -30.0)
+        );
+    }
+
+    #[test]
+    fn find_nearest_scroll_offset_at_f32_extremes_stays_deterministic() {
+        let (sd, tree) = two_level("");
+        let mut offsets = BTreeMap::new();
+        offsets.insert(
+            node_by_class(&sd, "root"),
+            scroll_at((f32::MAX, f32::MAX), (f32::MIN, f32::MIN)),
+        );
+        let got = find_nearest_scroll_offset(&tree, 1, &offsets);
+        // MIN - MAX overflows f32 → -inf. It must not be NaN (which would poison
+        // every downstream sticky comparison silently).
+        assert!(!got.x.is_nan() && !got.y.is_nan());
+        assert_eq!(got.x, f32::NEG_INFINITY);
+        assert_eq!(got.y, f32::NEG_INFINITY);
+    }
+
+    // ==================================================================
+    // The three passes that need a LayoutContext (and therefore a FontManager).
+    // ==================================================================
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    mod with_ctx {
+        use std::collections::HashMap;
+
+        use azul_core::{dom::DomId, selection::TextSelection};
+        use azul_css::props::basic::FontRef;
+
+        use super::*;
+        use crate::{
+            font_traits::{FontManager, TextLayoutCache},
+            solver3::{cache, LayoutContext},
+        };
+
+        /// Owns everything a `LayoutContext` borrows.
+        struct Env {
+            styled_dom: StyledDom,
+            font_manager: FontManager<FontRef>,
+            text_selections: BTreeMap<DomId, TextSelection>,
+            counters: HashMap<(usize, String), i32>,
+            image_cache: azul_core::resources::ImageCache,
+            debug_messages: Option<Vec<LayoutDebugMessage>>,
+        }
+
+        impl Env {
+            fn new(styled_dom: StyledDom) -> Self {
+                Self {
+                    styled_dom,
+                    font_manager: FontManager::new(rust_fontconfig::FcFontCache::default())
+                        .expect("FontManager over an empty font cache"),
+                    text_selections: BTreeMap::new(),
+                    counters: HashMap::new(),
+                    image_cache: azul_core::resources::ImageCache::default(),
+                    debug_messages: None,
+                }
+            }
+
+            fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
+                LayoutContext {
+                    scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    styled_dom: &self.styled_dom,
+                    font_manager: &self.font_manager,
+                    text_selections: &self.text_selections,
+                    debug_messages: &mut self.debug_messages,
+                    counters: &mut self.counters,
+                    viewport_size: LogicalSize::new(800.0, 600.0),
+                    fragmentation_context: None,
+                    cursor_is_visible: true,
+                    cursor_locations: Vec::new(),
+                    preedit_text: None,
+                    dirty_text_overrides: BTreeMap::new(),
+                    cache_map: cache::LayoutCacheMap::default(),
+                    image_cache: &self.image_cache,
+                    system_style: None,
+                    get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                        cb: azul_core::task::get_system_time_libstd,
+                    },
+                }
+            }
+        }
+
+        /// `.root` = relative, 400×300 border box, 10px border + 5px padding, at (20,30).
+        /// Its padding box — the CB every abspos child below resolves against — is
+        /// therefore origin (30,40), size 380×280.
+        fn abs_fixture(css: &str) -> (Env, LayoutTree, PositionVec) {
+            let (sd, mut tree) = two_level(css);
+            tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
+            tree.nodes[0].box_props = bp(uniform(0.0), uniform(5.0), uniform(10.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(50.0, 50.0));
+            let pos = positions(&[(20.0, 30.0), (0.0, 0.0)]);
+            (Env::new(sd), tree, pos)
+        }
+
+        fn run_oof(env: &mut Env, tree: &mut LayoutTree, pos: &mut PositionVec, vp: LogicalRect) {
+            let mut text_cache = TextLayoutCache::default();
+            let mut ctx = env.ctx();
+            position_out_of_flow_elements(&mut ctx, tree, &mut text_cache, pos, vp);
+        }
+
+        // --------------------------------------------------------------
+        // position_out_of_flow_elements
+        // --------------------------------------------------------------
+
+        #[test]
+        fn out_of_flow_top_left_offset_from_the_ancestor_padding_box() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 25px; left: 15px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(45.0, 65.0));
+        }
+
+        #[test]
+        fn out_of_flow_zero_insets_land_exactly_on_the_padding_box_origin() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } .child { position: absolute; top: 0px; left: 0px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(30.0, 40.0));
+        }
+
+        #[test]
+        fn out_of_flow_all_auto_keeps_the_static_position() {
+            // +spec:positioning:aab294 — both insets auto → static position.
+            let (mut env, mut tree, mut pos) =
+                abs_fixture(".root { position: relative; } .child { position: absolute; }");
+            pos_set(&mut pos, 1, LogicalPosition::new(7.0, 9.0));
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(7.0, 9.0));
+        }
+
+        #[test]
+        fn out_of_flow_fixed_resolves_against_the_viewport_not_the_ancestor() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } .child { position: fixed; top: 25px; left: 15px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(15.0, 25.0));
+        }
+
+        #[test]
+        fn out_of_flow_over_constrained_ignores_the_end_insets_in_ltr() {
+            // top/height/bottom and left/width/right all given: bottom/right lose.
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 10px; bottom: 10px; left: 10px; \
+                          right: 10px; width: 50px; height: 50px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(40.0, 50.0));
+        }
+
+        #[test]
+        fn out_of_flow_auto_margins_center_the_box_in_both_axes() {
+            // +spec:height-calculation:5112a4 — both auto margins solve to equal values.
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 0px; bottom: 0px; left: 0px; \
+                          right: 0px; width: 100px; height: 100px; }",
+            );
+            tree.nodes[1].used_size = Some(LogicalSize::new(100.0, 100.0));
+            tree.nodes[1].box_props = bp_auto_margins(MarginAuto {
+                top: true,
+                bottom: true,
+                left: true,
+                right: true,
+            });
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            // CB 380×280 at (30,40): (380-100)/2 = 140, (280-100)/2 = 90.
+            assert_eq!(pos[1], LogicalPosition::new(170.0, 130.0));
+        }
+
+        #[test]
+        fn out_of_flow_negative_free_space_with_auto_margins_pins_to_the_start_edge_in_ltr() {
+            // +spec:writing-modes:9c3b40 — negative remaining space: start margin is 0.
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; left: 0px; right: 0px; width: 500px; }",
+            );
+            tree.nodes[1].used_size = Some(LogicalSize::new(500.0, 50.0));
+            tree.nodes[1].box_props = bp_auto_margins(MarginAuto {
+                left: true,
+                right: true,
+                top: false,
+                bottom: false,
+            });
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            // remaining = 380 - 0 - 500 - 0 = -120 → each margin < 0 → pin left.
+            assert_eq!(pos[1].x, 30.0);
+        }
+
+        #[test]
+        fn out_of_flow_over_constrained_ignores_the_left_inset_in_rtl() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; direction: rtl; } \
+                 .child { position: absolute; left: 10px; right: 10px; width: 50px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            // RTL solves for left: 380 - 50 - 10 = 320 → 30 + 320.
+            assert_eq!(pos[1].x, 350.0);
+        }
+
+        #[test]
+        fn out_of_flow_auto_height_and_width_stretch_between_the_insets() {
+            // +spec:intrinsic-sizing:566a43 — stretch-fit sizing on both axes.
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 10px; bottom: 20px; left: 30px; right: 40px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(60.0, 50.0));
+            let used = tree.nodes[1].used_size.expect("size was resolved");
+            assert_eq!(used, LogicalSize::new(310.0, 250.0));
+        }
+
+        #[test]
+        fn out_of_flow_insets_larger_than_the_containing_block_clamp_the_size_to_zero() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 500px; bottom: 500px; \
+                          left: 500px; right: 500px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            let used = tree.nodes[1].used_size.expect("size was resolved");
+            assert_eq!(used, LogicalSize::new(0.0, 0.0), "never negative");
+            assert!(pos[1].x.is_finite() && pos[1].y.is_finite());
+        }
+
+        #[test]
+        fn out_of_flow_huge_insets_bypass_the_i16_cache_and_stay_finite() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 3300px; left: 100000px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(100_030.0, 3340.0));
+            assert!(pos[1].x.is_finite() && pos[1].y.is_finite());
+        }
+
+        #[test]
+        fn out_of_flow_negative_insets_move_the_box_outside_the_containing_block() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: -100px; left: -200px; }",
+            );
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos[1], LogicalPosition::new(-170.0, -60.0));
+        }
+
+        #[test]
+        fn out_of_flow_nan_viewport_clamps_the_stretch_height_to_zero_and_keeps_the_position_finite()
+        {
+            // f32::max(NaN, 0.0) == 0.0, so the stretch-fit height degrades to 0
+            // rather than propagating NaN into the display list.
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: fixed; top: 10px; bottom: 20px; }",
+            );
+            let nan_vp = LogicalRect::new(
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(f32::NAN, f32::NAN),
+            );
+            run_oof(&mut env, &mut tree, &mut pos, nan_vp);
+            let used = tree.nodes[1].used_size.expect("size was resolved");
+            assert_eq!(used.height, 0.0);
+            assert_eq!(pos[1].y, 10.0);
+            assert!(pos[1].y.is_finite());
+        }
+
+        #[test]
+        fn out_of_flow_infinite_viewport_keeps_the_position_finite() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: fixed; top: 10px; bottom: 20px; }",
+            );
+            let inf_vp = LogicalRect::new(
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(f32::INFINITY, f32::INFINITY),
+            );
+            run_oof(&mut env, &mut tree, &mut pos, inf_vp);
+            assert_eq!(pos[1].y, 10.0);
+            let used = tree.nodes[1].used_size.expect("size was resolved");
+            assert!(used.height.is_infinite() && used.height > 0.0);
+        }
+
+        #[test]
+        fn out_of_flow_every_auto_combination_of_top_height_bottom_is_panic_free() {
+            // The rustdoc claims a panic when a resolved offset is None where both
+            // edges are expected. Walk all 8 auto/non-auto combinations per axis and
+            // prove every `unwrap()` in the constraint solver is actually guarded.
+            for top in ["", "top: 10px;"] {
+                for bottom in ["", "bottom: 20px;"] {
+                    for height in ["", "height: 30px;"] {
+                        for left in ["", "left: 10px;"] {
+                            for right in ["", "right: 20px;"] {
+                                for width in ["", "width: 30px;"] {
+                                    let css = format!(
+                                        ".root {{ position: relative; }} \
+                                         .child {{ position: absolute; {top}{bottom}{height}\
+                                         {left}{right}{width} }}"
+                                    );
+                                    let (mut env, mut tree, mut pos) = abs_fixture(&css);
+                                    run_oof(&mut env, &mut tree, &mut pos, viewport());
+                                    assert!(
+                                        pos[1].x.is_finite() && pos[1].y.is_finite(),
+                                        "non-finite position for {css}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn out_of_flow_skips_children_of_flex_and_grid_parents() {
+            // Taffy already placed those during flex/grid layout — re-positioning
+            // here would double-apply the insets.
+            for fc in [FormattingContext::Flex, FormattingContext::Grid] {
+                let (mut env, mut tree, mut pos) = abs_fixture(
+                    ".root { position: relative; } \
+                     .child { position: absolute; top: 25px; left: 15px; }",
+                );
+                tree.nodes[0].formatting_context = fc;
+                pos_set(&mut pos, 1, LogicalPosition::new(3.0, 4.0));
+                run_oof(&mut env, &mut tree, &mut pos, viewport());
+                assert_eq!(pos[1], LogicalPosition::new(3.0, 4.0), "{fc:?}");
+            }
+        }
+
+        #[test]
+        fn out_of_flow_leaves_static_and_relative_nodes_alone() {
+            for keyword in ["static", "relative", "sticky"] {
+                let css = format!(
+                    ".root {{ position: relative; }} \
+                     .child {{ position: {keyword}; top: 25px; left: 15px; }}"
+                );
+                let (mut env, mut tree, mut pos) = abs_fixture(&css);
+                pos_set(&mut pos, 1, LogicalPosition::new(3.0, 4.0));
+                run_oof(&mut env, &mut tree, &mut pos, viewport());
+                assert_eq!(pos[1], LogicalPosition::new(3.0, 4.0), "{keyword}");
+            }
+        }
+
+        #[test]
+        fn out_of_flow_short_position_vec_grows_instead_of_panicking() {
+            let (mut env, mut tree, _pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 25px; left: 15px; }",
+            );
+            let mut pos: PositionVec = Vec::new(); // nothing laid out yet
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert_eq!(pos.len(), 2, "pos_set grew the vec");
+            // The CB origin now comes from a default (0,0) ancestor position.
+            assert_eq!(pos[1], LogicalPosition::new(25.0, 35.0));
+        }
+
+        #[test]
+        fn out_of_flow_unsized_node_is_sized_on_the_fly_without_panicking() {
+            let (mut env, mut tree, mut pos) = abs_fixture(
+                ".root { position: relative; } \
+                 .child { position: absolute; top: 10px; left: 10px; }",
+            );
+            tree.nodes[1].used_size = None; // never sized by the main pass
+            run_oof(&mut env, &mut tree, &mut pos, viewport());
+            assert!(pos[1].x.is_finite() && pos[1].y.is_finite());
+        }
+
+        // --------------------------------------------------------------
+        // adjust_relative_positions
+        // --------------------------------------------------------------
+
+        /// `.root` = 200×100 border box with 10px padding → 180×80 content box,
+        /// which is the CB percentages resolve against for the relative child.
+        fn rel_fixture(css: &str) -> (Env, LayoutTree, PositionVec) {
+            let (sd, mut tree) = two_level(css);
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[0].box_props = bp(uniform(0.0), uniform(10.0), uniform(0.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let pos = positions(&[(0.0, 0.0), (100.0, 100.0)]);
+            (Env::new(sd), tree, pos)
+        }
+
+        fn run_rel(env: &mut Env, tree: &LayoutTree, pos: &mut PositionVec) {
+            let mut ctx = env.ctx();
+            adjust_relative_positions(&mut ctx, tree, pos, viewport());
+        }
+
+        #[test]
+        fn relative_px_offsets_shift_from_the_static_position() {
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; top: 10px; left: 5px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1], LogicalPosition::new(105.0, 110.0));
+        }
+
+        #[test]
+        fn relative_percentages_resolve_against_the_parent_content_box() {
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; top: 50%; left: 50%; }");
+            run_rel(&mut env, &tree, &mut pos);
+            // content box is 180×80 → +90 x, +40 y.
+            assert_eq!(pos[1], LogicalPosition::new(190.0, 140.0));
+        }
+
+        #[test]
+        fn relative_top_wins_over_bottom() {
+            // +spec:positioning:e3727e — neither auto → bottom is ignored.
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; top: 10px; bottom: 30px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1].y, 110.0);
+        }
+
+        #[test]
+        fn relative_bottom_alone_is_the_negation_of_top() {
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; bottom: 30px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1].y, 70.0);
+        }
+
+        #[test]
+        fn relative_right_alone_is_the_negation_of_left() {
+            // +spec:overflow:fb426c — left auto → used value is minus right.
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; right: 20px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1].x, 80.0);
+        }
+
+        #[test]
+        fn relative_left_wins_in_ltr_and_right_wins_in_rtl() {
+            // +spec:containing-block:6d4fb1 — direction of the CONTAINING BLOCK decides.
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; left: 5px; right: 20px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1].x, 105.0, "ltr: left wins");
+
+            let (mut env, tree, mut pos) = rel_fixture(
+                ".root { direction: rtl; } \
+                 .child { position: relative; left: 5px; right: 20px; }",
+            );
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1].x, 80.0, "rtl: right wins → -20");
+        }
+
+        #[test]
+        fn relative_zero_offsets_are_a_no_op() {
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; top: 0px; left: 0px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1], LogicalPosition::new(100.0, 100.0));
+        }
+
+        #[test]
+        fn relative_leaves_static_absolute_and_fixed_nodes_untouched() {
+            for keyword in ["static", "absolute", "fixed"] {
+                let css =
+                    format!(".child {{ position: {keyword}; top: 10px; left: 5px; }}");
+                let (mut env, tree, mut pos) = rel_fixture(&css);
+                run_rel(&mut env, &tree, &mut pos);
+                assert_eq!(pos[1], LogicalPosition::new(100.0, 100.0), "{keyword}");
+            }
+        }
+
+        #[test]
+        fn relative_also_offsets_sticky_boxes() {
+            // Sticky deliberately shares the relative path (the pre-scroll offset);
+            // adjust_sticky_positions then clamps it. Pinning this so the two passes
+            // can't silently start disagreeing.
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; top: 10px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            let relative_y = pos[1].y;
+
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: sticky; top: 10px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1].y, relative_y);
+        }
+
+        #[test]
+        fn relative_is_undefined_for_table_cells_and_captions_so_they_are_skipped() {
+            for display in ["table-cell", "table-caption", "table-column"] {
+                let css = format!(
+                    ".child {{ position: relative; display: {display}; top: 10px; left: 5px; }}"
+                );
+                let (mut env, tree, mut pos) = rel_fixture(&css);
+                run_rel(&mut env, &tree, &mut pos);
+                assert_eq!(pos[1], LogicalPosition::new(100.0, 100.0), "{display}");
+            }
+        }
+
+        #[test]
+        fn relative_table_rows_drag_their_whole_subtree() {
+            // +spec:table-layout:ec2600 — the shift affects all contents of the row.
+            let (sd, mut tree) = three_level(
+                ".mid { position: relative; display: table-row; top: 10px; left: 5px; } \
+                 .child { display: table-cell; }",
+            );
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 50.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(100.0, 50.0));
+            let mut pos = positions(&[(0.0, 0.0), (10.0, 20.0), (10.0, 20.0)]);
+            let mut env = Env::new(sd);
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1], LogicalPosition::new(15.0, 30.0), "the row itself");
+            assert_eq!(pos[2], LogicalPosition::new(15.0, 30.0), "the cell follows");
+        }
+
+        #[test]
+        fn relative_short_position_vec_is_skipped_not_panicked_on() {
+            let (mut env, tree, _pos) =
+                rel_fixture(".child { position: relative; top: 10px; left: 5px; }");
+            let mut pos: PositionVec = Vec::new();
+            run_rel(&mut env, &tree, &mut pos);
+            assert!(pos.is_empty(), "nothing to shift, nothing added");
+        }
+
+        #[test]
+        fn relative_huge_and_negative_offsets_stay_finite() {
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; top: 100000px; left: -100000px; }");
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1], LogicalPosition::new(-99_900.0, 100_100.0));
+            assert!(pos[1].x.is_finite() && pos[1].y.is_finite());
+        }
+
+        #[test]
+        fn relative_unset_sentinel_position_is_not_silently_shifted_into_a_real_one() {
+            // POSITION_UNSET is f32::MIN. Adding a finite delta to it must stay
+            // absurdly negative (it must NOT round into a plausible coordinate) —
+            // a caller can still detect the node was never laid out.
+            let (mut env, tree, mut pos) =
+                rel_fixture(".child { position: relative; top: 10px; left: 5px; }");
+            pos[1] = POSITION_UNSET;
+            run_rel(&mut env, &tree, &mut pos);
+            assert!(pos[1].x < -1e30 && pos[1].y < -1e30);
+        }
+
+        // --------------------------------------------------------------
+        // adjust_sticky_positions
+        // --------------------------------------------------------------
+
+        /// `.root` = a 200×200 scrollport at (0,0); `.child` = 50×20 sticky box at (0,0).
+        fn sticky_fixture(css: &str) -> (Env, LayoutTree, PositionVec) {
+            let (sd, mut tree) = two_level(css);
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 200.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+            (Env::new(sd), tree, pos)
+        }
+
+        fn run_sticky(
+            env: &mut Env,
+            tree: &LayoutTree,
+            pos: &mut PositionVec,
+            offsets: &BTreeMap<NodeId, ScrollPosition>,
+        ) {
+            let mut ctx = env.ctx();
+            adjust_sticky_positions(&mut ctx, tree, pos, offsets, viewport());
+        }
+
+        #[test]
+        fn sticky_top_inset_pins_the_box_to_the_scrollport_edge() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 10px; }",
+            );
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            assert_eq!(pos[1], LogicalPosition::new(0.0, 10.0));
+        }
+
+        #[test]
+        fn sticky_without_insets_does_not_move() {
+            let (mut env, tree, mut pos) =
+                sticky_fixture(".root { overflow-y: scroll; } .child { position: sticky; }");
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            assert_eq!(pos[1], LogicalPosition::new(0.0, 0.0));
+        }
+
+        #[test]
+        fn sticky_ignores_non_sticky_positions() {
+            for keyword in ["static", "relative", "absolute", "fixed"] {
+                let css = format!(
+                    ".root {{ overflow-y: scroll; }} \
+                     .child {{ position: {keyword}; top: 10px; }}"
+                );
+                let (mut env, tree, mut pos) = sticky_fixture(&css);
+                run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+                assert_eq!(pos[1], LogicalPosition::new(0.0, 0.0), "{keyword}");
+            }
+        }
+
+        #[test]
+        fn sticky_edge_moves_with_the_scroll_offset_of_the_nearest_container() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 10px; }",
+            );
+            let root = node_by_class(&env.styled_dom, "root");
+            let mut offsets = BTreeMap::new();
+            offsets.insert(root, scroll_at((0.0, 0.0), (0.0, 50.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            // sticky edge = scrollport.y (0) + scroll (50) + inset (10).
+            assert_eq!(pos[1].y, 60.0);
+        }
+
+        #[test]
+        fn sticky_percentage_inset_resolves_against_the_scrollport() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 10%; }",
+            );
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            assert_eq!(pos[1].y, 20.0, "10% of the 200px scrollport");
+        }
+
+        #[test]
+        fn sticky_bottom_inset_pulls_the_box_back_up_into_the_scrollport() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; bottom: 10px; }",
+            );
+            pos_set(&mut pos, 1, LogicalPosition::new(0.0, 250.0));
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            // bottom edge must sit at 200 - 10 = 190 → top = 190 - 20.
+            assert_eq!(pos[1].y, 170.0);
+        }
+
+        #[test]
+        fn sticky_shift_is_clamped_by_the_containing_block() {
+            // +spec:box-model:af9af8 — the margin box must stay inside the CB, even
+            // when the scrollport would let the box travel further.
+            let (sd, mut tree) = three_level(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 10px; }",
+            );
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 200.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 25.0)); // short CB
+            tree.nodes[2].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let mut pos = positions(&[(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]);
+            let mut env = Env::new(sd);
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            // Unclamped the shift would be 10 (bottom = 30 > CB bottom 25) → 5.
+            assert_eq!(pos[2].y, 5.0);
+        }
+
+        #[test]
+        fn sticky_huge_inset_clamps_to_the_containing_block_instead_of_flying_away() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 100000px; }",
+            );
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            // The margin box is pushed back until its bottom sits on the CB bottom
+            // (200) → top = 200 - 20 = 180.
+            assert_eq!(pos[1].y, 180.0);
+            assert!(pos[1].y.is_finite());
+        }
+
+        #[test]
+        fn sticky_negative_inset_is_deterministic_and_finite() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: -50px; }",
+            );
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            // sticky edge = -50, border top = 0, already past it → no shift.
+            assert_eq!(pos[1], LogicalPosition::new(0.0, 0.0));
+        }
+
+        #[test]
+        fn sticky_without_a_scroll_ancestor_falls_back_to_the_viewport() {
+            let (mut env, tree, mut pos) =
+                sticky_fixture(".child { position: sticky; top: 10px; }"); // .root does not scroll
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            // Scrollport = viewport (0,0,800×600); CB = the parent's 200×200 content
+            // box, which comfortably contains the 10px shift.
+            assert_eq!(pos[1].y, 10.0);
+        }
+
+        #[test]
+        fn sticky_left_and_right_insets_shift_the_inline_axis() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-x: scroll; } .child { position: sticky; left: 15px; }",
+            );
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            assert_eq!(pos[1].x, 15.0);
+
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-x: scroll; } .child { position: sticky; right: 10px; }",
+            );
+            pos_set(&mut pos, 1, LogicalPosition::new(300.0, 0.0));
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            // right edge pinned at 200 - 10 = 190 → x = 190 - 50.
+            assert_eq!(pos[1].x, 140.0);
+        }
+
+        #[test]
+        fn sticky_short_position_vec_is_skipped_not_panicked_on() {
+            let (mut env, tree, _pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 10px; }",
+            );
+            let mut pos: PositionVec = Vec::new();
+            run_sticky(&mut env, &tree, &mut pos, &BTreeMap::new());
+            assert!(pos.is_empty());
+        }
+
+        #[test]
+        fn sticky_nan_scroll_offset_never_panics() {
+            let (mut env, tree, mut pos) = sticky_fixture(
+                ".root { overflow-y: scroll; } .child { position: sticky; top: 10px; }",
+            );
+            let root = node_by_class(&env.styled_dom, "root");
+            let mut offsets = BTreeMap::new();
+            offsets.insert(root, scroll_at((f32::NAN, f32::NAN), (f32::NAN, f32::NAN)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            // NaN comparisons are all false → no shift is ever applied.
+            assert_eq!(pos[1], LogicalPosition::new(0.0, 0.0));
+        }
+    }
+}

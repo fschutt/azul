@@ -609,3 +609,1023 @@ impl TableHeaderTracker {
         headers
     }
 }
+
+#[cfg(test)]
+mod autotest_generated {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::super::display_list::DisplayListItem;
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // Independent decoders — used to round-trip `CounterFormat::format`
+    // without reusing the encoder's own arithmetic.
+    // ------------------------------------------------------------------
+
+    /// Decode a lowercase roman numeral. Uses `i64` so the subtractive
+    /// prefix ("iv") cannot underflow the accumulator.
+    fn decode_roman(s: &str) -> Option<i64> {
+        let mut vals = Vec::new();
+        for c in s.chars() {
+            vals.push(match c {
+                'i' => 1_i64,
+                'v' => 5,
+                'x' => 10,
+                'l' => 50,
+                'c' => 100,
+                'd' => 500,
+                'm' => 1000,
+                _ => return None,
+            });
+        }
+        let mut total = 0_i64;
+        for i in 0..vals.len() {
+            if i + 1 < vals.len() && vals[i] < vals[i + 1] {
+                total -= vals[i];
+            } else {
+                total += vals[i];
+            }
+        }
+        Some(total)
+    }
+
+    /// Decode a lowercase bijective base-26 string ("a" == 1, "z" == 26, "aa" == 27).
+    fn decode_alpha(s: &str) -> Option<usize> {
+        if s.is_empty() {
+            return None;
+        }
+        let mut n = 0_usize;
+        for c in s.chars() {
+            let digit = match c {
+                'a'..='z' => c as usize - 'a' as usize + 1,
+                _ => return None,
+            };
+            n = n.checked_mul(26)?.checked_add(digit)?;
+        }
+        Some(n)
+    }
+
+    /// Decode a lowercase bijective base-24 greek string ("α" == 1, "ω" == 24, "αα" == 25).
+    fn decode_greek(s: &str) -> Option<usize> {
+        const LOWER: &[char] = &[
+            'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ',
+            'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω',
+        ];
+        if s.is_empty() {
+            return None;
+        }
+        let mut n = 0_usize;
+        for c in s.chars() {
+            let digit = LOWER.iter().position(|l| *l == c)? + 1;
+            n = n.checked_mul(LOWER.len())?.checked_add(digit)?;
+        }
+        Some(n)
+    }
+
+    fn table(start_y: f32, end_y: f32, thead_height: f32) -> TableHeaderInfo {
+        TableHeaderInfo {
+            table_node_index: 0,
+            table_start_y: start_y,
+            table_end_y: end_y,
+            thead_items: vec![DisplayListItem::PopClip],
+            thead_height,
+            thead_offset_y: 0.0,
+        }
+    }
+
+    // ==================================================================
+    // CounterFormat::format — serializer: edge values, huge n, round-trip
+    // ==================================================================
+
+    #[test]
+    fn counter_format_decimal_handles_zero_and_usize_max() {
+        assert_eq!(CounterFormat::Decimal.format(0), "0");
+        assert_eq!(CounterFormat::Decimal.format(1), "1");
+        assert_eq!(
+            CounterFormat::Decimal.format(usize::MAX),
+            usize::MAX.to_string()
+        );
+    }
+
+    #[test]
+    fn counter_format_default_is_decimal_and_does_not_panic_on_zero() {
+        let default = CounterFormat::default();
+        assert_eq!(default, CounterFormat::Decimal);
+        assert_eq!(default.format(0), "0");
+    }
+
+    #[test]
+    fn counter_format_leading_zero_pads_to_two_but_never_truncates() {
+        assert_eq!(CounterFormat::DecimalLeadingZero.format(0), "00");
+        assert_eq!(CounterFormat::DecimalLeadingZero.format(7), "07");
+        assert_eq!(CounterFormat::DecimalLeadingZero.format(9), "09");
+        assert_eq!(CounterFormat::DecimalLeadingZero.format(10), "10");
+        // A width-2 pad must not *clip* wider numbers.
+        assert_eq!(CounterFormat::DecimalLeadingZero.format(12345), "12345");
+        assert_eq!(
+            CounterFormat::DecimalLeadingZero.format(usize::MAX),
+            usize::MAX.to_string()
+        );
+    }
+
+    #[test]
+    fn counter_format_every_variant_survives_zero_one_and_usize_max() {
+        // The contract we are pinning: no panic, no hang, output is valid UTF-8
+        // with all char boundaries intact for every (variant, extreme) pair.
+        let variants = [
+            CounterFormat::Decimal,
+            CounterFormat::DecimalLeadingZero,
+            CounterFormat::LowerRoman,
+            CounterFormat::UpperRoman,
+            CounterFormat::LowerAlpha,
+            CounterFormat::UpperAlpha,
+            CounterFormat::LowerGreek,
+        ];
+        for v in variants {
+            for n in [0_usize, 1, 25, 26, 27, 3999, 4000, usize::MAX] {
+                let s = v.format(n);
+                assert!(
+                    s.is_char_boundary(0) && s.is_char_boundary(s.len()),
+                    "{v:?}.format({n}) produced a malformed string"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn counter_format_alphabetic_and_greek_return_empty_at_zero() {
+        // KNOWN DIVERGENCE (asserted, not papered over): `format_counter` in
+        // `super::counters` applies a CSS decimal fallback when an alphabetic or
+        // greek style cannot represent a value, but `CounterFormat::format` does
+        // not — so a page counter at 0 renders as a *blank* margin box here while
+        // roman renders "0". Page numbers are 1-indexed so this is unreachable in
+        // the current pipeline; the test exists to catch it becoming reachable.
+        assert_eq!(CounterFormat::LowerAlpha.format(0), "");
+        assert_eq!(CounterFormat::UpperAlpha.format(0), "");
+        assert_eq!(CounterFormat::LowerGreek.format(0), "");
+        assert_eq!(CounterFormat::LowerRoman.format(0), "0");
+        assert_eq!(CounterFormat::UpperRoman.format(0), "0");
+    }
+
+    #[test]
+    fn counter_format_roman_falls_back_to_decimal_past_3999() {
+        assert_eq!(CounterFormat::LowerRoman.format(3999), "mmmcmxcix");
+        assert_eq!(CounterFormat::UpperRoman.format(3999), "MMMCMXCIX");
+        // 4000 is not representable -> decimal, in *both* cases (no stray casing).
+        assert_eq!(CounterFormat::LowerRoman.format(4000), "4000");
+        assert_eq!(CounterFormat::UpperRoman.format(4000), "4000");
+        assert_eq!(
+            CounterFormat::UpperRoman.format(usize::MAX),
+            usize::MAX.to_string()
+        );
+    }
+
+    #[test]
+    fn counter_format_roman_round_trips_over_its_whole_representable_range() {
+        for n in 1..=3999_usize {
+            let lower = CounterFormat::LowerRoman.format(n);
+            let upper = CounterFormat::UpperRoman.format(n);
+            assert_eq!(
+                decode_roman(&lower),
+                Some(n as i64),
+                "lower-roman round-trip failed for {n} -> {lower}"
+            );
+            assert_eq!(upper, lower.to_uppercase(), "casing mismatch for {n}");
+        }
+    }
+
+    #[test]
+    fn counter_format_alphabetic_round_trips_and_is_injective() {
+        let mut seen = std::collections::HashSet::new();
+        for n in 1..=3000_usize {
+            let lower = CounterFormat::LowerAlpha.format(n);
+            let upper = CounterFormat::UpperAlpha.format(n);
+            assert_eq!(
+                decode_alpha(&lower),
+                Some(n),
+                "lower-alpha round-trip failed for {n} -> {lower}"
+            );
+            assert_eq!(upper, lower.to_uppercase(), "casing mismatch for {n}");
+            assert!(seen.insert(lower), "two page numbers collided at {n}");
+        }
+        // Bijective base-26 boundaries — the classic off-by-one zone.
+        assert_eq!(CounterFormat::LowerAlpha.format(26), "z");
+        assert_eq!(CounterFormat::LowerAlpha.format(27), "aa");
+        assert_eq!(CounterFormat::LowerAlpha.format(52), "az");
+        assert_eq!(CounterFormat::LowerAlpha.format(53), "ba");
+    }
+
+    #[test]
+    fn counter_format_greek_round_trips_and_emits_whole_code_points() {
+        for n in 1..=2000_usize {
+            let s = CounterFormat::LowerGreek.format(n);
+            assert_eq!(
+                decode_greek(&s),
+                Some(n),
+                "lower-greek round-trip failed for {n} -> {s}"
+            );
+            // Every greek letter is 2 bytes: byte len must be exactly 2x char count,
+            // i.e. the encoder's `insert(0, ..)` never split a code point.
+            assert_eq!(s.len(), s.chars().count() * 2, "sliced a code point at {n}");
+        }
+        assert_eq!(CounterFormat::LowerGreek.format(24), "ω");
+        assert_eq!(CounterFormat::LowerGreek.format(25), "αα");
+    }
+
+    #[test]
+    fn counter_format_usize_max_terminates_for_the_positional_styles() {
+        // `(n - 1) / base` strictly decreases, so these must halt rather than hang.
+        let alpha = CounterFormat::LowerAlpha.format(usize::MAX);
+        let greek = CounterFormat::LowerGreek.format(usize::MAX);
+        assert!(!alpha.is_empty() && alpha.chars().all(|c| c.is_ascii_lowercase()));
+        assert!(!greek.is_empty());
+        assert_eq!(greek.len(), greek.chars().count() * 2);
+    }
+
+    // ==================================================================
+    // PageInfo::new — constructor invariants
+    // ==================================================================
+
+    #[test]
+    fn page_info_new_sets_flags_for_a_representative_page() {
+        let info = PageInfo::new(1, 3);
+        assert_eq!(info.page_number, 1);
+        assert_eq!(info.total_pages, 3);
+        assert!(info.is_first);
+        assert!(!info.is_last);
+        assert!(info.is_right, "page 1 (odd) is a recto page");
+        assert!(!info.is_left);
+        assert!(!info.is_blank);
+    }
+
+    #[test]
+    fn page_info_left_and_right_are_always_mutually_exclusive() {
+        for n in [0_usize, 1, 2, 3, 100, 101, usize::MAX - 1, usize::MAX] {
+            let info = PageInfo::new(n, 0);
+            assert!(
+                info.is_left != info.is_right,
+                "page {n} claimed to be both/neither verso and recto"
+            );
+            assert_eq!(info.is_left, n % 2 == 0);
+            assert!(!info.is_blank, "new() must never fabricate a blank page");
+        }
+    }
+
+    #[test]
+    fn page_info_is_last_is_false_when_the_total_is_unknown() {
+        // total_pages == 0 means "unknown during the first pass" — nothing is last.
+        for n in [0_usize, 1, 7, usize::MAX] {
+            assert!(!PageInfo::new(n, 0).is_last, "page {n} of 0 claimed is_last");
+        }
+    }
+
+    #[test]
+    fn page_info_page_zero_is_degenerate_but_does_not_panic() {
+        let info = PageInfo::new(0, 0);
+        assert!(!info.is_first, "1-indexed: page 0 is not the first page");
+        assert!(!info.is_last);
+        assert!(info.is_left, "0 is even, so it lands on the verso branch");
+    }
+
+    #[test]
+    fn page_info_out_of_range_page_number_does_not_claim_to_be_last() {
+        // page_number > total_pages is nonsense input; it must not silently
+        // become `is_last` (which would duplicate the last-page decoration).
+        let info = PageInfo::new(9, 3);
+        assert!(!info.is_last);
+        assert!(!info.is_first);
+    }
+
+    #[test]
+    fn page_info_usize_max_extremes_do_not_overflow() {
+        let info = PageInfo::new(usize::MAX, usize::MAX);
+        assert!(info.is_last, "the final page of a MAX-page document is last");
+        assert!(!info.is_first);
+        assert!(info.is_right, "usize::MAX is odd");
+        let single = PageInfo::new(1, 1);
+        assert!(single.is_first && single.is_last);
+    }
+
+    // ==================================================================
+    // HeaderFooterConfig — constructors + content generation
+    // ==================================================================
+
+    #[test]
+    fn header_footer_default_renders_nothing_on_any_page() {
+        let cfg = HeaderFooterConfig::default();
+        assert!(!cfg.show_header && !cfg.show_footer);
+        assert!(matches!(cfg.header_content, MarginBoxContent::None));
+        assert!(matches!(cfg.footer_content, MarginBoxContent::None));
+        assert_eq!(cfg.header_text(PageInfo::new(1, 1)), "");
+        assert_eq!(cfg.footer_text(PageInfo::new(usize::MAX, usize::MAX)), "");
+        assert_eq!(cfg.text_color.a, 255);
+    }
+
+    #[test]
+    fn header_footer_with_page_numbers_only_enables_the_footer() {
+        let cfg = HeaderFooterConfig::with_page_numbers();
+        assert!(cfg.show_footer);
+        assert!(!cfg.show_header, "with_page_numbers must not enable a header");
+        assert_eq!(cfg.footer_text(PageInfo::new(2, 7)), "Page 2 of 7");
+        assert_eq!(cfg.header_text(PageInfo::new(2, 7)), "");
+    }
+
+    #[test]
+    fn header_footer_unknown_total_renders_a_question_mark_not_a_zero() {
+        let cfg = HeaderFooterConfig::with_page_numbers();
+        assert_eq!(cfg.footer_text(PageInfo::new(1, 0)), "Page 1 of ?");
+    }
+
+    #[test]
+    fn header_footer_with_header_and_footer_page_numbers_fills_both() {
+        let cfg = HeaderFooterConfig::with_header_and_footer_page_numbers();
+        assert!(cfg.show_header && cfg.show_footer);
+        let info = PageInfo::new(3, 10);
+        assert_eq!(cfg.header_text(info), "Page 3");
+        assert_eq!(cfg.footer_text(info), "Page 3 of 10");
+        // Extremes must not panic or produce truncated numbers.
+        let extreme = PageInfo::new(usize::MAX, usize::MAX);
+        assert_eq!(
+            cfg.header_text(extreme),
+            format!("Page {}", usize::MAX)
+        );
+    }
+
+    #[test]
+    fn header_footer_with_text_enables_the_box_and_preserves_unicode_exactly() {
+        let text = "Ünïcödé — 日本語 🎉\u{200b}\u{0}";
+        let cfg = HeaderFooterConfig::default()
+            .with_header_text(text)
+            .with_footer_text(text);
+        assert!(cfg.show_header && cfg.show_footer);
+        let info = PageInfo::new(1, 1);
+        // Byte-for-byte: no normalization, no NUL truncation, no BOM stripping.
+        assert_eq!(cfg.header_text(info), text);
+        assert_eq!(cfg.footer_text(info), text);
+        assert_eq!(cfg.header_text(info).len(), text.len());
+    }
+
+    #[test]
+    fn header_footer_empty_text_still_switches_the_box_on() {
+        // Quirk worth pinning: an empty string is indistinguishable from "no header"
+        // in the rendered output, yet it *does* flip `show_header` — so the slicer
+        // will still reserve `header_height` for a blank box.
+        let cfg = HeaderFooterConfig::default().with_header_text("");
+        assert!(cfg.show_header);
+        assert_eq!(cfg.header_text(PageInfo::new(1, 1)), "");
+        assert!(cfg.header_height > 0.0);
+    }
+
+    #[test]
+    fn header_footer_text_of_huge_length_round_trips_without_truncation() {
+        let huge = "x".repeat(200_000);
+        let cfg = HeaderFooterConfig::default().with_footer_text(huge.clone());
+        assert_eq!(cfg.footer_text(PageInfo::new(1, 1)).len(), huge.len());
+    }
+
+    #[test]
+    fn header_footer_last_builder_call_wins() {
+        let cfg = HeaderFooterConfig::default()
+            .with_header_text("first")
+            .with_header_text("second");
+        assert_eq!(cfg.header_text(PageInfo::new(1, 1)), "second");
+    }
+
+    #[test]
+    fn header_footer_skip_first_page_blanks_only_page_one() {
+        let mut cfg = HeaderFooterConfig::with_header_and_footer_page_numbers();
+        cfg.skip_first_page = true;
+        assert_eq!(cfg.header_text(PageInfo::new(1, 5)), "");
+        assert_eq!(cfg.footer_text(PageInfo::new(1, 5)), "");
+        assert_eq!(cfg.header_text(PageInfo::new(2, 5)), "Page 2");
+        assert_eq!(cfg.footer_text(PageInfo::new(2, 5)), "Page 2 of 5");
+        // The gate keys off `is_first`, not off `page_number == 1`: a hand-built
+        // PageInfo with is_first forced on is skipped regardless of its number.
+        let mut forged = PageInfo::new(4, 5);
+        forged.is_first = true;
+        assert_eq!(cfg.header_text(forged), "");
+    }
+
+    #[test]
+    fn header_footer_generate_content_covers_every_margin_box_variant() {
+        let cfg = HeaderFooterConfig::default();
+        let info = PageInfo::new(4, 9);
+        assert_eq!(cfg.generate_content(&MarginBoxContent::None, info), "");
+        assert_eq!(
+            cfg.generate_content(&MarginBoxContent::Text(String::new()), info),
+            ""
+        );
+        assert_eq!(cfg.generate_content(&MarginBoxContent::PageCounter, info), "4");
+        assert_eq!(
+            cfg.generate_content(&MarginBoxContent::PagesCounter, info),
+            "9"
+        );
+        assert_eq!(
+            cfg.generate_content(
+                &MarginBoxContent::PageCounterFormatted {
+                    format: CounterFormat::LowerRoman
+                },
+                info
+            ),
+            "iv"
+        );
+        // Not-yet-implemented variants must degrade to a placeholder, not panic.
+        assert_eq!(
+            cfg.generate_content(&MarginBoxContent::NamedString("chapter".into()), info),
+            "[string:chapter]"
+        );
+        assert_eq!(
+            cfg.generate_content(&MarginBoxContent::RunningElement("hdr".into()), info),
+            "[element:hdr]"
+        );
+    }
+
+    #[test]
+    fn header_footer_generate_content_of_an_empty_combined_is_empty() {
+        let cfg = HeaderFooterConfig::default();
+        assert_eq!(
+            cfg.generate_content(&MarginBoxContent::Combined(Vec::new()), PageInfo::new(1, 1)),
+            ""
+        );
+    }
+
+    #[test]
+    fn header_footer_generate_content_recurses_through_nested_combined() {
+        // `Combined` recursion is unbounded in the impl; a deeply nested tree (as could
+        // arrive from a future @page parser) must still resolve. Depth is kept modest
+        // on purpose — a stack overflow would abort the whole test binary, so this
+        // pins "reasonable nesting works" rather than probing for the cliff.
+        let cfg = HeaderFooterConfig::default();
+        let mut content = MarginBoxContent::PageCounter;
+        for _ in 0..128 {
+            content = MarginBoxContent::Combined(vec![content]);
+        }
+        assert_eq!(cfg.generate_content(&content, PageInfo::new(42, 99)), "42");
+    }
+
+    #[test]
+    fn header_footer_generate_content_calls_a_custom_hook_exactly_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&calls);
+        let content = MarginBoxContent::Custom(Arc::new(move |info: PageInfo| {
+            seen.fetch_add(1, Ordering::SeqCst);
+            format!("{}/{}", info.page_number, info.total_pages)
+        }));
+        let cfg = HeaderFooterConfig::default();
+        assert_eq!(cfg.generate_content(&content, PageInfo::new(2, 5)), "2/5");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Nested inside a Combined, it is still invoked (once per occurrence).
+        let combined = MarginBoxContent::Combined(vec![
+            MarginBoxContent::Text("[".to_string()),
+            content,
+            MarginBoxContent::Text("]".to_string()),
+        ]);
+        assert_eq!(cfg.generate_content(&combined, PageInfo::new(2, 5)), "[2/5]");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn header_footer_hidden_box_short_circuits_before_generating_content() {
+        // show_header == false must win even when header_content would panic-free
+        // produce text — otherwise a disabled box still costs a callback call.
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&calls);
+        let mut cfg = HeaderFooterConfig::default();
+        cfg.header_content = MarginBoxContent::Custom(Arc::new(move |_| {
+            seen.fetch_add(1, Ordering::SeqCst);
+            "leaked".to_string()
+        }));
+        assert_eq!(cfg.header_text(PageInfo::new(1, 1)), "");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    // ==================================================================
+    // FakePageConfig — builders, defaults, and the HeaderFooterConfig bridge
+    // ==================================================================
+
+    #[test]
+    fn fake_page_new_is_inert_and_matches_default() {
+        let cfg = FakePageConfig::new();
+        assert!(!cfg.show_header && !cfg.show_footer);
+        assert!(cfg.header_text.is_none() && cfg.footer_text.is_none());
+        assert!(!cfg.header_page_number && !cfg.footer_page_number);
+        assert!(!cfg.header_total_pages && !cfg.footer_total_pages);
+        assert!(!cfg.skip_first_page);
+        assert_eq!(cfg.number_format, CounterFormat::Decimal);
+
+        let hf = cfg.to_header_footer_config();
+        assert!(matches!(hf.header_content, MarginBoxContent::None));
+        assert!(matches!(hf.footer_content, MarginBoxContent::None));
+        assert_eq!(hf.header_text(PageInfo::new(1, 1)), "");
+        assert_eq!(hf.footer_text(PageInfo::new(1, 1)), "");
+    }
+
+    #[test]
+    fn fake_page_footer_page_numbers_render_page_x_of_y() {
+        let hf = FakePageConfig::new()
+            .with_footer_page_numbers()
+            .to_header_footer_config();
+        assert!(hf.show_footer && !hf.show_header);
+        assert_eq!(hf.footer_text(PageInfo::new(2, 7)), "Page 2 of 7");
+        assert_eq!(hf.footer_text(PageInfo::new(2, 0)), "Page 2 of ?");
+    }
+
+    #[test]
+    fn fake_page_header_page_numbers_omit_the_total() {
+        let hf = FakePageConfig::new()
+            .with_header_page_numbers()
+            .to_header_footer_config();
+        assert_eq!(hf.header_text(PageInfo::new(3, 7)), "Page 3");
+        assert_eq!(hf.footer_text(PageInfo::new(3, 7)), "");
+    }
+
+    #[test]
+    fn fake_page_header_and_footer_page_numbers_agree_with_the_pair_of_setters() {
+        let both = FakePageConfig::new()
+            .with_header_and_footer_page_numbers()
+            .to_header_footer_config();
+        let info = PageInfo::new(5, 11);
+        assert_eq!(both.header_text(info), "Page 5");
+        assert_eq!(both.footer_text(info), "Page 5 of 11");
+    }
+
+    #[test]
+    fn fake_page_text_and_page_number_are_joined_by_a_separator() {
+        let mut cfg = FakePageConfig::new()
+            .with_header_text("My Document")
+            .with_header_page_numbers();
+        cfg.header_total_pages = true;
+        let hf = cfg.to_header_footer_config();
+        assert_eq!(
+            hf.header_text(PageInfo::new(4, 9)),
+            "My Document - Page 4 of 9"
+        );
+    }
+
+    #[test]
+    fn fake_page_number_format_flows_into_the_rendered_counter() {
+        let hf = FakePageConfig::new()
+            .with_footer_page_numbers()
+            .with_number_format(CounterFormat::LowerRoman)
+            .to_header_footer_config();
+        // Only the page counter is formatted; the *total* stays decimal — pin that,
+        // because a mismatched pair ("Page iv of 9") is easy to regress into.
+        assert_eq!(hf.footer_text(PageInfo::new(4, 9)), "Page iv of 9");
+
+        let greek = FakePageConfig::new()
+            .with_header_page_numbers()
+            .with_number_format(CounterFormat::LowerGreek)
+            .to_header_footer_config();
+        assert_eq!(greek.header_text(PageInfo::new(2, 9)), "Page β");
+    }
+
+    #[test]
+    fn fake_page_decimal_format_takes_the_unformatted_counter_branch() {
+        let decimal = FakePageConfig::new().with_header_page_numbers();
+        match decimal.to_header_footer_config().header_content {
+            MarginBoxContent::Combined(parts) => {
+                assert_eq!(parts.len(), 2);
+                assert!(matches!(parts[1], MarginBoxContent::PageCounter));
+            }
+            other => panic!("expected Combined, got {other:?}"),
+        }
+        let roman = FakePageConfig::new()
+            .with_header_page_numbers()
+            .with_number_format(CounterFormat::UpperRoman);
+        match roman.to_header_footer_config().header_content {
+            MarginBoxContent::Combined(parts) => {
+                assert!(matches!(
+                    parts[1],
+                    MarginBoxContent::PageCounterFormatted {
+                        format: CounterFormat::UpperRoman
+                    }
+                ));
+            }
+            other => panic!("expected Combined, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fake_page_total_pages_without_page_number_is_silently_dropped() {
+        // Adversarial: `footer_total_pages` is only honoured *inside* the
+        // `page_number` branch of `build_margin_content`. Setting the total flag
+        // alone yields an empty box rather than "of Y" — assert the real behavior
+        // so a future fix has to update this test deliberately.
+        let mut cfg = FakePageConfig::new();
+        cfg.show_footer = true;
+        cfg.footer_total_pages = true;
+        let hf = cfg.to_header_footer_config();
+        assert!(matches!(hf.footer_content, MarginBoxContent::None));
+        assert_eq!(hf.footer_text(PageInfo::new(1, 5)), "");
+    }
+
+    #[test]
+    fn fake_page_single_text_part_is_not_wrapped_in_a_combined() {
+        let hf = FakePageConfig::new()
+            .with_footer_text("plain")
+            .to_header_footer_config();
+        assert!(matches!(hf.footer_content, MarginBoxContent::Text(ref s) if s == "plain"));
+        assert_eq!(hf.footer_text(PageInfo::new(1, 1)), "plain");
+    }
+
+    #[test]
+    fn fake_page_empty_text_plus_page_number_leaks_a_leading_separator() {
+        // Adversarial edge: an empty custom text is still pushed as a `Text("")`
+        // part, so the " - " joiner is emitted with nothing before it.
+        let hf = FakePageConfig::new()
+            .with_header_text("")
+            .with_header_page_numbers()
+            .to_header_footer_config();
+        assert_eq!(hf.header_text(PageInfo::new(1, 1)), " - Page 1");
+    }
+
+    #[test]
+    fn fake_page_unicode_text_survives_the_bridge_byte_for_byte() {
+        let text = "Ünïcödé — 日本語 🎉";
+        let hf = FakePageConfig::new()
+            .with_header_text(text)
+            .with_footer_text(text)
+            .to_header_footer_config();
+        let info = PageInfo::new(1, 1);
+        assert_eq!(hf.header_text(info), text);
+        assert_eq!(hf.footer_text(info), text);
+    }
+
+    #[test]
+    fn fake_page_huge_text_survives_the_bridge() {
+        let huge = "λ".repeat(100_000);
+        let hf = FakePageConfig::new()
+            .with_footer_text(huge.clone())
+            .to_header_footer_config();
+        let out = hf.footer_text(PageInfo::new(1, 1));
+        assert_eq!(out.len(), huge.len());
+        assert_eq!(out.chars().count(), 100_000);
+    }
+
+    #[test]
+    fn fake_page_skip_first_page_toggles_both_ways() {
+        let on = FakePageConfig::new()
+            .with_footer_page_numbers()
+            .skip_first_page(true)
+            .to_header_footer_config();
+        assert!(on.skip_first_page);
+        assert_eq!(on.footer_text(PageInfo::new(1, 3)), "");
+        assert_eq!(on.footer_text(PageInfo::new(2, 3)), "Page 2 of 3");
+
+        let off = FakePageConfig::new()
+            .with_footer_page_numbers()
+            .skip_first_page(true)
+            .skip_first_page(false)
+            .to_header_footer_config();
+        assert!(!off.skip_first_page);
+        assert_eq!(off.footer_text(PageInfo::new(1, 3)), "Page 1 of 3");
+    }
+
+    #[test]
+    fn fake_page_non_finite_geometry_is_stored_and_forwarded_verbatim() {
+        // There is no validation/clamping anywhere on this path: NaN and infinite
+        // heights reach the slicer unchanged. Pin it so any future clamp is a
+        // deliberate, reviewed change rather than a silent behavior swap.
+        let cfg = FakePageConfig::new()
+            .with_header_height(f32::NAN)
+            .with_footer_height(f32::INFINITY)
+            .with_font_size(-0.0);
+        assert!(cfg.header_height.is_nan());
+        let hf = cfg.to_header_footer_config();
+        assert!(hf.header_height.is_nan(), "NaN header height was swallowed");
+        assert_eq!(hf.footer_height, f32::INFINITY);
+        assert_eq!(hf.font_size, -0.0);
+    }
+
+    #[test]
+    fn fake_page_extreme_but_finite_geometry_is_preserved_exactly() {
+        let hf = FakePageConfig::new()
+            .with_header_height(f32::MAX)
+            .with_footer_height(f32::MIN)
+            .with_font_size(f32::MIN_POSITIVE)
+            .to_header_footer_config();
+        assert_eq!(hf.header_height, f32::MAX);
+        assert_eq!(hf.footer_height, f32::MIN);
+        assert_eq!(hf.font_size, f32::MIN_POSITIVE);
+
+        let negative = FakePageConfig::new()
+            .with_header_height(-100.0)
+            .to_header_footer_config();
+        assert_eq!(negative.header_height, -100.0);
+    }
+
+    #[test]
+    fn fake_page_text_color_crosses_the_bridge_unchanged() {
+        let color = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 0,
+        };
+        let hf = FakePageConfig::new()
+            .with_text_color(color)
+            .to_header_footer_config();
+        assert_eq!(hf.text_color, color);
+        assert_eq!(hf.text_color.a, 0, "a fully transparent color must survive");
+    }
+
+    #[test]
+    fn fake_page_to_header_footer_config_is_a_pure_read() {
+        // The bridge is a getter: calling it repeatedly must be stable and must not
+        // mutate the source config.
+        let cfg = FakePageConfig::new()
+            .with_header_and_footer_page_numbers()
+            .with_number_format(CounterFormat::UpperAlpha)
+            .skip_first_page(true);
+        let info = PageInfo::new(3, 4);
+        let first = cfg.to_header_footer_config();
+        let second = cfg.to_header_footer_config();
+        assert_eq!(first.header_text(info), second.header_text(info));
+        assert_eq!(first.footer_text(info), second.footer_text(info));
+        assert_eq!(first.header_text(info), "Page C");
+        assert!(cfg.show_header && cfg.show_footer && cfg.skip_first_page);
+    }
+
+    #[test]
+    fn fake_page_build_margin_content_shapes_match_the_part_count() {
+        // Private helper, exercised directly: 0 parts -> None, 1 part -> that part,
+        // >1 -> Combined. The `parts.pop().unwrap()` in the 1-part arm is the risk.
+        assert!(matches!(
+            FakePageConfig::build_margin_content(None, false, false, CounterFormat::Decimal),
+            MarginBoxContent::None
+        ));
+        assert!(matches!(
+            FakePageConfig::build_margin_content(None, false, true, CounterFormat::Decimal),
+            MarginBoxContent::None
+        ));
+        assert!(matches!(
+            FakePageConfig::build_margin_content(Some("t"), false, false, CounterFormat::Decimal),
+            MarginBoxContent::Text(ref s) if s == "t"
+        ));
+        assert!(matches!(
+            FakePageConfig::build_margin_content(Some(""), false, true, CounterFormat::Decimal),
+            MarginBoxContent::Text(ref s) if s.is_empty()
+        ));
+        match FakePageConfig::build_margin_content(
+            Some("Doc"),
+            true,
+            true,
+            CounterFormat::LowerRoman,
+        ) {
+            MarginBoxContent::Combined(parts) => {
+                assert_eq!(parts.len(), 6, "text + sep + label + counter + of + total");
+                assert!(matches!(parts[1], MarginBoxContent::Text(ref s) if s == " - "));
+                assert!(matches!(
+                    parts[3],
+                    MarginBoxContent::PageCounterFormatted { .. }
+                ));
+                assert!(matches!(parts[5], MarginBoxContent::PagesCounter));
+            }
+            other => panic!("expected Combined, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fake_page_build_header_and_footer_content_read_their_own_fields() {
+        // Guards against the classic copy-paste bug: header building from the
+        // footer's flags (or vice versa).
+        let mut cfg = FakePageConfig::new();
+        cfg.header_text = Some("H".to_string());
+        cfg.footer_text = Some("F".to_string());
+        cfg.header_page_number = true;
+        cfg.footer_page_number = false;
+        let hf = HeaderFooterConfig::default();
+        let info = PageInfo::new(2, 4);
+        assert_eq!(
+            hf.generate_content(&cfg.build_header_content(), info),
+            "H - Page 2"
+        );
+        assert_eq!(hf.generate_content(&cfg.build_footer_content(), info), "F");
+    }
+
+    // ==================================================================
+    // TableHeaderTracker — numeric edges on the page-overlap arithmetic
+    // ==================================================================
+
+    #[test]
+    fn tracker_new_is_empty_and_matches_default() {
+        let tracker = TableHeaderTracker::new();
+        assert!(tracker.tables.is_empty());
+        assert!(TableHeaderTracker::default().tables.is_empty());
+        assert!(tracker
+            .get_repeated_headers_for_page(0, 0.0, 0.0)
+            .is_empty());
+    }
+
+    #[test]
+    fn tracker_empty_returns_nothing_for_every_extreme_page_geometry() {
+        let tracker = TableHeaderTracker::new();
+        for page_index in [0_usize, 1, usize::MAX] {
+            for y in [
+                0.0_f32,
+                -0.0,
+                f32::MIN,
+                f32::MAX,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::NAN,
+            ] {
+                assert!(
+                    tracker.get_repeated_headers_for_page(page_index, y, y).is_empty(),
+                    "empty tracker produced a header at page {page_index}, y={y}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tracker_register_appends_in_order_and_allows_duplicates() {
+        let mut tracker = TableHeaderTracker::new();
+        for i in 0..1000 {
+            let mut info = table(0.0, 100.0, 10.0);
+            info.table_node_index = i;
+            tracker.register_table_header(info);
+        }
+        // Same table registered twice must not be deduplicated silently.
+        tracker.register_table_header(table(0.0, 100.0, 10.0));
+        tracker.register_table_header(table(0.0, 100.0, 10.0));
+        assert_eq!(tracker.tables.len(), 1002);
+        assert_eq!(tracker.tables[0].table_node_index, 0);
+        assert_eq!(tracker.tables[999].table_node_index, 999);
+    }
+
+    #[test]
+    fn tracker_repeats_only_tables_that_straddle_the_page_top() {
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 500.0, 20.0)); // straddles -> repeat
+        tracker.register_table_header(table(0.0, 50.0, 20.0)); // ends above -> no
+        tracker.register_table_header(table(200.0, 500.0, 20.0)); // starts on page -> no
+        let headers = tracker.get_repeated_headers_for_page(1, 100.0, 900.0);
+        assert_eq!(headers.len(), 1);
+        let (offset, items, height) = headers[0];
+        assert_eq!(offset, 0.0, "a repeated thead sits at the page top");
+        assert_eq!(height, 20.0);
+        assert_eq!(items.len(), 1);
+        assert!(matches!(items[0], DisplayListItem::PopClip));
+    }
+
+    #[test]
+    fn tracker_page_boundary_comparisons_are_strict() {
+        let mut tracker = TableHeaderTracker::new();
+        // start_y == page_top: the table *begins* on this page -> its own thead is
+        // already there, so no repeat.
+        tracker.register_table_header(table(100.0, 500.0, 20.0));
+        assert!(tracker
+            .get_repeated_headers_for_page(1, 100.0, 900.0)
+            .is_empty());
+
+        // end_y == page_top: the table finished exactly at the boundary -> no repeat.
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 100.0, 20.0));
+        assert!(tracker
+            .get_repeated_headers_for_page(1, 100.0, 900.0)
+            .is_empty());
+
+        // One representable step past the boundary on both sides -> repeat. (`f32::EPSILON`
+        // is useless here: at magnitude 100 it is far below one ulp and would round
+        // straight back to 100.0, silently re-testing the equality case above.)
+        let below = f32::from_bits(100.0_f32.to_bits() - 1);
+        let above = f32::from_bits(100.0_f32.to_bits() + 1);
+        assert!(below < 100.0 && above > 100.0, "ulp step collapsed");
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(below, above, 20.0));
+        assert_eq!(
+            tracker.get_repeated_headers_for_page(1, 100.0, 900.0).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn tracker_nan_page_top_yields_no_headers_and_no_panic() {
+        // Every f32 comparison against NaN is false, so both guards fail: the
+        // defined result is "no repeated headers" rather than a panic or a
+        // spurious header at an unrenderable offset.
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 500.0, 20.0));
+        assert!(tracker
+            .get_repeated_headers_for_page(1, f32::NAN, 900.0)
+            .is_empty());
+        // A NaN *bottom* changes nothing, because the bottom is never read.
+        assert_eq!(
+            tracker
+                .get_repeated_headers_for_page(1, 100.0, f32::NAN)
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn tracker_nan_table_geometry_yields_no_headers() {
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(f32::NAN, 500.0, 20.0));
+        tracker.register_table_header(table(0.0, f32::NAN, 20.0));
+        tracker.register_table_header(table(f32::NAN, f32::NAN, 20.0));
+        assert!(
+            tracker
+                .get_repeated_headers_for_page(1, 100.0, 900.0)
+                .is_empty(),
+            "a NaN-positioned table must not be repeated"
+        );
+    }
+
+    #[test]
+    fn tracker_infinite_page_top_behaves_deterministically() {
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 500.0, 20.0));
+        // +inf page top: the table starts before it, but nothing can extend past
+        // +inf -> no repeat.
+        assert!(tracker
+            .get_repeated_headers_for_page(1, f32::INFINITY, f32::INFINITY)
+            .is_empty());
+        // -inf page top: nothing starts before -inf -> no repeat.
+        assert!(tracker
+            .get_repeated_headers_for_page(1, f32::NEG_INFINITY, 900.0)
+            .is_empty());
+    }
+
+    #[test]
+    fn tracker_infinite_table_extent_repeats_forever_without_overflow() {
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(f32::NEG_INFINITY, f32::INFINITY, f32::INFINITY));
+        let headers = tracker.get_repeated_headers_for_page(usize::MAX, f32::MAX, f32::MAX);
+        assert_eq!(headers.len(), 1);
+        // The thead height is forwarded verbatim — no clamping, no NaN laundering.
+        assert!(headers[0].2.is_infinite());
+    }
+
+    #[test]
+    fn tracker_nan_thead_height_is_forwarded_not_sanitized() {
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 500.0, f32::NAN));
+        let headers = tracker.get_repeated_headers_for_page(1, 100.0, 900.0);
+        assert_eq!(headers.len(), 1);
+        assert!(headers[0].2.is_nan(), "height NaN was silently rewritten");
+    }
+
+    #[test]
+    fn tracker_page_index_is_ignored_by_the_current_implementation() {
+        // Documented reality check: `page_index` never enters the arithmetic, so a
+        // straddling table repeats identically for page 0 and page usize::MAX. If
+        // per-page logic is ever added, this test must be revisited.
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 500.0, 20.0));
+        let a = tracker.get_repeated_headers_for_page(0, 100.0, 900.0);
+        let b = tracker.get_repeated_headers_for_page(usize::MAX, 100.0, 900.0);
+        assert_eq!(a.len(), b.len());
+        assert_eq!(a.len(), 1);
+    }
+
+    #[test]
+    fn tracker_page_bottom_is_ignored_even_when_the_page_is_inverted() {
+        // `page_bottom_y` is unused: an inverted page (bottom above top) still
+        // yields a header. Pinned so the parameter's dead status is visible.
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 500.0, 20.0));
+        assert_eq!(
+            tracker.get_repeated_headers_for_page(1, 100.0, -900.0).len(),
+            1
+        );
+        assert_eq!(
+            tracker.get_repeated_headers_for_page(1, 100.0, 100.0).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn tracker_preserves_registration_order_across_many_straddling_tables() {
+        let mut tracker = TableHeaderTracker::new();
+        for i in 0..64_u32 {
+            #[allow(clippy::cast_precision_loss)]
+            tracker.register_table_header(table(0.0, 500.0, i as f32));
+        }
+        let headers = tracker.get_repeated_headers_for_page(3, 100.0, 900.0);
+        assert_eq!(headers.len(), 64);
+        for (i, (offset, _, height)) in headers.iter().enumerate() {
+            assert_eq!(*offset, 0.0);
+            #[allow(clippy::cast_precision_loss)]
+            let expected = i as f32;
+            assert_eq!(*height, expected, "headers came back out of order");
+        }
+    }
+
+    #[test]
+    fn tracker_zero_height_page_returns_nothing() {
+        // A degenerate zero-extent page (top == bottom == 0) is the "zero" case:
+        // no table can both start before 0 and end after 0 unless it is negative.
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(0.0, 500.0, 20.0));
+        assert!(tracker
+            .get_repeated_headers_for_page(0, 0.0, 0.0)
+            .is_empty());
+        // ...but a table with a negative start does straddle y=0.
+        let mut tracker = TableHeaderTracker::new();
+        tracker.register_table_header(table(-10.0, 500.0, 20.0));
+        assert_eq!(tracker.get_repeated_headers_for_page(0, 0.0, 0.0).len(), 1);
+    }
+}

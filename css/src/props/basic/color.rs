@@ -1748,3 +1748,1538 @@ mod tests {
         assert_eq!(SystemColorRef::SelectionBackground.as_css_str(), "system:selection-background");
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::unreadable_literal)]
+mod autotest_generated {
+    use super::*;
+
+    /// Every `ColorU` this module sweeps over. Chosen to hit the interesting
+    /// channel boundaries (0 / 1 / 127 / 128 / 254 / 255) plus a few real colors.
+    const SAMPLES: [ColorU; 10] = [
+        ColorU { r: 0, g: 0, b: 0, a: 0 },
+        ColorU { r: 0, g: 0, b: 0, a: 255 },
+        ColorU { r: 255, g: 255, b: 255, a: 255 },
+        ColorU { r: 255, g: 255, b: 255, a: 0 },
+        ColorU { r: 1, g: 2, b: 3, a: 4 },
+        ColorU { r: 127, g: 128, b: 129, a: 254 },
+        ColorU { r: 254, g: 1, b: 128, a: 1 },
+        ColorU { r: 128, g: 128, b: 128, a: 255 },
+        ColorU { r: 255, g: 0, b: 0, a: 255 },
+        ColorU { r: 13, g: 110, b: 253, a: 200 },
+    ];
+
+    // =====================================================================
+    // numeric: channel_to_u8 (private) — the one float→int cast in the file
+    // =====================================================================
+
+    #[test]
+    fn channel_to_u8_zero_and_negative_zero() {
+        assert_eq!(channel_to_u8(0.0), 0);
+        assert_eq!(channel_to_u8(-0.0), 0);
+    }
+
+    #[test]
+    fn channel_to_u8_truncates_toward_zero_and_does_not_round() {
+        assert_eq!(channel_to_u8(0.9), 0);
+        assert_eq!(channel_to_u8(127.5), 127);
+        assert_eq!(channel_to_u8(254.999), 254);
+        assert_eq!(channel_to_u8(255.0), 255);
+        assert_eq!(channel_to_u8(255.9), 255);
+    }
+
+    #[test]
+    fn channel_to_u8_saturates_on_overflow_instead_of_wrapping() {
+        assert_eq!(channel_to_u8(256.0), 255);
+        assert_eq!(channel_to_u8(1e30), 255);
+        assert_eq!(channel_to_u8(f32::MAX), 255);
+    }
+
+    #[test]
+    fn channel_to_u8_negative_saturates_to_zero() {
+        assert_eq!(channel_to_u8(-0.5), 0);
+        assert_eq!(channel_to_u8(-1.0), 0);
+        assert_eq!(channel_to_u8(-1e30), 0);
+        assert_eq!(channel_to_u8(f32::MIN), 0);
+    }
+
+    #[test]
+    fn channel_to_u8_nan_and_inf_are_defined_and_do_not_panic() {
+        assert_eq!(channel_to_u8(f32::NAN), 0);
+        assert_eq!(channel_to_u8(-f32::NAN), 0);
+        assert_eq!(channel_to_u8(f32::INFINITY), 255);
+        assert_eq!(channel_to_u8(f32::NEG_INFINITY), 0);
+    }
+
+    #[test]
+    fn channel_to_u8_subnormal_inputs_do_not_panic() {
+        assert_eq!(channel_to_u8(f32::MIN_POSITIVE), 0);
+        assert_eq!(channel_to_u8(1e-45), 0);
+        assert_eq!(channel_to_u8(-1e-45), 0);
+    }
+
+    // =====================================================================
+    // constructors: rgba / rgb / new / new_rgb / with_alpha / with_alpha_f32
+    // =====================================================================
+
+    #[test]
+    fn rgba_fields_match_args_at_min_and_max() {
+        let min = ColorU::rgba(0, 0, 0, 0);
+        assert_eq!((min.r, min.g, min.b, min.a), (0, 0, 0, 0));
+        let max = ColorU::rgba(u8::MAX, u8::MAX, u8::MAX, u8::MAX);
+        assert_eq!((max.r, max.g, max.b, max.a), (255, 255, 255, 255));
+        let mixed = ColorU::rgba(1, 2, 3, 4);
+        assert_eq!((mixed.r, mixed.g, mixed.b, mixed.a), (1, 2, 3, 4));
+    }
+
+    #[test]
+    fn rgb_defaults_alpha_to_opaque() {
+        assert_eq!(ColorU::rgb(0, 0, 0), ColorU::BLACK);
+        assert_eq!(ColorU::rgb(1, 2, 3).a, ColorU::ALPHA_OPAQUE);
+        assert_eq!(ColorU::rgb(u8::MAX, u8::MAX, u8::MAX), ColorU::WHITE);
+    }
+
+    #[test]
+    fn new_and_new_rgb_are_exact_aliases() {
+        for c in SAMPLES {
+            assert_eq!(ColorU::new(c.r, c.g, c.b, c.a), ColorU::rgba(c.r, c.g, c.b, c.a));
+            assert_eq!(ColorU::new_rgb(c.r, c.g, c.b), ColorU::rgb(c.r, c.g, c.b));
+        }
+    }
+
+    #[test]
+    fn with_alpha_keeps_rgb_for_every_alpha() {
+        let base = ColorU::rgba(13, 110, 253, 7);
+        for a in 0..=u8::MAX {
+            let c = base.with_alpha(a);
+            assert_eq!((c.r, c.g, c.b), (base.r, base.g, base.b));
+            assert_eq!(c.a, a);
+        }
+    }
+
+    #[test]
+    fn with_alpha_f32_clamps_out_of_range_and_nan() {
+        let base = ColorU::rgb(1, 2, 3);
+        assert_eq!(base.with_alpha_f32(0.0).a, 0);
+        assert_eq!(base.with_alpha_f32(1.0).a, 255);
+        // Out of range clamps rather than wrapping.
+        assert_eq!(base.with_alpha_f32(-1.0).a, 0);
+        assert_eq!(base.with_alpha_f32(-1e30).a, 0);
+        assert_eq!(base.with_alpha_f32(2.0).a, 255);
+        assert_eq!(base.with_alpha_f32(1e30).a, 255);
+        assert_eq!(base.with_alpha_f32(f32::INFINITY).a, 255);
+        assert_eq!(base.with_alpha_f32(f32::NEG_INFINITY).a, 0);
+        // `clamp` propagates NaN, and `NaN as u8` is 0 — fully transparent, not a panic.
+        assert_eq!(base.with_alpha_f32(f32::NAN).a, 0);
+        // RGB is never touched, whatever the alpha input.
+        for a in [-1.0, 0.0, 0.5, 1.0, 2.0, f32::NAN, f32::INFINITY] {
+            let c = base.with_alpha_f32(a);
+            assert_eq!((c.r, c.g, c.b), (1, 2, 3));
+        }
+    }
+
+    #[test]
+    fn with_alpha_f32_truncates_rather_than_rounds() {
+        // 0.5 * 255.0 == 127.5, and `as u8` truncates => 127.
+        // NOTE: the `rgba(..., 0.5)` parser rounds the same value to 128
+        // (`parse_alpha_component` calls `.round()` first). See report.
+        assert_eq!(ColorU::rgb(0, 0, 0).with_alpha_f32(0.5).a, 127);
+    }
+
+    // =====================================================================
+    // numeric: interpolate / lighten / darken / mix
+    // =====================================================================
+
+    #[test]
+    fn interpolate_endpoints_are_exact() {
+        for a in SAMPLES {
+            for b in SAMPLES {
+                assert_eq!(a.interpolate(&b, 0.0), a, "t=0 must return self");
+                assert_eq!(a.interpolate(&b, 1.0), b, "t=1 must return other");
+            }
+        }
+    }
+
+    #[test]
+    fn interpolate_midpoint_rounds_half_away_from_zero() {
+        // 0 + 255 * 0.5 = 127.5, roundf => 128.
+        assert_eq!(
+            ColorU::BLACK.interpolate(&ColorU::WHITE, 0.5),
+            ColorU::rgba(128, 128, 128, 255)
+        );
+    }
+
+    #[test]
+    fn interpolate_is_symmetric_under_swapped_endpoints() {
+        for a in SAMPLES {
+            for b in SAMPLES {
+                assert_eq!(a.interpolate(&b, 0.25), b.interpolate(&a, 0.75));
+            }
+        }
+    }
+
+    #[test]
+    fn interpolate_nan_t_is_defined_and_does_not_panic() {
+        // t = NaN makes every channel NaN, and `NaN as u8` == 0.
+        for a in SAMPLES {
+            for b in SAMPLES {
+                assert_eq!(a.interpolate(&b, f32::NAN), ColorU::rgba(0, 0, 0, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn interpolate_infinite_t_saturates_differing_channels() {
+        // Channels that differ run off to +/-inf and saturate at the u8 bounds.
+        let c = ColorU::rgba(0, 0, 0, 0).interpolate(&ColorU::WHITE, f32::INFINITY);
+        assert_eq!(c, ColorU::rgba(255, 255, 255, 255));
+        let c = ColorU::WHITE.interpolate(&ColorU::rgba(0, 0, 0, 0), f32::INFINITY);
+        assert_eq!(c, ColorU::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn interpolate_infinite_t_zeroes_equal_channels() {
+        // Where a channel is EQUAL in both colors the delta is 0.0, and
+        // `0.0 * inf == NaN` => that channel collapses to 0 instead of
+        // staying put. Both endpoints here are alpha=255, so alpha => 0.
+        let c = ColorU::BLACK.interpolate(&ColorU::WHITE, f32::INFINITY);
+        assert_eq!(c, ColorU::rgba(255, 255, 255, 0));
+        // Interpolating a color with ITSELF at t=inf wipes it out entirely.
+        assert_eq!(
+            ColorU::RED.interpolate(&ColorU::RED, f32::INFINITY),
+            ColorU::rgba(0, 0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn interpolate_out_of_range_t_saturates_instead_of_wrapping() {
+        // Extrapolating past the endpoints overshoots the u8 range; the cast must
+        // saturate, not wrap (0 + 255*2 == 510 -> 255, not 254).
+        assert_eq!(
+            ColorU::BLACK.interpolate(&ColorU::WHITE, 2.0),
+            ColorU::rgba(255, 255, 255, 255)
+        );
+        assert_eq!(
+            ColorU::WHITE.interpolate(&ColorU::BLACK, -1.0),
+            ColorU::rgba(255, 255, 255, 255)
+        );
+        assert_eq!(
+            ColorU::WHITE.interpolate(&ColorU::BLACK, 2.0),
+            ColorU::rgba(0, 0, 0, 255)
+        );
+        assert_eq!(
+            ColorU::BLACK.interpolate(&ColorU::WHITE, -1.0),
+            ColorU::rgba(0, 0, 0, 255)
+        );
+        // And the whole sample matrix must stay panic-free and deterministic.
+        for t in [-1e30, -1.0, -0.5, 1.5, 2.0, 1e30] {
+            for a in SAMPLES {
+                for b in SAMPLES {
+                    assert_eq!(a.interpolate(&b, t), a.interpolate(&b, t));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lighten_and_darken_clamp_the_amount() {
+        let base = ColorU::rgba(128, 128, 128, 77);
+        // Below 0 clamps to 0 => unchanged.
+        assert_eq!(base.lighten(0.0), base);
+        assert_eq!(base.darken(0.0), base);
+        assert_eq!(base.lighten(-1.0), base);
+        assert_eq!(base.darken(-1e30), base);
+        assert_eq!(base.lighten(f32::NEG_INFINITY), base);
+        // Above 1 clamps to 1 => full white / full black, alpha preserved.
+        assert_eq!(base.lighten(1.0), ColorU::rgba(255, 255, 255, 77));
+        assert_eq!(base.lighten(2.0), ColorU::rgba(255, 255, 255, 77));
+        assert_eq!(base.lighten(f32::INFINITY), ColorU::rgba(255, 255, 255, 77));
+        assert_eq!(base.darken(1.0), ColorU::rgba(0, 0, 0, 77));
+        assert_eq!(base.darken(1e30), ColorU::rgba(0, 0, 0, 77));
+        assert_eq!(base.darken(f32::INFINITY), ColorU::rgba(0, 0, 0, 77));
+    }
+
+    #[test]
+    fn lighten_and_darken_always_preserve_alpha() {
+        for c in SAMPLES {
+            for amount in [-1.0, 0.0, 0.3, 1.0, 2.0, f32::NAN, f32::INFINITY] {
+                assert_eq!(c.lighten(amount).a, c.a);
+                assert_eq!(c.darken(amount).a, c.a);
+            }
+        }
+    }
+
+    #[test]
+    fn lighten_nan_amount_is_defined_and_does_not_panic() {
+        // `f32::clamp` propagates NaN, so the RGB channels collapse to 0 while
+        // alpha is explicitly restored afterwards.
+        let c = ColorU::rgba(255, 0, 0, 200);
+        assert_eq!(c.lighten(f32::NAN), ColorU::rgba(0, 0, 0, 200));
+        assert_eq!(c.darken(f32::NAN), ColorU::rgba(0, 0, 0, 200));
+    }
+
+    #[test]
+    fn mix_clamps_ratio_to_the_endpoints() {
+        let a = ColorU::rgba(10, 20, 30, 40);
+        let b = ColorU::rgba(200, 210, 220, 230);
+        assert_eq!(a.mix(&b, 0.0), a);
+        assert_eq!(a.mix(&b, 1.0), b);
+        assert_eq!(a.mix(&b, -1.0), a);
+        assert_eq!(a.mix(&b, f32::NEG_INFINITY), a);
+        assert_eq!(a.mix(&b, 2.0), b);
+        assert_eq!(a.mix(&b, 1e30), b);
+        assert_eq!(a.mix(&b, f32::INFINITY), b);
+    }
+
+    #[test]
+    fn mix_nan_ratio_is_defined_and_does_not_panic() {
+        // Unlike lighten/darken, mix does NOT restore alpha => fully transparent.
+        assert_eq!(
+            ColorU::RED.mix(&ColorU::BLUE, f32::NAN),
+            ColorU::rgba(0, 0, 0, 0)
+        );
+    }
+
+    // =====================================================================
+    // numeric: srgb_to_linear (private)
+    // =====================================================================
+
+    #[test]
+    fn srgb_to_linear_endpoints_and_monotonicity() {
+        assert_eq!(ColorU::srgb_to_linear(0.0), 0.0);
+        assert!((ColorU::srgb_to_linear(1.0) - 1.0).abs() < 1e-5);
+        // Monotonically non-decreasing over the whole 8-bit ramp.
+        let mut prev = f32::NEG_INFINITY;
+        for i in 0..=255u16 {
+            let v = ColorU::srgb_to_linear(f32::from(i) / 255.0);
+            assert!(v >= prev, "srgb_to_linear not monotonic at {i}");
+            assert!((0.0..=1.0).contains(&v), "out of range at {i}: {v}");
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn srgb_to_linear_handles_the_piecewise_boundary() {
+        // The branch flips at c == 0.03928 (linear below, gamma above).
+        let below = ColorU::srgb_to_linear(0.03928);
+        assert!((below - 0.03928 / 12.92).abs() < 1e-9);
+        let above = ColorU::srgb_to_linear(0.03929);
+        assert!(above > below, "must not go backwards across the boundary");
+    }
+
+    #[test]
+    fn srgb_to_linear_nan_inf_and_negative_do_not_panic() {
+        assert!(ColorU::srgb_to_linear(f32::NAN).is_nan());
+        assert_eq!(ColorU::srgb_to_linear(f32::INFINITY), f32::INFINITY);
+        assert_eq!(ColorU::srgb_to_linear(f32::NEG_INFINITY), f32::NEG_INFINITY);
+        // Negative inputs take the linear branch and stay negative (deterministic).
+        assert!(ColorU::srgb_to_linear(-1.0) < 0.0);
+        assert_eq!(ColorU::srgb_to_linear(-0.0), -0.0);
+    }
+
+    // =====================================================================
+    // getters: luminance / relative_luminance / is_light / is_dark
+    // =====================================================================
+
+    #[test]
+    fn luminance_endpoints_and_range() {
+        assert!((ColorU::BLACK.luminance() - 0.0).abs() < 1e-6);
+        assert!((ColorU::WHITE.luminance() - 1.0).abs() < 1e-6);
+        for r in (0..=255u16).step_by(17) {
+            for g in (0..=255u16).step_by(51) {
+                for b in (0..=255u16).step_by(85) {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let l = ColorU::rgb(r as u8, g as u8, b as u8).luminance();
+                    assert!(l.is_finite() && (-1e-6..=1.000_001).contains(&l), "luminance {l}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn luminance_ignores_alpha() {
+        for a in [0u8, 1, 128, 254, 255] {
+            assert!((ColorU::rgba(10, 20, 30, a).luminance()
+                - ColorU::rgba(10, 20, 30, 255).luminance())
+                .abs()
+                < 1e-9);
+        }
+    }
+
+    #[test]
+    fn relative_luminance_endpoints_and_range() {
+        assert!((ColorU::BLACK.relative_luminance() - 0.0).abs() < 1e-6);
+        assert!((ColorU::WHITE.relative_luminance() - 1.0).abs() < 1e-6);
+        for i in 0..=255u16 {
+            #[allow(clippy::cast_possible_truncation)]
+            let l = ColorU::rgb(i as u8, i as u8, i as u8).relative_luminance();
+            assert!(l.is_finite(), "non-finite relative_luminance at {i}");
+            assert!((-1e-6..=1.000_001).contains(&l), "out of range at {i}: {l}");
+        }
+    }
+
+    #[test]
+    fn relative_luminance_is_monotonic_along_the_gray_ramp() {
+        let mut prev = f32::NEG_INFINITY;
+        for i in 0..=255u16 {
+            #[allow(clippy::cast_possible_truncation)]
+            let l = ColorU::rgb(i as u8, i as u8, i as u8).relative_luminance();
+            assert!(l >= prev, "gray ramp not monotonic at {i}");
+            prev = l;
+        }
+    }
+
+    #[test]
+    fn is_light_and_is_dark_are_exact_complements() {
+        // The two predicates split at exactly 0.5 with no overlap and no gap,
+        // for every single 8-bit color on the gray ramp plus the samples.
+        for i in 0..=255u16 {
+            #[allow(clippy::cast_possible_truncation)]
+            let c = ColorU::rgb(i as u8, i as u8, i as u8);
+            assert_ne!(c.is_light(), c.is_dark(), "not complementary at {i}");
+        }
+        for c in SAMPLES {
+            assert_ne!(c.is_light(), c.is_dark());
+        }
+    }
+
+    #[test]
+    fn is_light_and_is_dark_known_values() {
+        assert!(ColorU::WHITE.is_light());
+        assert!(!ColorU::WHITE.is_dark());
+        assert!(ColorU::BLACK.is_dark());
+        assert!(!ColorU::BLACK.is_light());
+        // Default (BLACK) is dark.
+        assert!(ColorU::default().is_dark());
+        // Mid gray is "dark" under WCAG relative luminance (~0.216, not 0.5).
+        assert!(ColorU::rgb(128, 128, 128).is_dark());
+    }
+
+    // =====================================================================
+    // contrast: contrast_ratio / meets_wcag_* / best_contrast_text
+    // =====================================================================
+
+    #[test]
+    fn contrast_ratio_is_symmetric() {
+        for a in SAMPLES {
+            for b in SAMPLES {
+                let ab = a.contrast_ratio(&b);
+                let ba = b.contrast_ratio(&a);
+                assert!((ab - ba).abs() < 1e-6, "asymmetric: {ab} vs {ba}");
+            }
+        }
+    }
+
+    #[test]
+    fn contrast_ratio_stays_within_1_and_21() {
+        for a in SAMPLES {
+            for b in SAMPLES {
+                let r = a.contrast_ratio(&b);
+                assert!(r.is_finite(), "non-finite contrast ratio");
+                assert!((0.999..=21.001).contains(&r), "contrast ratio out of range: {r}");
+            }
+            // Self-contrast is exactly 1.
+            assert!((a.contrast_ratio(&a) - 1.0).abs() < 1e-6);
+        }
+        // Max contrast (fp gives 20.999998, not a clean 21.0).
+        let max = ColorU::BLACK.contrast_ratio(&ColorU::WHITE);
+        assert!((max - 21.0).abs() < 0.01, "black/white contrast was {max}");
+    }
+
+    #[test]
+    fn meets_wcag_thresholds_agree_with_contrast_ratio() {
+        for a in SAMPLES {
+            for b in SAMPLES {
+                let r = a.contrast_ratio(&b);
+                assert_eq!(a.meets_wcag_aa(&b), r >= 4.5);
+                assert_eq!(a.meets_wcag_aa_large(&b), r >= 3.0);
+                assert_eq!(a.meets_wcag_aaa(&b), r >= 7.0);
+                assert_eq!(a.meets_wcag_aaa_large(&b), r >= 4.5);
+            }
+        }
+    }
+
+    #[test]
+    fn meets_wcag_known_true_and_false() {
+        assert!(ColorU::BLACK.meets_wcag_aa(&ColorU::WHITE));
+        assert!(ColorU::BLACK.meets_wcag_aaa(&ColorU::WHITE));
+        assert!(ColorU::WHITE.meets_wcag_aa_large(&ColorU::BLACK));
+        // A color has no contrast against itself.
+        assert!(!ColorU::RED.meets_wcag_aa(&ColorU::RED));
+        assert!(!ColorU::RED.meets_wcag_aa_large(&ColorU::RED));
+        assert!(!ColorU::WHITE.meets_wcag_aaa(&ColorU::WHITE));
+    }
+
+    #[test]
+    fn best_contrast_text_only_ever_returns_black_or_white() {
+        for c in SAMPLES {
+            let t = c.best_contrast_text();
+            assert!(t == ColorU::WHITE || t == ColorU::BLACK, "got {t:?}");
+            // contrast_text is documented as an alias.
+            assert_eq!(c.contrast_text(), t);
+        }
+        for i in 0..=255u16 {
+            #[allow(clippy::cast_possible_truncation)]
+            let c = ColorU::rgb(i as u8, i as u8, i as u8);
+            let t = c.best_contrast_text();
+            assert!(t == ColorU::WHITE || t == ColorU::BLACK);
+        }
+    }
+
+    #[test]
+    fn best_contrast_text_picks_the_higher_contrast_option() {
+        assert_eq!(ColorU::WHITE.best_contrast_text(), ColorU::BLACK);
+        assert_eq!(ColorU::BLACK.best_contrast_text(), ColorU::WHITE);
+        for c in SAMPLES {
+            let t = c.best_contrast_text();
+            let other = if t == ColorU::WHITE { ColorU::BLACK } else { ColorU::WHITE };
+            assert!(
+                c.contrast_ratio(&t) >= c.contrast_ratio(&other),
+                "{c:?} picked the lower-contrast text color"
+            );
+        }
+    }
+
+    // =====================================================================
+    // numeric: ensure_contrast (binary search — must terminate + saturate)
+    // =====================================================================
+
+    #[test]
+    fn ensure_contrast_returns_self_when_already_compliant() {
+        // 21:1 already, nothing to do.
+        assert_eq!(
+            ColorU::BLACK.ensure_contrast(&ColorU::WHITE, 4.5),
+            ColorU::BLACK
+        );
+        let gray = ColorU::rgb(128, 128, 128);
+        // 5.3:1 against black already clears 4.5.
+        assert_eq!(gray.ensure_contrast(&ColorU::BLACK, 4.5), gray);
+    }
+
+    #[test]
+    fn ensure_contrast_actually_reaches_the_requested_ratio() {
+        let gray = ColorU::rgb(128, 128, 128);
+        let fixed = gray.ensure_contrast(&ColorU::WHITE, 4.5);
+        assert!(
+            fixed.contrast_ratio(&ColorU::WHITE) >= 4.5,
+            "adjusted color {fixed:?} still fails 4.5:1"
+        );
+        // Darkening against a light background must not make it lighter.
+        assert!(fixed.r <= gray.r && fixed.g <= gray.g && fixed.b <= gray.b);
+    }
+
+    #[test]
+    fn ensure_contrast_degenerate_min_ratios_return_self() {
+        let gray = ColorU::rgb(128, 128, 128);
+        // <= current ratio: early return.
+        assert_eq!(gray.ensure_contrast(&ColorU::WHITE, 0.0), gray);
+        assert_eq!(gray.ensure_contrast(&ColorU::WHITE, -1.0), gray);
+        assert_eq!(gray.ensure_contrast(&ColorU::WHITE, f32::NEG_INFINITY), gray);
+        // Unsatisfiable / NaN: every comparison is false, so `result` never
+        // moves off `*self`. Terminates (fixed 16 iterations), never hangs.
+        assert_eq!(gray.ensure_contrast(&ColorU::WHITE, f32::INFINITY), gray);
+        assert_eq!(gray.ensure_contrast(&ColorU::WHITE, f32::NAN), gray);
+        assert_eq!(gray.ensure_contrast(&ColorU::WHITE, 1e30), gray);
+    }
+
+    #[test]
+    fn ensure_contrast_terminates_for_every_sample_pair() {
+        for c in SAMPLES {
+            for bg in SAMPLES {
+                for min in [1.0, 3.0, 4.5, 7.0, 21.0, 25.0] {
+                    let out = c.ensure_contrast(&bg, min);
+                    // Alpha is carried through lighten/darken untouched.
+                    assert_eq!(out.a, c.a);
+                }
+            }
+        }
+    }
+
+    // =====================================================================
+    // APCA
+    // =====================================================================
+
+    #[test]
+    fn apca_contrast_sign_encodes_polarity() {
+        let dark_on_light = ColorU::BLACK.apca_contrast(&ColorU::WHITE);
+        let light_on_dark = ColorU::WHITE.apca_contrast(&ColorU::BLACK);
+        assert!(dark_on_light > 0.0, "black-on-white should be positive");
+        assert!(light_on_dark < 0.0, "white-on-black should be negative");
+        assert!(dark_on_light.is_finite() && light_on_dark.is_finite());
+    }
+
+    #[test]
+    fn apca_contrast_of_a_color_against_itself_is_zero() {
+        for c in SAMPLES {
+            assert_eq!(c.apca_contrast(&c), 0.0, "{c:?} vs itself");
+        }
+    }
+
+    #[test]
+    fn apca_contrast_is_finite_for_every_sample_pair() {
+        for a in SAMPLES {
+            for b in SAMPLES {
+                assert!(a.apca_contrast(&b).is_finite(), "{a:?} on {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn meets_apca_thresholds_agree_with_apca_contrast() {
+        for a in SAMPLES {
+            for b in SAMPLES {
+                let lc = libm::fabsf(a.apca_contrast(&b));
+                assert_eq!(a.meets_apca_body(&b), lc >= 60.0);
+                assert_eq!(a.meets_apca_large(&b), lc >= 45.0);
+            }
+        }
+        assert!(ColorU::BLACK.meets_apca_body(&ColorU::WHITE));
+        assert!(ColorU::BLACK.meets_apca_large(&ColorU::WHITE));
+        assert!(!ColorU::RED.meets_apca_body(&ColorU::RED));
+        assert!(!ColorU::RED.meets_apca_large(&ColorU::RED));
+    }
+
+    // =====================================================================
+    // getters / predicates: hover_variant, active_variant, invert,
+    //                       to_grayscale, has_alpha, to_hash
+    // =====================================================================
+
+    #[test]
+    fn hover_and_active_variants_preserve_alpha_and_never_panic() {
+        for c in SAMPLES {
+            assert_eq!(c.hover_variant().a, c.a);
+            assert_eq!(c.active_variant().a, c.a);
+        }
+        // Light colors get darker, dark colors get lighter.
+        assert!(ColorU::WHITE.hover_variant().r < 255);
+        assert!(ColorU::BLACK.hover_variant().r > 0);
+        assert!(ColorU::WHITE.active_variant().r < ColorU::WHITE.hover_variant().r);
+    }
+
+    #[test]
+    fn invert_is_its_own_inverse() {
+        for c in SAMPLES {
+            assert_eq!(c.invert().invert(), c);
+            assert_eq!(c.invert().a, c.a, "invert must keep alpha");
+        }
+        assert_eq!(ColorU::BLACK.invert(), ColorU::WHITE);
+        assert_eq!(ColorU::WHITE.invert(), ColorU::BLACK);
+    }
+
+    #[test]
+    fn invert_does_not_underflow_at_the_channel_bounds() {
+        // `255 - self.r` on u8 would panic in debug on underflow; it cannot,
+        // but pin the boundary values anyway.
+        assert_eq!(ColorU::rgba(0, 0, 0, 0).invert(), ColorU::rgba(255, 255, 255, 0));
+        assert_eq!(
+            ColorU::rgba(255, 255, 255, 255).invert(),
+            ColorU::rgba(0, 0, 0, 255)
+        );
+    }
+
+    #[test]
+    fn to_grayscale_produces_equal_channels_and_keeps_alpha() {
+        for c in SAMPLES {
+            let g = c.to_grayscale();
+            assert_eq!(g.r, g.g);
+            assert_eq!(g.g, g.b);
+            assert_eq!(g.a, c.a);
+        }
+    }
+
+    #[test]
+    fn to_grayscale_boundary_values() {
+        assert_eq!(ColorU::BLACK.to_grayscale(), ColorU::BLACK);
+        assert_eq!(ColorU::WHITE.to_grayscale(), ColorU::WHITE);
+        assert_eq!(
+            ColorU::rgb(128, 128, 128).to_grayscale(),
+            ColorU::rgb(128, 128, 128)
+        );
+        // An already-gray color is (near enough) a fixed point of to_grayscale:
+        // the BT.601 weights sum to 1.0, so only the truncating cast can shave
+        // off at most one level.
+        for i in 0..=255u16 {
+            #[allow(clippy::cast_possible_truncation)]
+            let c = ColorU::rgb(i as u8, i as u8, i as u8);
+            let drift = i32::from(c.r) - i32::from(c.to_grayscale().r);
+            assert!((0..=1).contains(&drift), "gray {i} drifted by {drift}");
+        }
+    }
+
+    #[test]
+    fn has_alpha_is_true_for_everything_but_255() {
+        assert!(!ColorU::rgba(0, 0, 0, 255).has_alpha());
+        assert!(!ColorU::WHITE.has_alpha());
+        assert!(ColorU::rgba(0, 0, 0, 254).has_alpha());
+        assert!(ColorU::TRANSPARENT.has_alpha());
+        for a in 0..=u8::MAX {
+            assert_eq!(ColorU::rgba(1, 2, 3, a).has_alpha(), a != 255);
+        }
+    }
+
+    #[test]
+    fn to_hash_is_always_nine_lowercase_chars() {
+        assert_eq!(ColorU::RED.to_hash(), "#ff0000ff");
+        assert_eq!(ColorU::TRANSPARENT.to_hash(), "#00000000");
+        assert_eq!(ColorU::rgba(1, 2, 3, 4).to_hash(), "#01020304");
+        assert_eq!(ColorU::WHITE.to_hash(), "#ffffffff");
+        for c in SAMPLES {
+            let h = c.to_hash();
+            assert_eq!(h.len(), 9, "{h} is not 9 bytes");
+            assert!(h.starts_with('#'));
+            assert!(
+                h[1..].chars().all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
+                "{h} is not lowercase hex"
+            );
+        }
+    }
+
+    // =====================================================================
+    // serializer: Display for ColorU / ColorF
+    // =====================================================================
+
+    #[test]
+    fn coloru_display_is_well_formed() {
+        assert_eq!(format!("{}", ColorU::RED), "rgba(255, 0, 0, 1)");
+        assert_eq!(format!("{}", ColorU::TRANSPARENT), "rgba(0, 0, 0, 0)");
+        assert_eq!(format!("{}", ColorU::default()), "rgba(0, 0, 0, 1)");
+        // Alpha is normalized to 0.0..=1.0.
+        assert_eq!(format!("{}", ColorU::rgba(1, 2, 3, 128)), "rgba(1, 2, 3, 0.5019608)");
+        for c in SAMPLES {
+            let s = format!("{c}");
+            assert!(s.starts_with("rgba(") && s.ends_with(')') && s.len() > 6);
+        }
+    }
+
+    #[test]
+    fn colorf_display_survives_nan_and_inf() {
+        assert_eq!(format!("{}", ColorF::BLACK), "rgba(0, 0, 0, 1)");
+        assert_eq!(format!("{}", ColorF::WHITE), "rgba(255, 255, 255, 1)");
+        assert_eq!(format!("{}", ColorF::TRANSPARENT), "rgba(0, 0, 0, 0)");
+        assert_eq!(format!("{}", ColorF::default()), format!("{}", ColorF::BLACK));
+
+        let nan = ColorF { r: f32::NAN, g: f32::NAN, b: f32::NAN, a: f32::NAN };
+        assert_eq!(format!("{nan}"), "rgba(NaN, NaN, NaN, NaN)");
+
+        let inf = ColorF {
+            r: f32::INFINITY,
+            g: f32::NEG_INFINITY,
+            b: f32::MAX,
+            a: f32::INFINITY,
+        };
+        let s = format!("{inf}");
+        assert!(s.starts_with("rgba(inf, -inf, ") && s.ends_with(", inf)"), "{s}");
+    }
+
+    // =====================================================================
+    // round-trip: ColorU <-> ColorF, to_hash -> parse, Display -> parse
+    // =====================================================================
+
+    #[test]
+    fn coloru_to_colorf_and_back_is_lossless_for_all_256_channel_values() {
+        for i in 0..=255u16 {
+            #[allow(clippy::cast_possible_truncation)]
+            let c = ColorU::rgba(i as u8, (255 - i) as u8, i as u8, (255 - i) as u8);
+            let f: ColorF = c.into();
+            let back: ColorU = f.into();
+            assert_eq!(back, c, "round-trip lost information at {i}");
+        }
+    }
+
+    #[test]
+    fn colorf_to_coloru_clamps_out_of_range_channels() {
+        // > 1.0 is clamped by `.min(1.0)`.
+        let over = ColorF { r: 2.0, g: 1e30, b: f32::INFINITY, a: 1.5 };
+        assert_eq!(ColorU::from(over), ColorU::rgba(255, 255, 255, 255));
+        // < 0.0 is NOT clamped by `.min`, but `as u8` saturates it to 0 anyway.
+        let under = ColorF { r: -1.0, g: -1e30, b: f32::NEG_INFINITY, a: -0.5 };
+        assert_eq!(ColorU::from(under), ColorU::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn colorf_to_coloru_maps_nan_channels_to_255() {
+        // `f32::min` returns the NON-NaN operand, so `NaN.min(1.0) == 1.0`,
+        // and a NaN channel comes out fully saturated rather than 0.
+        let nan = ColorF { r: f32::NAN, g: 0.0, b: 0.0, a: f32::NAN };
+        assert_eq!(ColorU::from(nan), ColorU::rgba(255, 0, 0, 255));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn to_hash_round_trips_through_the_parser() {
+        assert_eq!(parse_css_color(&ColorU::RED.to_hash()).unwrap(), ColorU::RED);
+        for r in (0..=255u16).step_by(51) {
+            for g in (0..=255u16).step_by(51) {
+                for b in (0..=255u16).step_by(85) {
+                    for a in (0..=255u16).step_by(85) {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let c = ColorU::rgba(r as u8, g as u8, b as u8, a as u8);
+                        let encoded = c.to_hash();
+                        let decoded = parse_css_color(&encoded)
+                            .unwrap_or_else(|e| panic!("{encoded} failed to parse: {e}"));
+                        assert_eq!(decoded, c, "{encoded} decoded to the wrong color");
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn coloru_display_round_trips_through_the_parser() {
+        // Display emits `rgba(r, g, b, a/255)`, which parse_css_color accepts.
+        for a in 0..=255u16 {
+            #[allow(clippy::cast_possible_truncation)]
+            let c = ColorU::rgba(13, 110, 253, a as u8);
+            let encoded = format!("{c}");
+            let decoded = parse_css_color(&encoded)
+                .unwrap_or_else(|e| panic!("{encoded} failed to parse: {e}"));
+            assert_eq!(decoded, c, "{encoded} decoded to the wrong color");
+        }
+        for c in SAMPLES {
+            assert_eq!(parse_css_color(&format!("{c}")).unwrap(), c);
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn system_color_ref_css_str_round_trips_for_every_variant() {
+        let all = [
+            SystemColorRef::Text,
+            SystemColorRef::Background,
+            SystemColorRef::Accent,
+            SystemColorRef::AccentText,
+            SystemColorRef::ButtonFace,
+            SystemColorRef::ButtonText,
+            SystemColorRef::WindowBackground,
+            SystemColorRef::SelectionBackground,
+            SystemColorRef::SelectionText,
+        ];
+        for variant in all {
+            let encoded = variant.as_css_str();
+            assert!(encoded.starts_with("system:"), "{encoded}");
+            assert_eq!(
+                parse_color_or_system(encoded).unwrap(),
+                ColorOrSystem::System(variant),
+                "{encoded} did not round-trip"
+            );
+        }
+    }
+
+    // =====================================================================
+    // ColorOrSystem / SystemColorRef
+    // =====================================================================
+
+    #[test]
+    fn color_or_system_constructors_and_fallbacks() {
+        let c = ColorOrSystem::color(ColorU::RED);
+        assert_eq!(c, ColorOrSystem::Color(ColorU::RED));
+        assert_eq!(c.to_color_u_with_fallback(ColorU::BLUE), ColorU::RED);
+        assert_eq!(c.to_color_u_default(), ColorU::RED);
+
+        let s = ColorOrSystem::system(SystemColorRef::Accent);
+        assert_eq!(s, ColorOrSystem::System(SystemColorRef::Accent));
+        // A system ref has no concrete value, so the fallback wins.
+        assert_eq!(s.to_color_u_with_fallback(ColorU::BLUE), ColorU::BLUE);
+        assert_eq!(s.to_color_u_default(), ColorU::rgba(128, 128, 128, 255));
+
+        // Default is opaque black, and From<ColorU> agrees with ::color().
+        assert_eq!(ColorOrSystem::default(), ColorOrSystem::Color(ColorU::BLACK));
+        assert_eq!(ColorOrSystem::from(ColorU::RED), ColorOrSystem::color(ColorU::RED));
+    }
+
+    #[test]
+    fn system_color_ref_resolve_falls_back_when_unset() {
+        use crate::system::SystemColors;
+
+        let empty = SystemColors::default();
+        let all = [
+            SystemColorRef::Text,
+            SystemColorRef::Background,
+            SystemColorRef::Accent,
+            SystemColorRef::AccentText,
+            SystemColorRef::ButtonFace,
+            SystemColorRef::ButtonText,
+            SystemColorRef::WindowBackground,
+            SystemColorRef::SelectionBackground,
+            SystemColorRef::SelectionText,
+        ];
+        for variant in all {
+            assert_eq!(variant.resolve(&empty, ColorU::RED), ColorU::RED, "{variant:?}");
+            assert_eq!(
+                ColorOrSystem::System(variant).resolve(&empty, ColorU::RED),
+                ColorU::RED
+            );
+        }
+        // A concrete color ignores both the SystemColors and the fallback.
+        assert_eq!(
+            ColorOrSystem::Color(ColorU::BLUE).resolve(&empty, ColorU::RED),
+            ColorU::BLUE
+        );
+    }
+
+    // =====================================================================
+    // palettes: shade is a `usize`, so every value must land somewhere
+    // =====================================================================
+
+    #[test]
+    fn palette_shades_are_total_over_usize_and_always_opaque() {
+        type Palette = fn(usize) -> ColorU;
+        const PALETTES: [Palette; 12] = [
+            ColorU::strawberry,
+            ColorU::palette_orange,
+            ColorU::banana,
+            ColorU::palette_lime,
+            ColorU::mint,
+            ColorU::blueberry,
+            ColorU::grape,
+            ColorU::bubblegum,
+            ColorU::cocoa,
+            ColorU::palette_silver,
+            ColorU::slate,
+            ColorU::dark,
+        ];
+        for p in PALETTES {
+            for shade in [0, 1, 100, 200, 201, 300, 400, 401, 500, 600, 601, 700, 800, 801, 900, 1000, usize::MAX] {
+                assert_eq!(p(shade).a, 255, "shade {shade} was not opaque");
+            }
+            // Every out-of-band shade collapses into the 900 bucket.
+            assert_eq!(p(usize::MAX), p(900));
+            assert_eq!(p(801), p(900));
+            // The documented buckets are distinct at their boundaries.
+            assert_eq!(p(0), p(200));
+            assert_ne!(p(200), p(201));
+            assert_ne!(p(400), p(401));
+            assert_ne!(p(600), p(601));
+            assert_ne!(p(800), p(801));
+        }
+    }
+
+    #[test]
+    fn palette_known_values() {
+        assert_eq!(ColorU::strawberry(100), ColorU::rgb(0xff, 0x8c, 0x82));
+        assert_eq!(ColorU::strawberry(900), ColorU::rgb(0x7a, 0x00, 0x00));
+        assert_eq!(ColorU::dark(900), ColorU::BLACK);
+        assert_eq!(ColorU::dark(usize::MAX), ColorU::BLACK);
+    }
+
+    // =====================================================================
+    // named / themed constructors: every one must be a valid opaque color
+    // =====================================================================
+
+    #[test]
+    fn named_constructors_match_their_constants() {
+        assert_eq!(ColorU::red(), ColorU::RED);
+        assert_eq!(ColorU::green(), ColorU::GREEN);
+        assert_eq!(ColorU::blue(), ColorU::BLUE);
+        assert_eq!(ColorU::white(), ColorU::WHITE);
+        assert_eq!(ColorU::black(), ColorU::BLACK);
+        assert_eq!(ColorU::transparent(), ColorU::TRANSPARENT);
+        assert_eq!(ColorU::yellow(), ColorU::YELLOW);
+        assert_eq!(ColorU::cyan(), ColorU::CYAN);
+        assert_eq!(ColorU::magenta(), ColorU::MAGENTA);
+        assert_eq!(ColorU::orange(), ColorU::ORANGE);
+        assert_eq!(ColorU::pink(), ColorU::PINK);
+        assert_eq!(ColorU::purple(), ColorU::PURPLE);
+        assert_eq!(ColorU::brown(), ColorU::BROWN);
+        assert_eq!(ColorU::gray(), ColorU::GRAY);
+        assert_eq!(ColorU::light_gray(), ColorU::LIGHT_GRAY);
+        assert_eq!(ColorU::dark_gray(), ColorU::DARK_GRAY);
+        assert_eq!(ColorU::navy(), ColorU::NAVY);
+        assert_eq!(ColorU::teal(), ColorU::TEAL);
+        assert_eq!(ColorU::olive(), ColorU::OLIVE);
+        assert_eq!(ColorU::maroon(), ColorU::MAROON);
+        assert_eq!(ColorU::lime(), ColorU::LIME);
+        assert_eq!(ColorU::aqua(), ColorU::AQUA);
+        assert_eq!(ColorU::silver(), ColorU::SILVER);
+        assert_eq!(ColorU::fuchsia(), ColorU::FUCHSIA);
+        assert_eq!(ColorU::indigo(), ColorU::INDIGO);
+        assert_eq!(ColorU::gold(), ColorU::GOLD);
+        assert_eq!(ColorU::coral(), ColorU::CORAL);
+        assert_eq!(ColorU::salmon(), ColorU::SALMON);
+        assert_eq!(ColorU::turquoise(), ColorU::TURQUOISE);
+        assert_eq!(ColorU::violet(), ColorU::VIOLET);
+        assert_eq!(ColorU::crimson(), ColorU::CRIMSON);
+        assert_eq!(ColorU::chocolate(), ColorU::CHOCOLATE);
+        assert_eq!(ColorU::sky_blue(), ColorU::SKY_BLUE);
+        assert_eq!(ColorU::forest_green(), ColorU::FOREST_GREEN);
+        assert_eq!(ColorU::sea_green(), ColorU::SEA_GREEN);
+        assert_eq!(ColorU::slate_gray(), ColorU::SLATE_GRAY);
+        assert_eq!(ColorU::midnight_blue(), ColorU::MIDNIGHT_BLUE);
+        assert_eq!(ColorU::dark_red(), ColorU::DARK_RED);
+        assert_eq!(ColorU::dark_green(), ColorU::DARK_GREEN);
+        assert_eq!(ColorU::dark_blue(), ColorU::DARK_BLUE);
+        assert_eq!(ColorU::light_blue(), ColorU::LIGHT_BLUE);
+        assert_eq!(ColorU::light_green(), ColorU::LIGHT_GREEN);
+        assert_eq!(ColorU::light_yellow(), ColorU::LIGHT_YELLOW);
+        assert_eq!(ColorU::light_pink(), ColorU::LIGHT_PINK);
+    }
+
+    #[test]
+    fn every_named_constructor_except_transparent_is_opaque() {
+        type Ctor = fn() -> ColorU;
+        const CTORS: [Ctor; 43] = [
+            ColorU::red, ColorU::green, ColorU::blue, ColorU::white, ColorU::black,
+            ColorU::yellow, ColorU::cyan, ColorU::magenta, ColorU::orange, ColorU::pink,
+            ColorU::purple, ColorU::brown, ColorU::gray, ColorU::light_gray, ColorU::dark_gray,
+            ColorU::navy, ColorU::teal, ColorU::olive, ColorU::maroon, ColorU::lime,
+            ColorU::aqua, ColorU::silver, ColorU::fuchsia, ColorU::indigo, ColorU::gold,
+            ColorU::coral, ColorU::salmon, ColorU::turquoise, ColorU::violet, ColorU::crimson,
+            ColorU::chocolate, ColorU::sky_blue, ColorU::forest_green, ColorU::sea_green,
+            ColorU::slate_gray, ColorU::midnight_blue, ColorU::dark_red, ColorU::dark_green,
+            ColorU::dark_blue, ColorU::light_blue, ColorU::light_green, ColorU::light_yellow,
+            ColorU::light_pink,
+        ];
+        for ctor in CTORS {
+            let c = ctor();
+            assert_eq!(c.a, ColorU::ALPHA_OPAQUE);
+            assert!(!c.has_alpha());
+        }
+        // The one exception.
+        assert_eq!(ColorU::transparent().a, ColorU::ALPHA_TRANSPARENT);
+        assert!(ColorU::transparent().has_alpha());
+    }
+
+    #[test]
+    fn apple_and_bootstrap_palettes_are_opaque_and_distinct() {
+        type Ctor = fn() -> ColorU;
+        const APPLE: [Ctor; 26] = [
+            ColorU::apple_red, ColorU::apple_red_dark,
+            ColorU::apple_orange, ColorU::apple_orange_dark,
+            ColorU::apple_yellow, ColorU::apple_yellow_dark,
+            ColorU::apple_green, ColorU::apple_green_dark,
+            ColorU::apple_mint, ColorU::apple_mint_dark,
+            ColorU::apple_teal, ColorU::apple_teal_dark,
+            ColorU::apple_cyan, ColorU::apple_cyan_dark,
+            ColorU::apple_blue, ColorU::apple_blue_dark,
+            ColorU::apple_indigo, ColorU::apple_indigo_dark,
+            ColorU::apple_purple, ColorU::apple_purple_dark,
+            ColorU::apple_pink, ColorU::apple_pink_dark,
+            ColorU::apple_brown, ColorU::apple_brown_dark,
+            ColorU::apple_gray, ColorU::apple_gray_dark,
+        ];
+        const BOOTSTRAP: [Ctor; 23] = [
+            ColorU::bootstrap_primary, ColorU::bootstrap_primary_hover, ColorU::bootstrap_primary_active,
+            ColorU::bootstrap_secondary, ColorU::bootstrap_secondary_hover, ColorU::bootstrap_secondary_active,
+            ColorU::bootstrap_success, ColorU::bootstrap_success_hover, ColorU::bootstrap_success_active,
+            ColorU::bootstrap_danger, ColorU::bootstrap_danger_hover, ColorU::bootstrap_danger_active,
+            ColorU::bootstrap_warning, ColorU::bootstrap_warning_hover, ColorU::bootstrap_warning_active,
+            ColorU::bootstrap_info, ColorU::bootstrap_info_hover, ColorU::bootstrap_info_active,
+            ColorU::bootstrap_light, ColorU::bootstrap_light_hover, ColorU::bootstrap_light_active,
+            ColorU::bootstrap_dark, ColorU::bootstrap_dark_hover,
+        ];
+        for ctor in APPLE.iter().chain(BOOTSTRAP.iter()) {
+            assert_eq!(ctor().a, 255);
+        }
+        // Each light/dark pair must actually differ.
+        for pair in APPLE.chunks_exact(2) {
+            assert_ne!(pair[0](), pair[1](), "an apple light/dark pair is identical");
+        }
+        // bootstrap_link duplicates bootstrap_primary by design; check the hover shifts.
+        assert_eq!(ColorU::bootstrap_link(), ColorU::bootstrap_primary());
+        assert_ne!(ColorU::bootstrap_link_hover(), ColorU::bootstrap_link());
+        assert_ne!(ColorU::bootstrap_dark_active(), ColorU::bootstrap_dark());
+    }
+
+    // =====================================================================
+    // parser: parse_css_color — malformed / huge / boundary / unicode
+    // =====================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_valid_minimal_positive_controls() {
+        assert_eq!(parse_css_color("red").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("#f00").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("#ff0000").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("rgb(255,0,0)").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("hsl(0,100%,50%)").unwrap(), ColorU::RED);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_empty_and_whitespace_only_are_errors() {
+        assert!(parse_css_color("").is_err());
+        assert!(parse_css_color("   ").is_err());
+        assert!(parse_css_color("\t\n\r ").is_err());
+        assert!(parse_css_color("#").is_err());
+        assert_eq!(parse_css_color(""), Err(CssColorParseError::EmptyInput));
+        assert_eq!(parse_css_color("  \t "), Err(CssColorParseError::EmptyInput));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_garbage_is_rejected_without_panicking() {
+        for garbage in [
+            "!@#$%^&*()", "\0\0\0", "rgb", "rgb(", "rgb)", ")(", "()", "#-1", "#+1",
+            "notacolor", "0", "-0", "1e10", "NaN", "inf", "-inf", ";", ",,,", "\\",
+            "rgb(,,)", "hsl(,,)", "rgba(,,,)", "#\u{0}\u{0}\u{0}",
+        ] {
+            assert!(
+                parse_css_color(garbage).is_err(),
+                "{garbage:?} was unexpectedly accepted"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_extremely_long_input_does_not_hang_or_panic() {
+        // Hex path: rejected on the length check alone.
+        let long_hex = format!("#{}", "f".repeat(1_000_000));
+        assert!(parse_css_color(&long_hex).is_err());
+        // Named-color path: lowercases 100k bytes, then fails the match.
+        let long_name = "a".repeat(100_000);
+        assert!(parse_css_color(&long_name).is_err());
+        // Function path with a huge component list.
+        let long_rgb = format!("rgb({})", "1,".repeat(50_000));
+        assert!(parse_css_color(&long_rgb).is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_deeply_nested_input_does_not_stack_overflow() {
+        // The parser is iterative, not recursive — these must simply be errors.
+        let nested_parens = "(".repeat(10_000);
+        assert!(parse_css_color(&nested_parens).is_err());
+        let unclosed = "rgb(".repeat(10_000);
+        assert!(parse_css_color(&unclosed).is_err());
+        let balanced = format!("{}{}", "rgb(".repeat(5_000), ")".repeat(5_000));
+        assert!(parse_css_color(&balanced).is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_unicode_input_does_not_panic() {
+        // The 3/4-byte hex branches read raw bytes, so a multi-byte char must
+        // fail cleanly rather than slice through a char boundary.
+        for input in [
+            "\u{1F600}",        // emoji
+            "#\u{1F600}",       // 4 bytes after '#' -> hits the len==4 branch
+            "#\u{e9}1",         // 3 bytes after '#' -> hits the len==3 branch
+            "#\u{e9}\u{e9}\u{e9}", // 6 bytes -> hits the from_str_radix branch
+            "r\u{e9}d",
+            "\u{0301}\u{0301}",  // bare combining marks
+            "\u{4e2d}\u{6587}",  // CJK
+            "rgb(\u{1F600},0,0)",
+            "rgba(0,0,0,\u{1F600})",
+            "hsl(\u{1F600},100%,50%)",
+        ] {
+            assert!(
+                parse_css_color(input).is_err(),
+                "{input:?} was unexpectedly accepted"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_boundary_numbers() {
+        // rgb components are u8: 0 and 255 in, 256 and -1 out.
+        assert_eq!(parse_css_color("rgb(0,0,0)").unwrap(), ColorU::BLACK);
+        assert_eq!(parse_css_color("rgb(255,255,255)").unwrap(), ColorU::WHITE);
+        assert!(parse_css_color("rgb(256,0,0)").is_err());
+        assert!(parse_css_color("rgb(-1,0,0)").is_err());
+        assert!(parse_css_color("rgb(9223372036854775807,0,0)").is_err());
+        assert!(parse_css_color("rgb(340282350000000000000000000000000000000,0,0)").is_err());
+        // Alpha is a float clamped to 0.0..=1.0 (inclusive), out-of-range rejected.
+        assert_eq!(parse_css_color("rgba(0,0,0,0)").unwrap().a, 0);
+        assert_eq!(parse_css_color("rgba(0,0,0,1)").unwrap().a, 255);
+        assert_eq!(parse_css_color("rgba(0,0,0,1.0)").unwrap().a, 255);
+        assert_eq!(parse_css_color("rgba(0,0,0,-0)").unwrap().a, 0);
+        assert!(parse_css_color("rgba(0,0,0,1.0001)").is_err());
+        assert!(parse_css_color("rgba(0,0,0,-0.0001)").is_err());
+        assert!(parse_css_color("rgba(0,0,0,2)").is_err());
+        // NaN / inf are valid f32 literals to FromStr, but must fail the range check.
+        assert!(parse_css_color("rgba(0,0,0,NaN)").is_err());
+        assert!(parse_css_color("rgba(0,0,0,nan)").is_err());
+        assert!(parse_css_color("rgba(0,0,0,inf)").is_err());
+        assert!(parse_css_color("rgba(0,0,0,-inf)").is_err());
+        assert!(parse_css_color("rgba(0,0,0,infinity)").is_err());
+        // Subnormals round down to a fully transparent alpha rather than panicking.
+        assert_eq!(parse_css_color("rgba(0,0,0,1e-45)").unwrap().a, 0);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_alpha_rounds_to_nearest() {
+        // `(a * 255.0).round()` — half rounds away from zero.
+        assert_eq!(parse_css_color("rgba(0,0,0,0.5)").unwrap().a, 128);
+        assert_eq!(parse_css_color("rgba(0,0,0,0.0)").unwrap().a, 0);
+        assert_eq!(parse_css_color("rgba(0,0,0,0.999)").unwrap().a, 255);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_arity_errors() {
+        assert!(parse_css_color("rgb(255,0)").is_err());       // missing blue
+        assert!(parse_css_color("rgb(255)").is_err());         // missing green
+        assert!(parse_css_color("rgb()").is_err());            // missing everything
+        assert!(parse_css_color("rgb(0,0,0,0)").is_err());     // extra arg to rgb()
+        assert!(parse_css_color("rgba(0,0,0)").is_err());      // missing alpha
+        assert!(parse_css_color("rgba(0,0,0,1,1)").is_err());  // extra arg to rgba()
+        assert!(parse_css_color("hsl(0,100%)").is_err());      // missing lightness
+        assert!(parse_css_color("hsla(0,100%,50%)").is_err()); // missing alpha
+        // This implementation requires commas; space-separated CSS4 syntax is not supported.
+        assert!(parse_css_color("rgb(255 0 0)").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_leading_and_trailing_whitespace_is_trimmed() {
+        assert_eq!(parse_css_color("  red  ").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("\t#f00\n").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("  rgb( 255 , 0 , 0 )  ").unwrap(), ColorU::RED);
+        // Trailing junk after a bare keyword IS rejected.
+        assert!(parse_css_color("red;garbage").is_err());
+        assert!(parse_css_color("red red").is_err());
+        assert!(parse_css_color("#f00;").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_accepts_trailing_junk_after_a_function_call() {
+        // KNOWN DEVIATION (pinned, not endorsed): parse_parentheses slices between
+        // the FIRST '(' and the LAST ')', so anything after the closing paren is
+        // silently dropped instead of being rejected as an error. See report.
+        assert_eq!(parse_css_color("rgb(1,2,3)garbage").unwrap(), ColorU::rgb(1, 2, 3));
+        assert_eq!(parse_css_color("rgb(1,2,3);").unwrap(), ColorU::rgb(1, 2, 3));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_hex_is_case_insensitive_and_length_checked() {
+        assert_eq!(parse_css_color("#ABCDEF").unwrap(), parse_css_color("#abcdef").unwrap());
+        assert_eq!(parse_css_color("#FFF").unwrap(), ColorU::WHITE);
+        // 3/4-digit shorthand expands by *17 (f -> 0xff).
+        assert_eq!(parse_css_color("#f00f").unwrap(), ColorU::rgba(255, 0, 0, 255));
+        assert_eq!(parse_css_color("#0008").unwrap(), ColorU::rgba(0, 0, 0, 136));
+        // Only lengths 3, 4, 6 and 8 are legal.
+        for bad_len in ["#", "#f", "#ff", "#fffff", "#fffffff", "#fffffffff"] {
+            assert!(parse_css_color(bad_len).is_err(), "{bad_len} accepted");
+        }
+        // Non-hex digits.
+        assert!(parse_css_color("#ggg").is_err());
+        assert!(parse_css_color("#gggggg").is_err());
+        assert!(parse_css_color("#-12345").is_err());
+        assert!(parse_css_color("#+f0000").is_err());
+        assert!(parse_css_color("#ff ff").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_builtin_names_are_case_insensitive() {
+        assert_eq!(parse_css_color("RED").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("ReD").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("TRANSPARENT").unwrap(), ColorU::TRANSPARENT);
+        assert_eq!(parse_css_color("transparent").unwrap().a, 0);
+        // Near-miss names are rejected, not fuzzy-matched.
+        for near_miss in ["redd", "re", "r ed", "red1", "gray2", "greyish", "blackk"] {
+            assert!(parse_css_color(near_miss).is_err(), "{near_miss} accepted");
+        }
+        // ...but surrounding whitespace really is just trimmed.
+        assert_eq!(parse_css_color(" grey ").unwrap(), ColorU::GRAY);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_hsl_boundaries_and_hue_wraparound() {
+        assert_eq!(parse_css_color("hsl(0,100%,50%)").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("hsl(120,100%,50%)").unwrap(), ColorU::GREEN);
+        assert_eq!(parse_css_color("hsl(240,100%,50%)").unwrap(), ColorU::BLUE);
+        // A full extra turn lands back on red.
+        assert_eq!(parse_css_color("hsl(720,100%,50%)").unwrap(), ColorU::RED);
+        // Achromatic ends.
+        assert_eq!(parse_css_color("hsl(0,0%,0%)").unwrap(), ColorU::BLACK);
+        assert_eq!(parse_css_color("hsl(0,0%,100%)").unwrap(), ColorU::WHITE);
+        // Huge but finite hues must not panic.
+        for hue in ["1000000", "99999999", "-360"] {
+            let s = format!("hsl({hue},100%,50%)");
+            let _ = parse_css_color(&s).map(|c| assert_eq!(c.a, 255));
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_css_color_unitless_hsl_components_are_scaled_wrong() {
+        // KNOWN DEVIATION (pinned, not endorsed): `parse_percentage_value` turns a
+        // unitless value into `value * 100` percent, and `percent_from_str` then
+        // re-normalizes it, so a unitless component is a 0..1 FRACTION rather than
+        // the CSS Color 4 "number of percent". `hsl(0 100 50)` — plain red in every
+        // browser — comes out CYAN here. Pinned so a fix shows up as a diff.
+        assert_eq!(parse_css_color("hsl(0,100,50)").unwrap(), ColorU::rgb(0, 255, 255));
+        // The fraction spelling is what currently means "100% / 50%".
+        assert_eq!(parse_css_color("hsl(0,1,0.5)").unwrap(), ColorU::RED);
+        // The mixed spelling that the existing suite smoke-tests happens to land on
+        // red by coincidence (the out-of-range saturation clips back into gamut).
+        assert_eq!(parse_css_color("hsl(0,100,50%)").unwrap(), ColorU::RED);
+    }
+
+    // =====================================================================
+    // parser: private helpers
+    // =====================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_no_hash_only_accepts_3_4_6_and_8_bytes() {
+        assert_eq!(parse_color_no_hash("fff").unwrap(), ColorU::WHITE);
+        assert_eq!(parse_color_no_hash("000f").unwrap(), ColorU::BLACK);
+        assert_eq!(parse_color_no_hash("ff0000").unwrap(), ColorU::RED);
+        assert_eq!(parse_color_no_hash("ff000080").unwrap(), ColorU::rgba(255, 0, 0, 128));
+        for bad in ["", "f", "ff", "fffff", "fffffff", "fffffffff", "   ", "zzz"] {
+            assert!(parse_color_no_hash(bad).is_err(), "{bad:?} accepted");
+        }
+        // `input.len()` is a BYTE length, so a 3-byte multi-byte string reaches
+        // the byte-reading branch and must error, not slice through a char.
+        assert!(parse_color_no_hash("\u{e9}1").is_err());
+        assert!(parse_color_no_hash("\u{1F600}").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_rgb_alpha_flag_controls_arity() {
+        assert_eq!(parse_color_rgb("1,2,3", false).unwrap(), ColorU::rgb(1, 2, 3));
+        assert_eq!(parse_color_rgb("1,2,3,1", true).unwrap(), ColorU::rgba(1, 2, 3, 255));
+        // parse_alpha=true but no alpha given.
+        assert!(parse_color_rgb("1,2,3", true).is_err());
+        // parse_alpha=false but an alpha given.
+        assert!(parse_color_rgb("1,2,3,1", false).is_err());
+        // Empty / whitespace components.
+        assert!(parse_color_rgb("", false).is_err());
+        assert!(parse_color_rgb("   ", false).is_err());
+        assert!(parse_color_rgb(",,", false).is_err());
+        assert!(parse_color_rgb("1,,3", false).is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_rgb_components_boundaries() {
+        let mut ok = ["0", "128", "255"].into_iter();
+        assert_eq!(
+            parse_color_rgb_components(&mut ok).unwrap(),
+            ColorU::rgb(0, 128, 255)
+        );
+        // An empty iterator is a missing-component error, not a panic.
+        let mut empty = core::iter::empty::<&str>();
+        assert!(parse_color_rgb_components(&mut empty).is_err());
+        // Too few components.
+        let mut short = ["1", "2"].into_iter();
+        assert!(parse_color_rgb_components(&mut short).is_err());
+        // Overflow / underflow / garbage.
+        for bad in [
+            ["256", "0", "0"],
+            ["-1", "0", "0"],
+            ["0", "0", "1e3"],
+            ["0.5", "0", "0"],
+            ["abc", "0", "0"],
+            ["", "0", "0"],
+            ["+0", "0", "999999999999999999999"],
+        ] {
+            let mut it = bad.into_iter();
+            assert!(parse_color_rgb_components(&mut it).is_err(), "{bad:?} accepted");
+        }
+        // Extra components past the third are simply not consumed here.
+        let mut extra = ["1", "2", "3", "4", "5"].into_iter();
+        assert_eq!(
+            parse_color_rgb_components(&mut extra).unwrap(),
+            ColorU::rgb(1, 2, 3)
+        );
+        assert_eq!(extra.next(), Some("4"));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_hsl_components_boundaries() {
+        let mut red = ["0", "100%", "50%"].into_iter();
+        assert_eq!(parse_color_hsl_components(&mut red).unwrap(), ColorU::RED);
+        // KNOWN DEVIATION (pinned, not endorsed): a unitless component is read as
+        // a 0.0..=1.0 FRACTION, not as a number of percent, so CSS Color 4's
+        // `hsl(0 100 50)` saturation/lightness are scaled 100x too far. Only the
+        // fraction spelling currently round-trips to red. See report.
+        let mut fractions = ["0", "1", "0.5"].into_iter();
+        assert_eq!(parse_color_hsl_components(&mut fractions).unwrap(), ColorU::RED);
+        let mut unitless = ["0", "100", "50"].into_iter();
+        assert_eq!(
+            parse_color_hsl_components(&mut unitless).unwrap(),
+            ColorU::rgb(0, 255, 255),
+            "unitless hsl(0 100 50) should be red, not cyan"
+        );
+        // Missing components error rather than panic.
+        let mut empty = core::iter::empty::<&str>();
+        assert!(parse_color_hsl_components(&mut empty).is_err());
+        let mut short = ["0", "100%"].into_iter();
+        assert!(parse_color_hsl_components(&mut short).is_err());
+        for bad in [
+            ["", "100%", "50%"],
+            ["notanangle", "100%", "50%"],
+            ["to left", "100%", "50%"], // Direction::FromTo is unsupported for hue
+            ["0", "", "50%"],
+            ["0", "100%", ""],
+        ] {
+            let mut it = bad.into_iter();
+            assert!(parse_color_hsl_components(&mut it).is_err(), "{bad:?} accepted");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_alpha_component_range_and_rounding() {
+        let cases: [(&str, u8); 5] = [("0", 0), ("0.0", 0), ("0.5", 128), ("1", 255), ("1.0", 255)];
+        for (input, expected) in cases {
+            let mut it = [input].into_iter();
+            assert_eq!(
+                parse_alpha_component(&mut it).unwrap(),
+                expected,
+                "alpha {input}"
+            );
+        }
+        // Out of range / unparseable / NaN / inf all produce Err, never a panic.
+        for bad in ["", " ", "-0.0001", "1.0001", "2", "-1", "NaN", "inf", "-inf", "abc", "0,5", "50%"] {
+            let mut it = [bad].into_iter();
+            assert!(parse_alpha_component(&mut it).is_err(), "{bad:?} accepted");
+        }
+        // Missing entirely.
+        let mut empty = core::iter::empty::<&str>();
+        assert!(parse_alpha_component(&mut empty).is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_builtin_rejects_junk_without_panicking() {
+        assert_eq!(parse_color_builtin("red").unwrap(), ColorU::RED);
+        assert_eq!(parse_color_builtin("REBECCAPURPLE").unwrap(), ColorU::rgb(102, 51, 153));
+        assert_eq!(parse_color_builtin("transparent").unwrap(), ColorU::TRANSPARENT);
+        // Not trimmed at this level — the caller is responsible for that.
+        assert!(parse_color_builtin(" red").is_err());
+        assert!(parse_color_builtin("").is_err());
+        // to_lowercase() on exotic input must not panic (dotted capital I expands).
+        assert!(parse_color_builtin("\u{130}").is_err());
+        assert!(parse_color_builtin("\u{1F600}").is_err());
+        assert!(parse_color_builtin(&"z".repeat(100_000)).is_err());
+    }
+
+    // =====================================================================
+    // parser: parse_color_or_system
+    // =====================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_or_system_rejects_bad_system_names() {
+        for bad in [
+            "system:",
+            "system:invalid",
+            "system: ",
+            "system::text",
+            "system:text-",
+            "system:TEXT",      // the variant table is case-SENSITIVE
+            "SYSTEM:text",      // the prefix is case-SENSITIVE
+            "system:text;junk",
+            "system:\u{1F600}",
+        ] {
+            assert!(parse_color_or_system(bad).is_err(), "{bad:?} accepted");
+        }
+        // Empty / whitespace.
+        assert!(parse_color_or_system("").is_err());
+        assert!(parse_color_or_system("   ").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_or_system_trims_and_falls_through_to_colors() {
+        assert_eq!(
+            parse_color_or_system("  system:accent  ").unwrap(),
+            ColorOrSystem::System(SystemColorRef::Accent)
+        );
+        // The name after the prefix is trimmed too.
+        assert_eq!(
+            parse_color_or_system("system: accent ").unwrap(),
+            ColorOrSystem::System(SystemColorRef::Accent)
+        );
+        // Non-system input is delegated to parse_css_color.
+        assert_eq!(
+            parse_color_or_system("  #f00 ").unwrap(),
+            ColorOrSystem::Color(ColorU::RED)
+        );
+        assert_eq!(
+            parse_color_or_system("rgba(0,0,0,0)").unwrap(),
+            ColorOrSystem::Color(ColorU::TRANSPARENT)
+        );
+        assert!(parse_color_or_system("definitely-not-a-color").is_err());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_color_or_system_long_and_nested_input_does_not_hang() {
+        let long = format!("system:{}", "a".repeat(100_000));
+        assert!(parse_color_or_system(&long).is_err());
+        let nested = "rgb(".repeat(10_000);
+        assert!(parse_color_or_system(&nested).is_err());
+    }
+
+    // =====================================================================
+    // error types: to_contained / to_shared round-trip
+    // =====================================================================
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn css_color_parse_error_round_trips_through_owned() {
+        // One representative input per reachable error variant.
+        let errors = [
+            parse_css_color("notacolor").unwrap_err(),        // InvalidColor
+            parse_css_color("foo(1,2)").unwrap_err(),          // InvalidFunctionName
+            parse_css_color("#zzz").unwrap_err(),              // InvalidColorComponent
+            parse_css_color("rgb(300,0,0)").unwrap_err(),      // IntValueParseErr
+            parse_css_color("rgba(0,0,0,x)").unwrap_err(),     // FloatValueParseErr
+            parse_css_color("rgba(0,0,0,2)").unwrap_err(),     // FloatValueOutOfRange
+            parse_css_color("rgb(1,2)").unwrap_err(),          // MissingColorComponent
+            parse_css_color("rgb(1,2,3,4)").unwrap_err(),      // ExtraArguments
+            parse_css_color("rgb(1,2,3").unwrap_err(),         // UnclosedColor
+            parse_css_color("").unwrap_err(),                  // EmptyInput
+            parse_css_color("hsl(x,1%,1%)").unwrap_err(),      // DirectionParseError
+            parse_css_color("hsl(0,x%,1%)").unwrap_err(),      // InvalidPercentage
+        ];
+        for e in &errors {
+            let owned = e.to_contained();
+            let shared = owned.to_shared();
+            // Borrowed -> owned -> borrowed -> owned must be a fixed point.
+            assert_eq!(shared.to_contained(), owned, "error did not round-trip: {e}");
+            // Debug/Display must both produce something non-empty.
+            assert!(!format!("{e}").is_empty());
+            assert!(!format!("{e:?}").is_empty());
+            assert!(!format!("{owned:?}").is_empty());
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn css_color_parse_error_carries_the_offending_input() {
+        assert_eq!(
+            parse_css_color("notacolor"),
+            Err(CssColorParseError::InvalidColor("notacolor"))
+        );
+        assert_eq!(
+            parse_css_color("rgb(1,2,3,4)"),
+            Err(CssColorParseError::ExtraArguments("4"))
+        );
+        assert_eq!(
+            parse_css_color("rgb(1,2)"),
+            Err(CssColorParseError::MissingColorComponent(
+                CssColorComponent::Blue
+            ))
+        );
+        assert_eq!(
+            parse_css_color("rgba(1,2,3)"),
+            Err(CssColorParseError::MissingColorComponent(
+                CssColorComponent::Alpha
+            ))
+        );
+        assert_eq!(
+            parse_css_color("rgba(0,0,0,2)"),
+            Err(CssColorParseError::FloatValueOutOfRange(2.0))
+        );
+        // The byte, not the char, is reported for a bad hex digit.
+        assert_eq!(
+            parse_css_color("#zzz"),
+            Err(CssColorParseError::InvalidColorComponent(b'z'))
+        );
+    }
+}

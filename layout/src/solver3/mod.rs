@@ -1159,3 +1159,1171 @@ impl From<crate::font_traits::LayoutError> for LayoutError {
 impl std::error::Error for LayoutError {}
 
 pub type Result<T> = std::result::Result<T, LayoutError>;
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use azul_core::dom::{Dom, FormattingContext};
+
+    use super::*;
+    use crate::solver3::{
+        geometry::{EdgeSizes, PackedBoxProps, ResolvedBoxProps},
+        layout_tree::{LayoutNodeCold, LayoutNodeHot, LayoutNodeWarm},
+    };
+
+    // ==================================================================
+    // Fixtures
+    // ==================================================================
+
+    fn pos(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition::new(x, y)
+    }
+
+    fn size(w: f32, h: f32) -> LogicalSize {
+        LogicalSize::new(w, h)
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: pos(x, y),
+            size: size(w, h),
+        }
+    }
+
+    fn edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
+        EdgeSizes {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+
+    /// `ResolvedBoxProps` with the given padding + border and no margin.
+    fn bp(padding: EdgeSizes, border: EdgeSizes) -> ResolvedBoxProps {
+        ResolvedBoxProps {
+            margin: EdgeSizes::default(),
+            padding,
+            border,
+            ..ResolvedBoxProps::default()
+        }
+    }
+
+    fn hot(
+        parent: Option<usize>,
+        dom_node_id: Option<NodeId>,
+        used_size: Option<LogicalSize>,
+        props: &ResolvedBoxProps,
+    ) -> LayoutNodeHot {
+        LayoutNodeHot {
+            box_props: PackedBoxProps::pack(props),
+            dom_node_id,
+            used_size,
+            formatting_context: FormattingContext::default(),
+            parent,
+        }
+    }
+
+    /// A `LayoutTree` carrying only what `get_containing_block_for_node` reads:
+    /// hot nodes (parent link, box props, `used_size`, `dom_node_id`).
+    fn tree_of(nodes: Vec<LayoutNodeHot>) -> LayoutTree {
+        let n = nodes.len();
+        LayoutTree {
+            nodes,
+            warm: vec![LayoutNodeWarm::default(); n],
+            cold: vec![LayoutNodeCold::default(); n],
+            root: 0,
+            dom_to_layout: BTreeMap::new(),
+            children_arena: Vec::new(),
+            children_offsets: vec![(0, 0); n],
+            subtree_needs_intrinsic: vec![false; n],
+        }
+    }
+
+    /// Box props survive a lossy i16×10 pack/unpack, so geometry derived from
+    /// them is compared with a tolerance well under a tenth of a pixel.
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-3
+    }
+
+    /// `body` — one real DOM node, so `NodeId::ZERO` is always in range.
+    fn body_dom() -> StyledDom {
+        let mut dom = Dom::create_body();
+        let (css, _warnings) = azul_css::parser2::new_from_str("");
+        StyledDom::create(&mut dom, css)
+    }
+
+    // ==================================================================
+    // POSITION_UNSET — the sentinel the three pos_* helpers are built on
+    // ==================================================================
+
+    #[test]
+    fn position_unset_sets_both_components_to_f32_min() {
+        // `pos_get`/`pos_contains` only test `x`; that shortcut is only sound
+        // while the sentinel writes BOTH components. Pin the invariant here.
+        assert_eq!(POSITION_UNSET.x, f32::MIN);
+        assert_eq!(POSITION_UNSET.y, f32::MIN);
+    }
+
+    // ==================================================================
+    // pos_get / pos_contains — bounds + sentinel (numeric)
+    // ==================================================================
+
+    #[test]
+    fn pos_get_on_an_empty_vec_is_none_for_every_index() {
+        let positions: PositionVec = Vec::new();
+        for idx in [0usize, 1, 7, 1_000, usize::MAX / 2, usize::MAX] {
+            assert!(pos_get(&positions, idx).is_none(), "idx {idx}");
+            assert!(!pos_contains(&positions, idx), "idx {idx}");
+        }
+    }
+
+    #[test]
+    fn pos_get_past_the_end_is_none_and_never_panics() {
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 3, pos(1.0, 2.0));
+        assert_eq!(positions.len(), 4);
+
+        for idx in [4usize, 5, 100, usize::MAX] {
+            assert!(pos_get(&positions, idx).is_none(), "idx {idx}");
+            assert!(!pos_contains(&positions, idx), "idx {idx}");
+        }
+    }
+
+    #[test]
+    fn pos_get_at_zero_round_trips() {
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+
+        let got = pos_get(&positions, 0).expect("index 0 was set");
+        assert_eq!(got.x, 0.0);
+        assert_eq!(got.y, 0.0);
+        assert!(pos_contains(&positions, 0));
+    }
+
+    #[test]
+    fn an_explicitly_written_sentinel_reads_back_as_unset() {
+        // Writing POSITION_UNSET is indistinguishable from never writing at all.
+        // That is by design (it's how `pos_set`'s gap-fill works), but it means a
+        // caller can never store the sentinel as a real position.
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, POSITION_UNSET);
+
+        assert_eq!(positions.len(), 1);
+        assert!(pos_get(&positions, 0).is_none());
+        assert!(!pos_contains(&positions, 0));
+    }
+
+    #[test]
+    fn a_position_whose_x_is_f32_min_reads_back_as_unset_even_with_a_real_y() {
+        // Only `x` is compared against the sentinel, so `y` is silently discarded
+        // whenever `x` happens to land exactly on f32::MIN.
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(f32::MIN, 42.0));
+
+        assert!(pos_get(&positions, 0).is_none());
+        assert!(!pos_contains(&positions, 0));
+        // ...even though the value really is in the vec.
+        assert_eq!(positions[0].y, 42.0);
+    }
+
+    #[test]
+    fn negative_f32_max_is_the_same_bit_pattern_as_the_sentinel() {
+        // f32::MIN == -f32::MAX, so a genuinely computed x of -f32::MAX (e.g. a
+        // wildly out-of-flow element) is swallowed by the sentinel check.
+        assert_eq!(f32::MIN, -f32::MAX);
+
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(-f32::MAX, 0.0));
+        assert!(pos_get(&positions, 0).is_none());
+    }
+
+    #[test]
+    fn a_position_whose_y_is_f32_min_is_still_reported_as_set() {
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, f32::MIN));
+
+        let got = pos_get(&positions, 0).expect("x is not the sentinel, so it is set");
+        assert_eq!(got.x, 0.0);
+        assert_eq!(got.y, f32::MIN);
+        assert!(pos_contains(&positions, 0));
+    }
+
+    #[test]
+    fn nan_positions_are_considered_set_and_survive_the_round_trip() {
+        // NaN != f32::MIN is true, so a NaN position is "set" — it propagates into
+        // layout rather than being filtered out as unset.
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(f32::NAN, f32::NAN));
+
+        let got = pos_get(&positions, 0).expect("NaN passes the sentinel filter");
+        assert!(got.x.is_nan());
+        assert!(got.y.is_nan());
+        assert!(pos_contains(&positions, 0));
+    }
+
+    #[test]
+    fn infinite_and_extreme_positions_round_trip_unchanged() {
+        let cases = [
+            pos(f32::INFINITY, f32::NEG_INFINITY),
+            pos(f32::MAX, -f32::MIN_POSITIVE),
+            pos(-0.0, 0.0),
+            pos(-1e30, 1e30),
+            pos(f32::MIN_POSITIVE, f32::EPSILON),
+        ];
+        for (idx, case) in cases.iter().enumerate() {
+            let mut positions: PositionVec = Vec::new();
+            pos_set(&mut positions, idx, *case);
+
+            let got = pos_get(&positions, idx).expect("non-sentinel x is set");
+            assert_eq!(got.x.to_bits(), case.x.to_bits(), "case {idx} x");
+            assert_eq!(got.y.to_bits(), case.y.to_bits(), "case {idx} y");
+            assert!(pos_contains(&positions, idx), "case {idx}");
+        }
+    }
+
+    #[test]
+    fn pos_contains_always_agrees_with_pos_get() {
+        // The predicate and the getter must never disagree — a divergence would
+        // make `pos_get(..).unwrap()` guarded by `pos_contains` panic.
+        let values = [
+            pos(0.0, 0.0),
+            pos(-0.0, -0.0),
+            POSITION_UNSET,
+            pos(f32::MIN, 1.0),
+            pos(1.0, f32::MIN),
+            pos(f32::NAN, 0.0),
+            pos(f32::INFINITY, f32::INFINITY),
+            pos(f32::NEG_INFINITY, 0.0),
+            pos(f32::MAX, f32::MIN_POSITIVE),
+            pos(-f32::MAX, 0.0),
+        ];
+        let mut positions: PositionVec = Vec::new();
+        for (idx, v) in values.iter().enumerate() {
+            pos_set(&mut positions, idx, *v);
+        }
+        for idx in 0..values.len() + 4 {
+            assert_eq!(
+                pos_contains(&positions, idx),
+                pos_get(&positions, idx).is_some(),
+                "idx {idx} disagrees"
+            );
+        }
+    }
+
+    // ==================================================================
+    // pos_set — growth semantics (numeric)
+    // ==================================================================
+
+    #[test]
+    fn pos_set_beyond_the_end_grows_and_fills_the_gap_with_the_sentinel() {
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 3, pos(10.0, 20.0));
+
+        assert_eq!(positions.len(), 4, "grows to exactly idx + 1");
+        for idx in 0..3 {
+            assert!(pos_get(&positions, idx).is_none(), "gap idx {idx} must be unset");
+            assert!(!pos_contains(&positions, idx), "gap idx {idx}");
+            assert_eq!(positions[idx].x, POSITION_UNSET.x);
+            assert_eq!(positions[idx].y, POSITION_UNSET.y);
+        }
+        let got = pos_get(&positions, 3).expect("idx 3 was set");
+        assert_eq!(got.x, 10.0);
+        assert_eq!(got.y, 20.0);
+    }
+
+    #[test]
+    fn pos_set_inside_the_vec_neither_grows_nor_shrinks_it() {
+        let mut positions: PositionVec = vec![POSITION_UNSET; 5];
+        pos_set(&mut positions, 0, pos(1.0, 1.0));
+        assert_eq!(positions.len(), 5);
+
+        pos_set(&mut positions, 4, pos(2.0, 2.0));
+        assert_eq!(positions.len(), 5);
+        assert!(pos_contains(&positions, 0));
+        assert!(pos_contains(&positions, 4));
+        assert!(!pos_contains(&positions, 2), "untouched slots stay unset");
+    }
+
+    #[test]
+    fn pos_set_overwrites_an_existing_entry_in_place() {
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 1, pos(1.0, 1.0));
+        pos_set(&mut positions, 1, pos(-5.5, -6.5));
+
+        assert_eq!(positions.len(), 2);
+        let got = pos_get(&positions, 1).expect("still set");
+        assert_eq!(got.x, -5.5);
+        assert_eq!(got.y, -6.5);
+    }
+
+    #[test]
+    fn pos_set_can_reset_an_entry_back_to_unset() {
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(3.0, 4.0));
+        assert!(pos_contains(&positions, 0));
+
+        pos_set(&mut positions, 0, POSITION_UNSET);
+        assert!(!pos_contains(&positions, 0));
+        assert!(pos_get(&positions, 0).is_none());
+    }
+
+    #[test]
+    fn repeated_growth_preserves_every_earlier_entry() {
+        let mut positions: PositionVec = Vec::new();
+        for idx in (0..64).rev() {
+            // Descending order: the first call allocates the whole vec, the rest
+            // write inside it — the reverse of the ascending growth path.
+            pos_set(&mut positions, idx, pos(idx as f32, -(idx as f32)));
+        }
+        assert_eq!(positions.len(), 64);
+        for idx in 0..64 {
+            let got = pos_get(&positions, idx).expect("all 64 were written");
+            assert_eq!(got.x, idx as f32);
+            assert_eq!(got.y, -(idx as f32));
+        }
+
+        // A single jump far past the end must keep everything already written.
+        pos_set(&mut positions, 4_095, pos(1.0, 1.0));
+        assert_eq!(positions.len(), 4_096);
+        for idx in 0..64 {
+            assert!(pos_contains(&positions, idx), "idx {idx} lost after regrow");
+        }
+        for idx in 64..4_095 {
+            assert!(!pos_contains(&positions, idx), "new slot {idx} must be unset");
+        }
+        assert!(pos_contains(&positions, 4_095));
+    }
+
+    // ==================================================================
+    // MAX_SCROLLBAR_REFLOW_ITERATIONS — the anti-infinite-loop bound
+    // ==================================================================
+
+    #[test]
+    fn the_scrollbar_reflow_bound_is_a_usable_positive_limit() {
+        // `loop_count > MAX` is the only thing standing between a pathological
+        // scrollbar oscillation and a hung frame. 0 would mean "never lay out".
+        assert!(MAX_SCROLLBAR_REFLOW_ITERATIONS >= 1);
+        assert!(MAX_SCROLLBAR_REFLOW_ITERATIONS <= 64, "an absurd bound = a hung frame");
+    }
+
+    // ==================================================================
+    // get_containing_block_for_node (numeric, private)
+    // ==================================================================
+
+    #[test]
+    fn a_root_node_gets_the_viewport_as_its_containing_block() {
+        let dom = body_dom();
+        let tree = tree_of(vec![hot(None, Some(NodeId::ZERO), Some(size(10.0, 10.0)), &ResolvedBoxProps::default())]);
+        let viewport = rect(7.0, 9.0, 800.0, 600.0);
+
+        let (cb_pos, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 0, &Vec::new(), viewport);
+
+        assert_eq!(cb_pos.x, 7.0);
+        assert_eq!(cb_pos.y, 9.0);
+        assert_eq!(cb_size.width, 800.0);
+        assert_eq!(cb_size.height, 600.0);
+    }
+
+    #[test]
+    fn an_out_of_range_node_index_falls_back_to_the_viewport() {
+        let dom = body_dom();
+        let tree = tree_of(vec![hot(None, None, Some(size(10.0, 10.0)), &ResolvedBoxProps::default())]);
+        let viewport = rect(0.0, 0.0, 800.0, 600.0);
+
+        for idx in [1usize, 99, usize::MAX] {
+            let (cb_pos, cb_size) =
+                get_containing_block_for_node(&tree, &dom, idx, &Vec::new(), viewport);
+            assert_eq!(cb_pos.x, 0.0, "idx {idx}");
+            assert_eq!(cb_size.width, 800.0, "idx {idx}");
+            assert_eq!(cb_size.height, 600.0, "idx {idx}");
+        }
+    }
+
+    #[test]
+    fn a_dangling_parent_index_falls_back_to_the_viewport() {
+        // Node 1 claims parent 999, which does not exist. The function must take
+        // the viewport branch rather than index out of bounds.
+        let dom = body_dom();
+        let tree = tree_of(vec![
+            hot(None, None, Some(size(10.0, 10.0)), &ResolvedBoxProps::default()),
+            hot(Some(999), None, Some(size(10.0, 10.0)), &ResolvedBoxProps::default()),
+        ]);
+        let viewport = rect(1.0, 2.0, 300.0, 400.0);
+
+        let (cb_pos, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &Vec::new(), viewport);
+        assert_eq!(cb_pos.x, 1.0);
+        assert_eq!(cb_pos.y, 2.0);
+        assert_eq!(cb_size.width, 300.0);
+        assert_eq!(cb_size.height, 400.0);
+    }
+
+    #[test]
+    fn a_dom_backed_parent_shrinks_the_containing_block_by_border_and_padding() {
+        let dom = body_dom();
+        let parent_props = bp(edges(10.0, 10.0, 10.0, 10.0), edges(5.0, 5.0, 5.0, 5.0));
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(30.0, 40.0));
+
+        let (cb_pos, cb_size) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(0.0, 0.0, 800.0, 600.0),
+        );
+
+        // content origin = margin-box pos + border + padding
+        assert!(close(cb_pos.x, 45.0), "x was {}", cb_pos.x);
+        assert!(close(cb_pos.y, 55.0), "y was {}", cb_pos.y);
+        // content size = border-box - (border + padding) on both sides
+        assert!(close(cb_size.width, 170.0), "width was {}", cb_size.width);
+        assert!(close(cb_size.height, 70.0), "height was {}", cb_size.height);
+    }
+
+    #[test]
+    fn an_anonymous_parent_offsets_the_origin_but_keeps_the_border_box_size() {
+        // The `dom_node_id == None` arm returns `used_size` verbatim — it shifts the
+        // origin inward by border+padding but does NOT shrink the size, unlike the
+        // DOM-backed arm above. Asserted as-is so any future fix trips this test.
+        let dom = body_dom();
+        let parent_props = bp(edges(10.0, 10.0, 10.0, 10.0), edges(5.0, 5.0, 5.0, 5.0));
+        let tree = tree_of(vec![
+            hot(None, None, Some(size(200.0, 100.0)), &parent_props),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+
+        let (cb_pos, cb_size) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(0.0, 0.0, 800.0, 600.0),
+        );
+
+        assert!(close(cb_pos.x, 15.0), "x was {}", cb_pos.x);
+        assert!(close(cb_pos.y, 15.0), "y was {}", cb_pos.y);
+        assert_eq!(cb_size.width, 200.0, "anonymous arm does not subtract padding/border");
+        assert_eq!(cb_size.height, 100.0);
+    }
+
+    #[test]
+    fn an_unpositioned_parent_falls_back_to_the_viewport_origin() {
+        let dom = body_dom();
+        let parent_props = bp(edges(1.0, 0.0, 0.0, 2.0), edges(3.0, 0.0, 0.0, 4.0));
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let viewport = rect(100.0, 200.0, 800.0, 600.0);
+
+        // `calculated_positions` is empty: the parent has no computed position yet.
+        let (cb_pos, _) = get_containing_block_for_node(&tree, &dom, 1, &Vec::new(), viewport);
+
+        // viewport origin + border.left + padding.left, and the same on the y axis.
+        assert!(close(cb_pos.x, 106.0), "x was {}", cb_pos.x);
+        assert!(close(cb_pos.y, 204.0), "y was {}", cb_pos.y);
+    }
+
+    #[test]
+    fn a_parent_with_a_sentinel_position_is_treated_as_unpositioned() {
+        // pos_get filters the sentinel, so a parent whose stored x is f32::MIN
+        // resolves against the viewport origin instead.
+        let dom = body_dom();
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &ResolvedBoxProps::default()),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, POSITION_UNSET);
+
+        let (cb_pos, _) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(11.0, 13.0, 800.0, 600.0),
+        );
+        assert_eq!(cb_pos.x, 11.0);
+        assert_eq!(cb_pos.y, 13.0);
+    }
+
+    #[test]
+    fn a_parent_without_a_used_size_yields_a_zero_sized_containing_block() {
+        let dom = body_dom();
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), None, &ResolvedBoxProps::default()),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+
+        let (_, cb_size) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(0.0, 0.0, 800.0, 600.0),
+        );
+        assert_eq!(cb_size.width, 0.0);
+        assert_eq!(cb_size.height, 0.0);
+    }
+
+    #[test]
+    fn huge_parent_padding_saturates_instead_of_wrapping_the_origin() {
+        // PackedBoxProps stores edges as i16 tenths-of-a-pixel: 1e30px clamps to
+        // +3276.7px. Wrapping would push the containing block's origin NEGATIVE.
+        let dom = body_dom();
+        let parent_props = bp(edges(1e30, 1e30, 1e30, 1e30), edges(1e30, 1e30, 1e30, 1e30));
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+
+        let (cb_pos, cb_size) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(0.0, 0.0, 800.0, 600.0),
+        );
+
+        assert!(cb_pos.x.is_finite() && cb_pos.y.is_finite());
+        assert!(cb_pos.x > 0.0, "saturated padding must stay positive, got {}", cb_pos.x);
+        assert!(cb_pos.x <= 2.0 * 3276.7 + 1.0, "clamped to the i16 ×10 range");
+        // border + padding dwarf the border-box, so the content box floors at zero.
+        assert_eq!(cb_size.width, 0.0);
+        assert_eq!(cb_size.height, 0.0);
+    }
+
+    #[test]
+    fn a_nan_parent_position_propagates_but_does_not_panic_or_corrupt_the_size() {
+        let dom = body_dom();
+        let parent_props = bp(edges(10.0, 10.0, 10.0, 10.0), EdgeSizes::default());
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(f32::NAN, f32::NAN));
+
+        let (cb_pos, cb_size) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(0.0, 0.0, 800.0, 600.0),
+        );
+
+        assert!(cb_pos.x.is_nan() && cb_pos.y.is_nan(), "NaN flows through unchanged");
+        // The size path never touches the position, so it must stay clean.
+        assert!(close(cb_size.width, 180.0), "width was {}", cb_size.width);
+        assert!(close(cb_size.height, 80.0), "height was {}", cb_size.height);
+    }
+
+    #[test]
+    fn a_nan_parent_used_size_floors_the_containing_block_at_zero() {
+        // inner_size() ends in `.max(0.0)`, which discards NaN — the containing
+        // block collapses to 0 rather than exporting NaN into sizing.
+        let dom = body_dom();
+        let tree = tree_of(vec![
+            hot(None, Some(NodeId::ZERO), Some(size(f32::NAN, f32::NAN)), &ResolvedBoxProps::default()),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+
+        let (_, cb_size) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(0.0, 0.0, 800.0, 600.0),
+        );
+        assert!(!cb_size.width.is_nan() && !cb_size.height.is_nan());
+        assert_eq!(cb_size.width, 0.0);
+        assert_eq!(cb_size.height, 0.0);
+    }
+
+    #[test]
+    fn an_infinite_parent_used_size_stays_infinite_rather_than_becoming_nan() {
+        let dom = body_dom();
+        let parent_props = bp(edges(10.0, 10.0, 10.0, 10.0), edges(5.0, 5.0, 5.0, 5.0));
+        let tree = tree_of(vec![
+            hot(
+                None,
+                Some(NodeId::ZERO),
+                Some(size(f32::INFINITY, f32::INFINITY)),
+                &parent_props,
+            ),
+            hot(Some(0), None, None, &ResolvedBoxProps::default()),
+        ]);
+        let mut positions: PositionVec = Vec::new();
+        pos_set(&mut positions, 0, pos(0.0, 0.0));
+
+        let (_, cb_size) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            1,
+            &positions,
+            rect(0.0, 0.0, 800.0, 600.0),
+        );
+        assert!(cb_size.width.is_infinite() && cb_size.width.is_sign_positive());
+        assert!(cb_size.height.is_infinite() && cb_size.height.is_sign_positive());
+    }
+
+    #[test]
+    fn degenerate_viewports_pass_through_the_root_arm_untouched() {
+        // The root arm is a pure identity on the viewport — it neither clamps
+        // negatives nor sanitises NaN. Pin that so callers know to pre-validate.
+        let dom = body_dom();
+        let tree = tree_of(vec![hot(None, None, None, &ResolvedBoxProps::default())]);
+
+        let (p, s) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            0,
+            &Vec::new(),
+            rect(0.0, 0.0, 0.0, 0.0),
+        );
+        assert_eq!(s.width, 0.0);
+        assert_eq!(s.height, 0.0);
+        assert_eq!(p.x, 0.0);
+
+        let (_, s) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            0,
+            &Vec::new(),
+            rect(0.0, 0.0, -800.0, -600.0),
+        );
+        assert_eq!(s.width, -800.0, "negative viewport is not clamped");
+
+        let (p, s) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            0,
+            &Vec::new(),
+            rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+        );
+        assert!(p.x.is_nan() && s.width.is_nan(), "NaN viewport is not sanitised");
+
+        let (_, s) = get_containing_block_for_node(
+            &tree,
+            &dom,
+            0,
+            &Vec::new(),
+            rect(0.0, 0.0, f32::MAX, f32::MAX),
+        );
+        assert_eq!(s.width, f32::MAX);
+    }
+
+    // ==================================================================
+    // LayoutError — Display (serializer)
+    // ==================================================================
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn every_layout_error_variant_renders_a_distinct_non_empty_message() {
+        let variants = [
+            LayoutError::InvalidTree,
+            LayoutError::SizingFailed,
+            LayoutError::PositioningFailed,
+            LayoutError::DisplayListFailed,
+            LayoutError::Text(crate::font_traits::LayoutError::BidiError("boom".to_string())),
+        ];
+        let rendered: Vec<String> = variants.iter().map(ToString::to_string).collect();
+
+        for msg in &rendered {
+            assert!(!msg.is_empty(), "empty Display output");
+            assert!(!msg.trim().is_empty(), "whitespace-only Display output");
+        }
+        for i in 0..rendered.len() {
+            for j in (i + 1)..rendered.len() {
+                assert_ne!(rendered[i], rendered[j], "variants {i} and {j} render alike");
+            }
+        }
+    }
+
+    #[test]
+    fn layout_error_display_matches_the_documented_wording() {
+        assert_eq!(LayoutError::InvalidTree.to_string(), "Invalid layout tree");
+        assert_eq!(LayoutError::SizingFailed.to_string(), "Sizing calculation failed");
+        assert_eq!(
+            LayoutError::PositioningFailed.to_string(),
+            "Position calculation failed"
+        );
+        assert_eq!(
+            LayoutError::DisplayListFailed.to_string(),
+            "Display list generation failed"
+        );
+    }
+
+    #[test]
+    fn layout_error_display_ignores_width_and_precision_specifiers() {
+        // `write!(f, "...")` bypasses the formatter's padding/truncation, so a
+        // caller aligning errors in a table gets no alignment at all.
+        let e = LayoutError::InvalidTree;
+        assert_eq!(format!("{e:>60}"), "Invalid layout tree");
+        assert_eq!(format!("{e:.3}"), "Invalid layout tree");
+        assert_eq!(format!("{e:^5}"), "Invalid layout tree");
+    }
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn the_text_variant_embeds_the_inner_error_and_survives_hostile_payloads() {
+        let payloads = [
+            String::new(),
+            "\u{202e}rtl-override \u{0}nul".to_string(),
+            "日本語のエラー 🎉".to_string(),
+            "x".repeat(100_000),
+            "\"quotes\" and \\backslashes\\".to_string(),
+        ];
+        for payload in payloads {
+            let err = LayoutError::Text(crate::font_traits::LayoutError::ShapingError(
+                payload.clone(),
+            ));
+            let msg = err.to_string();
+            assert!(
+                msg.starts_with("Text layout error: "),
+                "unexpected prefix for {} byte payload",
+                payload.len()
+            );
+            // The inner error is rendered with `{:?}`, so it is escaped, not raw —
+            // but it must never be truncated away entirely.
+            assert!(msg.len() >= "Text layout error: ".len() + payload.len());
+        }
+    }
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn the_text_variant_renders_a_default_font_selector_without_panicking() {
+        let err = LayoutError::Text(crate::font_traits::LayoutError::FontNotFound(
+            crate::font_traits::FontSelector::default(),
+        ));
+        let msg = err.to_string();
+        assert!(msg.starts_with("Text layout error: "));
+        assert!(msg.contains("serif"), "the default family should show up: {msg}");
+    }
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn from_text_layout_error_wraps_into_the_text_variant() {
+        let inner = crate::font_traits::LayoutError::InvalidText("bad".to_string());
+        let wrapped: LayoutError = inner.into();
+
+        assert!(matches!(wrapped, LayoutError::Text(_)));
+        assert!(wrapped.to_string().contains("bad"));
+
+        // The `?` sugar used all over solver3 goes through the same From impl.
+        fn propagates() -> Result<()> {
+            let failed: std::result::Result<(), crate::font_traits::LayoutError> = Err(
+                crate::font_traits::LayoutError::HyphenationError("nope".to_string()),
+            );
+            failed?;
+            Ok(())
+        }
+        assert!(matches!(propagates(), Err(LayoutError::Text(_))));
+    }
+
+    #[test]
+    fn layout_error_is_a_std_error_without_a_source() {
+        use std::error::Error;
+        let e = LayoutError::SizingFailed;
+        assert!(e.source().is_none());
+        // Debug must also be usable (it is what `Result::unwrap` prints).
+        assert!(!format!("{e:?}").is_empty());
+    }
+
+    // ==================================================================
+    // LayoutContext debug sinks + the lazy debug_* macros
+    // ==================================================================
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    mod debug_sinks {
+        use std::collections::{BTreeMap, HashMap};
+
+        use azul_core::{dom::DomId, selection::TextSelection, styled_dom::StyledDom};
+        use azul_css::{props::basic::FontRef, LayoutDebugMessage, LayoutDebugMessageType};
+
+        use super::{body_dom, size};
+        use crate::{
+            font_traits::FontManager,
+            solver3::{cache, LayoutContext},
+        };
+
+        /// Owns everything a `LayoutContext` borrows, so a test can build one,
+        /// poke it, drop it, and then inspect the captured messages.
+        struct Env {
+            styled_dom: StyledDom,
+            font_manager: FontManager<FontRef>,
+            text_selections: BTreeMap<DomId, TextSelection>,
+            counters: HashMap<(usize, String), i32>,
+            image_cache: azul_core::resources::ImageCache,
+            debug_messages: Option<Vec<LayoutDebugMessage>>,
+        }
+
+        impl Env {
+            fn new(debug_messages: Option<Vec<LayoutDebugMessage>>) -> Self {
+                Self {
+                    styled_dom: body_dom(),
+                    font_manager: FontManager::new(rust_fontconfig::FcFontCache::default())
+                        .expect("FontManager over an empty font cache"),
+                    text_selections: BTreeMap::new(),
+                    counters: HashMap::new(),
+                    image_cache: azul_core::resources::ImageCache::default(),
+                    debug_messages,
+                }
+            }
+
+            fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
+                LayoutContext {
+                    scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    styled_dom: &self.styled_dom,
+                    font_manager: &self.font_manager,
+                    text_selections: &self.text_selections,
+                    debug_messages: &mut self.debug_messages,
+                    counters: &mut self.counters,
+                    viewport_size: size(800.0, 600.0),
+                    fragmentation_context: None,
+                    cursor_is_visible: true,
+                    cursor_locations: Vec::new(),
+                    preedit_text: None,
+                    dirty_text_overrides: BTreeMap::new(),
+                    cache_map: cache::LayoutCacheMap::default(),
+                    image_cache: &self.image_cache,
+                    system_style: None,
+                    get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                        cb: azul_core::task::get_system_time_libstd,
+                    },
+                }
+            }
+        }
+
+        #[test]
+        fn each_debug_sink_appends_exactly_one_message_of_its_own_type() {
+            let mut env = Env::new(Some(Vec::new()));
+            {
+                let mut ctx = env.ctx();
+                ctx.debug_log_inner("log".to_string());
+                ctx.debug_info_inner("info".to_string());
+                ctx.debug_warning_inner("warning".to_string());
+                ctx.debug_error_inner("error".to_string());
+                ctx.debug_box_props_inner("box_props".to_string());
+                ctx.debug_css_getter_inner("css_getter".to_string());
+                ctx.debug_bfc_layout_inner("bfc".to_string());
+                ctx.debug_ifc_layout_inner("ifc".to_string());
+                ctx.debug_table_layout_inner("table".to_string());
+                ctx.debug_display_type_inner("display".to_string());
+            }
+
+            let msgs = env.debug_messages.expect("Some(vec) was passed in");
+            let expected = [
+                ("log", LayoutDebugMessageType::Info),
+                ("info", LayoutDebugMessageType::Info),
+                ("warning", LayoutDebugMessageType::Warning),
+                ("error", LayoutDebugMessageType::Error),
+                ("box_props", LayoutDebugMessageType::BoxProps),
+                ("css_getter", LayoutDebugMessageType::CssGetter),
+                ("bfc", LayoutDebugMessageType::BfcLayout),
+                ("ifc", LayoutDebugMessageType::IfcLayout),
+                ("table", LayoutDebugMessageType::TableLayout),
+                ("display", LayoutDebugMessageType::DisplayType),
+            ];
+            assert_eq!(msgs.len(), expected.len(), "one message per call, in order");
+            for (msg, (text, ty)) in msgs.iter().zip(expected) {
+                assert_eq!(msg.message.as_str(), text);
+                assert_eq!(msg.message_type, ty);
+                assert!(!msg.location.as_str().is_empty(), "location must be recorded");
+            }
+        }
+
+        #[test]
+        fn debug_log_inner_tags_the_message_with_the_solver3_location() {
+            // `debug_log_inner` builds the message by hand (location = "solver3");
+            // every other sink goes through LayoutDebugMessage::* (#[track_caller]
+            // → a file:line inside this module).
+            let mut env = Env::new(Some(Vec::new()));
+            {
+                let mut ctx = env.ctx();
+                ctx.debug_log_inner("hello".to_string());
+                ctx.debug_info_inner("hello".to_string());
+            }
+
+            let msgs = env.debug_messages.expect("Some(vec)");
+            assert_eq!(msgs[0].location.as_str(), "solver3");
+            assert!(
+                msgs[1].location.as_str().contains(".rs:"),
+                "track_caller location, got {:?}",
+                msgs[1].location.as_str()
+            );
+        }
+
+        #[test]
+        fn the_debug_sinks_are_no_ops_when_debug_messages_is_none() {
+            // The macros guard on `is_some()`, but the inner fns must be safe when
+            // called directly (they are `pub`).
+            let mut env = Env::new(None);
+            {
+                let mut ctx = env.ctx();
+                ctx.debug_log_inner("log".to_string());
+                ctx.debug_error_inner("error".to_string());
+                ctx.debug_table_layout_inner("table".to_string());
+            }
+            assert!(env.debug_messages.is_none(), "must not materialise a Vec");
+        }
+
+        #[test]
+        fn debug_messages_preserve_hostile_payloads_byte_for_byte() {
+            let payloads = [
+                String::new(),
+                "\u{0}\u{7}\u{1b}[31m".to_string(),
+                "日本語 🎉 \u{202e}reversed".to_string(),
+                "line\nbreak\ttab\r\n".to_string(),
+                "{}{{}} {:?} %s %n".to_string(), // format-string lookalikes
+                "x".repeat(200_000),
+            ];
+            let mut env = Env::new(Some(Vec::new()));
+            {
+                let mut ctx = env.ctx();
+                for p in &payloads {
+                    ctx.debug_info_inner(p.clone());
+                }
+            }
+
+            let msgs = env.debug_messages.expect("Some(vec)");
+            assert_eq!(msgs.len(), payloads.len());
+            for (msg, payload) in msgs.iter().zip(&payloads) {
+                assert_eq!(msg.message.as_str(), payload.as_str());
+            }
+        }
+
+        #[test]
+        fn the_debug_macros_push_one_message_each_when_capturing() {
+            let mut env = Env::new(Some(Vec::new()));
+            {
+                let mut ctx = env.ctx();
+                debug_log!(ctx, "log {}", 1);
+                debug_info!(ctx, "info {}", 2);
+                debug_warning!(ctx, "warning {}", 3);
+                debug_error!(ctx, "error {}", 4);
+                debug_box_props!(ctx, "box_props {}", 5);
+                debug_css_getter!(ctx, "css_getter {}", 6);
+                debug_bfc_layout!(ctx, "bfc {}", 7);
+                debug_ifc_layout!(ctx, "ifc {}", 8);
+                debug_table_layout!(ctx, "table {}", 9);
+                debug_display_type!(ctx, "display {}", 10);
+            }
+
+            let msgs = env.debug_messages.expect("Some(vec)");
+            assert_eq!(msgs.len(), 10);
+            assert_eq!(msgs[0].message.as_str(), "log 1");
+            assert_eq!(msgs[9].message.as_str(), "display 10");
+        }
+
+        #[test]
+        fn the_debug_macros_do_not_evaluate_their_arguments_when_not_capturing() {
+            // This laziness is the whole point of the macros: a `format!` per node
+            // per pass would dominate a release layout. A regression here is silent.
+            let evaluations = core::cell::Cell::new(0u32);
+            let bump = |c: &core::cell::Cell<u32>| {
+                c.set(c.get() + 1);
+                c.get()
+            };
+
+            let mut env = Env::new(None);
+            {
+                let mut ctx = env.ctx();
+                debug_log!(ctx, "{}", bump(&evaluations));
+                debug_info!(ctx, "{}", bump(&evaluations));
+                debug_warning!(ctx, "{}", bump(&evaluations));
+                debug_error!(ctx, "{}", bump(&evaluations));
+                debug_box_props!(ctx, "{}", bump(&evaluations));
+                debug_css_getter!(ctx, "{}", bump(&evaluations));
+                debug_bfc_layout!(ctx, "{}", bump(&evaluations));
+                debug_ifc_layout!(ctx, "{}", bump(&evaluations));
+                debug_table_layout!(ctx, "{}", bump(&evaluations));
+                debug_display_type!(ctx, "{}", bump(&evaluations));
+            }
+            assert_eq!(evaluations.get(), 0, "format args must stay unevaluated");
+
+            // ...and they ARE evaluated (exactly once) when capturing.
+            let mut env = Env::new(Some(Vec::new()));
+            {
+                let mut ctx = env.ctx();
+                debug_log!(ctx, "{}", bump(&evaluations));
+            }
+            assert_eq!(evaluations.get(), 1);
+            assert_eq!(env.debug_messages.as_ref().map(Vec::len), Some(1));
+        }
+    }
+
+    // ==================================================================
+    // set_skip_display_list — the web-backend opt-out flag
+    // ==================================================================
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn set_skip_display_list_round_trips_and_is_idempotent() {
+        use core::sync::atomic::Ordering;
+
+        let previous = SKIP_DISPLAY_LIST.load(Ordering::Relaxed);
+
+        set_skip_display_list(true);
+        assert!(SKIP_DISPLAY_LIST.load(Ordering::Relaxed));
+        set_skip_display_list(true);
+        assert!(SKIP_DISPLAY_LIST.load(Ordering::Relaxed), "double-set is idempotent");
+
+        set_skip_display_list(false);
+        assert!(!SKIP_DISPLAY_LIST.load(Ordering::Relaxed));
+
+        // Restore whatever the process was using — other tests share this static.
+        set_skip_display_list(previous);
+        assert_eq!(SKIP_DISPLAY_LIST.load(Ordering::Relaxed), previous);
+    }
+
+    // ==================================================================
+    // layout_document — the entry point, driven with degenerate viewports
+    // ==================================================================
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    mod document {
+        use std::collections::BTreeMap;
+
+        use azul_core::{
+            dom::{Dom, DomId},
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            resources::RendererResources,
+            styled_dom::StyledDom,
+        };
+        use azul_css::props::basic::FontRef;
+
+        use crate::{
+            font_traits::{FontManager, TextLayoutCache},
+            solver3::{cache::LayoutCache, display_list::DisplayList, layout_document, Result},
+        };
+
+        fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+            LogicalRect {
+                origin: LogicalPosition::new(x, y),
+                size: LogicalSize::new(w, h),
+            }
+        }
+
+        /// `body > div` — no text nodes, so an empty (font-less) `FontManager` is
+        /// enough to exercise the whole reconcile → size → position → paint chain.
+        fn simple_dom() -> StyledDom {
+            let mut dom = Dom::create_body().with_child(Dom::create_div());
+            let (css, _warnings) =
+                azul_css::parser2::new_from_str("div { width: 50px; height: 20px; }");
+            StyledDom::create(&mut dom, css)
+        }
+
+        fn run(cache: &mut LayoutCache, dom: &StyledDom, viewport: LogicalRect) -> Result<DisplayList> {
+            let mut text_cache = TextLayoutCache::new();
+            let font_manager: FontManager<FontRef> =
+                FontManager::new(rust_fontconfig::FcFontCache::default())
+                    .expect("FontManager over an empty font cache");
+            let renderer_resources = RendererResources::default();
+            let image_cache = azul_core::resources::ImageCache::default();
+            let mut debug_messages = None;
+
+            layout_document(
+                cache,
+                &mut text_cache,
+                dom,
+                viewport,
+                &font_manager,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &mut debug_messages,
+                None,
+                &renderer_resources,
+                azul_core::resources::IdNamespace(0),
+                DomId::ROOT_ID,
+                false,
+                Vec::new(),
+                None,
+                &image_cache,
+                None,
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+            )
+        }
+
+        #[test]
+        fn a_zero_sized_viewport_lays_out_without_panicking() {
+            let dom = simple_dom();
+            let mut cache = LayoutCache::default();
+
+            // Err is acceptable (a font-less environment may legitimately fail);
+            // a panic, an infinite scrollbar reflow, or a NaN position is not.
+            if run(&mut cache, &dom, rect(0.0, 0.0, 0.0, 0.0)).is_ok() {
+                for p in &cache.calculated_positions {
+                    assert!(!p.x.is_nan() && !p.y.is_nan(), "NaN position from a 0×0 viewport");
+                }
+            }
+        }
+
+        #[test]
+        fn degenerate_viewports_never_panic_or_hang() {
+            // MAX_SCROLLBAR_REFLOW_ITERATIONS is the only guard against a reflow
+            // oscillation, so each of these must terminate through it or earlier.
+            let viewports = [
+                rect(0.0, 0.0, f32::NAN, f32::NAN),
+                rect(f32::NAN, f32::NAN, 800.0, 600.0),
+                rect(0.0, 0.0, -800.0, -600.0),
+                rect(0.0, 0.0, f32::MAX, f32::MAX),
+                rect(0.0, 0.0, f32::INFINITY, f32::INFINITY),
+                rect(-1e30, -1e30, 1.0, 1.0),
+                rect(0.0, 0.0, f32::MIN_POSITIVE, f32::MIN_POSITIVE),
+            ];
+            for viewport in viewports {
+                let dom = simple_dom();
+                let mut cache = LayoutCache::default();
+                let _ = run(&mut cache, &dom, viewport);
+            }
+        }
+
+        #[test]
+        fn laying_out_the_same_dom_twice_is_stable_and_populates_the_cache() {
+            let dom = simple_dom();
+            let mut cache = LayoutCache::default();
+            let viewport = rect(0.0, 0.0, 800.0, 600.0);
+
+            let first = run(&mut cache, &dom, viewport);
+            if first.is_err() {
+                // No fonts available in this environment — nothing to compare.
+                return;
+            }
+            assert!(cache.cached_display_list.is_some(), "cold pass must seed the DL cache");
+            assert_eq!(cache.viewport, Some(viewport));
+            let positions_after_first = cache.calculated_positions.clone();
+
+            // Second pass: the structural-identity cache should short-circuit, and
+            // must not corrupt the stored geometry on the way out.
+            let second = run(&mut cache, &dom, viewport);
+            assert!(second.is_ok(), "a warm relayout of an unchanged DOM must succeed");
+            assert_eq!(
+                cache.calculated_positions.len(),
+                positions_after_first.len(),
+                "warm pass changed the node count"
+            );
+            for (warm, cold) in cache.calculated_positions.iter().zip(&positions_after_first) {
+                assert_eq!(warm.x.to_bits(), cold.x.to_bits(), "warm pass moved a node");
+                assert_eq!(warm.y.to_bits(), cold.y.to_bits(), "warm pass moved a node");
+            }
+        }
+    }
+}

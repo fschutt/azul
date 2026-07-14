@@ -2963,3 +2963,2801 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
     }
     fc
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use azul_core::{
+        dom::{Dom, IdOrClass},
+        resources::{ImageRef, RawImageFormat},
+        selection::ContentIndex,
+    };
+
+    use super::*;
+    use crate::{
+        solver3::geometry::{EdgeSizes, PackedBoxProps},
+        text3::cache::{
+            BreakType, ClearType, InlineBreak, OverflowInfo, Point, PositionedItem, Rect,
+            ShapedItem,
+        },
+    };
+
+    // ==================================================================
+    // Fixtures
+    // ==================================================================
+
+    const VIEWPORT: LogicalSize = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+
+    fn styled(dom: Dom, css_str: &str) -> StyledDom {
+        let mut dom = dom;
+        let (css, _warnings) = azul_css::parser2::new_from_str(css_str);
+        StyledDom::create(&mut dom, css)
+    }
+
+    fn div_class(class: &str) -> Dom {
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+    }
+
+    /// Runs the real build pipeline (`process_node` → `build` → STF bitmap) —
+    /// i.e. everything `generate_layout_tree` does minus the `LayoutContext`
+    /// (which would need a system-font `FontManager`).
+    fn build_tree(styled_dom: &StyledDom) -> LayoutTree {
+        let mut builder = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs: Option<Vec<LayoutDebugMessage>> = None;
+        let root_id = styled_dom
+            .root
+            .into_crate_internal()
+            .unwrap_or(NodeId::ZERO);
+        let root_index = builder
+            .process_node(styled_dom, root_id, None, &mut msgs)
+            .expect("process_node on a well-formed DOM");
+        let mut tree = builder.build(root_index);
+        tree.subtree_needs_intrinsic = compute_subtree_needs_intrinsic(styled_dom, &tree);
+        tree
+    }
+
+    /// `body(0) > [ .block(1) > [ text "hello"(2), .inline(3) > text "world"(4) ],
+    ///              .mixed(5) > [ text " \n\t"(6), .block2(7), text "tail"(8) ] ]`
+    ///
+    /// The `.mixed` subtree is the interesting one: a whitespace-only inline run
+    /// followed by a block sibling and a real inline run — exactly the CSS 2.1
+    /// §9.2.2.1 anonymous-box case.
+    fn mixed_dom() -> StyledDom {
+        styled(
+            Dom::create_body()
+                .with_child(
+                    div_class("block")
+                        .with_child(Dom::create_text("hello"))
+                        .with_child(div_class("inline").with_child(Dom::create_text("world"))),
+                )
+                .with_child(
+                    div_class("mixed")
+                        .with_child(Dom::create_text(" \n\t"))
+                        .with_child(div_class("block2"))
+                        .with_child(Dom::create_text("tail")),
+                ),
+            ".block { display: block; } .inline { display: inline; } .mixed { display: block; } \
+             .block2 { display: block; }",
+        )
+    }
+
+    /// Locates a DOM node by its exact text content. Keeps the tests structural
+    /// instead of hard-coding `CompactDom` pre-order indices.
+    fn text_node(styled_dom: &StyledDom, needle: &str) -> NodeId {
+        let container = styled_dom.node_data.as_container();
+        for i in 0..styled_dom.node_data.len() {
+            let id = NodeId::new(i);
+            if let NodeType::Text(text) = container[id].get_node_type() {
+                if text.as_str() == needle {
+                    return id;
+                }
+            }
+        }
+        panic!("no text node with content {needle:?}");
+    }
+
+    fn empty_layout() -> Arc<UnifiedLayout> {
+        Arc::new(UnifiedLayout {
+            items: Vec::new(),
+            overflow: OverflowInfo::default(),
+        })
+    }
+
+    fn layout_of(items: Vec<PositionedItem>) -> Arc<UnifiedLayout> {
+        Arc::new(UnifiedLayout {
+            items,
+            overflow: OverflowInfo::default(),
+        })
+    }
+
+    fn tab_item(width: f32, height: f32, x: f32, line_index: usize) -> PositionedItem {
+        PositionedItem {
+            item: ShapedItem::Tab {
+                source: ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                bounds: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width,
+                    height,
+                },
+            },
+            position: Point { x, y: 0.0 },
+            line_index,
+        }
+    }
+
+    fn break_item(line_index: usize) -> PositionedItem {
+        PositionedItem {
+            item: ShapedItem::Break {
+                source: ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                break_info: InlineBreak {
+                    break_type: BreakType::Hard,
+                    clear: ClearType::None,
+                    content_index: 0,
+                },
+            },
+            position: Point { x: 0.0, y: 0.0 },
+            line_index,
+        }
+    }
+
+    fn hot(parent: Option<usize>) -> LayoutNodeHot {
+        LayoutNodeHot {
+            box_props: PackedBoxProps::default(),
+            dom_node_id: None,
+            used_size: None,
+            formatting_context: FormattingContext::Block {
+                establishes_new_context: false,
+            },
+            parent,
+        }
+    }
+
+    /// Hand-assembles a `LayoutTree` from raw hot nodes + child lists so the
+    /// index/cycle edge cases the builder can never produce are still reachable.
+    fn raw_tree(nodes: Vec<LayoutNodeHot>, child_lists: &[Vec<usize>]) -> LayoutTree {
+        let n = nodes.len();
+        let mut children_arena: Vec<usize> = Vec::new();
+        let mut children_offsets: Vec<(u32, u32)> = Vec::with_capacity(n);
+        for cl in child_lists {
+            let start = u32::try_from(children_arena.len()).unwrap();
+            children_arena.extend_from_slice(cl);
+            children_offsets.push((start, u32::try_from(cl.len()).unwrap()));
+        }
+        while children_offsets.len() < n {
+            children_offsets.push((0, 0));
+        }
+        LayoutTree {
+            nodes,
+            warm: vec![LayoutNodeWarm::default(); n],
+            cold: vec![LayoutNodeCold::default(); n],
+            root: 0,
+            dom_to_layout: BTreeMap::new(),
+            children_arena,
+            children_offsets,
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+
+    const ALL_DISPLAYS: [LayoutDisplay; 23] = [
+        LayoutDisplay::None,
+        LayoutDisplay::Block,
+        LayoutDisplay::Inline,
+        LayoutDisplay::InlineBlock,
+        LayoutDisplay::Flex,
+        LayoutDisplay::InlineFlex,
+        LayoutDisplay::Table,
+        LayoutDisplay::InlineTable,
+        LayoutDisplay::TableRowGroup,
+        LayoutDisplay::TableHeaderGroup,
+        LayoutDisplay::TableFooterGroup,
+        LayoutDisplay::TableRow,
+        LayoutDisplay::TableColumnGroup,
+        LayoutDisplay::TableColumn,
+        LayoutDisplay::TableCell,
+        LayoutDisplay::TableCaption,
+        LayoutDisplay::FlowRoot,
+        LayoutDisplay::ListItem,
+        LayoutDisplay::RunIn,
+        LayoutDisplay::Marker,
+        LayoutDisplay::Grid,
+        LayoutDisplay::InlineGrid,
+        LayoutDisplay::Contents,
+    ];
+
+    // ==================================================================
+    // IfcId — thread-local counter (numeric / overflow)
+    // ==================================================================
+
+    #[test]
+    fn ifcid_unique_hands_out_a_fresh_id_per_call_after_reset() {
+        IfcId::reset_counter();
+        assert_eq!(IfcId::unique(), IfcId(0));
+        assert_eq!(IfcId::unique(), IfcId(1));
+        assert_eq!(IfcId::unique(), IfcId(2));
+        IfcId::reset_counter();
+        assert_eq!(
+            IfcId::unique(),
+            IfcId(0),
+            "reset_counter must restart the sequence, not continue it"
+        );
+        IfcId::reset_counter();
+    }
+
+    #[test]
+    fn ifcid_reset_counter_is_idempotent() {
+        IfcId::reset_counter();
+        IfcId::reset_counter();
+        IfcId::reset_counter();
+        assert_eq!(IfcId::unique(), IfcId(0));
+        IfcId::reset_counter();
+    }
+
+    #[test]
+    fn ifcid_unique_wraps_at_u32_max_instead_of_panicking() {
+        // `wrapping_add` is deliberate: a layout pass with 2^32 IFCs is not a
+        // thing, but a debug-mode overflow panic in the middle of layout is.
+        IFC_ID_COUNTER.with(|c| c.set(u32::MAX));
+        assert_eq!(IfcId::unique(), IfcId(u32::MAX));
+        assert_eq!(IfcId::unique(), IfcId(0), "wraps rather than overflow-panics");
+        assert_eq!(IfcId::unique(), IfcId(1));
+        IfcId::reset_counter();
+    }
+
+    // ==================================================================
+    // CachedInlineLayout — constructors + metrics extraction
+    // ==================================================================
+
+    #[test]
+    fn cached_inline_layout_new_keeps_the_args_it_was_given() {
+        let arc = empty_layout();
+        let c = CachedInlineLayout::new(Arc::clone(&arc), AvailableSpace::Definite(123.5), true);
+        assert!(Arc::ptr_eq(&c.layout, &arc));
+        assert_eq!(c.available_width, AvailableSpace::Definite(123.5));
+        assert!(c.has_floats);
+        assert!(c.constraints.is_none(), "new() carries no constraints");
+        assert!(c.line_breaks.is_none(), "new() computes no line breaks");
+        assert_eq!(c.inline_content_hash, 0, "0 = unknown ⇒ never fast-path-reuse");
+        assert!(c.item_metrics.is_empty(), "an empty layout has no item metrics");
+    }
+
+    #[test]
+    fn cached_inline_layout_new_survives_extreme_widths() {
+        for w in [
+            AvailableSpace::Definite(0.0),
+            AvailableSpace::Definite(-1.0),
+            AvailableSpace::Definite(f32::MAX),
+            AvailableSpace::Definite(f32::MIN),
+            AvailableSpace::Definite(f32::INFINITY),
+            AvailableSpace::Definite(f32::NEG_INFINITY),
+            AvailableSpace::Definite(f32::NAN),
+            AvailableSpace::MinContent,
+            AvailableSpace::MaxContent,
+        ] {
+            let c = CachedInlineLayout::new(empty_layout(), w, false);
+            assert!(c.item_metrics.is_empty());
+            assert!(c.layout.items.is_empty());
+        }
+    }
+
+    #[test]
+    fn extract_item_metrics_mirrors_every_positioned_item() {
+        let layout = layout_of(vec![tab_item(12.0, 20.0, 5.0, 3), tab_item(0.0, 0.0, 0.0, 0)]);
+        let m = CachedInlineLayout::extract_item_metrics(&layout);
+        assert_eq!(m.len(), 2, "one metric entry per PositionedItem, in order");
+
+        assert_eq!(m[0].advance_width, 12.0);
+        assert_eq!(m[0].x_offset, 5.0);
+        assert_eq!(m[0].line_index, 3);
+        assert!(m[0].can_break, "a Tab is breakable");
+        assert!(
+            m[0].source_node_id.is_none(),
+            "non-Cluster items expose no source_node_id"
+        );
+        // Tab metrics are the fallback ascent/descent split of the item height.
+        assert!(
+            (m[0].line_height_contribution - 20.0).abs() < 1e-3,
+            "ascent+descent should reconstruct the height, got {}",
+            m[0].line_height_contribution
+        );
+
+        assert_eq!(m[1].advance_width, 0.0);
+        assert_eq!(m[1].line_index, 0);
+    }
+
+    #[test]
+    fn extract_item_metrics_marks_break_items_as_unbreakable_and_zero_sized() {
+        let layout = layout_of(vec![break_item(7)]);
+        let m = CachedInlineLayout::extract_item_metrics(&layout);
+        assert_eq!(m.len(), 1);
+        assert!(!m[0].can_break, "ShapedItem::Break is the one non-breakable item");
+        assert_eq!(m[0].advance_width, 0.0, "a break has no visual geometry");
+        assert_eq!(m[0].line_height_contribution, 0.0);
+        assert_eq!(m[0].line_index, 7);
+    }
+
+    #[test]
+    fn extract_item_metrics_on_an_empty_layout_is_empty_not_a_panic() {
+        assert!(CachedInlineLayout::extract_item_metrics(&empty_layout()).is_empty());
+    }
+
+    #[test]
+    fn extract_item_metrics_does_not_choke_on_non_finite_item_bounds() {
+        let layout = layout_of(vec![
+            tab_item(f32::INFINITY, f32::NAN, f32::NEG_INFINITY, u32::MAX as usize),
+            tab_item(f32::MAX, f32::MAX, f32::MIN, 0),
+        ]);
+        let m = CachedInlineLayout::extract_item_metrics(&layout);
+        assert_eq!(m.len(), 2);
+        assert!(m[0].advance_width.is_infinite());
+        assert!(m[0].line_height_contribution.is_nan(), "NaN in, NaN out — but no panic");
+        assert_eq!(m[1].advance_width, f32::MAX);
+    }
+
+    #[test]
+    fn extract_item_metrics_truncates_a_huge_line_index_into_u32() {
+        // `line_index` is a usize on PositionedItem but a u32 in the metrics —
+        // the cast is `as`, so it wraps rather than panicking.
+        let huge = (u32::MAX as usize) + 5;
+        let m = CachedInlineLayout::extract_item_metrics(&layout_of(vec![tab_item(
+            1.0, 1.0, 0.0, huge,
+        )]));
+        assert_eq!(m[0].line_index, 4, "wrapping `as u32` truncation, not a panic");
+    }
+
+    #[test]
+    fn cached_inline_layout_new_with_constraints_records_constraints_and_line_breaks() {
+        let arc = layout_of(vec![tab_item(10.0, 20.0, 0.0, 0)]);
+        let c = CachedInlineLayout::new_with_constraints(
+            Arc::clone(&arc),
+            AvailableSpace::Definite(200.0),
+            false,
+            UnifiedConstraints::default(),
+        );
+        assert!(c.constraints.is_some());
+        let lb = c.line_breaks.expect("new_with_constraints computes line breaks");
+        assert_eq!(lb.available_width, 200.0);
+        assert_eq!(c.item_metrics.len(), 1);
+    }
+
+    #[test]
+    fn new_with_constraints_treats_indefinite_widths_as_f32_max() {
+        for w in [AvailableSpace::MinContent, AvailableSpace::MaxContent] {
+            let c = CachedInlineLayout::new_with_constraints(
+                empty_layout(),
+                w,
+                false,
+                UnifiedConstraints::default(),
+            );
+            let lb = c.line_breaks.expect("line breaks");
+            assert_eq!(
+                lb.available_width,
+                f32::MAX,
+                "indefinite width collapses to f32::MAX for break extraction"
+            );
+            assert_eq!(c.available_width, w, "but the cache key keeps the real variant");
+        }
+    }
+
+    // ==================================================================
+    // CachedInlineLayout — width matching / validity (predicates)
+    // ==================================================================
+
+    fn cached(width: AvailableSpace, has_floats: bool) -> CachedInlineLayout {
+        CachedInlineLayout::new(empty_layout(), width, has_floats)
+    }
+
+    #[test]
+    fn width_constraint_matches_definite_widths_within_the_epsilon() {
+        let c = cached(AvailableSpace::Definite(100.0), false);
+        assert!(c.width_constraint_matches(AvailableSpace::Definite(100.0)));
+        assert!(
+            c.width_constraint_matches(AvailableSpace::Definite(100.09)),
+            "sub-0.1px drift must not force a relayout"
+        );
+        assert!(
+            !c.width_constraint_matches(AvailableSpace::Definite(100.1)),
+            "the epsilon is strict (`< 0.1`), so exactly 0.1 is a miss"
+        );
+        assert!(!c.width_constraint_matches(AvailableSpace::Definite(0.0)));
+    }
+
+    #[test]
+    fn width_constraint_matches_only_pairs_like_with_like() {
+        let min = cached(AvailableSpace::MinContent, false);
+        let max = cached(AvailableSpace::MaxContent, false);
+        let def = cached(AvailableSpace::Definite(50.0), false);
+
+        assert!(min.width_constraint_matches(AvailableSpace::MinContent));
+        assert!(max.width_constraint_matches(AvailableSpace::MaxContent));
+        assert!(!min.width_constraint_matches(AvailableSpace::MaxContent));
+        assert!(!max.width_constraint_matches(AvailableSpace::MinContent));
+        assert!(!min.width_constraint_matches(AvailableSpace::Definite(50.0)));
+        assert!(!def.width_constraint_matches(AvailableSpace::MinContent));
+        assert!(!def.width_constraint_matches(AvailableSpace::MaxContent));
+    }
+
+    #[test]
+    fn width_constraint_matches_is_false_for_nan_widths_rather_than_panicking() {
+        // (NaN - NaN).abs() is NaN, and `NaN < eps` is false — so a NaN-width
+        // cache entry never validates. Deterministic (always relayout), not a panic.
+        let c = cached(AvailableSpace::Definite(f32::NAN), false);
+        assert!(!c.width_constraint_matches(AvailableSpace::Definite(f32::NAN)));
+        assert!(!c.width_constraint_matches(AvailableSpace::Definite(0.0)));
+
+        let good = cached(AvailableSpace::Definite(10.0), false);
+        assert!(!good.width_constraint_matches(AvailableSpace::Definite(f32::NAN)));
+    }
+
+    #[test]
+    fn width_constraint_matches_is_false_for_an_infinite_width_against_itself() {
+        // inf - inf == NaN, so an infinite cached width never matches — the cache
+        // simply always misses. Surprising, but safe and deterministic.
+        let c = cached(AvailableSpace::Definite(f32::INFINITY), false);
+        assert!(!c.width_constraint_matches(AvailableSpace::Definite(f32::INFINITY)));
+        assert!(!c.is_valid_for(AvailableSpace::Definite(f32::INFINITY), false));
+        assert!(c.should_replace_with(AvailableSpace::Definite(f32::INFINITY), false));
+    }
+
+    #[test]
+    fn width_constraint_matches_handles_huge_finite_widths() {
+        let c = cached(AvailableSpace::Definite(f32::MAX), false);
+        assert!(c.width_constraint_matches(AvailableSpace::Definite(f32::MAX)));
+        assert!(!c.width_constraint_matches(AvailableSpace::Definite(f32::MIN)));
+    }
+
+    #[test]
+    fn is_valid_for_ignores_the_float_flag_entirely() {
+        // Both branches of `is_valid_for` end in `width_constraint_matches`, so
+        // `new_has_floats` cannot change the answer. Locking that in: if the float
+        // branch ever grows a different body, this test says so.
+        let widths = [
+            AvailableSpace::Definite(0.0),
+            AvailableSpace::Definite(100.0),
+            AvailableSpace::MinContent,
+            AvailableSpace::MaxContent,
+        ];
+        for cached_floats in [false, true] {
+            for cached_w in widths {
+                let c = cached(cached_w, cached_floats);
+                for new_w in widths {
+                    let expected = c.width_constraint_matches(new_w);
+                    assert_eq!(c.is_valid_for(new_w, false), expected);
+                    assert_eq!(c.is_valid_for(new_w, true), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn is_valid_for_returns_the_expected_true_and_false() {
+        let c = cached(AvailableSpace::Definite(300.0), false);
+        assert!(c.is_valid_for(AvailableSpace::Definite(300.0), false));
+        assert!(!c.is_valid_for(AvailableSpace::Definite(299.0), false));
+    }
+
+    #[test]
+    fn should_replace_with_always_replaces_when_float_info_is_gained() {
+        // Even at an identical width: a float-aware layout strictly dominates.
+        let c = cached(AvailableSpace::Definite(300.0), false);
+        assert!(c.should_replace_with(AvailableSpace::Definite(300.0), true));
+        assert!(c.should_replace_with(AvailableSpace::MinContent, true));
+    }
+
+    #[test]
+    fn should_replace_with_keeps_a_float_aware_layout_at_a_matching_width() {
+        let c = cached(AvailableSpace::Definite(300.0), true);
+        assert!(
+            !c.should_replace_with(AvailableSpace::Definite(300.0), false),
+            "a non-float layout must not overwrite a float-aware one at the same width"
+        );
+        assert!(
+            c.should_replace_with(AvailableSpace::Definite(100.0), false),
+            "…but a width change still forces a replace"
+        );
+    }
+
+    #[test]
+    fn should_replace_with_is_the_negation_of_is_valid_for_when_floats_are_unchanged() {
+        let widths = [
+            AvailableSpace::Definite(0.0),
+            AvailableSpace::Definite(42.0),
+            AvailableSpace::MinContent,
+            AvailableSpace::MaxContent,
+        ];
+        for floats in [false, true] {
+            for cached_w in widths {
+                let c = cached(cached_w, floats);
+                for new_w in widths {
+                    assert_eq!(
+                        c.should_replace_with(new_w, floats),
+                        !c.is_valid_for(new_w, floats),
+                        "cached={cached_w:?} new={new_w:?} floats={floats}"
+                    );
+                }
+            }
+        }
+    }
+
+    // ==================================================================
+    // CachedInlineLayout — getters
+    // ==================================================================
+
+    #[test]
+    fn get_layout_and_clone_layout_hand_back_the_very_same_arc() {
+        let arc = layout_of(vec![tab_item(1.0, 2.0, 0.0, 0)]);
+        let c = CachedInlineLayout::new(Arc::clone(&arc), AvailableSpace::MaxContent, false);
+        assert!(Arc::ptr_eq(c.get_layout(), &arc));
+
+        let cloned = c.clone_layout();
+        assert!(Arc::ptr_eq(&cloned, &arc), "clone_layout must not deep-copy");
+        assert_eq!(
+            Arc::strong_count(&arc),
+            3,
+            "the original + the cache's + the clone"
+        );
+        assert_eq!(c.get_layout().items.len(), 1);
+    }
+
+    #[test]
+    fn get_layout_works_on_an_empty_extreme_instance() {
+        let c = cached(AvailableSpace::Definite(f32::NAN), true);
+        assert!(c.get_layout().items.is_empty());
+        assert!(c.clone_layout().items.is_empty());
+    }
+
+    // ==================================================================
+    // LayoutNode::split / LayoutTree::get_full_node — round-trip
+    // ==================================================================
+
+    #[test]
+    fn get_full_node_then_split_round_trips_through_the_soa_arrays() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        assert!(tree.nodes.len() >= 2);
+
+        for i in 0..tree.nodes.len() {
+            let full = tree.get_full_node(i).expect("in-range node");
+            let (h, w, c) = full.split();
+
+            let hot = tree.get(i).unwrap();
+            assert_eq!(h.dom_node_id, hot.dom_node_id, "node {i}");
+            assert_eq!(h.parent, hot.parent, "node {i}");
+            assert_eq!(h.used_size, hot.used_size, "node {i}");
+            assert_eq!(h.formatting_context, hot.formatting_context, "node {i}");
+            // box_props survive a pack → unpack → pack round-trip bit-for-bit.
+            assert_eq!(h.box_props.margin, hot.box_props.margin, "node {i}");
+            assert_eq!(h.box_props.padding, hot.box_props.padding, "node {i}");
+            assert_eq!(h.box_props.border, hot.box_props.border, "node {i}");
+
+            let warm = tree.warm(i).unwrap();
+            assert_eq!(w.pseudo_element, warm.pseudo_element, "node {i}");
+            assert_eq!(w.baseline, warm.baseline, "node {i}");
+            assert_eq!(
+                w.computed_style.display, warm.computed_style.display,
+                "node {i}"
+            );
+
+            let cold = tree.cold(i).unwrap();
+            assert_eq!(c.anonymous_type, cold.anonymous_type, "node {i}");
+            assert_eq!(c.dirty_flag, cold.dirty_flag, "node {i}");
+            assert_eq!(c.subtree_hash, cold.subtree_hash, "node {i}");
+            assert_eq!(c.ifc_id, cold.ifc_id, "node {i}");
+        }
+    }
+
+    #[test]
+    fn get_full_node_restores_the_children_from_the_arena() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        for i in 0..tree.nodes.len() {
+            let full = tree.get_full_node(i).unwrap();
+            assert_eq!(full.children, tree.children(i).to_vec(), "node {i}");
+        }
+    }
+
+    #[test]
+    fn get_full_node_is_none_out_of_range() {
+        let tree = build_tree(&mixed_dom());
+        assert!(tree.get_full_node(tree.nodes.len()).is_none());
+        assert!(tree.get_full_node(usize::MAX).is_none());
+    }
+
+    // ==================================================================
+    // LayoutTree — index-taking accessors (numeric / min-max / overflow)
+    // ==================================================================
+
+    #[test]
+    fn tree_accessors_return_none_for_every_out_of_range_index() {
+        let mut tree = build_tree(&mixed_dom());
+        let n = tree.nodes.len();
+        for idx in [n, n + 1, usize::MAX, usize::MAX - 1, usize::MAX / 2] {
+            assert!(tree.get(idx).is_none(), "get({idx})");
+            assert!(tree.warm(idx).is_none(), "warm({idx})");
+            assert!(tree.cold(idx).is_none(), "cold({idx})");
+            assert!(tree.get_mut(idx).is_none(), "get_mut({idx})");
+            assert!(tree.warm_mut(idx).is_none(), "warm_mut({idx})");
+            assert!(tree.cold_mut(idx).is_none(), "cold_mut({idx})");
+            assert!(tree.get_inline_layout_for_node(idx).is_none());
+        }
+    }
+
+    #[test]
+    fn tree_accessors_all_resolve_at_index_zero() {
+        let mut tree = build_tree(&mixed_dom());
+        assert!(tree.get(0).is_some());
+        assert!(tree.warm(0).is_some());
+        assert!(tree.cold(0).is_some());
+        assert!(tree.get_mut(0).is_some());
+        assert!(tree.warm_mut(0).is_some());
+        assert!(tree.cold_mut(0).is_some());
+        assert_eq!(tree.get(0).unwrap().parent, None, "index 0 is the root");
+    }
+
+    #[test]
+    fn children_of_an_out_of_range_index_is_an_empty_slice() {
+        let tree = build_tree(&mixed_dom());
+        assert!(tree.children(tree.nodes.len()).is_empty());
+        assert!(tree.children(usize::MAX).is_empty());
+        assert!(tree.children(usize::MAX - 1).is_empty());
+    }
+
+    #[test]
+    fn children_arena_slices_agree_with_the_parent_pointers() {
+        let tree = build_tree(&mixed_dom());
+        let n = tree.nodes.len();
+        let mut seen: Vec<usize> = Vec::new();
+        for i in 0..n {
+            for &child in tree.children(i) {
+                assert!(child < n, "child {child} of {i} is out of range");
+                assert_eq!(
+                    tree.get(child).unwrap().parent,
+                    Some(i),
+                    "child {child} does not point back at parent {i}"
+                );
+                seen.push(child);
+            }
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), n - 1, "every node but the root is someone's child");
+        assert!(!seen.contains(&tree.root), "the root is nobody's child");
+    }
+
+    #[test]
+    fn children_offsets_stay_inside_the_arena() {
+        let tree = build_tree(&mixed_dom());
+        assert_eq!(tree.children_offsets.len(), tree.nodes.len());
+        let total: usize = tree
+            .children_offsets
+            .iter()
+            .map(|&(_, len)| len as usize)
+            .sum();
+        assert_eq!(total, tree.children_arena.len());
+        for &(start, len) in &tree.children_offsets {
+            assert!((start as usize) + (len as usize) <= tree.children_arena.len());
+        }
+    }
+
+    #[test]
+    fn get_content_size_is_default_for_an_out_of_range_index() {
+        let tree = build_tree(&mixed_dom());
+        assert_eq!(tree.get_content_size(usize::MAX), LogicalSize::default());
+        assert_eq!(tree.get_content_size(tree.nodes.len()), LogicalSize::default());
+    }
+
+    #[test]
+    fn get_content_size_prefers_the_explicit_overflow_content_size() {
+        let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
+        tree.nodes[0].used_size = Some(LogicalSize::new(10.0, 10.0));
+        tree.warm[0].overflow_content_size = Some(LogicalSize::new(999.0, 888.0));
+        assert_eq!(tree.get_content_size(0), LogicalSize::new(999.0, 888.0));
+    }
+
+    #[test]
+    fn get_content_size_grows_the_used_size_to_cover_the_inline_items() {
+        let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
+        tree.nodes[0].used_size = Some(LogicalSize::new(10.0, 10.0));
+        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+            layout_of(vec![tab_item(30.0, 40.0, 25.0, 0)]),
+            AvailableSpace::MaxContent,
+            false,
+        ));
+        // item spans x ∈ [25, 55], y ∈ [0, 40]  →  content must cover 55 × 40.
+        let cs = tree.get_content_size(0);
+        assert_eq!(cs.width, 55.0);
+        assert_eq!(cs.height, 40.0);
+    }
+
+    #[test]
+    fn get_content_size_never_shrinks_below_the_used_size() {
+        let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
+        tree.nodes[0].used_size = Some(LogicalSize::new(500.0, 500.0));
+        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+            layout_of(vec![tab_item(1.0, 1.0, 0.0, 0)]),
+            AvailableSpace::MaxContent,
+            false,
+        ));
+        assert_eq!(tree.get_content_size(0), LogicalSize::new(500.0, 500.0));
+    }
+
+    #[test]
+    fn get_content_size_of_a_node_with_no_used_size_is_zero() {
+        let tree = raw_tree(vec![hot(None)], &[vec![]]);
+        assert_eq!(tree.get_content_size(0), LogicalSize::default());
+    }
+
+    // ==================================================================
+    // LayoutTree — IFC navigation
+    // ==================================================================
+
+    #[test]
+    fn get_ifc_root_layout_index_returns_the_input_unchanged_when_out_of_range() {
+        let tree = build_tree(&mixed_dom());
+        // Documented contract: no membership ⇒ identity. That must hold for
+        // garbage indices too, and it must not panic.
+        assert_eq!(tree.get_ifc_root_layout_index(usize::MAX), usize::MAX);
+        assert_eq!(tree.get_ifc_root_layout_index(0), 0);
+    }
+
+    #[test]
+    fn get_ifc_root_layout_index_follows_membership_only_for_non_ifc_roots() {
+        let mut tree = raw_tree(vec![hot(None), hot(Some(0))], &[vec![1], vec![]]);
+        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+            empty_layout(),
+            AvailableSpace::MaxContent,
+            false,
+        ));
+        tree.warm[1].ifc_membership = Some(IfcMembership {
+            ifc_id: IfcId(0),
+            ifc_root_layout_index: 0,
+            run_index: 0,
+        });
+
+        assert_eq!(tree.get_ifc_root_layout_index(1), 0, "a text node anchors to its IFC root");
+        assert_eq!(
+            tree.get_ifc_root_layout_index(0),
+            0,
+            "the IFC root itself is its own anchor"
+        );
+
+        // A node that owns an inline_layout_result must NOT be redirected, even
+        // if it also carries a (stale) membership.
+        tree.warm[0].ifc_membership = Some(IfcMembership {
+            ifc_id: IfcId(9),
+            ifc_root_layout_index: 1,
+            run_index: 0,
+        });
+        assert_eq!(tree.get_ifc_root_layout_index(0), 0);
+    }
+
+    #[test]
+    fn get_inline_layout_for_node_walks_membership_then_gives_up_cleanly() {
+        let mut tree = raw_tree(vec![hot(None), hot(Some(0)), hot(Some(0))], &[vec![1, 2]]);
+        let arc = empty_layout();
+        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+            Arc::clone(&arc),
+            AvailableSpace::MaxContent,
+            false,
+        ));
+        tree.warm[1].ifc_membership = Some(IfcMembership {
+            ifc_id: IfcId(0),
+            ifc_root_layout_index: 0,
+            run_index: 0,
+        });
+        // Node 2 has neither its own layout nor a membership.
+        assert!(Arc::ptr_eq(tree.get_inline_layout_for_node(0).unwrap(), &arc));
+        assert!(Arc::ptr_eq(tree.get_inline_layout_for_node(1).unwrap(), &arc));
+        assert!(tree.get_inline_layout_for_node(2).is_none());
+    }
+
+    #[test]
+    fn get_inline_layout_for_node_is_none_when_membership_dangles() {
+        // A membership pointing at a bogus root index must return None, not panic.
+        let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
+        tree.warm[0].ifc_membership = Some(IfcMembership {
+            ifc_id: IfcId(3),
+            ifc_root_layout_index: usize::MAX,
+            run_index: 0,
+        });
+        assert!(tree.get_inline_layout_for_node(0).is_none());
+
+        // …and when the referenced root exists but has no cached layout.
+        let mut tree = raw_tree(vec![hot(None), hot(Some(0))], &[vec![1], vec![]]);
+        tree.warm[1].ifc_membership = Some(IfcMembership {
+            ifc_id: IfcId(3),
+            ifc_root_layout_index: 0,
+            run_index: 0,
+        });
+        assert!(tree.get_inline_layout_for_node(1).is_none());
+    }
+
+    // ==================================================================
+    // LayoutTree — dirty flags
+    // ==================================================================
+
+    /// `0 → 1 → 2` chain plus a sibling `3` under `1`.
+    fn dirty_tree() -> LayoutTree {
+        raw_tree(
+            vec![hot(None), hot(Some(0)), hot(Some(1)), hot(Some(1))],
+            &[vec![1], vec![2, 3], vec![], vec![]],
+        )
+    }
+
+    #[test]
+    fn mark_dirty_walks_up_to_the_root() {
+        let mut tree = dirty_tree();
+        tree.mark_dirty(2, DirtyFlag::Layout);
+        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(3).unwrap().dirty_flag,
+            DirtyFlag::None,
+            "the sibling is untouched"
+        );
+    }
+
+    #[test]
+    fn mark_dirty_with_flag_none_is_a_no_op() {
+        let mut tree = dirty_tree();
+        tree.mark_dirty(2, DirtyFlag::None);
+        assert!(tree.cold.iter().all(|c| c.dirty_flag == DirtyFlag::None));
+    }
+
+    #[test]
+    fn mark_dirty_never_downgrades_an_existing_flag() {
+        let mut tree = dirty_tree();
+        tree.mark_dirty(2, DirtyFlag::Layout);
+        tree.mark_dirty(2, DirtyFlag::Paint);
+        assert_eq!(
+            tree.cold(2).unwrap().dirty_flag,
+            DirtyFlag::Layout,
+            "Layout > Paint — a Paint request must not weaken it"
+        );
+    }
+
+    #[test]
+    fn mark_dirty_upgrades_paint_to_layout_and_keeps_propagating() {
+        let mut tree = dirty_tree();
+        tree.mark_dirty(2, DirtyFlag::Paint);
+        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Paint);
+        tree.mark_dirty(2, DirtyFlag::Layout);
+        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
+    }
+
+    #[test]
+    fn mark_dirty_stops_early_when_an_ancestor_is_already_at_least_as_dirty() {
+        let mut tree = dirty_tree();
+        tree.mark_dirty(3, DirtyFlag::Layout); // marks 3, 1, 0
+        tree.mark_dirty(2, DirtyFlag::Layout); // marks 2, then stops at 1
+        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
+    }
+
+    #[test]
+    fn mark_dirty_out_of_range_is_a_silent_no_op() {
+        let mut tree = dirty_tree();
+        tree.mark_dirty(usize::MAX, DirtyFlag::Layout);
+        tree.mark_dirty(tree.nodes.len(), DirtyFlag::Layout);
+        assert!(tree.cold.iter().all(|c| c.dirty_flag == DirtyFlag::None));
+    }
+
+    #[test]
+    fn mark_dirty_terminates_on_a_cyclic_parent_chain() {
+        // Not reachable through the builder, but the `>= flag` early-out is the
+        // only thing standing between a corrupted parent pointer and a hang.
+        let mut tree = raw_tree(vec![hot(Some(1)), hot(Some(0))], &[vec![], vec![]]);
+        tree.mark_dirty(0, DirtyFlag::Layout);
+        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
+    }
+
+    #[test]
+    fn mark_dirty_terminates_when_a_node_is_its_own_parent() {
+        let mut tree = raw_tree(vec![hot(Some(0))], &[vec![]]);
+        tree.mark_dirty(0, DirtyFlag::Layout);
+        assert_eq!(tree.cold(0).unwrap().dirty_flag, DirtyFlag::Layout);
+    }
+
+    #[test]
+    fn mark_subtree_dirty_marks_descendants_but_not_ancestors_or_siblings() {
+        let mut tree = dirty_tree();
+        tree.mark_subtree_dirty(1, DirtyFlag::Layout);
+        assert_eq!(tree.cold(1).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(2).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(tree.cold(3).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(0).unwrap().dirty_flag,
+            DirtyFlag::None,
+            "mark_subtree_dirty walks DOWN only"
+        );
+    }
+
+    #[test]
+    fn mark_subtree_dirty_with_none_or_a_bad_index_is_a_no_op() {
+        let mut tree = dirty_tree();
+        tree.mark_subtree_dirty(0, DirtyFlag::None);
+        tree.mark_subtree_dirty(usize::MAX, DirtyFlag::Layout);
+        assert!(tree.cold.iter().all(|c| c.dirty_flag == DirtyFlag::None));
+    }
+
+    #[test]
+    fn mark_subtree_dirty_does_not_downgrade() {
+        let mut tree = dirty_tree();
+        tree.mark_subtree_dirty(0, DirtyFlag::Layout);
+        tree.mark_subtree_dirty(0, DirtyFlag::Paint);
+        assert!(tree.cold.iter().all(|c| c.dirty_flag == DirtyFlag::Layout));
+    }
+
+    #[test]
+    fn clear_all_dirty_flags_resets_every_node() {
+        let mut tree = dirty_tree();
+        tree.mark_subtree_dirty(0, DirtyFlag::Layout);
+        assert!(tree.cold.iter().any(|c| c.dirty_flag != DirtyFlag::None));
+        tree.clear_all_dirty_flags();
+        assert!(tree.cold.iter().all(|c| c.dirty_flag == DirtyFlag::None));
+    }
+
+    #[test]
+    fn clear_all_dirty_flags_on_an_empty_tree_does_not_panic() {
+        let mut tree = raw_tree(Vec::new(), &[]);
+        tree.clear_all_dirty_flags();
+        assert!(tree.cold.is_empty());
+    }
+
+    // ==================================================================
+    // LayoutTree — memory report (getters / numeric)
+    // ==================================================================
+
+    #[test]
+    fn memory_report_total_is_the_sum_of_its_parts() {
+        let tree = build_tree(&mixed_dom());
+        let r = tree.memory_report();
+        assert_eq!(r.node_count, tree.nodes.len());
+        assert_eq!(
+            r.total_bytes(),
+            r.hot_bytes
+                + r.warm_bytes
+                + r.warm_inline_layout_bytes
+                + r.warm_taffy_cache_bytes
+                + r.cold_bytes
+                + r.dom_to_layout_bytes
+                + r.children_arena_bytes
+                + r.children_offsets_bytes
+        );
+        assert!(r.hot_bytes >= r.node_count * size_of::<LayoutNodeHot>());
+        assert!(r.total_bytes() > 0, "a non-empty tree retains something");
+    }
+
+    #[test]
+    fn memory_report_of_an_empty_tree_is_all_zero() {
+        let tree = raw_tree(Vec::new(), &[]);
+        let r = tree.memory_report();
+        assert_eq!(r.node_count, 0);
+        assert_eq!(r.total_bytes(), 0);
+    }
+
+    #[test]
+    fn memory_report_total_bytes_default_is_zero() {
+        assert_eq!(LayoutTreeMemoryReport::default().total_bytes(), 0);
+    }
+
+    #[test]
+    fn memory_report_total_bytes_at_the_usize_boundary_does_not_overflow() {
+        // Eight fields, each usize::MAX / 8 → exactly usize::MAX - 7. One notch
+        // further and `total_bytes`'s plain `+` chain would overflow-panic in debug.
+        let eighth = usize::MAX / 8;
+        let r = LayoutTreeMemoryReport {
+            node_count: 0,
+            hot_bytes: eighth,
+            warm_bytes: eighth,
+            warm_inline_layout_bytes: eighth,
+            warm_taffy_cache_bytes: eighth,
+            cold_bytes: eighth,
+            dom_to_layout_bytes: eighth,
+            children_arena_bytes: eighth,
+            children_offsets_bytes: eighth,
+        };
+        assert_eq!(r.total_bytes(), eighth * 8);
+        assert_eq!(r.total_bytes(), usize::MAX - 7);
+    }
+
+    #[test]
+    fn memory_report_counts_a_cached_inline_layout() {
+        let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
+        let bare = tree.memory_report().warm_inline_layout_bytes;
+        assert_eq!(bare, 0);
+
+        tree.warm[0].inline_layout_result = Some(CachedInlineLayout::new(
+            layout_of(vec![tab_item(1.0, 1.0, 0.0, 0)]),
+            AvailableSpace::MaxContent,
+            false,
+        ));
+        assert!(
+            tree.memory_report().warm_inline_layout_bytes >= size_of::<UnifiedLayout>(),
+            "the UnifiedLayout header must at least be counted"
+        );
+    }
+
+    #[test]
+    fn root_node_returns_the_hot_node_at_the_root_index() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        let root = tree.root_node();
+        assert_eq!(root.parent, None);
+        assert_eq!(root.dom_node_id, sd.root.into_crate_internal());
+    }
+
+    // ==================================================================
+    // LayoutTree::resolve_box_props (numeric / NaN-inf)
+    // ==================================================================
+
+    #[test]
+    fn resolve_box_props_out_of_range_is_a_no_op() {
+        let mut tree = build_tree(&mixed_dom());
+        tree.resolve_box_props(usize::MAX, VIEWPORT, VIEWPORT, 16.0, 16.0);
+        tree.resolve_box_props(tree.nodes.len(), VIEWPORT, VIEWPORT, 16.0, 16.0);
+    }
+
+    #[test]
+    fn resolve_box_props_keeps_the_stored_props_finite_for_nan_and_inf_inputs() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("m")),
+            ".m { margin: 50%; padding: 10em; border: 1px solid black; }",
+        );
+        let mut tree = build_tree(&sd);
+
+        for (cb, vp, efs, rfs) in [
+            (
+                LogicalSize::new(f32::NAN, f32::NAN),
+                LogicalSize::new(f32::NAN, f32::NAN),
+                f32::NAN,
+                f32::NAN,
+            ),
+            (
+                LogicalSize::new(f32::INFINITY, f32::INFINITY),
+                LogicalSize::new(f32::INFINITY, f32::INFINITY),
+                f32::INFINITY,
+                f32::INFINITY,
+            ),
+            (
+                LogicalSize::new(f32::NEG_INFINITY, 0.0),
+                LogicalSize::new(0.0, f32::NEG_INFINITY),
+                f32::NEG_INFINITY,
+                0.0,
+            ),
+            (
+                LogicalSize::new(f32::MAX, f32::MAX),
+                LogicalSize::new(f32::MAX, f32::MAX),
+                f32::MAX,
+                f32::MAX,
+            ),
+            (
+                LogicalSize::new(0.0, 0.0),
+                LogicalSize::new(0.0, 0.0),
+                0.0,
+                0.0,
+            ),
+        ] {
+            tree.resolve_box_props(1, cb, vp, efs, rfs);
+            let bp = tree.get(1).unwrap().box_props.unpack();
+            for v in [
+                bp.margin.top,
+                bp.margin.right,
+                bp.margin.bottom,
+                bp.margin.left,
+                bp.padding.top,
+                bp.padding.left,
+                bp.border.top,
+                bp.border.left,
+            ] {
+                assert!(
+                    v.is_finite(),
+                    "the i16×10 packing must launder NaN/inf into a finite value, got {v}"
+                );
+                assert!(
+                    (-3277.0..=3277.0).contains(&v),
+                    "packed edges are clamped to ±3276.8px, got {v}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_box_props_resolves_percentages_against_the_containing_block() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("m")),
+            ".m { margin-left: 50%; }",
+        );
+        let mut tree = build_tree(&sd);
+        tree.resolve_box_props(1, LogicalSize::new(200.0, 100.0), VIEWPORT, 16.0, 16.0);
+        let bp = tree.get(1).unwrap().box_props.unpack();
+        assert!(
+            (bp.margin.left - 100.0).abs() < 0.2,
+            "50% of a 200px containing block ≈ 100px, got {}",
+            bp.margin.left
+        );
+    }
+
+    // ==================================================================
+    // Anonymous box generation via the real builder
+    // ==================================================================
+
+    #[test]
+    fn a_whitespace_only_inline_run_generates_no_anonymous_box() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        let ws = text_node(&sd, " \n\t");
+        assert!(
+            !tree.dom_to_layout.contains_key(&ws),
+            "CSS 2.1 §9.2.2.1: collapsible whitespace generates no box"
+        );
+        assert!(
+            tree.nodes.iter().all(|n| n.dom_node_id != Some(ws)),
+            "…and no layout node references it"
+        );
+    }
+
+    #[test]
+    fn a_real_inline_run_next_to_a_block_sibling_gets_exactly_one_anonymous_wrapper() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        let wrappers: Vec<usize> = (0..tree.nodes.len())
+            .filter(|&i| {
+                tree.cold(i).unwrap().anonymous_type == Some(AnonymousBoxType::InlineWrapper)
+            })
+            .collect();
+        assert_eq!(
+            wrappers.len(),
+            1,
+            "only the trailing `tail` run needs wrapping"
+        );
+
+        let w = wrappers[0];
+        assert_eq!(tree.get(w).unwrap().dom_node_id, None, "anon boxes have no DOM node");
+        assert_eq!(tree.cold(w).unwrap().dirty_flag, DirtyFlag::Layout);
+        let tail = text_node(&sd, "tail");
+        let kids = tree.children(w);
+        assert_eq!(kids.len(), 1);
+        assert_eq!(tree.get(kids[0]).unwrap().dom_node_id, Some(tail));
+    }
+
+    #[test]
+    fn an_all_inline_block_container_gets_no_anonymous_wrapper() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        // `.block` (DOM 1) holds only inline children — the all-inline fast path
+        // must hand them straight to the parent, with no wrapper in between.
+        let block_idx = (0..tree.nodes.len())
+            .find(|&i| tree.get(i).unwrap().dom_node_id == Some(NodeId::new(1)))
+            .expect("the .block layout node");
+        let kids = tree.children(block_idx);
+        assert_eq!(kids.len(), 2, "the text run and the inline div, unwrapped");
+        assert!(
+            kids.iter()
+                .all(|&c| tree.cold(c).unwrap().anonymous_type.is_none()),
+            "an all-inline block container needs no anonymous wrapper"
+        );
+        assert_eq!(
+            tree.get(block_idx).unwrap().formatting_context,
+            FormattingContext::Inline,
+            "it establishes an IFC instead"
+        );
+    }
+
+    #[test]
+    fn the_marker_pseudo_element_is_inserted_as_the_first_child_of_a_list_item() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("li").with_child(Dom::create_text("item"))),
+            ".li { display: list-item; }",
+        );
+        let tree = build_tree(&sd);
+
+        let marker = (0..tree.nodes.len())
+            .find(|&i| tree.warm(i).unwrap().pseudo_element == Some(PseudoElement::Marker))
+            .expect("display:list-item must generate a ::marker");
+        let li = tree.get(marker).unwrap().parent.expect("marker has a parent");
+        assert_eq!(
+            tree.children(li)[0],
+            marker,
+            "CSS Lists 3 §3.1: ::marker is the FIRST child"
+        );
+        assert_eq!(
+            tree.get(marker).unwrap().dom_node_id,
+            tree.get(li).unwrap().dom_node_id,
+            "the marker shares the list-item's DOM node for counter/style resolution"
+        );
+        assert_eq!(tree.get(marker).unwrap().formatting_context, FormattingContext::Inline);
+        assert!(
+            tree.dom_to_layout[&tree.get(li).unwrap().dom_node_id.unwrap()].contains(&marker),
+            "the marker is registered in dom_to_layout for counter resolution"
+        );
+    }
+
+    #[test]
+    fn display_none_children_never_reach_the_layout_tree() {
+        let sd = styled(
+            Dom::create_body()
+                .with_child(div_class("gone"))
+                .with_child(div_class("here")),
+            ".gone { display: none; } .here { display: block; }",
+        );
+        let tree = build_tree(&sd);
+        assert_eq!(
+            tree.children(tree.root).len(),
+            1,
+            "display:none generates no box"
+        );
+    }
+
+    #[test]
+    fn display_contents_promotes_its_children_to_the_grandparent() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("c").with_child(div_class("kid"))),
+            ".c { display: contents; } .kid { display: block; }",
+        );
+        let tree = build_tree(&sd);
+        // The `.c` box is removed from its parent's child list; `.kid` is hoisted.
+        let root_kids = tree.children(tree.root);
+        assert!(
+            root_kids
+                .iter()
+                .any(|&i| tree.warm(i).unwrap().computed_style.display == LayoutDisplay::Block),
+            "the promoted child must be a direct child of the root"
+        );
+    }
+
+    #[test]
+    fn a_table_with_a_bare_cell_gets_an_anonymous_row() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("t").with_child(div_class("cell"))),
+            ".t { display: table; } .cell { display: table-cell; }",
+        );
+        let tree = build_tree(&sd);
+        assert!(
+            (0..tree.nodes.len()).any(|i| {
+                tree.cold(i).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)
+            }),
+            "CSS 2.2 §17.2.1 stage 2: a non-proper table child is wrapped in an anonymous row"
+        );
+    }
+
+    #[test]
+    fn whitespace_between_table_rows_is_dropped_not_wrapped() {
+        let sd = styled(
+            Dom::create_body().with_child(
+                div_class("t")
+                    .with_child(Dom::create_text("   "))
+                    .with_child(div_class("row")),
+            ),
+            ".t { display: table; } .row { display: table-row; }",
+        );
+        let tree = build_tree(&sd);
+        let ws = text_node(&sd, "   ");
+        assert!(
+            !tree.dom_to_layout.contains_key(&ws),
+            "stage 1: irrelevant (whitespace) boxes are removed"
+        );
+        assert!(
+            !(0..tree.nodes.len())
+                .any(|i| tree.cold(i).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)),
+            "and no anonymous row is generated for it"
+        );
+    }
+
+    #[test]
+    fn table_column_children_are_suppressed_entirely() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("col").with_child(div_class("kid"))),
+            ".col { display: table-column; } .kid { display: block; }",
+        );
+        let tree = build_tree(&sd);
+        // CSS 2.2 §17.2.1: all children of a table-column are display:none.
+        let col = tree.children(tree.root)[0];
+        assert!(tree.children(col).is_empty());
+    }
+
+    // ==================================================================
+    // LayoutTreeBuilder (constructor / numeric / boundary)
+    // ==================================================================
+
+    #[test]
+    fn builder_new_starts_completely_empty() {
+        let b = LayoutTreeBuilder::new(VIEWPORT);
+        assert!(b.get(0).is_none());
+        assert!(b.get(usize::MAX).is_none());
+        assert!(b.nodes.is_empty());
+        assert!(b.dom_to_layout.is_empty());
+        assert_eq!(b.viewport_size, VIEWPORT);
+    }
+
+    #[test]
+    fn builder_new_accepts_degenerate_viewports() {
+        for vp in [
+            LogicalSize::new(0.0, 0.0),
+            LogicalSize::new(-1.0, -1.0),
+            LogicalSize::new(f32::MAX, f32::MAX),
+            LogicalSize::new(f32::NAN, f32::INFINITY),
+        ] {
+            let b = LayoutTreeBuilder::new(vp);
+            assert!(b.nodes.is_empty());
+        }
+    }
+
+    #[test]
+    fn builder_get_and_get_mut_are_none_out_of_range() {
+        let sd = mixed_dom();
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        assert_eq!(root, 0);
+        assert!(b.get(0).is_some());
+        assert!(b.get_mut(0).is_some());
+        for idx in [1, usize::MAX, usize::MAX - 1] {
+            assert!(b.get(idx).is_none(), "get({idx})");
+            assert!(b.get_mut(idx).is_none(), "get_mut({idx})");
+        }
+    }
+
+    #[test]
+    fn create_anonymous_node_wires_up_parent_children_and_cold_defaults() {
+        let sd = mixed_dom();
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let root_fc = b.get(root).unwrap().formatting_context;
+
+        let anon = b.create_anonymous_node(root, AnonymousBoxType::TableCell, FormattingContext::TableCell);
+        assert_eq!(anon, 1, "anon nodes are appended");
+
+        let n = b.get(anon).unwrap();
+        assert_eq!(n.dom_node_id, None, "anonymous ⇒ no DOM node");
+        assert_eq!(n.anonymous_type, Some(AnonymousBoxType::TableCell));
+        assert_eq!(n.formatting_context, FormattingContext::TableCell);
+        assert_eq!(n.parent, Some(root));
+        assert_eq!(n.parent_formatting_context, Some(root_fc));
+        assert_eq!(n.dirty_flag, DirtyFlag::Layout, "a fresh box needs layout");
+        assert!(n.children.is_empty());
+        assert_eq!(n.subtree_hash, SubtreeHash(0));
+        assert!(n.ifc_id.is_none());
+        assert_eq!(b.get(root).unwrap().children, vec![anon]);
+        assert!(
+            b.dom_to_layout.values().all(|v| !v.contains(&anon)),
+            "anon boxes are never registered in dom_to_layout"
+        );
+    }
+
+    #[test]
+    fn create_anonymous_node_appends_in_call_order() {
+        let sd = mixed_dom();
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let a = b.create_anonymous_node(root, AnonymousBoxType::TableRow, FormattingContext::TableRow);
+        let c = b.create_anonymous_node(root, AnonymousBoxType::TableCell, FormattingContext::TableCell);
+        assert_eq!((a, c), (1, 2));
+        assert_eq!(b.get(root).unwrap().children, vec![a, c]);
+    }
+
+    #[test]
+    fn create_node_from_dom_registers_the_dom_mapping_and_the_parent_link() {
+        let sd = mixed_dom();
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let child = b.create_node_from_dom(&sd, NodeId::new(1), Some(root), &mut msgs);
+
+        assert_eq!(b.get(child).unwrap().dom_node_id, Some(NodeId::new(1)));
+        assert_eq!(b.get(child).unwrap().parent, Some(root));
+        assert_eq!(b.get(root).unwrap().children, vec![child]);
+        assert_eq!(b.dom_to_layout[&NodeId::new(1)], vec![child]);
+        assert_eq!(b.get(child).unwrap().dirty_flag, DirtyFlag::Layout);
+    }
+
+    #[test]
+    fn create_node_from_dom_turns_the_roots_visible_overflow_into_auto() {
+        // CSS Overflow 3 §3.3 — only for the root (parent == None).
+        let sd = styled(Dom::create_body().with_child(div_class("d")), ".d { display: block; }");
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let child = b.create_node_from_dom(&sd, NodeId::new(1), Some(root), &mut msgs);
+
+        let root_style = &b.get(root).unwrap().computed_style;
+        assert_ne!(root_style.overflow_x, LayoutOverflow::Visible);
+        assert_ne!(root_style.overflow_y, LayoutOverflow::Visible);
+
+        let child_style = &b.get(child).unwrap().computed_style;
+        assert_eq!(
+            child_style.overflow_x,
+            LayoutOverflow::Visible,
+            "the rule applies to the viewport only, not to every node"
+        );
+    }
+
+    #[test]
+    fn clone_node_from_old_resets_children_and_dirty_state() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        let old_root = tree.get_full_node(0).unwrap();
+        let old_child = tree.get_full_node(1).unwrap();
+        assert!(!old_root.children.is_empty(), "the source root has children");
+
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let root = b.clone_node_from_old(&old_root, None);
+        let child = b.clone_node_from_old(&old_child, Some(root));
+        assert_eq!((root, child), (0, 1));
+
+        assert!(
+            b.get(root).unwrap().children == vec![child],
+            "the clone's children come only from later clone calls"
+        );
+        assert!(b.get(child).unwrap().children.is_empty());
+        assert_eq!(b.get(child).unwrap().parent, Some(root));
+        assert_eq!(b.get(child).unwrap().dirty_flag, DirtyFlag::None);
+        let root_fc = b.get(root).unwrap().formatting_context;
+        assert_eq!(b.get(child).unwrap().parent_formatting_context, Some(root_fc));
+    }
+
+    #[test]
+    fn clone_node_from_old_skips_dom_registration_for_anonymous_nodes() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        let anon = (0..tree.nodes.len())
+            .find(|&i| tree.cold(i).unwrap().anonymous_type.is_some())
+            .expect("mixed_dom generates one anonymous wrapper");
+        let old = tree.get_full_node(anon).unwrap();
+        assert_eq!(old.dom_node_id, None);
+
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let idx = b.clone_node_from_old(&old, None);
+        assert_eq!(idx, 0);
+        assert!(
+            b.dom_to_layout.is_empty(),
+            "a node with no dom_node_id must not create a mapping entry"
+        );
+    }
+
+    #[test]
+    fn build_flattens_children_into_the_arena_losslessly() {
+        let sd = mixed_dom();
+        let mut builder = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root_id = sd.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let root = builder.process_node(&sd, root_id, None, &mut msgs).unwrap();
+        let expected: Vec<Vec<usize>> = builder.nodes.iter().map(|n| n.children.clone()).collect();
+
+        let tree = builder.build(root);
+        assert_eq!(tree.nodes.len(), expected.len());
+        assert_eq!(tree.warm.len(), expected.len());
+        assert_eq!(tree.cold.len(), expected.len());
+        for (i, want) in expected.iter().enumerate() {
+            assert_eq!(tree.children(i), want.as_slice(), "node {i}");
+        }
+    }
+
+    #[test]
+    fn build_on_an_empty_builder_yields_an_empty_tree() {
+        let tree = LayoutTreeBuilder::new(VIEWPORT).build(0);
+        assert!(tree.nodes.is_empty());
+        assert!(tree.children_arena.is_empty());
+        assert!(tree.children_offsets.is_empty());
+        assert!(tree.subtree_needs_intrinsic.is_empty());
+        assert!(tree.get(0).is_none());
+        assert!(tree.children(0).is_empty());
+        assert_eq!(tree.get_content_size(0), LogicalSize::default());
+        assert_eq!(tree.memory_report().node_count, 0);
+    }
+
+    #[test]
+    fn build_with_an_out_of_range_root_index_does_not_panic() {
+        let sd = mixed_dom();
+        let mut builder = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        builder.process_node(&sd, NodeId::ZERO, None, &mut msgs).unwrap();
+
+        let tree = builder.build(usize::MAX);
+        assert_eq!(tree.root, usize::MAX, "build() stores the index verbatim");
+        assert!(tree.get(tree.root).is_none());
+        assert!(tree.children(tree.root).is_empty());
+        assert_eq!(tree.get_ifc_root_layout_index(tree.root), usize::MAX);
+    }
+
+    #[test]
+    fn blockify_node_display_blockifies_an_inline_flex_item() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("f").with_child(div_class("i"))),
+            ".f { display: flex; } .i { display: inline; }",
+        );
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let flex = b.create_node_from_dom(&sd, NodeId::new(1), Some(root), &mut msgs);
+        let item = b.create_node_from_dom(&sd, NodeId::new(2), Some(flex), &mut msgs);
+
+        assert_eq!(b.get(flex).unwrap().formatting_context, FormattingContext::Flex);
+        assert_eq!(b.get(item).unwrap().computed_style.display, LayoutDisplay::Inline);
+
+        b.blockify_node_display(&sd, NodeId::new(2), item, Some(flex));
+
+        assert_eq!(
+            b.get(item).unwrap().computed_style.display,
+            LayoutDisplay::Block,
+            "CSS Display 3 §2.7: a flex item's inline display blockifies"
+        );
+        assert!(matches!(
+            b.get(item).unwrap().formatting_context,
+            FormattingContext::Block { .. }
+        ));
+    }
+
+    #[test]
+    fn blockify_node_display_leaves_a_plain_block_child_alone() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("p").with_child(div_class("b"))),
+            ".p { display: block; } .b { display: block; }",
+        );
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let p = b.create_node_from_dom(&sd, NodeId::new(1), Some(root), &mut msgs);
+        let child = b.create_node_from_dom(&sd, NodeId::new(2), Some(p), &mut msgs);
+        let before = b.get(child).unwrap().formatting_context;
+
+        b.blockify_node_display(&sd, NodeId::new(2), child, Some(p));
+        assert_eq!(b.get(child).unwrap().computed_style.display, LayoutDisplay::Block);
+        assert_eq!(b.get(child).unwrap().formatting_context, before);
+    }
+
+    #[test]
+    fn blockify_node_display_with_a_bogus_node_index_is_a_no_op() {
+        let sd = mixed_dom();
+        let mut b = LayoutTreeBuilder::new(VIEWPORT);
+        let mut msgs = None;
+        let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        // A valid DOM id with a garbage layout index must not panic: both the
+        // read and the write go through `get`/`get_mut`.
+        b.blockify_node_display(&sd, NodeId::ZERO, usize::MAX, None);
+        b.blockify_node_display(&sd, NodeId::ZERO, 999, Some(usize::MAX));
+        assert_eq!(b.nodes.len(), 1);
+        assert!(b.get(root).is_some());
+    }
+
+    // ==================================================================
+    // blockify_flex_item_if_table_internal (numeric / slice bounds)
+    // ==================================================================
+
+    #[test]
+    fn blockify_flex_item_rewrites_every_table_internal_context() {
+        let tree = build_tree(&mixed_dom());
+        let mut nodes = vec![tree.get_full_node(0).unwrap()];
+
+        for fc in [
+            FormattingContext::TableCell,
+            FormattingContext::TableRow,
+            FormattingContext::TableRowGroup,
+            FormattingContext::TableColumnGroup,
+            FormattingContext::TableCaption,
+            FormattingContext::Table,
+        ] {
+            nodes[0].formatting_context = fc;
+            blockify_flex_item_if_table_internal(&mut nodes, 0);
+            assert_eq!(
+                nodes[0].formatting_context,
+                FormattingContext::Block {
+                    establishes_new_context: true
+                },
+                "{fc:?} is table-internal and must blockify"
+            );
+        }
+    }
+
+    #[test]
+    fn blockify_flex_item_leaves_non_table_contexts_untouched() {
+        let tree = build_tree(&mixed_dom());
+        let mut nodes = vec![tree.get_full_node(0).unwrap()];
+
+        for fc in [
+            FormattingContext::Inline,
+            FormattingContext::InlineBlock,
+            FormattingContext::Flex,
+            FormattingContext::Grid,
+            FormattingContext::None,
+            FormattingContext::Contents,
+            FormattingContext::Block {
+                establishes_new_context: false,
+            },
+        ] {
+            nodes[0].formatting_context = fc;
+            blockify_flex_item_if_table_internal(&mut nodes, 0);
+            assert_eq!(nodes[0].formatting_context, fc, "{fc:?} must be left alone");
+        }
+    }
+
+    #[test]
+    fn blockify_flex_item_out_of_range_or_empty_is_a_no_op() {
+        let tree = build_tree(&mixed_dom());
+        let mut nodes = vec![tree.get_full_node(0).unwrap()];
+        nodes[0].formatting_context = FormattingContext::TableCell;
+
+        blockify_flex_item_if_table_internal(&mut nodes, 1);
+        blockify_flex_item_if_table_internal(&mut nodes, usize::MAX);
+        blockify_flex_item_if_table_internal(&mut [], 0);
+        blockify_flex_item_if_table_internal(&mut [], usize::MAX);
+        assert_eq!(nodes[0].formatting_context, FormattingContext::TableCell);
+    }
+
+    #[test]
+    fn table_cell_flex_items_do_not_produce_anonymous_table_boxes() {
+        // CSS Flexbox §3: two `display:table-cell` flex items become two
+        // independent block flex items, NOT one anonymous table row.
+        let sd = styled(
+            Dom::create_body().with_child(
+                div_class("f")
+                    .with_child(div_class("c"))
+                    .with_child(div_class("c")),
+            ),
+            ".f { display: flex; } .c { display: table-cell; }",
+        );
+        let tree = build_tree(&sd);
+        assert!(
+            (0..tree.nodes.len()).all(|i| tree.cold(i).unwrap().anonymous_type.is_none()),
+            "no anonymous table boxes for blockified flex items"
+        );
+        let flex = tree.children(tree.root)[0];
+        for &c in tree.children(flex) {
+            assert!(matches!(
+                tree.get(c).unwrap().formatting_context,
+                FormattingContext::Block { .. }
+            ));
+        }
+    }
+
+    // ==================================================================
+    // Shrink-to-fit bitmap
+    // ==================================================================
+
+    #[test]
+    fn is_shrink_to_fit_context_is_true_for_the_intrinsic_reading_contexts() {
+        let sd = mixed_dom();
+        for fc in [
+            FormattingContext::Flex,
+            FormattingContext::Grid,
+            FormattingContext::Table,
+            FormattingContext::InlineBlock,
+        ] {
+            assert!(
+                is_shrink_to_fit_context(&sd, None, fc),
+                "{fc:?} sizes from children's intrinsics"
+            );
+        }
+    }
+
+    #[test]
+    fn is_shrink_to_fit_context_is_false_for_a_plain_block_with_no_dom_node() {
+        let sd = mixed_dom();
+        for fc in [
+            FormattingContext::Block {
+                establishes_new_context: false,
+            },
+            FormattingContext::Block {
+                establishes_new_context: true,
+            },
+            FormattingContext::Inline,
+            FormattingContext::None,
+            FormattingContext::TableRow,
+        ] {
+            assert!(
+                !is_shrink_to_fit_context(&sd, None, fc),
+                "{fc:?} with no DOM node cannot be float/abspos ⇒ not STF"
+            );
+        }
+    }
+
+    #[test]
+    fn is_shrink_to_fit_context_catches_floats_and_abspos() {
+        let sd = styled(
+            Dom::create_body()
+                .with_child(div_class("fl"))
+                .with_child(div_class("ab"))
+                .with_child(div_class("fx"))
+                .with_child(div_class("plain")),
+            ".fl { float: left; } .ab { position: absolute; } .fx { position: fixed; } .plain { \
+             display: block; }",
+        );
+        let block = FormattingContext::Block {
+            establishes_new_context: false,
+        };
+        assert!(is_shrink_to_fit_context(&sd, Some(NodeId::new(1)), block), "float:left");
+        assert!(is_shrink_to_fit_context(&sd, Some(NodeId::new(2)), block), "position:absolute");
+        assert!(is_shrink_to_fit_context(&sd, Some(NodeId::new(3)), block), "position:fixed");
+        assert!(
+            !is_shrink_to_fit_context(&sd, Some(NodeId::new(4)), block),
+            "an in-flow static block is sized top-down ⇒ not STF"
+        );
+    }
+
+    #[test]
+    fn compute_subtree_needs_intrinsic_is_one_bit_per_node() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        let bits = compute_subtree_needs_intrinsic(&sd, &tree);
+        assert_eq!(bits.len(), tree.nodes.len());
+        assert_eq!(tree.subtree_needs_intrinsic.len(), tree.nodes.len());
+    }
+
+    #[test]
+    fn compute_subtree_needs_intrinsic_is_all_false_for_a_pure_block_tree() {
+        let sd = mixed_dom();
+        let tree = build_tree(&sd);
+        assert!(
+            compute_subtree_needs_intrinsic(&sd, &tree)
+                .iter()
+                .all(|b| !b),
+            "nothing in mixed_dom() is flex/grid/table/float/abspos"
+        );
+    }
+
+    #[test]
+    fn compute_subtree_needs_intrinsic_propagates_a_deep_flex_up_to_the_root() {
+        let sd = styled(
+            Dom::create_body().with_child(
+                div_class("a")
+                    .with_child(div_class("b").with_child(div_class("f"))),
+            ),
+            ".a { display: block; } .b { display: block; } .f { display: flex; }",
+        );
+        let tree = build_tree(&sd);
+        let bits = compute_subtree_needs_intrinsic(&sd, &tree);
+        assert!(bits[tree.root], "out[i] = self || any(children) — must reach the root");
+        assert!(bits.iter().all(|b| *b), "every node on the chain is on the flex path");
+    }
+
+    #[test]
+    fn compute_subtree_needs_intrinsic_leaves_a_flex_free_sibling_branch_false() {
+        let sd = styled(
+            Dom::create_body()
+                .with_child(div_class("f"))
+                .with_child(div_class("plain")),
+            ".f { display: flex; } .plain { display: block; }",
+        );
+        let tree = build_tree(&sd);
+        let bits = compute_subtree_needs_intrinsic(&sd, &tree);
+        let kids = tree.children(tree.root);
+        let flex = kids
+            .iter()
+            .copied()
+            .find(|&i| tree.get(i).unwrap().formatting_context == FormattingContext::Flex)
+            .expect("the flex child");
+        let plain = kids.iter().copied().find(|&i| i != flex).expect("the plain child");
+        assert!(bits[flex]);
+        assert!(!bits[plain], "a sibling that reads no intrinsics stays false");
+        assert!(bits[tree.root], "…but the root still sees the flex branch");
+    }
+
+    #[test]
+    fn compute_subtree_needs_intrinsic_on_an_empty_tree_is_empty() {
+        let sd = mixed_dom();
+        let tree = raw_tree(Vec::new(), &[]);
+        assert!(compute_subtree_needs_intrinsic(&sd, &tree).is_empty());
+    }
+
+    // ==================================================================
+    // Level / display predicates
+    // ==================================================================
+
+    #[test]
+    fn is_block_level_matches_the_block_level_display_values() {
+        let sd = styled(
+            Dom::create_body()
+                .with_child(div_class("b"))
+                .with_child(div_class("i")),
+            ".b { display: block; } .i { display: inline; }",
+        );
+        assert!(is_block_level(&sd, NodeId::new(1)));
+        assert!(!is_block_level(&sd, NodeId::new(2)));
+    }
+
+    #[test]
+    fn is_block_level_covers_the_table_and_list_item_families() {
+        for (css_display, want) in [
+            ("block", true),
+            ("flow-root", true),
+            ("flex", true),
+            ("grid", true),
+            ("table", true),
+            ("table-row", true),
+            ("table-cell", true),
+            ("table-caption", true),
+            ("list-item", true),
+            ("inline", false),
+            ("inline-block", false),
+            ("inline-flex", false),
+            ("inline-grid", false),
+            ("inline-table", false),
+            ("none", false),
+        ] {
+            let sd = styled(
+                Dom::create_body().with_child(div_class("x")),
+                &format!(".x {{ display: {css_display}; }}"),
+            );
+            assert_eq!(
+                is_block_level(&sd, NodeId::new(1)),
+                want,
+                "display:{css_display}"
+            );
+        }
+    }
+
+    #[test]
+    fn is_inline_level_is_always_true_for_text_regardless_of_display() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("b").with_child(Dom::create_text("t"))),
+            ".b { display: block; }",
+        );
+        let t = text_node(&sd, "t");
+        assert!(is_inline_level(&sd, t), "text nodes are inline-level by definition");
+        assert!(!is_inline_level(&sd, NodeId::new(1)), "the block div is not");
+    }
+
+    #[test]
+    fn is_inline_level_matches_the_inline_display_family() {
+        for (css_display, want) in [
+            ("inline", true),
+            ("inline-block", true),
+            ("inline-table", true),
+            ("inline-flex", true),
+            ("inline-grid", true),
+            ("block", false),
+            ("flex", false),
+            ("table", false),
+            ("list-item", false),
+        ] {
+            let sd = styled(
+                Dom::create_body().with_child(div_class("x")),
+                &format!(".x {{ display: {css_display}; }}"),
+            );
+            assert_eq!(
+                is_inline_level(&sd, NodeId::new(1)),
+                want,
+                "display:{css_display}"
+            );
+        }
+    }
+
+    #[test]
+    fn block_and_inline_level_are_mutually_exclusive_for_element_nodes() {
+        for css_display in [
+            "block",
+            "inline",
+            "inline-block",
+            "flex",
+            "inline-flex",
+            "grid",
+            "table",
+            "list-item",
+        ] {
+            let sd = styled(
+                Dom::create_body().with_child(div_class("x")),
+                &format!(".x {{ display: {css_display}; }}"),
+            );
+            let id = NodeId::new(1);
+            assert!(
+                !(is_block_level(&sd, id) && is_inline_level(&sd, id)),
+                "display:{css_display} cannot be both block- and inline-level"
+            );
+        }
+    }
+
+    #[test]
+    fn has_only_inline_children_is_false_for_a_childless_node() {
+        let sd = styled(Dom::create_body().with_child(div_class("e")), ".e { display: block; }");
+        assert!(
+            !has_only_inline_children(&sd, NodeId::new(1)),
+            "no children ⇒ no IFC (it's empty, not inline)"
+        );
+    }
+
+    #[test]
+    fn has_only_inline_children_is_true_for_an_all_inline_run() {
+        let sd = mixed_dom();
+        // `.block` (DOM 1) holds a text node and an inline div.
+        assert!(has_only_inline_children(&sd, NodeId::new(1)));
+    }
+
+    #[test]
+    fn has_only_inline_children_is_false_as_soon_as_one_block_child_appears() {
+        let sd = mixed_dom();
+        // `.mixed` (DOM 5) holds text + a block div + text.
+        assert!(!has_only_inline_children(&sd, NodeId::new(5)));
+    }
+
+    #[test]
+    fn has_only_inline_children_is_false_for_an_out_of_range_node_id() {
+        let sd = mixed_dom();
+        let past_end = NodeId::new(sd.node_data.len() + 10);
+        assert!(
+            !has_only_inline_children(&sd, past_end),
+            "the hierarchy lookup is a `.get`, so a bogus id must be false, not a panic"
+        );
+        assert!(!has_only_inline_children(&sd, NodeId::new(usize::MAX / 2)));
+    }
+
+    // ==================================================================
+    // is_whitespace_only_text (predicate / unicode / boundary)
+    // ==================================================================
+
+    fn ws_dom(text: &str, css: &str) -> StyledDom {
+        styled(
+            Dom::create_body().with_child(div_class("p").with_child(Dom::create_text(text))),
+            css,
+        )
+    }
+
+    #[test]
+    fn is_whitespace_only_text_recognises_the_css_document_whitespace_set() {
+        // CSS Text 3 §4.1: space, tab, CR, LF, FF.
+        for text in [" ", "\t", "\n", "\r", "\u{000C}", " \t\r\n\u{000C} "] {
+            let sd = ws_dom(text, "");
+            let id = NodeId::new(2);
+            assert!(
+                is_whitespace_only_text(&sd, id),
+                "{text:?} is collapsible document whitespace"
+            );
+        }
+    }
+
+    #[test]
+    fn is_whitespace_only_text_rejects_unicode_spaces_that_css_does_not_collapse() {
+        // NBSP, ideographic space, en/em space, zero-width space, line separator:
+        // none of these are in the CSS document-whitespace set.
+        for text in [
+            "\u{00A0}",
+            "\u{3000}",
+            "\u{2002}",
+            "\u{2003}",
+            "\u{200B}",
+            "\u{2028}",
+            " \u{00A0} ",
+        ] {
+            let sd = ws_dom(text, "");
+            assert!(
+                !is_whitespace_only_text(&sd, NodeId::new(2)),
+                "{text:?} must NOT be treated as collapsible whitespace"
+            );
+        }
+    }
+
+    #[test]
+    fn is_whitespace_only_text_is_false_for_real_text() {
+        for text in ["hi", " hi ", "\u{1F600}", "a\nb"] {
+            let sd = ws_dom(text, "");
+            assert!(!is_whitespace_only_text(&sd, NodeId::new(2)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn is_whitespace_only_text_treats_the_empty_string_as_whitespace() {
+        // `"".chars().all(..)` is vacuously true — an empty text node is
+        // collapsible and generates no anonymous inline box.
+        let sd = ws_dom("", "");
+        assert!(is_whitespace_only_text(&sd, NodeId::new(2)));
+    }
+
+    #[test]
+    fn is_whitespace_only_text_respects_whitespace_preserving_modes() {
+        for (ws, collapses) in [
+            ("normal", true),
+            ("nowrap", true),
+            ("pre-line", true),
+            ("pre", false),
+            ("pre-wrap", false),
+            ("break-spaces", false),
+        ] {
+            let sd = ws_dom(" \n ", &format!(".p {{ white-space: {ws}; }}"));
+            assert_eq!(
+                is_whitespace_only_text(&sd, NodeId::new(2)),
+                collapses,
+                "white-space:{ws} — preserved whitespace still generates a box"
+            );
+        }
+    }
+
+    #[test]
+    fn is_whitespace_only_text_is_false_for_non_text_and_bogus_nodes() {
+        let sd = mixed_dom();
+        assert!(!is_whitespace_only_text(&sd, NodeId::new(1)), "a div is not text");
+        assert!(!is_whitespace_only_text(&sd, NodeId::ZERO), "the body is not text");
+        let past_end = NodeId::new(sd.node_data.len() + 1);
+        assert!(
+            !is_whitespace_only_text(&sd, past_end),
+            "an out-of-range id must return false, not panic"
+        );
+        assert!(!is_whitespace_only_text(&sd, NodeId::new(usize::MAX / 2)));
+    }
+
+    // ==================================================================
+    // Table-structure predicates
+    // ==================================================================
+
+    #[test]
+    fn should_skip_for_table_structure_only_fires_inside_table_parents() {
+        let sd = ws_dom(" ", "");
+        let ws = NodeId::new(2);
+        for parent in [
+            LayoutDisplay::Table,
+            LayoutDisplay::InlineTable,
+            LayoutDisplay::TableRowGroup,
+            LayoutDisplay::TableHeaderGroup,
+            LayoutDisplay::TableFooterGroup,
+            LayoutDisplay::TableRow,
+        ] {
+            assert!(
+                should_skip_for_table_structure(&sd, ws, parent),
+                "whitespace under {parent:?} is an irrelevant box"
+            );
+        }
+        for parent in [
+            LayoutDisplay::Block,
+            LayoutDisplay::Inline,
+            LayoutDisplay::Flex,
+            LayoutDisplay::TableCell,
+            LayoutDisplay::TableCaption,
+            LayoutDisplay::TableColumn,
+        ] {
+            assert!(
+                !should_skip_for_table_structure(&sd, ws, parent),
+                "whitespace under {parent:?} is NOT skipped by §17.2.1 stage 1"
+            );
+        }
+    }
+
+    #[test]
+    fn should_skip_for_table_structure_never_skips_real_content() {
+        let sd = ws_dom("cell text", "");
+        for parent in ALL_DISPLAYS {
+            assert!(
+                !should_skip_for_table_structure(&sd, NodeId::new(2), parent),
+                "non-whitespace text must never be dropped (parent {parent:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn is_proper_table_child_matches_exactly_the_seven_spec_values() {
+        let proper = [
+            LayoutDisplay::TableRowGroup,
+            LayoutDisplay::TableHeaderGroup,
+            LayoutDisplay::TableFooterGroup,
+            LayoutDisplay::TableRow,
+            LayoutDisplay::TableColumnGroup,
+            LayoutDisplay::TableColumn,
+            LayoutDisplay::TableCaption,
+        ];
+        for d in ALL_DISPLAYS {
+            assert_eq!(
+                is_proper_table_child(d),
+                proper.contains(&d),
+                "CSS 2.2 §17.2.1 proper-table-child set: {d:?}"
+            );
+        }
+        assert!(
+            !is_proper_table_child(LayoutDisplay::TableCell),
+            "a cell is a proper child of a ROW, not of a table"
+        );
+    }
+
+    // ==================================================================
+    // is_replaced_element
+    // ==================================================================
+
+    #[test]
+    fn is_replaced_element_covers_the_css_display_3_appendix_b_set() {
+        for nt in [
+            NodeType::Br,
+            NodeType::Wbr,
+            NodeType::Meter,
+            NodeType::Progress,
+            NodeType::Canvas,
+            NodeType::Embed,
+            NodeType::Object,
+            NodeType::Audio,
+            NodeType::Video,
+            NodeType::Input,
+            NodeType::TextArea,
+            NodeType::Select,
+            NodeType::VirtualView,
+        ] {
+            let nd = NodeData::create_node(nt.clone());
+            assert!(is_replaced_element(&nd), "{nt:?} is a replaced element");
+        }
+
+        let img = NodeData::create_image(ImageRef::null_image(
+            1,
+            1,
+            RawImageFormat::R8,
+            Vec::new(),
+        ));
+        assert!(is_replaced_element(&img), "an <img> is the canonical replaced element");
+    }
+
+    #[test]
+    fn is_replaced_element_is_false_for_ordinary_containers_and_text() {
+        for nt in [
+            NodeType::Div,
+            NodeType::Body,
+            NodeType::Html,
+            NodeType::P,
+            NodeType::Span,
+            NodeType::Table,
+            NodeType::Button,
+            NodeType::Label,
+            NodeType::Hr,
+        ] {
+            let nd = NodeData::create_node(nt.clone());
+            assert!(!is_replaced_element(&nd), "{nt:?} is not replaced");
+        }
+        assert!(!is_replaced_element(&NodeData::create_text("hello")));
+    }
+
+    #[test]
+    fn display_contents_on_a_replaced_element_degrades_to_display_none() {
+        // CSS Display 3 §2.5: a replaced element cannot be un-boxed.
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_from_data(NodeData::create_node(NodeType::Br))
+                    .with_ids_and_classes(vec![IdOrClass::Class("c".into())].into()),
+            ),
+            ".c { display: contents; }",
+        );
+        let tree = build_tree(&sd);
+        assert!(
+            tree.children(tree.root).is_empty(),
+            "the <br> must be dropped from its parent's child list"
+        );
+        let br = (0..tree.nodes.len())
+            .find(|&i| tree.get(i).unwrap().dom_node_id == Some(NodeId::new(1)))
+            .expect("the node object still exists, just unparented");
+        assert_eq!(
+            tree.warm(br).unwrap().computed_style.display,
+            LayoutDisplay::None
+        );
+        assert_eq!(tree.get(br).unwrap().formatting_context, FormattingContext::None);
+    }
+
+    // ==================================================================
+    // get_display_type
+    // ==================================================================
+
+    #[test]
+    fn get_display_type_reads_the_computed_display() {
+        for (css_display, want) in [
+            ("none", LayoutDisplay::None),
+            ("block", LayoutDisplay::Block),
+            ("inline", LayoutDisplay::Inline),
+            ("inline-block", LayoutDisplay::InlineBlock),
+            ("flex", LayoutDisplay::Flex),
+            ("grid", LayoutDisplay::Grid),
+            ("table", LayoutDisplay::Table),
+            ("table-row", LayoutDisplay::TableRow),
+            ("table-cell", LayoutDisplay::TableCell),
+            ("flow-root", LayoutDisplay::FlowRoot),
+            ("list-item", LayoutDisplay::ListItem),
+            ("contents", LayoutDisplay::Contents),
+        ] {
+            let sd = styled(
+                Dom::create_body().with_child(div_class("x")),
+                &format!(".x {{ display: {css_display}; }}"),
+            );
+            assert_eq!(
+                get_display_type(&sd, NodeId::new(1)),
+                want,
+                "display:{css_display}"
+            );
+        }
+    }
+
+    #[test]
+    fn get_display_type_is_stable_across_repeated_calls() {
+        let sd = mixed_dom();
+        for i in 0..sd.node_data.len() {
+            let id = NodeId::new(i);
+            let a = get_display_type(&sd, id);
+            let b = get_display_type(&sd, id);
+            assert_eq!(a, b, "node {i} must be deterministic");
+        }
+    }
+
+    // ==================================================================
+    // Formatting-context determination
+    // ==================================================================
+
+    #[test]
+    fn determine_formatting_context_is_inline_for_every_text_node() {
+        let sd = mixed_dom();
+        for needle in ["hello", "world", "tail", " \n\t"] {
+            let id = text_node(&sd, needle);
+            assert_eq!(
+                determine_formatting_context(&sd, id),
+                FormattingContext::Inline,
+                "text node {needle:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn determine_formatting_context_for_display_ignores_display_on_text_nodes() {
+        // The text early-out fires before the display match — a text node is
+        // Inline even if you hand it `display: grid`.
+        let sd = mixed_dom();
+        let t = text_node(&sd, "hello");
+        for d in ALL_DISPLAYS {
+            assert_eq!(
+                determine_formatting_context_for_display(&sd, t, d),
+                FormattingContext::Inline,
+                "text + display:{d:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn determine_formatting_context_for_display_maps_each_display_value() {
+        let sd = styled(Dom::create_body().with_child(div_class("x")), ".x { display: block; }");
+        let id = NodeId::new(1);
+        for (d, want) in [
+            (LayoutDisplay::Inline, FormattingContext::Inline),
+            (
+                LayoutDisplay::FlowRoot,
+                FormattingContext::Block {
+                    establishes_new_context: true,
+                },
+            ),
+            (LayoutDisplay::InlineBlock, FormattingContext::InlineBlock),
+            (LayoutDisplay::Table, FormattingContext::Table),
+            (LayoutDisplay::InlineTable, FormattingContext::Table),
+            (LayoutDisplay::TableRowGroup, FormattingContext::TableRowGroup),
+            (LayoutDisplay::TableHeaderGroup, FormattingContext::TableRowGroup),
+            (LayoutDisplay::TableFooterGroup, FormattingContext::TableRowGroup),
+            (LayoutDisplay::TableRow, FormattingContext::TableRow),
+            (LayoutDisplay::TableCell, FormattingContext::TableCell),
+            (LayoutDisplay::TableColumnGroup, FormattingContext::TableColumnGroup),
+            (LayoutDisplay::TableCaption, FormattingContext::TableCaption),
+            (LayoutDisplay::TableColumn, FormattingContext::None),
+            (LayoutDisplay::None, FormattingContext::None),
+            (LayoutDisplay::Flex, FormattingContext::Flex),
+            (LayoutDisplay::InlineFlex, FormattingContext::Flex),
+            (LayoutDisplay::Grid, FormattingContext::Grid),
+            (LayoutDisplay::InlineGrid, FormattingContext::Grid),
+            (LayoutDisplay::Contents, FormattingContext::Contents),
+            (
+                LayoutDisplay::RunIn,
+                FormattingContext::Block {
+                    establishes_new_context: true,
+                },
+            ),
+            (
+                LayoutDisplay::Marker,
+                FormattingContext::Block {
+                    establishes_new_context: true,
+                },
+            ),
+        ] {
+            assert_eq!(
+                determine_formatting_context_for_display(&sd, id, d),
+                want,
+                "display:{d:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn determine_formatting_context_for_display_never_panics_on_any_display_value() {
+        let sd = styled(Dom::create_body().with_child(div_class("x")), ".x { display: block; }");
+        for d in ALL_DISPLAYS {
+            let _ = determine_formatting_context_for_display(&sd, NodeId::new(1), d);
+            let _ = determine_formatting_context_for_display(&sd, NodeId::ZERO, d);
+        }
+    }
+
+    #[test]
+    fn a_block_with_only_inline_children_establishes_an_ifc() {
+        let sd = mixed_dom();
+        assert_eq!(
+            determine_formatting_context(&sd, NodeId::new(1)),
+            FormattingContext::Inline,
+            "CSS 2.2 §9.4.2: a block container with no block-level boxes establishes an IFC"
+        );
+    }
+
+    #[test]
+    fn a_block_with_a_block_child_stays_a_bfc() {
+        let sd = mixed_dom();
+        assert!(matches!(
+            determine_formatting_context(&sd, NodeId::new(5)),
+            FormattingContext::Block { .. }
+        ));
+    }
+
+    #[test]
+    fn establishes_new_bfc_for_the_unconditional_display_values() {
+        for css_display in ["inline-block", "table-cell", "table-caption", "flow-root"] {
+            let sd = styled(
+                Dom::create_body().with_child(div_class("x")),
+                &format!(".x {{ display: {css_display}; }}"),
+            );
+            assert!(
+                establishes_new_block_formatting_context(&sd, NodeId::new(1)),
+                "display:{css_display} always establishes a BFC"
+            );
+        }
+    }
+
+    #[test]
+    fn establishes_new_bfc_for_non_visible_overflow_floats_and_abspos() {
+        for css in [
+            ".x { display: block; overflow-x: hidden; }",
+            ".x { display: block; overflow-y: scroll; }",
+            ".x { display: block; overflow: auto; }",
+            ".x { display: block; float: left; }",
+            ".x { display: block; float: right; }",
+            ".x { display: block; position: absolute; }",
+            ".x { display: block; position: fixed; }",
+        ] {
+            let sd = styled(Dom::create_body().with_child(div_class("x")), css);
+            assert!(
+                establishes_new_block_formatting_context(&sd, NodeId::new(1)),
+                "{css} must establish a BFC"
+            );
+        }
+    }
+
+    #[test]
+    fn establishes_new_bfc_is_false_for_a_plain_in_flow_block() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("x")),
+            ".x { display: block; }",
+        );
+        assert!(
+            !establishes_new_block_formatting_context(&sd, NodeId::new(1)),
+            "a static, visible-overflow, unfloated block does not open a BFC"
+        );
+    }
+
+    #[test]
+    fn establishes_new_bfc_for_the_root_and_for_replaced_elements() {
+        let sd = styled(
+            Dom::create_body().with_child(Dom::create_from_data(NodeData::create_node(NodeType::Br))),
+            "",
+        );
+        assert!(
+            establishes_new_block_formatting_context(&sd, NodeId::ZERO),
+            "the root element always establishes a BFC"
+        );
+        assert!(
+            establishes_new_block_formatting_context(&sd, NodeId::new(1)),
+            "replaced elements always establish an independent formatting context"
+        );
+    }
+
+    // ==================================================================
+    // compute_layout_style
+    // ==================================================================
+
+    #[test]
+    fn compute_layout_style_captures_every_property_it_advertises() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("x")),
+            ".x { display: flex; position: absolute; overflow-x: hidden; overflow-y: scroll; \
+             width: 50px; height: 60px; min-width: 10px; min-height: 11px; max-width: 99px; \
+             max-height: 98px; text-align: center; }",
+        );
+        let s = compute_layout_style(&sd, NodeId::new(1));
+        assert_eq!(s.display, LayoutDisplay::Flex);
+        assert_eq!(s.position, LayoutPosition::Absolute);
+        assert_eq!(s.overflow_x, LayoutOverflow::Hidden);
+        assert_eq!(s.overflow_y, LayoutOverflow::Scroll);
+        assert_eq!(s.text_align, StyleTextAlign::Center);
+        assert!(s.width.is_some());
+        assert!(s.height.is_some());
+        assert!(s.min_width.is_some());
+        assert!(s.min_height.is_some());
+        assert!(s.max_width.is_some());
+        assert!(s.max_height.is_some());
+    }
+
+    #[test]
+    fn compute_layout_style_leaves_auto_sizes_as_none() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("x")),
+            ".x { display: block; }",
+        );
+        let s = compute_layout_style(&sd, NodeId::new(1));
+        assert!(s.width.is_none(), "auto width must be None, not 0px");
+        assert!(s.height.is_none());
+        assert!(s.max_width.is_none());
+        assert!(s.max_height.is_none());
+        assert_eq!(s.float, LayoutFloat::None);
+        assert_eq!(s.position, LayoutPosition::Static);
+    }
+
+    #[test]
+    fn compute_layout_style_reads_float_left_and_right() {
+        for (css, want) in [("left", LayoutFloat::Left), ("right", LayoutFloat::Right)] {
+            let sd = styled(
+                Dom::create_body().with_child(div_class("x")),
+                &format!(".x {{ float: {css}; }}"),
+            );
+            assert_eq!(compute_layout_style(&sd, NodeId::new(1)).float, want);
+        }
+    }
+
+    #[test]
+    fn compute_layout_style_never_panics_on_any_node_of_a_real_dom() {
+        let sd = mixed_dom();
+        for i in 0..sd.node_data.len() {
+            let _ = compute_layout_style(&sd, NodeId::new(i));
+        }
+    }
+
+    // ==================================================================
+    // Font-size helpers
+    // ==================================================================
+
+    #[test]
+    fn font_size_helpers_fall_back_to_the_default_when_nothing_is_specified() {
+        let sd = styled(Dom::create_body().with_child(div_class("x")), "");
+        assert_eq!(get_root_font_size(&sd), DEFAULT_FONT_SIZE);
+        assert_eq!(
+            get_parent_font_size(&sd, NodeId::ZERO),
+            DEFAULT_FONT_SIZE,
+            "the root has no parent ⇒ documented DEFAULT_FONT_SIZE fallback"
+        );
+        assert_eq!(get_element_font_size(&sd, NodeId::new(1)), DEFAULT_FONT_SIZE);
+    }
+
+    #[test]
+    fn get_element_and_parent_font_size_track_the_cascade() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("big").with_child(div_class("small"))),
+            ".big { font-size: 32px; } .small { font-size: 8px; }",
+        );
+        assert_eq!(get_element_font_size(&sd, NodeId::new(1)), 32.0);
+        assert_eq!(get_element_font_size(&sd, NodeId::new(2)), 8.0);
+        assert_eq!(
+            get_parent_font_size(&sd, NodeId::new(2)),
+            32.0,
+            "the parent's size, not the element's own"
+        );
+    }
+
+    #[test]
+    fn get_root_font_size_reads_node_zero() {
+        let root = Dom::create_body()
+            .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
+            .with_child(div_class("x"));
+        let sd = styled(root, ".root { font-size: 20px; }");
+        assert_eq!(get_root_font_size(&sd), 20.0, "get_root_font_size hard-codes NodeId(0)");
+        assert_eq!(get_root_font_size(&sd), get_element_font_size(&sd, NodeId::ZERO));
+    }
+
+    #[test]
+    fn font_size_helpers_return_a_finite_positive_size_for_every_node() {
+        let sd = mixed_dom();
+        for i in 0..sd.node_data.len() {
+            let id = NodeId::new(i);
+            for size in [get_element_font_size(&sd, id), get_parent_font_size(&sd, id)] {
+                assert!(size.is_finite(), "node {i}: {size}");
+                assert!(size > 0.0, "node {i}: a zero/negative font-size breaks em math");
+            }
+        }
+    }
+
+    // ==================================================================
+    // create_resolution_context (numeric / NaN-inf passthrough)
+    // ==================================================================
+
+    #[test]
+    fn create_resolution_context_zeroes_an_unknown_containing_block() {
+        // css-sizing-3 §5.2.1: % margins/padding resolve against 0 when the
+        // containing block isn't known yet (cycle breaking).
+        let sd = mixed_dom();
+        let ctx = create_resolution_context(&sd, NodeId::new(1), None, VIEWPORT);
+        assert_eq!(ctx.containing_block_size.width, 0.0);
+        assert_eq!(ctx.containing_block_size.height, 0.0);
+        assert!(ctx.element_size.is_none(), "not laid out yet");
+        assert_eq!(ctx.viewport_size.width, VIEWPORT.width);
+        assert_eq!(ctx.viewport_size.height, VIEWPORT.height);
+    }
+
+    #[test]
+    fn create_resolution_context_passes_a_known_containing_block_through() {
+        let sd = mixed_dom();
+        let cb = PhysicalSize::new(321.0, 123.0);
+        let ctx = create_resolution_context(&sd, NodeId::new(1), Some(cb), VIEWPORT);
+        assert_eq!(ctx.containing_block_size.width, 321.0);
+        assert_eq!(ctx.containing_block_size.height, 123.0);
+    }
+
+    #[test]
+    fn create_resolution_context_survives_a_degenerate_viewport() {
+        let sd = mixed_dom();
+        for vp in [
+            LogicalSize::new(0.0, 0.0),
+            LogicalSize::new(-100.0, -100.0),
+            LogicalSize::new(f32::MAX, f32::MAX),
+            LogicalSize::new(f32::INFINITY, f32::NEG_INFINITY),
+            LogicalSize::new(f32::NAN, f32::NAN),
+        ] {
+            let ctx = create_resolution_context(&sd, NodeId::new(1), None, vp);
+            // Viewport is passed through verbatim; the font sizes must stay sane.
+            assert!(ctx.element_font_size.is_finite());
+            assert!(ctx.parent_font_size.is_finite());
+            assert!(ctx.root_font_size.is_finite());
+        }
+    }
+
+    #[test]
+    fn create_resolution_context_survives_a_degenerate_containing_block() {
+        let sd = mixed_dom();
+        for cb in [
+            PhysicalSize::new(0.0, 0.0),
+            PhysicalSize::new(-1.0, -1.0),
+            PhysicalSize::new(f32::NAN, f32::INFINITY),
+            PhysicalSize::new(f32::MAX, f32::MIN),
+        ] {
+            let ctx = create_resolution_context(&sd, NodeId::new(1), Some(cb), VIEWPORT);
+            assert!(ctx.root_font_size.is_finite());
+        }
+    }
+
+    // ==================================================================
+    // collect_box_props (numeric / saturation / spec zeroing)
+    // ==================================================================
+
+    fn collect_for(css: &str, node: usize, viewport: LogicalSize) -> CollectedBoxProps {
+        let sd = styled(Dom::create_body().with_child(div_class("x")), css);
+        let mut msgs = None;
+        collect_box_props(&sd, NodeId::new(node), &mut msgs, viewport)
+    }
+
+    #[test]
+    fn collect_box_props_resolves_plain_pixel_edges() {
+        let c = collect_for(
+            ".x { margin: 10px; padding: 5px; border: 2px solid black; }",
+            1,
+            VIEWPORT,
+        );
+        assert_eq!(c.resolved.margin.top, 10.0);
+        assert_eq!(c.resolved.margin.left, 10.0);
+        assert_eq!(c.resolved.padding.right, 5.0);
+        assert_eq!(c.resolved.border.bottom, 2.0);
+    }
+
+    #[test]
+    fn collect_box_props_zeroes_a_border_whose_style_is_none() {
+        // CSS 2.2 §8.5.1: computed border-width is 0 when border-style is none/hidden.
+        let c = collect_for(".x { border-width: 9px; border-style: none; }", 1, VIEWPORT);
+        assert_eq!(c.resolved.border.top, 0.0);
+        assert_eq!(c.resolved.border.left, 0.0);
+
+        let c = collect_for(".x { border-width: 9px; border-style: hidden; }", 1, VIEWPORT);
+        assert_eq!(c.resolved.border.right, 0.0);
+    }
+
+    #[test]
+    fn collect_box_props_strips_margins_and_padding_from_internal_table_boxes() {
+        // CSS 2.2 §17.5: internal table elements have no margins; rows/groups/
+        // columns additionally have no padding.
+        for display in [
+            "table-row",
+            "table-row-group",
+            "table-header-group",
+            "table-footer-group",
+            "table-column",
+            "table-column-group",
+        ] {
+            let c = collect_for(
+                &format!(".x {{ display: {display}; margin: 10px; padding: 7px; }}"),
+                1,
+                VIEWPORT,
+            );
+            assert_eq!(c.resolved.margin.top, 0.0, "display:{display} margin");
+            assert_eq!(c.resolved.padding.top, 0.0, "display:{display} padding");
+        }
+
+        // A cell keeps its padding but loses its margin.
+        let c = collect_for(".x { display: table-cell; margin: 10px; padding: 7px; }", 1, VIEWPORT);
+        assert_eq!(c.resolved.margin.left, 0.0, "cells have no margins");
+        assert_eq!(c.resolved.padding.left, 7.0, "…but they do have padding");
+    }
+
+    #[test]
+    fn collect_box_props_zeroes_vertical_margins_on_a_non_replaced_inline() {
+        let c = collect_for(".x { display: inline; margin: 10px; }", 1, VIEWPORT);
+        assert_eq!(c.resolved.margin.top, 0.0);
+        assert_eq!(c.resolved.margin.bottom, 0.0);
+        assert_eq!(
+            c.resolved.margin.left, 10.0,
+            "horizontal margins still apply to inline boxes"
+        );
+        assert_eq!(c.resolved.margin.right, 10.0);
+    }
+
+    #[test]
+    fn collect_box_props_does_not_clamp_huge_lengths_before_packing() {
+        // collect_box_props returns f32; the ±3276.8px saturation happens later,
+        // in PackedBoxProps. Assert the split so a regression in either is visible.
+        let c = collect_for(".x { margin: 99999px; }", 1, VIEWPORT);
+        assert_eq!(c.resolved.margin.top, 99_999.0);
+
+        let packed = PackedBoxProps::pack(&c.resolved);
+        assert_eq!(packed.margin[0], i16::MAX, "the packing saturates, it does not wrap");
+    }
+
+    #[test]
+    fn collect_box_props_survives_a_degenerate_viewport() {
+        for vp in [
+            LogicalSize::new(0.0, 0.0),
+            LogicalSize::new(-800.0, -600.0),
+            LogicalSize::new(f32::MAX, f32::MAX),
+            LogicalSize::new(f32::INFINITY, f32::INFINITY),
+            LogicalSize::new(f32::NAN, f32::NAN),
+        ] {
+            // vh/vw units make the viewport actually load-bearing here.
+            let c = collect_for(".x { margin: 10vh; padding: 5vw; }", 1, vp);
+            let packed = PackedBoxProps::pack(&c.resolved);
+            for v in packed.margin.iter().chain(packed.padding.iter()) {
+                assert!(
+                    (i16::MIN..=i16::MAX).contains(v),
+                    "packing must stay in range for viewport {vp:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn collect_box_props_fills_debug_messages_when_asked() {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("x")),
+            ".x { margin: 3px; }",
+        );
+        let mut msgs: Option<Vec<LayoutDebugMessage>> = Some(Vec::new());
+        let _ = collect_box_props(&sd, NodeId::new(1), &mut msgs, VIEWPORT);
+        assert!(
+            !msgs.expect("still Some").is_empty(),
+            "a Some(vec) sink must actually receive the [BOX] trace"
+        );
+
+        // …and a None sink must be left alone (no allocation, no panic).
+        let mut none_sink: Option<Vec<LayoutDebugMessage>> = None;
+        let _ = collect_box_props(&sd, NodeId::new(1), &mut none_sink, VIEWPORT);
+        assert!(none_sink.is_none());
+    }
+
+    #[test]
+    fn collect_box_props_unresolved_and_resolved_agree_after_a_re_resolve() {
+        let c = collect_for(".x { margin: 4px; padding: 6px; }", 1, VIEWPORT);
+        let params = crate::solver3::geometry::ResolutionParams {
+            containing_block: VIEWPORT,
+            viewport_size: VIEWPORT,
+            element_font_size: DEFAULT_FONT_SIZE,
+            root_font_size: DEFAULT_FONT_SIZE,
+        };
+        let again = c.unresolved.resolve(&params);
+        assert_eq!(again.margin.top, c.resolved.margin.top);
+        assert_eq!(again.padding.left, c.resolved.padding.left);
+        assert_eq!(again.border.top, c.resolved.border.top);
+    }
+
+    #[test]
+    fn edge_sizes_default_is_all_zero() {
+        let e = EdgeSizes::default();
+        assert_eq!((e.top, e.right, e.bottom, e.left), (0.0, 0.0, 0.0, 0.0));
+    }
+
+    // ==================================================================
+    // Whole-pipeline invariants
+    // ==================================================================
+
+    #[test]
+    fn a_freshly_built_tree_satisfies_every_structural_invariant() {
+        for sd in [
+            mixed_dom(),
+            styled(Dom::create_body(), ""),
+            styled(
+                Dom::create_body().with_child(div_class("f").with_child(div_class("c"))),
+                ".f { display: flex; } .c { display: table-cell; }",
+            ),
+            styled(
+                Dom::create_body().with_child(div_class("t").with_child(div_class("c"))),
+                ".t { display: table; } .c { display: table-cell; }",
+            ),
+            styled(
+                Dom::create_body().with_child(div_class("li").with_child(Dom::create_text("x"))),
+                ".li { display: list-item; }",
+            ),
+        ] {
+            let tree = build_tree(&sd);
+            let n = tree.nodes.len();
+            assert!(n >= 1);
+            assert_eq!(tree.warm.len(), n);
+            assert_eq!(tree.cold.len(), n);
+            assert_eq!(tree.children_offsets.len(), n);
+            assert_eq!(tree.subtree_needs_intrinsic.len(), n);
+            assert!(tree.root < n);
+            assert_eq!(tree.get(tree.root).unwrap().parent, None);
+
+            for i in 0..n {
+                if let Some(p) = tree.get(i).unwrap().parent {
+                    assert!(p < n, "node {i}'s parent {p} is out of range");
+                }
+                for &c in tree.children(i) {
+                    assert!(c < n, "node {i}'s child {c} is out of range");
+                    assert_ne!(c, i, "no node may be its own child");
+                }
+            }
+            for (dom_id, indices) in &tree.dom_to_layout {
+                for &i in indices {
+                    assert!(i < n, "dom_to_layout[{dom_id:?}] points at {i}, out of range");
+                    assert_eq!(tree.get(i).unwrap().dom_node_id, Some(*dom_id));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn building_a_body_only_dom_yields_exactly_one_node() {
+        let sd = styled(Dom::create_body(), "");
+        let tree = build_tree(&sd);
+        assert_eq!(tree.nodes.len(), 1);
+        assert_eq!(tree.root, 0);
+        assert!(tree.children(0).is_empty());
+        assert!(tree.children_arena.is_empty());
+        assert_eq!(tree.children_offsets, vec![(0, 0)]);
+        assert_eq!(tree.memory_report().node_count, 1);
+    }
+
+    #[test]
+    fn the_root_box_always_establishes_a_new_block_formatting_context() {
+        let tree = build_tree(&mixed_dom());
+        match tree.get(tree.root).unwrap().formatting_context {
+            FormattingContext::Block {
+                establishes_new_context,
+            } => assert!(establishes_new_context, "process_node forces this for the root"),
+            other => panic!("the root should be a Block FC, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_deeply_nested_dom_builds_without_blowing_the_stack() {
+        // process_node recurses once per level; 200 is well inside a test thread's
+        // stack but deep enough to catch an accidental per-level allocation blowup.
+        let mut dom = div_class("d");
+        for _ in 0..200 {
+            dom = div_class("d").with_child(dom);
+        }
+        let sd = styled(Dom::create_body().with_child(dom), ".d { display: block; }");
+        let tree = build_tree(&sd);
+        assert_eq!(tree.nodes.len(), 202, "body + 201 divs");
+        // The chain must be a straight line: every node but the last has 1 child.
+        let mut i = tree.root;
+        let mut depth = 0;
+        while let Some(&next) = tree.children(i).first() {
+            i = next;
+            depth += 1;
+            assert!(depth <= 202, "the parent/child links formed a cycle");
+        }
+        assert_eq!(depth, 201);
+    }
+}

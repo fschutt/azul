@@ -605,3 +605,718 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     Ok(())
 }
+
+#[cfg(all(test, feature = "text_layout"))]
+#[allow(clippy::float_cmp)]
+mod autotest_generated {
+    use azul_core::{
+        dom::Dom,
+        resources::{IdNamespace, ImageCache},
+        task::{get_system_time_libstd, GetSystemTimeCallback},
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{font_traits::FontManager, text3::default::PathLoader};
+
+    // ---------------------------------------------------------------------
+    // Harness
+    //
+    // Every DOM below is deliberately TEXT-FREE, so no font ever has to be
+    // resolved and the font cache can stay empty (no system-font I/O, so the
+    // tests are hermetic and identical on every machine).
+    // ---------------------------------------------------------------------
+
+    /// The crate's only `ParsedFontTrait` impl (`text3::default`).
+    type TestFont = azul_css::props::basic::FontRef;
+
+    fn time_fn() -> GetSystemTimeCallback {
+        GetSystemTimeCallback {
+            cb: get_system_time_libstd,
+        }
+    }
+
+    fn font_manager() -> FontManager<TestFont> {
+        FontManager::new(FcFontCache::default()).expect("FontManager::new must not fail")
+    }
+
+    fn viewport(width: f32, height: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::new(width, height),
+        }
+    }
+
+    fn paged(width: f32, height: f32) -> FragmentationContext {
+        FragmentationContext::new_paged(LogicalSize::new(width, height))
+    }
+
+    /// `<body>` with `n` painted, 200px-tall divs — a document ~`n * 200`px tall.
+    /// The background is what makes each div emit a display-list item, and the
+    /// paginator derives the document height from those items.
+    fn doc(n: usize) -> StyledDom {
+        let children: Vec<Dom> = (0..n).map(|_| Dom::create_div()).collect();
+        let mut dom = Dom::create_body().with_children(children.into());
+        let css = azul_css::parser2::new_from_str(
+            "div { height: 200px; width: 100px; background-color: red; }",
+        )
+        .0;
+        StyledDom::create(&mut dom, css)
+    }
+
+    fn run_with(
+        cache: &mut LayoutCache,
+        font_manager: &mut FontManager<TestFont>,
+        fragmentation_context: FragmentationContext,
+        dom: &StyledDom,
+        vp: LogicalRect,
+        page_config: FakePageConfig,
+    ) -> Result<Vec<DisplayList>> {
+        let loader = PathLoader::new();
+        let mut text_cache = TextLayoutCache::new();
+        let mut debug_messages = None;
+        layout_document_paged_with_config(
+            cache,
+            &mut text_cache,
+            fragmentation_context,
+            dom,
+            vp,
+            font_manager,
+            &BTreeMap::new(),
+            &mut debug_messages,
+            None,
+            &RendererResources::default(),
+            IdNamespace(0),
+            DomId::ROOT_ID,
+            |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+                loader.load_font_shared(bytes, index)
+            },
+            page_config,
+            &ImageCache::default(),
+            time_fn(),
+            false,
+        )
+    }
+
+    /// One-shot paged layout against a fresh cache.
+    fn run(
+        fragmentation_context: FragmentationContext,
+        dom: &StyledDom,
+        vp: LogicalRect,
+        page_config: FakePageConfig,
+    ) -> Result<Vec<DisplayList>> {
+        let mut cache = LayoutCache::default();
+        let mut font_manager = font_manager();
+        run_with(
+            &mut cache,
+            &mut font_manager,
+            fragmentation_context,
+            dom,
+            vp,
+            page_config,
+        )
+    }
+
+    /// Number of pages for a fresh, default-configured paged layout.
+    fn page_count(fragmentation_context: FragmentationContext, dom: &StyledDom, vp: LogicalRect) -> usize {
+        run(fragmentation_context, dom, vp, FakePageConfig::new())
+            .expect("paged layout must not fail")
+            .len()
+    }
+
+    fn item_counts(pages: &[DisplayList]) -> Vec<usize> {
+        pages.iter().map(|p| p.items.len()).collect()
+    }
+
+    fn compute(
+        cache: &mut LayoutCache,
+        fragmentation_context: &mut FragmentationContext,
+        dom: &StyledDom,
+        vp: LogicalRect,
+    ) -> Result<()> {
+        let font_manager = font_manager();
+        let mut text_cache = TextLayoutCache::new();
+        let mut debug_messages = None;
+        compute_layout_with_fragmentation(
+            cache,
+            &mut text_cache,
+            fragmentation_context,
+            dom,
+            vp,
+            &font_manager,
+            &mut debug_messages,
+            &ImageCache::default(),
+            time_fn(),
+            false,
+        )
+    }
+
+    fn tree_node_count(cache: &LayoutCache) -> usize {
+        cache.tree.as_ref().expect("layout must cache a tree").nodes.len()
+    }
+
+    // ---------------------------------------------------------------------
+    // Baseline invariants
+    //
+    // NOTE (not tested here — the assertions would hang the suite):
+    // `calculate_page_break_positions` (display_list.rs) advances by
+    // `y += normal_page_height` while `y < total_height`. Two reachable
+    // inputs make that loop non-terminating while pushing into an unbounded
+    // Vec (hang → OOM), and both are reachable from these two entry points:
+    //   1. a tiny positive page height (e.g. 1e-30) — it clears the
+    //      `page_content_height <= 0.0` guard, but `y += 1e-30` stops moving
+    //      `y` as soon as the step falls below `y`'s ULP;
+    //   2. `skip_first_page(true)` with `header_height + footer_height`
+    //      >= the page height — `normal_page_height` goes negative, so `y`
+    //      walks *backwards* away from `total_height` forever.
+    // The tests below stay strictly on the safe side of both, and the guarded
+    // variants (0 / negative / NaN / inf / f32::MAX heights, and an oversized
+    // header WITHOUT skip_first_page) are asserted instead.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn continuous_context_returns_exactly_one_display_list() {
+        let dom = doc(5);
+        let pages = run(
+            FragmentationContext::new_continuous(600.0),
+            &dom,
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("continuous layout must not fail");
+
+        assert_eq!(pages.len(), 1, "continuous media is never paginated");
+        assert!(
+            !pages[0].items.is_empty(),
+            "painted divs must produce display-list items — the rest of this \
+             module's page-count assertions depend on it"
+        );
+    }
+
+    #[test]
+    fn tall_document_splits_into_multiple_pages() {
+        // ~1000px of content, 200px pages.
+        let pages = run(
+            paged(600.0, 200.0),
+            &doc(5),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("paged layout must not fail");
+
+        assert!(
+            pages.len() >= 2,
+            "1000px of content on 200px pages must paginate, got {} page(s)",
+            pages.len()
+        );
+    }
+
+    #[test]
+    fn empty_document_still_yields_one_page() {
+        // A document with nothing to paint has height 0 — the paginator must
+        // still hand back a page rather than an empty vec (a zero-page PDF).
+        let pages = run(
+            paged(600.0, 200.0),
+            &StyledDom::default(),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("empty document must lay out");
+
+        assert_eq!(pages.len(), 1, "a zero-height document is still one page");
+    }
+
+    // ---------------------------------------------------------------------
+    // Numeric: degenerate page sizes (zero / negative / NaN / inf / MIN / MAX)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn zero_page_height_yields_a_single_page() {
+        let pages = run(
+            paged(600.0, 0.0),
+            &doc(5),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("a zero-height page must not fail layout");
+
+        assert_eq!(
+            pages.len(),
+            1,
+            "a page of height 0 cannot be filled — the slicer must bail out to \
+             a single unpaginated page instead of dividing by zero"
+        );
+    }
+
+    #[test]
+    fn zero_page_size_in_both_axes_does_not_panic() {
+        let pages = run(
+            paged(0.0, 0.0),
+            &doc(3),
+            viewport(0.0, 0.0),
+            FakePageConfig::new(),
+        )
+        .expect("a fully degenerate 0x0 page must not fail layout");
+
+        assert_eq!(pages.len(), 1);
+    }
+
+    #[test]
+    fn negative_page_height_yields_a_single_page() {
+        let pages = run(
+            paged(600.0, -500.0),
+            &doc(5),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("a negative page height must not fail layout");
+
+        assert_eq!(
+            pages.len(),
+            1,
+            "a negative page height must not produce a negative/infinite page count"
+        );
+    }
+
+    #[test]
+    fn nan_page_size_does_not_panic_and_yields_at_least_one_page() {
+        // NaN slips past BOTH `<= 0.0` and `>= f32::MAX` guards (every NaN
+        // comparison is false), so this is the case most likely to reach the
+        // break-position math with a poisoned step.
+        let pages = run(
+            paged(f32::NAN, f32::NAN),
+            &doc(5),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("a NaN page size must not fail layout");
+
+        assert_eq!(
+            pages.len(),
+            1,
+            "a NaN page height cannot advance the break cursor, so the whole \
+             document must stay on one page (and the break sort must not see a NaN)"
+        );
+    }
+
+    #[test]
+    fn infinite_page_height_yields_a_single_page() {
+        let pages = run(
+            paged(600.0, f32::INFINITY),
+            &doc(5),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("an infinite page height must not fail layout");
+
+        assert_eq!(pages.len(), 1, "an infinitely tall page holds everything");
+    }
+
+    #[test]
+    fn f32_max_page_height_yields_a_single_page() {
+        // f32::MAX is the sentinel `FragmentationContext::Continuous` reports,
+        // so a *paged* context carrying it must degrade to the same behaviour
+        // rather than attempting MAX/step pages.
+        let pages = run(
+            paged(600.0, f32::MAX),
+            &doc(5),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("f32::MAX page height must not fail layout");
+
+        assert_eq!(pages.len(), 1);
+    }
+
+    #[test]
+    fn f32_min_page_height_yields_a_single_page() {
+        // f32::MIN is the most-negative finite float, not the smallest positive.
+        let pages = run(
+            paged(f32::MIN, f32::MIN),
+            &doc(5),
+            viewport(600.0, 400.0),
+            FakePageConfig::new(),
+        )
+        .expect("f32::MIN page size must not fail layout");
+
+        assert_eq!(pages.len(), 1);
+    }
+
+    // ---------------------------------------------------------------------
+    // Numeric: degenerate viewports
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn negative_viewport_size_does_not_panic() {
+        let pages = run(
+            paged(600.0, 200.0),
+            &doc(5),
+            viewport(-100.0, -100.0),
+            FakePageConfig::new(),
+        )
+        .expect("a negative viewport must not fail layout");
+
+        assert!(!pages.is_empty(), "layout must always emit at least one page");
+    }
+
+    #[test]
+    fn nan_viewport_does_not_panic() {
+        let pages = run(
+            paged(600.0, 200.0),
+            &doc(5),
+            viewport(f32::NAN, f32::NAN),
+            FakePageConfig::new(),
+        )
+        .expect("a NaN viewport must not fail layout");
+
+        assert!(!pages.is_empty(), "layout must always emit at least one page");
+    }
+
+    #[test]
+    fn huge_viewport_does_not_panic() {
+        // Paired with an f32::MAX page height on purpose: pagination short-circuits,
+        // so this exercises the layout/display-list path at the numeric limit
+        // without asking the slicer to walk MAX-sized content in finite steps.
+        let result = run(
+            paged(f32::MAX, f32::MAX),
+            &doc(3),
+            viewport(f32::MAX, f32::MAX),
+            FakePageConfig::new(),
+        );
+
+        match result {
+            Ok(pages) => assert_eq!(pages.len(), 1),
+            // Failing cleanly at the numeric limit is acceptable; panicking is not.
+            Err(e) => {
+                let _ = e.to_string();
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Numeric: monotonicity of the page count
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn shorter_pages_never_produce_fewer_pages() {
+        let dom = doc(5);
+        let vp = viewport(600.0, 400.0);
+
+        let tall = page_count(paged(600.0, 400.0), &dom, vp);
+        let short = page_count(paged(600.0, 100.0), &dom, vp);
+
+        assert!(
+            short >= tall,
+            "halving the page height must not shrink the page count ({short} < {tall})"
+        );
+    }
+
+    #[test]
+    fn more_content_never_produces_fewer_pages() {
+        let vp = viewport(600.0, 400.0);
+        let frag = paged(600.0, 200.0);
+
+        let few = page_count(frag, &doc(3), vp);
+        let many = page_count(frag, &doc(12), vp);
+
+        assert!(
+            many >= few,
+            "4x the content must not shrink the page count ({many} < {few})"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Headers / footers
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn header_and_footer_taller_than_the_page_yield_a_single_page() {
+        // header + footer >= page height leaves negative room for content.
+        // Without `skip_first_page`, the first-page height goes <= 0 and the
+        // slicer must bail out to one page rather than dividing the document
+        // into a negative-height grid.
+        let config = FakePageConfig::new()
+            .with_header_page_numbers()
+            .with_footer_page_numbers()
+            .with_header_height(f32::MAX)
+            .with_footer_height(f32::MAX);
+
+        let pages = run(paged(600.0, 200.0), &doc(5), viewport(600.0, 400.0), config)
+            .expect("an oversized header/footer must not fail layout");
+
+        assert_eq!(
+            pages.len(),
+            1,
+            "no content fits once the header/footer exceed the page — one page, not zero, \
+             not an unbounded number"
+        );
+    }
+
+    #[test]
+    fn skip_first_page_with_sane_header_and_footer_still_paginates() {
+        let config = FakePageConfig::new()
+            .with_header_and_footer_page_numbers()
+            .with_header_height(20.0)
+            .with_footer_height(20.0)
+            .skip_first_page(true);
+
+        let pages = run(paged(600.0, 300.0), &doc(5), viewport(600.0, 400.0), config)
+            .expect("paged layout with headers/footers must not fail");
+
+        assert!(
+            pages.len() >= 2,
+            "1000px of content on 300px pages (260px usable after the first) must \
+             paginate, got {} page(s)",
+            pages.len()
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Determinism / cache reuse / wrapper equivalence
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn paged_layout_is_deterministic_across_fresh_runs() {
+        let dom = doc(5);
+        let vp = viewport(600.0, 400.0);
+        let frag = paged(600.0, 200.0);
+
+        let first = run(frag, &dom, vp, FakePageConfig::new()).expect("layout must not fail");
+        let second = run(frag, &dom, vp, FakePageConfig::new()).expect("layout must not fail");
+
+        assert_eq!(first.len(), second.len(), "page count must be deterministic");
+        assert_eq!(
+            item_counts(&first),
+            item_counts(&second),
+            "per-page item counts must be deterministic"
+        );
+    }
+
+    #[test]
+    fn reusing_a_warm_cache_reproduces_the_cold_result() {
+        // Adversarial: the second call takes the incremental/early-exit path
+        // through `compute_layout_with_fragmentation`. Same DOM, same viewport,
+        // same page size => byte-identical pagination, or the cache is stale.
+        let dom = doc(5);
+        let vp = viewport(600.0, 400.0);
+        let frag = paged(600.0, 200.0);
+
+        let mut cache = LayoutCache::default();
+        let mut fm = font_manager();
+
+        let cold = run_with(&mut cache, &mut fm, frag, &dom, vp, FakePageConfig::new())
+            .expect("cold layout must not fail");
+        let warm = run_with(&mut cache, &mut fm, frag, &dom, vp, FakePageConfig::new())
+            .expect("warm layout must not fail");
+
+        assert_eq!(cold.len(), warm.len(), "cache reuse changed the page count");
+        assert_eq!(
+            item_counts(&cold),
+            item_counts(&warm),
+            "cache reuse changed the per-page item counts"
+        );
+    }
+
+    #[test]
+    fn a_reused_cache_relaid_out_with_a_different_dom_matches_a_cold_run() {
+        // Adversarial: feed a cache warmed on a SHORT document a much longer
+        // one. The reconciled result must equal what a cold cache produces —
+        // page count must not depend on layout history.
+        let vp = viewport(600.0, 400.0);
+        let frag = paged(600.0, 200.0);
+        let short = doc(2);
+        let long = doc(9);
+
+        let mut cache = LayoutCache::default();
+        let mut fm = font_manager();
+        let _ = run_with(&mut cache, &mut fm, frag, &short, vp, FakePageConfig::new())
+            .expect("first layout must not fail");
+        let reused = run_with(&mut cache, &mut fm, frag, &long, vp, FakePageConfig::new())
+            .expect("relayout must not fail");
+
+        let cold = page_count(frag, &long, vp);
+
+        assert_eq!(
+            reused.len(),
+            cold,
+            "a cache warmed on a 2-div document produced {} page(s) for the 9-div \
+             document, but a cold cache produces {}",
+            reused.len(),
+            cold
+        );
+    }
+
+    #[test]
+    fn layout_document_paged_matches_its_documented_default_config() {
+        // `layout_document_paged` is documented as `..._with_config` with
+        // footer page numbers and no timing output. Assert that equivalence
+        // holds, so the wrapper can't silently drift from the delegate.
+        let dom = doc(5);
+        let vp = viewport(600.0, 400.0);
+        let frag = paged(600.0, 200.0);
+
+        let mut cache = LayoutCache::default();
+        let mut text_cache = TextLayoutCache::new();
+        let mut fm = font_manager();
+        let mut debug_messages = None;
+        let loader = PathLoader::new();
+
+        let via_wrapper = layout_document_paged(
+            &mut cache,
+            &mut text_cache,
+            frag,
+            &dom,
+            vp,
+            &mut fm,
+            &BTreeMap::new(),
+            &mut debug_messages,
+            None,
+            &RendererResources::default(),
+            IdNamespace(0),
+            DomId::ROOT_ID,
+            |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+                loader.load_font_shared(bytes, index)
+            },
+            &ImageCache::default(),
+            time_fn(),
+        )
+        .expect("layout_document_paged must not fail");
+
+        let via_config = run(
+            frag,
+            &dom,
+            vp,
+            FakePageConfig::new().with_footer_page_numbers(),
+        )
+        .expect("layout_document_paged_with_config must not fail");
+
+        assert_eq!(via_wrapper.len(), via_config.len());
+        assert_eq!(item_counts(&via_wrapper), item_counts(&via_config));
+    }
+
+    // ---------------------------------------------------------------------
+    // compute_layout_with_fragmentation (private)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn compute_layout_with_fragmentation_populates_the_cache() {
+        let dom = doc(3);
+        let vp = viewport(600.0, 400.0);
+        let mut cache = LayoutCache::default();
+        let mut frag = paged(600.0, 200.0);
+
+        compute(&mut cache, &mut frag, &dom, vp).expect("layout must not fail");
+
+        assert!(cache.tree.is_some(), "the layout tree must be cached");
+        assert!(
+            tree_node_count(&cache) >= 4,
+            "<body> plus 3 <div>s is at least 4 layout nodes"
+        );
+        assert!(
+            !cache.calculated_positions.is_empty(),
+            "positions must be cached alongside the tree"
+        );
+        assert_eq!(cache.viewport, Some(vp), "the layout viewport must be recorded");
+        assert!(
+            crate::solver3::pos_get(&cache.calculated_positions, 0).is_some(),
+            "the root node must have a position"
+        );
+    }
+
+    #[test]
+    fn compute_layout_with_fragmentation_is_idempotent() {
+        let dom = doc(3);
+        let vp = viewport(600.0, 400.0);
+        let mut cache = LayoutCache::default();
+        let mut frag = paged(600.0, 200.0);
+
+        compute(&mut cache, &mut frag, &dom, vp).expect("first layout must not fail");
+        let nodes = tree_node_count(&cache);
+        let positions = cache.calculated_positions.clone();
+
+        // Second pass takes the "cache is clean" early-exit branch.
+        compute(&mut cache, &mut frag, &dom, vp).expect("second layout must not fail");
+
+        assert_eq!(tree_node_count(&cache), nodes, "relayout changed the tree size");
+        assert_eq!(
+            cache.calculated_positions, positions,
+            "relayout of an unchanged DOM moved nodes"
+        );
+    }
+
+    #[test]
+    fn compute_layout_with_fragmentation_tree_shape_is_independent_of_pagination() {
+        // Layout is continuous; pages are sliced afterwards by Y position. So a
+        // paged context must not add, drop, or split any layout node.
+        let dom = doc(4);
+        let vp = viewport(600.0, 400.0);
+
+        let mut continuous_cache = LayoutCache::default();
+        let mut continuous = FragmentationContext::new_continuous(600.0);
+        compute(&mut continuous_cache, &mut continuous, &dom, vp)
+            .expect("continuous layout must not fail");
+
+        let mut paged_cache = LayoutCache::default();
+        let mut paged_ctx = paged(600.0, 50.0);
+        compute(&mut paged_cache, &mut paged_ctx, &dom, vp).expect("paged layout must not fail");
+
+        assert_eq!(
+            tree_node_count(&continuous_cache),
+            tree_node_count(&paged_cache),
+            "fragmentation must not change the layout tree"
+        );
+        assert_eq!(
+            continuous_cache.calculated_positions, paged_cache.calculated_positions,
+            "fragmentation must not move nodes — pages are sliced from the same \
+             continuous canvas"
+        );
+    }
+
+    #[test]
+    fn compute_layout_with_fragmentation_survives_degenerate_viewports() {
+        let dom = doc(3);
+
+        for vp in [
+            viewport(0.0, 0.0),
+            viewport(-1.0, -1.0),
+            viewport(f32::NAN, f32::NAN),
+            viewport(f32::MIN, f32::MIN),
+        ] {
+            let mut cache = LayoutCache::default();
+            let mut frag = paged(600.0, 200.0);
+
+            compute(&mut cache, &mut frag, &dom, vp)
+                .unwrap_or_else(|e| panic!("viewport {vp:?} failed layout: {e}"));
+
+            assert!(
+                cache.tree.is_some(),
+                "viewport {vp:?} must still produce a layout tree"
+            );
+        }
+    }
+
+    #[test]
+    fn compute_layout_with_fragmentation_survives_degenerate_page_sizes() {
+        let dom = doc(3);
+        let vp = viewport(600.0, 400.0);
+
+        for mut frag in [
+            paged(0.0, 0.0),
+            paged(600.0, -1.0),
+            paged(f32::NAN, f32::NAN),
+            paged(f32::INFINITY, f32::INFINITY),
+            paged(f32::MAX, f32::MAX),
+            paged(f32::MIN, f32::MIN),
+        ] {
+            let mut cache = LayoutCache::default();
+
+            compute(&mut cache, &mut frag, &dom, vp)
+                .unwrap_or_else(|e| panic!("page size {frag:?} failed layout: {e}"));
+
+            assert!(
+                cache.tree.is_some(),
+                "page size {frag:?} must still produce a layout tree"
+            );
+        }
+    }
+}

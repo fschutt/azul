@@ -518,3 +518,817 @@ mod tests {
         assert!(provider.list_packs().is_empty());
     }
 }
+
+#[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    clippy::items_after_statements,
+    clippy::redundant_clone,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::unreadable_literal,
+    clippy::too_many_lines,
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    unused_qualifications,
+    unreachable_pub,
+    private_interfaces
+)] // pedantic lints are noise in adversarial test code
+mod autotest_generated {
+    use azul_core::{
+        a11y::SmallAriaInfo,
+        dom::NodeType,
+        resources::RawImageFormat,
+    };
+    use azul_css::props::basic::color::{ColorU, OptionColorU};
+
+    use super::*;
+
+    // ---------------------------------------------------------------------
+    // helpers
+    // ---------------------------------------------------------------------
+
+    /// A `FontRef` whose `parsed` pointer addresses a `'static` byte and whose
+    /// destructor is a no-op, so nothing is freed on drop. Sound here because
+    /// nothing on the icon-resolution path ever dereferences `parsed` (only
+    /// `cpurender::raster` does, and that is not reached from `StyledDom::create`).
+    fn dummy_font_ref() -> FontRef {
+        static DUMMY_FONT_DATA: u8 = 0;
+        extern "C" fn dummy_destructor(_: *mut core::ffi::c_void) {}
+        FontRef::new(
+            core::ptr::addr_of!(DUMMY_FONT_DATA).cast::<core::ffi::c_void>(),
+            dummy_destructor,
+        )
+    }
+
+    /// A null (non-decoded) `ImageRef` of the given pixel size — `get_size()`
+    /// reports exactly `width` / `height`, with no allocation.
+    fn null_img(width: usize, height: usize) -> ImageRef {
+        ImageRef::null_image(width, height, RawImageFormat::RGBA8, Vec::new())
+    }
+
+    /// `ImageIconData` with explicitly-chosen (possibly hostile) f32 dimensions.
+    fn image_icon(width: f32, height: f32) -> ImageIconData {
+        ImageIconData {
+            image: null_img(1, 1),
+            width,
+            height,
+        }
+    }
+
+    fn font_icon(icon_char: &str) -> FontIconData {
+        FontIconData {
+            font: dummy_font_ref(),
+            icon_char: icon_char.to_string(),
+        }
+    }
+
+    fn grayscale_style() -> SystemStyle {
+        let mut s = SystemStyle::default();
+        s.icon_style.prefer_grayscale = true;
+        s
+    }
+
+    fn tint_style(color: ColorU) -> SystemStyle {
+        let mut s = SystemStyle::default();
+        s.icon_style.tint_color = OptionColorU::Some(color);
+        s
+    }
+
+    /// A "normal" original icon DOM: a single div carrying `props` as inline style.
+    fn original_with(props: Vec<CssPropertyWithConditions>) -> StyledDom {
+        let mut dom = Dom::create_div();
+        dom.root
+            .set_css_props(CssPropertyWithConditionsVec::from_vec(props));
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    /// A degenerate `StyledDom` with **zero** nodes — drives the `else` branch of
+    /// `create_{image,font}_icon_from_original`, which `StyledDom::default()` never
+    /// reaches (it always has a body node).
+    fn original_without_nodes() -> StyledDom {
+        StyledDom {
+            node_data: Vec::new().into(),
+            ..StyledDom::default()
+        }
+    }
+
+    /// Every inline property on every node of the result, in document order.
+    /// (Collected across all nodes rather than `node_data[0]` so the assertions
+    /// survive any future anonymous-node insertion in `StyledDom::create`.)
+    fn all_props(dom: &StyledDom) -> Vec<CssPropertyWithConditions> {
+        dom.node_data
+            .as_ref()
+            .iter()
+            .flat_map(|nd| {
+                nd.get_style()
+                    .iter_inline_properties()
+                    .map(|(property, apply_if)| CssPropertyWithConditions {
+                        property: property.clone(),
+                        apply_if: apply_if.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    fn width_px(dom: &StyledDom) -> Option<f32> {
+        all_props(dom).into_iter().find_map(|p| match p.property {
+            CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(px))) => Some(px.number.get()),
+            _ => None,
+        })
+    }
+
+    fn height_px(dom: &StyledDom) -> Option<f32> {
+        all_props(dom).into_iter().find_map(|p| match p.property {
+            CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(px))) => {
+                Some(px.number.get())
+            }
+            _ => None,
+        })
+    }
+
+    fn count_widths(dom: &StyledDom) -> usize {
+        all_props(dom)
+            .iter()
+            .filter(|p| matches!(p.property, CssProperty::Width(_)))
+            .count()
+    }
+
+    fn text_of(dom: &StyledDom) -> Option<String> {
+        dom.node_data
+            .as_ref()
+            .iter()
+            .find_map(|nd| match nd.get_node_type() {
+                NodeType::Text(t) => Some(t.as_str().to_string()),
+                _ => None,
+            })
+    }
+
+    fn has_image_node(dom: &StyledDom) -> bool {
+        dom.node_data
+            .as_ref()
+            .iter()
+            .any(|nd| matches!(nd.get_node_type(), NodeType::Image(_)))
+    }
+
+    /// All `StyleFilter`s across every `filter:` property in the list.
+    fn filters_of(props: &[CssPropertyWithConditions]) -> Vec<StyleFilter> {
+        props
+            .iter()
+            .filter_map(|p| match &p.property {
+                CssProperty::Filter(CssPropertyValue::Exact(v)) => Some(v.as_ref().to_vec()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    fn text_color_of(props: &[CssPropertyWithConditions]) -> Option<ColorU> {
+        props.iter().find_map(|p| match &p.property {
+            CssProperty::TextColor(CssPropertyValue::Exact(c)) => Some(c.inner),
+            _ => None,
+        })
+    }
+
+    fn resolve(data: RefAny, original: &StyledDom, style: &SystemStyle) -> StyledDom {
+        default_icon_resolver(OptionRefAny::Some(data), original, style)
+    }
+
+    // ---------------------------------------------------------------------
+    // default_icon_resolver — dispatch
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn resolver_none_yields_single_unstyled_div() {
+        let out = default_icon_resolver(
+            OptionRefAny::None,
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert!(matches!(
+            out.node_data.as_ref()[0].get_node_type(),
+            NodeType::Div
+        ));
+        // The "not found" placeholder must carry no styling at all — in particular
+        // it must not inherit the original's width/height.
+        assert!(all_props(&out).is_empty());
+    }
+
+    #[test]
+    fn resolver_unknown_refany_type_yields_empty_div() {
+        // A RefAny holding neither ImageIconData nor FontIconData must fall through
+        // to the placeholder rather than panicking on a bad downcast.
+        struct NotAnIconAtAll {
+            _payload: [u64; 4],
+        }
+        let data = RefAny::new(NotAnIconAtAll { _payload: [7; 4] });
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+
+        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert!(matches!(
+            out.node_data.as_ref()[0].get_node_type(),
+            NodeType::Div
+        ));
+        assert!(!has_image_node(&out));
+        assert!(text_of(&out).is_none());
+    }
+
+    #[test]
+    fn resolver_image_icon_yields_image_node_with_default_dimensions() {
+        let out = resolve(
+            RefAny::new(image_icon(32.0, 24.0)),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        assert!(has_image_node(&out));
+        assert_eq!(width_px(&out), Some(32.0));
+        assert_eq!(height_px(&out), Some(24.0));
+    }
+
+    #[test]
+    fn resolver_font_icon_yields_text_node_with_font_family() {
+        let font = dummy_font_ref();
+        let data = RefAny::new(FontIconData {
+            font: font.clone(),
+            icon_char: "\u{e88a}".to_string(),
+        });
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+
+        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert_eq!(text_of(&out).as_deref(), Some("\u{e88a}"));
+
+        // The registered font must be the one that ends up in `font-family`.
+        let has_font = all_props(&out).iter().any(|p| match &p.property {
+            CssProperty::FontFamily(CssPropertyValue::Exact(families)) => families
+                .as_ref()
+                .iter()
+                .any(|f| matches!(f, StyleFontFamily::Ref(fr) if *fr == font)),
+            _ => false,
+        });
+        assert!(has_font, "font-family with the icon's FontRef must be set");
+    }
+
+    // ---------------------------------------------------------------------
+    // default_icon_resolver — degenerate originals
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn image_icon_with_node_less_original_still_gets_dimensions() {
+        // `original.node_data.first()` is None -> the fallback branch must still
+        // produce a fully-sized image instead of panicking / emitting no style.
+        let original = original_without_nodes();
+        let out = resolve(
+            RefAny::new(image_icon(16.0, 16.0)),
+            &original,
+            &SystemStyle::default(),
+        );
+        assert!(has_image_node(&out));
+        assert_eq!(width_px(&out), Some(16.0));
+        assert_eq!(height_px(&out), Some(16.0));
+    }
+
+    #[test]
+    fn font_icon_with_node_less_original_still_gets_font() {
+        let original = original_without_nodes();
+        let out = resolve(RefAny::new(font_icon("A")), &original, &SystemStyle::default());
+        assert_eq!(text_of(&out).as_deref(), Some("A"));
+        assert!(all_props(&out)
+            .iter()
+            .any(|p| matches!(p.property, CssProperty::FontFamily(_))));
+    }
+
+    // ---------------------------------------------------------------------
+    // numeric limits: the icon dimensions are attacker-controlled f32s
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn image_icon_nan_dimensions_saturate_to_zero_without_panicking() {
+        // FloatValue stores `(v * 1000.0) as isize`; `NaN as isize` saturates to 0,
+        // so a NaN-sized icon degrades to a 0x0 box rather than poisoning layout.
+        let out = resolve(
+            RefAny::new(image_icon(f32::NAN, f32::NAN)),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        let (w, h) = (
+            width_px(&out).expect("width emitted"),
+            height_px(&out).expect("height emitted"),
+        );
+        assert!(w.is_finite() && h.is_finite(), "NaN must not survive into CSS");
+        assert_eq!(w, 0.0);
+        assert_eq!(h, 0.0);
+    }
+
+    #[test]
+    fn image_icon_infinite_dimensions_saturate_to_finite_values() {
+        let out = resolve(
+            RefAny::new(image_icon(f32::INFINITY, f32::NEG_INFINITY)),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        let w = width_px(&out).expect("width emitted");
+        let h = height_px(&out).expect("height emitted");
+        assert!(w.is_finite(), "+inf must saturate, got {w}");
+        assert!(h.is_finite(), "-inf must saturate, got {h}");
+        assert!(w > 0.0 && h < 0.0, "saturation must keep the sign");
+    }
+
+    #[test]
+    fn image_icon_negative_dimensions_are_passed_through_unclamped() {
+        // Documents current behaviour: the resolver does NOT reject negative sizes,
+        // it forwards them verbatim into `width` / `height`.
+        let out = resolve(
+            RefAny::new(image_icon(-32.0, -1.5)),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        assert_eq!(width_px(&out), Some(-32.0));
+        assert_eq!(height_px(&out), Some(-1.5));
+    }
+
+    #[test]
+    fn register_image_icon_with_usize_max_size_saturates() {
+        // `ImageRef::get_size()` casts usize -> f32 (1.8e19); FloatValue then scales
+        // by 1000 and casts to isize, which must saturate rather than wrap/panic.
+        let mut provider = create_default_icon_provider();
+        register_image_icon(
+            &mut provider,
+            "huge",
+            "big",
+            null_img(usize::MAX, usize::MAX),
+        );
+        let data = provider.lookup("big").expect("icon registered");
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+
+        let w = width_px(&out).expect("width emitted");
+        assert!(w.is_finite() && w > 0.0, "usize::MAX size must saturate finitely, got {w}");
+    }
+
+    #[test]
+    fn image_icon_zero_size_is_preserved() {
+        let out = resolve(
+            RefAny::new(image_icon(0.0, 0.0)),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        assert_eq!(width_px(&out), Some(0.0));
+        assert_eq!(height_px(&out), Some(0.0));
+    }
+
+    // ---------------------------------------------------------------------
+    // style copying / precedence
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn original_dimensions_win_over_image_defaults() {
+        let original = original_with(vec![
+            CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(999.0))),
+            CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(888.0))),
+        ]);
+        let out = resolve(
+            RefAny::new(image_icon(32.0, 32.0)),
+            &original,
+            &SystemStyle::default(),
+        );
+
+        assert_eq!(width_px(&out), Some(999.0));
+        assert_eq!(height_px(&out), Some(888.0));
+        // ...and the 32px default must not be appended as a *second* width.
+        assert_eq!(count_widths(&out), 1);
+    }
+
+    #[test]
+    fn copy_appropriate_styles_vec_round_trips_exactly() {
+        // encode (set_css_props -> Css) == decode (copy_appropriate_styles_vec)
+        let props = vec![
+            CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(12.5))),
+            CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(7.0))),
+        ];
+        let mut nd = NodeData::create_div();
+        nd.set_css_props(CssPropertyWithConditionsVec::from_vec(props.clone()));
+
+        assert_eq!(copy_appropriate_styles_vec(&nd), props);
+    }
+
+    #[test]
+    fn copy_appropriate_styles_vec_of_unstyled_node_is_empty() {
+        let nd = NodeData::create_div();
+        assert!(copy_appropriate_styles_vec(&nd).is_empty());
+    }
+
+    #[test]
+    fn copy_appropriate_styles_vec_preserves_order_of_many_props() {
+        // 512 same-typed declarations: nothing may be deduplicated or reordered,
+        // otherwise the last-wins cascade of the copied icon style would flip.
+        let props: Vec<CssPropertyWithConditions> = (0..512u32)
+            .map(|i| {
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(i as f32)))
+            })
+            .collect();
+        let mut nd = NodeData::create_div();
+        nd.set_css_props(CssPropertyWithConditionsVec::from_vec(props.clone()));
+
+        let copied = copy_appropriate_styles_vec(&nd);
+        assert_eq!(copied.len(), 512);
+        assert_eq!(copied, props);
+    }
+
+    #[test]
+    fn accessibility_info_is_copied_onto_the_resolved_icon() {
+        let mut dom = Dom::create_div().with_accessibility_info(SmallAriaInfo::label("Save").to_full_info());
+        let original = StyledDom::create(&mut dom, Css::empty());
+
+        let out = resolve(
+            RefAny::new(image_icon(8.0, 8.0)),
+            &original,
+            &SystemStyle::default(),
+        );
+
+        let a11y = out
+            .node_data
+            .as_ref()
+            .iter()
+            .find_map(azul_core::dom::NodeData::get_accessibility_info)
+            .expect("a11y info must survive icon resolution");
+        assert_eq!(
+            a11y.accessibility_name.as_ref().map(|s| s.as_str()),
+            Some("Save")
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // apply_icon_style_filters
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn icon_filters_default_style_adds_nothing() {
+        let mut props = Vec::new();
+        apply_icon_style_filters(&mut props, &SystemStyle::default());
+        assert!(props.is_empty(), "default SystemStyle must not synthesise a filter");
+    }
+
+    #[test]
+    fn icon_filters_grayscale_uses_quantised_luminance_matrix() {
+        let mut props = Vec::new();
+        apply_icon_style_filters(&mut props, &grayscale_style());
+
+        let filters = filters_of(&props);
+        assert_eq!(filters.len(), 1);
+        let StyleFilter::ColorMatrix(m) = &filters[0] else {
+            panic!("prefer_grayscale must emit a ColorMatrix filter, got {:?}", filters[0]);
+        };
+
+        // Rec.709 luminance weights, rounded through FloatValue's 1/1000 fixed point.
+        for r in [m.m0, m.m5, m.m10] {
+            assert!((r.get() - 0.2126).abs() < 0.001, "R weight {}", r.get());
+        }
+        for g in [m.m1, m.m6, m.m11] {
+            assert!((g.get() - 0.7152).abs() < 0.001, "G weight {}", g.get());
+        }
+        for b in [m.m2, m.m7, m.m12] {
+            assert!((b.get() - 0.0722).abs() < 0.001, "B weight {}", b.get());
+        }
+        // Alpha row must be pass-through, or grayscale icons would turn opaque/invisible.
+        assert_eq!(m.m18.get(), 1.0);
+        assert_eq!(m.m15.get(), 0.0);
+        assert_eq!(m.m19.get(), 0.0);
+
+        // FloatValue truncates at 3 decimals: the 4th digit of 0.2126 is lost.
+        assert_ne!(m.m0.get(), 0.2126);
+    }
+
+    #[test]
+    fn icon_filters_tint_emits_flood_even_when_fully_transparent() {
+        // a == 0 is still forwarded — the resolver does not treat it as "no tint".
+        let transparent = ColorU { r: 1, g: 2, b: 3, a: 0 };
+        let mut props = Vec::new();
+        apply_icon_style_filters(&mut props, &tint_style(transparent));
+
+        let filters = filters_of(&props);
+        assert_eq!(filters.len(), 1);
+        assert!(matches!(filters[0], StyleFilter::Flood(c) if c == transparent));
+    }
+
+    #[test]
+    fn icon_filters_grayscale_and_tint_are_ordered_matrix_then_flood() {
+        let tint = ColorU { r: 255, g: 0, b: 128, a: 255 };
+        let mut style = grayscale_style();
+        style.icon_style.tint_color = OptionColorU::Some(tint);
+
+        let mut props = Vec::new();
+        apply_icon_style_filters(&mut props, &style);
+
+        // Both filters must live in ONE `filter:` declaration (a second declaration
+        // would overwrite the first in the cascade, silently dropping the grayscale).
+        let filter_decls = props
+            .iter()
+            .filter(|p| matches!(p.property, CssProperty::Filter(_)))
+            .count();
+        assert_eq!(filter_decls, 1);
+
+        let filters = filters_of(&props);
+        assert_eq!(filters.len(), 2);
+        assert!(matches!(filters[0], StyleFilter::ColorMatrix(_)));
+        assert!(matches!(filters[1], StyleFilter::Flood(c) if c == tint));
+    }
+
+    #[test]
+    fn icon_filters_preserve_pre_existing_properties() {
+        let mut props = vec![CssPropertyWithConditions::simple(CssProperty::width(
+            LayoutWidth::px(4.0),
+        ))];
+        apply_icon_style_filters(&mut props, &grayscale_style());
+
+        assert_eq!(props.len(), 2);
+        assert!(matches!(props[0].property, CssProperty::Width(_)), "existing props must not be clobbered");
+        assert!(matches!(props[1].property, CssProperty::Filter(_)));
+    }
+
+    #[test]
+    fn image_icon_grayscale_reaches_the_resolved_dom() {
+        let out = resolve(
+            RefAny::new(image_icon(10.0, 10.0)),
+            &StyledDom::default(),
+            &grayscale_style(),
+        );
+        let filters = filters_of(&all_props(&out));
+        assert_eq!(filters.len(), 1);
+        assert!(matches!(filters[0], StyleFilter::ColorMatrix(_)));
+    }
+
+    // ---------------------------------------------------------------------
+    // apply_font_icon_color
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn font_icon_color_default_style_adds_nothing() {
+        let mut props = Vec::new();
+        apply_font_icon_color(&mut props, &SystemStyle::default());
+        assert!(props.is_empty());
+    }
+
+    #[test]
+    fn font_icon_color_inherit_text_color_alone_is_a_noop() {
+        // Documented: inheritance is CSS's default, so `inherit_text_color` must
+        // *not* synthesise a `color:` declaration (that would break inheritance).
+        let mut style = SystemStyle::default();
+        style.icon_style.inherit_text_color = true;
+        let mut props = Vec::new();
+        apply_font_icon_color(&mut props, &style);
+        assert!(props.is_empty());
+    }
+
+    #[test]
+    fn font_icon_color_tint_becomes_text_color() {
+        let tint = ColorU { r: 9, g: 8, b: 7, a: 6 };
+        let mut props = Vec::new();
+        apply_font_icon_color(&mut props, &tint_style(tint));
+
+        assert_eq!(props.len(), 1);
+        assert_eq!(text_color_of(&props), Some(tint));
+    }
+
+    #[test]
+    fn font_icon_color_tint_wins_over_inherit_text_color() {
+        let tint = ColorU { r: 1, g: 1, b: 1, a: 255 };
+        let mut style = tint_style(tint);
+        style.icon_style.inherit_text_color = true;
+
+        let mut props = Vec::new();
+        apply_font_icon_color(&mut props, &style);
+        assert_eq!(text_color_of(&props), Some(tint));
+    }
+
+    #[test]
+    fn font_icons_never_get_a_grayscale_filter() {
+        // Font icons take the color path, not the filter path — a ColorMatrix here
+        // would double-apply on top of the (inherited) text color.
+        let out = resolve(
+            RefAny::new(font_icon("\u{e88a}")),
+            &StyledDom::default(),
+            &grayscale_style(),
+        );
+        assert!(filters_of(&all_props(&out)).is_empty());
+    }
+
+    // ---------------------------------------------------------------------
+    // unicode / huge strings in the icon char
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn font_icon_empty_char_yields_empty_text_node() {
+        let out = resolve(
+            RefAny::new(font_icon("")),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        assert_eq!(text_of(&out).as_deref(), Some(""));
+    }
+
+    #[test]
+    fn font_icon_hostile_unicode_round_trips_verbatim() {
+        // ZWJ emoji sequence, RTL override, combining marks, an embedded NUL and a
+        // lone PUA codepoint: none may be normalised, truncated or panicked on.
+        for s in [
+            "\u{1F469}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
+            "\u{202E}gnippilf\u{202C}",
+            "e\u{0301}\u{0327}\u{0328}",
+            "a\0b",
+            "\u{F8FF}",
+            "\u{FFFD}",
+        ] {
+            let out = resolve(
+                RefAny::new(font_icon(s)),
+                &StyledDom::default(),
+                &SystemStyle::default(),
+            );
+            assert_eq!(text_of(&out).as_deref(), Some(s), "icon_char {s:?} was altered");
+        }
+    }
+
+    #[test]
+    fn font_icon_huge_char_string_does_not_panic() {
+        let huge = "\u{e88a}".repeat(65_536);
+        let out = resolve(
+            RefAny::new(font_icon(&huge)),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        assert_eq!(text_of(&out).map(|s| s.chars().count()), Some(65_536));
+    }
+
+    // ---------------------------------------------------------------------
+    // registration helpers
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn register_image_icon_lowercases_the_name_and_reads_size_from_the_imageref() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon(&mut provider, "App-Images", "HOME", null_img(64, 32));
+
+        // pack names are case-sensitive, icon names are normalised to lowercase
+        assert_eq!(provider.list_packs(), vec![String::from("App-Images")]);
+        assert_eq!(
+            provider.list_icons_in_pack("App-Images"),
+            vec![String::from("home")]
+        );
+        assert!(provider.list_icons_in_pack("app-images").is_empty());
+        assert!(provider.has_icon("hOmE"));
+
+        let data = provider.lookup("HOME").expect("case-insensitive lookup");
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        assert_eq!(width_px(&out), Some(64.0));
+        assert_eq!(height_px(&out), Some(32.0));
+    }
+
+    #[test]
+    fn register_font_icon_accepts_empty_pack_and_icon_names() {
+        let mut provider = create_default_icon_provider();
+        register_font_icon(&mut provider, "", "", dummy_font_ref(), "");
+
+        assert_eq!(provider.list_packs(), vec![String::new()]);
+        assert!(provider.has_icon(""));
+        let data = provider.lookup("").expect("empty-named icon is still addressable");
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        assert_eq!(text_of(&out).as_deref(), Some(""));
+    }
+
+    #[test]
+    fn register_icon_handles_oversized_and_unicode_names() {
+        let mut provider = create_default_icon_provider();
+        let long_name = "n".repeat(10_000);
+        register_font_icon(&mut provider, "p", &long_name, dummy_font_ref(), "x");
+        assert!(provider.has_icon(&long_name));
+
+        // "İ" (U+0130) lowercases to TWO chars (i + U+0307); the key is the
+        // lowercased form, so the dotless "i" must NOT match.
+        register_font_icon(&mut provider, "p", "\u{130}", dummy_font_ref(), "y");
+        let folded = "\u{130}".to_lowercase();
+        assert!(provider.has_icon("\u{130}"));
+        assert!(provider.has_icon(&folded));
+        assert!(!provider.has_icon("i"));
+    }
+
+    #[test]
+    fn duplicate_icon_across_packs_resolves_to_the_alphabetically_first_pack() {
+        // "First match wins" iterates a BTreeMap => pack *name* order, NOT the
+        // registration order. Registering into "zzz" first must not shadow "aaa".
+        let mut provider = create_default_icon_provider();
+        register_image_icon(&mut provider, "zzz", "dup", null_img(1, 1));
+        register_image_icon(&mut provider, "aaa", "dup", null_img(2, 2));
+
+        let data = provider.lookup("dup").expect("icon registered");
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        assert_eq!(
+            width_px(&out),
+            Some(2.0),
+            "lookup must return the alphabetically-first pack's icon"
+        );
+    }
+
+    #[test]
+    fn re_registering_an_icon_replaces_it_and_unregistering_drops_the_empty_pack() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon(&mut provider, "p", "icon", null_img(1, 1));
+        register_image_icon(&mut provider, "p", "ICON", null_img(5, 5));
+
+        assert_eq!(provider.list_icons_in_pack("p").len(), 1);
+        let data = provider.lookup("icon").expect("icon registered");
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        assert_eq!(width_px(&out), Some(5.0));
+
+        provider.unregister_icon("p", "IcOn");
+        assert!(!provider.has_icon("icon"));
+        assert!(provider.list_packs().is_empty(), "empty pack must be removed");
+    }
+
+    #[test]
+    fn create_default_icon_provider_starts_empty_and_misses_resolve_to_a_placeholder() {
+        let provider = create_default_icon_provider();
+        assert!(provider.list_packs().is_empty());
+        assert!(provider.lookup("nope").is_none());
+        assert!(!provider.has_icon("nope"));
+
+        let out = default_icon_resolver(
+            OptionRefAny::from(provider.lookup("nope")),
+            &StyledDom::default(),
+            &SystemStyle::default(),
+        );
+        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert!(all_props(&out).is_empty());
+    }
+
+    // ---------------------------------------------------------------------
+    // ZIP / font-bytes entry points (both cfg variants share these signatures)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn load_images_from_zip_rejects_malformed_archives() {
+        assert!(load_images_from_zip(&[]).is_empty());
+        assert!(load_images_from_zip(b"definitely not a zip file").is_empty());
+        // valid local-file-header magic, truncated body
+        assert!(load_images_from_zip(b"PK\x03\x04\x00\x00\x00\x00").is_empty());
+        // End-of-central-directory magic claiming 0xFFFF entries that don't exist
+        assert!(load_images_from_zip(b"PK\x05\x06\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF").is_empty());
+        assert!(load_images_from_zip(&[0xFFu8; 4096]).is_empty());
+    }
+
+    #[test]
+    fn register_icons_from_zip_registers_nothing_for_garbage_bytes() {
+        for bytes in [
+            &b""[..],
+            &b"not a zip"[..],
+            &b"PK\x03\x04\x00\x00\x00\x00"[..],
+            &[0x00u8; 512][..],
+        ] {
+            let mut provider = create_default_icon_provider();
+            register_icons_from_zip(&mut provider, "pack", bytes);
+            assert!(
+                provider.list_packs().is_empty(),
+                "a malformed ZIP must not create a pack"
+            );
+        }
+    }
+
+    #[test]
+    fn register_embedded_material_icons_rejects_non_font_bytes() {
+        for bytes in [
+            &b""[..],
+            &b"this is not a TTF"[..],
+            // sfnt version tag + nothing else
+            &b"\x00\x01\x00\x00"[..],
+            &[0xFFu8; 256][..],
+        ] {
+            let mut provider = create_default_icon_provider();
+            let ok = register_embedded_material_icons(&mut provider, bytes);
+            assert!(!ok, "corrupt font bytes must not report success");
+            assert!(provider.list_packs().is_empty());
+        }
+    }
+
+    #[cfg(feature = "icons")]
+    #[test]
+    fn register_material_icons_fills_a_single_lowercase_pack() {
+        let mut provider = create_default_icon_provider();
+        let font = dummy_font_ref();
+        register_material_icons(&mut provider, &font);
+
+        assert_eq!(provider.list_packs(), vec![String::from("material-icons")]);
+        let names = provider.list_icons_in_pack("material-icons");
+        assert!(names.len() > 1000, "expected the full icon set, got {}", names.len());
+        assert!(
+            names.iter().all(|n| *n == n.to_lowercase()),
+            "every registered icon name must be normalised to lowercase"
+        );
+        assert!(provider.has_icon("home"));
+        assert!(provider.has_icon("HOME"));
+
+        let data = provider.lookup("home").expect("material 'home' icon");
+        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        assert!(text_of(&out).is_some(), "a material icon must resolve to a text node");
+    }
+}

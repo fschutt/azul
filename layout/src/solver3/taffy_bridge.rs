@@ -2086,3 +2086,1613 @@ const fn from_layout_position(val: LayoutPosition) -> Position {
     }
 }
 
+#[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    clippy::too_many_lines,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation
+)]
+mod autotest_generated {
+    use azul_css::props::layout::{
+        dimensions::CalcAstItem,
+        grid::{
+            GridLine as AzGridLine, GridMinMax, GridPlacement as AzGridPlacement,
+            GridTrackSizingVec, LayoutJustifyItems, NamedGridLine,
+        },
+        LayoutOverflow,
+    };
+
+    use super::*;
+
+    // ==================================================================
+    // Fixtures
+    // ==================================================================
+
+    fn track_vec(v: Vec<GridTrackSizing>) -> GridTrackSizingVec {
+        GridTrackSizingVec::from_vec(v)
+    }
+
+    fn template(v: Vec<GridTrackSizing>) -> GridTemplate {
+        GridTemplate { tracks: track_vec(v) }
+    }
+
+    fn auto_tracks(v: Vec<GridTrackSizing>) -> GridAutoTracks {
+        GridAutoTracks { tracks: track_vec(v) }
+    }
+
+    /// The absolute metrics `pixel_value_to_pixels_fallback` can resolve.
+    const ABSOLUTE_METRICS: [SizeMetric; 7] = [
+        SizeMetric::Px,
+        SizeMetric::Pt,
+        SizeMetric::In,
+        SizeMetric::Cm,
+        SizeMetric::Mm,
+        SizeMetric::Em,
+        SizeMetric::Rem,
+    ];
+
+    /// The metrics that need a resolution context this function does not have.
+    const CONTEXTUAL_METRICS: [SizeMetric; 5] = [
+        SizeMetric::Percent,
+        SizeMetric::Vw,
+        SizeMetric::Vh,
+        SizeMetric::Vmin,
+        SizeMetric::Vmax,
+    ];
+
+    fn approx(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 1e-3,
+            "expected ~{expected}, got {actual}"
+        );
+    }
+
+    // ==================================================================
+    // pixel_value_to_pixels_fallback — numeric
+    // ==================================================================
+
+    #[test]
+    fn pixel_value_to_pixels_fallback_is_zero_at_zero_for_every_absolute_metric() {
+        for m in ABSOLUTE_METRICS {
+            assert_eq!(
+                pixel_value_to_pixels_fallback(&PixelValue::from_metric(m, 0.0)),
+                Some(0.0),
+                "{m:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pixel_value_to_pixels_fallback_converts_each_absolute_unit_to_css_px() {
+        assert_eq!(
+            pixel_value_to_pixels_fallback(&PixelValue::px(10.5)),
+            Some(10.5)
+        );
+        assert_eq!(
+            pixel_value_to_pixels_fallback(&PixelValue::inch(1.0)),
+            Some(96.0)
+        );
+        assert_eq!(
+            pixel_value_to_pixels_fallback(&PixelValue::em(2.0)),
+            Some(2.0 * DEFAULT_FONT_SIZE)
+        );
+        assert_eq!(
+            pixel_value_to_pixels_fallback(&PixelValue::rem(2.0)),
+            Some(2.0 * DEFAULT_FONT_SIZE)
+        );
+        approx(
+            pixel_value_to_pixels_fallback(&PixelValue::pt(72.0)).unwrap(),
+            96.0,
+        );
+        approx(
+            pixel_value_to_pixels_fallback(&PixelValue::cm(2.54)).unwrap(),
+            96.0,
+        );
+        approx(
+            pixel_value_to_pixels_fallback(&PixelValue::mm(25.4)).unwrap(),
+            96.0,
+        );
+        // PT_TO_PX is the documented factor — 1pt = 96/72 px.
+        approx(
+            pixel_value_to_pixels_fallback(&PixelValue::pt(1.0)).unwrap(),
+            PT_TO_PX,
+        );
+    }
+
+    #[test]
+    fn pixel_value_to_pixels_fallback_keeps_the_sign_of_negative_lengths() {
+        for m in ABSOLUTE_METRICS {
+            let out = pixel_value_to_pixels_fallback(&PixelValue::from_metric(m, -4.0))
+                .expect("absolute metric resolves");
+            assert!(out < 0.0, "{m:?} produced {out} for -4");
+        }
+    }
+
+    #[test]
+    fn pixel_value_to_pixels_fallback_returns_none_for_context_dependent_metrics() {
+        for m in CONTEXTUAL_METRICS {
+            assert_eq!(
+                pixel_value_to_pixels_fallback(&PixelValue::from_metric(m, 50.0)),
+                None,
+                "{m:?} must not be resolved without a containing block / viewport"
+            );
+        }
+    }
+
+    #[test]
+    fn pixel_value_to_pixels_fallback_sanitises_nan_and_infinite_inputs() {
+        // `FloatValue` stores `f32 * 1000` in an `isize` via an `as` cast, which
+        // saturates: NaN → 0, ±inf → isize::MIN/MAX. So no NaN and no infinity can
+        // reach the layout through a PixelValue, whatever the caller passes in.
+        assert_eq!(
+            pixel_value_to_pixels_fallback(&PixelValue::px(f32::NAN)),
+            Some(0.0),
+            "NaN must be flattened to 0, not propagated"
+        );
+
+        let pos = pixel_value_to_pixels_fallback(&PixelValue::px(f32::INFINITY))
+            .expect("px resolves");
+        assert!(pos.is_finite() && pos > 0.0, "+inf px became {pos}");
+
+        let neg = pixel_value_to_pixels_fallback(&PixelValue::px(f32::NEG_INFINITY))
+            .expect("px resolves");
+        assert!(neg.is_finite() && neg < 0.0, "-inf px became {neg}");
+    }
+
+    #[test]
+    fn pixel_value_to_pixels_fallback_stays_finite_at_the_f32_extremes() {
+        for v in [f32::MAX, f32::MIN, f32::MIN_POSITIVE, -f32::MIN_POSITIVE] {
+            for m in ABSOLUTE_METRICS {
+                let out = pixel_value_to_pixels_fallback(&PixelValue::from_metric(m, v))
+                    .expect("absolute metric resolves");
+                assert!(out.is_finite(), "{m:?} at {v} overflowed to {out}");
+            }
+        }
+    }
+
+    // ==================================================================
+    // minmax + translate_track
+    // ==================================================================
+
+    #[test]
+    fn minmax_puts_the_arguments_where_it_says_it_does() {
+        let t = minmax(
+            MinTrackSizingFunction::length(1.0),
+            MaxTrackSizingFunction::fr(2.0),
+        );
+        assert_eq!(t.min, MinTrackSizingFunction::length(1.0));
+        assert_eq!(t.max, MaxTrackSizingFunction::fr(2.0));
+    }
+
+    #[test]
+    fn translate_track_maps_the_intrinsic_keywords() {
+        assert_eq!(
+            translate_track(&GridTrackSizing::MinContent),
+            minmax(
+                MinTrackSizingFunction::min_content(),
+                MaxTrackSizingFunction::min_content()
+            )
+        );
+        assert_eq!(
+            translate_track(&GridTrackSizing::MaxContent),
+            minmax(
+                MinTrackSizingFunction::max_content(),
+                MaxTrackSizingFunction::max_content()
+            )
+        );
+        // `auto` is minmax(min-content, max-content) per CSS Grid §7.2.
+        assert_eq!(
+            translate_track(&GridTrackSizing::Auto),
+            minmax(
+                MinTrackSizingFunction::min_content(),
+                MaxTrackSizingFunction::max_content()
+            )
+        );
+    }
+
+    #[test]
+    fn translate_track_resolves_fixed_tracks_through_the_absolute_unit_table() {
+        assert_eq!(
+            translate_track(&GridTrackSizing::Fixed(PixelValue::px(120.0))),
+            minmax(
+                MinTrackSizingFunction::length(120.0),
+                MaxTrackSizingFunction::length(120.0)
+            )
+        );
+        assert_eq!(
+            translate_track(&GridTrackSizing::Fixed(PixelValue::em(2.0))),
+            minmax(
+                MinTrackSizingFunction::length(32.0),
+                MaxTrackSizingFunction::length(32.0)
+            )
+        );
+        assert_eq!(
+            translate_track(&GridTrackSizing::FitContent(PixelValue::px(50.0))),
+            minmax(
+                MinTrackSizingFunction::length(50.0),
+                MaxTrackSizingFunction::max_content()
+            )
+        );
+    }
+
+    #[test]
+    fn translate_track_collapses_unresolvable_track_units_to_zero_px() {
+        // % / vw / vh cannot be expressed as a taffy track sizing fn here, and the
+        // `.unwrap_or(0.0)` inside translate_track turns them into a 0px track
+        // rather than dropping the track. Locking the (lossy) behaviour in.
+        for m in CONTEXTUAL_METRICS {
+            let pv = PixelValue::from_metric(m, 50.0);
+            assert_eq!(
+                translate_track(&GridTrackSizing::Fixed(pv)),
+                minmax(
+                    MinTrackSizingFunction::length(0.0),
+                    MaxTrackSizingFunction::length(0.0)
+                ),
+                "{m:?}"
+            );
+            assert_eq!(
+                translate_track(&GridTrackSizing::FitContent(pv)),
+                minmax(
+                    MinTrackSizingFunction::length(0.0),
+                    MaxTrackSizingFunction::max_content()
+                ),
+                "{m:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn translate_track_divides_fr_by_the_hundredfold_scaling_factor() {
+        assert_eq!(
+            translate_track(&GridTrackSizing::Fr(100)),
+            minmax(
+                MinTrackSizingFunction::auto(),
+                MaxTrackSizingFunction::fr(1.0)
+            )
+        );
+        assert_eq!(
+            translate_track(&GridTrackSizing::Fr(50)),
+            minmax(
+                MinTrackSizingFunction::auto(),
+                MaxTrackSizingFunction::fr(0.5)
+            )
+        );
+        assert_eq!(
+            translate_track(&GridTrackSizing::Fr(0)),
+            minmax(
+                MinTrackSizingFunction::auto(),
+                MaxTrackSizingFunction::fr(0.0)
+            )
+        );
+    }
+
+    #[test]
+    fn translate_track_does_not_overflow_at_the_fr_integer_bounds() {
+        for fr in [i32::MIN, i32::MIN + 1, -100, i32::MAX, i32::MAX - 1] {
+            let t = translate_track(&GridTrackSizing::Fr(fr));
+            let v = t.max.into_raw().value();
+            assert!(v.is_finite(), "Fr({fr}) produced a non-finite fr: {v}");
+            assert_eq!(v, fr as f32 / 100.0, "Fr({fr})");
+        }
+    }
+
+    #[test]
+    fn translate_track_minmax_takes_the_min_of_the_min_and_the_max_of_the_max() {
+        let t = GridTrackSizing::MinMax(GridMinMax {
+            min: Box::new(GridTrackSizing::Fixed(PixelValue::px(10.0))),
+            max: Box::new(GridTrackSizing::Fr(200)),
+        });
+        assert_eq!(
+            translate_track(&t),
+            minmax(
+                MinTrackSizingFunction::length(10.0),
+                MaxTrackSizingFunction::fr(2.0)
+            )
+        );
+
+        // The *other* halves are discarded: only minmax_box.min.min and
+        // minmax_box.max.max survive the translation.
+        let t = GridTrackSizing::MinMax(GridMinMax {
+            min: Box::new(GridTrackSizing::MaxContent),
+            max: Box::new(GridTrackSizing::MinContent),
+        });
+        assert_eq!(
+            translate_track(&t),
+            minmax(
+                MinTrackSizingFunction::max_content(),
+                MaxTrackSizingFunction::min_content()
+            )
+        );
+    }
+
+    #[test]
+    fn translate_track_terminates_on_a_left_nested_minmax_chain() {
+        // Nesting only on the `min` side keeps the recursion linear.
+        let mut t = GridTrackSizing::Fixed(PixelValue::px(7.0));
+        for _ in 0..64 {
+            t = GridTrackSizing::MinMax(GridMinMax {
+                min: Box::new(t),
+                max: Box::new(GridTrackSizing::MaxContent),
+            });
+        }
+        assert_eq!(
+            translate_track(&t),
+            minmax(
+                MinTrackSizingFunction::length(7.0),
+                MaxTrackSizingFunction::max_content()
+            )
+        );
+    }
+
+    #[test]
+    fn translate_track_terminates_on_a_doubly_nested_minmax_chain() {
+        // NOTE: translate_track calls itself on BOTH halves of a MinMax, so a
+        // minmax nested on both sides costs O(2^depth). CSS grammar forbids
+        // minmax() inside minmax(), so the parser can't reach this — but the type
+        // can express it. Depth 10 = ~1k calls; it must still terminate and pick
+        // the leaf on each side.
+        let mut t = GridTrackSizing::Fixed(PixelValue::px(3.0));
+        for _ in 0..10 {
+            t = GridTrackSizing::MinMax(GridMinMax {
+                min: Box::new(t.clone()),
+                max: Box::new(t),
+            });
+        }
+        assert_eq!(
+            translate_track(&t),
+            minmax(
+                MinTrackSizingFunction::length(3.0),
+                MaxTrackSizingFunction::length(3.0)
+            )
+        );
+    }
+
+    // ==================================================================
+    // grid-template-* / grid-auto-* → taffy
+    // ==================================================================
+
+    #[test]
+    fn grid_templates_are_empty_for_every_non_exact_css_value() {
+        for v in [
+            CssPropertyValue::None,
+            CssPropertyValue::Inherit,
+            CssPropertyValue::Revert,
+            CssPropertyValue::Unset,
+            CssPropertyValue::Auto,
+            CssPropertyValue::Initial,
+        ] {
+            assert!(grid_template_rows_to_taffy(v.clone()).is_empty(), "{v:?}");
+            assert!(grid_template_columns_to_taffy(v).is_empty());
+        }
+        assert!(grid_template_rows_to_taffy(CssPropertyValue::Exact(template(Vec::new()))).is_empty());
+    }
+
+    #[test]
+    fn grid_auto_tracks_are_empty_for_every_non_exact_css_value() {
+        for v in [
+            CssPropertyValue::None,
+            CssPropertyValue::Inherit,
+            CssPropertyValue::Revert,
+            CssPropertyValue::Unset,
+            CssPropertyValue::Auto,
+            CssPropertyValue::Initial,
+        ] {
+            assert!(grid_auto_rows_to_taffy(v.clone()).is_empty(), "{v:?}");
+            assert!(grid_auto_columns_to_taffy(v).is_empty());
+        }
+    }
+
+    #[test]
+    fn grid_template_rows_and_columns_translate_each_track_in_order() {
+        let t = template(vec![
+            GridTrackSizing::Fr(100),
+            GridTrackSizing::Fixed(PixelValue::px(20.0)),
+            GridTrackSizing::Auto,
+        ]);
+        let rows = grid_template_rows_to_taffy(CssPropertyValue::Exact(t.clone()));
+        let cols = grid_template_columns_to_taffy(CssPropertyValue::Exact(t));
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows, cols, "rows and columns share one translation path");
+        assert_eq!(
+            rows[0],
+            GridTemplateComponent::Single(minmax(
+                MinTrackSizingFunction::auto(),
+                MaxTrackSizingFunction::fr(1.0)
+            ))
+        );
+        assert_eq!(
+            rows[1],
+            GridTemplateComponent::Single(minmax(
+                MinTrackSizingFunction::length(20.0),
+                MaxTrackSizingFunction::length(20.0)
+            ))
+        );
+        assert_eq!(
+            rows[2],
+            GridTemplateComponent::Single(minmax(
+                MinTrackSizingFunction::min_content(),
+                MaxTrackSizingFunction::max_content()
+            ))
+        );
+    }
+
+    #[test]
+    fn grid_auto_rows_and_columns_agree_on_every_track() {
+        let tracks = vec![
+            GridTrackSizing::Fr(250),
+            GridTrackSizing::MinContent,
+            GridTrackSizing::FitContent(PixelValue::px(9.0)),
+            GridTrackSizing::MinMax(GridMinMax {
+                min: Box::new(GridTrackSizing::Fixed(PixelValue::px(1.0))),
+                max: Box::new(GridTrackSizing::MaxContent),
+            }),
+        ];
+        let rows = grid_auto_rows_to_taffy(CssPropertyValue::Exact(auto_tracks(tracks.clone())));
+        let cols = grid_auto_columns_to_taffy(CssPropertyValue::Exact(auto_tracks(tracks.clone())));
+
+        assert_eq!(rows.len(), tracks.len());
+        // grid_auto_rows_to_taffy rebuilds the MinMax by calling translate_track
+        // twice; it must land on exactly the same value as the single-call path.
+        assert_eq!(rows, cols);
+        for (i, track) in tracks.iter().enumerate() {
+            assert_eq!(rows[i], translate_track(track), "track #{i}");
+        }
+    }
+
+    #[test]
+    fn grid_templates_handle_a_very_long_track_list() {
+        let tracks: Vec<GridTrackSizing> = (0..2048).map(GridTrackSizing::Fr).collect();
+        let out = grid_template_columns_to_taffy(CssPropertyValue::Exact(template(tracks)));
+        assert_eq!(out.len(), 2048);
+        assert_eq!(
+            out[2047],
+            GridTemplateComponent::Single(minmax(
+                MinTrackSizingFunction::auto(),
+                MaxTrackSizingFunction::fr(20.47)
+            ))
+        );
+    }
+
+    // ==================================================================
+    // decode_compact_grid_line — numeric
+    // ==================================================================
+
+    #[test]
+    fn decode_compact_grid_line_maps_both_sentinels_to_auto() {
+        assert_eq!(
+            decode_compact_grid_line(azul_css::compact_cache::I16_AUTO),
+            GridPlacement::<String>::Auto
+        );
+        assert_eq!(
+            decode_compact_grid_line(azul_css::compact_cache::I16_SENTINEL),
+            GridPlacement::<String>::Auto
+        );
+        // i16::MAX *is* the sentinel, so the top of the range is Auto, not a line.
+        assert_eq!(
+            decode_compact_grid_line(i16::MAX),
+            GridPlacement::<String>::Auto
+        );
+    }
+
+    #[test]
+    fn decode_compact_grid_line_zero_is_line_zero_not_auto() {
+        assert_eq!(
+            decode_compact_grid_line(0),
+            GridPlacement::<String>::from_line_index(0)
+        );
+    }
+
+    #[test]
+    fn decode_compact_grid_line_positive_is_a_line_and_negative_is_a_span() {
+        assert_eq!(
+            decode_compact_grid_line(3),
+            GridPlacement::<String>::from_line_index(3)
+        );
+        assert_eq!(
+            decode_compact_grid_line(32_765),
+            GridPlacement::<String>::from_line_index(32_765),
+            "the largest value below I16_SENTINEL_THRESHOLD is still a line"
+        );
+        assert_eq!(
+            decode_compact_grid_line(-1),
+            GridPlacement::<String>::from_span(1)
+        );
+        assert_eq!(
+            decode_compact_grid_line(-4),
+            GridPlacement::<String>::from_span(4)
+        );
+        assert_eq!(
+            decode_compact_grid_line(-32_767),
+            GridPlacement::<String>::from_span(32_767)
+        );
+    }
+
+    #[test]
+    fn decode_compact_grid_line_at_i16_min_overflows_the_negation() {
+        // `(-v) as u16` on i16::MIN: -(-32768) is not representable in i16.
+        // Debug builds panic ("attempt to negate with overflow"); release wraps
+        // back to i16::MIN, whose bit pattern as u16 is 32768. Neither is a
+        // sensible span. Accept both so the test is profile-independent, and see
+        // the report: this input should be rejected (or the negation widened to
+        // i32) inside decode_compact_grid_line.
+        let decoded = std::panic::catch_unwind(|| decode_compact_grid_line(i16::MIN));
+        match decoded {
+            Err(_) => { /* debug: overflow panic */ }
+            Ok(p) => assert_eq!(
+                p,
+                GridPlacement::<String>::from_span(32_768),
+                "release build: the negation wraps"
+            ),
+        }
+    }
+
+    // ==================================================================
+    // grid_line_to_taffy / grid_placement_to_taffy
+    // ==================================================================
+
+    #[test]
+    fn grid_line_to_taffy_maps_auto_lines_and_spans() {
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Auto),
+            GridPlacement::<String>::Auto
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Line(0)),
+            GridPlacement::<String>::from_line_index(0)
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Line(4)),
+            GridPlacement::<String>::from_line_index(4)
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Line(-2)),
+            GridPlacement::<String>::from_line_index(-2),
+            "negative lines count from the end of the explicit grid"
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Span(3)),
+            GridPlacement::<String>::from_span(3)
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Span(0)),
+            GridPlacement::<String>::from_span(0)
+        );
+    }
+
+    #[test]
+    fn grid_line_to_taffy_truncates_out_of_range_line_numbers_instead_of_clamping() {
+        // azul stores grid lines as i32, taffy as i16 — the `as i16` cast wraps.
+        // A `grid-column: 70000` therefore silently becomes line 4464 rather than
+        // being clamped to i16::MAX. Documented here; see the report.
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Line(70_000)),
+            GridPlacement::<String>::from_line_index(70_000_i32 as i16)
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Line(i32::MAX)),
+            GridPlacement::<String>::from_line_index(-1),
+            "i32::MAX wraps to line -1 — the far end of the grid"
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Line(i32::MIN)),
+            GridPlacement::<String>::from_line_index(0)
+        );
+    }
+
+    #[test]
+    fn grid_line_to_taffy_wraps_out_of_range_and_negative_spans() {
+        // `span -1` is not valid CSS, but the i32 → u16 cast turns it into the
+        // largest possible span rather than rejecting it.
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Span(-1)),
+            GridPlacement::<String>::from_span(u16::MAX)
+        );
+        // `span 65536` wraps to `span 0`.
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Span(65_536)),
+            GridPlacement::<String>::from_span(0)
+        );
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Span(i32::MIN)),
+            GridPlacement::<String>::from_span(0)
+        );
+    }
+
+    #[test]
+    fn grid_line_to_taffy_named_lines_keep_their_name_and_split_on_the_span_count() {
+        let named = |name: &str, span: i32| {
+            AzGridLine::Named(NamedGridLine {
+                grid_line_name: name.into(),
+                span_count: span,
+            })
+        };
+
+        assert_eq!(
+            grid_line_to_taffy(&named("sidebar", 0)),
+            GridPlacement::NamedLine("sidebar".to_string(), 0)
+        );
+        assert_eq!(
+            grid_line_to_taffy(&named("sidebar", 2)),
+            GridPlacement::NamedSpan("sidebar".to_string(), 2)
+        );
+        // A negative span_count is not > 0, so it falls back to a named *line*.
+        assert_eq!(
+            grid_line_to_taffy(&named("sidebar", -5)),
+            GridPlacement::NamedLine("sidebar".to_string(), 0)
+        );
+        // Empty and non-ASCII names must survive the AzString → String hop.
+        assert_eq!(
+            grid_line_to_taffy(&named("", 0)),
+            GridPlacement::NamedLine(String::new(), 0)
+        );
+        assert_eq!(
+            grid_line_to_taffy(&named("行 🎉 col", 1)),
+            GridPlacement::NamedSpan("行 🎉 col".to_string(), 1)
+        );
+    }
+
+    #[test]
+    fn grid_line_to_taffy_named_span_count_wraps_at_u16() {
+        assert_eq!(
+            grid_line_to_taffy(&AzGridLine::Named(NamedGridLine {
+                grid_line_name: "x".into(),
+                span_count: 65_536,
+            })),
+            GridPlacement::NamedSpan("x".to_string(), 0),
+            "span_count 65536 wraps to a 0-track named span"
+        );
+    }
+
+    #[test]
+    fn grid_placement_to_taffy_does_not_swap_start_and_end() {
+        let p = AzGridPlacement {
+            grid_start: AzGridLine::Line(2),
+            grid_end: AzGridLine::Span(3),
+        };
+        let out = grid_placement_to_taffy(&p);
+        assert_eq!(out.start, GridPlacement::<String>::from_line_index(2));
+        assert_eq!(out.end, GridPlacement::<String>::from_span(3));
+
+        let both_auto = AzGridPlacement {
+            grid_start: AzGridLine::Auto,
+            grid_end: AzGridLine::Auto,
+        };
+        let out = grid_placement_to_taffy(&both_auto);
+        assert_eq!(out.start, GridPlacement::<String>::Auto);
+        assert_eq!(out.end, GridPlacement::<String>::Auto);
+    }
+
+    // ==================================================================
+    // enum → taffy mapping tables
+    // ==================================================================
+
+    #[test]
+    fn layout_display_to_taffy_maps_flex_and_grid_and_folds_the_rest_into_block() {
+        assert_eq!(
+            layout_display_to_taffy(CssPropertyValue::Exact(LayoutDisplay::None)),
+            Display::None
+        );
+        for d in [LayoutDisplay::Flex, LayoutDisplay::InlineFlex] {
+            assert_eq!(
+                layout_display_to_taffy(CssPropertyValue::Exact(d)),
+                Display::Flex,
+                "{d:?}"
+            );
+        }
+        for d in [LayoutDisplay::Grid, LayoutDisplay::InlineGrid] {
+            assert_eq!(
+                layout_display_to_taffy(CssPropertyValue::Exact(d)),
+                Display::Grid,
+                "{d:?}"
+            );
+        }
+        // Everything else — including `contents`, `table*` and `list-item` — is
+        // handed to taffy as a plain block box.
+        for d in [
+            LayoutDisplay::Block,
+            LayoutDisplay::Inline,
+            LayoutDisplay::InlineBlock,
+            LayoutDisplay::Table,
+            LayoutDisplay::TableCell,
+            LayoutDisplay::TableRow,
+            LayoutDisplay::FlowRoot,
+            LayoutDisplay::ListItem,
+            LayoutDisplay::Contents,
+        ] {
+            assert_eq!(
+                layout_display_to_taffy(CssPropertyValue::Exact(d)),
+                Display::Block,
+                "{d:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn layout_display_to_taffy_distinguishes_css_wide_none_from_display_none() {
+        // `CssPropertyValue::None` means "the property is absent", NOT `display: none`.
+        // It must fall back to the initial value (block), or nothing would render.
+        assert_eq!(
+            layout_display_to_taffy(CssPropertyValue::None),
+            Display::Block
+        );
+        assert_eq!(
+            layout_display_to_taffy(CssPropertyValue::Inherit),
+            Display::Block
+        );
+        assert_eq!(
+            layout_display_to_taffy(CssPropertyValue::Auto),
+            Display::Block
+        );
+        assert_eq!(
+            layout_display_to_taffy(CssPropertyValue::Exact(LayoutDisplay::None)),
+            Display::None,
+            "…but an explicit `display: none` still means none"
+        );
+    }
+
+    #[test]
+    fn layout_position_to_taffy_and_from_layout_position_agree_on_every_variant() {
+        let all = [
+            LayoutPosition::Static,
+            LayoutPosition::Relative,
+            LayoutPosition::Absolute,
+            LayoutPosition::Fixed,
+            LayoutPosition::Sticky,
+        ];
+        for p in all {
+            assert_eq!(
+                layout_position_to_taffy(CssPropertyValue::Exact(p)),
+                from_layout_position(p),
+                "the two position paths disagree on {p:?}"
+            );
+        }
+        assert_eq!(from_layout_position(LayoutPosition::Static), Position::Relative);
+        assert_eq!(from_layout_position(LayoutPosition::Relative), Position::Relative);
+        assert_eq!(from_layout_position(LayoutPosition::Sticky), Position::Relative);
+        assert_eq!(from_layout_position(LayoutPosition::Absolute), Position::Absolute);
+        assert_eq!(from_layout_position(LayoutPosition::Fixed), Position::Absolute);
+        // Absent property → `static` → relative.
+        assert_eq!(layout_position_to_taffy(CssPropertyValue::None), Position::Relative);
+        assert_eq!(layout_position_to_taffy(CssPropertyValue::Inherit), Position::Relative);
+    }
+
+    #[test]
+    fn grid_auto_flow_to_taffy_maps_all_four_variants_and_defaults_to_row() {
+        assert_eq!(
+            grid_auto_flow_to_taffy(CssPropertyValue::Exact(LayoutGridAutoFlow::Row)),
+            GridAutoFlow::Row
+        );
+        assert_eq!(
+            grid_auto_flow_to_taffy(CssPropertyValue::Exact(LayoutGridAutoFlow::Column)),
+            GridAutoFlow::Column
+        );
+        assert_eq!(
+            grid_auto_flow_to_taffy(CssPropertyValue::Exact(LayoutGridAutoFlow::RowDense)),
+            GridAutoFlow::RowDense
+        );
+        assert_eq!(
+            grid_auto_flow_to_taffy(CssPropertyValue::Exact(LayoutGridAutoFlow::ColumnDense)),
+            GridAutoFlow::ColumnDense
+        );
+        for v in [
+            CssPropertyValue::None,
+            CssPropertyValue::Inherit,
+            CssPropertyValue::Revert,
+            CssPropertyValue::Unset,
+            CssPropertyValue::Auto,
+            CssPropertyValue::Initial,
+        ] {
+            assert_eq!(grid_auto_flow_to_taffy(v), GridAutoFlow::Row, "{v:?}");
+        }
+    }
+
+    #[test]
+    fn layout_flex_direction_to_taffy_maps_all_four_variants_and_defaults_to_row() {
+        assert_eq!(
+            layout_flex_direction_to_taffy(CssPropertyValue::Exact(LayoutFlexDirection::Row)),
+            FlexDirection::Row
+        );
+        assert_eq!(
+            layout_flex_direction_to_taffy(CssPropertyValue::Exact(LayoutFlexDirection::RowReverse)),
+            FlexDirection::RowReverse
+        );
+        assert_eq!(
+            layout_flex_direction_to_taffy(CssPropertyValue::Exact(LayoutFlexDirection::Column)),
+            FlexDirection::Column
+        );
+        assert_eq!(
+            layout_flex_direction_to_taffy(CssPropertyValue::Exact(
+                LayoutFlexDirection::ColumnReverse
+            )),
+            FlexDirection::ColumnReverse
+        );
+        assert_eq!(
+            layout_flex_direction_to_taffy(CssPropertyValue::Inherit),
+            FlexDirection::Row
+        );
+    }
+
+    #[test]
+    fn layout_flex_wrap_to_taffy_maps_all_three_variants_and_defaults_to_nowrap() {
+        assert_eq!(
+            layout_flex_wrap_to_taffy(CssPropertyValue::Exact(LayoutFlexWrap::NoWrap)),
+            FlexWrap::NoWrap
+        );
+        assert_eq!(
+            layout_flex_wrap_to_taffy(CssPropertyValue::Exact(LayoutFlexWrap::Wrap)),
+            FlexWrap::Wrap
+        );
+        assert_eq!(
+            layout_flex_wrap_to_taffy(CssPropertyValue::Exact(LayoutFlexWrap::WrapReverse)),
+            FlexWrap::WrapReverse
+        );
+        assert_eq!(
+            layout_flex_wrap_to_taffy(CssPropertyValue::Inherit),
+            FlexWrap::NoWrap
+        );
+    }
+
+    #[test]
+    fn layout_align_items_to_taffy_maps_start_and_end_onto_the_flex_variants() {
+        assert_eq!(
+            layout_align_items_to_taffy(CssPropertyValue::Exact(LayoutAlignItems::Stretch)),
+            AlignItems::Stretch
+        );
+        assert_eq!(
+            layout_align_items_to_taffy(CssPropertyValue::Exact(LayoutAlignItems::Center)),
+            AlignItems::Center
+        );
+        assert_eq!(
+            layout_align_items_to_taffy(CssPropertyValue::Exact(LayoutAlignItems::Start)),
+            AlignItems::FlexStart
+        );
+        assert_eq!(
+            layout_align_items_to_taffy(CssPropertyValue::Exact(LayoutAlignItems::End)),
+            AlignItems::FlexEnd
+        );
+        assert_eq!(
+            layout_align_items_to_taffy(CssPropertyValue::Exact(LayoutAlignItems::Baseline)),
+            AlignItems::Baseline
+        );
+        // Absent → the CSS initial value, `stretch`.
+        assert_eq!(
+            layout_align_items_to_taffy(CssPropertyValue::Inherit),
+            AlignItems::Stretch
+        );
+    }
+
+    #[test]
+    fn layout_align_self_to_taffy_returns_none_only_for_auto() {
+        assert_eq!(
+            layout_align_self_to_taffy(CssPropertyValue::Exact(LayoutAlignSelf::Auto)),
+            None
+        );
+        // `auto` is the initial value, so an absent property is None too — that is
+        // what lets taffy inherit the parent's align-items.
+        assert_eq!(layout_align_self_to_taffy(CssPropertyValue::Inherit), None);
+        assert_eq!(layout_align_self_to_taffy(CssPropertyValue::Initial), None);
+
+        assert_eq!(
+            layout_align_self_to_taffy(CssPropertyValue::Exact(LayoutAlignSelf::Start)),
+            Some(AlignSelf::FlexStart)
+        );
+        assert_eq!(
+            layout_align_self_to_taffy(CssPropertyValue::Exact(LayoutAlignSelf::End)),
+            Some(AlignSelf::FlexEnd)
+        );
+        assert_eq!(
+            layout_align_self_to_taffy(CssPropertyValue::Exact(LayoutAlignSelf::Center)),
+            Some(AlignSelf::Center)
+        );
+        assert_eq!(
+            layout_align_self_to_taffy(CssPropertyValue::Exact(LayoutAlignSelf::Baseline)),
+            Some(AlignSelf::Baseline)
+        );
+        assert_eq!(
+            layout_align_self_to_taffy(CssPropertyValue::Exact(LayoutAlignSelf::Stretch)),
+            Some(AlignSelf::Stretch)
+        );
+    }
+
+    #[test]
+    fn layout_align_content_to_taffy_maps_every_variant_and_defaults_to_stretch() {
+        assert_eq!(
+            layout_align_content_to_taffy(CssPropertyValue::Exact(LayoutAlignContent::Start)),
+            AlignContent::FlexStart
+        );
+        assert_eq!(
+            layout_align_content_to_taffy(CssPropertyValue::Exact(LayoutAlignContent::End)),
+            AlignContent::FlexEnd
+        );
+        assert_eq!(
+            layout_align_content_to_taffy(CssPropertyValue::Exact(LayoutAlignContent::Center)),
+            AlignContent::Center
+        );
+        assert_eq!(
+            layout_align_content_to_taffy(CssPropertyValue::Exact(LayoutAlignContent::Stretch)),
+            AlignContent::Stretch
+        );
+        assert_eq!(
+            layout_align_content_to_taffy(CssPropertyValue::Exact(
+                LayoutAlignContent::SpaceBetween
+            )),
+            AlignContent::SpaceBetween
+        );
+        assert_eq!(
+            layout_align_content_to_taffy(CssPropertyValue::Exact(
+                LayoutAlignContent::SpaceAround
+            )),
+            AlignContent::SpaceAround
+        );
+        assert_eq!(
+            layout_align_content_to_taffy(CssPropertyValue::Inherit),
+            AlignContent::Stretch
+        );
+    }
+
+    #[test]
+    fn layout_justify_content_to_taffy_keeps_start_distinct_from_flex_start() {
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(
+                LayoutJustifyContent::FlexStart
+            )),
+            JustifyContent::FlexStart
+        );
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(LayoutJustifyContent::Start)),
+            JustifyContent::Start
+        );
+        assert_ne!(JustifyContent::Start, JustifyContent::FlexStart);
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(
+                LayoutJustifyContent::FlexEnd
+            )),
+            JustifyContent::FlexEnd
+        );
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(LayoutJustifyContent::End)),
+            JustifyContent::End
+        );
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(LayoutJustifyContent::Center)),
+            JustifyContent::Center
+        );
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(
+                LayoutJustifyContent::SpaceBetween
+            )),
+            JustifyContent::SpaceBetween
+        );
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(
+                LayoutJustifyContent::SpaceAround
+            )),
+            JustifyContent::SpaceAround
+        );
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Exact(
+                LayoutJustifyContent::SpaceEvenly
+            )),
+            JustifyContent::SpaceEvenly
+        );
+        // Initial value of justify-content in this codebase is `start`.
+        assert_eq!(
+            layout_justify_content_to_taffy(CssPropertyValue::Inherit),
+            JustifyContent::Start
+        );
+    }
+
+    #[test]
+    fn layout_justify_items_to_taffy_maps_all_four_variants_and_defaults_to_stretch() {
+        assert_eq!(
+            layout_justify_items_to_taffy(CssPropertyValue::Exact(LayoutJustifyItems::Start)),
+            AlignItems::Start
+        );
+        assert_eq!(
+            layout_justify_items_to_taffy(CssPropertyValue::Exact(LayoutJustifyItems::End)),
+            AlignItems::End
+        );
+        assert_eq!(
+            layout_justify_items_to_taffy(CssPropertyValue::Exact(LayoutJustifyItems::Center)),
+            AlignItems::Center
+        );
+        assert_eq!(
+            layout_justify_items_to_taffy(CssPropertyValue::Exact(LayoutJustifyItems::Stretch)),
+            AlignItems::Stretch
+        );
+        assert_eq!(
+            layout_justify_items_to_taffy(CssPropertyValue::Inherit),
+            AlignItems::Stretch
+        );
+        // justify-items uses the *logical* Start/End, unlike align-items, which is
+        // mapped onto FlexStart/FlexEnd. Guard the asymmetry.
+        assert_ne!(
+            layout_justify_items_to_taffy(CssPropertyValue::Exact(LayoutJustifyItems::Start)),
+            layout_align_items_to_taffy(CssPropertyValue::Exact(LayoutAlignItems::Start))
+        );
+    }
+
+    #[test]
+    fn azul_overflow_to_taffy_treats_auto_as_scroll_and_everything_unset_as_visible() {
+        assert_eq!(
+            azul_overflow_to_taffy(MultiValue::Exact(LayoutOverflow::Visible)),
+            taffy::Overflow::Visible
+        );
+        assert_eq!(
+            azul_overflow_to_taffy(MultiValue::Exact(LayoutOverflow::Hidden)),
+            taffy::Overflow::Hidden
+        );
+        assert_eq!(
+            azul_overflow_to_taffy(MultiValue::Exact(LayoutOverflow::Scroll)),
+            taffy::Overflow::Scroll
+        );
+        assert_eq!(
+            azul_overflow_to_taffy(MultiValue::Exact(LayoutOverflow::Clip)),
+            taffy::Overflow::Clip
+        );
+        // Taffy has no `auto`; `auto` constrains the box exactly like `scroll`.
+        assert_eq!(
+            azul_overflow_to_taffy(MultiValue::Exact(LayoutOverflow::Auto)),
+            taffy::Overflow::Scroll
+        );
+        for v in [MultiValue::Auto, MultiValue::Initial, MultiValue::Inherit] {
+            assert_eq!(azul_overflow_to_taffy(v), taffy::Overflow::Visible);
+        }
+    }
+
+    // ==================================================================
+    // css_width_to_px / css_height_to_px
+    // ==================================================================
+
+    #[test]
+    fn css_width_and_height_to_px_only_resolve_absolute_px_lengths() {
+        assert_eq!(
+            css_width_to_px(&LayoutWidth::Px(PixelValue::px(120.0))),
+            Some(120.0)
+        );
+        assert_eq!(
+            css_height_to_px(&LayoutHeight::Px(PixelValue::px(120.0))),
+            Some(120.0)
+        );
+        // em/rem go through the 16px fallback rather than returning None.
+        assert_eq!(
+            css_width_to_px(&LayoutWidth::Px(PixelValue::em(2.0))),
+            Some(32.0)
+        );
+        assert_eq!(
+            css_height_to_px(&LayoutHeight::Px(PixelValue::rem(2.0))),
+            Some(32.0)
+        );
+        // …but a percentage width has no containing block here.
+        assert_eq!(
+            css_width_to_px(&LayoutWidth::Px(PixelValue::percent(50.0))),
+            None
+        );
+        assert_eq!(
+            css_height_to_px(&LayoutHeight::Px(PixelValue::percent(50.0))),
+            None
+        );
+    }
+
+    #[test]
+    fn css_width_and_height_to_px_return_none_for_every_non_px_variant() {
+        let widths = [
+            LayoutWidth::Auto,
+            LayoutWidth::MinContent,
+            LayoutWidth::MaxContent,
+            LayoutWidth::FitContent(PixelValue::px(10.0)),
+            LayoutWidth::Calc(CalcAstItemVec::from_vec(vec![CalcAstItem::Value(
+                PixelValue::px(10.0),
+            )])),
+        ];
+        for w in &widths {
+            assert_eq!(css_width_to_px(w), None, "{w:?}");
+        }
+
+        let heights = [
+            LayoutHeight::Auto,
+            LayoutHeight::MinContent,
+            LayoutHeight::MaxContent,
+            LayoutHeight::FitContent(PixelValue::px(10.0)),
+            LayoutHeight::Calc(CalcAstItemVec::from_vec(Vec::new())),
+        ];
+        for h in &heights {
+            assert_eq!(css_height_to_px(h), None, "{h:?}");
+        }
+    }
+
+    #[test]
+    fn css_width_to_px_never_returns_nan_for_a_nan_pixel_value() {
+        let w = css_width_to_px(&LayoutWidth::Px(PixelValue::px(f32::NAN)));
+        assert_eq!(w, Some(0.0));
+        let h = css_height_to_px(&LayoutHeight::Px(PixelValue::px(f32::INFINITY)));
+        assert!(h.expect("px resolves").is_finite());
+    }
+
+    // ==================================================================
+    // MultiValue<PixelValue> → taffy lengths
+    // ==================================================================
+
+    #[test]
+    fn multi_value_to_lpa_maps_the_css_wide_keywords_to_auto() {
+        for mv in [MultiValue::Auto, MultiValue::Initial, MultiValue::Inherit] {
+            assert!(
+                multi_value_to_lpa(mv).is_auto(),
+                "inset keywords must stay auto"
+            );
+        }
+    }
+
+    #[test]
+    fn multi_value_to_lpa_resolves_lengths_percentages_and_falls_back_to_auto() {
+        assert_eq!(
+            multi_value_to_lpa(MultiValue::Exact(PixelValue::px(0.0))),
+            LengthPercentageAuto::length(0.0)
+        );
+        assert_eq!(
+            multi_value_to_lpa(MultiValue::Exact(PixelValue::px(-12.5))),
+            LengthPercentageAuto::length(-12.5),
+            "negative insets are legal and must not be clamped"
+        );
+        assert_eq!(
+            multi_value_to_lpa(MultiValue::Exact(PixelValue::percent(50.0))),
+            LengthPercentageAuto::percent(0.5),
+            "taffy percentages are 0..1, azul's are 0..100"
+        );
+        assert_eq!(
+            multi_value_to_lpa(MultiValue::Exact(PixelValue::em(2.0))),
+            LengthPercentageAuto::length(32.0)
+        );
+        // Viewport units resolve to neither a length nor a percent → auto.
+        for m in [SizeMetric::Vw, SizeMetric::Vh, SizeMetric::Vmin, SizeMetric::Vmax] {
+            assert!(
+                multi_value_to_lpa(MultiValue::Exact(PixelValue::from_metric(m, 10.0))).is_auto(),
+                "{m:?} is silently dropped to auto"
+            );
+        }
+    }
+
+    #[test]
+    fn multi_value_to_lpa_margin_keeps_auto_but_zeroes_the_other_keywords() {
+        // The whole point of the margin variant: `auto` survives (flex centering),
+        // `initial`/`inherit` become 0 (the CSS initial margin).
+        assert!(multi_value_to_lpa_margin(MultiValue::Auto).is_auto());
+        assert_eq!(
+            multi_value_to_lpa_margin(MultiValue::Initial),
+            LengthPercentageAuto::length(0.0)
+        );
+        assert_eq!(
+            multi_value_to_lpa_margin(MultiValue::Inherit),
+            LengthPercentageAuto::length(0.0)
+        );
+        // …which is exactly where it differs from the inset variant.
+        assert!(multi_value_to_lpa(MultiValue::Initial).is_auto());
+    }
+
+    #[test]
+    fn multi_value_to_lpa_margin_falls_back_to_zero_not_auto_for_unresolvable_units() {
+        assert_eq!(
+            multi_value_to_lpa_margin(MultiValue::Exact(PixelValue::from_metric(
+                SizeMetric::Vw,
+                10.0
+            ))),
+            LengthPercentageAuto::length(0.0),
+            "an unresolvable margin must not turn into `margin: auto` (it would centre the item)"
+        );
+        assert_eq!(
+            multi_value_to_lpa_margin(MultiValue::Exact(PixelValue::percent(25.0))),
+            LengthPercentageAuto::percent(0.25)
+        );
+        assert_eq!(
+            multi_value_to_lpa_margin(MultiValue::Exact(PixelValue::px(-8.0))),
+            LengthPercentageAuto::length(-8.0),
+            "negative margins are legal CSS"
+        );
+        assert_eq!(
+            multi_value_to_lpa_margin(MultiValue::Exact(PixelValue::px(f32::NAN))),
+            LengthPercentageAuto::length(0.0)
+        );
+    }
+
+    #[test]
+    fn multi_value_to_lp_maps_every_keyword_and_unresolvable_unit_to_zero() {
+        for mv in [MultiValue::Auto, MultiValue::Initial, MultiValue::Inherit] {
+            assert_eq!(multi_value_to_lp(mv), LengthPercentage::ZERO);
+        }
+        for m in CONTEXTUAL_METRICS.iter().filter(|m| **m != SizeMetric::Percent) {
+            assert_eq!(
+                multi_value_to_lp(MultiValue::Exact(PixelValue::from_metric(*m, 10.0))),
+                LengthPercentage::ZERO,
+                "{m:?}"
+            );
+        }
+        assert_eq!(
+            multi_value_to_lp(MultiValue::Exact(PixelValue::px(4.0))),
+            LengthPercentage::length(4.0)
+        );
+        assert_eq!(
+            multi_value_to_lp(MultiValue::Exact(PixelValue::percent(10.0))),
+            LengthPercentage::percent(0.1)
+        );
+    }
+
+    #[test]
+    fn pixel_to_lp_agrees_with_multi_value_to_lp_on_every_exact_value() {
+        let values = [
+            PixelValue::px(0.0),
+            PixelValue::px(12.0),
+            PixelValue::px(-12.0),
+            PixelValue::px(f32::NAN),
+            PixelValue::px(f32::INFINITY),
+            PixelValue::em(1.5),
+            PixelValue::rem(1.5),
+            PixelValue::pt(12.0),
+            PixelValue::percent(33.0),
+            PixelValue::from_metric(SizeMetric::Vw, 100.0),
+            PixelValue::from_metric(SizeMetric::Vmax, 100.0),
+        ];
+        for pv in values {
+            assert_eq!(
+                pixel_to_lp(pv),
+                multi_value_to_lp(MultiValue::Exact(pv)),
+                "{pv:?}"
+            );
+        }
+        assert_eq!(
+            pixel_to_lp(PixelValue::from_metric(SizeMetric::Vw, 100.0)),
+            LengthPercentage::ZERO
+        );
+    }
+
+    // ==================================================================
+    // from_layout_width / from_layout_height / store_calc_and_make_dimension
+    // ==================================================================
+
+    fn empty_calc_storage() -> std::cell::RefCell<Vec<Box<CalcResolveContext>>> {
+        std::cell::RefCell::new(Vec::new())
+    }
+
+    #[test]
+    fn from_layout_width_and_height_agree_on_every_shared_variant() {
+        let storage = empty_calc_storage();
+        let pairs: [(LayoutWidth, LayoutHeight); 6] = [
+            (LayoutWidth::Auto, LayoutHeight::Auto),
+            (
+                LayoutWidth::Px(PixelValue::px(100.0)),
+                LayoutHeight::Px(PixelValue::px(100.0)),
+            ),
+            (
+                LayoutWidth::Px(PixelValue::percent(50.0)),
+                LayoutHeight::Px(PixelValue::percent(50.0)),
+            ),
+            (LayoutWidth::MinContent, LayoutHeight::MinContent),
+            (LayoutWidth::MaxContent, LayoutHeight::MaxContent),
+            (
+                LayoutWidth::FitContent(PixelValue::px(10.0)),
+                LayoutHeight::FitContent(PixelValue::px(10.0)),
+            ),
+        ];
+        for (w, h) in pairs {
+            assert_eq!(
+                from_layout_width(w.clone(), &storage, 16.0, 16.0),
+                from_layout_height(h, &storage, 16.0, 16.0),
+                "{w:?}"
+            );
+        }
+        assert!(storage.borrow().is_empty(), "no calc() → no storage growth");
+    }
+
+    #[test]
+    fn from_layout_width_maps_the_intrinsic_keywords_to_auto() {
+        let storage = empty_calc_storage();
+        for v in [
+            LayoutWidth::Auto,
+            LayoutWidth::MinContent,
+            LayoutWidth::MaxContent,
+            LayoutWidth::FitContent(PixelValue::px(10.0)),
+        ] {
+            assert_eq!(
+                from_layout_width(v.clone(), &storage, 16.0, 16.0),
+                Dimension::auto(),
+                "{v:?} is not forwarded to taffy — it becomes auto"
+            );
+        }
+    }
+
+    #[test]
+    fn from_layout_width_resolves_lengths_and_percentages_and_defaults_to_auto() {
+        let storage = empty_calc_storage();
+        assert_eq!(
+            from_layout_width(LayoutWidth::Px(PixelValue::px(0.0)), &storage, 16.0, 16.0),
+            Dimension::length(0.0)
+        );
+        assert_eq!(
+            from_layout_width(LayoutWidth::Px(PixelValue::px(-50.0)), &storage, 16.0, 16.0),
+            Dimension::length(-50.0),
+            "a negative width is nonsense CSS, but the bridge passes it straight through"
+        );
+        assert_eq!(
+            from_layout_width(
+                LayoutWidth::Px(PixelValue::percent(100.0)),
+                &storage,
+                16.0,
+                16.0
+            ),
+            Dimension::percent(1.0)
+        );
+        assert_eq!(
+            from_layout_height(LayoutHeight::Px(PixelValue::em(3.0)), &storage, 16.0, 16.0),
+            Dimension::length(48.0),
+            "em uses the 16px fallback, NOT the em_size argument"
+        );
+        // Viewport units cannot be resolved here → auto.
+        assert_eq!(
+            from_layout_width(
+                LayoutWidth::Px(PixelValue::from_metric(SizeMetric::Vw, 100.0)),
+                &storage,
+                16.0,
+                16.0
+            ),
+            Dimension::auto()
+        );
+        // NaN is already flattened to 0 by PixelValue itself.
+        assert_eq!(
+            from_layout_width(LayoutWidth::Px(PixelValue::px(f32::NAN)), &storage, 16.0, 16.0),
+            Dimension::length(0.0)
+        );
+        let huge = from_layout_height(
+            LayoutHeight::Px(PixelValue::px(f32::INFINITY)),
+            &storage,
+            16.0,
+            16.0,
+        );
+        assert!(huge.value().is_finite(), "an infinite height reached taffy");
+    }
+
+    #[test]
+    fn from_layout_width_ignores_the_font_sizes_for_non_calc_values() {
+        // em_size/rem_size are only wired into the calc() context; the Px path uses
+        // the hard-coded 16px fallback. Passing NaN font sizes must therefore not
+        // corrupt a plain `width: 2em`.
+        let storage = empty_calc_storage();
+        assert_eq!(
+            from_layout_width(
+                LayoutWidth::Px(PixelValue::em(2.0)),
+                &storage,
+                f32::NAN,
+                f32::INFINITY
+            ),
+            Dimension::length(32.0)
+        );
+    }
+
+    #[test]
+    fn from_layout_width_calc_produces_a_calc_dimension_and_pins_the_context() {
+        let storage = empty_calc_storage();
+        let items = CalcAstItemVec::from_vec(vec![
+            CalcAstItem::Value(PixelValue::percent(100.0)),
+            CalcAstItem::Sub,
+            CalcAstItem::Value(PixelValue::px(20.0)),
+        ]);
+        let d = from_layout_width(LayoutWidth::Calc(items), &storage, 20.0, 10.0);
+        let raw = d.into_raw();
+        assert!(raw.is_calc(), "calc() must reach taffy as a calc Dimension");
+        assert_eq!(storage.borrow().len(), 1);
+
+        // SAFETY: the Box is still owned by `storage`, exactly as during a layout pass.
+        let ctx = unsafe { &*raw.calc_value().cast::<CalcResolveContext>() };
+        assert_eq!(ctx.em_size, 20.0);
+        assert_eq!(ctx.rem_size, 10.0);
+        assert_eq!(ctx.items.as_ref().len(), 3);
+    }
+
+    #[test]
+    fn store_calc_and_make_dimension_keeps_every_pointer_valid_across_vec_growth() {
+        // The whole reason for Box<CalcResolveContext>: the outer Vec reallocates
+        // many times while taffy is still holding raw pointers into it.
+        let storage = empty_calc_storage();
+        let dims: Vec<Dimension> = (0..256usize)
+            .map(|i| {
+                let items = CalcAstItemVec::from_vec(vec![CalcAstItem::Value(PixelValue::px(
+                    i as f32,
+                ))]);
+                store_calc_and_make_dimension(items, &storage, i as f32, 16.0)
+            })
+            .collect();
+
+        assert_eq!(storage.borrow().len(), 256);
+        for (i, d) in dims.iter().enumerate() {
+            let raw = d.into_raw();
+            assert!(raw.is_calc(), "#{i} is not a calc dimension");
+            // SAFETY: every Box is still alive in `storage`.
+            let ctx = unsafe { &*raw.calc_value().cast::<CalcResolveContext>() };
+            assert_eq!(
+                ctx.em_size, i as f32,
+                "context #{i} moved when the Vec reallocated"
+            );
+            assert_eq!(ctx.rem_size, 16.0);
+            assert_eq!(ctx.items.as_ref().len(), 1);
+        }
+    }
+
+    #[test]
+    fn store_calc_and_make_dimension_accepts_an_empty_ast_and_nan_font_sizes() {
+        let storage = empty_calc_storage();
+        let d = store_calc_and_make_dimension(
+            CalcAstItemVec::from_vec(Vec::new()),
+            &storage,
+            f32::NAN,
+            f32::INFINITY,
+        );
+        let raw = d.into_raw();
+        assert!(raw.is_calc());
+        assert_eq!(storage.borrow().len(), 1);
+        // SAFETY: the Box is still owned by `storage`.
+        let ctx = unsafe { &*raw.calc_value().cast::<CalcResolveContext>() };
+        assert!(ctx.items.as_ref().is_empty());
+        assert!(
+            ctx.em_size.is_nan() && ctx.rem_size.is_infinite(),
+            "the font sizes are stored verbatim — evaluate_calc has to cope"
+        );
+    }
+
+    #[test]
+    fn store_calc_and_make_dimension_hands_out_a_distinct_pointer_per_call() {
+        let storage = empty_calc_storage();
+        let a = store_calc_and_make_dimension(
+            CalcAstItemVec::from_vec(Vec::new()),
+            &storage,
+            1.0,
+            1.0,
+        );
+        let b = store_calc_and_make_dimension(
+            CalcAstItemVec::from_vec(Vec::new()),
+            &storage,
+            2.0,
+            2.0,
+        );
+        assert_ne!(
+            a.into_raw().calc_value(),
+            b.into_raw().calc_value(),
+            "two calc() values must not alias the same context"
+        );
+        assert_ne!(a, b);
+    }
+
+    // ==================================================================
+    // compute_taffy_scrollbar_info — needs a real StyledDom + LayoutTree
+    // ==================================================================
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    mod with_layout_context {
+        use azul_core::{
+            dom::{Dom, DomId},
+            selection::TextSelection,
+        };
+        use azul_css::{props::basic::FontRef, LayoutDebugMessage};
+
+        use super::*;
+        use crate::{
+            font_traits::FontManager,
+            solver3::{cache, layout_tree::generate_layout_tree},
+        };
+
+        /// Owns everything a `LayoutContext` borrows.
+        struct Env {
+            styled_dom: StyledDom,
+            font_manager: FontManager<FontRef>,
+            text_selections: BTreeMap<DomId, TextSelection>,
+            counters: HashMap<(usize, String), i32>,
+            image_cache: azul_core::resources::ImageCache,
+            debug_messages: Option<Vec<LayoutDebugMessage>>,
+        }
+
+        impl Env {
+            fn new() -> Self {
+                let mut dom = Dom::create_body();
+                let (css, _warnings) = azul_css::parser2::new_from_str("");
+                Self {
+                    styled_dom: StyledDom::create(&mut dom, css),
+                    font_manager: FontManager::new(rust_fontconfig::FcFontCache::default())
+                        .expect("FontManager over an empty font cache"),
+                    text_selections: BTreeMap::new(),
+                    counters: HashMap::new(),
+                    image_cache: azul_core::resources::ImageCache::default(),
+                    debug_messages: None,
+                }
+            }
+
+            fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
+                LayoutContext {
+                    scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    styled_dom: &self.styled_dom,
+                    font_manager: &self.font_manager,
+                    text_selections: &self.text_selections,
+                    debug_messages: &mut self.debug_messages,
+                    counters: &mut self.counters,
+                    viewport_size: LogicalSize::new(800.0, 600.0),
+                    fragmentation_context: None,
+                    cursor_is_visible: true,
+                    cursor_locations: Vec::new(),
+                    preedit_text: None,
+                    dirty_text_overrides: BTreeMap::new(),
+                    cache_map: cache::LayoutCacheMap::default(),
+                    image_cache: &self.image_cache,
+                    system_style: None,
+                    get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                        cb: azul_core::task::get_system_time_libstd,
+                    },
+                }
+            }
+        }
+
+        #[test]
+        fn compute_taffy_scrollbar_info_returns_defaults_for_an_out_of_range_node() {
+            let mut env = Env::new();
+            let mut ctx = env.ctx();
+            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
+
+            for idx in [usize::MAX, tree.nodes.len(), tree.nodes.len() + 1] {
+                let (info, w, h) =
+                    compute_taffy_scrollbar_info(&ctx, &tree, idx, 100.0, 100.0, 500.0, 500.0);
+                assert!(!info.needs_horizontal, "#{idx}");
+                assert!(!info.needs_vertical, "#{idx}");
+                assert_eq!(w, 0.0);
+                assert_eq!(h, 0.0);
+            }
+        }
+
+        #[test]
+        fn compute_taffy_scrollbar_info_never_reports_a_negative_or_nan_content_size() {
+            let mut env = Env::new();
+            let mut ctx = env.ctx();
+            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
+            let root = tree.root;
+
+            let extremes = [
+                0.0f32,
+                -1.0,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::MAX,
+                f32::MIN,
+            ];
+            for v in extremes {
+                for c in extremes {
+                    let (_info, w, h) =
+                        compute_taffy_scrollbar_info(&ctx, &tree, root, v, v, c, c);
+                    assert!(
+                        !w.is_nan() && w >= 0.0,
+                        "result={v} content={c} → content width {w}"
+                    );
+                    assert!(
+                        !h.is_nan() && h >= 0.0,
+                        "result={v} content={c} → content height {h}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn compute_taffy_scrollbar_info_needs_no_scrollbars_for_an_overflow_visible_body() {
+            let mut env = Env::new();
+            let mut ctx = env.ctx();
+            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
+            let root = tree.root;
+
+            // Content far larger than the box: `overflow: visible` still must not
+            // ask for scrollbars (only `auto`/`scroll` do).
+            let (info, w, h) =
+                compute_taffy_scrollbar_info(&ctx, &tree, root, 100.0, 100.0, 10_000.0, 10_000.0);
+            assert!(!info.needs_horizontal);
+            assert!(!info.needs_vertical);
+            assert_eq!(info.scrollbar_width, 0.0);
+            assert_eq!(info.scrollbar_height, 0.0);
+            assert!(w > 0.0 && h > 0.0, "the taffy content size is passed back");
+        }
+    }
+}
+

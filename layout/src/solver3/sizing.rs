@@ -2209,3 +2209,1533 @@ fn apply_height_constraints(
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use std::collections::{BTreeMap, HashMap, HashSet};
+
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass},
+        selection::TextSelection,
+    };
+    use azul_css::props::basic::{FontRef, SizeMetric};
+
+    use super::*;
+    use crate::solver3::{
+        geometry::{EdgeSizes, MarginAuto, PackedBoxProps},
+        layout_tree::{generate_layout_tree, LayoutNodeCold, LayoutNodeWarm},
+    };
+
+    // ==================================================================
+    // Fixtures
+    // ==================================================================
+
+    const VIEWPORT: LogicalSize = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+
+    const BLOCK: FormattingContext = FormattingContext::Block {
+        establishes_new_context: false,
+    };
+
+    fn size(w: f32, h: f32) -> LogicalSize {
+        LogicalSize::new(w, h)
+    }
+
+    fn all_edges(v: f32) -> EdgeSizes {
+        EdgeSizes {
+            top: v,
+            right: v,
+            bottom: v,
+            left: v,
+        }
+    }
+
+    /// `BoxProps` with the same value on every edge of each ring.
+    fn props(margin: f32, border: f32, padding: f32) -> BoxProps {
+        BoxProps {
+            margin: all_edges(margin),
+            border: all_edges(border),
+            padding: all_edges(padding),
+            margin_auto: MarginAuto::default(),
+        }
+    }
+
+    fn zero_props() -> BoxProps {
+        props(0.0, 0.0, 0.0)
+    }
+
+    fn isz(min_w: f32, max_w: f32, min_h: f32, max_h: f32) -> IntrinsicSizes {
+        IntrinsicSizes {
+            min_content_width: min_w,
+            max_content_width: max_w,
+            preferred_width: None,
+            min_content_height: min_h,
+            max_content_height: max_h,
+            preferred_height: None,
+        }
+    }
+
+    fn styled(dom: Dom, css_str: &str) -> StyledDom {
+        let mut dom = dom;
+        let (css, _warnings) = azul_css::parser2::new_from_str(css_str);
+        StyledDom::create(&mut dom, css)
+    }
+
+    fn div_class(class: &str) -> Dom {
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+    }
+
+    /// Owns everything a `LayoutContext` borrows. A font-less `FontManager`
+    /// (empty `FcFontCache`) is enough for every function exercised here:
+    /// text *shaping* is never reached — the DOM fixtures that go through the
+    /// intrinsic-sizing pass carry no text nodes, and the text fixtures only
+    /// go through `collect_inline_content`, which gathers but never measures.
+    struct Env {
+        styled_dom: StyledDom,
+        font_manager: FontManager<FontRef>,
+        text_selections: BTreeMap<DomId, TextSelection>,
+        counters: HashMap<(usize, String), i32>,
+        image_cache: azul_core::resources::ImageCache,
+        debug_messages: Option<Vec<LayoutDebugMessage>>,
+    }
+
+    impl Env {
+        fn new(styled_dom: StyledDom) -> Self {
+            Self {
+                styled_dom,
+                font_manager: FontManager::new(FcFontCache::default())
+                    .expect("FontManager over an empty font cache"),
+                text_selections: BTreeMap::new(),
+                counters: HashMap::new(),
+                image_cache: azul_core::resources::ImageCache::default(),
+                debug_messages: None,
+            }
+        }
+
+        fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
+            LayoutContext {
+                scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                styled_dom: &self.styled_dom,
+                font_manager: &self.font_manager,
+                text_selections: &self.text_selections,
+                debug_messages: &mut self.debug_messages,
+                counters: &mut self.counters,
+                viewport_size: VIEWPORT,
+                fragmentation_context: None,
+                cursor_is_visible: true,
+                cursor_locations: Vec::new(),
+                preedit_text: None,
+                dirty_text_overrides: BTreeMap::new(),
+                cache_map: crate::solver3::cache::LayoutCacheMap::default(),
+                image_cache: &self.image_cache,
+                system_style: None,
+                get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+            }
+        }
+    }
+
+    fn hot(parent: Option<usize>, fc: FormattingContext, bp: &BoxProps) -> LayoutNodeHot {
+        LayoutNodeHot {
+            box_props: PackedBoxProps::pack(bp),
+            dom_node_id: None,
+            used_size: None,
+            formatting_context: fc,
+            parent,
+        }
+    }
+
+    /// Hand-builds a `LayoutTree` (SoA invariants kept consistent) from hot
+    /// nodes + per-node child lists. `dom_node_id` is `None` throughout, which
+    /// is exactly the "anonymous box" path through the sizing code.
+    fn tree_of(nodes: Vec<LayoutNodeHot>, child_lists: &[Vec<usize>]) -> LayoutTree {
+        let n = nodes.len();
+        let mut children_arena: Vec<usize> = Vec::new();
+        let mut children_offsets: Vec<(u32, u32)> = Vec::with_capacity(n);
+        for cl in child_lists {
+            let start = u32::try_from(children_arena.len()).expect("arena fits in u32");
+            children_arena.extend_from_slice(cl);
+            children_offsets.push((start, u32::try_from(cl.len()).expect("len fits in u32")));
+        }
+        while children_offsets.len() < n {
+            children_offsets.push((0, 0));
+        }
+        LayoutTree {
+            nodes,
+            warm: vec![LayoutNodeWarm::default(); n],
+            cold: vec![LayoutNodeCold::default(); n],
+            root: 0,
+            dom_to_layout: BTreeMap::new(),
+            children_arena,
+            children_offsets,
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+
+    /// The single layout index of a DOM node (fixtures never produce splits).
+    fn layout_index(tree: &LayoutTree, dom_id: NodeId) -> usize {
+        *tree
+            .dom_to_layout
+            .get(&dom_id)
+            .and_then(|v| v.first())
+            .expect("DOM node has a layout node")
+    }
+
+    // ==================================================================
+    // resolve_percentage_with_box_model  (numeric)
+    // ==================================================================
+
+    #[test]
+    fn resolve_percentage_at_zero_is_zero_on_both_operands() {
+        assert_eq!(
+            resolve_percentage_with_box_model(0.0, 0.5, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+            0.0
+        );
+        assert_eq!(
+            resolve_percentage_with_box_model(800.0, 0.0, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+            0.0
+        );
+    }
+
+    #[test]
+    fn resolve_percentage_ignores_the_box_model_arguments_entirely() {
+        // Documented contract: margins/borders/paddings are accepted for
+        // call-site convenience and MUST NOT influence the result (CSS 2.1
+        // §10.2 — percentages resolve against the containing block itself).
+        let plain =
+            resolve_percentage_with_box_model(800.0, 0.5, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0));
+        let poisoned = resolve_percentage_with_box_model(
+            800.0,
+            0.5,
+            (f32::NAN, f32::INFINITY),
+            (f32::MAX, f32::MIN),
+            (-1e30, 1e30),
+        );
+        assert_eq!(plain, 400.0);
+        assert_eq!(poisoned, 400.0, "box-model args must not leak into the result");
+    }
+
+    #[test]
+    fn resolve_percentage_floors_negative_products_at_zero() {
+        // +spec:containing-block:f1344e — negative CB width yields zero.
+        assert_eq!(
+            resolve_percentage_with_box_model(-800.0, 0.5, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+            0.0
+        );
+        assert_eq!(
+            resolve_percentage_with_box_model(800.0, -0.5, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+            0.0
+        );
+        // Two negatives multiply back to a positive — still deterministic.
+        assert_eq!(
+            resolve_percentage_with_box_model(-800.0, -0.5, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+            400.0
+        );
+    }
+
+    #[test]
+    fn resolve_percentage_never_returns_nan() {
+        // f32::max(NaN, 0.0) == 0.0, so every NaN-producing combination
+        // (NaN operand, or inf * 0 == NaN) collapses to a defined 0.0.
+        for (cb, pct) in [
+            (f32::NAN, 0.5),
+            (800.0, f32::NAN),
+            (f32::NAN, f32::NAN),
+            (f32::INFINITY, 0.0),
+            (f32::NEG_INFINITY, 0.0),
+            (f32::NEG_INFINITY, 0.5),
+        ] {
+            let r = resolve_percentage_with_box_model(cb, pct, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0));
+            assert!(!r.is_nan(), "NaN escaped for cb={cb}, pct={pct}");
+            assert_eq!(r, 0.0, "cb={cb}, pct={pct}");
+        }
+    }
+
+    #[test]
+    fn resolve_percentage_saturates_to_infinity_on_overflow() {
+        // f32::MAX * 100 overflows to +inf — saturation, not a panic.
+        let r =
+            resolve_percentage_with_box_model(f32::MAX, 100.0, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0));
+        assert!(r.is_infinite() && r.is_sign_positive());
+        // An infinite CB with a finite non-zero percentage stays infinite.
+        let r = resolve_percentage_with_box_model(
+            f32::INFINITY,
+            0.5,
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (0.0, 0.0),
+        );
+        assert!(r.is_infinite() && r.is_sign_positive());
+    }
+
+    #[test]
+    fn resolve_percentage_is_monotone_in_the_percentage() {
+        let at = |p: f32| {
+            resolve_percentage_with_box_model(800.0, p, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0))
+        };
+        assert!(at(0.0) <= at(0.25) && at(0.25) <= at(0.5) && at(0.5) <= at(1.0));
+        assert_eq!(at(1.0), 800.0);
+    }
+
+    // ==================================================================
+    // resolve_px_with_box_model  (numeric)
+    // ==================================================================
+
+    #[test]
+    fn resolve_px_absolute_length_ignores_the_containing_block() {
+        let bp = props(7.0, 3.0, 11.0);
+        let px = PixelValue::const_px(50);
+        assert_eq!(
+            resolve_px_with_box_model(&px, 800.0, &bp, true, 16.0, 16.0),
+            Some(50.0)
+        );
+        // A wildly different containing block cannot move an absolute length.
+        assert_eq!(
+            resolve_px_with_box_model(&px, -1.0e30, &bp, false, 16.0, 16.0),
+            Some(50.0)
+        );
+    }
+
+    #[test]
+    fn resolve_px_percentage_resolves_against_the_containing_block_on_either_axis() {
+        let bp = props(10.0, 2.0, 5.0);
+        let px = PixelValue::const_percent(50);
+        let horizontal = resolve_px_with_box_model(&px, 800.0, &bp, true, 16.0, 16.0);
+        let vertical = resolve_px_with_box_model(&px, 800.0, &bp, false, 16.0, 16.0);
+        assert_eq!(horizontal, Some(400.0));
+        // `is_horizontal` picks which box-model edges are passed down, but the
+        // resolver discards them — so both axes agree for the same CB extent.
+        assert_eq!(vertical, horizontal);
+    }
+
+    #[test]
+    fn resolve_px_percentage_against_a_degenerate_containing_block_is_zero() {
+        let bp = zero_props();
+        let px = PixelValue::const_percent(50);
+        for cb in [-800.0, f32::NAN, f32::NEG_INFINITY] {
+            let r = resolve_px_with_box_model(&px, cb, &bp, true, 16.0, 16.0)
+                .expect("a percentage always resolves to Some");
+            assert!(!r.is_nan(), "NaN escaped for cb={cb}");
+            assert_eq!(r, 0.0, "cb={cb}");
+        }
+    }
+
+    #[test]
+    fn resolve_px_em_and_rem_resolve_against_the_supplied_font_sizes() {
+        let bp = zero_props();
+        assert_eq!(
+            resolve_px_with_box_model(&PixelValue::const_em(3), 800.0, &bp, true, 20.0, 16.0),
+            Some(60.0)
+        );
+        assert_eq!(
+            resolve_px_with_box_model(
+                &PixelValue::from_metric(SizeMetric::Rem, 2.0),
+                800.0,
+                &bp,
+                true,
+                20.0,
+                16.0
+            ),
+            Some(32.0)
+        );
+        // A zero font-size collapses em to 0 rather than producing NaN.
+        assert_eq!(
+            resolve_px_with_box_model(&PixelValue::const_em(3), 800.0, &bp, true, 0.0, 0.0),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn resolve_px_returns_none_for_viewport_units() {
+        // Viewport units are neither absolute (no viewport is threaded in here)
+        // nor percentages, so this resolver reports "cannot resolve". Every
+        // caller (`apply_width_constraints`, `apply_height_constraints`,
+        // `apply_constraint_violation_table`) turns that into the *default*
+        // (0 / none), i.e. a `min-width: 10vw` constraint is silently dropped.
+        let bp = zero_props();
+        for metric in [
+            SizeMetric::Vw,
+            SizeMetric::Vh,
+            SizeMetric::Vmin,
+            SizeMetric::Vmax,
+        ] {
+            let px = PixelValue::from_metric(metric, 10.0);
+            assert_eq!(
+                resolve_px_with_box_model(&px, 800.0, &bp, true, 16.0, 16.0),
+                None,
+                "{metric:?} unexpectedly resolved"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_px_extreme_lengths_stay_finite() {
+        // `PixelValue` stores its number as a fixed-point isize, so f32
+        // extremes are clamped at construction — nothing infinite or NaN can
+        // reach the sizing math through a `PixelValue`.
+        let bp = zero_props();
+        for raw in [f32::MAX, f32::MIN, f32::INFINITY, f32::NEG_INFINITY, f32::NAN] {
+            let px = PixelValue::px(raw);
+            let r = resolve_px_with_box_model(&px, 800.0, &bp, true, 16.0, 16.0)
+                .expect("px metric always resolves to Some");
+            assert!(r.is_finite(), "non-finite length from PixelValue::px({raw})");
+        }
+        assert_eq!(
+            resolve_px_with_box_model(&PixelValue::px(f32::NAN), 800.0, &bp, true, 16.0, 16.0),
+            Some(0.0),
+            "NaN saturates to 0 in the fixed-point encoding"
+        );
+    }
+
+    // ==================================================================
+    // auto_block_inline_size  (numeric)
+    // ==================================================================
+
+    #[test]
+    fn auto_block_inline_size_subtracts_the_full_horizontal_box_model() {
+        let cb = size(800.0, 600.0);
+        // margin 10 + border 2 + padding 5, on both sides = 34 total.
+        assert_eq!(auto_block_inline_size(&cb, &props(10.0, 2.0, 5.0)), 766.0);
+        assert_eq!(auto_block_inline_size(&cb, &zero_props()), 800.0);
+    }
+
+    #[test]
+    fn auto_block_inline_size_floors_at_zero_when_the_box_model_exceeds_the_cb() {
+        let cb = size(10.0, 600.0);
+        assert_eq!(auto_block_inline_size(&cb, &props(100.0, 50.0, 25.0)), 0.0);
+        // A zero-width containing block is exactly the boundary case.
+        assert_eq!(auto_block_inline_size(&size(0.0, 0.0), &zero_props()), 0.0);
+        // A negative containing block never yields a negative inline size.
+        assert_eq!(auto_block_inline_size(&size(-800.0, 0.0), &zero_props()), 0.0);
+    }
+
+    #[test]
+    fn auto_block_inline_size_never_returns_nan() {
+        let cases = [
+            (size(f32::NAN, 0.0), zero_props()),
+            (size(f32::INFINITY, 0.0), props(f32::INFINITY, 0.0, 0.0)),
+            (size(f32::NEG_INFINITY, 0.0), zero_props()),
+            (size(0.0, 0.0), props(f32::NAN, 0.0, 0.0)),
+        ];
+        for (cb, bp) in cases {
+            let r = auto_block_inline_size(&cb, &bp);
+            assert!(!r.is_nan(), "NaN escaped for cb.width={}", cb.width);
+            assert_eq!(r, 0.0);
+        }
+    }
+
+    #[test]
+    fn auto_block_inline_size_saturates_rather_than_overflowing() {
+        // f32::MAX minus finite edges stays finite; +inf CB stays +inf.
+        let r = auto_block_inline_size(&size(f32::MAX, 0.0), &props(1.0, 1.0, 1.0));
+        assert!(r.is_finite() && r > 0.0);
+        let r = auto_block_inline_size(&size(f32::INFINITY, 0.0), &props(1.0, 1.0, 1.0));
+        assert!(r.is_infinite() && r.is_sign_positive());
+    }
+
+    // ==================================================================
+    // compute_dirty_ancestor_closure  (other)
+    // ==================================================================
+
+    /// 0 → 1 → 2 (2's parent is 1, 1's parent is 0).
+    fn chain_tree() -> LayoutTree {
+        let bp = zero_props();
+        tree_of(
+            vec![
+                hot(None, BLOCK, &bp),
+                hot(Some(0), BLOCK, &bp),
+                hot(Some(1), BLOCK, &bp),
+            ],
+            &[vec![1], vec![2], vec![]],
+        )
+    }
+
+    #[test]
+    fn dirty_closure_of_an_empty_set_is_empty() {
+        let tree = chain_tree();
+        let closure = compute_dirty_ancestor_closure(&tree, &BTreeSet::new());
+        assert!(closure.is_empty());
+    }
+
+    #[test]
+    fn dirty_closure_of_a_leaf_contains_every_ancestor_up_to_the_root() {
+        let tree = chain_tree();
+        let dirty: BTreeSet<usize> = [2].into_iter().collect();
+        let closure = compute_dirty_ancestor_closure(&tree, &dirty);
+        assert_eq!(closure, [0, 1, 2].into_iter().collect::<HashSet<usize>>());
+    }
+
+    #[test]
+    fn dirty_closure_tolerates_out_of_range_dirty_indices() {
+        let tree = chain_tree();
+        let dirty: BTreeSet<usize> = [usize::MAX, 999, 2].into_iter().collect();
+        let closure = compute_dirty_ancestor_closure(&tree, &dirty);
+        // The bogus ids are inserted (they have no parent to walk), the real
+        // one still drags in its ancestors. No panic, no index arithmetic.
+        assert!(closure.contains(&usize::MAX) && closure.contains(&999));
+        assert!(closure.contains(&0) && closure.contains(&1) && closure.contains(&2));
+    }
+
+    #[test]
+    fn dirty_closure_terminates_on_a_cyclic_parent_chain() {
+        // A malformed tree (0's parent is 1, 1's parent is 0) must not spin
+        // forever: the `insert` returning false breaks the walk.
+        let bp = zero_props();
+        let tree = tree_of(
+            vec![hot(Some(1), BLOCK, &bp), hot(Some(0), BLOCK, &bp)],
+            &[vec![], vec![]],
+        );
+        let dirty: BTreeSet<usize> = [0].into_iter().collect();
+        let closure = compute_dirty_ancestor_closure(&tree, &dirty);
+        assert_eq!(closure, [0, 1].into_iter().collect::<HashSet<usize>>());
+    }
+
+    #[test]
+    fn dirty_closure_terminates_on_a_self_parenting_node() {
+        let bp = zero_props();
+        let tree = tree_of(vec![hot(Some(0), BLOCK, &bp)], &[vec![]]);
+        let dirty: BTreeSet<usize> = [0].into_iter().collect();
+        let closure = compute_dirty_ancestor_closure(&tree, &dirty);
+        assert_eq!(closure, [0].into_iter().collect::<HashSet<usize>>());
+    }
+
+    // ==================================================================
+    // IntrinsicSizeCalculator::new  (constructor)
+    // ==================================================================
+
+    #[test]
+    fn intrinsic_size_calculator_new_starts_without_a_dirty_closure() {
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+        assert!(
+            calc.dirty_closure.is_none(),
+            "a fresh calculator must not skip any node"
+        );
+        assert_eq!(calc.ctx.viewport_size, VIEWPORT, "ctx is threaded through");
+    }
+
+    // ==================================================================
+    // calculate_intrinsic_recursive / calculate_node_intrinsic_sizes
+    // ==================================================================
+
+    #[test]
+    fn calculate_intrinsic_recursive_rejects_an_out_of_range_node_index() {
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+        let mut tree = chain_tree();
+
+        for bogus in [3, 999, usize::MAX] {
+            let r = calc.calculate_intrinsic_recursive(&mut tree, bogus, false);
+            assert!(
+                matches!(r, Err(LayoutError::InvalidTree)),
+                "index {bogus} must be rejected, not panic"
+            );
+        }
+    }
+
+    #[test]
+    fn calculate_node_intrinsic_sizes_rejects_an_out_of_range_node_index() {
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+        let tree = chain_tree();
+        let r = calc.calculate_node_intrinsic_sizes(&tree, usize::MAX, &[]);
+        assert!(matches!(r, Err(LayoutError::InvalidTree)));
+    }
+
+    #[test]
+    fn calculate_intrinsic_recursive_skips_stray_child_indices_instead_of_aborting() {
+        // Reconcile can mis-list a child index that has no node (the g52 case).
+        // The whole pass must survive it, not abort with InvalidTree.
+        let bp = zero_props();
+        let mut tree = tree_of(
+            vec![hot(None, BLOCK, &bp), hot(Some(0), BLOCK, &bp)],
+            &[vec![1, 4242], vec![]],
+        );
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let r = calc.calculate_intrinsic_recursive(&mut tree, 0, false);
+        let sizes = r.expect("a stray child index must be skipped, not fatal");
+        assert!(sizes.min_content_width.is_finite());
+        assert!(tree.warm(0).and_then(|w| w.intrinsic_sizes).is_some());
+    }
+
+    #[test]
+    fn calculate_intrinsic_recursive_reuses_the_cache_for_nodes_outside_the_dirty_closure() {
+        let mut tree = chain_tree();
+        let cached = isz(11.0, 22.0, 33.0, 44.0);
+        tree.warm_mut(0)
+            .expect("root warm slot")
+            .intrinsic_sizes = Some(cached);
+
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+        // An empty closure means "nothing is dirty" — the cached value wins
+        // and the descent is skipped entirely.
+        calc.dirty_closure = Some(HashSet::new());
+
+        let sizes = calc
+            .calculate_intrinsic_recursive(&mut tree, 0, false)
+            .expect("cached path");
+        assert_eq!(sizes.min_content_width, 11.0);
+        assert_eq!(sizes.max_content_width, 22.0);
+        assert_eq!(sizes.min_content_height, 33.0);
+        assert_eq!(sizes.max_content_height, 44.0);
+        // Children were never visited, so their warm slots stay empty.
+        assert!(tree.warm(1).and_then(|w| w.intrinsic_sizes).is_none());
+    }
+
+    // ==================================================================
+    // calculate_block_intrinsic_sizes  (numeric)
+    // ==================================================================
+
+    /// root(0) with `n` block children, no box-model extras.
+    fn block_parent_with_children(n: usize) -> LayoutTree {
+        parent_with_children(BLOCK, n)
+    }
+
+    /// root(0) establishing `fc`, with `n` childless block children.
+    fn parent_with_children(fc: FormattingContext, n: usize) -> LayoutTree {
+        let bp = zero_props();
+        let mut nodes = vec![hot(None, fc, &bp)];
+        let mut kids = Vec::new();
+        for i in 0..n {
+            nodes.push(hot(Some(0), BLOCK, &bp));
+            kids.push(i + 1);
+        }
+        let mut child_lists = vec![kids];
+        child_lists.resize(n + 1, Vec::new());
+        tree_of(nodes, &child_lists)
+    }
+
+    #[test]
+    fn block_intrinsic_sizes_take_the_max_width_and_the_sum_of_heights() {
+        let tree = block_parent_with_children(2);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let children = [(1usize, isz(10.0, 20.0, 5.0, 6.0)), (2usize, isz(30.0, 40.0, 7.0, 8.0))];
+        let r = calc
+            .calculate_block_intrinsic_sizes(&tree, 0, &children)
+            .expect("valid tree");
+        assert_eq!(r.min_content_width, 30.0, "cross axis = widest child");
+        assert_eq!(r.max_content_width, 40.0);
+        assert_eq!(r.min_content_height, 14.0, "main axis = stacked heights");
+        assert_eq!(r.max_content_height, 14.0);
+    }
+
+    #[test]
+    fn block_intrinsic_sizes_ignore_children_missing_from_the_intrinsics_slice() {
+        let tree = block_parent_with_children(2);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let r = calc
+            .calculate_block_intrinsic_sizes(&tree, 0, &[])
+            .expect("valid tree");
+        assert_eq!(r.min_content_width, 0.0);
+        assert_eq!(r.max_content_width, 0.0);
+        assert_eq!(r.min_content_height, 0.0);
+        assert_eq!(r.max_content_height, 0.0);
+    }
+
+    #[test]
+    fn block_intrinsic_sizes_saturate_to_infinity_instead_of_overflowing() {
+        let tree = block_parent_with_children(2);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let huge = isz(f32::MAX, f32::MAX, f32::MAX, f32::MAX);
+        let children = [(1usize, huge), (2usize, huge)];
+        let r = calc
+            .calculate_block_intrinsic_sizes(&tree, 0, &children)
+            .expect("valid tree");
+        // MAX + MAX overflows the f32 range: +inf, not a wrap, not a panic.
+        assert!(r.min_content_height.is_infinite() && r.min_content_height.is_sign_positive());
+        assert_eq!(r.max_content_width, f32::MAX, "cross axis only takes a max");
+    }
+
+    #[test]
+    fn block_intrinsic_sizes_sanitize_nan_on_the_cross_axis() {
+        let tree = block_parent_with_children(1);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let nan = isz(f32::NAN, f32::NAN, f32::NAN, f32::NAN);
+        let r = calc
+            .calculate_block_intrinsic_sizes(&tree, 0, &[(1usize, nan)])
+            .expect("valid tree");
+        // The cross axis goes through `f32::max`, which drops NaN — so a NaN
+        // child cannot poison the parent's width. The main axis is a plain
+        // sum, so it does carry the NaN through (unreachable in practice:
+        // every measured/fallback intrinsic is finite).
+        assert!(!r.min_content_width.is_nan() && r.min_content_width == 0.0);
+        assert!(!r.max_content_width.is_nan() && r.max_content_width == 0.0);
+        assert!(r.min_content_height.is_nan());
+    }
+
+    #[test]
+    fn block_intrinsic_sizes_reject_an_out_of_range_node_index() {
+        let tree = block_parent_with_children(1);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+        let r = calc.calculate_block_intrinsic_sizes(&tree, usize::MAX, &[]);
+        assert!(matches!(r, Err(LayoutError::InvalidTree)));
+    }
+
+    // ==================================================================
+    // calculate_flex_intrinsic_sizes  (numeric)
+    // ==================================================================
+
+    fn flex_parent_with_children(n: usize) -> LayoutTree {
+        parent_with_children(FormattingContext::Flex, n)
+    }
+
+    #[test]
+    fn flex_row_intrinsic_sizes_sum_the_main_axis_and_max_the_cross_axis() {
+        let tree = flex_parent_with_children(2);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let children = [(1usize, isz(10.0, 20.0, 5.0, 6.0)), (2usize, isz(30.0, 40.0, 7.0, 8.0))];
+        let r = calc
+            .calculate_flex_intrinsic_sizes(&tree, 0, &children)
+            .expect("valid tree");
+        // No DOM node → default flex-direction: row, default flex-wrap: nowrap
+        // → single line → min-content main = SUM of item min-contents.
+        assert_eq!(r.min_content_width, 40.0);
+        assert_eq!(r.max_content_width, 60.0);
+        assert_eq!(r.min_content_height, 7.0);
+        assert_eq!(r.max_content_height, 8.0);
+    }
+
+    #[test]
+    fn flex_intrinsic_sizes_are_zero_when_no_child_intrinsics_are_supplied() {
+        let tree = flex_parent_with_children(3);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let r = calc
+            .calculate_flex_intrinsic_sizes(&tree, 0, &[])
+            .expect("valid tree");
+        assert_eq!(r.min_content_width, 0.0);
+        assert_eq!(r.max_content_width, 0.0);
+        assert_eq!(r.min_content_height, 0.0);
+        assert_eq!(r.max_content_height, 0.0);
+    }
+
+    #[test]
+    fn flex_intrinsic_sizes_saturate_on_a_summing_overflow() {
+        let tree = flex_parent_with_children(2);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let huge = isz(f32::MAX, f32::MAX, 1.0, 2.0);
+        let children = [(1usize, huge), (2usize, huge)];
+        let r = calc
+            .calculate_flex_intrinsic_sizes(&tree, 0, &children)
+            .expect("valid tree");
+        assert!(r.min_content_width.is_infinite() && r.min_content_width.is_sign_positive());
+        assert!(r.max_content_width.is_infinite() && r.max_content_width.is_sign_positive());
+        // The cross axis only takes maxima, so it stays finite.
+        assert_eq!(r.max_content_height, 2.0);
+    }
+
+    #[test]
+    fn flex_intrinsic_sizes_reject_an_out_of_range_node_index() {
+        let tree = flex_parent_with_children(1);
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+        let r = calc.calculate_flex_intrinsic_sizes(&tree, usize::MAX, &[]);
+        assert!(matches!(r, Err(LayoutError::InvalidTree)));
+    }
+
+    // ==================================================================
+    // calculate_table_intrinsic_sizes  (numeric)
+    // ==================================================================
+
+    /// table(0) > row(1) > [cell(2), cell(3)]
+    fn table_tree() -> LayoutTree {
+        let bp = zero_props();
+        tree_of(
+            vec![
+                hot(None, FormattingContext::Table, &bp),
+                hot(Some(0), FormattingContext::TableRow, &bp),
+                hot(Some(1), FormattingContext::TableCell, &bp),
+                hot(Some(1), FormattingContext::TableCell, &bp),
+            ],
+            &[vec![1], vec![2, 3], vec![], vec![]],
+        )
+    }
+
+    #[test]
+    fn table_intrinsic_sizes_sum_columns_and_stack_row_heights() {
+        let tree = table_tree();
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        // Cell intrinsics keyed by the *cell* indices (the aggregation path).
+        let cells = [(2usize, isz(30.0, 50.0, 10.0, 20.0)), (3usize, isz(40.0, 60.0, 10.0, 15.0))];
+        let r = calc.calculate_table_intrinsic_sizes(&tree, 0, &cells);
+        assert_eq!(r.min_content_width, 70.0, "sum of per-column minima");
+        assert_eq!(r.max_content_width, 110.0, "sum of per-column maxima");
+        assert_eq!(r.min_content_height, 20.0, "row height = tallest cell");
+        assert_eq!(r.max_content_height, 20.0);
+    }
+
+    #[test]
+    fn table_intrinsic_sizes_are_zero_when_cells_carry_no_measurable_content() {
+        // The real caller passes the table's *direct* children (rows), so cell
+        // lookups miss and each cell is re-measured through the IFC path. With
+        // anonymous (DOM-less) cells there is nothing to measure → all zeros.
+        let tree = table_tree();
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let rows = [(1usize, isz(1.0, 2.0, 3.0, 4.0))];
+        let r = calc.calculate_table_intrinsic_sizes(&tree, 0, &rows);
+        assert_eq!(r.min_content_width, 0.0);
+        assert_eq!(r.max_content_width, 0.0);
+        assert_eq!(r.max_content_height, 0.0);
+    }
+
+    #[test]
+    fn table_intrinsic_sizes_of_a_table_without_rows_are_zero() {
+        // A `FormattingContext::Table` whose children are neither rows nor row
+        // groups must not panic — it simply aggregates nothing.
+        let bp = zero_props();
+        let tree = tree_of(
+            vec![
+                hot(None, FormattingContext::Table, &bp),
+                hot(Some(0), BLOCK, &bp),
+            ],
+            &[vec![1], vec![]],
+        );
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let r = calc.calculate_table_intrinsic_sizes(&tree, 0, &[(1usize, isz(9.0, 9.0, 9.0, 9.0))]);
+        assert_eq!(r.min_content_width, 0.0);
+        assert_eq!(r.max_content_width, 0.0);
+        assert_eq!(r.min_content_height, 0.0);
+    }
+
+    #[test]
+    fn table_intrinsic_sizes_saturate_on_extreme_cell_widths() {
+        let tree = table_tree();
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        let huge = isz(f32::MAX, f32::MAX, 1.0, 1.0);
+        let cells = [(2usize, huge), (3usize, huge)];
+        let r = calc.calculate_table_intrinsic_sizes(&tree, 0, &cells);
+        assert!(r.min_content_width.is_infinite() && r.min_content_width.is_sign_positive());
+        assert!(r.max_content_width.is_infinite() && r.max_content_width.is_sign_positive());
+        assert_eq!(r.max_content_height, 1.0);
+    }
+
+    #[test]
+    fn table_intrinsic_sizes_with_an_out_of_range_index_are_zero() {
+        let tree = table_tree();
+        let mut env = Env::new(styled(Dom::create_body(), ""));
+        let mut ctx = env.ctx();
+        let mut text_cache = LayoutCache::new();
+        let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
+
+        // `tree.children(usize::MAX)` must yield an empty slice, not panic.
+        let r = calc.calculate_table_intrinsic_sizes(&tree, usize::MAX, &[]);
+        assert_eq!(r.min_content_width, 0.0);
+        assert_eq!(r.max_content_height, 0.0);
+    }
+
+    // ==================================================================
+    // calculate_intrinsic_sizes (phase 2a entry point)
+    // ==================================================================
+
+    /// `body(0) > .flex(1) > .a(2)` — deliberately text-free, so the whole
+    /// intrinsic pass runs without ever entering text shaping. `.flex` is a
+    /// shrink-to-fit context, so Fix C does not short-circuit the subtree.
+    fn flex_dom() -> StyledDom {
+        styled(
+            Dom::create_body().with_child(div_class("flex").with_child(div_class("a"))),
+            ".flex { display: flex; } .a { display: block; min-width: 120px; min-height: 30px; }",
+        )
+    }
+
+    #[test]
+    fn calculate_intrinsic_sizes_is_a_no_op_when_nothing_is_dirty() {
+        let mut env = Env::new(flex_dom());
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("layout tree");
+        let mut text_cache = LayoutCache::new();
+
+        calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &BTreeSet::new())
+            .expect("empty dirty set returns early");
+        assert!(
+            tree.warm.iter().all(|w| w.intrinsic_sizes.is_none()),
+            "an empty dirty set must not compute anything"
+        );
+    }
+
+    #[test]
+    fn calculate_intrinsic_sizes_applies_the_min_width_floor_bottom_up() {
+        let mut env = Env::new(flex_dom());
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("layout tree");
+        let mut text_cache = LayoutCache::new();
+        let dirty: BTreeSet<usize> = (0..tree.nodes.len()).collect();
+
+        calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &dirty).expect("sizing");
+
+        // `.a` is an empty block: its content intrinsic is 0, but `min-width`
+        // / `min-height` are <length>s, so they floor both min- and
+        // max-content (+spec:min-max-sizing:970fef).
+        let a = layout_index(&tree, NodeId::new(2));
+        let a_sizes = tree
+            .warm(a)
+            .and_then(|w| w.intrinsic_sizes)
+            .expect("`.a` was measured");
+        assert_eq!(a_sizes.min_content_width, 120.0);
+        assert_eq!(a_sizes.max_content_width, 120.0);
+        assert_eq!(a_sizes.min_content_height, 30.0);
+        assert_eq!(a_sizes.max_content_height, 30.0);
+
+        // The flex container aggregates its single item on both axes.
+        let f = layout_index(&tree, NodeId::new(1));
+        let f_sizes = tree
+            .warm(f)
+            .and_then(|w| w.intrinsic_sizes)
+            .expect("`.flex` was measured");
+        assert_eq!(f_sizes.min_content_width, 120.0);
+        assert_eq!(f_sizes.max_content_width, 120.0);
+        assert_eq!(f_sizes.max_content_height, 30.0);
+    }
+
+    #[test]
+    fn calculate_intrinsic_sizes_tolerates_bogus_dirty_node_indices() {
+        let mut env = Env::new(flex_dom());
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("layout tree");
+        let mut text_cache = LayoutCache::new();
+        // Dirty ids that no longer exist (a stale dirty set after a DOM shrink)
+        // must not index out of bounds nor abort the pass.
+        let dirty: BTreeSet<usize> = [0, 999, usize::MAX].into_iter().collect();
+
+        calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &dirty)
+            .expect("stale dirty ids must be ignored, not fatal");
+        let root = tree.warm(tree.root).and_then(|w| w.intrinsic_sizes);
+        assert!(root.is_some(), "the root is still measured");
+    }
+
+    #[test]
+    fn calculate_intrinsic_sizes_is_idempotent_across_repeated_passes() {
+        let mut env = Env::new(flex_dom());
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("layout tree");
+        let mut text_cache = LayoutCache::new();
+        let dirty: BTreeSet<usize> = (0..tree.nodes.len()).collect();
+
+        calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &dirty).expect("pass 1");
+        let a = layout_index(&tree, NodeId::new(2));
+        let first = tree.warm(a).and_then(|w| w.intrinsic_sizes).expect("measured");
+
+        calculate_intrinsic_sizes(&mut ctx, &mut tree, &mut text_cache, &dirty).expect("pass 2");
+        let second = tree.warm(a).and_then(|w| w.intrinsic_sizes).expect("measured");
+
+        assert_eq!(first.min_content_width, second.min_content_width);
+        assert_eq!(first.max_content_width, second.max_content_width);
+        assert_eq!(first.min_content_height, second.min_content_height);
+        assert_eq!(first.max_content_height, second.max_content_height);
+    }
+
+    // ==================================================================
+    // collect_inline_content / collect_inline_content_recursive
+    // ==================================================================
+
+    fn text_dom(text: &str) -> StyledDom {
+        styled(
+            Dom::create_body().with_child(div_class("p").with_child(Dom::create_text(text))),
+            ".p { display: block; }",
+        )
+    }
+
+    fn collected_text(items: &[InlineContent]) -> String {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                InlineContent::Text(run) => Some(run.text.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The layout node the IFC sizer measures the text through: the text node's
+    /// own layout node when reconcile produced one, otherwise the enclosing
+    /// block (whose DOM-children scan then picks the text up). Both routes must
+    /// surface the same characters — which is exactly the invariant under test.
+    fn text_ifc_index(tree: &LayoutTree, text_dom: NodeId, block_dom: NodeId) -> usize {
+        tree.dom_to_layout
+            .get(&text_dom)
+            .and_then(|v| v.first())
+            .copied()
+            .unwrap_or_else(|| layout_index(tree, block_dom))
+    }
+
+    #[test]
+    fn collect_inline_content_gathers_the_text_of_an_ifc_root() {
+        let mut env = Env::new(text_dom("hello world"));
+        let mut ctx = env.ctx();
+        let tree = generate_layout_tree(&mut ctx).expect("layout tree");
+        let idx = text_ifc_index(&tree, NodeId::new(2), NodeId::new(1));
+
+        let items = collect_inline_content(&mut ctx, &tree, idx).expect("collect");
+        assert!(!items.is_empty(), "the IFC root must see its text");
+        assert!(collected_text(&items).contains("hello"));
+    }
+
+    #[test]
+    fn collect_inline_content_preserves_unicode_verbatim() {
+        // Combining marks, an RTL run, an emoji ZWJ sequence — none of this may
+        // be truncated, re-encoded, or split mid-scalar.
+        let needle = "e\u{301}llo مرحبا 👨\u{200d}👩\u{200d}👧";
+        let mut env = Env::new(text_dom(needle));
+        let mut ctx = env.ctx();
+        let tree = generate_layout_tree(&mut ctx).expect("layout tree");
+        let idx = text_ifc_index(&tree, NodeId::new(2), NodeId::new(1));
+
+        let items = collect_inline_content(&mut ctx, &tree, idx).expect("collect");
+        let text = collected_text(&items);
+        assert!(text.contains('\u{301}'), "combining acute survived");
+        assert!(text.contains("مرحبا"), "RTL run survived");
+        assert!(text.contains("👨\u{200d}👩\u{200d}👧"), "ZWJ sequence survived");
+    }
+
+    #[test]
+    fn collect_inline_content_handles_whitespace_only_and_very_long_text() {
+        for text in [" \n\t".to_string(), "x".repeat(20_000)] {
+            let mut env = Env::new(text_dom(&text));
+            let mut ctx = env.ctx();
+            let tree = generate_layout_tree(&mut ctx).expect("layout tree");
+            let idx = text_ifc_index(&tree, NodeId::new(2), NodeId::new(1));
+            let items = collect_inline_content(&mut ctx, &tree, idx)
+                .expect("degenerate text must still collect");
+            // The DOM-children scan and the layout-children walk must not BOTH
+            // pick the run up (that double-count made inline-blocks 2× too wide).
+            assert!(
+                collected_text(&items).len() <= text.len(),
+                "the same text run was collected more than once"
+            );
+        }
+    }
+
+    #[test]
+    fn collect_inline_content_rejects_an_out_of_range_root_index() {
+        let mut env = Env::new(text_dom("hello"));
+        let mut ctx = env.ctx();
+        let tree = generate_layout_tree(&mut ctx).expect("layout tree");
+
+        for bogus in [tree.nodes.len(), 999, usize::MAX] {
+            let r = collect_inline_content(&mut ctx, &tree, bogus);
+            assert!(
+                matches!(r, Err(LayoutError::InvalidTree)),
+                "index {bogus} must be rejected, not panic"
+            );
+        }
+    }
+
+    #[test]
+    fn collect_inline_content_of_a_text_free_subtree_is_empty() {
+        let mut env = Env::new(flex_dom());
+        let mut ctx = env.ctx();
+        let tree = generate_layout_tree(&mut ctx).expect("layout tree");
+        let a = layout_index(&tree, NodeId::new(2));
+
+        let items = collect_inline_content(&mut ctx, &tree, a).expect("collect");
+        assert!(
+            collected_text(&items).is_empty(),
+            "a childless block has no inline text"
+        );
+    }
+
+    // ==================================================================
+    // subtree_contains_text  (other)
+    // ==================================================================
+
+    #[test]
+    fn subtree_contains_text_sees_the_node_itself_and_its_descendants() {
+        let dom = text_dom("hi");
+        // body(0) > .p(1) > text(2)
+        assert!(subtree_contains_text(&dom, NodeId::new(2)), "the text node itself");
+        assert!(subtree_contains_text(&dom, NodeId::new(1)), "its parent");
+        assert!(subtree_contains_text(&dom, NodeId::new(0)), "the root");
+    }
+
+    #[test]
+    fn subtree_contains_text_is_false_for_a_text_free_subtree() {
+        let dom = styled(
+            Dom::create_body().with_child(div_class("a").with_child(div_class("b"))),
+            "",
+        );
+        assert!(!subtree_contains_text(&dom, NodeId::new(0)));
+        assert!(!subtree_contains_text(&dom, NodeId::new(1)));
+        assert!(!subtree_contains_text(&dom, NodeId::new(2)));
+    }
+
+    #[test]
+    fn subtree_contains_text_walks_a_deeply_nested_subtree() {
+        // The recursion is unbounded in depth — 200 levels must not blow up.
+        const DEPTH: usize = 200;
+        let mut inner = Dom::create_div().with_child(Dom::create_text("deep"));
+        for _ in 0..DEPTH {
+            inner = Dom::create_div().with_child(inner);
+        }
+        let dom = styled(Dom::create_body().with_child(inner), "");
+        assert!(subtree_contains_text(&dom, NodeId::new(0)));
+
+        let mut empty = Dom::create_div();
+        for _ in 0..DEPTH {
+            empty = Dom::create_div().with_child(empty);
+        }
+        let dom = styled(Dom::create_body().with_child(empty), "");
+        assert!(!subtree_contains_text(&dom, NodeId::new(0)));
+    }
+
+    // ==================================================================
+    // extract_text_from_node  (other)
+    // ==================================================================
+
+    #[test]
+    fn extract_text_from_node_round_trips_the_exact_string() {
+        for needle in [
+            "hello world",
+            " \n\t",
+            "e\u{301}llo مرحبا 👨\u{200d}👩\u{200d}👧",
+            "line1\nline2\r\n\u{0}nul",
+        ] {
+            let dom = text_dom(needle);
+            assert_eq!(
+                extract_text_from_node(&dom, NodeId::new(2)).as_deref(),
+                Some(needle),
+                "text must survive the DOM round-trip byte for byte"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_text_from_node_is_none_for_non_text_nodes() {
+        let dom = text_dom("hello");
+        assert_eq!(extract_text_from_node(&dom, NodeId::new(0)), None, "body");
+        assert_eq!(extract_text_from_node(&dom, NodeId::new(1)), None, "div");
+    }
+
+    #[test]
+    fn extract_text_from_node_handles_a_very_long_string() {
+        let long = "ü".repeat(50_000);
+        let dom = text_dom(&long);
+        let got = extract_text_from_node(&dom, NodeId::new(2)).expect("text node");
+        assert_eq!(got.chars().count(), 50_000);
+        assert_eq!(got, long);
+    }
+
+    // ==================================================================
+    // calculate_used_size_for_node  (numeric)
+    // ==================================================================
+
+    /// One classed div per constraint case; DOM ids follow pre-order.
+    ///  body(0), .plain(1), .pct(2), .clamped(3), .maxed(4), .pctmin(5),
+    ///  .bbox(6), .autoblock(7), .vwmin(8), .em(9), .hclamped(10), .row10(11)
+    fn constraints_dom() -> StyledDom {
+        styled(
+            Dom::create_body()
+                .with_child(div_class("plain"))
+                .with_child(div_class("pct"))
+                .with_child(div_class("clamped"))
+                .with_child(div_class("maxed"))
+                .with_child(div_class("pctmin"))
+                .with_child(div_class("bbox"))
+                .with_child(div_class("autoblock"))
+                .with_child(div_class("vwmin"))
+                .with_child(div_class("em"))
+                .with_child(div_class("hclamped"))
+                .with_child(div_class("row10")),
+            "
+            .plain     { display: block; width: 50px; height: 20px; }
+            .pct       { display: block; width: 50%; height: 25%; }
+            .clamped   { display: block; width: 300px; min-width: 200px; max-width: 100px; }
+            .maxed     { display: block; width: 300px; max-width: 100px; }
+            .pctmin    { display: block; min-width: 50%; }
+            .bbox      { display: block; width: 5px; height: 5px; box-sizing: border-box; }
+            .autoblock { display: block; }
+            .vwmin     { display: block; width: 300px; min-width: 10vw; }
+            .em        { display: block; font-size: 20px; min-width: 3em; }
+            .hclamped  { display: block; height: 300px; min-height: 200px; max-height: 100px; }
+            .row10     { display: block; min-width: 200px; max-height: 50px; }
+            ",
+        )
+    }
+
+    const PLAIN: NodeId = NodeId::new(1);
+    const PCT: NodeId = NodeId::new(2);
+    const CLAMPED: NodeId = NodeId::new(3);
+    const MAXED: NodeId = NodeId::new(4);
+    const PCTMIN: NodeId = NodeId::new(5);
+    const BBOX: NodeId = NodeId::new(6);
+    const AUTOBLOCK: NodeId = NodeId::new(7);
+    const VWMIN: NodeId = NodeId::new(8);
+    const EM: NodeId = NodeId::new(9);
+    const HCLAMPED: NodeId = NodeId::new(10);
+    const ROW10: NodeId = NodeId::new(11);
+
+    fn node_state(dom: &StyledDom, id: NodeId) -> StyledNodeState {
+        dom.styled_nodes.as_container()[id]
+            .styled_node_state
+            .clone()
+    }
+
+    fn used_size(
+        dom: &StyledDom,
+        id: NodeId,
+        cb: LogicalSize,
+        bp: &BoxProps,
+    ) -> LogicalSize {
+        calculate_used_size_for_node(
+            dom,
+            Some(id),
+            &cb,
+            IntrinsicSizes::default(),
+            bp,
+            &VIEWPORT,
+        )
+        .expect("used size")
+    }
+
+    #[test]
+    fn used_size_of_an_anonymous_box_fills_the_cb_inline_and_uses_content_height() {
+        let dom = constraints_dom();
+        let cb = size(800.0, 600.0);
+        let bp = zero_props();
+
+        let r = calculate_used_size_for_node(&dom, None, &cb, isz(0.0, 0.0, 0.0, 42.0), &bp, &VIEWPORT)
+            .expect("anonymous box");
+        assert_eq!(r.width, 800.0);
+        assert_eq!(r.height, 42.0);
+
+        // A non-positive content height means "auto" — resolved later from the
+        // laid-out children, so 0.0 (not the negative value) is stored now.
+        let r = calculate_used_size_for_node(&dom, None, &cb, isz(0.0, 0.0, 0.0, -5.0), &bp, &VIEWPORT)
+            .expect("anonymous box");
+        assert_eq!(r.height, 0.0);
+    }
+
+    #[test]
+    fn used_size_resolves_absolute_lengths_and_adds_the_content_box_extras() {
+        let dom = constraints_dom();
+        let cb = size(800.0, 600.0);
+
+        let r = used_size(&dom, PLAIN, cb, &zero_props());
+        assert_eq!(r.width, 50.0);
+        assert_eq!(r.height, 20.0);
+
+        // content-box (default): padding + border grow the border box.
+        let r = used_size(&dom, PLAIN, cb, &props(0.0, 2.0, 10.0));
+        assert_eq!(r.width, 50.0 + 2.0 * (2.0 + 10.0));
+        assert_eq!(r.height, 20.0 + 2.0 * (2.0 + 10.0));
+    }
+
+    #[test]
+    fn used_size_resolves_percentages_against_the_physical_containing_block() {
+        let dom = constraints_dom();
+        let r = used_size(&dom, PCT, size(800.0, 600.0), &zero_props());
+        assert_eq!(r.width, 400.0, "50% of the CB width");
+        assert_eq!(r.height, 150.0, "25% of the CB height");
+    }
+
+    #[test]
+    fn used_size_percentages_against_degenerate_containing_blocks_never_produce_nan() {
+        let dom = constraints_dom();
+        let bp = zero_props();
+        for cb in [
+            size(f32::NAN, f32::NAN),
+            size(-800.0, -600.0),
+            size(0.0, 0.0),
+            size(f32::NEG_INFINITY, f32::NEG_INFINITY),
+        ] {
+            let r = used_size(&dom, PCT, cb, &bp);
+            assert!(!r.width.is_nan() && !r.height.is_nan(), "NaN for cb={cb:?}");
+            assert!(r.width >= 0.0 && r.height >= 0.0, "negative size for cb={cb:?}");
+        }
+        // An infinite CB stays infinite (saturation), never NaN.
+        let r = used_size(&dom, PCT, size(f32::INFINITY, f32::INFINITY), &bp);
+        assert!(r.width.is_infinite() && r.width.is_sign_positive());
+    }
+
+    #[test]
+    fn used_size_min_width_overrides_max_width_when_they_conflict() {
+        // CSS 2.2 §10.4: if min-width > max-width, min-width wins.
+        let dom = constraints_dom();
+        let cb = size(800.0, 600.0);
+        assert_eq!(used_size(&dom, CLAMPED, cb, &zero_props()).width, 200.0);
+        // Without the conflicting min, max-width clamps normally.
+        assert_eq!(used_size(&dom, MAXED, cb, &zero_props()).width, 100.0);
+    }
+
+    #[test]
+    fn used_size_min_height_overrides_max_height_when_they_conflict() {
+        let dom = constraints_dom();
+        let cb = size(800.0, 600.0);
+        assert_eq!(used_size(&dom, HCLAMPED, cb, &zero_props()).height, 200.0);
+    }
+
+    #[test]
+    fn used_size_border_box_floors_at_the_padding_plus_border_sum() {
+        // box-sizing: border-box with width:5px and 10px padding per side:
+        // the content box cannot go negative, so the border box floors at 20.
+        let dom = constraints_dom();
+        let r = used_size(&dom, BBOX, size(800.0, 600.0), &props(0.0, 0.0, 10.0));
+        assert_eq!(r.width, 20.0);
+        assert_eq!(r.height, 20.0);
+
+        // With no padding/border the specified size IS the border box.
+        let r = used_size(&dom, BBOX, size(800.0, 600.0), &zero_props());
+        assert_eq!(r.width, 5.0);
+        assert_eq!(r.height, 5.0);
+    }
+
+    #[test]
+    fn used_size_auto_width_block_fills_the_cb_minus_its_box_model() {
+        let dom = constraints_dom();
+        let cb = size(800.0, 600.0);
+
+        let r = used_size(&dom, AUTOBLOCK, cb, &props(100.0, 0.0, 0.0));
+        assert_eq!(r.width, 600.0, "800 - 2*100 margin");
+        assert_eq!(r.height, 0.0, "auto block height is filled in after layout");
+
+        // Box model wider than the CB → floored at 0, never negative.
+        let r = used_size(&dom, AUTOBLOCK, size(10.0, 600.0), &props(100.0, 0.0, 0.0));
+        assert_eq!(r.width, 0.0);
+    }
+
+    // ==================================================================
+    // apply_width_constraints / apply_height_constraints  (numeric)
+    // ==================================================================
+
+    fn width_constrained(dom: &StyledDom, id: NodeId, tentative: f32, cb_width: f32) -> f32 {
+        let state = node_state(dom, id);
+        apply_width_constraints(dom, id, &state, tentative, cb_width, &zero_props())
+    }
+
+    fn height_constrained(dom: &StyledDom, id: NodeId, tentative: f32, cb_height: f32) -> f32 {
+        let state = node_state(dom, id);
+        apply_height_constraints(dom, id, &state, tentative, cb_height, &zero_props())
+    }
+
+    #[test]
+    fn width_constraints_are_the_identity_without_min_or_max() {
+        let dom = constraints_dom();
+        for tentative in [0.0, 42.0, f32::MAX] {
+            assert_eq!(width_constrained(&dom, PLAIN, tentative, 800.0), tentative);
+        }
+    }
+
+    #[test]
+    fn width_constraints_clamp_then_let_min_win_over_max() {
+        let dom = constraints_dom();
+        assert_eq!(width_constrained(&dom, MAXED, 300.0, 800.0), 100.0, "max clamps");
+        assert_eq!(width_constrained(&dom, MAXED, 50.0, 800.0), 50.0, "below max: untouched");
+        assert_eq!(
+            width_constrained(&dom, CLAMPED, 300.0, 800.0),
+            200.0,
+            "min-width overrides max-width per §10.4"
+        );
+    }
+
+    #[test]
+    fn width_constraints_resolve_percentage_minimums_against_the_containing_block() {
+        let dom = constraints_dom();
+        assert_eq!(width_constrained(&dom, PCTMIN, 10.0, 800.0), 400.0);
+        // A negative CB floors the percentage at 0, so the min is inert.
+        assert_eq!(width_constrained(&dom, PCTMIN, 10.0, -800.0), 10.0);
+        // A NaN CB must not poison the result.
+        let r = width_constrained(&dom, PCTMIN, 10.0, f32::NAN);
+        assert!(!r.is_nan() && r == 10.0);
+    }
+
+    #[test]
+    fn width_constraints_resolve_em_minimums_against_the_elements_own_font_size() {
+        // .em has font-size: 20px and min-width: 3em → 60px, NOT 3 × 16px.
+        let dom = constraints_dom();
+        assert_eq!(width_constrained(&dom, EM, 10.0, 800.0), 60.0);
+    }
+
+    #[test]
+    fn width_constraints_never_return_nan() {
+        // A NaN tentative width is sanitized by the final `.max(min_width)`
+        // (f32::max drops NaN), so nothing downstream can see a NaN size.
+        let dom = constraints_dom();
+        assert_eq!(width_constrained(&dom, PLAIN, f32::NAN, 800.0), 0.0);
+        assert_eq!(width_constrained(&dom, MAXED, f32::NAN, 800.0), 0.0);
+        assert_eq!(width_constrained(&dom, CLAMPED, f32::NAN, 800.0), 200.0);
+    }
+
+    #[test]
+    fn width_constraints_handle_infinite_tentative_widths() {
+        let dom = constraints_dom();
+        assert_eq!(width_constrained(&dom, MAXED, f32::INFINITY, 800.0), 100.0);
+        // No max-width → +inf survives (a definite size is never produced from
+        // an infinite one, but the function must not panic or wrap).
+        assert!(width_constrained(&dom, PLAIN, f32::INFINITY, 800.0).is_infinite());
+        assert_eq!(width_constrained(&dom, CLAMPED, f32::NEG_INFINITY, 800.0), 200.0);
+    }
+
+    #[test]
+    fn width_constraints_ignore_viewport_unit_minimums() {
+        // KNOWN GAP: `resolve_px_with_box_model` cannot resolve vw/vh/vmin/vmax
+        // (no viewport is threaded into it), so `min-width: 10vw` silently
+        // defaults to 0 and never floors the width — even though `width: 10vw`
+        // on the very same element DOES resolve (via
+        // `resolve_pixel_value_no_percent_with_viewport`).
+        let dom = constraints_dom();
+        assert_eq!(width_constrained(&dom, VWMIN, 300.0, 800.0), 300.0);
+        assert_eq!(
+            width_constrained(&dom, VWMIN, 10.0, 800.0),
+            10.0,
+            "10vw (= 80px on an 800px viewport) does not floor the width"
+        );
+    }
+
+    #[test]
+    fn height_constraints_clamp_then_let_min_win_over_max() {
+        let dom = constraints_dom();
+        assert_eq!(height_constrained(&dom, HCLAMPED, 300.0, 600.0), 200.0);
+        assert_eq!(height_constrained(&dom, PLAIN, 42.0, 600.0), 42.0);
+    }
+
+    #[test]
+    fn height_constraints_never_return_nan() {
+        let dom = constraints_dom();
+        assert_eq!(height_constrained(&dom, PLAIN, f32::NAN, 600.0), 0.0);
+        assert_eq!(height_constrained(&dom, HCLAMPED, f32::NAN, 600.0), 200.0);
+    }
+
+    #[test]
+    fn height_constraints_are_stable_at_the_f32_boundaries() {
+        let dom = constraints_dom();
+        assert_eq!(height_constrained(&dom, HCLAMPED, f32::MAX, 600.0), 200.0);
+        assert_eq!(height_constrained(&dom, HCLAMPED, f32::MIN, 600.0), 200.0);
+        // The implicit min-height of 0 floors any negative tentative height,
+        // so a negative size can never escape into layout.
+        assert_eq!(height_constrained(&dom, PLAIN, f32::MIN, 600.0), 0.0);
+        assert_eq!(height_constrained(&dom, PLAIN, -1.0, 600.0), 0.0);
+        assert!(height_constrained(&dom, PLAIN, f32::MAX, 600.0).is_finite());
+    }
+
+    // ==================================================================
+    // apply_constraint_violation_table  (numeric)
+    // ==================================================================
+
+    fn cvt(dom: &StyledDom, id: NodeId, w: f32, h: f32) -> (f32, f32) {
+        let state = node_state(dom, id);
+        apply_constraint_violation_table(dom, id, &state, w, h, 800.0, 600.0, &zero_props())
+    }
+
+    #[test]
+    fn constraint_violation_table_row1_leaves_an_unviolated_box_alone() {
+        let dom = constraints_dom();
+        assert_eq!(cvt(&dom, PLAIN, 200.0, 100.0), (200.0, 100.0));
+    }
+
+    #[test]
+    fn constraint_violation_table_row2_preserves_the_aspect_ratio_under_max_width() {
+        // w=200 > max-width=100 → w := 100, h scaled by the same factor.
+        let dom = constraints_dom();
+        assert_eq!(cvt(&dom, MAXED, 200.0, 100.0), (100.0, 50.0));
+    }
+
+    #[test]
+    fn constraint_violation_table_row10_pins_min_width_and_max_height_together() {
+        // .row10: min-width 200, max-height 50. w=100 (< min) and h=100 (> max)
+        // → the ratio cannot be preserved; the spec pins both constraints.
+        let dom = constraints_dom();
+        assert_eq!(cvt(&dom, ROW10, 100.0, 100.0), (200.0, 50.0));
+    }
+
+    #[test]
+    fn constraint_violation_table_guards_against_division_by_zero() {
+        // The w<=0 / h<=0 guard must fire BEFORE any `w / h` division.
+        let dom = constraints_dom();
+        assert_eq!(cvt(&dom, MAXED, 0.0, 100.0), (0.0, 100.0));
+        assert_eq!(cvt(&dom, MAXED, 200.0, 0.0), (100.0, 0.0));
+        assert_eq!(cvt(&dom, MAXED, 0.0, 0.0), (0.0, 0.0));
+        assert_eq!(cvt(&dom, MAXED, -50.0, -50.0), (0.0, 0.0), "negatives clamp up to 0");
+    }
+
+    #[test]
+    fn constraint_violation_table_survives_extreme_ratios() {
+        // A near-degenerate ratio (MAX / MIN_POSITIVE) must not produce NaN or
+        // panic — the scaled dimension underflows to 0 and is then floored.
+        let dom = constraints_dom();
+        let (w, h) = cvt(&dom, MAXED, f32::MAX, f32::MIN_POSITIVE);
+        assert_eq!(w, 100.0, "max-width still clamps");
+        assert!(h.is_finite() && h >= 0.0, "scaled height stays finite: {h}");
+
+        let (w, h) = cvt(&dom, MAXED, f32::MIN_POSITIVE, f32::MAX);
+        assert!(w.is_finite() && w >= 0.0, "w={w}");
+        assert!(h.is_finite() && h >= 0.0, "h={h}");
+    }
+
+    #[test]
+    fn constraint_violation_table_is_idempotent() {
+        // Re-applying the table to its own output must be a fixed point —
+        // otherwise a re-layout would keep shrinking the box.
+        let dom = constraints_dom();
+        for (id, w, h) in [
+            (MAXED, 200.0_f32, 100.0_f32),
+            (ROW10, 100.0, 100.0),
+            (PLAIN, 200.0, 100.0),
+        ] {
+            let first = cvt(&dom, id, w, h);
+            let second = cvt(&dom, id, first.0, first.1);
+            assert_eq!(first, second, "not a fixed point for {id:?}");
+        }
+    }
+}

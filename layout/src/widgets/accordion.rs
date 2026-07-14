@@ -467,3 +467,669 @@ impl From<Accordion> for Dom {
         a.dom()
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod autotest_generated {
+    use std::{
+        collections::{BTreeMap, HashMap},
+        sync::{Arc, Mutex},
+    };
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId, NodeType},
+        geom::{LogicalRect, OptionLogicalPosition},
+        gl::OptionGlContextPtr,
+        hit_test::ScrollPosition,
+        resources::RendererResources,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::{MonitorVec, RawWindowHandle},
+    };
+    use azul_css::system::SystemStyle;
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    #[cfg(feature = "icu")]
+    use crate::icu::IcuLocalizerHandle;
+    use crate::{
+        callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        window::{DomLayoutResult, LayoutWindow},
+        window_state::FullWindowState,
+    };
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    /// True if `node` carries the CSS class `name`.
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+    }
+
+    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.root.get_node_type() {
+            NodeType::Text(s) => Some(s.as_ref().as_str()),
+            _ => None,
+        }
+    }
+
+    /// The `display` value in a node's *inline* style, if it sets one.
+    fn inline_display(node: &Dom) -> Option<LayoutDisplay> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .find_map(|(p, _)| match p {
+                CssProperty::Display(v) => v.get_property().copied(),
+                _ => None,
+            })
+    }
+
+    /// `(header, body)` of the `n`-th section of a rendered accordion DOM.
+    fn section_parts(dom: &Dom, n: usize) -> (&Dom, &Dom) {
+        let section = &dom.children.as_ref()[n];
+        assert!(has_class(section, "__azul-native-accordion-section"));
+        let children = section.children.as_ref();
+        assert_eq!(children.len(), 2, "a section is exactly [header, body]");
+        (&children[0], &children[1])
+    }
+
+    /// A three-node styled DOM — `root(0)` with children `header(1)` and
+    /// `body(2)` — i.e. the exact hierarchy `on_accordion_header_click` walks
+    /// (`hit node` -> `next sibling`).
+    fn header_body_dom() -> StyledDom {
+        let styled = StyledDom::create_from_dom(
+            Dom::create_div()
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div()),
+        );
+        assert_eq!(
+            styled.node_hierarchy.as_ref().len(),
+            3,
+            "fixture must flatten to exactly root/header/body"
+        );
+        styled
+    }
+
+    /// A `DomLayoutResult` with an *empty* layout tree: the click handler only
+    /// walks `styled_dom.node_hierarchy`, so no real layout (and no font) is needed.
+    fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+        DomLayoutResult {
+            styled_dom,
+            layout_tree: LayoutTree {
+                nodes: Vec::new(),
+                warm: Vec::new(),
+                cold: Vec::new(),
+                root: 0,
+                dom_to_layout: BTreeMap::new(),
+                children_arena: Vec::new(),
+                children_offsets: Vec::new(),
+                subtree_needs_intrinsic: Vec::new(),
+            },
+            calculated_positions: Vec::new(),
+            viewport: LogicalRect::zero(),
+            display_list: DisplayList::default(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+        }
+    }
+
+    /// Invokes `on_accordion_header_click` against a `LayoutWindow` holding
+    /// `styled` (or nothing at all, when `styled` is `None`), with `hit` as the
+    /// hit node. Returns the `Update` plus every recorded `CallbackChange`.
+    fn run_click(styled: Option<StyledDom>, hit: usize, data: RefAny) -> (Update, Vec<CallbackChange>) {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        if let Some(sd) = styled {
+            layout_window
+                .layout_results
+                .insert(DomId::ROOT_ID, layout_result(sd));
+        }
+
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let current_window_state = FullWindowState::default();
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
+        };
+
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(hit))),
+            },
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+
+        let update = on_accordion_header_click(data, info);
+        let recorded = core::mem::take(&mut *changes.lock().expect("change log poisoned"));
+        (update, recorded)
+    }
+
+    /// Every `display` write recorded in the change log, as `(node index, display)`.
+    fn display_writes(changes: &[CallbackChange]) -> Vec<(usize, LayoutDisplay)> {
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::ChangeNodeCssProperties {
+                node_id, properties, ..
+            } = change
+            {
+                for p in properties.as_ref() {
+                    if let CssProperty::Display(v) = p {
+                        if let Some(d) = v.get_property() {
+                            out.push((node_id.index(), *d));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// `is_open` of a `HeaderClickData` payload.
+    fn payload_is_open(data: &mut RefAny) -> bool {
+        data.downcast_ref::<HeaderClickData>()
+            .expect("payload must still be a HeaderClickData")
+            .is_open
+    }
+
+    /// Records the section indices it is invoked with; used as a user `on_toggle`.
+    struct ToggleLog {
+        calls: Vec<usize>,
+    }
+
+    extern "C" fn record_toggle(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
+        if let Some(mut log) = data.downcast_mut::<ToggleLog>() {
+            log.calls.push(index);
+        }
+        Update::RefreshDom
+    }
+
+    extern "C" fn toggle_do_nothing(_: RefAny, _: CallbackInfo, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    fn toggle_cb(f: AccordionOnToggleCallbackType) -> AccordionOnToggleCallback {
+        f.into()
+    }
+
+    // ------------------------------------------------------------------
+    // AccordionSection::new / with_open  (constructor, invariants)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn section_new_stores_args_and_starts_closed() {
+        let content = Dom::create_div().with_child(Dom::create_text("body"));
+        let sec = AccordionSection::new("Title", content.clone());
+
+        assert_eq!(sec.title.as_str(), "Title");
+        assert_eq!(sec.content, content);
+        assert!(!sec.is_open, "a fresh section must start collapsed");
+    }
+
+    #[test]
+    fn section_new_survives_extreme_titles() {
+        // empty, interior NUL, emoji + combining marks + RTL, and a 100k-char title
+        let long = "ab".repeat(50_000);
+        let cases: Vec<AzString> = alloc::vec![
+            AzString::from(""),
+            AzString::from("a\0b"),
+            AzString::from("👨‍👩‍👧‍👦 e\u{0301}\u{0327} مرحبا שלום 🇩🇪"),
+            AzString::from("\u{feff}\u{202e}rtl-override"),
+            AzString::from(long.as_str()),
+        ];
+
+        for title in cases {
+            let sec = AccordionSection::new(title.clone(), Dom::create_div());
+            assert_eq!(sec.title.as_str(), title.as_str());
+            assert!(!sec.is_open);
+
+            // and the title survives the trip through the DOM unchanged
+            let dom = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![sec])).dom();
+            let (header, _) = section_parts(&dom, 0);
+            let title_node = &header.children.as_ref()[0];
+            assert_eq!(text_of(title_node), Some(title.as_str()));
+        }
+    }
+
+    #[test]
+    fn section_with_open_sets_flag_without_touching_other_fields() {
+        let content = Dom::create_text("x");
+        let base = AccordionSection::new("t", content.clone());
+
+        let opened = base.clone().with_open(true);
+        assert!(opened.is_open);
+        assert_eq!(opened.title.as_str(), "t");
+        assert_eq!(opened.content, content);
+
+        // last write wins; applying the same value twice is idempotent
+        assert!(!base.clone().with_open(true).with_open(false).is_open);
+        assert!(base.clone().with_open(false).with_open(true).is_open);
+        assert!(base.clone().with_open(true).with_open(true).is_open);
+        assert!(!base.with_open(false).is_open);
+    }
+
+    // ------------------------------------------------------------------
+    // Accordion::new / create / Default
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn accordion_new_preserves_section_count_and_has_no_callback() {
+        for count in [0usize, 1, 3, 1000] {
+            let mut sections = Vec::with_capacity(count);
+            for i in 0..count {
+                sections.push(
+                    AccordionSection::new(alloc::format!("s{i}"), Dom::create_div())
+                        .with_open(i % 2 == 0),
+                );
+            }
+            let acc = Accordion::new(AccordionSectionVec::from_vec(sections));
+
+            assert_eq!(acc.sections.len(), count);
+            assert!(acc.on_toggle.is_none(), "Accordion::new sets no callback");
+            for (i, s) in acc.sections.as_ref().iter().enumerate() {
+                assert_eq!(s.title.as_str(), alloc::format!("s{i}"));
+                assert_eq!(s.is_open, i % 2 == 0);
+            }
+        }
+    }
+
+    #[test]
+    fn accordion_create_is_empty_and_equals_default() {
+        let acc = Accordion::create();
+        assert!(acc.sections.is_empty());
+        assert!(acc.on_toggle.is_none());
+        assert_eq!(acc, Accordion::default());
+    }
+
+    // ------------------------------------------------------------------
+    // set_on_toggle / with_on_toggle / swap_with_default
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn set_on_toggle_last_call_wins() {
+        let mut acc = Accordion::create();
+
+        acc.set_on_toggle(RefAny::new(1u8), toggle_cb(toggle_do_nothing));
+        assert!(acc.on_toggle.is_some());
+        assert_eq!(
+            acc.on_toggle.as_ref().unwrap().refany.get_type_id(),
+            RefAny::new(1u8).get_type_id()
+        );
+
+        // a second call must *replace* (not append / leak / panic)
+        acc.set_on_toggle(RefAny::new(9i64), toggle_cb(record_toggle));
+        let set = acc.on_toggle.as_ref().expect("still Some");
+        assert_eq!(set.refany.get_type_id(), RefAny::new(0i64).get_type_id());
+        assert_eq!(set.callback, toggle_cb(record_toggle));
+        assert_ne!(set.callback, toggle_cb(toggle_do_nothing));
+    }
+
+    #[test]
+    fn with_on_toggle_matches_set_on_toggle() {
+        let built = Accordion::create().with_on_toggle(RefAny::new(7u32), toggle_cb(record_toggle));
+
+        let mut mutated = Accordion::create();
+        mutated.set_on_toggle(RefAny::new(7u32), toggle_cb(record_toggle));
+
+        assert!(built.on_toggle.is_some());
+        assert_eq!(
+            built.on_toggle.as_ref().unwrap().callback,
+            mutated.on_toggle.as_ref().unwrap().callback
+        );
+        // the builder form must not disturb the sections
+        assert!(built.sections.is_empty());
+    }
+
+    #[test]
+    fn swap_with_default_moves_all_state_out() {
+        let sections = AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("a", Dom::create_div()),
+            AccordionSection::new("b", Dom::create_div()).with_open(true),
+        ]);
+        let mut acc = Accordion::new(sections).with_on_toggle(RefAny::new(5u8), toggle_cb(record_toggle));
+
+        let original = acc.swap_with_default();
+
+        assert_eq!(original.sections.len(), 2);
+        assert!(original.on_toggle.is_some());
+        assert!(original.sections.as_ref()[1].is_open);
+
+        assert!(acc.sections.is_empty(), "self must be left empty");
+        assert!(acc.on_toggle.is_none(), "self must lose the callback");
+        assert_eq!(acc, Accordion::create());
+
+        // swapping an already-empty accordion is a no-op, not a panic
+        let second = acc.swap_with_default();
+        assert_eq!(second, Accordion::create());
+        assert_eq!(acc, Accordion::create());
+    }
+
+    // ------------------------------------------------------------------
+    // Accordion::dom
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn dom_of_empty_accordion_has_no_children() {
+        let dom = Accordion::create().dom();
+        assert!(has_class(&dom, "__azul-native-accordion"));
+        assert!(dom.children.as_ref().is_empty());
+        assert_eq!(dom.estimated_total_children, 0);
+    }
+
+    #[test]
+    fn dom_display_follows_is_open() {
+        let acc = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("closed", Dom::create_text("c0")),
+            AccordionSection::new("open", Dom::create_text("c1")).with_open(true),
+        ]));
+        let dom = acc.dom();
+        assert_eq!(dom.children.as_ref().len(), 2);
+
+        let (h0, b0) = section_parts(&dom, 0);
+        let (h1, b1) = section_parts(&dom, 1);
+
+        assert!(has_class(h0, "__azul-native-accordion-header"));
+        assert!(has_class(b0, "__azul-native-accordion-body"));
+
+        // a closed section is `display: none`, an open one `display: block`
+        assert_eq!(inline_display(b0), Some(LayoutDisplay::None));
+        assert_eq!(inline_display(b1), Some(LayoutDisplay::Block));
+
+        // the body wraps exactly the caller's content
+        assert_eq!(text_of(&b0.children.as_ref()[0]), Some("c0"));
+        assert_eq!(text_of(&b1.children.as_ref()[0]), Some("c1"));
+
+        // the header is focusable and carries exactly one MouseUp callback
+        for h in [h0, h1] {
+            assert!(matches!(h.root.get_tab_index(), Some(TabIndex::Auto)));
+            let cbs = h.root.get_callbacks();
+            assert_eq!(cbs.len(), 1);
+            assert_eq!(cbs.as_ref()[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
+            assert_eq!(
+                cbs.as_ref()[0].callback.cb,
+                on_accordion_header_click as usize
+            );
+        }
+    }
+
+    #[test]
+    fn dom_header_payload_carries_the_section_index_and_open_state() {
+        let count = 64usize;
+        let mut sections = Vec::with_capacity(count);
+        for i in 0..count {
+            sections.push(
+                AccordionSection::new(alloc::format!("s{i}"), Dom::create_div())
+                    .with_open(i % 3 == 0),
+            );
+        }
+        let dom = Accordion::new(AccordionSectionVec::from_vec(sections)).dom();
+
+        for i in 0..count {
+            let (header, body) = section_parts(&dom, i);
+            let mut payload = header.root.get_callbacks().as_ref()[0].refany.clone();
+            let hd = payload
+                .downcast_ref::<HeaderClickData>()
+                .expect("header payload is a HeaderClickData");
+
+            assert_eq!(hd.index, i, "each header must know its own section index");
+            assert_eq!(hd.is_open, i % 3 == 0);
+            assert!(hd.on_toggle.is_none(), "no user callback was set");
+            assert_eq!(
+                inline_display(body),
+                Some(if i % 3 == 0 {
+                    LayoutDisplay::Block
+                } else {
+                    LayoutDisplay::None
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn dom_child_count_cache_stays_consistent() {
+        // deeply nested content + many sections: `estimated_total_children` must
+        // still equal the real descendant count, otherwise the compact-DOM arena
+        // under-allocates and panics later.
+        let mut deep = Dom::create_text("leaf");
+        for _ in 0..64 {
+            deep = Dom::create_div().with_child(deep);
+        }
+
+        let sections = AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("deep", deep),
+            AccordionSection::new("flat", Dom::create_div()).with_open(true),
+            AccordionSection::new("", Dom::create_div()),
+        ]);
+        let dom = Accordion::new(sections).dom();
+
+        assert_eq!(
+            dom.estimated_total_children,
+            dom.recompute_estimated_total_children(),
+            "cached descendant count desynced from the real tree"
+        );
+    }
+
+    #[test]
+    fn from_accordion_for_dom_matches_dom() {
+        // Only meaningful for a section-less accordion: every `dom()` call mints
+        // fresh per-header `RefAny`s, and two distinct `RefAny`s never compare equal.
+        assert_eq!(Dom::from(Accordion::create()), Accordion::create().dom());
+    }
+
+    #[test]
+    fn dom_leaves_the_original_on_toggle_payload_alive() {
+        let log = RefAny::new(ToggleLog { calls: Vec::new() });
+        let mut kept = log.clone();
+
+        let acc = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("a", Dom::create_div()),
+            AccordionSection::new("b", Dom::create_div()),
+        ]))
+        .with_on_toggle(log, toggle_cb(record_toggle));
+
+        let dom = acc.dom();
+
+        // every header got its own clone of the callback...
+        for i in 0..2 {
+            let (header, _) = section_parts(&dom, i);
+            let mut payload = header.root.get_callbacks().as_ref()[0].refany.clone();
+            let hd = payload.downcast_ref::<HeaderClickData>().unwrap();
+            assert!(hd.on_toggle.is_some());
+        }
+
+        // ...and the caller's handle to the shared payload is still valid (no free)
+        assert!(kept.downcast_ref::<ToggleLog>().unwrap().calls.is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // clone_option_on_toggle
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn clone_option_on_toggle_of_none_is_none() {
+        let none: OptionAccordionOnToggle = None.into();
+        assert!(clone_option_on_toggle(&none).is_none());
+        // cloning the clone stays None
+        assert!(clone_option_on_toggle(&clone_option_on_toggle(&none)).is_none());
+    }
+
+    #[test]
+    fn clone_option_on_toggle_shares_the_payload() {
+        let mut some: OptionAccordionOnToggle = Some(AccordionOnToggle {
+            callback: toggle_cb(record_toggle),
+            refany: RefAny::new(0usize),
+        })
+        .into();
+
+        let mut cloned = clone_option_on_toggle(&some);
+        let cloned_inner = cloned.as_mut().expect("clone of Some must be Some");
+        assert_eq!(cloned_inner.callback, toggle_cb(record_toggle));
+
+        // the RefAny is shared, not deep-copied: a write through the clone is
+        // visible through the original.
+        *cloned_inner
+            .refany
+            .downcast_mut::<usize>()
+            .expect("payload type is preserved") = 42;
+
+        let original_inner = some.as_mut().unwrap();
+        assert_eq!(*original_inner.refany.downcast_ref::<usize>().unwrap(), 42);
+    }
+
+    // ------------------------------------------------------------------
+    // on_accordion_header_click
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn header_click_without_any_layout_result_is_a_noop() {
+        let mut data = RefAny::new(HeaderClickData {
+            index: 0,
+            is_open: false,
+            on_toggle: None.into(),
+        });
+
+        let (update, changes) = run_click(None, 0, data.clone());
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "nothing may be restyled without a body");
+        assert!(!payload_is_open(&mut data), "state must not flip");
+    }
+
+    #[test]
+    fn header_click_without_next_sibling_does_not_flip_state() {
+        // node 2 is the *last* child -> no next sibling -> early return, and
+        // crucially `is_open` must NOT have been toggled.
+        let mut data = RefAny::new(HeaderClickData {
+            index: 3,
+            is_open: true,
+            on_toggle: None.into(),
+        });
+
+        let (update, changes) = run_click(Some(header_body_dom()), 2, data.clone());
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert!(payload_is_open(&mut data), "state must be untouched");
+    }
+
+    #[test]
+    fn header_click_with_stale_hit_node_is_a_noop() {
+        let mut data = RefAny::new(HeaderClickData {
+            index: 0,
+            is_open: false,
+            on_toggle: None.into(),
+        });
+
+        // node 999 does not exist in the 3-node fixture
+        let (update, changes) = run_click(Some(header_body_dom()), 999, data.clone());
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert!(!payload_is_open(&mut data));
+    }
+
+    #[test]
+    fn header_click_with_foreign_payload_is_a_noop() {
+        // the callback-bearing node carries a RefAny of the *wrong* type
+        let data = RefAny::new(0xdead_beef_u64);
+
+        let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(
+            changes.is_empty(),
+            "a foreign payload must not restyle the body"
+        );
+    }
+
+    #[test]
+    fn header_click_toggles_body_display_and_flips_state() {
+        let mut data = RefAny::new(HeaderClickData {
+            index: 0,
+            is_open: false,
+            on_toggle: None.into(),
+        });
+
+        // closed -> open
+        let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
+        assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(2usize, LayoutDisplay::Block)]
+        );
+        assert!(payload_is_open(&mut data));
+
+        // open -> closed (same payload, so the flip must be stateful)
+        let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(2usize, LayoutDisplay::None)]
+        );
+        assert!(!payload_is_open(&mut data));
+    }
+
+    #[test]
+    fn header_click_invokes_user_callback_and_propagates_its_update() {
+        let mut log = RefAny::new(ToggleLog { calls: Vec::new() });
+        let data = RefAny::new(HeaderClickData {
+            index: 17,
+            is_open: false,
+            on_toggle: Some(AccordionOnToggle {
+                callback: toggle_cb(record_toggle),
+                refany: log.clone(),
+            })
+            .into(),
+        });
+
+        let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
+
+        // the user's return value wins over the internal DoNothing
+        assert_eq!(update, Update::RefreshDom);
+        // ...and the body is still restyled, even though the user callback ran
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(2usize, LayoutDisplay::Block)]
+        );
+        assert_eq!(
+            log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
+            &[17],
+            "the user callback must receive this section's index"
+        );
+
+        // a second click reports the same index again
+        let (_, _) = run_click(Some(header_body_dom()), 1, data);
+        assert_eq!(
+            log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
+            &[17, 17]
+        );
+    }
+}

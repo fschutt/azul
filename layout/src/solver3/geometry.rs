@@ -640,3 +640,1102 @@ impl WritingModeContext {
         self.used_direction() == StyleDirection::Rtl
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::unreadable_literal)]
+mod autotest_generated {
+    use super::*;
+
+    // ---------------------------------------------------------------- helpers
+
+    /// All writing modes, so every mapping test can be run exhaustively.
+    const ALL_WM: [LayoutWritingMode; 3] = [
+        LayoutWritingMode::HorizontalTb,
+        LayoutWritingMode::VerticalRl,
+        LayoutWritingMode::VerticalLr,
+    ];
+
+    fn edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
+        EdgeSizes { top, right, bottom, left }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    /// `EdgeSizes`/`ResolvedBoxProps` carry no `PartialEq`, and the packed
+    /// encoding is lossy by design, so float comparisons need a tolerance.
+    fn close(a: f32, b: f32, eps: f32) -> bool {
+        (a - b).abs() <= eps
+    }
+
+    fn params(cb: LogicalSize, vp: LogicalSize, font: f32, root: f32) -> ResolutionParams {
+        ResolutionParams {
+            containing_block: cb,
+            viewport_size: vp,
+            element_font_size: font,
+            root_font_size: root,
+        }
+    }
+
+    /// 800x600 containing block, 1000x500 viewport, 16px element / 10px root font.
+    /// Every dimension is distinct so a transposed axis cannot pass by accident.
+    fn distinct_params() -> ResolutionParams {
+        params(
+            LogicalSize::new(800.0, 600.0),
+            LogicalSize::new(1000.0, 500.0),
+            16.0,
+            10.0,
+        )
+    }
+
+    fn props(margin: EdgeSizes, padding: EdgeSizes, border: EdgeSizes) -> ResolvedBoxProps {
+        ResolvedBoxProps { margin, padding, border, margin_auto: MarginAuto::default() }
+    }
+
+    // ================================================================
+    // EdgeSizes: sums
+    // ================================================================
+
+    #[test]
+    fn edge_sizes_sums_pick_the_right_pair_of_edges() {
+        let e = edges(1.0, 2.0, 4.0, 8.0); // top, right, bottom, left
+        assert_eq!(e.horizontal_sum(), 10.0, "horizontal = left + right");
+        assert_eq!(e.vertical_sum(), 5.0, "vertical = top + bottom");
+    }
+
+    #[test]
+    fn edge_sizes_default_is_all_zero() {
+        let e = EdgeSizes::default();
+        assert_eq!(e.horizontal_sum(), 0.0);
+        assert_eq!(e.vertical_sum(), 0.0);
+        for wm in ALL_WM {
+            assert_eq!(e.main_sum(wm), 0.0);
+            assert_eq!(e.cross_sum(wm), 0.0);
+        }
+    }
+
+    #[test]
+    fn edge_sizes_sums_saturate_to_infinity_instead_of_panicking() {
+        // f32::MAX + f32::MAX overflows to +inf; it must not panic or wrap.
+        let e = edges(f32::MAX, f32::MAX, f32::MAX, f32::MAX);
+        assert!(e.horizontal_sum().is_infinite() && e.horizontal_sum() > 0.0);
+        assert!(e.vertical_sum().is_infinite() && e.vertical_sum() > 0.0);
+    }
+
+    #[test]
+    fn edge_sizes_opposing_infinities_produce_nan_not_a_panic() {
+        // inf + (-inf) is NaN by IEEE-754. The point is that it is deterministic
+        // and does not trap — nothing downstream may assume a finite sum.
+        let e = edges(f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        assert!(e.horizontal_sum().is_nan());
+        assert!(e.vertical_sum().is_nan());
+    }
+
+    #[test]
+    fn edge_sizes_nan_edges_propagate_without_panicking() {
+        let e = edges(f32::NAN, 1.0, 2.0, 3.0);
+        assert!(e.vertical_sum().is_nan());
+        assert_eq!(e.horizontal_sum(), 4.0, "a NaN top must not poison left+right");
+        for wm in ALL_WM {
+            let _ = e.main_sum(wm);
+            let _ = e.cross_sum(wm);
+        }
+    }
+
+    // ================================================================
+    // EdgeSizes: writing-mode axis mapping
+    // ================================================================
+
+    #[test]
+    fn edge_sizes_axis_mapping_is_exact_for_every_writing_mode() {
+        let e = edges(1.0, 2.0, 4.0, 8.0); // top, right, bottom, left
+
+        // horizontal-tb: block (main) axis is vertical, inline (cross) axis is horizontal.
+        let h = LayoutWritingMode::HorizontalTb;
+        assert_eq!(e.main_start(h), 1.0, "main-start = top");
+        assert_eq!(e.main_end(h), 4.0, "main-end = bottom");
+        assert_eq!(e.cross_start(h), 8.0, "cross-start = left");
+        assert_eq!(e.cross_end(h), 2.0, "cross-end = right");
+
+        // vertical-*: block (main) axis is horizontal, inline (cross) axis is vertical.
+        for wm in [LayoutWritingMode::VerticalRl, LayoutWritingMode::VerticalLr] {
+            assert_eq!(e.main_start(wm), 8.0, "main-start = left");
+            assert_eq!(e.main_end(wm), 2.0, "main-end = right");
+            assert_eq!(e.cross_start(wm), 1.0, "cross-start = top");
+            assert_eq!(e.cross_end(wm), 4.0, "cross-end = bottom");
+        }
+    }
+
+    #[test]
+    fn edge_sizes_main_and_cross_sums_partition_the_four_edges() {
+        // Whatever the writing mode, main+cross must account for each edge exactly
+        // once — a transposition bug in one arm would break this identity.
+        let e = edges(1.0, 2.0, 4.0, 8.0);
+        for wm in ALL_WM {
+            assert_eq!(e.main_start(wm) + e.main_end(wm), e.main_sum(wm));
+            assert_eq!(e.cross_start(wm) + e.cross_end(wm), e.cross_sum(wm));
+            assert_eq!(
+                e.main_sum(wm) + e.cross_sum(wm),
+                e.horizontal_sum() + e.vertical_sum(),
+                "{wm:?}: main+cross must cover all four edges"
+            );
+        }
+    }
+
+    #[test]
+    fn edge_sizes_axis_accessors_survive_extreme_values() {
+        let e = edges(f32::MAX, f32::MIN, f32::INFINITY, f32::NEG_INFINITY);
+        for wm in ALL_WM {
+            let _ = e.main_start(wm);
+            let _ = e.main_end(wm);
+            let _ = e.cross_start(wm);
+            let _ = e.cross_end(wm);
+            let _ = e.main_sum(wm);
+            let _ = e.cross_sum(wm);
+        }
+    }
+
+    // ================================================================
+    // UnresolvedMargin
+    // ================================================================
+
+    #[test]
+    fn unresolved_margin_is_auto_only_for_the_auto_variant() {
+        assert!(UnresolvedMargin::Auto.is_auto());
+        assert!(!UnresolvedMargin::Zero.is_auto());
+        assert!(!UnresolvedMargin::Length(PixelValue::const_px(10)).is_auto());
+        // A zero-valued length is still *not* `auto`.
+        assert!(!UnresolvedMargin::Length(PixelValue::zero()).is_auto());
+        assert!(!UnresolvedMargin::default().is_auto(), "default is Zero, not Auto");
+    }
+
+    #[test]
+    fn unresolved_margin_auto_and_zero_both_resolve_to_zero_px() {
+        let ctx = distinct_params().to_resolution_context();
+        assert_eq!(UnresolvedMargin::Zero.resolve(&ctx), 0.0);
+        // `auto` is resolved later by the layout algorithm; here it must read as 0.
+        assert_eq!(UnresolvedMargin::Auto.resolve(&ctx), 0.0);
+    }
+
+    #[test]
+    fn unresolved_margin_length_resolves_by_metric() {
+        let ctx = distinct_params().to_resolution_context(); // 800x600 cb, 16px font, 10px root
+        let r = |pv: PixelValue| UnresolvedMargin::Length(pv).resolve(&ctx);
+
+        assert_eq!(r(PixelValue::px(12.5)), 12.5);
+        assert_eq!(r(PixelValue::em(2.0)), 32.0, "em = 2 x element font-size");
+        assert_eq!(r(PixelValue::rem(2.0)), 20.0, "rem = 2 x root font-size");
+    }
+
+    #[test]
+    fn unresolved_margin_percent_resolves_against_containing_block_width() {
+        // CSS 2.1 §8.3: percentage margins ALWAYS refer to the containing block
+        // *width* — never the height. With a 800x600 block, 50% must be 400, not 300.
+        let ctx = distinct_params().to_resolution_context();
+        let got = UnresolvedMargin::Length(PixelValue::percent(50.0)).resolve(&ctx);
+        assert_eq!(got, 400.0);
+        assert_ne!(got, 300.0, "percentage margin must not use the block height");
+    }
+
+    #[test]
+    fn unresolved_margin_nan_length_resolves_to_zero_not_nan() {
+        // PixelValue stores a fixed-point isize, and `f32 as isize` saturates NaN
+        // to 0 — so a NaN can never escape into layout as a NaN margin.
+        let ctx = distinct_params().to_resolution_context();
+        let got = UnresolvedMargin::Length(PixelValue::px(f32::NAN)).resolve(&ctx);
+        assert!(!got.is_nan(), "a NaN px value must not survive resolution");
+        assert_eq!(got, 0.0);
+    }
+
+    #[test]
+    fn unresolved_margin_huge_length_saturates_to_a_finite_value() {
+        let ctx = distinct_params().to_resolution_context();
+        for v in [f32::MAX, f32::MIN, f32::INFINITY, f32::NEG_INFINITY] {
+            let got = UnresolvedMargin::Length(PixelValue::px(v)).resolve(&ctx);
+            assert!(got.is_finite(), "px({v}) resolved to a non-finite {got}");
+        }
+    }
+
+    #[test]
+    fn unresolved_margin_percent_of_a_nan_containing_block_is_nan_not_a_panic() {
+        // The containing block is a raw f32 and is NOT sanitized, so a NaN block
+        // size *does* propagate. Documenting the real behaviour: deterministic NaN,
+        // no panic — the guard has to live at the caller, not here.
+        let p = params(
+            LogicalSize::new(f32::NAN, f32::NAN),
+            LogicalSize::new(1000.0, 500.0),
+            16.0,
+            10.0,
+        );
+        let got = UnresolvedMargin::Length(PixelValue::percent(50.0)).resolve(&p.to_resolution_context());
+        assert!(got.is_nan());
+    }
+
+    // ================================================================
+    // UnresolvedEdge
+    // ================================================================
+
+    #[test]
+    fn unresolved_edge_new_assigns_fields_in_top_right_bottom_left_order() {
+        // The classic CSS shorthand transposition bug: argument order is TRBL.
+        let e = UnresolvedEdge::new(1_u8, 2, 4, 8);
+        assert_eq!(e.top, 1);
+        assert_eq!(e.right, 2);
+        assert_eq!(e.bottom, 4);
+        assert_eq!(e.left, 8);
+    }
+
+    #[test]
+    fn unresolved_edge_new_accepts_extreme_payloads() {
+        let e = UnresolvedEdge::new(f32::NAN, f32::INFINITY, f32::MAX, f32::MIN);
+        assert!(e.top.is_nan());
+        assert!(e.right.is_infinite());
+        assert_eq!(e.bottom, f32::MAX);
+        assert_eq!(e.left, f32::MIN);
+    }
+
+    #[test]
+    fn get_margin_auto_flags_exactly_the_auto_sides() {
+        let e = UnresolvedEdge::new(
+            UnresolvedMargin::Zero,                                 // top
+            UnresolvedMargin::Auto,                                 // right
+            UnresolvedMargin::Length(PixelValue::const_px(5)),      // bottom
+            UnresolvedMargin::Auto,                                 // left
+        );
+        let a = e.get_margin_auto();
+        assert!(!a.top);
+        assert!(a.right);
+        assert!(!a.bottom);
+        assert!(a.left);
+    }
+
+    #[test]
+    fn get_margin_auto_on_default_edge_flags_nothing() {
+        let a = UnresolvedEdge::<UnresolvedMargin>::default().get_margin_auto();
+        assert!(!a.top && !a.right && !a.bottom && !a.left);
+    }
+
+    #[test]
+    fn unresolved_margin_edge_resolve_keeps_each_side_separate() {
+        let ctx = distinct_params().to_resolution_context();
+        let e = UnresolvedEdge::new(
+            UnresolvedMargin::Length(PixelValue::px(1.0)),   // top
+            UnresolvedMargin::Length(PixelValue::px(2.0)),   // right
+            UnresolvedMargin::Auto,                          // bottom -> 0
+            UnresolvedMargin::Length(PixelValue::px(8.0)),   // left
+        );
+        let r = e.resolve(&ctx);
+        assert_eq!(r.top, 1.0);
+        assert_eq!(r.right, 2.0);
+        assert_eq!(r.bottom, 0.0, "auto resolves to 0 px here");
+        assert_eq!(r.left, 8.0);
+    }
+
+    #[test]
+    fn pixel_edge_resolve_drops_percentages_on_border_width() {
+        // CSS Backgrounds 3 §4.1: `%` is not a valid border-width. The resolver
+        // must yield 0 rather than silently resolving against the containing block.
+        let ctx = distinct_params().to_resolution_context();
+        let e = UnresolvedEdge::new(
+            PixelValue::percent(50.0),
+            PixelValue::percent(50.0),
+            PixelValue::percent(50.0),
+            PixelValue::percent(50.0),
+        );
+        let r = e.resolve(&ctx, PropertyContext::BorderWidth);
+        assert_eq!(r.top, 0.0);
+        assert_eq!(r.right, 0.0);
+        assert_eq!(r.bottom, 0.0);
+        assert_eq!(r.left, 0.0);
+    }
+
+    #[test]
+    fn pixel_edge_resolve_uses_block_width_for_vertical_padding_percentages() {
+        // CSS 2.1 §8.4: padding-top/bottom percentages also refer to the containing
+        // block WIDTH. With 800x600, every side must land on 80, never 60.
+        let ctx = distinct_params().to_resolution_context();
+        let e = UnresolvedEdge::new(
+            PixelValue::percent(10.0),
+            PixelValue::percent(10.0),
+            PixelValue::percent(10.0),
+            PixelValue::percent(10.0),
+        );
+        let r = e.resolve(&ctx, PropertyContext::Padding);
+        assert_eq!(r.top, 80.0, "padding-top % must use the width");
+        assert_eq!(r.bottom, 80.0, "padding-bottom % must use the width");
+        assert_eq!(r.left, 80.0);
+        assert_eq!(r.right, 80.0);
+    }
+
+    #[test]
+    fn pixel_edge_resolve_of_viewport_units_uses_the_viewport_not_the_block() {
+        let ctx = distinct_params().to_resolution_context(); // viewport 1000x500
+        let e = UnresolvedEdge::new(
+            PixelValue::from_metric(SizeMetric::Vw, 10.0),
+            PixelValue::from_metric(SizeMetric::Vh, 10.0),
+            PixelValue::from_metric(SizeMetric::Vmin, 10.0),
+            PixelValue::from_metric(SizeMetric::Vmax, 10.0),
+        );
+        let r = e.resolve(&ctx, PropertyContext::Padding);
+        assert_eq!(r.top, 100.0, "10vw of 1000");
+        assert_eq!(r.right, 50.0, "10vh of 500");
+        assert_eq!(r.bottom, 50.0, "10vmin of min(1000,500)");
+        assert_eq!(r.left, 100.0, "10vmax of max(1000,500)");
+    }
+
+    // ================================================================
+    // ResolutionParams
+    // ================================================================
+
+    #[test]
+    fn to_resolution_context_maps_every_field() {
+        let ctx = distinct_params().to_resolution_context();
+        assert_eq!(ctx.element_font_size, 16.0);
+        assert_eq!(ctx.root_font_size, 10.0);
+        assert_eq!(ctx.containing_block_size.width, 800.0);
+        assert_eq!(ctx.containing_block_size.height, 600.0);
+        assert_eq!(ctx.viewport_size.width, 1000.0);
+        assert_eq!(ctx.viewport_size.height, 500.0);
+        assert!(ctx.element_size.is_none(), "element size is unknown pre-layout");
+    }
+
+    #[test]
+    fn to_resolution_context_aliases_parent_font_size_onto_the_element_font_size() {
+        // Documented quirk: for non-font properties `em` resolves against the
+        // element's OWN font-size, so the context deliberately reports
+        // parent == element. Using it for font-size resolution would be wrong.
+        let ctx = distinct_params().to_resolution_context();
+        assert_eq!(ctx.parent_font_size, ctx.element_font_size);
+        assert_eq!(ctx.parent_font_size, 16.0);
+    }
+
+    #[test]
+    fn to_resolution_context_passes_extreme_values_through_unchanged() {
+        let p = params(
+            LogicalSize::new(f32::MAX, f32::NAN),
+            LogicalSize::new(f32::INFINITY, 0.0),
+            0.0,
+            f32::MIN,
+        );
+        let ctx = p.to_resolution_context();
+        assert_eq!(ctx.containing_block_size.width, f32::MAX);
+        assert!(ctx.containing_block_size.height.is_nan());
+        assert!(ctx.viewport_size.width.is_infinite());
+        assert_eq!(ctx.element_font_size, 0.0);
+        assert_eq!(ctx.root_font_size, f32::MIN);
+    }
+
+    #[test]
+    fn zero_font_size_context_resolves_em_to_zero_without_dividing_by_it() {
+        let p = params(LogicalSize::zero(), LogicalSize::zero(), 0.0, 0.0);
+        let ctx = p.to_resolution_context();
+        assert_eq!(PixelValue::em(10.0).resolve_with_context(&ctx, PropertyContext::Margin), 0.0);
+        assert_eq!(PixelValue::rem(10.0).resolve_with_context(&ctx, PropertyContext::Margin), 0.0);
+        // A zero-sized viewport must not turn vmin/vmax into NaN.
+        let vmin = PixelValue::from_metric(SizeMetric::Vmin, 50.0);
+        assert_eq!(vmin.resolve_with_context(&ctx, PropertyContext::Padding), 0.0);
+    }
+
+    // ================================================================
+    // UnresolvedBoxProps
+    // ================================================================
+
+    #[test]
+    fn unresolved_box_props_default_resolves_to_an_all_zero_box() {
+        let r = UnresolvedBoxProps::default().resolve(&distinct_params());
+        assert_eq!(r.horizontal_mbp(), 0.0);
+        assert_eq!(r.vertical_mbp(), 0.0);
+        assert!(!r.margin_auto.left && !r.margin_auto.right);
+    }
+
+    #[test]
+    fn unresolved_box_props_resolve_applies_the_right_property_context_per_edge() {
+        let p = distinct_params(); // 800x600 block
+        let b = UnresolvedBoxProps {
+            margin: UnresolvedEdge::new(
+                UnresolvedMargin::Auto,
+                UnresolvedMargin::Length(PixelValue::percent(10.0)), // -> 80 (width)
+                UnresolvedMargin::Zero,
+                UnresolvedMargin::Auto,
+            ),
+            padding: UnresolvedEdge::new(
+                PixelValue::percent(10.0), // -> 80 (width, even on the top edge)
+                PixelValue::px(4.0),
+                PixelValue::px(4.0),
+                PixelValue::px(4.0),
+            ),
+            border: UnresolvedEdge::new(
+                PixelValue::percent(10.0), // -> 0 (percent is invalid on border-width)
+                PixelValue::px(2.0),
+                PixelValue::px(2.0),
+                PixelValue::px(2.0),
+            ),
+        };
+        let r = b.resolve(&p);
+
+        assert_eq!(r.margin.top, 0.0, "auto margin resolves to 0 px");
+        assert_eq!(r.margin.right, 80.0);
+        assert_eq!(r.padding.top, 80.0);
+        assert_eq!(r.border.top, 0.0, "percent border-width must collapse to 0");
+        assert_eq!(r.border.left, 2.0);
+
+        // The auto flags must survive resolution — they are what drives centering.
+        assert!(r.margin_auto.top);
+        assert!(r.margin_auto.left);
+        assert!(!r.margin_auto.right);
+        assert!(!r.margin_auto.bottom);
+    }
+
+    // ================================================================
+    // ResolvedBoxProps::inner_size
+    // ================================================================
+
+    #[test]
+    fn inner_size_of_a_zero_box_is_zero() {
+        let bp = ResolvedBoxProps::default();
+        for wm in ALL_WM {
+            let s = bp.inner_size(LogicalSize::zero(), wm);
+            assert_eq!(s.width, 0.0);
+            assert_eq!(s.height, 0.0);
+        }
+    }
+
+    #[test]
+    fn inner_size_subtracts_border_and_padding_but_not_margin() {
+        let bp = props(
+            edges(100.0, 100.0, 100.0, 100.0), // margin — must be ignored
+            edges(1.0, 2.0, 4.0, 8.0),         // padding
+            edges(10.0, 20.0, 30.0, 40.0),     // border
+        );
+        // width  loses left+right: (8+2) + (40+20) = 70
+        // height loses top+bottom: (1+4) + (10+30) = 45
+        let s = bp.inner_size(LogicalSize::new(200.0, 100.0), LayoutWritingMode::HorizontalTb);
+        assert_eq!(s.width, 130.0);
+        assert_eq!(s.height, 55.0);
+    }
+
+    #[test]
+    fn inner_size_is_identical_in_every_writing_mode() {
+        // Physically, content-box = border-box minus the same four edges regardless
+        // of writing mode. The main/cross indirection must cancel out exactly; a
+        // transposed arm in one mode would show up right here.
+        let bp = props(
+            EdgeSizes::default(),
+            edges(1.0, 2.0, 4.0, 8.0),
+            edges(10.0, 20.0, 30.0, 40.0),
+        );
+        let outer = LogicalSize::new(200.0, 100.0);
+        let base = bp.inner_size(outer, LayoutWritingMode::HorizontalTb);
+        for wm in ALL_WM {
+            let s = bp.inner_size(outer, wm);
+            assert_eq!(s.width, base.width, "{wm:?} width diverged");
+            assert_eq!(s.height, base.height, "{wm:?} height diverged");
+        }
+    }
+
+    #[test]
+    fn inner_size_floors_at_zero_when_border_and_padding_exceed_the_box() {
+        // CSS: if padding+border overflow the border-box, content is 0 — never negative.
+        let bp = props(
+            EdgeSizes::default(),
+            edges(100.0, 100.0, 100.0, 100.0),
+            edges(100.0, 100.0, 100.0, 100.0),
+        );
+        for wm in ALL_WM {
+            let s = bp.inner_size(LogicalSize::new(10.0, 10.0), wm);
+            assert_eq!(s.width, 0.0, "{wm:?}");
+            assert_eq!(s.height, 0.0, "{wm:?}");
+            assert!(s.width >= 0.0 && s.height >= 0.0);
+        }
+    }
+
+    #[test]
+    fn inner_size_never_returns_nan() {
+        // `.max(0.0)` discards a NaN operand, so NaN can only ever collapse to 0.
+        let nan_bp = props(EdgeSizes::default(), edges(f32::NAN, 0.0, 0.0, 0.0), EdgeSizes::default());
+        let cases = [
+            (ResolvedBoxProps::default(), LogicalSize::new(f32::NAN, f32::NAN)),
+            (nan_bp, LogicalSize::new(100.0, 100.0)),
+            (
+                // inf - inf = NaN, which must still floor to 0 rather than escape.
+                props(EdgeSizes::default(), edges(f32::INFINITY, 0.0, f32::INFINITY, 0.0), EdgeSizes::default()),
+                LogicalSize::new(f32::INFINITY, f32::INFINITY),
+            ),
+        ];
+        for (bp, outer) in cases {
+            for wm in ALL_WM {
+                let s = bp.inner_size(outer, wm);
+                assert!(!s.width.is_nan(), "{wm:?}: NaN width escaped inner_size");
+                assert!(!s.height.is_nan(), "{wm:?}: NaN height escaped inner_size");
+                assert!(s.width >= 0.0 && s.height >= 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn inner_size_at_f32_max_stays_finite_and_non_negative() {
+        let bp = props(EdgeSizes::default(), edges(1.0, 2.0, 4.0, 8.0), edges(1.0, 1.0, 1.0, 1.0));
+        for wm in ALL_WM {
+            let s = bp.inner_size(LogicalSize::new(f32::MAX, f32::MAX), wm);
+            assert!(s.width.is_finite() && s.height.is_finite());
+            assert!(s.width > 0.0 && s.height > 0.0);
+        }
+    }
+
+    #[test]
+    fn inner_size_with_negative_outer_size_floors_to_zero() {
+        let bp = ResolvedBoxProps::default();
+        for wm in ALL_WM {
+            let s = bp.inner_size(LogicalSize::new(-100.0, -50.0), wm);
+            assert_eq!(s.width, 0.0, "{wm:?}");
+            assert_eq!(s.height, 0.0, "{wm:?}");
+        }
+    }
+
+    #[test]
+    fn inner_size_with_negative_padding_grows_the_content_box() {
+        // Negative border/padding is not reachable from CSS, but the struct permits
+        // it — assert the arithmetic is plain subtraction rather than something that
+        // silently clamps mid-way.
+        let bp = props(EdgeSizes::default(), edges(-5.0, -5.0, -5.0, -5.0), EdgeSizes::default());
+        let s = bp.inner_size(LogicalSize::new(100.0, 100.0), LayoutWritingMode::HorizontalTb);
+        assert_eq!(s.width, 110.0);
+        assert_eq!(s.height, 110.0);
+    }
+
+    // ================================================================
+    // ResolvedBoxProps: box rects
+    // ================================================================
+
+    #[test]
+    fn content_box_shrinks_by_border_plus_padding() {
+        let bp = props(
+            edges(100.0, 100.0, 100.0, 100.0), // margin is irrelevant here
+            edges(1.0, 2.0, 4.0, 8.0),         // padding TRBL
+            edges(10.0, 20.0, 30.0, 40.0),     // border TRBL
+        );
+        let got = bp.content_box(rect(1000.0, 2000.0, 200.0, 100.0));
+        // origin moves in by border+padding on the start edges: left 40+8, top 10+1
+        // size shrinks by both sides: width 200-(40+20)-(8+2)=130, height 100-(10+30)-(1+4)=55
+        assert_eq!(got, rect(1048.0, 2011.0, 130.0, 55.0));
+    }
+
+    #[test]
+    fn padding_box_shrinks_by_border_only() {
+        let bp = props(
+            EdgeSizes::default(),
+            edges(1.0, 2.0, 4.0, 8.0),
+            edges(10.0, 20.0, 30.0, 40.0),
+        );
+        let got = bp.padding_box(rect(1000.0, 2000.0, 200.0, 100.0));
+        assert_eq!(got, rect(1040.0, 2010.0, 140.0, 60.0));
+    }
+
+    #[test]
+    fn margin_box_expands_by_margin_only() {
+        let bp = props(
+            edges(1.0, 2.0, 4.0, 8.0), // margin TRBL
+            edges(99.0, 99.0, 99.0, 99.0),
+            edges(99.0, 99.0, 99.0, 99.0),
+        );
+        let got = bp.margin_box(rect(1000.0, 2000.0, 200.0, 100.0));
+        // origin moves OUT by left/top margin; size grows by both sides.
+        assert_eq!(got, rect(992.0, 1999.0, 210.0, 105.0));
+    }
+
+    #[test]
+    fn box_rects_nest_content_inside_padding_inside_border_inside_margin() {
+        let bp = props(
+            edges(5.0, 6.0, 7.0, 8.0),
+            edges(1.0, 2.0, 3.0, 4.0),
+            edges(9.0, 10.0, 11.0, 12.0),
+        );
+        let border_box = rect(50.0, 60.0, 400.0, 300.0);
+        let content = bp.content_box(border_box);
+        let padding = bp.padding_box(border_box);
+        let margin = bp.margin_box(border_box);
+
+        // Each layer must sit strictly inside the next one out.
+        assert!(margin.origin.x <= border_box.origin.x);
+        assert!(border_box.origin.x <= padding.origin.x);
+        assert!(padding.origin.x <= content.origin.x);
+        assert!(margin.origin.y <= border_box.origin.y);
+        assert!(border_box.origin.y <= padding.origin.y);
+        assert!(padding.origin.y <= content.origin.y);
+
+        assert!(content.size.width <= padding.size.width);
+        assert!(padding.size.width <= border_box.size.width);
+        assert!(border_box.size.width <= margin.size.width);
+        assert!(content.size.height <= padding.size.height);
+        assert!(padding.size.height <= border_box.size.height);
+        assert!(border_box.size.height <= margin.size.height);
+    }
+
+    #[test]
+    fn content_box_size_floors_at_zero_but_the_origin_still_moves_in() {
+        let bp = props(
+            EdgeSizes::default(),
+            edges(500.0, 500.0, 500.0, 500.0),
+            edges(500.0, 500.0, 500.0, 500.0),
+        );
+        let got = bp.content_box(rect(0.0, 0.0, 10.0, 10.0));
+        assert_eq!(got.size.width, 0.0, "size must clamp, not go negative");
+        assert_eq!(got.size.height, 0.0);
+        assert_eq!(got.origin.x, 1000.0, "origin is not clamped");
+        assert_eq!(got.origin.y, 1000.0);
+    }
+
+    #[test]
+    fn padding_box_size_floors_at_zero_for_an_oversized_border() {
+        let bp = props(EdgeSizes::default(), EdgeSizes::default(), edges(99.0, 99.0, 99.0, 99.0));
+        let got = bp.padding_box(rect(0.0, 0.0, 10.0, 10.0));
+        assert_eq!(got.size.width, 0.0);
+        assert_eq!(got.size.height, 0.0);
+    }
+
+    #[test]
+    fn margin_box_with_negative_margins_can_shrink_below_zero() {
+        // Unlike content_box/padding_box, margin_box does NOT floor at 0 — negative
+        // margins are legal CSS and the box genuinely inverts. Pinning the real
+        // behaviour so a later "helpful" clamp cannot land unnoticed.
+        let bp = props(edges(-10.0, -10.0, -10.0, -10.0), EdgeSizes::default(), EdgeSizes::default());
+        let got = bp.margin_box(rect(0.0, 0.0, 10.0, 10.0));
+        assert_eq!(got.size.width, -10.0);
+        assert_eq!(got.size.height, -10.0);
+        assert_eq!(got.origin.x, 10.0, "a negative left margin pushes the origin right");
+        assert_eq!(got.origin.y, 10.0);
+    }
+
+    #[test]
+    fn box_rects_do_not_panic_on_nan_or_infinite_geometry() {
+        let bp = props(
+            edges(f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX),
+            edges(f32::NAN, f32::MAX, 0.0, f32::MIN),
+            edges(f32::INFINITY, 0.0, f32::NAN, 1.0),
+        );
+        let r = rect(f32::NAN, f32::INFINITY, f32::MAX, f32::MIN);
+        let c = bp.content_box(r);
+        let p = bp.padding_box(r);
+        let m = bp.margin_box(r);
+        // The clamped sizes are the only guaranteed invariant: never negative, never NaN.
+        for s in [c.size, p.size] {
+            assert!(!s.width.is_nan() && !s.height.is_nan());
+            assert!(s.width >= 0.0 && s.height >= 0.0);
+        }
+        let _ = m;
+    }
+
+    // ================================================================
+    // ResolvedBoxProps: mbp / bp getters
+    // ================================================================
+
+    #[test]
+    fn mbp_and_bp_getters_sum_the_expected_layers() {
+        let bp = props(
+            edges(1.0, 2.0, 4.0, 8.0),      // margin: h=10, v=5
+            edges(10.0, 20.0, 40.0, 80.0),  // padding: h=100, v=50
+            edges(100.0, 200.0, 400.0, 800.0), // border: h=1000, v=500
+        );
+        assert_eq!(bp.horizontal_bp(), 1100.0);
+        assert_eq!(bp.vertical_bp(), 550.0);
+        assert_eq!(bp.horizontal_mbp(), 1110.0);
+        assert_eq!(bp.vertical_mbp(), 555.0);
+
+        // mbp is exactly bp plus the margins — the two must never drift apart.
+        assert_eq!(bp.horizontal_mbp(), bp.horizontal_bp() + bp.margin.horizontal_sum());
+        assert_eq!(bp.vertical_mbp(), bp.vertical_bp() + bp.margin.vertical_sum());
+    }
+
+    #[test]
+    fn mbp_and_bp_getters_are_zero_on_a_default_box() {
+        let bp = ResolvedBoxProps::default();
+        assert_eq!(bp.horizontal_mbp(), 0.0);
+        assert_eq!(bp.vertical_mbp(), 0.0);
+        assert_eq!(bp.horizontal_bp(), 0.0);
+        assert_eq!(bp.vertical_bp(), 0.0);
+    }
+
+    #[test]
+    fn mbp_getters_do_not_panic_on_extreme_boxes() {
+        let bp = props(
+            edges(f32::MAX, f32::MAX, f32::MAX, f32::MAX),
+            edges(f32::NAN, 0.0, 0.0, 0.0),
+            edges(f32::NEG_INFINITY, 0.0, 0.0, 0.0),
+        );
+        let _ = bp.horizontal_mbp();
+        let _ = bp.vertical_mbp();
+        let _ = bp.horizontal_bp();
+        let _ = bp.vertical_bp();
+    }
+
+    // ================================================================
+    // PackedBoxProps: encoding
+    // ================================================================
+
+    #[test]
+    fn pack_edge_encodes_tenths_of_a_pixel() {
+        let e = edges(0.0, 1.0, 2.5, 3276.7);
+        let p = PackedBoxProps::pack_edge(&e);
+        assert_eq!(p[0], 0);
+        assert_eq!(p[1], 10);
+        assert_eq!(p[2], 25);
+        assert_eq!(p[3], 32767, "the documented +3276.7px maximum");
+    }
+
+    #[test]
+    fn pack_edge_rounds_to_the_nearest_tenth_rather_than_truncating() {
+        let p = PackedBoxProps::pack_edge(&edges(1.04, 1.06, -1.04, -1.06));
+        assert_eq!(p[0], 10, "1.04 rounds down");
+        assert_eq!(p[1], 11, "1.06 rounds up — truncation would give 10");
+        assert_eq!(p[2], -10);
+        assert_eq!(p[3], -11);
+    }
+
+    #[test]
+    fn pack_edge_saturates_out_of_range_values_instead_of_wrapping() {
+        // Wrapping would turn a huge positive margin into a huge NEGATIVE one —
+        // the single nastiest failure mode of this encoding.
+        let p = PackedBoxProps::pack_edge(&edges(10_000.0, -10_000.0, 1e30, -1e30));
+        assert_eq!(p[0], i16::MAX);
+        assert_eq!(p[1], i16::MIN);
+        assert_eq!(p[2], i16::MAX);
+        assert_eq!(p[3], i16::MIN);
+        assert!(p.iter().all(|v| *v == i16::MAX || *v == i16::MIN));
+    }
+
+    #[test]
+    fn pack_edge_clamps_infinities_to_the_i16_bounds() {
+        let p = PackedBoxProps::pack_edge(&edges(f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN));
+        assert_eq!(p[0], i16::MAX);
+        assert_eq!(p[1], i16::MIN);
+        assert_eq!(p[2], i16::MAX);
+        assert_eq!(p[3], i16::MIN);
+    }
+
+    #[test]
+    fn pack_edge_maps_nan_to_zero_without_panicking() {
+        // `f32::clamp` passes NaN through (it only panics on a NaN *bound*), and the
+        // subsequent `as i16` saturates NaN to 0. So a NaN edge encodes as 0px.
+        let p = PackedBoxProps::pack_edge(&edges(f32::NAN, f32::NAN, f32::NAN, f32::NAN));
+        assert_eq!(p, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn pack_edge_maps_negative_zero_to_zero() {
+        let p = PackedBoxProps::pack_edge(&edges(-0.0, -0.0, -0.0, -0.0));
+        assert_eq!(p, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn unpack_edge_decodes_tenths_and_preserves_the_trbl_order() {
+        let e = PackedBoxProps::unpack_edge(&[10, 25, -10, 32767]);
+        assert!(close(e.top, 1.0, 1e-4), "top was {}", e.top);
+        assert!(close(e.right, 2.5, 1e-4), "right was {}", e.right);
+        assert!(close(e.bottom, -1.0, 1e-4), "bottom was {}", e.bottom);
+        assert!(close(e.left, 3276.7, 1e-2), "left was {}", e.left);
+    }
+
+    #[test]
+    fn unpack_edge_at_the_i16_extremes_stays_finite() {
+        let e = PackedBoxProps::unpack_edge(&[i16::MAX, i16::MIN, 0, 1]);
+        assert!(e.top.is_finite() && e.right.is_finite());
+        assert!(close(e.top, 3276.7, 1e-2));
+        assert!(close(e.right, -3276.8, 1e-2));
+        assert_eq!(e.bottom, 0.0);
+        assert!(close(e.left, 0.1, 1e-6));
+    }
+
+    // ================================================================
+    // PackedBoxProps: round-trip
+    // ================================================================
+
+    #[test]
+    fn every_i16_encoding_survives_unpack_then_pack_unchanged() {
+        // Exhaustive decode->encode identity over the WHOLE i16 domain: if the
+        // f32 round-off in `unpack_edge` ever drifted by more than half a tenth,
+        // `pack_edge` would land on a neighbouring code and this would catch it.
+        for n in i16::MIN..=i16::MAX {
+            let encoded = [n; 4];
+            let round_tripped = PackedBoxProps::pack_edge(&PackedBoxProps::unpack_edge(&encoded));
+            assert_eq!(round_tripped, encoded, "i16 code {n} did not round-trip");
+        }
+    }
+
+    #[test]
+    fn pack_then_unpack_preserves_values_to_a_tenth_of_a_pixel() {
+        let bp = props(
+            edges(1.0, 2.5, 0.1, 12.3),
+            edges(0.0, 100.25, 3276.7, -3276.8),
+            edges(0.5, 0.05, 7.0, 0.0),
+        );
+        let out = PackedBoxProps::pack(&bp).unpack();
+        for (got, want) in [
+            (out.margin.top, bp.margin.top),
+            (out.margin.right, bp.margin.right),
+            (out.margin.bottom, bp.margin.bottom),
+            (out.margin.left, bp.margin.left),
+            (out.padding.top, bp.padding.top),
+            (out.padding.right, bp.padding.right),
+            (out.padding.bottom, bp.padding.bottom),
+            (out.padding.left, bp.padding.left),
+            (out.border.top, bp.border.top),
+            (out.border.right, bp.border.right),
+            (out.border.bottom, bp.border.bottom),
+            (out.border.left, bp.border.left),
+        ] {
+            // Half a quantum (0.05) plus a little float slack at the 3276.x extreme.
+            assert!(close(got, want, 0.051), "{want} round-tripped to {got}");
+        }
+    }
+
+    #[test]
+    fn pack_carries_the_margin_auto_flags_through_verbatim() {
+        // margin_auto is NOT part of the lossy i16 encoding, so it must come back bit-exact.
+        let bp = ResolvedBoxProps {
+            margin_auto: MarginAuto { left: true, right: false, top: true, bottom: false },
+            ..ResolvedBoxProps::default()
+        };
+        let out = PackedBoxProps::pack(&bp).unpack();
+        assert!(out.margin_auto.left);
+        assert!(!out.margin_auto.right);
+        assert!(out.margin_auto.top);
+        assert!(!out.margin_auto.bottom);
+    }
+
+    #[test]
+    fn pack_keeps_the_three_edge_groups_apart() {
+        // A copy-paste slip in `pack` would splice margin into padding or border.
+        let bp = props(
+            edges(1.0, 1.0, 1.0, 1.0),
+            edges(2.0, 2.0, 2.0, 2.0),
+            edges(3.0, 3.0, 3.0, 3.0),
+        );
+        let p = PackedBoxProps::pack(&bp);
+        assert_eq!(p.margin, [10; 4]);
+        assert_eq!(p.padding, [20; 4]);
+        assert_eq!(p.border, [30; 4]);
+    }
+
+    #[test]
+    fn pack_of_an_out_of_range_box_clamps_rather_than_flipping_sign() {
+        let bp = props(
+            edges(5000.0, 5000.0, 5000.0, 5000.0), // beyond +3276.7
+            EdgeSizes::default(),
+            EdgeSizes::default(),
+        );
+        let out = PackedBoxProps::pack(&bp).unpack();
+        assert!(out.margin.top > 0.0, "a huge margin must not decode as negative");
+        assert!(close(out.margin.top, 3276.7, 1e-2));
+    }
+
+    #[test]
+    fn packed_default_is_an_all_zero_box() {
+        let p = PackedBoxProps::default();
+        assert_eq!(p.margin, [0; 4]);
+        assert_eq!(p.horizontal_mbp(), 0.0);
+        assert_eq!(p.vertical_mbp(), 0.0);
+        assert_eq!(p.horizontal_bp(), 0.0);
+        assert_eq!(p.vertical_bp(), 0.0);
+        let s = p.inner_size(LogicalSize::new(10.0, 10.0), LayoutWritingMode::HorizontalTb);
+        assert_eq!(s.width, 10.0);
+        assert_eq!(s.height, 10.0);
+    }
+
+    // ================================================================
+    // PackedBoxProps: convenience methods must agree with unpack()
+    // ================================================================
+
+    #[test]
+    fn packed_convenience_methods_match_the_unpacked_equivalents() {
+        let bp = props(
+            edges(1.0, 2.5, 4.0, 8.5),
+            edges(0.5, 1.5, 2.5, 3.5),
+            edges(2.0, 4.0, 6.0, 8.0),
+        );
+        let packed = PackedBoxProps::pack(&bp);
+        let unpacked = packed.unpack();
+        let r = rect(10.0, 20.0, 300.0, 200.0);
+
+        assert_eq!(packed.content_box(r), unpacked.content_box(r));
+        assert_eq!(packed.padding_box(r), unpacked.padding_box(r));
+        assert_eq!(packed.margin_box(r), unpacked.margin_box(r));
+        assert_eq!(packed.horizontal_mbp(), unpacked.horizontal_mbp());
+        assert_eq!(packed.vertical_mbp(), unpacked.vertical_mbp());
+        assert_eq!(packed.horizontal_bp(), unpacked.horizontal_bp());
+        assert_eq!(packed.vertical_bp(), unpacked.vertical_bp());
+
+        for wm in ALL_WM {
+            let a = packed.inner_size(r.size, wm);
+            let b = unpacked.inner_size(r.size, wm);
+            assert_eq!(a.width, b.width, "{wm:?}");
+            assert_eq!(a.height, b.height, "{wm:?}");
+        }
+    }
+
+    #[test]
+    fn packed_inner_size_floors_at_zero_for_a_tiny_box() {
+        let bp = props(
+            EdgeSizes::default(),
+            edges(50.0, 50.0, 50.0, 50.0),
+            edges(50.0, 50.0, 50.0, 50.0),
+        );
+        let packed = PackedBoxProps::pack(&bp);
+        for wm in ALL_WM {
+            let s = packed.inner_size(LogicalSize::new(1.0, 1.0), wm);
+            assert_eq!(s.width, 0.0, "{wm:?}");
+            assert_eq!(s.height, 0.0, "{wm:?}");
+        }
+    }
+
+    #[test]
+    fn packed_box_rects_do_not_panic_on_extreme_input_rects() {
+        let packed = PackedBoxProps::pack(&props(
+            edges(3276.7, 3276.7, 3276.7, 3276.7),
+            edges(3276.7, 3276.7, 3276.7, 3276.7),
+            edges(3276.7, 3276.7, 3276.7, 3276.7),
+        ));
+        for r in [
+            rect(0.0, 0.0, 0.0, 0.0),
+            rect(f32::MAX, f32::MIN, f32::MAX, f32::MAX),
+            rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+            rect(-1e30, -1e30, -1e30, -1e30),
+        ] {
+            let c = packed.content_box(r);
+            let p = packed.padding_box(r);
+            let _ = packed.margin_box(r);
+            assert!(c.size.width >= 0.0 && !c.size.width.is_nan());
+            assert!(p.size.height >= 0.0 && !p.size.height.is_nan());
+        }
+    }
+
+    // ================================================================
+    // WritingModeContext
+    // ================================================================
+
+    #[test]
+    fn writing_mode_context_new_stores_what_it_was_given() {
+        let c = WritingModeContext::new(
+            LayoutWritingMode::VerticalRl,
+            StyleDirection::Rtl,
+            StyleTextOrientation::Mixed,
+        );
+        assert_eq!(c.writing_mode, LayoutWritingMode::VerticalRl);
+        assert_eq!(c.direction, StyleDirection::Rtl);
+        assert_eq!(c.text_orientation, StyleTextOrientation::Mixed);
+    }
+
+    #[test]
+    fn text_orientation_upright_forces_the_used_direction_to_ltr() {
+        // CSS Writing Modes 4 §5.1: `text-orientation: upright` makes the USED value
+        // of `direction` ltr, even when the author wrote `direction: rtl`.
+        let c = WritingModeContext::new(
+            LayoutWritingMode::VerticalRl,
+            StyleDirection::Rtl,
+            StyleTextOrientation::Upright,
+        );
+        assert_eq!(c.used_direction(), StyleDirection::Ltr);
+        assert!(!c.is_inline_reversed(), "upright must cancel the RTL reversal");
+    }
+
+    #[test]
+    fn only_upright_overrides_the_direction() {
+        for orientation in [StyleTextOrientation::Mixed, StyleTextOrientation::Sideways] {
+            let c = WritingModeContext::new(
+                LayoutWritingMode::VerticalRl,
+                StyleDirection::Rtl,
+                orientation,
+            );
+            assert_eq!(
+                c.used_direction(),
+                StyleDirection::Rtl,
+                "{orientation:?} must not touch the direction"
+            );
+            assert!(c.is_inline_reversed());
+        }
+    }
+
+    #[test]
+    fn writing_mode_context_new_is_idempotent() {
+        // Re-feeding a context's own fields back into `new()` must be a fixed point,
+        // otherwise the upright override would compound across re-resolutions.
+        for wm in ALL_WM {
+            for dir in [StyleDirection::Ltr, StyleDirection::Rtl] {
+                for or in [
+                    StyleTextOrientation::Mixed,
+                    StyleTextOrientation::Upright,
+                    StyleTextOrientation::Sideways,
+                ] {
+                    let once = WritingModeContext::new(wm, dir, or);
+                    let twice = WritingModeContext::new(
+                        once.writing_mode,
+                        once.direction,
+                        once.text_orientation,
+                    );
+                    assert_eq!(once, twice, "{wm:?}/{dir:?}/{or:?} is not a fixed point");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn is_horizontal_is_true_only_for_horizontal_tb() {
+        let mk = |wm| WritingModeContext::new(wm, StyleDirection::Ltr, StyleTextOrientation::Mixed);
+        assert!(mk(LayoutWritingMode::HorizontalTb).is_horizontal());
+        assert!(!mk(LayoutWritingMode::VerticalRl).is_horizontal());
+        assert!(!mk(LayoutWritingMode::VerticalLr).is_horizontal());
+    }
+
+    #[test]
+    fn inline_and_block_axis_predicates_track_is_horizontal() {
+        // In horizontal-tb, inline size is the width and block size is the height;
+        // both flip together in vertical modes. They may never disagree.
+        for wm in ALL_WM {
+            for dir in [StyleDirection::Ltr, StyleDirection::Rtl] {
+                let c = WritingModeContext::new(wm, dir, StyleTextOrientation::Mixed);
+                assert_eq!(c.inline_size_is_width(), c.is_horizontal(), "{wm:?}");
+                assert_eq!(c.block_size_is_height(), c.is_horizontal(), "{wm:?}");
+                assert_eq!(
+                    c.inline_size_is_width(),
+                    c.block_size_is_height(),
+                    "{wm:?}: the two axes must flip together"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn is_inline_reversed_follows_the_used_direction_not_the_writing_mode() {
+        for wm in ALL_WM {
+            let ltr = WritingModeContext::new(wm, StyleDirection::Ltr, StyleTextOrientation::Mixed);
+            let rtl = WritingModeContext::new(wm, StyleDirection::Rtl, StyleTextOrientation::Mixed);
+            assert!(!ltr.is_inline_reversed(), "{wm:?} ltr");
+            assert!(rtl.is_inline_reversed(), "{wm:?} rtl");
+        }
+    }
+
+    #[test]
+    fn default_writing_mode_context_is_horizontal_ltr_mixed() {
+        let c = WritingModeContext::default();
+        assert_eq!(c.writing_mode, LayoutWritingMode::HorizontalTb);
+        assert_eq!(c.used_direction(), StyleDirection::Ltr);
+        assert_eq!(c.text_orientation, StyleTextOrientation::Mixed);
+        assert!(c.is_horizontal());
+        assert!(c.inline_size_is_width());
+        assert!(c.block_size_is_height());
+        assert!(!c.is_inline_reversed());
+    }
+
+    #[test]
+    fn default_context_matches_new_with_the_same_arguments() {
+        let built = WritingModeContext::new(
+            LayoutWritingMode::HorizontalTb,
+            StyleDirection::Ltr,
+            StyleTextOrientation::Mixed,
+        );
+        assert_eq!(WritingModeContext::default(), built);
+    }
+}

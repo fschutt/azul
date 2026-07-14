@@ -957,3 +957,958 @@ pub fn thread_sleep_ns(_nanoseconds: u64) -> azul_css::corety::EmptyStruct {
     // No-op on no_std - can't sleep without OS
     azul_css::corety::EmptyStruct::new()
 }
+
+// ============================================================================
+// Generated adversarial tests
+// ============================================================================
+
+#[cfg(all(test, feature = "std"))]
+#[allow(clippy::too_many_lines, clippy::unreadable_literal)]
+mod autotest_generated {
+    use core::{
+        hash::{Hash, Hasher},
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrd},
+    };
+    use std::{
+        collections::{hash_map::DefaultHasher, BTreeMap},
+        sync::{Arc, Mutex},
+        time::Instant as StdInstant,
+    };
+
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        geom::OptionLogicalPosition,
+        gl::OptionGlContextPtr,
+        hit_test::ScrollPosition,
+        resources::RendererResources,
+        styled_dom::NodeHierarchyItemId,
+        window::{MonitorVec, RawWindowHandle},
+    };
+    use azul_css::{corety::EmptyStruct, system::SystemStyle};
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    #[cfg(feature = "icu")]
+    use crate::icu::IcuLocalizerHandle;
+    use crate::{
+        callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    // ------------------------------------------------------------------
+    // Harness
+    // ------------------------------------------------------------------
+
+    /// Upper bound on a worker's non-blocking poll loop: `ThreadReceiver::recv` is
+    /// `try_recv` under the hood, so a worker that waits for `TerminateThread` MUST
+    /// be bounded or a lost message would hang the whole test binary.
+    const MAX_WORKER_POLLS: usize = 10_000;
+
+    fn hash_of<T: Hash>(value: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// A live `ThreadSender` plus the receiving end of its channel.
+    fn make_sender() -> (Receiver<ThreadReceiveMsg>, ThreadSender) {
+        let (tx, rx) = channel::<ThreadReceiveMsg>();
+        let sender = ThreadSender::new(ThreadSenderInner {
+            ptr: Box::new(tx),
+            send_fn: ThreadSendCallback {
+                cb: default_send_thread_msg_fn,
+            },
+            destructor: ThreadSenderDestructorCallback {
+                cb: thread_sender_drop,
+            },
+        });
+        (rx, sender)
+    }
+
+    /// Drain every message currently queued on the main->worker side.
+    fn drain(inner: &mut ThreadInner) -> Vec<ThreadReceiveMsg> {
+        let mut out = Vec::new();
+        loop {
+            match inner.receiver_try_recv() {
+                OptionThreadReceiveMsg::Some(msg) => out.push(msg),
+                OptionThreadReceiveMsg::None => break,
+            }
+        }
+        out
+    }
+
+    /// Runs the thread destructor by hand (terminate + join), so every assertion
+    /// after it observes a *finished* worker instead of racing one.
+    fn join_worker(t: &Thread) {
+        let mut guard = t.ptr.lock().expect("thread mutex must not be poisoned");
+        default_thread_destructor_fn(core::ptr::from_mut::<ThreadInner>(&mut guard));
+    }
+
+    /// Builds a real `CallbackInfo` (the only way to exercise `WriteBackCallback::invoke`)
+    /// over an otherwise-empty `LayoutWindow`.
+    fn with_callback_info<R>(f: impl FnOnce(CallbackInfo) -> R) -> R {
+        let layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let current_window_state = FullWindowState::default();
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
+        };
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::NONE,
+            },
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+        f(info)
+    }
+
+    // ------------------------------------------------------------------
+    // Callback fixtures
+    // ------------------------------------------------------------------
+
+    static WB_THREAD_DATA: AtomicUsize = AtomicUsize::new(0);
+    static WB_WRITEBACK_DATA: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn wb_record(
+        mut thread_data: RefAny,
+        mut writeback_data: RefAny,
+        _callback_info: CallbackInfo,
+    ) -> Update {
+        if let Some(v) = thread_data.downcast_ref::<usize>() {
+            WB_THREAD_DATA.store(*v, AtomicOrd::SeqCst);
+        }
+        if let Some(v) = writeback_data.downcast_ref::<usize>() {
+            WB_WRITEBACK_DATA.store(*v, AtomicOrd::SeqCst);
+        }
+        Update::RefreshDomAllWindows
+    }
+
+    extern "C" fn wb_do_nothing(
+        _thread_data: RefAny,
+        _writeback_data: RefAny,
+        _callback_info: CallbackInfo,
+    ) -> Update {
+        Update::DoNothing
+    }
+
+    /// A worker that exits immediately without ever touching its channels.
+    extern "C" fn worker_quiet(_d: RefAny, _s: ThreadSender, _r: ThreadReceiver) {}
+
+    /// A worker that pushes exactly one `Update` back to the main thread, then exits.
+    extern "C" fn worker_send_update(_d: RefAny, mut sender: ThreadSender, _r: ThreadReceiver) {
+        let _sent = sender.send(ThreadReceiveMsg::Update(Update::RefreshDom));
+    }
+
+    /// A worker that pushes one `WriteBack` message (the RefAny-carrying variant).
+    extern "C" fn worker_send_writeback(_d: RefAny, mut sender: ThreadSender, _r: ThreadReceiver) {
+        let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+            wb_do_nothing as WriteBackCallbackType,
+            RefAny::new(77_usize),
+        )));
+    }
+
+    /// Generates a worker that echoes `Tick`s back until it is told to terminate.
+    /// Each instance gets its own statics so tests can run in parallel without racing.
+    macro_rules! terminating_worker {
+        ($fn_name:ident, $ticks:ident, $terminated:ident) => {
+            static $ticks: AtomicUsize = AtomicUsize::new(0);
+            static $terminated: AtomicBool = AtomicBool::new(false);
+
+            extern "C" fn $fn_name(
+                _d: RefAny,
+                mut sender: ThreadSender,
+                mut receiver: ThreadReceiver,
+            ) {
+                for _ in 0..MAX_WORKER_POLLS {
+                    match receiver.recv() {
+                        OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) => {
+                            $terminated.store(true, AtomicOrd::SeqCst);
+                            break;
+                        }
+                        OptionThreadSendMsg::Some(ThreadSendMsg::Tick) => {
+                            $ticks.fetch_add(1, AtomicOrd::SeqCst);
+                            let _sent = sender.send(ThreadReceiveMsg::Update(Update::RefreshDom));
+                        }
+                        OptionThreadSendMsg::Some(ThreadSendMsg::Custom(_)) => {
+                            $ticks.fetch_add(1, AtomicOrd::SeqCst);
+                        }
+                        OptionThreadSendMsg::None => {
+                            let _slept = thread_sleep_ms(1);
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    terminating_worker!(worker_wait_a, WAIT_A_TICKS, WAIT_A_TERMINATED);
+    terminating_worker!(worker_wait_b, WAIT_B_TICKS, WAIT_B_TERMINATED);
+    terminating_worker!(worker_wait_c, WAIT_C_TICKS, WAIT_C_TERMINATED);
+    terminating_worker!(worker_wait_d, WAIT_D_TICKS, WAIT_D_TERMINATED);
+    terminating_worker!(worker_wait_e, WAIT_E_TICKS, WAIT_E_TERMINATED);
+
+    // ==================================================================
+    // OptionThreadReceiveMsg — getters / predicates
+    // ==================================================================
+
+    #[test]
+    fn option_thread_receive_msg_none_into_option_is_none() {
+        assert!(OptionThreadReceiveMsg::None.into_option().is_none());
+        assert!(OptionThreadReceiveMsg::None.as_ref().is_none());
+    }
+
+    #[test]
+    fn option_thread_receive_msg_round_trips_through_from_and_into_option() {
+        // Round-trip: Option -> OptionThreadReceiveMsg -> Option must be the identity.
+        for update in [
+            Update::DoNothing,
+            Update::RefreshDom,
+            Update::RefreshDomAllWindows,
+        ] {
+            let msg = ThreadReceiveMsg::Update(update);
+            let ffi: OptionThreadReceiveMsg = Some(msg.clone()).into();
+            assert_eq!(ffi.into_option(), Some(msg));
+        }
+        let empty: OptionThreadReceiveMsg = None.into();
+        assert_eq!(empty, OptionThreadReceiveMsg::None);
+        assert!(empty.into_option().is_none());
+    }
+
+    #[test]
+    fn option_thread_receive_msg_as_ref_does_not_consume() {
+        let opt = OptionThreadReceiveMsg::Some(ThreadReceiveMsg::Update(Update::RefreshDom));
+        // as_ref() borrows: calling it repeatedly must keep returning the same payload.
+        for _ in 0..3 {
+            assert_eq!(
+                opt.as_ref(),
+                Some(&ThreadReceiveMsg::Update(Update::RefreshDom))
+            );
+        }
+        // ... and the value is still intact afterwards.
+        assert_eq!(
+            opt.into_option(),
+            Some(ThreadReceiveMsg::Update(Update::RefreshDom))
+        );
+    }
+
+    #[test]
+    fn option_thread_receive_msg_as_ref_handles_writeback_variant() {
+        let opt = OptionThreadReceiveMsg::Some(ThreadReceiveMsg::WriteBack(
+            ThreadWriteBackMsg::new(
+                wb_do_nothing as WriteBackCallbackType,
+                RefAny::new(1_usize),
+            ),
+        ));
+        let Some(ThreadReceiveMsg::WriteBack(inner)) = opt.as_ref() else {
+            panic!("as_ref() must expose the WriteBack payload");
+        };
+        assert_eq!(
+            inner.callback.cb as *const () as usize,
+            wb_do_nothing as *const () as usize
+        );
+        assert!(opt.into_option().is_some());
+    }
+
+    #[test]
+    fn option_thread_receive_msg_ord_and_hash_are_consistent() {
+        let none = OptionThreadReceiveMsg::None;
+        let some = OptionThreadReceiveMsg::Some(ThreadReceiveMsg::Update(Update::DoNothing));
+        // Declaration order: None < Some.
+        assert!(none < some);
+        assert_eq!(none.cmp(&none), core::cmp::Ordering::Equal);
+        // Eq => equal hashes.
+        assert_eq!(hash_of(&none), hash_of(&OptionThreadReceiveMsg::None));
+        assert_eq!(
+            hash_of(&some),
+            hash_of(&OptionThreadReceiveMsg::Some(ThreadReceiveMsg::Update(
+                Update::DoNothing
+            )))
+        );
+    }
+
+    #[test]
+    fn thread_receive_msg_orders_writeback_before_update() {
+        let wb = ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+            wb_do_nothing as WriteBackCallbackType,
+            RefAny::new(0_usize),
+        ));
+        let up = ThreadReceiveMsg::Update(Update::DoNothing);
+        assert!(wb < up, "variant order (WriteBack=0, Update=1) must decide");
+        assert!(
+            ThreadReceiveMsg::Update(Update::DoNothing)
+                < ThreadReceiveMsg::Update(Update::RefreshDom)
+        );
+    }
+
+    // ==================================================================
+    // ThreadWriteBackMsg — constructor invariants
+    // ==================================================================
+
+    #[test]
+    fn thread_write_back_msg_new_stores_both_fields() {
+        let mut msg = ThreadWriteBackMsg::new(
+            wb_do_nothing as WriteBackCallbackType,
+            RefAny::new(0xDEAD_BEEF_usize),
+        );
+        assert_eq!(
+            msg.callback.cb as *const () as usize,
+            wb_do_nothing as *const () as usize
+        );
+        assert_eq!(
+            msg.refany
+                .downcast_ref::<usize>()
+                .map(|v| *v)
+                .expect("payload type must survive construction"),
+            0xDEAD_BEEF_usize
+        );
+        // A fn-ptr-built callback carries no FFI ctx.
+        assert_eq!(msg.callback.ctx, OptionRefAny::None);
+    }
+
+    #[test]
+    fn thread_write_back_msg_new_accepts_both_into_impls() {
+        // `C: Into<WriteBackCallback>` must accept a bare fn pointer *and* an
+        // already-built WriteBackCallback; both must land on the same cb.
+        let from_fn = ThreadWriteBackMsg::new(
+            wb_record as WriteBackCallbackType,
+            RefAny::new(1_usize),
+        );
+        let from_struct =
+            ThreadWriteBackMsg::new(WriteBackCallback::new(wb_record), RefAny::new(1_usize));
+        assert_eq!(from_fn.callback, from_struct.callback);
+    }
+
+    #[test]
+    fn thread_write_back_msg_clone_shares_payload_but_compares_unequal() {
+        // FINDING: RefAny's derived PartialEq includes `instance_id`, which
+        // RefAny::clone() increments. Every type that transitively contains a
+        // RefAny and derives PartialEq (ThreadWriteBackMsg, ThreadReceiveMsg,
+        // OptionThreadReceiveMsg, ThreadSendMsg) therefore violates the
+        // `a.clone() == a` contract, even though the clone shares the same heap
+        // payload. This test pins the (surprising) status quo.
+        let msg = ThreadWriteBackMsg::new(
+            wb_do_nothing as WriteBackCallbackType,
+            RefAny::new(5_usize),
+        );
+        let mut cloned = msg.clone();
+
+        // Same callback, same underlying data ...
+        assert_eq!(msg.callback, cloned.callback);
+        assert_eq!(
+            cloned.refany.downcast_ref::<usize>().map(|v| *v),
+            Some(5_usize)
+        );
+        // ... yet not `==`, because the clone got a fresh instance_id.
+        assert_ne!(msg, cloned);
+        // Two clones of the same message are unequal to each other as well.
+        assert_ne!(msg.clone(), msg.clone());
+    }
+
+    // ==================================================================
+    // WriteBackCallback / ThreadCallback — fn-pointer identity semantics
+    // ==================================================================
+
+    #[test]
+    fn writeback_callback_new_has_no_ctx_and_matches_fn_ptr() {
+        let cb = WriteBackCallback::new(wb_record);
+        assert_eq!(cb.ctx, OptionRefAny::None);
+        assert_eq!(cb.cb as *const () as usize, wb_record as *const () as usize);
+        // The From<fn ptr> impl must be equivalent to ::new.
+        assert_eq!(cb, WriteBackCallback::from(wb_record as WriteBackCallbackType));
+    }
+
+    #[test]
+    fn writeback_callback_eq_ord_hash_key_off_the_fn_pointer_only() {
+        let a = WriteBackCallback::new(wb_record);
+        let b = WriteBackCallback::new(wb_record);
+        let c = WriteBackCallback::new(wb_do_nothing);
+
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+        assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
+
+        assert_ne!(a, c);
+        // Ord must be a strict total order: exactly one direction holds.
+        assert!((a < c) ^ (c < a));
+        assert_eq!(a.partial_cmp(&c), Some(a.cmp(&c)));
+
+        // Clone preserves identity (no RefAny in the compared fields).
+        assert_eq!(a, a.clone());
+        assert_eq!(hash_of(&a), hash_of(&a.clone()));
+    }
+
+    #[test]
+    fn writeback_callback_debug_does_not_panic() {
+        let s = format!("{:?}", WriteBackCallback::new(wb_record));
+        assert!(s.starts_with("WriteBackCallback {"), "got {s}");
+    }
+
+    #[test]
+    fn writeback_callback_invoke_forwards_args_and_returns_callback_update() {
+        WB_THREAD_DATA.store(0, AtomicOrd::SeqCst);
+        WB_WRITEBACK_DATA.store(0, AtomicOrd::SeqCst);
+
+        let cb = WriteBackCallback::new(wb_record);
+        let update = with_callback_info(|info| {
+            cb.invoke(RefAny::new(11_usize), RefAny::new(22_usize), info)
+        });
+
+        // The return value must be whatever the callback returned, unmodified.
+        assert_eq!(update, Update::RefreshDomAllWindows);
+        // ... and the two RefAnys must arrive in the documented order (not swapped).
+        assert_eq!(WB_THREAD_DATA.load(AtomicOrd::SeqCst), 11);
+        assert_eq!(WB_WRITEBACK_DATA.load(AtomicOrd::SeqCst), 22);
+    }
+
+    #[test]
+    fn writeback_callback_invoke_is_repeatable() {
+        let cb = WriteBackCallback::new(wb_do_nothing);
+        with_callback_info(|info| {
+            // CallbackInfo is Copy, so the same info can back several invocations.
+            for _ in 0..4 {
+                assert_eq!(
+                    cb.invoke(RefAny::new(0_usize), RefAny::new(0_usize), info),
+                    Update::DoNothing
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn thread_callback_new_has_no_ctx_and_orders_by_fn_ptr() {
+        let a = ThreadCallback::new(worker_quiet);
+        let b = ThreadCallback::from(worker_quiet as ThreadCallbackType);
+        let c = ThreadCallback::new(worker_send_update);
+
+        assert_eq!(a.ctx, OptionRefAny::None);
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+        assert_ne!(a, c);
+        assert!((a < c) ^ (c < a));
+        assert_eq!(a, a.clone());
+        assert!(format!("{a:?}").starts_with("ThreadCallback {"));
+    }
+
+    #[test]
+    fn thread_send_callback_wrapper_traits_are_consistent() {
+        // impl_callback_traits! generated Clone/Eq/Ord/Hash for the FFI wrappers.
+        let a = ThreadSendCallback {
+            cb: default_send_thread_msg_fn,
+        };
+        let b = a.clone();
+        assert_eq!(a, b);
+        assert_eq!(hash_of(&a), hash_of(&b));
+        assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
+        assert!(format!("{a:?}").starts_with("ThreadSendCallback {"));
+    }
+
+    // ==================================================================
+    // ThreadSender
+    // ==================================================================
+
+    #[test]
+    fn thread_sender_send_delivers_the_exact_message() {
+        let (rx, mut sender) = make_sender();
+        assert!(sender.send(ThreadReceiveMsg::Update(Update::RefreshDom)));
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(ThreadReceiveMsg::Update(Update::RefreshDom))
+        );
+        assert!(rx.try_recv().is_err(), "channel must now be empty");
+    }
+
+    #[test]
+    fn thread_sender_send_returns_false_when_receiver_is_gone() {
+        let (rx, mut sender) = make_sender();
+        drop(rx);
+        // Disconnected channel: must report failure, not panic.
+        assert!(!sender.send(ThreadReceiveMsg::Update(Update::RefreshDom)));
+        assert!(!sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+            wb_do_nothing as WriteBackCallbackType,
+            RefAny::new(0_usize),
+        ))));
+    }
+
+    #[test]
+    fn thread_sender_send_survives_a_poisoned_mutex() {
+        let (rx, mut sender) = make_sender();
+        let arc = Arc::clone(&*sender.ptr);
+        let handle = std::thread::spawn(move || {
+            let _guard = arc.lock().expect("mutex is fresh here");
+            panic!("intentional poison");
+        });
+        assert!(handle.join().is_err(), "helper thread must have panicked");
+
+        // ThreadSender::send does `.lock().ok()` — a poisoned lock must degrade to
+        // `false`, never to an unwrap panic.
+        assert!(!sender.send(ThreadReceiveMsg::Update(Update::RefreshDom)));
+        // ... and nothing was actually pushed onto the channel.
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn thread_sender_get_ctx_is_none_by_default_and_clones_the_payload() {
+        let (_rx, mut sender) = make_sender();
+        assert_eq!(sender.get_ctx(), OptionRefAny::None);
+
+        sender.ctx = OptionRefAny::Some(RefAny::new(9_usize));
+        let OptionRefAny::Some(mut ctx) = sender.get_ctx() else {
+            panic!("get_ctx must hand back the ctx that was set");
+        };
+        assert_eq!(ctx.downcast_ref::<usize>().map(|v| *v), Some(9_usize));
+        // get_ctx clones rather than moves: the sender still holds its ctx.
+        assert!(matches!(sender.get_ctx(), OptionRefAny::Some(_)));
+    }
+
+    #[test]
+    fn thread_sender_clone_shares_the_underlying_channel() {
+        let (rx, mut sender) = make_sender();
+        sender.ctx = OptionRefAny::Some(RefAny::new(3_usize));
+        let mut cloned = sender.clone();
+
+        assert!(sender.send(ThreadReceiveMsg::Update(Update::DoNothing)));
+        assert!(cloned.send(ThreadReceiveMsg::Update(Update::RefreshDom)));
+
+        // Both endpoints feed the same channel, in order.
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(ThreadReceiveMsg::Update(Update::DoNothing))
+        );
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(ThreadReceiveMsg::Update(Update::RefreshDom))
+        );
+        // The FFI ctx survives the clone.
+        assert!(matches!(cloned.get_ctx(), OptionRefAny::Some(_)));
+    }
+
+    // ==================================================================
+    // Private FFI callbacks — the raw-pointer trampolines
+    // ==================================================================
+
+    #[test]
+    fn default_send_thread_msg_fn_reports_disconnect_instead_of_panicking() {
+        let (tx, rx) = channel::<ThreadReceiveMsg>();
+        let tx_ptr = core::ptr::from_ref::<Sender<ThreadReceiveMsg>>(&tx).cast::<core::ffi::c_void>();
+
+        assert!(default_send_thread_msg_fn(
+            tx_ptr,
+            ThreadReceiveMsg::Update(Update::RefreshDom)
+        ));
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(ThreadReceiveMsg::Update(Update::RefreshDom))
+        );
+
+        drop(rx);
+        assert!(!default_send_thread_msg_fn(
+            tx_ptr,
+            ThreadReceiveMsg::Update(Update::RefreshDom)
+        ));
+    }
+
+    #[test]
+    fn library_send_thread_msg_fn_reports_disconnect_instead_of_panicking() {
+        let (tx, rx) = channel::<ThreadSendMsg>();
+        let tx_ptr = core::ptr::from_ref::<Sender<ThreadSendMsg>>(&tx).cast::<core::ffi::c_void>();
+
+        assert!(library_send_thread_msg_fn(tx_ptr, ThreadSendMsg::Tick));
+        assert!(library_send_thread_msg_fn(
+            tx_ptr,
+            ThreadSendMsg::Custom(RefAny::new(4_usize))
+        ));
+        assert_eq!(rx.try_recv().ok(), Some(ThreadSendMsg::Tick));
+        assert!(matches!(rx.try_recv(), Ok(ThreadSendMsg::Custom(_))));
+
+        drop(rx);
+        assert!(!library_send_thread_msg_fn(
+            tx_ptr,
+            ThreadSendMsg::TerminateThread
+        ));
+    }
+
+    #[test]
+    fn library_receive_thread_msg_fn_is_non_blocking_on_empty_and_disconnected() {
+        let (tx, rx) = channel::<ThreadReceiveMsg>();
+        let rx_ptr =
+            core::ptr::from_ref::<Receiver<ThreadReceiveMsg>>(&rx).cast::<core::ffi::c_void>();
+
+        // Empty but connected: must return immediately with None (not block).
+        assert_eq!(library_receive_thread_msg_fn(rx_ptr), OptionThreadReceiveMsg::None);
+
+        tx.send(ThreadReceiveMsg::Update(Update::RefreshDomAllWindows))
+            .expect("receiver is alive");
+        assert_eq!(
+            library_receive_thread_msg_fn(rx_ptr),
+            OptionThreadReceiveMsg::Some(ThreadReceiveMsg::Update(Update::RefreshDomAllWindows))
+        );
+
+        // Disconnected: still None, still no panic, and it stays None.
+        drop(tx);
+        assert_eq!(library_receive_thread_msg_fn(rx_ptr), OptionThreadReceiveMsg::None);
+        assert_eq!(library_receive_thread_msg_fn(rx_ptr), OptionThreadReceiveMsg::None);
+    }
+
+    #[test]
+    fn default_receive_thread_msg_fn_is_non_blocking_on_empty_and_disconnected() {
+        let (tx, rx) = channel::<ThreadSendMsg>();
+        let rx_ptr = core::ptr::from_ref::<Receiver<ThreadSendMsg>>(&rx).cast::<core::ffi::c_void>();
+
+        assert_eq!(default_receive_thread_msg_fn(rx_ptr), OptionThreadSendMsg::None);
+
+        tx.send(ThreadSendMsg::TerminateThread)
+            .expect("receiver is alive");
+        assert_eq!(
+            default_receive_thread_msg_fn(rx_ptr),
+            OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread)
+        );
+
+        drop(tx);
+        assert_eq!(default_receive_thread_msg_fn(rx_ptr), OptionThreadSendMsg::None);
+    }
+
+    #[test]
+    fn default_check_thread_finished_tracks_the_dropcheck_arc() {
+        let alive = Arc::new(());
+        let weak = Arc::downgrade(&alive);
+        let weak_ptr =
+            core::ptr::from_ref::<alloc::sync::Weak<()>>(&weak).cast::<core::ffi::c_void>();
+
+        // Strong ref still held by the (simulated) worker => not finished.
+        assert!(!default_check_thread_finished(weak_ptr));
+        drop(alive);
+        // Worker gone => finished, and the answer is stable across calls.
+        assert!(default_check_thread_finished(weak_ptr));
+        assert!(default_check_thread_finished(weak_ptr));
+    }
+
+    #[test]
+    fn sender_and_receiver_drop_stubs_ignore_their_argument() {
+        // Both destructors are documented no-ops: they must never dereference the
+        // pointer, so even a null one is safe to hand them.
+        thread_sender_drop(core::ptr::null_mut::<ThreadSenderInner>());
+        thread_receiver_drop(core::ptr::null_mut::<ThreadReceiverInner>());
+    }
+
+    // ==================================================================
+    // Thread / create_thread_libstd — the live-worker paths
+    // ==================================================================
+
+    #[test]
+    fn create_thread_libstd_runs_the_callback_and_delivers_its_message() {
+        let t = create_thread_libstd(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            ThreadCallback::new(worker_send_update),
+        );
+        join_worker(&t);
+
+        let mut guard = t.ptr.lock().expect("not poisoned");
+        assert!(
+            guard.is_finished(),
+            "after join the dropcheck Arc must be gone"
+        );
+        assert_eq!(
+            drain(&mut guard),
+            vec![ThreadReceiveMsg::Update(Update::RefreshDom)]
+        );
+    }
+
+    #[test]
+    fn thread_create_delivers_a_writeback_message_intact() {
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            worker_send_writeback as ThreadCallbackType,
+        );
+        join_worker(&t);
+
+        let mut guard = t.ptr.lock().expect("not poisoned");
+        let msgs = drain(&mut guard);
+        assert_eq!(msgs.len(), 1);
+        let ThreadReceiveMsg::WriteBack(wb) = &msgs[0] else {
+            panic!("expected a WriteBack message, got {:?}", msgs[0]);
+        };
+        assert_eq!(
+            wb.callback.cb as *const () as usize,
+            wb_do_nothing as *const () as usize
+        );
+        // The RefAny payload survived the channel hop between threads.
+        let mut payload = wb.refany.clone();
+        assert_eq!(payload.downcast_ref::<usize>().map(|v| *v), Some(77_usize));
+    }
+
+    #[test]
+    fn quiet_worker_leaves_the_receive_queue_empty() {
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            worker_quiet as ThreadCallbackType,
+        );
+        join_worker(&t);
+
+        let mut guard = t.ptr.lock().expect("not poisoned");
+        // try_recv on a worker that sent nothing must be None, never a block/panic.
+        assert!(drain(&mut guard).is_empty());
+        assert_eq!(guard.receiver_try_recv(), OptionThreadReceiveMsg::None);
+    }
+
+    #[test]
+    fn thread_destructor_is_idempotent() {
+        let t = create_thread_libstd(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            ThreadCallback::new(worker_send_update),
+        );
+        // Running the destructor twice by hand must not double-join (which would
+        // panic / abort); `thread_handle.take()` makes the second call a no-op.
+        join_worker(&t);
+        join_worker(&t);
+        // ... and the real Drop impl will run it a third time when `t` goes away.
+        drop(t);
+    }
+
+    #[test]
+    fn thread_send_message_reaches_the_worker_in_order() {
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            worker_wait_a as ThreadCallbackType,
+        );
+
+        // The worker holds its ThreadReceiver alive, so every send must succeed.
+        for _ in 0..3 {
+            assert!(t.send_message(ThreadSendMsg::Tick));
+        }
+        assert!(t.send_message(ThreadSendMsg::Custom(RefAny::new(1_usize))));
+
+        join_worker(&t); // queues TerminateThread behind the 4 messages, then joins
+
+        assert!(WAIT_A_TERMINATED.load(AtomicOrd::SeqCst));
+        assert_eq!(WAIT_A_TICKS.load(AtomicOrd::SeqCst), 4);
+
+        let mut guard = t.ptr.lock().expect("not poisoned");
+        assert!(guard.is_finished());
+        // 3 Ticks echoed back; Custom is counted but not echoed.
+        assert_eq!(drain(&mut guard).len(), 3);
+    }
+
+    #[test]
+    fn thread_send_message_returns_false_once_the_worker_is_gone() {
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            worker_wait_b as ThreadCallbackType,
+        );
+        assert!(t.send_message(ThreadSendMsg::Tick));
+
+        join_worker(&t); // worker exits, dropping its Receiver<ThreadSendMsg>
+
+        assert!(WAIT_B_TERMINATED.load(AtomicOrd::SeqCst));
+        // Disconnected channel: report false rather than panicking.
+        assert!(!t.send_message(ThreadSendMsg::Tick));
+        assert!(!t.send_message(ThreadSendMsg::TerminateThread));
+    }
+
+    #[test]
+    fn thread_is_finished_is_false_while_the_worker_is_alive() {
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            worker_wait_c as ThreadCallbackType,
+        );
+        {
+            // The dropcheck Arc is moved into the closure before spawn, so it is
+            // alive from creation until the worker body returns: deterministic false.
+            let guard = t.ptr.lock().expect("not poisoned");
+            assert!(!guard.is_finished());
+        }
+        join_worker(&t);
+        assert!(t.ptr.lock().expect("not poisoned").is_finished());
+        assert!(WAIT_C_TERMINATED.load(AtomicOrd::SeqCst));
+    }
+
+    #[test]
+    fn thread_clone_sender_shares_the_worker_channel() {
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            worker_wait_d as ThreadCallbackType,
+        );
+        let sender = t.clone_sender().expect("std build must hand back a Sender");
+        // Same channel as `send_message`: both reach the worker's receiver, which
+        // stays alive until it is told to terminate.
+        assert!(sender.send(ThreadSendMsg::Tick).is_ok());
+        assert!(t.send_message(ThreadSendMsg::Tick));
+        drop(sender);
+
+        join_worker(&t);
+        assert!(WAIT_D_TERMINATED.load(AtomicOrd::SeqCst));
+        assert_eq!(WAIT_D_TICKS.load(AtomicOrd::SeqCst), 2);
+    }
+
+    #[test]
+    fn thread_send_message_and_clone_sender_survive_a_poisoned_mutex() {
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            worker_wait_e as ThreadCallbackType,
+        );
+        let arc = Arc::clone(&*t.ptr);
+        let handle = std::thread::spawn(move || {
+            let _guard = arc.lock().expect("mutex is fresh here");
+            panic!("intentional poison");
+        });
+        assert!(handle.join().is_err(), "helper thread must have panicked");
+
+        // Both accessors are `.lock()`-fallible by design; poison must degrade
+        // gracefully, not unwind through the FFI boundary.
+        assert!(!t.send_message(ThreadSendMsg::Tick));
+        assert!(t.clone_sender().is_none());
+
+        // Teardown still works: Mutex::drop hands out the inner value regardless of
+        // poison, so the Drop impl can still terminate + join the worker.
+        drop(t);
+        assert!(WAIT_E_TERMINATED.load(AtomicOrd::SeqCst));
+    }
+
+    #[test]
+    fn thread_clone_shares_the_same_inner_state() {
+        let t = create_thread_libstd(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            ThreadCallback::new(worker_quiet),
+        );
+        let cloned = t.clone();
+        assert_eq!(Arc::strong_count(&*t.ptr), 2, "clone must be shallow");
+        assert!(cloned.run_destructor);
+
+        join_worker(&t);
+        // The clone sees the same (now finished) ThreadInner.
+        assert!(cloned.ptr.lock().expect("not poisoned").is_finished());
+        drop(cloned);
+        drop(t);
+    }
+
+    #[test]
+    fn option_thread_into_option_round_trips() {
+        assert!(OptionThread::None.into_option().is_none());
+
+        let t = create_thread_libstd(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            ThreadCallback::new(worker_quiet),
+        );
+        let opt: OptionThread = Some(t).into();
+        let recovered = opt.into_option().expect("Some must round-trip to Some");
+        join_worker(&recovered);
+        assert!(recovered.ptr.lock().expect("not poisoned").is_finished());
+    }
+
+    // ==================================================================
+    // thread_sleep_* — numeric boundaries
+    // ==================================================================
+
+    #[test]
+    fn thread_sleep_zero_returns_immediately_for_every_unit() {
+        let start = StdInstant::now();
+        assert_eq!(thread_sleep_ms(0), EmptyStruct::new());
+        assert_eq!(thread_sleep_us(0), EmptyStruct::new());
+        assert_eq!(thread_sleep_ns(0), EmptyStruct::new());
+        // A zero sleep must not become an unbounded one.
+        assert!(start.elapsed() < core::time::Duration::from_secs(5));
+        assert_eq!(EmptyStruct::new()._reserved, 0);
+    }
+
+    #[test]
+    fn thread_sleep_sleeps_at_least_the_requested_duration() {
+        // std::thread::sleep guarantees *at least* the requested time.
+        let start = StdInstant::now();
+        let _slept = thread_sleep_ms(5);
+        assert!(start.elapsed() >= core::time::Duration::from_millis(5));
+
+        let start = StdInstant::now();
+        let _slept = thread_sleep_us(5_000);
+        assert!(start.elapsed() >= core::time::Duration::from_micros(5_000));
+
+        let start = StdInstant::now();
+        let _slept = thread_sleep_ns(5_000_000);
+        assert!(start.elapsed() >= core::time::Duration::from_nanos(5_000_000));
+    }
+
+    #[test]
+    fn thread_sleep_one_unit_does_not_panic() {
+        // Smallest non-zero input in each unit: no truncation panic, no overflow.
+        let _ms = thread_sleep_ms(1);
+        let _us = thread_sleep_us(1);
+        let _ns = thread_sleep_ns(1);
+    }
+
+    static MAX_SLEEP_ENTERED: AtomicBool = AtomicBool::new(false);
+    static MAX_SLEEP_PANICKED: AtomicBool = AtomicBool::new(false);
+
+    #[test]
+    fn thread_sleep_max_converts_without_overflow() {
+        // u64::MAX is representable in every Duration constructor these fns use, so
+        // the conversion itself must not overflow-panic ...
+        let _d_ms = core::time::Duration::from_millis(u64::MAX);
+        let _d_us = core::time::Duration::from_micros(u64::MAX);
+        let _d_ns = core::time::Duration::from_nanos(u64::MAX);
+
+        // ... but the *sleep* is genuinely unbounded (~584 million years at MAX), so
+        // it can only be exercised on a detached thread: assert it reaches the sleep
+        // rather than unwinding. Nothing ever joins this thread by design.
+        let _detached = std::thread::spawn(|| {
+            MAX_SLEEP_ENTERED.store(true, AtomicOrd::SeqCst);
+            if std::panic::catch_unwind(|| {
+                let _slept = thread_sleep_ms(u64::MAX);
+            })
+            .is_err()
+            {
+                MAX_SLEEP_PANICKED.store(true, AtomicOrd::SeqCst);
+            }
+        });
+
+        for _ in 0..200 {
+            if MAX_SLEEP_ENTERED.load(AtomicOrd::SeqCst) {
+                break;
+            }
+            let _slept = thread_sleep_ms(10);
+        }
+        assert!(
+            MAX_SLEEP_ENTERED.load(AtomicOrd::SeqCst),
+            "detached sleeper never started"
+        );
+        assert!(
+            !MAX_SLEEP_PANICKED.load(AtomicOrd::SeqCst),
+            "thread_sleep_ms(u64::MAX) must not panic"
+        );
+    }
+}

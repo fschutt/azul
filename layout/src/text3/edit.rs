@@ -943,3 +943,1129 @@ fn extract_text_in_range(content: &[InlineContent], range: &SelectionRange) -> S
 
     String::new()
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use std::sync::Arc;
+
+    use unicode_segmentation::UnicodeSegmentation;
+
+    use super::*;
+    use crate::text3::cache::StyleProperties;
+
+    // ---------------------------------------------------------------- helpers
+
+    fn style_a() -> Arc<StyleProperties> {
+        Arc::new(StyleProperties::default())
+    }
+
+    /// A style that compares unequal to [`style_a`] (`StyleProperties: PartialEq`),
+    /// so `delete_range`'s style-based run merge can be exercised both ways.
+    fn style_b() -> Arc<StyleProperties> {
+        Arc::new(StyleProperties {
+            font_size_px: 99.0,
+            ..StyleProperties::default()
+        })
+    }
+
+    fn text(s: &str) -> InlineContent {
+        InlineContent::Text(StyledRun {
+            text: s.to_string(),
+            style: style_a(),
+            logical_start_byte: 0,
+            source_node_id: None,
+        })
+    }
+
+    fn text_styled(s: &str, style: Arc<StyleProperties>) -> InlineContent {
+        InlineContent::Text(StyledRun {
+            text: s.to_string(),
+            style,
+            logical_start_byte: 0,
+            source_node_id: None,
+        })
+    }
+
+    /// A non-text inline item (stands in for an inline image / object / shape).
+    /// `Tab` is the cheapest such variant to build — it carries only a style.
+    fn obj() -> InlineContent {
+        InlineContent::Tab { style: style_a() }
+    }
+
+    /// `InlineContent` has no `PartialEq`, so compare a printable projection:
+    /// text runs render as their text, everything else as `<obj>`.
+    fn dump(content: &[InlineContent]) -> Vec<String> {
+        content
+            .iter()
+            .map(|c| match c {
+                InlineContent::Text(r) => r.text.clone(),
+                _ => "<obj>".to_string(),
+            })
+            .collect()
+    }
+
+    fn lead(run: u32, byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    fn trail(run: u32, byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Trailing,
+        }
+    }
+
+    fn range_sel(start: TextCursor, end: TextCursor) -> Selection {
+        Selection::Range(SelectionRange { start, end })
+    }
+
+    fn cursor_of(sel: &Selection) -> TextCursor {
+        match sel {
+            Selection::Cursor(c) => *c,
+            Selection::Range(r) => r.start,
+        }
+    }
+
+    /// A ZWJ emoji family: 👨(4) + ZWJ(3) + 👩(4) + ZWJ(3) + 👧(4) = 18 bytes,
+    /// but exactly ONE extended grapheme cluster.
+    const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+
+    #[test]
+    fn family_constant_is_one_grapheme_of_18_bytes() {
+        // Guards the fixture the grapheme tests below rely on.
+        assert_eq!(FAMILY.len(), 18);
+        assert_eq!(FAMILY.graphemes(true).count(), 1);
+    }
+
+    // ------------------------------------------- selection_start_run / _byte
+
+    #[test]
+    fn selection_start_run_and_byte_read_the_cursor() {
+        let sel = Selection::Cursor(lead(3, 7));
+        assert_eq!(selection_start_run(&sel), 3);
+        assert_eq!(selection_start_byte(&sel), 7);
+    }
+
+    #[test]
+    fn selection_start_run_and_byte_read_range_start_not_end() {
+        // Even for a BACKWARD range (start after end) the raw `start` is reported.
+        let sel = range_sel(lead(9, 40), lead(1, 2));
+        assert_eq!(selection_start_run(&sel), 9);
+        assert_eq!(selection_start_byte(&sel), 40);
+    }
+
+    #[test]
+    fn selection_start_accessors_survive_u32_max() {
+        let sel = Selection::Cursor(trail(u32::MAX, u32::MAX));
+        assert_eq!(selection_start_run(&sel), u32::MAX);
+        assert_eq!(selection_start_byte(&sel), u32::MAX);
+
+        let sel = range_sel(lead(u32::MAX, u32::MAX), lead(0, 0));
+        assert_eq!(selection_start_run(&sel), u32::MAX);
+        assert_eq!(selection_start_byte(&sel), u32::MAX);
+    }
+
+    // ------------------------------------------ sort_selections_back_to_front
+
+    #[test]
+    fn sort_back_to_front_empty_and_single() {
+        assert!(sort_selections_back_to_front(&[]).is_empty());
+        let one = [Selection::Cursor(lead(0, 0))];
+        assert_eq!(sort_selections_back_to_front(&one).len(), 1);
+    }
+
+    #[test]
+    fn sort_back_to_front_is_descending_by_cluster_id() {
+        let sels = [
+            Selection::Cursor(lead(0, 0)),
+            Selection::Cursor(lead(2, 5)),
+            Selection::Cursor(lead(1, 3)),
+            Selection::Cursor(lead(2, 1)),
+        ];
+        let sorted = sort_selections_back_to_front(&sels);
+        let keys: Vec<(u32, u32)> = sorted
+            .iter()
+            .map(|s| {
+                let c = cursor_of(s).cluster_id;
+                (c.source_run, c.start_byte_in_run)
+            })
+            .collect();
+        assert_eq!(keys, vec![(2, 5), (2, 1), (1, 3), (0, 0)]);
+        // Monotonically non-increasing — the invariant the multi-cursor edit loop
+        // depends on for its byte offsets to stay valid.
+        assert!(keys.windows(2).all(|w| w[0] >= w[1]));
+    }
+
+    #[test]
+    fn sort_back_to_front_is_a_permutation_with_duplicates() {
+        let sels = [
+            Selection::Cursor(lead(1, 1)),
+            Selection::Cursor(lead(1, 1)),
+            Selection::Cursor(lead(0, 0)),
+        ];
+        let sorted = sort_selections_back_to_front(&sels);
+        assert_eq!(sorted.len(), 3);
+        let mut got: Vec<Selection> = sorted;
+        let mut want: Vec<Selection> = sels.to_vec();
+        got.sort();
+        want.sort();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn sort_back_to_front_keys_ranges_on_their_start() {
+        // Range starts at run 5; the plain cursor is at run 0 -> range sorts first.
+        let sels = [
+            Selection::Cursor(lead(0, 0)),
+            range_sel(lead(5, 0), lead(0, 0)),
+        ];
+        let sorted = sort_selections_back_to_front(&sels);
+        assert!(matches!(sorted[0], Selection::Range(_)));
+        assert!(matches!(sorted[1], Selection::Cursor(_)));
+    }
+
+    #[test]
+    fn sort_back_to_front_handles_u32_max_keys() {
+        let sels = [
+            Selection::Cursor(lead(u32::MAX, u32::MAX)),
+            Selection::Cursor(lead(0, 0)),
+        ];
+        let sorted = sort_selections_back_to_front(&sels);
+        assert_eq!(cursor_of(&sorted[0]).cluster_id.source_run, u32::MAX);
+    }
+
+    // ------------------------------------------------------- adjust_cursors
+
+    fn byte_at(sels: &[Selection], i: usize) -> u32 {
+        cursor_of(&sels[i]).cluster_id.start_byte_in_run
+    }
+
+    #[test]
+    fn adjust_cursors_empty_slice_is_a_noop() {
+        let mut sels: Vec<Selection> = Vec::new();
+        adjust_cursors(&mut sels, 0, 0, i32::MIN);
+        assert!(sels.is_empty());
+    }
+
+    #[test]
+    fn adjust_cursors_zero_change_leaves_everything_alone() {
+        let mut sels = vec![
+            Selection::Cursor(lead(0, 0)),
+            Selection::Cursor(lead(0, 10)),
+        ];
+        adjust_cursors(&mut sels, 0, 0, 0);
+        assert_eq!(byte_at(&sels, 0), 0);
+        assert_eq!(byte_at(&sels, 1), 10);
+    }
+
+    #[test]
+    fn adjust_cursors_only_shifts_at_or_after_edit_byte_in_the_edit_run() {
+        let mut sels = vec![
+            Selection::Cursor(lead(0, 2)),  // before edit_byte -> untouched
+            Selection::Cursor(lead(0, 5)),  // AT edit_byte     -> shifted
+            Selection::Cursor(lead(0, 9)),  // after edit_byte  -> shifted
+            Selection::Cursor(lead(1, 0)),  // other run        -> untouched
+        ];
+        adjust_cursors(&mut sels, 0, 5, 3);
+        assert_eq!(byte_at(&sels, 0), 2);
+        assert_eq!(byte_at(&sels, 1), 8);
+        assert_eq!(byte_at(&sels, 2), 12);
+        assert_eq!(byte_at(&sels, 3), 0);
+    }
+
+    #[test]
+    fn adjust_cursors_negative_change_clamps_at_zero() {
+        let mut sels = vec![Selection::Cursor(lead(0, 3))];
+        adjust_cursors(&mut sels, 0, 0, -100);
+        assert_eq!(byte_at(&sels, 0), 0, "documented clamp-to-zero");
+    }
+
+    #[test]
+    fn adjust_cursors_i32_extremes_do_not_panic() {
+        // i32::MAX applied to byte 0 saturates the offset, not the process.
+        let mut sels = vec![Selection::Cursor(lead(0, 0))];
+        adjust_cursors(&mut sels, 0, 0, i32::MAX);
+        assert_eq!(byte_at(&sels, 0), i32::MAX as u32);
+
+        // i32::MIN applied to byte 0 clamps to zero rather than wrapping.
+        let mut sels = vec![Selection::Cursor(lead(0, 0))];
+        adjust_cursors(&mut sels, 0, 0, i32::MIN);
+        assert_eq!(byte_at(&sels, 0), 0);
+    }
+
+    #[test]
+    fn adjust_cursors_u32_max_byte_collapses_to_zero() {
+        // NOTE (reported): `start_byte_in_run as i32` WRAPS — u32::MAX becomes -1,
+        // so a no-op (+0) adjustment silently relocates the cursor to byte 0.
+        // Not reachable from real 2 GiB-run content, but it is the current behavior.
+        let mut sels = vec![Selection::Cursor(lead(0, u32::MAX))];
+        adjust_cursors(&mut sels, 0, 0, 0);
+        assert_eq!(byte_at(&sels, 0), 0);
+    }
+
+    #[test]
+    fn adjust_cursors_never_touches_range_selections() {
+        let mut sels = vec![range_sel(lead(0, 4), lead(0, 8))];
+        adjust_cursors(&mut sels, 0, 0, 100);
+        match &sels[0] {
+            Selection::Range(r) => {
+                assert_eq!(r.start.cluster_id.start_byte_in_run, 4);
+                assert_eq!(r.end.cluster_id.start_byte_in_run, 8);
+            }
+            Selection::Cursor(_) => panic!("range must stay a range"),
+        }
+    }
+
+    // --------------------------------------------------- adjust_cursor_runs
+
+    fn run_at(sels: &[Selection], i: usize) -> u32 {
+        cursor_of(&sels[i]).cluster_id.source_run
+    }
+
+    #[test]
+    fn adjust_cursor_runs_zero_change_returns_early() {
+        let mut sels = vec![Selection::Cursor(lead(u32::MAX, 0))];
+        adjust_cursor_runs(&mut sels, 0, 0);
+        assert_eq!(run_at(&sels, 0), u32::MAX, "zero change must not touch runs");
+    }
+
+    #[test]
+    fn adjust_cursor_runs_shifts_only_runs_strictly_after_the_boundary() {
+        let mut sels = vec![
+            Selection::Cursor(lead(0, 0)), // before boundary -> untouched
+            Selection::Cursor(lead(1, 0)), // AT boundary     -> untouched
+            Selection::Cursor(lead(2, 0)), // after           -> -1
+            Selection::Cursor(lead(3, 0)), // after           -> -1
+        ];
+        adjust_cursor_runs(&mut sels, 1, -1);
+        assert_eq!(run_at(&sels, 0), 0);
+        assert_eq!(run_at(&sels, 1), 1);
+        assert_eq!(run_at(&sels, 2), 1);
+        assert_eq!(run_at(&sels, 3), 2);
+    }
+
+    #[test]
+    fn adjust_cursor_runs_positive_change_shifts_up() {
+        let mut sels = vec![Selection::Cursor(lead(2, 0))];
+        adjust_cursor_runs(&mut sels, 0, 3);
+        assert_eq!(run_at(&sels, 0), 5);
+    }
+
+    #[test]
+    fn adjust_cursor_runs_negative_overshoot_clamps_to_the_boundary_run() {
+        let mut sels = vec![Selection::Cursor(lead(3, 0))];
+        adjust_cursor_runs(&mut sels, 1, -100);
+        assert_eq!(run_at(&sels, 0), 1, "never drops below the surviving run");
+    }
+
+    #[test]
+    fn adjust_cursor_runs_i32_min_clamps_instead_of_wrapping() {
+        // 3 + i32::MIN stays inside i32 (no overflow) and the clamp catches it.
+        let mut sels = vec![Selection::Cursor(lead(3, 0))];
+        adjust_cursor_runs(&mut sels, 2, i32::MIN);
+        assert_eq!(run_at(&sels, 0), 2);
+
+        let mut sels = vec![Selection::Cursor(lead(1, 0))];
+        adjust_cursor_runs(&mut sels, 0, i32::MIN);
+        assert_eq!(run_at(&sels, 0), 0);
+    }
+
+    #[test]
+    fn adjust_cursor_runs_i32_max_is_inert_when_no_cursor_qualifies() {
+        // Every cursor is at/below the boundary, so the huge delta is never applied.
+        let mut sels = vec![
+            Selection::Cursor(lead(0, 0)),
+            Selection::Cursor(lead(5, 0)),
+        ];
+        adjust_cursor_runs(&mut sels, 5, i32::MAX);
+        assert_eq!(run_at(&sels, 0), 0);
+        assert_eq!(run_at(&sels, 1), 5);
+    }
+
+    #[test]
+    fn adjust_cursor_runs_never_touches_range_selections() {
+        let mut sels = vec![range_sel(lead(9, 0), lead(9, 1))];
+        adjust_cursor_runs(&mut sels, 0, -5);
+        match &sels[0] {
+            Selection::Range(r) => assert_eq!(r.start.cluster_id.source_run, 9),
+            Selection::Cursor(_) => panic!("range must stay a range"),
+        }
+    }
+
+    // ---------------------------------------------------------- run_text_len
+
+    #[test]
+    fn run_text_len_counts_bytes_not_chars() {
+        let content = vec![text("héllo")]; // é is 2 bytes -> 6 bytes, 5 chars
+        assert_eq!(run_text_len(&content, 0), 6);
+        assert_eq!(content_text_chars(&content), 5);
+    }
+
+    fn content_text_chars(content: &[InlineContent]) -> usize {
+        content
+            .iter()
+            .map(|c| match c {
+                InlineContent::Text(r) => r.text.chars().count(),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    #[test]
+    fn run_text_len_zero_for_empty_missing_and_non_text_runs() {
+        let content = vec![text(""), obj()];
+        assert_eq!(run_text_len(&content, 0), 0, "empty text run");
+        assert_eq!(run_text_len(&content, 1), 0, "non-text run");
+        assert_eq!(run_text_len(&content, 2), 0, "one past the end");
+        assert_eq!(run_text_len(&content, u32::MAX), 0, "u32::MAX index");
+        assert_eq!(run_text_len(&[], 0), 0, "empty content");
+    }
+
+    // ------------------------------------------------------------- edit_text
+
+    #[test]
+    fn edit_text_empty_selections_returns_content_unchanged() {
+        let content = vec![text("hello")];
+        let (new_content, sels) = edit_text(&content, &[], &TextEdit::Insert("x".into()));
+        assert_eq!(dump(&new_content), vec!["hello"]);
+        assert!(sels.is_empty());
+    }
+
+    #[test]
+    fn edit_text_on_empty_content_does_not_panic() {
+        let (new_content, sels) = edit_text(
+            &[],
+            &[Selection::Cursor(lead(0, 0))],
+            &TextEdit::Insert("x".into()),
+        );
+        assert!(new_content.is_empty());
+        assert_eq!(sels.len(), 1, "the cursor survives, unmoved");
+        assert_eq!(cursor_of(&sels[0]), lead(0, 0));
+    }
+
+    #[test]
+    fn edit_text_out_of_range_cursor_is_a_noop_not_a_panic() {
+        let content = vec![text("hi")];
+        let (new_content, sels) = edit_text(
+            &content,
+            &[Selection::Cursor(lead(u32::MAX, 0))],
+            &TextEdit::DeleteBackward,
+        );
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert_eq!(sels.len(), 1);
+    }
+
+    #[test]
+    fn edit_text_multi_cursor_insert_keeps_both_cursors_correct() {
+        // Two cursors in the same run: the earlier edit must shift the later cursor
+        // by the ACTUAL byte delta (this is what adjust_cursors exists for).
+        let content = vec![text("hello")];
+        let sels = [
+            Selection::Cursor(lead(0, 0)),
+            Selection::Cursor(lead(0, 3)),
+        ];
+        let (new_content, new_sels) = edit_text(&content, &sels, &TextEdit::Insert("X".into()));
+        assert_eq!(dump(&new_content), vec!["XhelXlo"]);
+        assert_eq!(cursor_of(&new_sels[0]), lead(0, 1));
+        assert_eq!(cursor_of(&new_sels[1]), lead(0, 5));
+    }
+
+    #[test]
+    fn edit_text_multi_cursor_insert_shifts_by_multibyte_length_not_one() {
+        // Inserting a 4-byte emoji must move the trailing cursor by 4 bytes.
+        let content = vec![text("ab")];
+        let sels = [
+            Selection::Cursor(lead(0, 0)),
+            Selection::Cursor(lead(0, 2)),
+        ];
+        let (new_content, new_sels) = edit_text(&content, &sels, &TextEdit::Insert("👍".into()));
+        assert_eq!(dump(&new_content), vec!["👍ab👍"]);
+        assert_eq!(cursor_of(&new_sels[0]), lead(0, 4));
+        assert_eq!(cursor_of(&new_sels[1]), lead(0, 10)); // 4 + "ab" + 4
+    }
+
+    #[test]
+    fn edit_text_backspace_with_a_range_deletes_the_range_only() {
+        // Regression guard for the documented rule: Backspace on a selection removes
+        // the selection, NOT the selection plus one more grapheme.
+        let content = vec![text("hello")];
+        let sel = [range_sel(lead(0, 1), lead(0, 3))];
+        let (new_content, _) = edit_text(&content, &sel, &TextEdit::DeleteBackward);
+        assert_eq!(dump(&new_content), vec!["hlo"]);
+    }
+
+    // ------------------------------------------------ apply_edit_to_selection
+
+    #[test]
+    fn apply_edit_range_insert_replaces_the_range() {
+        let content = vec![text("hello")];
+        let sel = range_sel(lead(0, 1), lead(0, 4));
+        let (new_content, cursor) =
+            apply_edit_to_selection(&content, &sel, &TextEdit::Insert("EY".into()));
+        assert_eq!(dump(&new_content), vec!["hEYo"]);
+        assert_eq!(cursor, lead(0, 3));
+    }
+
+    #[test]
+    fn apply_edit_range_delete_forward_deletes_range_only() {
+        let content = vec![text("hello")];
+        let sel = range_sel(lead(0, 1), lead(0, 3));
+        let (new_content, cursor) =
+            apply_edit_to_selection(&content, &sel, &TextEdit::DeleteForward);
+        assert_eq!(dump(&new_content), vec!["hlo"]);
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    #[test]
+    fn apply_edit_cursor_insert_of_empty_string_only_moves_the_caret() {
+        let content = vec![text("hello")];
+        let sel = Selection::Cursor(lead(0, 2));
+        let (new_content, cursor) =
+            apply_edit_to_selection(&content, &sel, &TextEdit::Insert(String::new()));
+        assert_eq!(dump(&new_content), vec!["hello"]);
+        assert_eq!(cursor, lead(0, 2));
+    }
+
+    // ------------------------------------------------ cursor_byte_offset_in_run
+
+    #[test]
+    fn cursor_byte_offset_leading_clamps_past_the_end() {
+        assert_eq!(cursor_byte_offset_in_run("hi", &lead(0, 999)), 2);
+        assert_eq!(cursor_byte_offset_in_run("hi", &lead(0, u32::MAX)), 2);
+        assert_eq!(cursor_byte_offset_in_run("", &lead(0, 5)), 0);
+    }
+
+    #[test]
+    fn cursor_byte_offset_trailing_clamps_past_the_end() {
+        assert_eq!(cursor_byte_offset_in_run("hi", &trail(0, 2)), 2);
+        assert_eq!(cursor_byte_offset_in_run("hi", &trail(0, u32::MAX)), 2);
+        assert_eq!(cursor_byte_offset_in_run("", &trail(0, 0)), 0);
+    }
+
+    #[test]
+    fn cursor_byte_offset_trailing_lands_after_the_whole_grapheme() {
+        // Combining sequence: "e" + U+0301 is one cluster of 3 bytes.
+        assert_eq!(cursor_byte_offset_in_run("e\u{0301}x", &trail(0, 0)), 3);
+        // A 4-byte astral char.
+        assert_eq!(cursor_byte_offset_in_run("👍x", &trail(0, 0)), 4);
+        // A ZWJ emoji family is ONE cluster — a char-wise implementation would
+        // return 4 here instead of 18.
+        assert_eq!(cursor_byte_offset_in_run(FAMILY, &trail(0, 0)), 18);
+    }
+
+    #[test]
+    fn cursor_byte_offset_leading_is_the_raw_offset() {
+        assert_eq!(cursor_byte_offset_in_run(FAMILY, &lead(0, 0)), 0);
+        assert_eq!(cursor_byte_offset_in_run("abc", &lead(0, 1)), 1);
+    }
+
+    // ---------------------------------------------------------- delete_range
+
+    #[test]
+    fn delete_range_within_one_run() {
+        let content = vec![text("hello")];
+        let r = SelectionRange {
+            start: lead(0, 1),
+            end: lead(0, 3),
+        };
+        let (new_content, cursor) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["hlo"]);
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    #[test]
+    fn delete_range_backward_range_is_normalized() {
+        // Right-to-left selection (Shift+Left / Shift+Home): start is AFTER end.
+        // It must delete the same bytes as the forward range, not silently no-op.
+        let content = vec![text("hello")];
+        let backward = SelectionRange {
+            start: lead(0, 3),
+            end: lead(0, 1),
+        };
+        let (new_content, cursor) = delete_range(&content, &backward);
+        assert_eq!(dump(&new_content), vec!["hlo"]);
+        assert_eq!(cursor, lead(0, 1), "caret collapses to the LOW end");
+    }
+
+    #[test]
+    fn delete_range_collapsed_range_deletes_nothing() {
+        let content = vec![text("hello")];
+        let r = SelectionRange {
+            start: lead(0, 2),
+            end: lead(0, 2),
+        };
+        let (new_content, cursor) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["hello"]);
+        assert_eq!(cursor, lead(0, 2));
+    }
+
+    #[test]
+    fn delete_range_select_all_with_trailing_end_covers_the_last_cluster() {
+        // The end cursor of a select-all sits Trailing on the last cluster; the
+        // affinity-aware offset is what makes the final grapheme part of the range.
+        let content = vec![text("hello")];
+        let r = SelectionRange {
+            start: lead(0, 0),
+            end: trail(0, 4),
+        };
+        let (new_content, cursor) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec![""]);
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_range_spanning_runs_merges_matching_styles() {
+        let content = vec![text("abc"), text("def")];
+        let r = SelectionRange {
+            start: lead(0, 1),
+            end: lead(1, 2),
+        };
+        let (new_content, cursor) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["af"], "same style -> one run");
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    #[test]
+    fn delete_range_spanning_runs_keeps_differing_styles_apart() {
+        let content = vec![text_styled("abc", style_a()), text_styled("def", style_b())];
+        let r = SelectionRange {
+            start: lead(0, 1),
+            end: lead(1, 2),
+        };
+        let (new_content, cursor) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["a", "f"], "styles differ -> no merge");
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    #[test]
+    fn delete_range_drops_the_runs_strictly_between_the_boundaries() {
+        let content = vec![text("abc"), text("XYZ"), obj(), text("def")];
+        let r = SelectionRange {
+            start: lead(0, 1),
+            end: lead(3, 2),
+        };
+        let (new_content, _) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["af"], "middle text AND obj dropped");
+    }
+
+    #[test]
+    fn delete_range_over_a_single_non_text_item_removes_it() {
+        let content = vec![text("ab"), obj(), text("cd")];
+        // start != end (affinity differs) so the guard against a zero-width delete passes.
+        let r = SelectionRange {
+            start: lead(1, 0),
+            end: trail(1, 0),
+        };
+        let (new_content, cursor) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["ab", "cd"]);
+        assert_eq!(cursor, lead(1, 0));
+    }
+
+    #[test]
+    fn delete_range_collapsed_on_a_non_text_item_keeps_it() {
+        let content = vec![text("ab"), obj()];
+        let r = SelectionRange {
+            start: lead(1, 0),
+            end: lead(1, 0),
+        };
+        let (new_content, _) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["ab", "<obj>"]);
+    }
+
+    #[test]
+    fn delete_range_out_of_bounds_runs_do_not_panic() {
+        let content = vec![text("ab")];
+
+        // Both ends past the end (same-run path).
+        let r = SelectionRange {
+            start: lead(99, 0),
+            end: lead(99, 5),
+        };
+        let (new_content, _) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec!["ab"]);
+
+        // Multi-run path with a bogus `hi_run` — the drain must be clamped.
+        let r = SelectionRange {
+            start: lead(0, 0),
+            end: lead(u32::MAX, 0),
+        };
+        let (new_content, cursor) = delete_range(&content, &r);
+        assert_eq!(dump(&new_content), vec![""]);
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_range_backward_across_runs_is_normalized() {
+        let content = vec![text("abc"), text("def")];
+        let backward = SelectionRange {
+            start: lead(1, 2),
+            end: lead(0, 1),
+        };
+        let (new_content, cursor) = delete_range(&content, &backward);
+        assert_eq!(dump(&new_content), vec!["af"]);
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    // ---------------------------------------------------------- insert_text
+
+    #[test]
+    fn insert_text_leading_inserts_before_the_cluster() {
+        let content = vec![text("hello")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 2), "XY");
+        assert_eq!(dump(&new_content), vec!["heXYllo"]);
+        assert_eq!(cursor, lead(0, 4));
+    }
+
+    #[test]
+    fn insert_text_trailing_inserts_after_the_whole_grapheme() {
+        // Trailing on the 4-byte emoji must land at byte 4, not byte 1.
+        let content = vec![text("👍z")];
+        let (new_content, cursor) = insert_text(&content, &trail(0, 0), "X");
+        assert_eq!(dump(&new_content), vec!["👍Xz"]);
+        assert_eq!(cursor, lead(0, 5));
+    }
+
+    #[test]
+    fn insert_text_trailing_past_the_end_appends() {
+        let content = vec![text("hi")];
+        let (new_content, cursor) = insert_text(&content, &trail(0, 999), "!");
+        assert_eq!(dump(&new_content), vec!["hi!"]);
+        assert_eq!(cursor, lead(0, 3));
+    }
+
+    #[test]
+    fn insert_text_leading_past_the_end_is_a_noop() {
+        // Asymmetry with the Trailing case above: a Leading offset beyond the run
+        // is NOT clamped, the insert is dropped and the caret is returned as-is.
+        let content = vec![text("hi")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 999), "!");
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert_eq!(cursor, lead(0, 999));
+    }
+
+    #[test]
+    fn insert_text_into_missing_or_non_text_run_is_a_noop() {
+        let content = vec![obj()];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 0), "x");
+        assert_eq!(dump(&new_content), vec!["<obj>"]);
+        assert_eq!(cursor, lead(0, 0));
+
+        let (new_content, cursor) = insert_text(&content, &lead(u32::MAX, 0), "x");
+        assert_eq!(dump(&new_content), vec!["<obj>"]);
+        assert_eq!(cursor, lead(u32::MAX, 0));
+
+        let (new_content, _) = insert_text(&[], &lead(0, 0), "x");
+        assert!(new_content.is_empty());
+    }
+
+    #[test]
+    fn insert_text_empty_string_leaves_the_text_alone() {
+        let content = vec![text("hi")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 1), "");
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    #[test]
+    fn insert_text_cursor_advances_by_bytes_not_chars() {
+        let content = vec![text("")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 0), FAMILY);
+        assert_eq!(dump(&new_content), vec![FAMILY]);
+        assert_eq!(cursor, lead(0, 18));
+    }
+
+    #[test]
+    fn insert_text_of_a_huge_string_does_not_panic() {
+        let big = "a".repeat(200_000);
+        let content = vec![text("hi")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 1), &big);
+        assert_eq!(run_text_len(&new_content, 0), 200_002);
+        assert_eq!(cursor, lead(0, 200_001));
+    }
+
+    // ------------------------------------------------------- delete_backward
+
+    #[test]
+    fn delete_backward_on_empty_content_is_a_noop() {
+        let (new_content, cursor) = delete_backward(&[], &lead(0, 0));
+        assert!(new_content.is_empty());
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_backward_at_the_start_of_the_document_is_a_noop() {
+        let content = vec![text("hi")];
+        let (new_content, cursor) = delete_backward(&content, &lead(0, 0));
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_backward_removes_a_whole_grapheme_cluster() {
+        let content = vec![text(&format!("a{FAMILY}"))];
+        let (new_content, cursor) = delete_backward(&content, &lead(0, 19));
+        assert_eq!(dump(&new_content), vec!["a"], "all 18 bytes go at once");
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    #[test]
+    fn delete_backward_trailing_affinity_removes_the_current_cluster() {
+        let content = vec![text("ab")];
+        let (new_content, cursor) = delete_backward(&content, &trail(0, 0));
+        assert_eq!(dump(&new_content), vec!["b"]);
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_backward_merges_across_a_run_boundary() {
+        let content = vec![text("ab"), text("cd")];
+        let (new_content, cursor) = delete_backward(&content, &lead(1, 0));
+        assert_eq!(dump(&new_content), vec!["abcd"]);
+        assert_eq!(cursor, lead(0, 2), "caret sits at the join point");
+    }
+
+    #[test]
+    fn delete_backward_removes_a_non_text_item_sitting_before_the_caret() {
+        let content = vec![text("ab"), obj(), text("cd")];
+        let (new_content, cursor) = delete_backward(&content, &lead(2, 0));
+        assert_eq!(dump(&new_content), vec!["ab", "cd"]);
+        assert_eq!(cursor, lead(1, 0));
+    }
+
+    #[test]
+    fn delete_backward_with_the_caret_after_a_non_text_item_removes_the_item() {
+        let content = vec![text("ab"), obj()];
+        let (new_content, _) = delete_backward(&content, &trail(1, 0));
+        assert_eq!(dump(&new_content), vec!["ab"]);
+    }
+
+    #[test]
+    fn delete_backward_with_the_caret_before_a_non_text_item_acts_on_the_previous_run() {
+        let content = vec![text("ab"), obj()];
+        let (new_content, cursor) = delete_backward(&content, &lead(1, 0));
+        assert_eq!(dump(&new_content), vec!["a", "<obj>"], "the item survives");
+        assert_eq!(cursor, lead(0, 1));
+    }
+
+    #[test]
+    fn delete_backward_before_a_leading_non_text_item_at_run_zero_is_a_noop() {
+        let content = vec![obj()];
+        let (new_content, cursor) = delete_backward(&content, &lead(0, 0));
+        assert_eq!(dump(&new_content), vec!["<obj>"]);
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_backward_out_of_range_run_is_a_noop() {
+        let content = vec![text("hi")];
+        let (new_content, cursor) = delete_backward(&content, &lead(u32::MAX, u32::MAX));
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert_eq!(cursor, lead(u32::MAX, u32::MAX));
+    }
+
+    // -------------------------------------------------------- delete_forward
+
+    #[test]
+    fn delete_forward_on_empty_content_is_a_noop() {
+        let (new_content, cursor) = delete_forward(&[], &lead(0, 0));
+        assert!(new_content.is_empty());
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_forward_at_the_end_of_the_document_is_a_noop() {
+        let content = vec![text("hi")];
+        let (new_content, cursor) = delete_forward(&content, &lead(0, 2));
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert_eq!(cursor, lead(0, 2));
+    }
+
+    #[test]
+    fn delete_forward_removes_a_whole_grapheme_cluster() {
+        let content = vec![text(&format!("{FAMILY}z"))];
+        let (new_content, cursor) = delete_forward(&content, &lead(0, 0));
+        assert_eq!(dump(&new_content), vec!["z"]);
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_forward_merges_across_a_run_boundary() {
+        let content = vec![text("ab"), text("cd")];
+        let (new_content, cursor) = delete_forward(&content, &lead(0, 2));
+        assert_eq!(dump(&new_content), vec!["abcd"]);
+        assert_eq!(cursor, lead(0, 2));
+    }
+
+    #[test]
+    fn delete_forward_removes_a_non_text_item_sitting_after_the_caret() {
+        let content = vec![text("ab"), obj()];
+        let (new_content, _) = delete_forward(&content, &lead(0, 2));
+        assert_eq!(dump(&new_content), vec!["ab"]);
+    }
+
+    #[test]
+    fn delete_forward_with_the_caret_before_a_non_text_item_removes_the_item() {
+        let content = vec![obj(), text("ab")];
+        let (new_content, cursor) = delete_forward(&content, &lead(0, 0));
+        assert_eq!(dump(&new_content), vec!["ab"]);
+        assert_eq!(cursor, lead(0, 0));
+    }
+
+    #[test]
+    fn delete_forward_with_the_caret_after_a_non_text_item_acts_on_the_next_run() {
+        let content = vec![obj(), text("ab")];
+        let (new_content, cursor) = delete_forward(&content, &trail(0, 0));
+        assert_eq!(dump(&new_content), vec!["<obj>", "b"], "the item survives");
+        assert_eq!(cursor, lead(1, 0));
+    }
+
+    #[test]
+    fn delete_forward_after_a_trailing_non_text_item_at_the_last_run_is_a_noop() {
+        let content = vec![text("ab"), obj()];
+        let (new_content, cursor) = delete_forward(&content, &trail(1, 0));
+        assert_eq!(dump(&new_content), vec!["ab", "<obj>"]);
+        assert_eq!(cursor, trail(1, 0));
+    }
+
+    #[test]
+    fn delete_forward_out_of_range_run_is_a_noop() {
+        let content = vec![text("hi")];
+        let (new_content, cursor) = delete_forward(&content, &lead(u32::MAX, u32::MAX));
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert_eq!(cursor, lead(u32::MAX, u32::MAX));
+    }
+
+    // ------------------------------------------------------- edit_text_multi
+
+    #[test]
+    #[should_panic(expected = "same length")]
+    fn edit_text_multi_panics_on_a_length_mismatch() {
+        // Documented in the function's `# Panics` section.
+        let content = vec![text("hi")];
+        let sels = [Selection::Cursor(lead(0, 0))];
+        let _ = edit_text_multi(&content, &sels, &["a", "b"]);
+    }
+
+    #[test]
+    fn edit_text_multi_with_no_selections_returns_content_unchanged() {
+        let content = vec![text("hi")];
+        let (new_content, sels) = edit_text_multi(&content, &[], &[]);
+        assert_eq!(dump(&new_content), vec!["hi"]);
+        assert!(sels.is_empty());
+    }
+
+    #[test]
+    fn edit_text_multi_gives_each_cursor_its_own_text() {
+        let content = vec![text("ab")];
+        let sels = [
+            Selection::Cursor(lead(0, 0)),
+            Selection::Cursor(lead(0, 2)),
+        ];
+        let (new_content, new_sels) = edit_text_multi(&content, &sels, &["X", "Y"]);
+        assert_eq!(dump(&new_content), vec!["XabY"]);
+        assert_eq!(cursor_of(&new_sels[0]), lead(0, 1));
+        assert_eq!(cursor_of(&new_sels[1]), lead(0, 4));
+    }
+
+    #[test]
+    fn edit_text_multi_with_empty_texts_only_moves_the_carets() {
+        let content = vec![text("ab")];
+        let sels = [
+            Selection::Cursor(lead(0, 0)),
+            Selection::Cursor(lead(0, 1)),
+        ];
+        let (new_content, new_sels) = edit_text_multi(&content, &sels, &["", ""]);
+        assert_eq!(dump(&new_content), vec!["ab"]);
+        assert_eq!(new_sels.len(), 2);
+    }
+
+    // ---------------------------------------------------------- inspect_delete
+
+    #[test]
+    fn inspect_delete_forward_at_the_end_of_the_document_is_none() {
+        let content = vec![text("hi")];
+        assert!(inspect_delete(&content, &Selection::Cursor(lead(0, 2)), true).is_none());
+        assert!(inspect_delete(&[], &Selection::Cursor(lead(0, 0)), true).is_none());
+    }
+
+    #[test]
+    fn inspect_delete_backward_at_the_start_of_the_document_is_none() {
+        let content = vec![text("hi")];
+        assert!(inspect_delete(&content, &Selection::Cursor(lead(0, 0)), false).is_none());
+        assert!(inspect_delete(&[], &Selection::Cursor(lead(0, 0)), false).is_none());
+    }
+
+    #[test]
+    fn inspect_delete_forward_reports_exactly_what_delete_forward_removes() {
+        let content = vec![text("héllo")]; // é starts at byte 1, 2 bytes long
+        let cursor = lead(0, 1);
+        let (_, reported) = inspect_delete(&content, &Selection::Cursor(cursor), true).unwrap();
+        let (after, _) = delete_forward(&content, &cursor);
+        assert_eq!(reported, "é");
+        assert_eq!(dump(&after), vec!["hllo"], "inspect and delete agree");
+    }
+
+    #[test]
+    fn inspect_delete_backward_reports_exactly_what_delete_backward_removes() {
+        let content = vec![text(&format!("a{FAMILY}"))];
+        let cursor = lead(0, 19);
+        let (range, reported) =
+            inspect_delete(&content, &Selection::Cursor(cursor), false).unwrap();
+        let (after, _) = delete_backward(&content, &cursor);
+        assert_eq!(reported, FAMILY, "the whole ZWJ cluster, not one codepoint");
+        assert_eq!(range.start, lead(0, 1));
+        assert_eq!(dump(&after), vec!["a"]);
+    }
+
+    #[test]
+    fn inspect_delete_forward_honors_trailing_affinity() {
+        // A Trailing cursor sits AFTER its grapheme, so Delete removes the NEXT one.
+        let content = vec![text("abc")];
+        let (_, reported) =
+            inspect_delete(&content, &Selection::Cursor(trail(0, 0)), true).unwrap();
+        assert_eq!(reported, "b");
+    }
+
+    #[test]
+    fn inspect_delete_across_a_run_boundary_reports_the_neighbouring_grapheme() {
+        let content = vec![text("ab"), text("cd")];
+        let (_, fwd) = inspect_delete(&content, &Selection::Cursor(lead(0, 2)), true).unwrap();
+        assert_eq!(fwd, "c");
+        let (_, back) = inspect_delete(&content, &Selection::Cursor(lead(1, 0)), false).unwrap();
+        assert_eq!(back, "b");
+    }
+
+    #[test]
+    fn inspect_delete_reports_none_for_a_non_text_neighbour_that_delete_would_remove() {
+        // BUG (reported): inspect_delete_forward/backward only match on a TEXT
+        // neighbour, so they answer "nothing would be deleted" while
+        // delete_forward/delete_backward actually remove the inline item. A callback
+        // relying on inspect_delete to veto or log the edit sees nothing coming.
+        let content = vec![text("ab"), obj()];
+        assert!(inspect_delete(&content, &Selection::Cursor(lead(0, 2)), true).is_none());
+        let (after, _) = delete_forward(&content, &lead(0, 2));
+        assert_eq!(dump(&after), vec!["ab"], "...but the item IS removed");
+
+        let content = vec![obj(), text("ab")];
+        assert!(inspect_delete(&content, &Selection::Cursor(lead(1, 0)), false).is_none());
+        let (after, _) = delete_backward(&content, &lead(1, 0));
+        assert_eq!(dump(&after), vec!["ab"], "...but the item IS removed");
+    }
+
+    #[test]
+    fn inspect_delete_on_a_range_returns_the_range_and_its_text() {
+        let content = vec![text("hello")];
+        let sel = range_sel(lead(0, 1), lead(0, 3));
+        let (range, reported) = inspect_delete(&content, &sel, false).unwrap();
+        assert_eq!(range.start, lead(0, 1));
+        assert_eq!(range.end, lead(0, 3));
+        assert_eq!(reported, "el");
+        // ...and that is exactly what the delete removes.
+        let (after, _) = apply_edit_to_selection(&content, &sel, &TextEdit::DeleteBackward);
+        assert_eq!(dump(&after), vec!["hlo"]);
+    }
+
+    #[test]
+    fn inspect_delete_out_of_range_cursor_is_none_not_a_panic() {
+        let content = vec![text("hi")];
+        assert!(inspect_delete(&content, &Selection::Cursor(lead(u32::MAX, 0)), true).is_none());
+        assert!(inspect_delete(&content, &Selection::Cursor(lead(u32::MAX, 0)), false).is_none());
+    }
+
+    // ---------------------------------------------------- extract_text_in_range
+
+    #[test]
+    fn extract_text_in_range_single_run() {
+        let content = vec![text("hello")];
+        let r = SelectionRange {
+            start: lead(0, 1),
+            end: lead(0, 4),
+        };
+        assert_eq!(extract_text_in_range(&content, &r), "ell");
+    }
+
+    #[test]
+    fn extract_text_in_range_multi_run_concatenates_the_span() {
+        let content = vec![text("abc"), text("MID"), text("def")];
+        let r = SelectionRange {
+            start: lead(0, 1),
+            end: lead(2, 2),
+        };
+        assert_eq!(extract_text_in_range(&content, &r), "bcMIDde");
+    }
+
+    #[test]
+    fn extract_text_in_range_skips_non_text_items_in_the_span() {
+        let content = vec![text("abc"), obj(), text("def")];
+        let r = SelectionRange {
+            start: lead(0, 1),
+            end: lead(2, 2),
+        };
+        assert_eq!(extract_text_in_range(&content, &r), "bcde");
+    }
+
+    #[test]
+    fn extract_text_in_range_out_of_bounds_yields_empty_string() {
+        let content = vec![text("hi")];
+
+        // end_byte past the run length.
+        let r = SelectionRange {
+            start: lead(0, 0),
+            end: lead(0, 99),
+        };
+        assert_eq!(extract_text_in_range(&content, &r), "");
+
+        // Both runs past the end.
+        let r = SelectionRange {
+            start: lead(9, 0),
+            end: lead(9, 1),
+        };
+        assert_eq!(extract_text_in_range(&content, &r), "");
+
+        // Empty content.
+        let r = SelectionRange {
+            start: lead(0, 0),
+            end: lead(0, 1),
+        };
+        assert_eq!(extract_text_in_range(&[], &r), "");
+    }
+
+    #[test]
+    fn extract_text_in_range_backward_single_run_yields_empty_string() {
+        // Unlike delete_range, extract does NOT normalize direction — a
+        // right-to-left selection inside one run reports no text at all.
+        let content = vec![text("hello")];
+        let r = SelectionRange {
+            start: lead(0, 3),
+            end: lead(0, 1),
+        };
+        assert_eq!(extract_text_in_range(&content, &r), "");
+    }
+
+    #[test]
+    fn extract_text_in_range_ignores_affinity_and_drops_the_last_cluster() {
+        // BUG (reported): extract_text_in_range reads the RAW `start_byte_in_run`
+        // while delete_range goes through cursor_byte_offset_in_run. On a select-all
+        // (end cursor Trailing on the last cluster) inspect_delete therefore reports
+        // one grapheme LESS than the delete actually removes.
+        let content = vec![text("hello")];
+        let r = SelectionRange {
+            start: lead(0, 0),
+            end: trail(0, 4),
+        };
+        assert_eq!(extract_text_in_range(&content, &r), "hell", "the 'o' is missing");
+
+        let (after, _) = delete_range(&content, &r);
+        assert_eq!(dump(&after), vec![""], "...yet delete_range removes all of it");
+    }
+}

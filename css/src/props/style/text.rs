@@ -3189,3 +3189,849 @@ pub fn parse_style_initial_letter_wrap(input: &str) -> Result<StyleInitialLetter
         other => Err(StyleInitialLetterWrapParseError::InvalidValue(InvalidValueErr(other))),
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines, clippy::cast_precision_loss)]
+mod autotest_generated {
+    use super::*;
+    use crate::props::basic::length::SizeMetric;
+
+    const OPAQUE_BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+    const OPAQUE_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+    const TRANSPARENT_BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+
+    /// `FloatValue` encodes an f32 as `isize` scaled by this factor.
+    const SCALE: isize = 1000;
+
+    // =====================================================================
+    // StyleTextIndent — constructors + numeric edges
+    // =====================================================================
+
+    #[test]
+    fn text_indent_zero_is_the_neutral_element() {
+        let z = StyleTextIndent::zero();
+        assert_eq!(z, StyleTextIndent::default());
+        assert_eq!(z.inner.metric, SizeMetric::Px);
+        assert_eq!(z.inner.number.get(), 0.0);
+        assert!(!z.each_line);
+        assert!(!z.hanging);
+        assert_eq!(z.print_as_css_value(), "0px");
+    }
+
+    #[test]
+    fn text_indent_const_ctors_pin_metric_and_value() {
+        // (constructed value, expected metric) for 0 / positive / negative.
+        for v in [0_isize, 1, -1, 42, -42] {
+            let cases = [
+                (StyleTextIndent::const_px(v), SizeMetric::Px),
+                (StyleTextIndent::const_em(v), SizeMetric::Em),
+                (StyleTextIndent::const_pt(v), SizeMetric::Pt),
+                (StyleTextIndent::const_percent(v), SizeMetric::Percent),
+                (StyleTextIndent::const_in(v), SizeMetric::In),
+                (StyleTextIndent::const_cm(v), SizeMetric::Cm),
+                (StyleTextIndent::const_mm(v), SizeMetric::Mm),
+            ];
+            for (got, metric) in cases {
+                assert_eq!(got.inner.metric, metric, "metric for {v}");
+                assert_eq!(got.inner.number.get(), v as f32, "value for {v} {metric:?}");
+                // The keyword flags are never set by the numeric constructors.
+                assert!(!got.each_line && !got.hanging);
+            }
+        }
+    }
+
+    #[test]
+    fn text_indent_const_ctors_hold_the_whole_encodable_isize_range() {
+        // The isize encoding is `value * 1000`, so the representable input range is
+        // isize::MIN/1000 ..= isize::MAX/1000. Pin the scale, then both ends of it.
+        assert_eq!(StyleTextIndent::const_px(1).inner.number.number(), SCALE);
+
+        let max = isize::MAX / SCALE;
+        let min = isize::MIN / SCALE;
+        assert_eq!(StyleTextIndent::const_px(max).inner.number.number(), max * SCALE);
+        assert_eq!(StyleTextIndent::const_px(min).inner.number.number(), min * SCALE);
+        assert_eq!(
+            StyleTextIndent::const_from_metric(SizeMetric::Em, max).inner.number.number(),
+            max * SCALE
+        );
+        // NOTE: one step past those bounds (e.g. `const_px(isize::MAX)`) overflows the
+        // `value * 1000` multiply and panics in debug. See the report — not asserted here
+        // because the behaviour differs between debug (panic) and release (wrap).
+    }
+
+    #[test]
+    fn text_indent_float_ctors_saturate_on_nan_and_infinity() {
+        // f32 -> isize is a saturating `as` cast: NaN -> 0, +inf -> MAX, -inf -> MIN.
+        assert_eq!(StyleTextIndent::px(f32::NAN).inner.number.get(), 0.0);
+        assert_eq!(StyleTextIndent::em(f32::NAN).inner.number.get(), 0.0);
+
+        assert_eq!(StyleTextIndent::px(f32::INFINITY).inner.number.number(), isize::MAX);
+        assert_eq!(StyleTextIndent::px(f32::NEG_INFINITY).inner.number.number(), isize::MIN);
+        assert_eq!(StyleTextIndent::pt(f32::MAX).inner.number.number(), isize::MAX);
+        assert_eq!(StyleTextIndent::pt(-f32::MAX).inner.number.number(), isize::MIN);
+
+        // Sub-precision magnitudes collapse to zero rather than trapping.
+        assert_eq!(StyleTextIndent::percent(f32::MIN_POSITIVE).inner.number.number(), 0);
+        assert_eq!(StyleTextIndent::px(-0.0).inner.number.number(), 0);
+
+        // Every saturated result is still a finite, readable f32.
+        for v in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, -f32::MAX] {
+            assert!(StyleTextIndent::px(v).inner.number.get().is_finite());
+        }
+    }
+
+    #[test]
+    fn text_indent_from_metric_agrees_with_the_typed_ctors() {
+        assert_eq!(StyleTextIndent::from_metric(SizeMetric::Px, 1.5), StyleTextIndent::px(1.5));
+        assert_eq!(StyleTextIndent::from_metric(SizeMetric::Em, -2.5), StyleTextIndent::em(-2.5));
+        assert_eq!(StyleTextIndent::from_metric(SizeMetric::Pt, 0.0), StyleTextIndent::pt(0.0));
+        assert_eq!(
+            StyleTextIndent::from_metric(SizeMetric::Percent, 50.0),
+            StyleTextIndent::percent(50.0)
+        );
+        assert_eq!(StyleTextIndent::const_from_metric(SizeMetric::Cm, 3), StyleTextIndent::const_cm(3));
+        assert_eq!(StyleTextIndent::const_from_metric(SizeMetric::Mm, -3), StyleTextIndent::const_mm(-3));
+
+        // A metric with no typed ctor still round-trips through from_metric.
+        let vw = StyleTextIndent::from_metric(SizeMetric::Vw, 10.0);
+        assert_eq!(vw.inner.metric, SizeMetric::Vw);
+        assert_eq!(vw.inner.number.get(), 10.0);
+    }
+
+    #[test]
+    fn text_indent_interpolate_endpoints_and_extrapolation() {
+        let a = StyleTextIndent::px(0.0);
+        let b = StyleTextIndent::px(100.0);
+
+        assert_eq!(a.interpolate(&b, 0.0).inner.number.get(), 0.0);
+        assert_eq!(a.interpolate(&b, 1.0).inner.number.get(), 100.0);
+        assert_eq!(a.interpolate(&b, 0.5).inner.number.get(), 50.0);
+        // t outside [0,1] extrapolates rather than clamping.
+        assert_eq!(a.interpolate(&b, -1.0).inner.number.get(), -100.0);
+        assert_eq!(a.interpolate(&b, 2.0).inner.number.get(), 200.0);
+        // Interpolating a value with itself is the identity for any finite t.
+        assert_eq!(b.interpolate(&b, 0.25), b);
+    }
+
+    #[test]
+    fn text_indent_interpolate_with_nonfinite_t_is_defined() {
+        let a = StyleTextIndent::px(0.0);
+        let b = StyleTextIndent::px(100.0);
+
+        // NaN propagates into the f32 -> isize cast, which saturates NaN to 0.
+        assert_eq!(a.interpolate(&b, f32::NAN).inner.number.get(), 0.0);
+        // +/-inf saturate to the isize bounds instead of panicking.
+        assert_eq!(a.interpolate(&b, f32::INFINITY).inner.number.number(), isize::MAX);
+        assert_eq!(a.interpolate(&b, f32::NEG_INFINITY).inner.number.number(), isize::MIN);
+        // 0 * inf is NaN, so interpolating equal endpoints by inf collapses to zero.
+        assert_eq!(b.interpolate(&b, f32::INFINITY).inner.number.get(), 0.0);
+
+        for t in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+            assert!(a.interpolate(&b, t).inner.number.get().is_finite());
+        }
+    }
+
+    #[test]
+    fn text_indent_interpolate_keeps_self_flags_and_normalizes_mixed_metrics() {
+        let a = StyleTextIndent { each_line: true, hanging: true, ..StyleTextIndent::px(0.0) };
+        let b = StyleTextIndent { each_line: false, hanging: false, ..StyleTextIndent::px(10.0) };
+
+        // Flags are taken from `self`, never blended.
+        let mid = a.interpolate(&b, 0.5);
+        assert!(mid.each_line && mid.hanging);
+        assert!(!b.interpolate(&a, 0.5).each_line);
+
+        // Mismatched metrics are resolved into px.
+        let mixed = StyleTextIndent::px(10.0).interpolate(&StyleTextIndent::em(2.0), 0.5);
+        assert_eq!(mixed.inner.metric, SizeMetric::Px);
+        assert!(mixed.inner.number.get().is_finite());
+    }
+
+    // =====================================================================
+    // StyleTextColor::interpolate
+    // =====================================================================
+
+    #[test]
+    fn text_color_interpolate_endpoints_are_exact() {
+        let a = StyleTextColor { inner: OPAQUE_BLACK };
+        let b = StyleTextColor { inner: OPAQUE_WHITE };
+
+        assert_eq!(a.interpolate(&b, 0.0), a);
+        assert_eq!(a.interpolate(&b, 1.0), b);
+        // 0 + 255*0.5 = 127.5, rounded half-away-from-zero.
+        assert_eq!(a.interpolate(&b, 0.5).inner, ColorU { r: 128, g: 128, b: 128, a: 255 });
+        assert_eq!(a.print_as_css_value(), "#000000ff");
+    }
+
+    #[test]
+    fn text_color_interpolate_saturates_out_of_range_t() {
+        let a = StyleTextColor { inner: OPAQUE_BLACK };
+        let b = StyleTextColor { inner: OPAQUE_WHITE };
+
+        // 0 + 255*2 = 510 -> clamped to 255 by the saturating u8 cast (no wrap to 254).
+        assert_eq!(a.interpolate(&b, 2.0).inner, OPAQUE_WHITE);
+        // 0 + 255*-1 = -255 -> clamped to 0 (no wrap to 1).
+        assert_eq!(a.interpolate(&b, -1.0).inner, OPAQUE_BLACK);
+    }
+
+    #[test]
+    fn text_color_interpolate_with_nonfinite_t_is_defined() {
+        let a = StyleTextColor { inner: OPAQUE_BLACK };
+        let b = StyleTextColor { inner: OPAQUE_WHITE };
+
+        // NaN saturates to 0 in every channel — including alpha, so the result is
+        // transparent black rather than a panic or garbage.
+        assert_eq!(a.interpolate(&b, f32::NAN).inner, TRANSPARENT_BLACK);
+
+        // With t = +inf the changing channels saturate to 255, but alpha is *equal* in
+        // both endpoints, so it computes 255 + (0 * inf) = NaN and saturates to 0.
+        // A fully-opaque pair therefore interpolates to a fully-transparent colour.
+        assert_eq!(
+            a.interpolate(&b, f32::INFINITY).inner,
+            ColorU { r: 255, g: 255, b: 255, a: 0 }
+        );
+        assert_eq!(
+            a.interpolate(&b, f32::NEG_INFINITY).inner,
+            ColorU { r: 0, g: 0, b: 0, a: 0 }
+        );
+    }
+
+    // =====================================================================
+    // StyleHangingPunctuation::is_enabled (predicate invariants)
+    // =====================================================================
+
+    #[test]
+    fn hanging_punctuation_is_enabled_matches_its_flags_exhaustively() {
+        assert!(!StyleHangingPunctuation::default().is_enabled());
+
+        for bits in 0_u8..16 {
+            let hp = StyleHangingPunctuation {
+                first: bits & 1 != 0,
+                force_end: bits & 2 != 0,
+                allow_end: bits & 4 != 0,
+                last: bits & 8 != 0,
+            };
+            assert_eq!(hp.is_enabled(), bits != 0, "bits={bits}");
+            // is_enabled() is exactly the "prints as something other than none" predicate.
+            assert_eq!(hp.print_as_css_value() == "none", !hp.is_enabled(), "bits={bits}");
+        }
+    }
+
+    #[test]
+    fn hanging_punctuation_prints_flags_in_spec_order() {
+        let all = StyleHangingPunctuation { first: true, force_end: true, allow_end: true, last: true };
+        assert_eq!(all.print_as_css_value(), "first force-end allow-end last");
+        assert_eq!(
+            StyleHangingPunctuation { last: true, ..Default::default() }.print_as_css_value(),
+            "last"
+        );
+    }
+
+    // =====================================================================
+    // Parser-gated tests
+    // =====================================================================
+
+    #[cfg(feature = "parser")]
+    mod parser {
+        use super::super::*;
+        use crate::props::basic::length::SizeMetric;
+
+        const GARBAGE: &[&str] = &[
+            "",
+            "   ",
+            "\t\n",
+            "!!!",
+            "\0\0",
+            "0",
+            "-0",
+            "9223372036854775807",
+            "1e400",
+            "NaN",
+            "inf",
+            "\u{1F600}",
+            "e\u{0301}",
+            "\u{202E}left",
+            "left;garbage",
+            "left garbage",
+        ];
+
+        /// Every keyword parser must reject junk, and accept its own printed form.
+        macro_rules! assert_keyword_round_trip {
+            ($parse:ident, $variants:expr) => {{
+                for v in $variants {
+                    let printed = v.print_as_css_value();
+                    assert_eq!($parse(&printed).as_ref(), Ok(&v), "round-trip of {printed:?}");
+                    // Surrounding whitespace is trimmed, not rejected.
+                    assert_eq!($parse(&format!("  {printed}  ")).as_ref(), Ok(&v));
+                }
+                for g in GARBAGE.iter().copied() {
+                    assert!($parse(g).is_err(), "{} accepted garbage {g:?}", stringify!($parse));
+                }
+            }};
+        }
+
+        #[test]
+        fn keyword_parsers_round_trip_every_variant_and_reject_garbage() {
+            type TA = StyleTextAlign;
+            assert_keyword_round_trip!(
+                parse_style_text_align,
+                [TA::Left, TA::Center, TA::Right, TA::Justify, TA::Start, TA::End]
+            );
+            type WS = StyleWhiteSpace;
+            assert_keyword_round_trip!(
+                parse_style_white_space,
+                [WS::Normal, WS::Pre, WS::Nowrap, WS::PreWrap, WS::PreLine, WS::BreakSpaces]
+            );
+            type H = StyleHyphens;
+            assert_keyword_round_trip!(parse_style_hyphens, [H::None, H::Manual, H::Auto]);
+            type LB = StyleLineBreak;
+            assert_keyword_round_trip!(
+                parse_style_line_break,
+                [LB::Auto, LB::Loose, LB::Normal, LB::Strict, LB::Anywhere]
+            );
+            type WB = StyleWordBreak;
+            assert_keyword_round_trip!(
+                parse_style_word_break,
+                [WB::Normal, WB::BreakAll, WB::KeepAll, WB::BreakWord]
+            );
+            type OW = StyleOverflowWrap;
+            assert_keyword_round_trip!(
+                parse_style_overflow_wrap,
+                [OW::Normal, OW::Anywhere, OW::BreakWord]
+            );
+            type TAL = StyleTextAlignLast;
+            assert_keyword_round_trip!(
+                parse_style_text_align_last,
+                [TAL::Auto, TAL::Start, TAL::End, TAL::Left, TAL::Right, TAL::Center, TAL::Justify]
+            );
+            type TT = StyleTextTransform;
+            assert_keyword_round_trip!(
+                parse_style_text_transform,
+                [TT::None, TT::Capitalize, TT::Uppercase, TT::Lowercase, TT::FullWidth]
+            );
+            type D = StyleDirection;
+            assert_keyword_round_trip!(parse_style_direction, [D::Ltr, D::Rtl]);
+            type US = StyleUserSelect;
+            assert_keyword_round_trip!(
+                parse_style_user_select,
+                [US::Auto, US::Text, US::None, US::All]
+            );
+            type TD = StyleTextDecoration;
+            assert_keyword_round_trip!(
+                parse_style_text_decoration,
+                [TD::None, TD::Underline, TD::Overline, TD::LineThrough]
+            );
+            type UB = StyleUnicodeBidi;
+            assert_keyword_round_trip!(
+                parse_style_unicode_bidi,
+                [UB::Normal, UB::Embed, UB::Isolate, UB::BidiOverride, UB::IsolateOverride, UB::Plaintext]
+            );
+            type TBT = StyleTextBoxTrim;
+            assert_keyword_round_trip!(
+                parse_style_text_box_trim,
+                [TBT::None, TBT::TrimStart, TBT::TrimEnd, TBT::TrimBoth]
+            );
+            type TBE = StyleTextBoxEdge;
+            assert_keyword_round_trip!(
+                parse_style_text_box_edge,
+                [TBE::Auto, TBE::TextEdge, TBE::CapHeight, TBE::ExHeight]
+            );
+            type DB = StyleDominantBaseline;
+            assert_keyword_round_trip!(
+                parse_style_dominant_baseline,
+                [
+                    DB::Auto, DB::TextBottom, DB::Alphabetic, DB::Ideographic, DB::Middle,
+                    DB::Central, DB::Mathematical, DB::Hanging, DB::TextTop
+                ]
+            );
+            type AB = StyleAlignmentBaseline;
+            assert_keyword_round_trip!(
+                parse_style_alignment_baseline,
+                [
+                    AB::Baseline, AB::TextBottom, AB::Alphabetic, AB::Ideographic, AB::Middle,
+                    AB::Central, AB::Mathematical, AB::TextTop
+                ]
+            );
+            type ILA = StyleInitialLetterAlign;
+            assert_keyword_round_trip!(
+                parse_style_initial_letter_align,
+                [ILA::Auto, ILA::Alphabetic, ILA::Hanging, ILA::Ideographic]
+            );
+            type ILW = StyleInitialLetterWrap;
+            assert_keyword_round_trip!(
+                parse_style_initial_letter_wrap,
+                [ILW::None, ILW::First, ILW::All, ILW::Grid]
+            );
+        }
+
+        #[test]
+        fn keyword_parsers_are_case_sensitive() {
+            // BUG: CSS keywords are ASCII case-insensitive (CSS Syntax 3 §3.1), but every
+            // `match input.trim()` parser in this file compares exactly, so `text-align: LEFT`
+            // is rejected. `hanging-punctuation` / `text-combine-upright` *do* fold case, so
+            // the file is internally inconsistent too. Pinned as-is; see the report.
+            assert!(parse_style_text_align("LEFT").is_err());
+            assert!(parse_style_text_align("Left").is_err());
+            assert!(parse_style_white_space("Normal").is_err());
+            assert!(parse_style_direction("LTR").is_err());
+            // ...whereas these two fold case as the spec requires:
+            assert!(parse_style_hanging_punctuation("FIRST").is_ok());
+            assert!(parse_style_text_combine_upright("NONE").is_ok());
+        }
+
+        #[test]
+        fn extremely_long_and_deeply_nested_input_terminates_with_err() {
+            let long = "a".repeat(1_000_000);
+            assert!(parse_style_text_align(&long).is_err());
+            assert!(parse_style_white_space(&long).is_err());
+            assert!(parse_style_text_color(&long).is_err());
+            assert!(parse_style_letter_spacing(&long).is_err());
+            assert!(parse_style_word_spacing(&long).is_err());
+            assert!(parse_style_tab_size(&long).is_err());
+            assert!(parse_style_line_height(&long).is_err());
+            assert!(parse_style_text_indent(&long).is_err());
+            assert!(parse_style_hanging_punctuation(&long).is_err());
+            assert!(parse_style_initial_letter(&long).is_err());
+            assert!(parse_style_line_clamp(&long).is_err());
+            assert!(parse_style_vertical_align(&long).is_err());
+
+            // A 1000-digit integer overflows every numeric target -> Err, never a wrap.
+            let huge_number = "9".repeat(1000);
+            assert!(parse_style_line_clamp(&huge_number).is_err());
+            assert!(parse_style_initial_letter(&huge_number).is_err());
+
+            // No parser here recurses, so nesting cannot blow the stack.
+            let nested = format!("{}{}", "(".repeat(10_000), ")".repeat(10_000));
+            assert!(parse_style_text_align(&nested).is_err());
+            assert!(parse_style_letter_spacing(&nested).is_err());
+            assert!(parse_style_text_indent(&nested).is_err());
+            assert!(parse_style_line_height(&nested).is_err());
+        }
+
+        // -- pixel-valued properties -------------------------------------------
+
+        #[test]
+        fn spacing_and_tab_size_round_trip_through_their_printed_form() {
+            for pv in [
+                PixelValue::px(2.0),
+                PixelValue::px(-3.0),
+                PixelValue::em(0.5),
+                PixelValue::pt(12.0),
+                PixelValue::percent(10.0),
+                PixelValue::zero(),
+            ] {
+                let ls = StyleLetterSpacing { inner: pv };
+                assert_eq!(parse_style_letter_spacing(&ls.print_as_css_value()).unwrap(), ls);
+                let ws = StyleWordSpacing { inner: pv };
+                assert_eq!(parse_style_word_spacing(&ws.print_as_css_value()).unwrap(), ws);
+            }
+            // tab-size: unitless numbers mean `em`, lengths keep their unit.
+            let ts = StyleTabSize::default();
+            assert_eq!(ts.inner, PixelValue::em(8.0));
+            assert_eq!(parse_style_tab_size(&ts.print_as_css_value()).unwrap(), ts);
+            assert_eq!(parse_style_tab_size("4").unwrap().inner, PixelValue::em(4.0));
+            assert_eq!(parse_style_tab_size("20px").unwrap().inner, PixelValue::px(20.0));
+        }
+
+        #[test]
+        fn pixel_parsers_reject_empty_and_unit_only_input() {
+            for bad in ["", "   ", "\t\n", "px", "em", "abc", "px px", "10pxx", "\u{1F600}"] {
+                assert!(parse_style_letter_spacing(bad).is_err(), "letter-spacing {bad:?}");
+                assert!(parse_style_word_spacing(bad).is_err(), "word-spacing {bad:?}");
+            }
+            // BUG: the shared pixel parser trims *after* stripping the unit suffix, so a space
+            // between the number and its unit is accepted even though CSS forbids it.
+            assert_eq!(parse_style_letter_spacing("10 px").unwrap().inner, PixelValue::px(10.0));
+        }
+
+        #[test]
+        fn pixel_parsers_accept_float_keywords_and_saturate_instead_of_panicking() {
+            // BUG: `f32::from_str` accepts "NaN"/"inf"/"1e400", so these are *not* rejected
+            // as CSS lengths. They cannot panic (the isize cast saturates), but they should
+            // be Err. Pinned as-is; see the report.
+            assert_eq!(parse_style_letter_spacing("NaN").unwrap().inner.number.number(), 0);
+            assert_eq!(
+                parse_style_letter_spacing("inf").unwrap().inner.number.number(),
+                isize::MAX
+            );
+            assert_eq!(
+                parse_style_letter_spacing("-inf").unwrap().inner.number.number(),
+                isize::MIN
+            );
+            assert_eq!(
+                parse_style_word_spacing("1e400px").unwrap().inner.number.number(),
+                isize::MAX
+            );
+            // Same story via the tab-size unitless branch.
+            assert_eq!(parse_style_tab_size("NaN").unwrap().inner, PixelValue::em(0.0));
+            assert!(parse_style_tab_size("inf").unwrap().inner.number.get().is_finite());
+
+            // Boundary numeric strings that *are* legal still parse to the right value.
+            assert_eq!(parse_style_letter_spacing("0").unwrap().inner, PixelValue::px(0.0));
+            assert_eq!(parse_style_letter_spacing("-0").unwrap().inner.number.number(), 0);
+            assert!(parse_style_letter_spacing("9223372036854775807px").unwrap().inner.number.get().is_finite());
+        }
+
+        // -- text-indent --------------------------------------------------------
+
+        #[test]
+        fn text_indent_round_trips_length_and_keywords() {
+            for pv in [PixelValue::px(10.0), PixelValue::em(-2.0), PixelValue::percent(50.0)] {
+                for (each_line, hanging) in [(false, false), (true, false), (false, true), (true, true)] {
+                    let ti = StyleTextIndent { inner: pv, each_line, hanging };
+                    let printed = ti.print_as_css_value();
+                    assert_eq!(parse_style_text_indent(&printed).unwrap(), ti, "{printed:?}");
+                }
+            }
+            assert!(parse_style_text_indent("10px hanging").unwrap().hanging);
+            assert!(parse_style_text_indent("each-line 10px").unwrap().each_line);
+        }
+
+        #[test]
+        fn text_indent_defaults_missing_length_to_zero_and_keeps_the_last_one() {
+            // BUG: `text-indent` requires a <length-percentage>; these should all be Err.
+            // Instead an absent length silently defaults to 0px, so empty/whitespace/keyword-
+            // only input parses Ok. Pinned as-is; see the report.
+            assert_eq!(parse_style_text_indent("").unwrap(), StyleTextIndent::zero());
+            assert_eq!(parse_style_text_indent("   ").unwrap(), StyleTextIndent::zero());
+            assert_eq!(
+                parse_style_text_indent("hanging").unwrap(),
+                StyleTextIndent { hanging: true, ..StyleTextIndent::zero() }
+            );
+            // BUG: repeated lengths are not rejected — the last token silently wins.
+            assert_eq!(parse_style_text_indent("10px 20px").unwrap().inner, PixelValue::px(20.0));
+
+            // Junk in the length slot is still rejected.
+            assert!(parse_style_text_indent("garbage").is_err());
+            assert!(parse_style_text_indent("hanging garbage").is_err());
+        }
+
+        // -- initial-letter -----------------------------------------------------
+
+        #[test]
+        fn initial_letter_parses_size_and_optional_sink() {
+            assert_eq!(
+                parse_style_initial_letter("3").unwrap(),
+                StyleInitialLetter { size: 3, sink: crate::corety::OptionU32::None }
+            );
+            let with_sink = StyleInitialLetter { size: 3, sink: crate::corety::OptionU32::Some(2) };
+            assert_eq!(parse_style_initial_letter("3 2").unwrap(), with_sink);
+            // Printed form round-trips.
+            assert_eq!(parse_style_initial_letter(&with_sink.print_as_css_value()).unwrap(), with_sink);
+        }
+
+        #[test]
+        fn initial_letter_rejects_zero_negative_and_overflowing_sizes() {
+            assert!(parse_style_initial_letter("0").is_err(), "size 0 must be rejected");
+            assert!(parse_style_initial_letter("-1").is_err());
+            assert!(parse_style_initial_letter("1.5").is_err());
+            assert!(parse_style_initial_letter("4294967296").is_err(), "u32::MAX + 1");
+            assert!(parse_style_initial_letter("3 -1").is_err(), "negative sink");
+            assert!(parse_style_initial_letter("3 x").is_err());
+            assert!(parse_style_initial_letter("").is_err());
+            assert!(parse_style_initial_letter("   ").is_err());
+            // u32::MAX itself is in range.
+            assert_eq!(parse_style_initial_letter("4294967295").unwrap().size, u32::MAX);
+            // BUG: a third component should be a parse error, but it is silently dropped.
+            assert_eq!(parse_style_initial_letter("3 2 9").unwrap(), StyleInitialLetter {
+                size: 3,
+                sink: crate::corety::OptionU32::Some(2),
+            });
+        }
+
+        // -- line-clamp ---------------------------------------------------------
+
+        #[test]
+        fn line_clamp_rejects_zero_and_out_of_range_values() {
+            assert_eq!(parse_style_line_clamp("3").unwrap(), StyleLineClamp { max_lines: 3 });
+            assert_eq!(parse_style_line_clamp("  7  ").unwrap().max_lines, 7);
+            assert_eq!(
+                parse_style_line_clamp("0").unwrap_err(),
+                StyleLineClampParseError::ZeroValue
+            );
+            assert!(parse_style_line_clamp("-1").is_err());
+            assert!(parse_style_line_clamp("1.0").is_err());
+            assert!(parse_style_line_clamp("").is_err());
+            assert!(parse_style_line_clamp("   ").is_err());
+            assert!(parse_style_line_clamp("\u{1F600}").is_err());
+            // Saturating/wrapping never happens: an out-of-range integer is an error.
+            assert!(parse_style_line_clamp("99999999999999999999999").is_err());
+            let max = usize::MAX.to_string();
+            assert_eq!(parse_style_line_clamp(&max).unwrap().max_lines, usize::MAX);
+            // Printed form round-trips.
+            let lc = StyleLineClamp { max_lines: 42 };
+            assert_eq!(parse_style_line_clamp(&lc.print_as_css_value()).unwrap(), lc);
+        }
+
+        // -- hanging-punctuation ------------------------------------------------
+
+        #[test]
+        fn hanging_punctuation_round_trips_and_enforces_mutual_exclusion() {
+            for bits in 0_u8..16 {
+                let hp = StyleHangingPunctuation {
+                    first: bits & 1 != 0,
+                    force_end: bits & 2 != 0,
+                    allow_end: bits & 4 != 0,
+                    last: bits & 8 != 0,
+                };
+                let printed = hp.print_as_css_value();
+                if hp.force_end && hp.allow_end {
+                    // `force-end` and `allow-end` are mutually exclusive per CSS Text 3 §8.
+                    assert!(parse_style_hanging_punctuation(&printed).is_err(), "{printed:?}");
+                } else {
+                    assert_eq!(parse_style_hanging_punctuation(&printed).unwrap(), hp, "{printed:?}");
+                }
+            }
+            assert!(parse_style_hanging_punctuation("first bogus").is_err());
+            assert!(parse_style_hanging_punctuation("\u{1F600}").is_err());
+            assert!(parse_style_hanging_punctuation("none first").is_err());
+        }
+
+        #[test]
+        fn hanging_punctuation_accepts_empty_input_as_none() {
+            // BUG: empty / whitespace-only input has no tokens, so the loop body never runs
+            // and the parser returns Ok(none) instead of Err. Pinned as-is; see the report.
+            assert_eq!(
+                parse_style_hanging_punctuation("").unwrap(),
+                StyleHangingPunctuation::default()
+            );
+            assert_eq!(
+                parse_style_hanging_punctuation("   ").unwrap(),
+                StyleHangingPunctuation::default()
+            );
+            // Duplicate keywords are also accepted (idempotent flag set).
+            assert!(parse_style_hanging_punctuation("first first").unwrap().first);
+        }
+
+        // -- text-combine-upright -----------------------------------------------
+
+        #[test]
+        fn text_combine_upright_bounds_the_digits_operand() {
+            assert_eq!(parse_style_text_combine_upright("none").unwrap(), StyleTextCombineUpright::None);
+            assert_eq!(parse_style_text_combine_upright("all").unwrap(), StyleTextCombineUpright::All);
+            for n in 2_u8..=4 {
+                let v = StyleTextCombineUpright::Digits(n);
+                assert_eq!(parse_style_text_combine_upright(&v.print_as_css_value()).unwrap(), v);
+            }
+            // Outside the spec'd 2..=4 range -> Err, not a silent clamp or wrap.
+            for bad in ["digits 0", "digits 1", "digits 5", "digits 255", "digits 256", "digits -1"] {
+                assert!(parse_style_text_combine_upright(bad).is_err(), "{bad:?} accepted");
+            }
+            assert!(parse_style_text_combine_upright("").is_err());
+            assert!(parse_style_text_combine_upright("bogus").is_err());
+        }
+
+        #[test]
+        fn text_combine_upright_accepts_garbage_after_the_digits_prefix() {
+            // BUG: the `digits` branch is chosen by `starts_with("digits")` with no word
+            // boundary, and any token count != 2 falls back to `digits 2`. So junk that
+            // merely starts with "digits" parses Ok. Pinned as-is; see the report.
+            assert_eq!(
+                parse_style_text_combine_upright("digits").unwrap(),
+                StyleTextCombineUpright::Digits(2)
+            );
+            assert_eq!(
+                parse_style_text_combine_upright("digitsgarbage").unwrap(),
+                StyleTextCombineUpright::Digits(2)
+            );
+            assert_eq!(
+                parse_style_text_combine_upright("digits 2 3").unwrap(),
+                StyleTextCombineUpright::Digits(2)
+            );
+        }
+
+        // -- line-height --------------------------------------------------------
+
+        #[test]
+        fn line_height_parses_numbers_percentages_and_px() {
+            assert_eq!(parse_style_line_height("1.5").unwrap().inner, PercentageValue::new(150.0));
+            assert_eq!(parse_style_line_height("120%").unwrap().inner, PercentageValue::new(120.0));
+            // px lengths are encoded as a *negative* percentage (documented convention).
+            assert_eq!(parse_style_line_height("20px").unwrap().inner, PercentageValue::new(-2000.0));
+            assert!(parse_style_line_height("").is_err());
+            assert!(parse_style_line_height("   ").is_err());
+            assert!(parse_style_line_height("abc").is_err());
+            assert!(parse_style_line_height("\u{1F600}").is_err());
+            // Printed form round-trips as a value.
+            let lh = StyleLineHeight::default();
+            assert_eq!(parse_style_line_height(&lh.print_as_css_value()).unwrap(), lh);
+        }
+
+        #[test]
+        fn line_height_negative_numbers_alias_absolute_px_lengths() {
+            // BUG: negative values are the internal marker for "absolute px", but the number
+            // branch happily parses a negative <number>, so `line-height: -1` and
+            // `line-height: 1px` produce the *same* value and are indistinguishable
+            // downstream. A negative line-height is invalid CSS and should be Err.
+            assert_eq!(
+                parse_style_line_height("-1").unwrap(),
+                parse_style_line_height("1px").unwrap()
+            );
+            assert_eq!(
+                parse_style_line_height("-100%").unwrap(),
+                parse_style_line_height("1px").unwrap()
+            );
+        }
+
+        #[test]
+        fn line_height_rejects_em_and_other_length_units() {
+            // BUG: `line-height: 1.5em` (and rem/pt/...) is valid CSS but only Px survives
+            // the length branch, so every other unit is rejected. Pinned as-is.
+            assert!(parse_style_line_height("1.5em").is_err());
+            assert!(parse_style_line_height("12pt").is_err());
+            assert!(parse_style_line_height("2rem").is_err());
+        }
+
+        #[test]
+        #[ignore = "BUG: panics — parse_percentage_value slices at a non-char-boundary on \
+                    non-ASCII numerals (e.g. U+FF15). Un-ignore once length.rs is fixed."]
+        fn line_height_rejects_non_ascii_numerals_without_panicking() {
+            // `char::is_numeric()` is true for U+FF15 FULLWIDTH DIGIT FIVE, so
+            // parse_percentage_value sets split_pos = idx + 1 = 1 and then slices
+            // `input[1..]` — a byte index inside a 3-byte char -> panic.
+            // Any of these is a CSS-reachable crash:
+            assert!(parse_style_line_height("\u{FF15}").is_err()); // fullwidth 5
+            assert!(parse_style_line_height("\u{0665}").is_err()); // arabic-indic 5
+            assert!(parse_style_line_height("1\u{00B2}").is_err()); // superscript 2
+        }
+
+        // -- vertical-align -----------------------------------------------------
+
+        #[test]
+        fn vertical_align_round_trips_keywords_percentages_and_lengths() {
+            type VA = StyleVerticalAlign;
+            for v in [
+                VA::Baseline, VA::Top, VA::Middle, VA::Bottom, VA::Sub, VA::Superscript,
+                VA::TextTop, VA::TextBottom,
+                VA::Percentage(PercentageValue::new(50.0)),
+                VA::Percentage(PercentageValue::new(-25.0)),
+                VA::Length(PixelValue::px(12.0)),
+                VA::Length(PixelValue::em(1.5)),
+            ] {
+                let printed = v.print_as_css_value();
+                assert_eq!(parse_style_vertical_align(&printed).unwrap(), v, "{printed:?}");
+            }
+            assert!(parse_style_vertical_align("").is_err());
+            assert!(parse_style_vertical_align("%").is_err());
+            assert!(parse_style_vertical_align("bogus%").is_err());
+            assert!(parse_style_vertical_align("\u{1F600}").is_err());
+        }
+
+        // -- caret-* helpers ----------------------------------------------------
+
+        #[test]
+        fn caret_parsers_reject_garbage_and_accept_minimal_input() {
+            assert_eq!(parse_caret_color("red").unwrap().inner, parse_style_text_color("red").unwrap().inner);
+            assert!(parse_caret_color("").is_err());
+            assert!(parse_caret_color("not-a-color").is_err());
+            assert_eq!(parse_caret_width("2px").unwrap().inner, PixelValue::px(2.0));
+            assert!(parse_caret_width("").is_err());
+            assert!(parse_caret_animation_duration("bogus").is_err());
+            assert!(parse_caret_animation_duration("500ms").is_ok());
+        }
+
+        // -- error type getters: to_contained / to_shared ------------------------
+
+        /// Owned<->shared conversion must be lossless for every error family here.
+        macro_rules! assert_error_round_trip {
+            ($parse:ident, $($bad:expr),+ $(,)?) => {{
+                $(
+                    let e = $parse($bad).expect_err(concat!(stringify!($parse), " accepted ", $bad));
+                    assert_eq!(e.to_contained().to_shared(), e, "{:?} via {}", $bad, stringify!($parse));
+                )+
+            }};
+        }
+
+        #[test]
+        fn invalid_value_errors_round_trip_through_their_owned_form() {
+            assert_error_round_trip!(parse_style_text_align, "", "middle", "\u{1F600}");
+            assert_error_round_trip!(parse_style_white_space, "", "wrap");
+            assert_error_round_trip!(parse_style_hyphens, "", "always");
+            assert_error_round_trip!(parse_style_line_break, "", "tight");
+            assert_error_round_trip!(parse_style_word_break, "", "break");
+            assert_error_round_trip!(parse_style_overflow_wrap, "", "wrap");
+            assert_error_round_trip!(parse_style_text_align_last, "", "middle");
+            assert_error_round_trip!(parse_style_text_transform, "", "smallcaps");
+            assert_error_round_trip!(parse_style_direction, "", "sideways");
+            assert_error_round_trip!(parse_style_user_select, "", "some");
+            assert_error_round_trip!(parse_style_text_decoration, "", "blink");
+            assert_error_round_trip!(parse_style_vertical_align, "", "bogus");
+            assert_error_round_trip!(parse_style_unicode_bidi, "", "override");
+            assert_error_round_trip!(parse_style_text_box_trim, "", "trim");
+            assert_error_round_trip!(parse_style_text_box_edge, "", "edge");
+            assert_error_round_trip!(parse_style_dominant_baseline, "", "bogus");
+            assert_error_round_trip!(parse_style_alignment_baseline, "", "bogus");
+            assert_error_round_trip!(parse_style_initial_letter_align, "", "bogus");
+            assert_error_round_trip!(parse_style_initial_letter_wrap, "", "bogus");
+        }
+
+        #[test]
+        fn pixel_and_numeric_errors_round_trip_through_their_owned_form() {
+            // EmptyString / ValueParseErr / NoValueGiven / InvalidPixelValue variants.
+            assert_error_round_trip!(parse_style_letter_spacing, "", "abcpx", "px", "zz");
+            assert_error_round_trip!(parse_style_word_spacing, "", "abcem", "em", "zz");
+            assert_error_round_trip!(parse_style_text_indent, "abcpx", "zz");
+            assert_error_round_trip!(parse_style_tab_size, "", "abcpx", "zz");
+            assert_error_round_trip!(parse_style_line_height, "", "abc", "1.5em");
+            assert_error_round_trip!(parse_style_initial_letter, "", "x", "0", "3 x");
+            assert_error_round_trip!(parse_style_line_clamp, "", "x", "0");
+            assert_error_round_trip!(parse_style_hanging_punctuation, "bogus", "force-end allow-end");
+            assert_error_round_trip!(parse_style_text_combine_upright, "bogus", "digits 9");
+        }
+
+        #[test]
+        fn text_color_error_round_trips_and_preserves_its_message() {
+            let e = parse_style_text_color("not-a-color").unwrap_err();
+            let round_tripped = e.to_contained().to_shared();
+            assert_eq!(format!("{e}"), format!("{round_tripped}"));
+            assert!(parse_style_text_color("").is_err());
+            assert!(parse_style_text_color("#gggggg").is_err());
+            assert!(parse_style_text_color("\u{1F600}").is_err());
+            // Positive control.
+            assert_eq!(parse_style_text_color("#aabbcc").unwrap().inner.to_hash(), "#aabbccff");
+        }
+
+        #[test]
+        fn error_types_survive_a_default_ish_extreme_instance() {
+            // to_contained/to_shared must not panic on empty or huge payloads.
+            let long = "z".repeat(100_000);
+            let e = parse_style_text_align(&long).unwrap_err();
+            assert_eq!(e.to_contained().to_shared(), e);
+            let e = parse_style_line_clamp(&long).unwrap_err();
+            assert_eq!(e.to_contained().to_shared(), e);
+            let e = parse_style_hanging_punctuation(&long).unwrap_err();
+            assert_eq!(e.to_contained().to_shared(), e);
+            // Empty payload.
+            let e = parse_style_letter_spacing("").unwrap_err();
+            assert_eq!(e.to_contained().to_shared(), e);
+        }
+
+        // -- metric coverage ----------------------------------------------------
+
+        #[test]
+        fn letter_spacing_accepts_every_size_metric_it_prints() {
+            for (unit, metric) in [
+                ("px", SizeMetric::Px),
+                ("pt", SizeMetric::Pt),
+                ("em", SizeMetric::Em),
+                ("rem", SizeMetric::Rem),
+                ("in", SizeMetric::In),
+                ("cm", SizeMetric::Cm),
+                ("mm", SizeMetric::Mm),
+                ("%", SizeMetric::Percent),
+                ("vw", SizeMetric::Vw),
+                ("vh", SizeMetric::Vh),
+                ("vmax", SizeMetric::Vmax),
+            ] {
+                let parsed = parse_style_letter_spacing(&format!("1{unit}")).unwrap();
+                assert_eq!(parsed.inner.metric, metric, "unit {unit}");
+                assert_eq!(parsed.inner.number.get(), 1.0);
+            }
+            // BUG: `vmin` is unreachable — the suffix table tries "in" before "vmin", so
+            // "1vmin" is stripped to "1vm" and fails to parse. Every property backed by
+            // parse_pixel_value (letter-spacing, word-spacing, text-indent, tab-size,
+            // vertical-align) therefore rejects a valid CSS unit. See the report.
+            assert!(parse_style_letter_spacing("1vmin").is_err());
+        }
+    }
+}

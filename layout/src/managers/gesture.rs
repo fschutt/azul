@@ -1767,3 +1767,1652 @@ mod touch_session_tests {
         assert!(!m.touch_move(1, pos(0.0, 0.0), ts(3), pos(0.0, 0.0)));
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::unreadable_literal)]
+mod autotest_generated {
+    use azul_core::{
+        drag::ScrollbarAxis, geom::PhysicalPositionI32, styled_dom::NodeHierarchyItemId,
+        task::{SystemTick, SystemTickDiff, SystemTimeDiff},
+    };
+
+    use super::*;
+
+    // ---------------------------------------------------------------- helpers
+
+    /// Tick-based instant: 1 tick == 1 ms for `duration_to_millis`.
+    fn ts(n: u64) -> CoreInstant {
+        CoreInstant::Tick(SystemTick::new(n))
+    }
+
+    fn pos(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition { x, y }
+    }
+
+    /// A sample with window-local == screen position (the common mouse case).
+    fn sample(x: f32, y: f32, tick: u64) -> InputSample {
+        InputSample {
+            position: pos(x, y),
+            screen_position: pos(x, y),
+            timestamp: ts(tick),
+            button_state: 0x01,
+            event_id: 0,
+            pressure: 0.5,
+            tilt: (0.0, 0.0),
+            touch_radius: (0.0, 0.0),
+        }
+    }
+
+    /// A synthetic *ended* session — the only way to build a >2-click history,
+    /// because `start_input_session` prunes all but the newest ended session.
+    fn ended_session(session_id: u64, samples: Vec<InputSample>) -> InputSession {
+        InputSession {
+            samples,
+            ended: true,
+            session_id,
+            window_position_at_start: WindowPosition::Uninitialized,
+        }
+    }
+
+    /// Press at `from`, move to `to`, `hold_ms` apart — a session that
+    /// `detect_drag` will accept (distance permitting).
+    fn dragging_manager(
+        from: LogicalPosition,
+        to: LogicalPosition,
+        hold_ms: u64,
+    ) -> GestureAndDragManager {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(from, ts(0), 0x01, WindowPosition::Uninitialized, from);
+        let recorded = m.record_input_sample(to, ts(hold_ms), 0x01, to);
+        assert!(recorded);
+        m
+    }
+
+    // ------------------------------------------------- duration_to_millis (private)
+
+    #[test]
+    fn duration_to_millis_tick_zero_and_max_do_not_panic() {
+        assert_eq!(
+            duration_to_millis(CoreDuration::Tick(SystemTickDiff { tick_diff: 0 })),
+            0
+        );
+        assert_eq!(
+            duration_to_millis(CoreDuration::Tick(SystemTickDiff {
+                tick_diff: u64::MAX
+            })),
+            u64::MAX
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn duration_to_millis_system_zero_and_sub_millisecond_floor() {
+        assert_eq!(
+            duration_to_millis(CoreDuration::System(SystemTimeDiff { secs: 0, nanos: 0 })),
+            0
+        );
+        // 999_999 ns is under a millisecond => floors to 0, never rounds up.
+        assert_eq!(
+            duration_to_millis(CoreDuration::System(SystemTimeDiff {
+                secs: 0,
+                nanos: 999_999
+            })),
+            0
+        );
+        assert_eq!(
+            duration_to_millis(CoreDuration::System(SystemTimeDiff {
+                secs: 2,
+                nanos: 500_000_000
+            })),
+            2500
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn duration_to_millis_system_max_truncates_instead_of_panicking() {
+        // as_millis() is u128 and would be MAX*1000+999; the `as u64` cast
+        // truncates rather than panicking or saturating. Lock the exact value
+        // so a change to saturating semantics is caught.
+        let d = CoreDuration::System(SystemTimeDiff {
+            secs: u64::MAX,
+            nanos: 999_999_999,
+        });
+        let expected = ((u64::MAX as u128) * 1000 + 999) as u64;
+        assert_eq!(duration_to_millis(d), expected);
+    }
+
+    // ------------------------------------------------- WacomPadState::express_key
+
+    #[test]
+    fn express_key_out_of_range_index_is_false_not_a_shift_overflow() {
+        // 1u32 << 32 would panic in debug; the `index < 32` guard must short-circuit.
+        let pad = WacomPadState {
+            express_keys: u32::MAX,
+            touch_ring: 0.0,
+            touch_ring_active: false,
+            device_id: 0,
+        };
+        assert!(pad.express_key(31));
+        assert!(!pad.express_key(32));
+        assert!(!pad.express_key(33));
+        assert!(!pad.express_key(u32::MAX));
+    }
+
+    #[test]
+    fn express_key_default_pad_has_no_keys_held() {
+        let pad = WacomPadState::default();
+        for i in 0..40u32 {
+            assert!(!pad.express_key(i), "bit {i} must be unset on a default pad");
+        }
+    }
+
+    #[test]
+    fn express_key_bitset_round_trips_every_bit() {
+        for bit in 0..32u32 {
+            let pad = WacomPadState {
+                express_keys: 1u32 << bit,
+                touch_ring: 0.0,
+                touch_ring_active: false,
+                device_id: 0,
+            };
+            for probe in 0..32u32 {
+                assert_eq!(
+                    pad.express_key(probe),
+                    probe == bit,
+                    "encode bit {bit} -> decode probe {probe}"
+                );
+            }
+        }
+    }
+
+    // ------------------------------------------------- InputSession
+
+    #[test]
+    fn input_session_new_holds_its_construction_invariants() {
+        let s = InputSession::new(
+            u64::MAX,
+            sample(1.0, 2.0, 7),
+            WindowPosition::Initialized(PhysicalPositionI32::new(-5, 9)),
+        );
+        assert_eq!(s.session_id, u64::MAX);
+        assert!(!s.ended);
+        assert_eq!(s.samples.len(), 1);
+        assert_eq!(s.first_sample(), s.last_sample());
+        assert_eq!(
+            s.window_position_at_start,
+            WindowPosition::Initialized(PhysicalPositionI32::new(-5, 9))
+        );
+        assert_eq!(s.total_distance(), 0.0);
+        assert_eq!(s.direct_distance(), Some(0.0));
+        assert_eq!(s.duration_ms(), Some(0));
+    }
+
+    #[test]
+    fn empty_session_getters_return_none_instead_of_panicking() {
+        let s = InputSession {
+            samples: Vec::new(),
+            ended: false,
+            session_id: 0,
+            window_position_at_start: WindowPosition::Uninitialized,
+        };
+        assert!(s.first_sample().is_none());
+        assert!(s.last_sample().is_none());
+        assert!(s.duration_ms().is_none());
+        assert!(s.direct_distance().is_none());
+        assert_eq!(s.total_distance(), 0.0);
+    }
+
+    #[test]
+    fn duration_ms_saturates_to_zero_when_time_runs_backwards() {
+        // last sample is *earlier* than the first (reordered / skewed clock).
+        let s = InputSession {
+            samples: vec![sample(0.0, 0.0, 900), sample(0.0, 0.0, 100)],
+            ended: false,
+            session_id: 1,
+            window_position_at_start: WindowPosition::Uninitialized,
+        };
+        assert_eq!(s.duration_ms(), Some(0));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn duration_ms_with_mismatched_instant_kinds_is_zero() {
+        let mut first = sample(0.0, 0.0, 0);
+        first.timestamp = CoreInstant::now(); // System variant
+        let last = sample(0.0, 0.0, 5_000); // Tick variant
+        let s = InputSession {
+            samples: vec![first, last],
+            ended: false,
+            session_id: 1,
+            window_position_at_start: WindowPosition::Uninitialized,
+        };
+        assert_eq!(s.duration_ms(), Some(0));
+    }
+
+    #[test]
+    fn total_distance_sums_the_path_while_direct_distance_is_the_chord() {
+        let s = InputSession {
+            samples: vec![
+                sample(0.0, 0.0, 0),
+                sample(3.0, 0.0, 1),
+                sample(3.0, 4.0, 2),
+            ],
+            ended: false,
+            session_id: 1,
+            window_position_at_start: WindowPosition::Uninitialized,
+        };
+        assert_eq!(s.total_distance(), 7.0);
+        assert_eq!(s.direct_distance(), Some(5.0));
+    }
+
+    #[test]
+    fn distances_with_nan_coordinates_are_nan_and_do_not_panic() {
+        let s = InputSession {
+            samples: vec![sample(0.0, 0.0, 0), sample(f32::NAN, f32::NAN, 1)],
+            ended: false,
+            session_id: 1,
+            window_position_at_start: WindowPosition::Uninitialized,
+        };
+        assert!(s.total_distance().is_nan());
+        assert!(s.direct_distance().is_some_and(f32::is_nan));
+    }
+
+    #[test]
+    fn distances_at_f32_extremes_saturate_to_infinity_instead_of_panicking() {
+        let s = InputSession {
+            samples: vec![
+                sample(-f32::MAX, -f32::MAX, 0),
+                sample(f32::MAX, f32::MAX, 1),
+            ],
+            ended: false,
+            session_id: 1,
+            window_position_at_start: WindowPosition::Uninitialized,
+        };
+        assert!(s.total_distance().is_infinite());
+        assert!(s.direct_distance().is_some_and(f32::is_infinite));
+    }
+
+    // ------------------------------------------------- construction
+
+    #[test]
+    fn new_manager_is_inert_and_every_detector_is_quiet() {
+        let m = GestureAndDragManager::new();
+        assert_eq!(m.session_count(), 0);
+        assert_eq!(m.debug_counts(), (0, 0));
+        assert!(m.current_session_id().is_none());
+        assert!(m.get_current_session().is_none());
+        assert!(m.get_current_mouse_position().is_none());
+        assert!(m.get_pen_state().is_none());
+        assert!(m.get_previous_pen_state().is_none());
+        assert!(m.get_pad_state().is_none());
+        assert!(m.get_drag_context().is_none());
+        assert!(m.detect_drag().is_none());
+        assert!(m.detect_long_press().is_none());
+        assert!(!m.detect_double_click());
+        assert!(m.get_drag_direction().is_none());
+        assert!(m.get_gesture_velocity().is_none());
+        assert!(!m.is_swipe());
+        assert!(m.detect_swipe_direction().is_none());
+        assert!(m.detect_pinch().is_none());
+        assert!(m.detect_rotation().is_none());
+        assert!(m.get_drag_delta().is_none());
+        assert!(m.get_drag_delta_screen().is_none());
+        assert!(m.get_drag_delta_screen_incremental().is_none());
+        assert!(m.get_window_position_at_session_start().is_none());
+        assert!(m.get_window_drag_delta().is_none());
+        assert!(m.get_window_position_from_drag().is_none());
+        assert!(m.get_scrollbar_scroll_offset().is_none());
+        assert!(!m.is_dragging());
+        assert!(!m.is_text_selection_dragging());
+        assert!(!m.is_scrollbar_dragging());
+        assert!(!m.is_node_drag_active());
+        assert!(!m.is_window_dragging());
+        assert!(!m.is_file_dropping());
+        assert!(!m.is_node_dragging(DomId::ROOT_ID, NodeId::ZERO));
+        // Documented default for "no history at all".
+        assert_eq!(m.detect_click_count(), 1);
+        assert_eq!(m, GestureAndDragManager::default());
+    }
+
+    #[test]
+    fn with_config_keeps_extreme_thresholds_verbatim_and_still_starts_at_session_1() {
+        let cfg = GestureDetectionConfig {
+            drag_distance_threshold: f32::NAN,
+            double_click_time_threshold_ms: u64::MAX,
+            double_click_distance_threshold: f32::INFINITY,
+            long_press_time_threshold_ms: 0,
+            long_press_distance_threshold: -1.0,
+            min_samples_for_gesture: usize::MAX,
+            swipe_velocity_threshold: 0.0,
+            pinch_scale_threshold: f32::MAX,
+            rotation_angle_threshold: -0.0,
+            sample_cleanup_interval_ms: 0,
+        };
+        let mut m = GestureAndDragManager::with_config(cfg);
+        assert!(m.config.drag_distance_threshold.is_nan());
+        assert_eq!(m.config.double_click_time_threshold_ms, u64::MAX);
+        assert_eq!(m.config.min_samples_for_gesture, usize::MAX);
+        assert_eq!(m.session_count(), 0);
+        let id = m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        assert_eq!(id, 1, "with_config must not disturb the session counter");
+        // min_samples_for_gesture == usize::MAX can never be reached => no drag.
+        assert!(m.detect_drag().is_none());
+    }
+
+    // ------------------------------------------------- session recording
+
+    #[test]
+    fn session_ids_are_monotonic_starting_at_one() {
+        let mut m = GestureAndDragManager::new();
+        for expected in 1..=5u64 {
+            let id = m.start_input_session(
+                pos(0.0, 0.0),
+                ts(expected),
+                0x01,
+                WindowPosition::Uninitialized,
+                pos(0.0, 0.0),
+            );
+            assert_eq!(id, expected);
+            assert_eq!(m.current_session_id(), Some(expected));
+            m.end_current_session();
+        }
+    }
+
+    #[test]
+    fn session_id_counter_at_the_u64_boundary_does_not_overflow() {
+        let mut m = GestureAndDragManager::new();
+        m.next_session_id = u64::MAX - 1;
+        let id = m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0xFF,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        assert_eq!(id, u64::MAX - 1);
+        assert_eq!(m.next_session_id, u64::MAX);
+    }
+
+    #[test]
+    fn recording_without_or_after_a_session_returns_false() {
+        let mut m = GestureAndDragManager::new();
+        assert!(!m.record_input_sample(pos(1.0, 1.0), ts(1), 0x01, pos(1.0, 1.0)));
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        assert!(m.record_input_sample(pos(1.0, 1.0), ts(1), 0x01, pos(1.0, 1.0)));
+        m.end_current_session();
+        assert!(!m.record_input_sample(pos(2.0, 2.0), ts(2), 0x01, pos(2.0, 2.0)));
+        // Ending twice is idempotent, and ending nothing must not panic.
+        m.end_current_session();
+        m.clear_all_sessions();
+        m.end_current_session();
+        assert_eq!(m.session_count(), 0);
+    }
+
+    #[test]
+    fn sample_count_stays_bounded_by_max_samples_per_session() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        for i in 1..=(MAX_SAMPLES_PER_SESSION as u64 + 200) {
+            assert!(m.record_input_sample(pos(i as f32, 0.0), ts(i), 0x01, pos(i as f32, 0.0)));
+            assert!(
+                m.get_current_session().unwrap().samples.len() <= MAX_SAMPLES_PER_SESSION,
+                "sample buffer grew past MAX_SAMPLES_PER_SESSION at i={i}"
+            );
+        }
+        // The newest sample always survives the drain.
+        let last = m.get_current_mouse_position().unwrap();
+        assert_eq!(last.x, (MAX_SAMPLES_PER_SESSION + 200) as f32);
+    }
+
+    #[test]
+    fn pen_samples_accept_nan_inf_and_extreme_values() {
+        let mut m = GestureAndDragManager::new();
+        let id = m.start_input_session_with_pen(
+            pos(f32::NAN, f32::INFINITY),
+            ts(0),
+            0xFF,
+            u64::MAX,
+            f32::NAN,
+            (f32::INFINITY, f32::NEG_INFINITY),
+            (-f32::MAX, f32::MAX),
+            WindowPosition::Uninitialized,
+            pos(f32::NEG_INFINITY, f32::NAN),
+        );
+        assert_eq!(id, 1);
+        assert!(m.record_input_sample_with_pen(
+            pos(0.0, 0.0),
+            ts(u64::MAX),
+            0x00,
+            0,
+            -1.0e30,
+            (f32::NAN, f32::NAN),
+            (f32::NAN, f32::NAN),
+            pos(0.0, 0.0),
+        ));
+        let session = m.get_current_session().unwrap();
+        assert_eq!(session.samples.len(), 2);
+        let first = session.first_sample().unwrap();
+        assert!(first.pressure.is_nan());
+        assert!(first.tilt.0.is_infinite());
+        assert_eq!(first.button_state, 0xFF);
+        assert_eq!(first.event_id, u64::MAX);
+        // ts(u64::MAX) - ts(0) fits: duration_since is a saturating u64 sub.
+        assert_eq!(session.duration_ms(), Some(u64::MAX));
+        // NaN/inf coordinates must not make any detector panic. `hypot(NaN, inf)`
+        // is `+inf` per IEEE-754, so this DOES read as a drag — but only with a
+        // non-finite distance, never a plausible-looking finite one.
+        assert!(m.detect_drag().is_none_or(|d| !d.direct_distance.is_finite()));
+        assert!(m.get_drag_direction().is_some());
+    }
+
+    #[test]
+    fn starting_a_session_prunes_all_but_the_newest_ended_session() {
+        let mut m = GestureAndDragManager::new();
+        for tick in [0u64, 10, 20] {
+            m.start_input_session(
+                pos(0.0, 0.0),
+                ts(tick),
+                0x01,
+                WindowPosition::Uninitialized,
+                pos(0.0, 0.0),
+            );
+            m.end_current_session();
+        }
+        // Bounded growth: never more than "one ended + one live" session.
+        assert_eq!(m.session_count(), 2);
+        assert_eq!(m.input_sessions[0].session_id, 2);
+        assert_eq!(m.input_sessions[1].session_id, 3);
+        // KNOWN LIMITATION: because the history is pruned to a single ended
+        // session, a genuine triple-click through the public API can only ever
+        // report 2. detect_click_count()'s triple-click arm is unreachable here.
+        assert_eq!(m.detect_click_count(), 2);
+    }
+
+    // ------------------------------------------------- touch sessions
+
+    #[test]
+    fn touch_ids_at_zero_and_u64_max_are_tracked_independently() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            0,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_down(
+            u64::MAX,
+            pos(50.0, 0.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(50.0, 0.0),
+        );
+        assert_eq!(m.session_count(), 2);
+        assert!(m.touch_move(0, pos(1.0, 1.0), ts(2), pos(1.0, 1.0)));
+        assert!(m.touch_move(u64::MAX, pos(60.0, 0.0), ts(3), pos(60.0, 0.0)));
+        assert_eq!(m.input_sessions[0].samples.len(), 2);
+        assert_eq!(m.input_sessions[1].samples.len(), 2);
+        m.touch_up(0, pos(1.0, 1.0), ts(4), pos(1.0, 1.0));
+        assert!(m.input_sessions[0].ended);
+        assert!(!m.input_sessions[1].ended);
+    }
+
+    #[test]
+    fn touch_events_for_unknown_ids_are_ignored_without_panicking() {
+        let mut m = GestureAndDragManager::new();
+        assert!(!m.touch_move(42, pos(0.0, 0.0), ts(0), pos(0.0, 0.0)));
+        m.touch_up(42, pos(0.0, 0.0), ts(1), pos(0.0, 0.0));
+        m.touch_cancel_all(); // nothing to cancel
+        assert_eq!(m.session_count(), 0);
+    }
+
+    #[test]
+    fn a_repeated_touch_down_for_the_same_id_rebinds_to_the_newest_session() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            7,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_down(
+            7,
+            pos(9.0, 9.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(9.0, 9.0),
+        );
+        assert_eq!(m.touch_sessions.len(), 1, "the id map must not grow");
+        assert_eq!(m.session_count(), 2);
+        assert_eq!(m.touch_sessions.get(&7).copied(), Some(2));
+        // touch_up ends only the session the id currently maps to; the orphaned
+        // first session stays open until clear_old_sessions() reaps it.
+        m.touch_up(7, pos(9.0, 9.0), ts(2), pos(9.0, 9.0));
+        assert!(!m.input_sessions[0].ended);
+        assert!(m.input_sessions[1].ended);
+        assert!(m.touch_sessions.is_empty());
+    }
+
+    #[test]
+    fn touch_cancel_all_ends_every_finger_and_empties_the_id_map() {
+        let mut m = GestureAndDragManager::new();
+        for id in 0..3u64 {
+            m.touch_down(
+                id,
+                pos(id as f32 * 10.0, 0.0),
+                ts(id),
+                WindowPosition::Uninitialized,
+                pos(id as f32 * 10.0, 0.0),
+            );
+        }
+        m.touch_cancel_all();
+        assert!(m.touch_sessions.is_empty());
+        assert!(m.input_sessions.iter().all(|s| s.ended));
+        assert!(!m.touch_move(1, pos(0.0, 0.0), ts(9), pos(0.0, 0.0)));
+    }
+
+    #[test]
+    fn touch_moves_after_clear_all_sessions_are_dropped_not_resurrected() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.clear_all_sessions();
+        // The id->session map still holds a dangling entry, but the by-id
+        // lookup finds no session, so nothing is recorded and nothing panics.
+        assert!(!m.touch_move(1, pos(5.0, 5.0), ts(1), pos(5.0, 5.0)));
+        assert_eq!(m.session_count(), 0);
+    }
+
+    #[test]
+    fn record_sample_for_session_rejects_unknown_and_ended_sessions() {
+        let mut m = GestureAndDragManager::new();
+        assert!(!m.record_sample_for_session(u64::MAX, pos(0.0, 0.0), ts(0), pos(0.0, 0.0)));
+        let id = m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        assert!(m.record_sample_for_session(id, pos(1.0, 0.0), ts(1), pos(1.0, 0.0)));
+        assert!(!m.record_sample_for_session(0, pos(1.0, 0.0), ts(1), pos(1.0, 0.0)));
+        m.end_current_session();
+        assert!(!m.record_sample_for_session(id, pos(2.0, 0.0), ts(2), pos(2.0, 0.0)));
+        assert_eq!(m.input_sessions[0].samples.len(), 2);
+    }
+
+    #[test]
+    fn record_sample_for_session_is_also_bounded_by_max_samples() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        for i in 1..=(MAX_SAMPLES_PER_SESSION as u64 + 150) {
+            assert!(m.touch_move(1, pos(i as f32, 0.0), ts(i), pos(i as f32, 0.0)));
+        }
+        assert!(m.input_sessions[0].samples.len() <= MAX_SAMPLES_PER_SESSION);
+    }
+
+    // ------------------------------------------------- cleanup
+
+    #[test]
+    fn clear_old_sessions_reaps_stale_sessions_and_their_long_press_ids() {
+        let mut m = GestureAndDragManager::new();
+        let old = m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.end_current_session();
+        m.mark_long_press_callback_invoked(old);
+        let fresh = m.start_input_session(
+            pos(0.0, 0.0),
+            ts(10_000),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.mark_long_press_callback_invoked(fresh);
+        assert_eq!(m.debug_counts(), (2, 2));
+
+        // Now is 10_050 ticks: `old` is 10s stale (> 2000ms), `fresh` is 50ms old.
+        m.clear_old_sessions(ts(10_050));
+        assert_eq!(m.session_count(), 1);
+        assert_eq!(m.current_session_id(), Some(fresh));
+        assert_eq!(
+            m.debug_counts(),
+            (1, 1),
+            "long-press bookkeeping must not grow unboundedly"
+        );
+    }
+
+    #[test]
+    fn clear_old_sessions_drops_sessions_that_have_no_samples() {
+        let mut m = GestureAndDragManager::new();
+        m.input_sessions.push(InputSession {
+            samples: Vec::new(),
+            ended: false,
+            session_id: 99,
+            window_position_at_start: WindowPosition::Uninitialized,
+        });
+        m.clear_old_sessions(ts(0));
+        assert_eq!(m.session_count(), 0);
+    }
+
+    #[test]
+    fn clear_old_sessions_with_a_backwards_clock_keeps_everything() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(5_000),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        // `now` is *before* the sample: duration_since saturates to 0 => age 0.
+        m.clear_old_sessions(ts(0));
+        assert_eq!(m.session_count(), 1);
+    }
+
+    #[test]
+    fn clear_all_sessions_resets_both_counters() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.mark_current_long_press_invoked();
+        assert_eq!(m.debug_counts(), (1, 1));
+        m.clear_all_sessions();
+        assert_eq!(m.debug_counts(), (0, 0));
+        assert!(m.get_current_session().is_none());
+    }
+
+    #[test]
+    fn long_press_invocation_marks_are_deduplicated() {
+        let mut m = GestureAndDragManager::new();
+        for _ in 0..100 {
+            m.mark_long_press_callback_invoked(u64::MAX);
+            m.mark_long_press_callback_invoked(0);
+        }
+        assert_eq!(m.debug_counts(), (0, 2));
+        // Marking without a session is a no-op, not a panic.
+        m.mark_current_long_press_invoked();
+        assert_eq!(m.debug_counts(), (0, 2));
+    }
+
+    // ------------------------------------------------- drag / long-press detection
+
+    #[test]
+    fn detect_drag_fires_exactly_at_the_distance_threshold() {
+        // hypot(3, 4) == 5.0 == drag_distance_threshold => `>=` must fire.
+        let m = dragging_manager(pos(0.0, 0.0), pos(3.0, 4.0), 20);
+        let drag = m.detect_drag().expect("distance == threshold must be a drag");
+        assert_eq!(drag.direct_distance, 5.0);
+        assert_eq!(drag.total_distance, 5.0);
+        assert_eq!(drag.sample_count, 2);
+        assert_eq!(drag.duration_ms, 20);
+        assert_eq!(drag.session_id, 1);
+        assert_eq!(drag.start_position, pos(0.0, 0.0));
+        assert_eq!(drag.current_position, pos(3.0, 4.0));
+
+        // Just below the threshold: no drag.
+        let m = dragging_manager(pos(0.0, 0.0), pos(4.9, 0.0), 20);
+        assert!(m.detect_drag().is_none());
+    }
+
+    #[test]
+    fn detect_drag_with_nan_movement_returns_none() {
+        let m = dragging_manager(pos(0.0, 0.0), pos(f32::NAN, f32::NAN), 20);
+        assert!(
+            m.detect_drag().is_none(),
+            "NaN distance is never >= threshold"
+        );
+    }
+
+    #[test]
+    fn detect_drag_needs_min_samples_for_gesture() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(500.0, 500.0),
+        );
+        assert!(m.detect_drag().is_none(), "one sample is not a gesture");
+    }
+
+    #[test]
+    fn detect_long_press_honours_time_and_distance_thresholds() {
+        // Held 500ms (== threshold) without moving => long press.
+        let m = dragging_manager(pos(10.0, 10.0), pos(10.0, 10.0), 500);
+        let lp = m.detect_long_press().expect("500ms hold is a long press");
+        assert_eq!(lp.duration_ms, 500);
+        assert_eq!(lp.position, pos(10.0, 10.0));
+        assert!(!lp.callback_invoked);
+        assert_eq!(lp.session_id, 1);
+
+        // One ms short => not yet.
+        let m = dragging_manager(pos(10.0, 10.0), pos(10.0, 10.0), 499);
+        assert!(m.detect_long_press().is_none());
+
+        // Long enough but moved too far (> 10px).
+        let m = dragging_manager(pos(0.0, 0.0), pos(11.0, 0.0), 800);
+        assert!(m.detect_long_press().is_none());
+    }
+
+    #[test]
+    fn detect_long_press_stops_at_button_up_and_after_being_marked() {
+        let mut m = dragging_manager(pos(10.0, 10.0), pos(10.0, 10.0), 600);
+        assert!(m.detect_long_press().is_some());
+
+        m.mark_current_long_press_invoked();
+        let lp = m.detect_long_press().expect("still held");
+        assert!(
+            lp.callback_invoked,
+            "a marked long press must report callback_invoked"
+        );
+
+        m.end_current_session();
+        assert!(
+            m.detect_long_press().is_none(),
+            "a released button cannot be a long press"
+        );
+    }
+
+    // ------------------------------------------------- click counting
+
+    #[test]
+    fn detect_double_click_checks_both_timing_and_distance() {
+        let mut m = GestureAndDragManager::new();
+        m.input_sessions = vec![
+            ended_session(1, vec![sample(10.0, 10.0, 0)]),
+            ended_session(2, vec![sample(11.0, 11.0, 100)]),
+        ];
+        assert!(m.detect_double_click());
+
+        // Too slow (501ms > 500ms).
+        m.input_sessions[1].samples[0].timestamp = ts(501);
+        assert!(!m.detect_double_click());
+
+        // Fast, but too far apart (>= 5px).
+        m.input_sessions[1].samples[0].timestamp = ts(100);
+        m.input_sessions[1].samples[0].position = pos(100.0, 10.0);
+        assert!(!m.detect_double_click());
+
+        // Fast and close, but the second click is still held down.
+        m.input_sessions[1].samples[0].position = pos(11.0, 11.0);
+        m.input_sessions[1].ended = false;
+        assert!(!m.detect_double_click());
+    }
+
+    #[test]
+    fn detect_double_click_needs_two_sessions() {
+        let mut m = GestureAndDragManager::new();
+        m.input_sessions = vec![ended_session(1, vec![sample(0.0, 0.0, 0)])];
+        assert!(!m.detect_double_click());
+    }
+
+    #[test]
+    fn detect_click_count_counts_up_to_three_and_stops_at_the_first_gap() {
+        let mut m = GestureAndDragManager::new();
+        // Three ended clicks, each 100ms apart at (nearly) the same point.
+        m.input_sessions = vec![
+            ended_session(1, vec![sample(10.0, 10.0, 0)]),
+            ended_session(2, vec![sample(10.0, 11.0, 100)]),
+            ended_session(3, vec![sample(11.0, 10.0, 200)]),
+        ];
+        assert_eq!(m.detect_click_count(), 3);
+
+        // Break the middle gap in *time*: only the newest pair counts.
+        m.input_sessions[2].samples[0].timestamp = ts(900);
+        assert_eq!(m.detect_click_count(), 1);
+
+        // A backwards clock does NOT break the chain: duration_since saturates
+        // to 0, which reads as "no gap at all" => the click still counts.
+        m.input_sessions[2].samples[0].timestamp = ts(200);
+        m.input_sessions[0].samples[0].timestamp = ts(u64::MAX);
+        assert_eq!(m.detect_click_count(), 3);
+
+        // Break the oldest gap in *distance*.
+        m.input_sessions[0].samples[0].timestamp = ts(0);
+        m.input_sessions[0].samples[0].position = pos(500.0, 500.0);
+        assert_eq!(m.detect_click_count(), 2);
+    }
+
+    #[test]
+    fn detect_click_count_ignores_live_sessions_and_defaults_to_one() {
+        let mut m = GestureAndDragManager::new();
+        // Only a live (un-ended) session => nothing to count => 1.
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        assert_eq!(m.detect_click_count(), 1);
+        assert_eq!(GestureAndDragManager::new().detect_click_count(), 1);
+    }
+
+    #[test]
+    fn detect_click_count_with_empty_sample_vec_does_not_panic() {
+        let mut m = GestureAndDragManager::new();
+        m.input_sessions = vec![
+            ended_session(1, Vec::new()),
+            ended_session(2, vec![sample(0.0, 0.0, 10)]),
+        ];
+        assert_eq!(m.detect_click_count(), 1);
+        assert!(!m.detect_double_click());
+    }
+
+    // ------------------------------------------------- direction / velocity / swipe
+
+    #[test]
+    fn drag_direction_is_deterministic_for_stationary_and_nan_input() {
+        // No movement at all: dx == dy == 0 => documented fallback is Up.
+        let m = dragging_manager(pos(5.0, 5.0), pos(5.0, 5.0), 10);
+        assert_eq!(m.get_drag_direction(), Some(GestureDirection::Up));
+
+        // NaN deltas compare false everywhere => same deterministic fallback.
+        let m = dragging_manager(pos(0.0, 0.0), pos(f32::NAN, f32::NAN), 10);
+        assert_eq!(m.get_drag_direction(), Some(GestureDirection::Up));
+    }
+
+    #[test]
+    fn drag_direction_picks_the_dominant_axis() {
+        let cases = [
+            (pos(100.0, 1.0), GestureDirection::Right),
+            (pos(-100.0, 1.0), GestureDirection::Left),
+            (pos(1.0, 100.0), GestureDirection::Down),
+            (pos(1.0, -100.0), GestureDirection::Up),
+            // Perfect diagonal: |dx| > |dy| is false => vertical wins.
+            (pos(50.0, 50.0), GestureDirection::Down),
+        ];
+        for (to, expected) in cases {
+            let m = dragging_manager(pos(0.0, 0.0), to, 10);
+            assert_eq!(
+                m.get_drag_direction(),
+                Some(expected),
+                "drag to ({}, {})",
+                to.x,
+                to.y
+            );
+        }
+    }
+
+    #[test]
+    fn gesture_velocity_returns_none_instead_of_dividing_by_zero() {
+        // Two samples with the SAME timestamp => duration 0 => no velocity.
+        let m = dragging_manager(pos(0.0, 0.0), pos(100.0, 0.0), 0);
+        assert!(m.get_gesture_velocity().is_none());
+        assert!(!m.is_swipe());
+        assert!(m.detect_swipe_direction().is_none());
+
+        // A single sample is not enough either.
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        assert!(m.get_gesture_velocity().is_none());
+    }
+
+    #[test]
+    fn swipe_needs_velocity_above_the_configured_threshold() {
+        // 60px in 100ms == 600 px/s > 500 px/s.
+        let fast = dragging_manager(pos(0.0, 0.0), pos(60.0, 0.0), 100);
+        assert!(fast.get_gesture_velocity().unwrap() > 500.0);
+        assert!(fast.is_swipe());
+        assert_eq!(
+            fast.detect_swipe_direction(),
+            Some(GestureDirection::Right)
+        );
+
+        // 40px in 100ms == 400 px/s < 500 px/s.
+        let slow = dragging_manager(pos(0.0, 0.0), pos(0.0, -40.0), 100);
+        assert!(!slow.is_swipe());
+        assert!(slow.detect_swipe_direction().is_none());
+    }
+
+    #[test]
+    fn gesture_velocity_with_infinite_travel_saturates_to_infinity() {
+        let m = dragging_manager(pos(-f32::MAX, 0.0), pos(f32::MAX, 0.0), 1);
+        let v = m.get_gesture_velocity().expect("two samples, 1ms apart");
+        assert!(v.is_infinite(), "expected saturation to +inf, got {v}");
+        assert!(m.is_swipe());
+    }
+
+    // ------------------------------------------------- pinch / rotation
+
+    #[test]
+    fn pinch_and_rotation_ignore_sequential_mouse_sessions() {
+        // Click, release, then press-and-drag: two sessions, but the first is
+        // ended — this must NOT be read as a two-finger gesture.
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.end_current_session();
+        m.start_input_session(
+            pos(200.0, 0.0),
+            ts(10),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(200.0, 0.0),
+        );
+        m.record_input_sample(pos(400.0, 0.0), ts(20), 0x01, pos(400.0, 0.0));
+        assert_eq!(m.session_count(), 2);
+        assert!(m.detect_pinch().is_none(), "an ended session is not a finger");
+        assert!(m.detect_rotation().is_none());
+    }
+
+    #[test]
+    fn pinch_returns_none_when_the_fingers_start_on_top_of_each_other() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(100.0, 100.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(100.0, 100.0),
+        );
+        m.touch_down(
+            2,
+            pos(100.5, 100.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(100.5, 100.0),
+        );
+        // initial_distance 0.5 < 1.0 => division guard returns None.
+        m.touch_move(1, pos(0.0, 100.0), ts(2), pos(0.0, 100.0));
+        assert!(m.detect_pinch().is_none());
+    }
+
+    #[test]
+    fn pinch_below_the_scale_threshold_is_not_reported() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(100.0, 100.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(100.0, 100.0),
+        );
+        m.touch_down(
+            2,
+            pos(200.0, 100.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(200.0, 100.0),
+        );
+        // 100px -> 105px is a 5% change; the threshold is 10%.
+        m.touch_move(2, pos(205.0, 100.0), ts(2), pos(205.0, 100.0));
+        assert!(m.detect_pinch().is_none());
+    }
+
+    #[test]
+    fn pinch_in_reports_a_scale_below_one() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_down(
+            2,
+            pos(200.0, 0.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(200.0, 0.0),
+        );
+        m.touch_move(1, pos(50.0, 0.0), ts(10), pos(50.0, 0.0));
+        m.touch_move(2, pos(150.0, 0.0), ts(11), pos(150.0, 0.0));
+        let p = m.detect_pinch().expect("200px -> 100px is a pinch in");
+        assert_eq!(p.initial_distance, 200.0);
+        assert_eq!(p.current_distance, 100.0);
+        assert_eq!(p.scale, 0.5);
+        assert_eq!(p.center, pos(100.0, 0.0));
+        assert_eq!(p.duration_ms, 10);
+    }
+
+    #[test]
+    fn pinch_with_infinite_coordinates_saturates_instead_of_panicking() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_down(
+            2,
+            pos(10.0, 0.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(10.0, 0.0),
+        );
+        // The spread overflows f32: MAX - (-MAX) == +inf.
+        m.touch_move(1, pos(-f32::MAX, 0.0), ts(2), pos(-f32::MAX, 0.0));
+        m.touch_move(2, pos(f32::MAX, 0.0), ts(3), pos(f32::MAX, 0.0));
+        let p = m.detect_pinch().expect("an overflowing spread is still a pinch");
+        assert!(
+            !p.scale.is_finite(),
+            "expected a saturated (non-finite) scale, got {}",
+            p.scale
+        );
+        assert!(!p.scale.is_nan());
+    }
+
+    #[test]
+    fn pinch_and_rotation_with_nan_coordinates_never_panic() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(f32::NAN, f32::NAN),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(f32::NAN, f32::NAN),
+        );
+        m.touch_down(
+            2,
+            pos(200.0, 100.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(200.0, 100.0),
+        );
+        // Whatever the detectors decide, they must not produce a *finite*
+        // (i.e. plausible-looking but garbage) scale or angle from NaN input.
+        assert!(m.detect_pinch().is_none_or(|p| !p.scale.is_finite()));
+        assert!(m
+            .detect_rotation()
+            .is_none_or(|r| !r.angle_radians.is_finite()));
+    }
+
+    #[test]
+    fn rotation_normalisation_terminates_for_extreme_coordinates() {
+        // The angle-wrap `while` loops must not spin: atan2 is bounded to
+        // [-PI, PI], so angle_diff can never be infinite.
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(-f32::MAX, -f32::MAX),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_down(
+            2,
+            pos(f32::MAX, f32::MAX),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_move(2, pos(-f32::MAX, f32::MAX), ts(2), pos(0.0, 0.0));
+        let r = m.detect_rotation();
+        assert!(r.is_none_or(|r| r.angle_radians.abs() <= core::f32::consts::PI + 1.0e-4));
+    }
+
+    #[test]
+    fn rotation_reports_the_signed_angle_between_the_two_fingers() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_down(
+            2,
+            pos(10.0, 0.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(10.0, 0.0),
+        );
+        // Finger 2 swings from +x (angle 0) to +y (angle PI/2) around finger 1.
+        m.touch_move(2, pos(0.0, 10.0), ts(50), pos(0.0, 10.0));
+        let r = m.detect_rotation().expect("a quarter turn is a rotation");
+        assert!(
+            (r.angle_radians - core::f32::consts::FRAC_PI_2).abs() < 1.0e-4,
+            "expected ~PI/2, got {}",
+            r.angle_radians
+        );
+        assert_eq!(r.center, pos(0.0, 5.0));
+    }
+
+    #[test]
+    fn rotation_below_the_angle_threshold_is_not_reported() {
+        let mut m = GestureAndDragManager::new();
+        m.touch_down(
+            1,
+            pos(0.0, 0.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.touch_down(
+            2,
+            pos(1000.0, 0.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(1000.0, 0.0),
+        );
+        // ~0.05 rad, under the 0.1 rad threshold.
+        m.touch_move(2, pos(1000.0, 50.0), ts(2), pos(1000.0, 50.0));
+        assert!(m.detect_rotation().is_none());
+    }
+
+    // ------------------------------------------------- native gesture override
+
+    #[test]
+    fn injected_native_gestures_win_over_the_in_process_detector() {
+        let mut m = GestureAndDragManager::new();
+
+        m.inject_native_gesture(NativeGestureEvent::DoubleClick);
+        assert!(m.detect_double_click(), "no sessions, but the OS said so");
+        m.clear_native_gesture();
+        assert!(!m.detect_double_click());
+
+        let lp = DetectedLongPress {
+            position: pos(3.0, 4.0),
+            duration_ms: u64::MAX,
+            callback_invoked: true,
+            session_id: u64::MAX,
+        };
+        m.inject_native_gesture(NativeGestureEvent::LongPress(lp));
+        assert_eq!(m.detect_long_press(), Some(lp));
+
+        m.inject_native_gesture(NativeGestureEvent::Swipe(GestureDirection::Left));
+        assert_eq!(m.detect_swipe_direction(), Some(GestureDirection::Left));
+        assert!(
+            !m.is_swipe(),
+            "is_swipe() is velocity-only and ignores the native override"
+        );
+
+        let pinch = DetectedPinch {
+            scale: f32::INFINITY,
+            center: pos(0.0, 0.0),
+            initial_distance: 0.0,
+            current_distance: f32::NAN,
+            duration_ms: 0,
+        };
+        m.inject_native_gesture(NativeGestureEvent::Pinch(pinch));
+        let got = m.detect_pinch().expect("native pinch is passed through");
+        assert!(got.scale.is_infinite());
+
+        let rot = DetectedRotation {
+            angle_radians: -core::f32::consts::PI,
+            center: pos(1.0, 1.0),
+            duration_ms: 7,
+        };
+        m.inject_native_gesture(NativeGestureEvent::Rotation(rot));
+        assert_eq!(m.detect_rotation(), Some(rot));
+
+        m.clear_native_gesture();
+        assert!(m.detect_long_press().is_none());
+        assert!(m.detect_pinch().is_none());
+        assert!(m.detect_rotation().is_none());
+        assert!(m.detect_swipe_direction().is_none());
+    }
+
+    // ------------------------------------------------- pen / pad state
+
+    #[test]
+    fn pen_state_stores_extremes_verbatim_and_tracks_the_previous_state() {
+        let mut m = GestureAndDragManager::new();
+        m.update_pen_state(
+            pos(1.0, 2.0),
+            f32::NAN,
+            (f32::INFINITY, f32::NEG_INFINITY),
+            true,
+            true,
+            true,
+            u64::MAX,
+        );
+        assert!(m.pen_event_pending);
+        assert!(m.get_previous_pen_state().is_none());
+        let pen = *m.get_pen_state().expect("pen state was just set");
+        assert!(pen.pressure.is_nan());
+        assert!(pen.tilt.x_tilt.is_infinite());
+        assert!(pen.tilt.y_tilt.is_infinite());
+        assert!(pen.in_contact && pen.is_eraser && pen.barrel_button_pressed);
+        assert_eq!(pen.device_id, u64::MAX);
+        // The short form must zero the extended axes.
+        assert_eq!(pen.tangential_pressure, 0.0);
+        assert_eq!(pen.barrel_roll_rad, 0.0);
+        assert_eq!(pen.tool_id, 0);
+
+        m.clear_pen_event_pending();
+        assert!(!m.pen_event_pending);
+
+        m.update_pen_state_full(
+            pos(0.0, 0.0),
+            1.0,
+            (0.0, 0.0),
+            false,
+            false,
+            false,
+            0,
+            f32::NAN,
+            -f32::MAX,
+            u32::MAX,
+        );
+        assert!(m.pen_event_pending);
+        let prev = *m.get_previous_pen_state().expect("previous pen state kept");
+        assert_eq!(prev.device_id, u64::MAX);
+        let now = *m.get_pen_state().unwrap();
+        assert!(now.tangential_pressure.is_nan());
+        assert_eq!(now.barrel_roll_rad, -f32::MAX);
+        assert_eq!(now.tool_id, u32::MAX);
+
+        m.clear_pen_state();
+        assert!(m.get_pen_state().is_none());
+        assert_eq!(m.get_previous_pen_state().map(|p| p.tool_id), Some(u32::MAX));
+        assert!(m.pen_event_pending);
+
+        // Clearing twice must not panic and must not resurrect a state.
+        m.clear_pen_state();
+        assert!(m.get_pen_state().is_none());
+        assert!(m.get_previous_pen_state().is_none());
+    }
+
+    #[test]
+    fn pad_state_round_trips_and_clears() {
+        let mut m = GestureAndDragManager::new();
+        assert!(m.get_pad_state().is_none());
+        m.update_pad_state(WacomPadState {
+            express_keys: 0b1010,
+            touch_ring: f32::NAN,
+            touch_ring_active: true,
+            device_id: u64::MAX,
+        });
+        let pad = *m.get_pad_state().expect("pad state was just set");
+        assert!(!pad.express_key(0));
+        assert!(pad.express_key(1));
+        assert!(!pad.express_key(2));
+        assert!(pad.express_key(3));
+        assert!(pad.touch_ring.is_nan());
+        assert_eq!(pad.device_id, u64::MAX);
+        m.clear_pad_state();
+        assert!(m.get_pad_state().is_none());
+        m.clear_pad_state();
+        assert!(m.get_pad_state().is_none());
+    }
+
+    // ------------------------------------------------- drag deltas
+
+    #[test]
+    fn drag_deltas_use_window_local_and_screen_coordinates_independently() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(10.0, 10.0),
+            ts(0),
+            0x01,
+            WindowPosition::Initialized(PhysicalPositionI32::new(100, 100)),
+            pos(110.0, 110.0),
+        );
+        // One sample: totals exist, but there is no *incremental* delta yet.
+        assert_eq!(m.get_drag_delta(), Some((0.0, 0.0)));
+        assert_eq!(m.get_drag_delta_screen(), Some((0.0, 0.0)));
+        assert!(m.get_drag_delta_screen_incremental().is_none());
+
+        m.record_input_sample(pos(15.0, 10.0), ts(10), 0x01, pos(120.0, 130.0));
+        m.record_input_sample(pos(20.0, 10.0), ts(20), 0x01, pos(125.0, 132.0));
+        assert_eq!(m.get_drag_delta(), Some((10.0, 0.0)));
+        assert_eq!(m.get_drag_delta_screen(), Some((15.0, 22.0)));
+        assert_eq!(m.get_drag_delta_screen_incremental(), Some((5.0, 2.0)));
+        assert_eq!(
+            m.get_window_position_at_session_start(),
+            Some(WindowPosition::Initialized(PhysicalPositionI32::new(
+                100, 100
+            )))
+        );
+        assert_eq!(m.get_current_mouse_position(), Some(pos(20.0, 10.0)));
+    }
+
+    #[test]
+    fn drag_deltas_at_f32_extremes_stay_finite_or_saturate() {
+        let m = dragging_manager(pos(-f32::MAX, -f32::MAX), pos(f32::MAX, f32::MAX), 5);
+        let (dx, dy) = m.get_drag_delta().expect("two samples");
+        assert!(dx.is_infinite() && dy.is_infinite());
+        let (sx, sy) = m.get_drag_delta_screen().expect("two samples");
+        assert!(sx.is_infinite() && sy.is_infinite());
+    }
+
+    // ------------------------------------------------- unified drag context
+
+    #[test]
+    fn activating_a_node_drag_without_a_detected_drag_is_a_no_op() {
+        let mut m = GestureAndDragManager::new();
+        // No session at all.
+        m.activate_node_drag(DomId::ROOT_ID, NodeId::new(1), DragData::new(), None);
+        assert!(!m.is_dragging());
+
+        // A session that has not moved far enough to be a drag.
+        let mut m = dragging_manager(pos(0.0, 0.0), pos(1.0, 1.0), 10);
+        m.activate_node_drag(DomId::ROOT_ID, NodeId::new(1), DragData::new(), None);
+        assert!(!m.is_node_drag_active());
+        m.activate_window_drag(WindowPosition::Uninitialized, None);
+        assert!(!m.is_window_dragging());
+    }
+
+    #[test]
+    fn node_drag_context_tracks_its_own_node_and_drop_target() {
+        let mut m = dragging_manager(pos(0.0, 0.0), pos(100.0, 0.0), 10);
+        let mut data = DragData::new();
+        data.set_text("payload");
+        m.activate_node_drag(DomId::ROOT_ID, NodeId::new(4), data, None);
+
+        assert!(m.is_dragging());
+        assert!(m.is_node_drag_active());
+        assert!(m.is_node_dragging(DomId::ROOT_ID, NodeId::new(4)));
+        assert!(!m.is_node_dragging(DomId::ROOT_ID, NodeId::new(5)));
+        assert!(!m.is_node_dragging(DomId { inner: 7 }, NodeId::new(4)));
+        assert!(!m.is_window_dragging());
+        assert!(!m.is_file_dropping());
+        assert!(!m.is_text_selection_dragging());
+        assert!(!m.is_scrollbar_dragging());
+        assert!(m.get_window_drag_delta().is_none());
+        assert!(m.get_scrollbar_scroll_offset().is_none());
+
+        m.update_active_drag_positions(pos(42.0, -7.0));
+        assert_eq!(
+            m.get_drag_context().unwrap().current_position(),
+            pos(42.0, -7.0)
+        );
+
+        m.update_drop_target(Some(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(9))),
+        }));
+        let nd = m
+            .get_drag_context()
+            .and_then(DragContext::as_node_drag)
+            .expect("node drag");
+        assert_eq!(
+            nd.current_drop_target
+                .into_option()
+                .and_then(|t| t.node.into_crate_internal()),
+            Some(NodeId::new(9))
+        );
+        assert_eq!(nd.drag_data.get_data("text/plain"), Some(&b"payload"[..]));
+
+        // Clearing the target back to None must work too.
+        m.update_drop_target(None);
+        assert!(m
+            .get_drag_context()
+            .and_then(DragContext::as_node_drag)
+            .unwrap()
+            .current_drop_target
+            .into_option()
+            .is_none());
+
+        // Auto-scroll only applies to text-selection drags: a no-op here.
+        m.update_auto_scroll_direction(AutoScrollDirection::DownRight);
+        assert!(m.is_node_drag_active());
+
+        let ctx = m.end_drag().expect("the drag context is returned");
+        assert_eq!(ctx.session_id, 1);
+        assert!(!m.is_dragging());
+        assert!(m.end_drag().is_none());
+    }
+
+    #[test]
+    fn drop_target_and_auto_scroll_updates_without_a_drag_do_not_panic() {
+        let mut m = GestureAndDragManager::new();
+        m.update_drop_target(None);
+        m.update_active_drag_positions(pos(f32::NAN, f32::INFINITY));
+        m.update_auto_scroll_direction(AutoScrollDirection::UpLeft);
+        m.cancel_drag();
+        assert!(!m.is_dragging());
+        assert!(m.get_drag_context_mut().is_none());
+    }
+
+    #[test]
+    fn text_selection_context_accepts_the_auto_scroll_direction() {
+        let mut m = GestureAndDragManager::new();
+        m.active_drag = Some(DragContext::text_selection(
+            DomId::ROOT_ID,
+            NodeId::new(2),
+            pos(0.0, 0.0),
+            11,
+        ));
+        assert!(m.is_text_selection_dragging());
+        assert!(!m.is_node_drag_active());
+        m.update_auto_scroll_direction(AutoScrollDirection::DownRight);
+        assert_eq!(
+            m.get_drag_context()
+                .and_then(DragContext::as_text_selection)
+                .map(|t| t.auto_scroll_direction),
+            Some(AutoScrollDirection::DownRight)
+        );
+        // update_drop_target must leave a text-selection drag untouched.
+        m.update_drop_target(None);
+        assert!(m.is_text_selection_dragging());
+
+        m.cancel_drag();
+        assert!(!m.is_dragging());
+        assert!(!m.is_text_selection_dragging());
+    }
+
+    // ------------------------------------------------- window drag maths
+
+    fn window_dragging_manager(initial: WindowPosition) -> GestureAndDragManager {
+        let mut m = dragging_manager(pos(0.0, 0.0), pos(100.0, 0.0), 10);
+        m.activate_window_drag(initial, None);
+        assert!(m.is_window_dragging());
+        m
+    }
+
+    #[test]
+    fn window_drag_delta_needs_an_initialized_window_position() {
+        let m = window_dragging_manager(WindowPosition::Uninitialized);
+        assert!(m.get_window_drag_delta().is_none());
+        assert!(m.get_window_position_from_drag().is_none());
+    }
+
+    #[test]
+    fn window_drag_delta_is_measured_from_the_drag_start() {
+        let mut m =
+            window_dragging_manager(WindowPosition::Initialized(PhysicalPositionI32::new(10, 20)));
+        m.update_active_drag_positions(pos(30.5, -20.9));
+        // start_position is the drag's start (0,0) => delta truncates toward zero.
+        assert_eq!(m.get_window_drag_delta(), Some((30, -20)));
+        assert_eq!(
+            m.get_window_position_from_drag(),
+            Some(WindowPosition::Initialized(PhysicalPositionI32::new(40, 0)))
+        );
+    }
+
+    #[test]
+    fn window_drag_delta_saturates_the_float_to_int_cast() {
+        let mut m =
+            window_dragging_manager(WindowPosition::Initialized(PhysicalPositionI32::new(0, 0)));
+        m.update_active_drag_positions(pos(f32::MAX, -f32::MAX));
+        assert_eq!(
+            m.get_window_drag_delta(),
+            Some((i32::MAX, i32::MIN)),
+            "float->int casts must saturate, not wrap or trap"
+        );
+        assert_eq!(
+            m.get_window_position_from_drag(),
+            Some(WindowPosition::Initialized(PhysicalPositionI32::new(
+                i32::MAX,
+                i32::MIN
+            )))
+        );
+    }
+
+    #[test]
+    fn window_drag_delta_with_nan_position_is_zero_not_a_trap() {
+        let mut m =
+            window_dragging_manager(WindowPosition::Initialized(PhysicalPositionI32::new(3, 4)));
+        m.update_active_drag_positions(pos(f32::NAN, f32::NAN));
+        // `NaN as i32` is defined as 0 in Rust.
+        assert_eq!(m.get_window_drag_delta(), Some((0, 0)));
+        assert_eq!(
+            m.get_window_position_from_drag(),
+            Some(WindowPosition::Initialized(PhysicalPositionI32::new(3, 4)))
+        );
+    }
+
+    #[test]
+    fn window_position_from_drag_at_the_i32_extremes_does_not_overflow() {
+        // i32::MAX window origin dragged fully negative: MAX + MIN == -1.
+        let mut m = window_dragging_manager(WindowPosition::Initialized(
+            PhysicalPositionI32::new(i32::MAX, i32::MAX),
+        ));
+        m.update_active_drag_positions(pos(-f32::MAX, -f32::MAX));
+        assert_eq!(
+            m.get_window_position_from_drag(),
+            Some(WindowPosition::Initialized(PhysicalPositionI32::new(-1, -1)))
+        );
+    }
+
+    // ------------------------------------------------- scrollbar drag maths
+
+    fn scrollbar_manager(
+        start_offset: f32,
+        track: f32,
+        content: f32,
+        viewport: f32,
+    ) -> GestureAndDragManager {
+        let mut m = GestureAndDragManager::new();
+        m.active_drag = Some(DragContext::scrollbar_thumb(
+            DomId::ROOT_ID,
+            NodeId::new(1),
+            ScrollbarAxis::Vertical,
+            pos(0.0, 0.0),
+            start_offset,
+            track,
+            content,
+            viewport,
+            1,
+        ));
+        m
+    }
+
+    #[test]
+    fn scrollbar_offset_scales_the_mouse_delta_and_clamps_to_the_range() {
+        let mut m = scrollbar_manager(0.0, 100.0, 1000.0, 100.0);
+        assert!(m.is_scrollbar_dragging());
+        assert_eq!(m.get_scrollbar_scroll_offset(), Some(0.0));
+
+        // thumb = 10px, scrollable track = 90px, scrollable range = 900px.
+        m.update_active_drag_positions(pos(0.0, 45.0));
+        let half = m.get_scrollbar_scroll_offset().expect("scrollbar drag");
+        assert!((half - 450.0).abs() < 0.5, "expected ~450, got {half}");
+
+        // Way past the end of the track: clamped to the scrollable range.
+        m.update_active_drag_positions(pos(0.0, 1.0e9));
+        assert_eq!(m.get_scrollbar_scroll_offset(), Some(900.0));
+
+        // Dragged backwards past the start: clamped to 0.
+        m.update_active_drag_positions(pos(0.0, -1.0e9));
+        assert_eq!(m.get_scrollbar_scroll_offset(), Some(0.0));
+    }
+
+    #[test]
+    fn scrollbar_offset_with_nothing_to_scroll_returns_the_start_offset() {
+        // content <= viewport => scrollable range <= 0.
+        let mut m = scrollbar_manager(42.0, 100.0, 50.0, 100.0);
+        m.update_active_drag_positions(pos(0.0, 500.0));
+        assert_eq!(m.get_scrollbar_scroll_offset(), Some(42.0));
+
+        // A zero-length track cannot be scrolled either.
+        let mut m = scrollbar_manager(7.0, 0.0, 1000.0, 100.0);
+        m.update_active_drag_positions(pos(0.0, 500.0));
+        assert_eq!(m.get_scrollbar_scroll_offset(), Some(7.0));
+    }
+
+    #[test]
+    fn scrollbar_offset_with_a_nan_mouse_position_does_not_panic() {
+        let mut m = scrollbar_manager(0.0, 100.0, 1000.0, 100.0);
+        m.update_active_drag_positions(pos(f32::NAN, f32::NAN));
+        let v = m.get_scrollbar_scroll_offset();
+        assert!(
+            v.is_some_and(f32::is_nan),
+            "a NaN mouse position must propagate as NaN, not panic: {v:?}"
+        );
+    }
+
+    // ------------------------------------------------- event ids
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn allocate_event_id_is_strictly_monotonic() {
+        let a = allocate_event_id();
+        let b = allocate_event_id();
+        let c = allocate_event_id();
+        assert!(a < b && b < c, "ids must increase: {a} {b} {c}");
+    }
+
+    #[cfg(not(feature = "std"))]
+    #[test]
+    fn allocate_event_id_is_zero_without_std() {
+        assert_eq!(allocate_event_id(), 0);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn recorded_samples_get_distinct_event_ids() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(
+            pos(0.0, 0.0),
+            ts(0),
+            0x01,
+            WindowPosition::Uninitialized,
+            pos(0.0, 0.0),
+        );
+        m.record_input_sample(pos(1.0, 0.0), ts(1), 0x01, pos(1.0, 0.0));
+        let s = m.get_current_session().unwrap();
+        assert_ne!(s.samples[0].event_id, s.samples[1].event_id);
+        assert!(s.samples[0].event_id < s.samples[1].event_id);
+    }
+}

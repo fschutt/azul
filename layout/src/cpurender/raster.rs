@@ -3744,3 +3744,2631 @@ mod text_shadow_tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+#[allow(clippy::float_cmp)] // exact compares on values the code copies through verbatim
+#[allow(clippy::many_single_char_names)] // domain-standard coordinate/colour names
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // bounded test-fixture casts
+mod autotest_generated {
+    use agg_rust::gradient_lut::ColorFunction;
+    use azul_core::{
+        dom::{DomId, NodeId},
+        gpu::GpuValueCache,
+        resources::{OpacityKey, RawImage, RawImageData, RawImageFormat, TransformKey},
+        transform::ComputedTransform3D,
+    };
+    use azul_css::{
+        props::{
+            basic::{
+                angle::AngleValue,
+                length::PercentageValue,
+                pixel::{PixelValue, PixelValueNoPercent},
+                color::{OptionColorU, SystemColorRef},
+            },
+            style::{
+                background::{
+                    BackgroundPositionHorizontal, BackgroundPositionVertical, ConicGradient,
+                    LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+                    NormalizedRadialColorStop, NormalizedRadialColorStopVec, RadialGradient,
+                    RadialGradientSize, Shape, StyleBackgroundPosition,
+                },
+                border::BorderStyle,
+                box_shadow::BoxShadowClipMode,
+            },
+        },
+        system::SystemColors,
+    };
+
+    use super::*;
+    use crate::solver3::display_list::WindowLogicalRect;
+
+    // ------------------------------------------------------------------
+    // fixtures
+    // ------------------------------------------------------------------
+
+    const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
+    const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+    const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+    const BLUE: ColorU = ColorU { r: 0, g: 0, b: 255, a: 255 };
+    const CLEAR: ColorU = ColorU { r: 255, g: 0, b: 0, a: 0 };
+
+    /// f32 values that must never make the rasterizer panic. `f32::MAX` is
+    /// deliberately NOT in here: it is finite and positive, so it produces a
+    /// *valid* (if enormous) rect that legitimately paints — it gets its own
+    /// clamping test instead of the no-op sweeps.
+    const DEGENERATE: [f32; 7] = [
+        0.0,
+        -0.0,
+        -1.0,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::MIN,
+    ];
+
+    fn pixmap(w: u32, h: u32) -> AzulPixmap {
+        let mut p = AzulPixmap::new(w, h).expect("test pixmap must allocate");
+        p.fill(255, 255, 255, 255);
+        p
+    }
+
+    fn snap(p: &AzulPixmap) -> Vec<u8> {
+        p.data().to_vec()
+    }
+
+    fn px_at(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * p.width + x) * 4) as usize;
+        [p.data()[i], p.data()[i + 1], p.data()[i + 2], p.data()[i + 3]]
+    }
+
+    fn is_reddish(px: [u8; 4]) -> bool {
+        px[0] > 200 && px[1] < 60 && px[2] < 60
+    }
+
+    fn lrect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize {
+                width: w,
+                height: h,
+            },
+        }
+    }
+
+    fn wrect(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
+        lrect(x, y, w, h).into()
+    }
+
+    fn lin_stops(pairs: &[(f32, ColorU)]) -> NormalizedLinearColorStopVec {
+        pairs
+            .iter()
+            .map(|(offset_percent, color)| NormalizedLinearColorStop {
+                offset: PercentageValue::new(*offset_percent),
+                color: ColorOrSystem::Color(*color),
+            })
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    fn rad_stops(pairs: &[(f32, ColorU)]) -> NormalizedRadialColorStopVec {
+        pairs
+            .iter()
+            .map(|(degrees, color)| NormalizedRadialColorStop {
+                angle: AngleValue::deg(*degrees),
+                color: ColorOrSystem::Color(*color),
+            })
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    fn shadow(offset: f32, blur: f32, spread: f32, color: ColorU) -> StyleBoxShadow {
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::px(offset),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::px(offset),
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(blur),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(spread),
+            },
+            color,
+            clip_mode: BoxShadowClipMode::Outset,
+        }
+    }
+
+    fn r8_image(w: usize, h: usize, bytes: Vec<u8>) -> ImageRef {
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(bytes.into()),
+            width: w,
+            height: h,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::R8,
+            tag: Vec::new().into(),
+        })
+        .expect("R8 RawImage must build")
+    }
+
+    fn rgba_image(w: usize, h: usize, bytes: Vec<u8>) -> ImageRef {
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(bytes.into()),
+            width: w,
+            height: h,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new().into(),
+        })
+        .expect("RGBA8 RawImage must build")
+    }
+
+    /// The five mutable stacks `render_single_item` threads through, seeded
+    /// exactly as `render_display_list_with_state` seeds them.
+    struct Stacks {
+        transforms: Vec<TransAffine>,
+        clips: Vec<Option<AzRect>>,
+        masks: Vec<MaskEntry>,
+        scrolls: Vec<(f32, f32)>,
+        shadows: Vec<StyleBoxShadow>,
+    }
+
+    impl Stacks {
+        fn new() -> Self {
+            Self {
+                transforms: vec![TransAffine::new()],
+                clips: vec![None],
+                masks: Vec::new(),
+                scrolls: vec![(0.0, 0.0)],
+                shadows: Vec::new(),
+            }
+        }
+    }
+
+    /// Run one item through `render_single_item` with default resources.
+    fn run_item(
+        item: &DisplayListItem,
+        p: &mut AzulPixmap,
+        st: &mut Stacks,
+        state: &CpuRenderState,
+    ) -> Result<(), String> {
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        render_single_item(
+            item,
+            p,
+            1.0,
+            &res,
+            None,
+            &mut gc,
+            &mut st.transforms,
+            &mut st.clips,
+            &mut st.masks,
+            &mut st.scrolls,
+            &mut st.shadows,
+            state,
+        )
+    }
+
+    fn run_list(dl: &DisplayList, p: &mut AzulPixmap, dpi: f32) -> Result<(), String> {
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        render_display_list(dl, p, dpi, &res, None, &mut gc)
+    }
+
+    fn run_list_with_state(
+        dl: &DisplayList,
+        p: &mut AzulPixmap,
+        state: &CpuRenderState,
+    ) -> Result<(), String> {
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        render_display_list_with_state(dl, p, 1.0, &res, None, &mut gc, state)
+    }
+
+    // ==================================================================
+    // resolve_color
+    // ==================================================================
+
+    #[test]
+    fn resolve_color_concrete_is_returned_verbatim() {
+        let c = ColorU { r: 1, g: 2, b: 3, a: 4 };
+        let palette = SystemColors {
+            accent: OptionColorU::Some(BLUE),
+            ..SystemColors::default()
+        };
+        // A concrete color must ignore the palette entirely, present or not.
+        assert_eq!(resolve_color(&ColorOrSystem::Color(c), None), c);
+        assert_eq!(resolve_color(&ColorOrSystem::Color(c), Some(&palette)), c);
+    }
+
+    #[test]
+    fn resolve_color_system_without_palette_is_transparent_fallback() {
+        for key in [
+            SystemColorRef::Text,
+            SystemColorRef::Accent,
+            SystemColorRef::SelectionBackground,
+        ] {
+            let got = resolve_color(&ColorOrSystem::System(key), None);
+            assert_eq!(got, SYSTEM_COLOR_FALLBACK);
+            assert_eq!(got.a, 0, "the fallback must contribute nothing");
+        }
+    }
+
+    #[test]
+    fn resolve_color_system_resolves_set_keys_and_falls_back_for_unset_ones() {
+        let palette = SystemColors {
+            accent: OptionColorU::Some(BLUE),
+            ..SystemColors::default()
+        };
+        assert_eq!(
+            resolve_color(&ColorOrSystem::System(SystemColorRef::Accent), Some(&palette)),
+            BLUE
+        );
+        // `text` is unset on this palette -> transparent fallback, not garbage.
+        assert_eq!(
+            resolve_color(&ColorOrSystem::System(SystemColorRef::Text), Some(&palette)),
+            SYSTEM_COLOR_FALLBACK
+        );
+        // An entirely empty palette falls back for every key.
+        assert_eq!(
+            resolve_color(
+                &ColorOrSystem::System(SystemColorRef::ButtonFace),
+                Some(&SystemColors::default())
+            ),
+            SYSTEM_COLOR_FALLBACK
+        );
+    }
+
+    // ==================================================================
+    // build_gradient_lut_linear / build_gradient_lut_radial
+    // ==================================================================
+
+    #[test]
+    fn gradient_lut_linear_under_two_stops_is_fully_transparent() {
+        for stops in [lin_stops(&[]), lin_stops(&[(50.0, RED)])] {
+            let lut = build_gradient_lut_linear(&stops, None);
+            assert_eq!(lut.size(), 256);
+            for i in [0usize, 1, 128, 255] {
+                assert_eq!(
+                    lut.get(i).a,
+                    0,
+                    "a gradient with <2 stops must not paint anything"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gradient_lut_linear_two_stops_interpolate_end_to_end() {
+        let lut = build_gradient_lut_linear(&lin_stops(&[(0.0, BLACK), (100.0, WHITE)]), None);
+        assert_eq!(lut.size(), 256);
+        assert_eq!(lut.get(0).r, 0);
+        assert_eq!(lut.get(255).r, 255);
+        // Monotonically increasing across the ramp.
+        assert!(lut.get(64).r < lut.get(192).r);
+        assert_eq!(lut.get(0).a, 255);
+    }
+
+    #[test]
+    fn gradient_lut_linear_out_of_range_offsets_are_clamped_not_panicking() {
+        // -500% and +900% (and a saturating 1e30%) must clamp into 0..=1.
+        let lut = build_gradient_lut_linear(
+            &lin_stops(&[(-500.0, BLACK), (900.0, WHITE), (1e30, RED)]),
+            None,
+        );
+        assert_eq!(lut.size(), 256);
+        assert_eq!(lut.get(0).r, 0, "the -500% stop clamps to offset 0");
+        // Both 900% and 1e30% clamp to offset 1.0; the dedup keeps one of them.
+        assert!(lut.get(255).a > 0);
+    }
+
+    #[test]
+    fn gradient_lut_linear_unsorted_stops_are_sorted_by_offset() {
+        // Stops handed over back-to-front must still ramp from offset 0 upward.
+        let lut = build_gradient_lut_linear(&lin_stops(&[(100.0, WHITE), (0.0, BLACK)]), None);
+        assert_eq!(lut.get(0).r, 0);
+        assert_eq!(lut.get(255).r, 255);
+    }
+
+    #[test]
+    fn gradient_lut_linear_duplicate_offsets_degrade_to_transparent_not_panic() {
+        // Two stops at the SAME offset dedup down to one -> <2 stops -> the LUT
+        // is left transparent. The contract that matters here: no panic, and no
+        // arbitrary color is invented.
+        let lut = build_gradient_lut_linear(&lin_stops(&[(50.0, RED), (50.0, BLUE)]), None);
+        assert_eq!(lut.size(), 256);
+        assert_eq!(lut.get(128).a, 0);
+    }
+
+    #[test]
+    fn gradient_lut_linear_resolves_system_stops_against_the_palette() {
+        let palette = SystemColors {
+            accent: OptionColorU::Some(BLUE),
+            ..SystemColors::default()
+        };
+        let stops: NormalizedLinearColorStopVec = vec![
+            NormalizedLinearColorStop {
+                offset: PercentageValue::new(0.0),
+                color: ColorOrSystem::System(SystemColorRef::Accent),
+            },
+            NormalizedLinearColorStop {
+                offset: PercentageValue::new(100.0),
+                color: ColorOrSystem::Color(WHITE),
+            },
+        ]
+        .into();
+
+        let with_palette = build_gradient_lut_linear(&stops, Some(&palette));
+        assert_eq!(with_palette.get(0).b, 255, "system:accent must resolve to blue");
+        assert_eq!(with_palette.get(0).a, 255);
+
+        // Without a palette the system stop is transparent (never mid-gray).
+        let without = build_gradient_lut_linear(&stops, None);
+        assert_eq!(without.get(0).a, 0);
+    }
+
+    #[test]
+    fn gradient_lut_radial_distinct_angles_interpolate() {
+        let lut = build_gradient_lut_radial(&rad_stops(&[(0.0, BLACK), (180.0, WHITE)]), None);
+        assert_eq!(lut.size(), 256);
+        assert_eq!(lut.get(0).r, 0);
+        // 180deg -> offset 0.5; everything past it is clamped to the last color.
+        assert_eq!(lut.get(255).r, 255);
+        assert!(lut.get(64).r < lut.get(127).r);
+    }
+
+    #[test]
+    fn gradient_lut_radial_extreme_angles_do_not_panic() {
+        // Negative, >360 and saturating angles all fold into 0..=1 offsets.
+        for angles in [
+            [-720.0_f32, 90.0],
+            [1e30, 45.0],
+            [f32::NAN, 90.0],
+            [f32::INFINITY, 270.0],
+        ] {
+            let lut = build_gradient_lut_radial(
+                &rad_stops(&[(angles[0], RED), (angles[1], BLUE)]),
+                None,
+            );
+            assert_eq!(lut.size(), 256, "angles {angles:?} must still build a LUT");
+        }
+    }
+
+    // ==================================================================
+    // resolve_background_position
+    // ==================================================================
+
+    #[test]
+    fn resolve_background_position_keywords_map_to_fractions() {
+        let cases = [
+            (
+                BackgroundPositionHorizontal::Left,
+                BackgroundPositionVertical::Top,
+                (0.0, 0.0),
+            ),
+            (
+                BackgroundPositionHorizontal::Center,
+                BackgroundPositionVertical::Center,
+                (0.5, 0.5),
+            ),
+            (
+                BackgroundPositionHorizontal::Right,
+                BackgroundPositionVertical::Bottom,
+                (1.0, 1.0),
+            ),
+        ];
+        for (horizontal, vertical, expected) in cases {
+            let pos = StyleBackgroundPosition {
+                horizontal,
+                vertical,
+            };
+            assert_eq!(resolve_background_position(&pos, 200.0, 100.0), expected);
+        }
+    }
+
+    #[test]
+    fn resolve_background_position_exact_px_is_a_fraction_of_the_box() {
+        let pos = StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::px(50.0)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::px(25.0)),
+        };
+        assert_eq!(resolve_background_position(&pos, 200.0, 100.0), (0.25, 0.25));
+    }
+
+    #[test]
+    fn resolve_background_position_exact_percent_resolves_against_the_box() {
+        let pos = StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::percent(50.0)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::percent(10.0)),
+        };
+        let (x, y) = resolve_background_position(&pos, 200.0, 100.0);
+        assert!((x - 0.5).abs() < 1e-4, "50% of the width is the center, got {x}");
+        assert!((y - 0.1).abs() < 1e-4, "10% of the height, got {y}");
+    }
+
+    #[test]
+    fn resolve_background_position_zero_box_falls_back_to_center() {
+        // The divide-by-zero guard: a 0-sized box centers instead of producing NaN.
+        let pos = StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::px(10.0)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::px(10.0)),
+        };
+        assert_eq!(resolve_background_position(&pos, 0.0, 0.0), (0.5, 0.5));
+    }
+
+    #[test]
+    fn resolve_background_position_never_returns_nan_for_degenerate_boxes() {
+        let pos = StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::px(10.0)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::px(-10.0)),
+        };
+        for w in DEGENERATE {
+            for h in DEGENERATE {
+                let (x, y) = resolve_background_position(&pos, w, h);
+                assert!(
+                    !x.is_nan() && !y.is_nan(),
+                    "w={w}, h={h} produced NaN ({x}, {y}) — a NaN center poisons the gradient transform"
+                );
+            }
+        }
+        // f32::MAX is finite and positive: the fraction collapses to ~0, not NaN.
+        let (x, y) = resolve_background_position(&pos, f32::MAX, f32::MAX);
+        assert!(x.is_finite() && y.is_finite());
+    }
+
+    // ==================================================================
+    // render_rect
+    // ==================================================================
+
+    #[test]
+    fn render_rect_paints_exactly_its_bounds() {
+        let mut p = pixmap(10, 10);
+        render_rect(
+            &mut p,
+            &lrect(2.0, 2.0, 4.0, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert!(is_reddish(px_at(&p, 3, 3)), "inside the rect must be red");
+        assert_eq!(px_at(&p, 0, 0), [255, 255, 255, 255], "outside stays white");
+        let red = p.data().chunks_exact(4).filter(|c| c[0] > 200 && c[1] < 60).count();
+        assert_eq!(red, 16, "a 4x4 rect covers exactly 16 pixels");
+    }
+
+    #[test]
+    fn render_rect_transparent_color_is_a_noop() {
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, 8.0, 8.0),
+            CLEAR,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert_eq!(before, p.data(), "alpha=0 must not touch the buffer");
+    }
+
+    #[test]
+    fn render_rect_degenerate_bounds_are_noops() {
+        for bad in DEGENERATE {
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            render_rect(
+                &mut p,
+                &lrect(0.0, 0.0, bad, bad),
+                RED,
+                &BorderRadius::default(),
+                None,
+                1.0,
+            );
+            assert_eq!(before, p.data(), "size {bad} must be rejected, not painted");
+
+            // NOTE: `f32::MIN` is deliberately NOT swept as an *origin* here — it
+            // makes `(rect.x + rect.width) as i32` saturate to `i32::MIN` and the
+            // `- 1` that follows overflows (debug panic). See the report.
+            if bad == f32::MIN {
+                continue;
+            }
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            render_rect(
+                &mut p,
+                &lrect(bad, bad, 4.0, 4.0),
+                RED,
+                &BorderRadius::default(),
+                None,
+                1.0,
+            );
+            if !bad.is_finite() {
+                assert_eq!(before, p.data(), "origin {bad} must be rejected");
+            }
+        }
+    }
+
+    #[test]
+    fn render_rect_degenerate_dpi_is_a_noop() {
+        // 0 / -0 / negative / NaN / +-inf / f32::MIN dpi all collapse or poison
+        // the rect, and must be rejected before any pixel is touched.
+        for dpi in DEGENERATE {
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            render_rect(
+                &mut p,
+                &lrect(1.0, 1.0, 4.0, 4.0),
+                RED,
+                &BorderRadius::default(),
+                None,
+                dpi,
+            );
+            assert_eq!(before, p.data(), "dpi {dpi} must be rejected, not painted");
+        }
+        // f32::MAX dpi overflows the rect to +inf -> also rejected.
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        render_rect(
+            &mut p,
+            &lrect(1.0, 1.0, 4.0, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            f32::MAX,
+        );
+        assert_eq!(before, p.data());
+    }
+
+    #[test]
+    fn render_rect_saturating_bounds_clamp_to_the_pixmap() {
+        // f32::MAX is finite: the rect is valid and must be clamped to the
+        // buffer (i32-saturating casts), never write out of bounds.
+        let mut p = pixmap(8, 8);
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, f32::MAX, f32::MAX),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert!(p.data().chunks_exact(4).all(|c| c[0] > 200 && c[1] < 60));
+    }
+
+    #[test]
+    fn render_rect_negative_origin_clamps_to_the_pixmap() {
+        let mut p = pixmap(8, 8);
+        render_rect(
+            &mut p,
+            &lrect(-1e9, -1e9, 2e9, 2e9),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert!(is_reddish(px_at(&p, 0, 0)));
+        assert!(is_reddish(px_at(&p, 7, 7)));
+    }
+
+    #[test]
+    fn render_rect_fully_outside_the_clip_is_a_noop() {
+        let mut p = pixmap(10, 10);
+        let before = snap(&p);
+        let clip = AzRect::from_xywh(0.0, 0.0, 2.0, 2.0).unwrap();
+        render_rect(
+            &mut p,
+            &lrect(5.0, 5.0, 3.0, 3.0),
+            RED,
+            &BorderRadius::default(),
+            Some(clip),
+            1.0,
+        );
+        assert_eq!(before, p.data());
+    }
+
+    #[test]
+    fn render_rect_clip_narrows_the_painted_area() {
+        let mut p = pixmap(10, 10);
+        let clip = AzRect::from_xywh(0.0, 0.0, 2.0, 2.0).unwrap();
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, 10.0, 10.0),
+            RED,
+            &BorderRadius::default(),
+            Some(clip),
+            1.0,
+        );
+        let red = p.data().chunks_exact(4).filter(|c| c[0] > 200 && c[1] < 60).count();
+        assert_eq!(red, 4, "only the 2x2 clip region may be painted");
+    }
+
+    #[test]
+    fn render_rect_rounded_corners_leave_the_corner_pixel_unpainted() {
+        let mut p = pixmap(20, 20);
+        let radius = BorderRadius {
+            top_left: 6.0,
+            top_right: 6.0,
+            bottom_left: 6.0,
+            bottom_right: 6.0,
+        };
+        render_rect(&mut p, &lrect(0.0, 0.0, 20.0, 20.0), RED, &radius, None, 1.0);
+        assert!(is_reddish(px_at(&p, 10, 10)), "the middle is filled");
+        assert_eq!(
+            px_at(&p, 0, 0),
+            [255, 255, 255, 255],
+            "the rounded corner must not be filled"
+        );
+    }
+
+    #[test]
+    fn render_rect_radius_larger_than_the_rect_does_not_panic() {
+        let mut p = pixmap(10, 10);
+        let radius = BorderRadius {
+            top_left: 1e6,
+            top_right: 1e6,
+            bottom_left: 1e6,
+            bottom_right: 1e6,
+        };
+        render_rect(&mut p, &lrect(0.0, 0.0, 10.0, 10.0), RED, &radius, None, 1.0);
+        // Radii are normalized to fit; the shape stays inside the buffer.
+        assert!(is_reddish(px_at(&p, 5, 5)));
+    }
+
+    // ==================================================================
+    // render_linear_gradient / render_radial_gradient / render_conic_gradient
+    // ==================================================================
+
+    fn linear(stops: NormalizedLinearColorStopVec) -> LinearGradient {
+        LinearGradient {
+            stops,
+            ..LinearGradient::default()
+        }
+    }
+
+    #[test]
+    fn linear_gradient_paints_a_ramp_top_to_bottom() {
+        let mut p = pixmap(16, 16);
+        render_linear_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 16.0, 16.0),
+            &linear(lin_stops(&[(0.0, BLACK), (100.0, WHITE)])),
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        let top = px_at(&p, 8, 0)[0];
+        let bottom = px_at(&p, 8, 15)[0];
+        assert!(
+            top < bottom,
+            "the default Top->Bottom direction must ramp dark->light (top {top}, bottom {bottom})"
+        );
+    }
+
+    #[test]
+    fn linear_gradient_without_stops_is_a_noop() {
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        render_linear_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 8.0, 8.0),
+            &linear(lin_stops(&[])),
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        assert_eq!(before, p.data());
+    }
+
+    #[test]
+    fn linear_gradient_single_stop_paints_nothing() {
+        // <2 stops -> transparent LUT -> alpha 0 -> the buffer is untouched.
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        render_linear_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 8.0, 8.0),
+            &linear(lin_stops(&[(50.0, RED)])),
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        assert_eq!(before, p.data());
+    }
+
+    #[test]
+    fn linear_gradient_degenerate_geometry_is_a_noop() {
+        for bad in DEGENERATE {
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            render_linear_gradient(
+                &mut p,
+                &lrect(0.0, 0.0, 8.0, 8.0),
+                &linear(lin_stops(&[(0.0, BLACK), (100.0, WHITE)])),
+                &BorderRadius::default(),
+                None,
+                bad,
+                None,
+            );
+            assert_eq!(before, p.data(), "dpi {bad} must be rejected");
+
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            render_linear_gradient(
+                &mut p,
+                &lrect(0.0, 0.0, bad, bad),
+                &linear(lin_stops(&[(0.0, BLACK), (100.0, WHITE)])),
+                &BorderRadius::default(),
+                None,
+                1.0,
+                None,
+            );
+            assert_eq!(before, p.data(), "size {bad} must be rejected");
+        }
+    }
+
+    #[test]
+    fn radial_gradient_zero_radius_is_a_noop() {
+        // ClosestSide with the center pinned to the top-left corner => radius 0.
+        let gradient = RadialGradient {
+            shape: Shape::Circle,
+            size: RadialGradientSize::ClosestSide,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Left,
+                vertical: BackgroundPositionVertical::Top,
+            },
+            stops: lin_stops(&[(0.0, BLACK), (100.0, WHITE)]),
+            ..RadialGradient::default()
+        };
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        render_radial_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 8.0, 8.0),
+            &gradient,
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        assert_eq!(before, p.data(), "a 0-radius gradient must paint nothing");
+    }
+
+    #[test]
+    fn radial_gradient_paints_from_the_center_outward() {
+        let gradient = RadialGradient {
+            shape: Shape::Circle,
+            size: RadialGradientSize::FarthestCorner,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            stops: lin_stops(&[(0.0, BLACK), (100.0, WHITE)]),
+            ..RadialGradient::default()
+        };
+        let mut p = pixmap(16, 16);
+        render_radial_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 16.0, 16.0),
+            &gradient,
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        let center = px_at(&p, 8, 8)[0];
+        let corner = px_at(&p, 0, 0)[0];
+        assert!(
+            center < corner,
+            "the center stop is black, the rim white (center {center}, corner {corner})"
+        );
+    }
+
+    #[test]
+    fn radial_gradient_empty_stops_and_degenerate_dpi_are_noops() {
+        let empty = RadialGradient {
+            stops: lin_stops(&[]),
+            ..RadialGradient::default()
+        };
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        render_radial_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 8.0, 8.0),
+            &empty,
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        assert_eq!(before, p.data());
+
+        let filled = RadialGradient {
+            stops: lin_stops(&[(0.0, BLACK), (100.0, WHITE)]),
+            ..RadialGradient::default()
+        };
+        for bad in DEGENERATE {
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            render_radial_gradient(
+                &mut p,
+                &lrect(0.0, 0.0, 8.0, 8.0),
+                &filled,
+                &BorderRadius::default(),
+                None,
+                bad,
+                None,
+            );
+            assert_eq!(before, p.data(), "dpi {bad} must be rejected");
+        }
+    }
+
+    #[test]
+    fn conic_gradient_empty_stops_and_degenerate_dpi_are_noops() {
+        let empty = ConicGradient {
+            stops: rad_stops(&[]),
+            ..ConicGradient::default()
+        };
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        render_conic_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 8.0, 8.0),
+            &empty,
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        assert_eq!(before, p.data());
+
+        let filled = ConicGradient {
+            stops: rad_stops(&[(0.0, BLACK), (180.0, WHITE)]),
+            ..ConicGradient::default()
+        };
+        for bad in DEGENERATE {
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            render_conic_gradient(
+                &mut p,
+                &lrect(0.0, 0.0, 8.0, 8.0),
+                &filled,
+                &BorderRadius::default(),
+                None,
+                bad,
+                None,
+            );
+            assert_eq!(before, p.data(), "dpi {bad} must be rejected");
+        }
+    }
+
+    #[test]
+    fn conic_gradient_with_distinct_angle_stops_paints() {
+        let gradient = ConicGradient {
+            stops: rad_stops(&[(0.0, BLACK), (180.0, WHITE)]),
+            ..ConicGradient::default()
+        };
+        let mut p = pixmap(16, 16);
+        let before = snap(&p);
+        render_conic_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 16.0, 16.0),
+            &gradient,
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        assert_ne!(before, p.data(), "a 2-stop conic gradient must paint");
+    }
+
+    /// RED (`#[ignore]`d so the suite stays green): the CSS parser normalizes
+    /// `conic-gradient(red, blue)` to stops at **0deg and 360deg**
+    /// (`get_normalized_radial_stops`, `default_end = 360.0`).
+    /// `build_gradient_lut_radial` maps each stop through `AngleValue::to_degrees()`,
+    /// which wraps 360 -> 0, so BOTH stops land on offset 0.0, agg's `build_lut()`
+    /// dedups them to a single stop, bails out (`len < 2`), and the LUT stays fully
+    /// transparent — the gradient paints NOTHING. Fix: use `to_degrees_raw()` (or
+    /// special-case a final 360deg stop) so the last stop lands on offset 1.0.
+    #[test]
+    #[ignore = "RED: known bug — a full-circle conic gradient (the common 2-stop case) paints nothing"]
+    fn conic_gradient_full_circle_stops_paint_the_rect() {
+        let gradient = ConicGradient {
+            stops: rad_stops(&[(0.0, BLACK), (360.0, WHITE)]),
+            ..ConicGradient::default()
+        };
+        let mut p = pixmap(16, 16);
+        let before = snap(&p);
+        render_conic_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 16.0, 16.0),
+            &gradient,
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        assert_ne!(
+            before,
+            p.data(),
+            "conic-gradient(black, white) normalizes to 0deg/360deg and must still paint"
+        );
+    }
+
+    // ==================================================================
+    // render_box_shadow
+    // ==================================================================
+
+    #[test]
+    fn box_shadow_paints_under_the_bounds() {
+        let mut p = pixmap(40, 40);
+        let res = render_box_shadow(
+            &mut p,
+            &lrect(10.0, 10.0, 20.0, 20.0),
+            &shadow(0.0, 0.0, 0.0, BLACK),
+            &BorderRadius::default(),
+            1.0,
+        );
+        assert!(res.is_ok());
+        let dark = p.data().chunks_exact(4).filter(|c| c[0] < 50).count();
+        assert!(dark > 100, "a hard 20x20 shadow must darken the box, got {dark}");
+    }
+
+    #[test]
+    fn box_shadow_transparent_color_is_ok_and_a_noop() {
+        let mut p = pixmap(20, 20);
+        let before = snap(&p);
+        let res = render_box_shadow(
+            &mut p,
+            &lrect(5.0, 5.0, 10.0, 10.0),
+            &shadow(0.0, 4.0, 0.0, CLEAR),
+            &BorderRadius::default(),
+            1.0,
+        );
+        assert_eq!(res, Ok(()));
+        assert_eq!(before, p.data());
+    }
+
+    #[test]
+    fn box_shadow_oversized_blur_is_rejected_without_allocating() {
+        // blur 1e6 px would need a >4096px scratch buffer -> refused (Ok, no-op),
+        // NOT a multi-gigabyte allocation.
+        let mut p = pixmap(20, 20);
+        let before = snap(&p);
+        let res = render_box_shadow(
+            &mut p,
+            &lrect(5.0, 5.0, 10.0, 10.0),
+            &shadow(0.0, 1e6, 0.0, BLACK),
+            &BorderRadius::default(),
+            1.0,
+        );
+        assert_eq!(res, Ok(()));
+        assert_eq!(before, p.data(), "an oversized shadow must be skipped");
+    }
+
+    #[test]
+    fn box_shadow_huge_negative_spread_collapses_to_a_noop() {
+        let mut p = pixmap(20, 20);
+        let before = snap(&p);
+        let res = render_box_shadow(
+            &mut p,
+            &lrect(5.0, 5.0, 10.0, 10.0),
+            &shadow(0.0, 0.0, -1e6, BLACK),
+            &BorderRadius::default(),
+            1.0,
+        );
+        assert_eq!(res, Ok(()));
+        assert_eq!(before, p.data(), "a fully-shrunk shadow paints nothing");
+    }
+
+    #[test]
+    fn box_shadow_degenerate_geometry_is_ok_and_a_noop() {
+        for bad in DEGENERATE {
+            let mut p = pixmap(20, 20);
+            let before = snap(&p);
+            let res = render_box_shadow(
+                &mut p,
+                &lrect(5.0, 5.0, 10.0, 10.0),
+                &shadow(0.0, 2.0, 0.0, BLACK),
+                &BorderRadius::default(),
+                bad,
+            );
+            assert_eq!(res, Ok(()), "dpi {bad} must not error");
+            assert_eq!(before, p.data(), "dpi {bad} must not paint");
+
+            let mut p = pixmap(20, 20);
+            let before = snap(&p);
+            let res = render_box_shadow(
+                &mut p,
+                &lrect(0.0, 0.0, bad, bad),
+                &shadow(0.0, 2.0, 0.0, BLACK),
+                &BorderRadius::default(),
+                1.0,
+            );
+            assert_eq!(res, Ok(()), "size {bad} must not error");
+            assert_eq!(before, p.data(), "size {bad} must not paint");
+        }
+    }
+
+    // ==================================================================
+    // extract_mask_data
+    // ==================================================================
+
+    #[test]
+    fn extract_mask_data_zero_target_is_none() {
+        let img = r8_image(2, 2, vec![0, 64, 128, 255]);
+        assert!(extract_mask_data(&img, 0, 4).is_none());
+        assert!(extract_mask_data(&img, 4, 0).is_none());
+        assert!(extract_mask_data(&img, 0, 0).is_none());
+    }
+
+    #[test]
+    fn extract_mask_data_r8_identity_scale_is_a_passthrough() {
+        let img = r8_image(2, 2, vec![0, 64, 128, 255]);
+        let mask = extract_mask_data(&img, 2, 2).expect("R8 mask must extract");
+        assert_eq!(mask, vec![0, 64, 128, 255]);
+    }
+
+    #[test]
+    fn extract_mask_data_upscales_nearest_neighbour() {
+        let img = r8_image(2, 2, vec![0, 255, 255, 0]);
+        let mask = extract_mask_data(&img, 4, 4).expect("mask must extract");
+        assert_eq!(mask.len(), 16);
+        // Each source texel expands into a 2x2 block.
+        assert_eq!(
+            mask,
+            vec![
+                0, 0, 255, 255, //
+                0, 0, 255, 255, //
+                255, 255, 0, 0, //
+                255, 255, 0, 0,
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_mask_data_downscales_without_reading_out_of_bounds() {
+        let img = r8_image(4, 4, (0..16).map(|i| i as u8 * 16).collect());
+        let mask = extract_mask_data(&img, 1, 1).expect("mask must extract");
+        assert_eq!(mask, vec![0], "1x1 nearest-neighbour samples the first texel");
+
+        // A target bigger than the source in one axis only.
+        let mask = extract_mask_data(&img, 8, 2).expect("mask must extract");
+        assert_eq!(mask.len(), 16);
+    }
+
+    #[test]
+    fn extract_mask_data_bgra_source_uses_the_alpha_channel() {
+        // RGBA8 is stored as BGRA8; the mask must come from the alpha channel.
+        let px = vec![
+            255, 0, 0, 0, // red, a=0
+            0, 255, 0, 85, // green, a=85
+            0, 0, 255, 170, // blue, a=170
+            9, 9, 9, 255, // gray, a=255
+        ];
+        let img = rgba_image(2, 2, px);
+        let mask = extract_mask_data(&img, 2, 2).expect("BGRA mask must extract");
+        assert_eq!(mask, vec![0, 85, 170, 255]);
+    }
+
+    #[test]
+    fn extract_mask_data_target_length_always_matches_the_request() {
+        let img = r8_image(3, 3, vec![7; 9]);
+        for (w, h) in [(1u32, 1u32), (2, 5), (5, 2), (16, 16), (1, 64)] {
+            let mask = extract_mask_data(&img, w, h).expect("mask must extract");
+            assert_eq!(mask.len(), (w * h) as usize, "target {w}x{h}");
+            assert!(mask.iter().all(|&v| v == 7));
+        }
+    }
+
+    // ==================================================================
+    // apply_mask
+    // ==================================================================
+
+    fn image_mask_entry(
+        snapshot: Vec<u8>,
+        mask_data: Vec<u8>,
+        origin: (i32, i32),
+        size: (u32, u32),
+    ) -> MaskEntry {
+        MaskEntry::ImageMask {
+            snapshot,
+            mask_data,
+            origin_x: origin.0,
+            origin_y: origin.1,
+            width: size.0,
+            height: size.1,
+        }
+    }
+
+    #[test]
+    fn apply_mask_zero_mask_restores_the_snapshot() {
+        let mut p = pixmap(4, 4);
+        let snapshot = snapshot_region(&p, 0, 0, 4, 4); // all white
+        p.fill(0, 0, 0, 255); // the "masked" drawing
+        apply_mask(
+            &mut p,
+            &image_mask_entry(snapshot, vec![0; 16], (0, 0), (4, 4)),
+        );
+        assert!(
+            p.data().chunks_exact(4).all(|c| c[0] == 255 && c[1] == 255),
+            "mask=0 means fully clipped -> the pre-mask snapshot is restored"
+        );
+    }
+
+    #[test]
+    fn apply_mask_opaque_mask_keeps_the_current_pixels() {
+        let mut p = pixmap(4, 4);
+        let snapshot = snapshot_region(&p, 0, 0, 4, 4);
+        p.fill(0, 0, 0, 255);
+        apply_mask(
+            &mut p,
+            &image_mask_entry(snapshot, vec![255; 16], (0, 0), (4, 4)),
+        );
+        assert!(
+            p.data().chunks_exact(4).all(|c| c[0] == 0),
+            "mask=255 means fully visible -> the drawing survives"
+        );
+    }
+
+    #[test]
+    fn apply_mask_opacity_entry_is_ignored() {
+        let mut p = pixmap(4, 4);
+        p.fill(0, 0, 0, 255);
+        let before = snap(&p);
+        apply_mask(
+            &mut p,
+            &MaskEntry::Opacity {
+                snapshot: vec![255; 64],
+                rect: AzRect::from_xywh(0.0, 0.0, 4.0, 4.0).unwrap(),
+                opacity: 0.5,
+            },
+        );
+        assert_eq!(before, p.data(), "apply_mask only handles ImageMask entries");
+    }
+
+    #[test]
+    fn apply_mask_out_of_bounds_origin_does_not_panic_or_write() {
+        let mut p = pixmap(4, 4);
+        p.fill(0, 0, 0, 255);
+        let before = snap(&p);
+        // Entirely off the left/top and off the right/bottom, including the
+        // i32 lower bound. (`i32::MAX` origins are NOT swept: `origin_y + py`
+        // overflows there — see the report.)
+        for origin in [(-100, -100), (100, 100), (i32::MIN, 0), (0, i32::MIN)] {
+            apply_mask(
+                &mut p,
+                &image_mask_entry(vec![255; 64], vec![0; 16], origin, (4, 4)),
+            );
+        }
+        assert_eq!(before, p.data(), "off-buffer masks must be skipped entirely");
+    }
+
+    #[test]
+    fn apply_mask_truncated_mask_data_is_treated_as_zero() {
+        let mut p = pixmap(4, 4);
+        let snapshot = snapshot_region(&p, 0, 0, 4, 4);
+        p.fill(0, 0, 0, 255);
+        // Only 4 of the 16 mask bytes are present — the rest must read as 0
+        // (clipped), never index out of bounds.
+        apply_mask(
+            &mut p,
+            &image_mask_entry(snapshot, vec![255; 4], (0, 0), (4, 4)),
+        );
+        assert_eq!(px_at(&p, 0, 0), [0, 0, 0, 255], "the covered texels stay");
+        assert_eq!(
+            px_at(&p, 0, 3),
+            [255, 255, 255, 255],
+            "missing mask bytes restore the snapshot"
+        );
+    }
+
+    #[test]
+    fn apply_mask_partially_offscreen_only_touches_visible_pixels() {
+        let mut p = pixmap(4, 4);
+        let snapshot = snapshot_region(&p, -2, -2, 4, 4);
+        p.fill(0, 0, 0, 255);
+        apply_mask(
+            &mut p,
+            &image_mask_entry(snapshot, vec![0; 16], (-2, -2), (4, 4)),
+        );
+        // The bottom-right quadrant is off-mask and keeps the drawing.
+        assert_eq!(px_at(&p, 3, 3), [0, 0, 0, 255]);
+    }
+
+    // ==================================================================
+    // acquire_pixmap
+    // ==================================================================
+
+    #[test]
+    fn acquire_pixmap_zero_dimensions_error_instead_of_allocating() {
+        assert!(acquire_pixmap(None, 0, 0).is_err());
+        assert!(acquire_pixmap(None, 0, 4).is_err());
+        assert!(acquire_pixmap(None, 4, 0).is_err());
+        // Even with a retained buffer, a 0-sized request must fail (it cannot
+        // match the retained dimensions, so it falls through to allocation).
+        assert!(acquire_pixmap(Some(pixmap(4, 4)), 0, 4).is_err());
+    }
+
+    #[test]
+    fn acquire_pixmap_reuses_a_matching_retained_buffer_verbatim() {
+        let mut retained = pixmap(4, 4);
+        retained.fill(1, 2, 3, 4);
+        let got = acquire_pixmap(Some(retained), 4, 4).expect("must reuse");
+        assert_eq!(got.width, 4);
+        assert_eq!(got.height, 4);
+        assert_eq!(
+            &got.data()[0..4],
+            &[1, 2, 3, 4],
+            "reuse must not clear — the caller does that"
+        );
+    }
+
+    #[test]
+    fn acquire_pixmap_allocates_fresh_on_a_size_mismatch() {
+        let mut retained = pixmap(4, 4);
+        retained.fill(1, 2, 3, 4);
+        let got = acquire_pixmap(Some(retained), 5, 5).expect("must allocate");
+        assert_eq!((got.width, got.height), (5, 5));
+        assert_eq!(&got.data()[0..4], &[255, 255, 255, 255], "fresh = opaque white");
+    }
+
+    // ==================================================================
+    // render (public entry point)
+    // ==================================================================
+
+    fn opts(width: f32, height: f32, dpi_factor: f32) -> RenderOptions {
+        RenderOptions {
+            width,
+            height,
+            dpi_factor,
+        }
+    }
+
+    #[test]
+    fn render_empty_display_list_is_opaque_white() {
+        let dl = DisplayList::default();
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        let p = render(&dl, &res, opts(4.0, 4.0, 1.0), &mut gc).expect("must render");
+        assert_eq!((p.width, p.height), (4, 4));
+        assert!(p
+            .data()
+            .chunks_exact(4)
+            .all(|c| c[0] == 255 && c[1] == 255 && c[2] == 255 && c[3] == 255));
+    }
+
+    #[test]
+    fn render_applies_the_dpi_factor_to_the_pixmap_size() {
+        let dl = DisplayList::default();
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        let p = render(&dl, &res, opts(4.0, 3.0, 2.0), &mut gc).expect("must render");
+        assert_eq!((p.width, p.height), (8, 6));
+    }
+
+    #[test]
+    fn render_collapsing_dimensions_error_instead_of_panicking() {
+        let dl = DisplayList::default();
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        // Every one of these truncates to a 0-sized pixmap.
+        for o in [
+            opts(0.0, 4.0, 1.0),
+            opts(4.0, 0.0, 1.0),
+            opts(-4.0, -4.0, 1.0),
+            opts(f32::NAN, f32::NAN, 1.0),
+            opts(4.0, 4.0, 0.0),
+            opts(4.0, 4.0, -1.0),
+            opts(4.0, 4.0, f32::NAN),
+            opts(0.4, 0.4, 1.0), // truncates to 0
+        ] {
+            let got = render(&dl, &res, o, &mut gc);
+            assert!(
+                got.is_err(),
+                "{o:?} must return Err, not panic or allocate a 0-sized buffer"
+            );
+        }
+    }
+
+    #[test]
+    fn render_paints_display_list_items() {
+        let dl = DisplayList {
+            items: vec![DisplayListItem::Rect {
+                bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                color: RED,
+                border_radius: BorderRadius::default(),
+            }],
+            ..Default::default()
+        };
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        let p = render(&dl, &res, opts(8.0, 8.0, 1.0), &mut gc).expect("must render");
+        assert!(is_reddish(px_at(&p, 1, 1)));
+        assert_eq!(px_at(&p, 7, 7), [255, 255, 255, 255]);
+    }
+
+    // ==================================================================
+    // CpuRenderState constructors + extract_gpu_values
+    // ==================================================================
+
+    #[test]
+    fn cpu_render_state_new_keeps_the_scroll_offsets_and_empties_the_rest() {
+        let mut offsets = ScrollOffsetMap::new();
+        offsets.insert(7, (1.0, 2.0));
+        let state = CpuRenderState::new(offsets);
+        assert_eq!(state.scroll_offsets.get(&7), Some(&(1.0, 2.0)));
+        assert!(state.transforms.is_empty());
+        assert!(state.opacities.is_empty());
+        assert!(state.system_style.is_none());
+        assert!(state.virtual_view_display_lists.is_empty());
+        assert!(state.image_callback_results.is_empty());
+    }
+
+    #[test]
+    fn cpu_render_state_builders_set_their_field_and_preserve_the_others() {
+        let mut offsets = ScrollOffsetMap::new();
+        offsets.insert(1, (3.0, 4.0));
+
+        let mut lists = std::collections::BTreeMap::new();
+        lists.insert(DomId { inner: 9 }, std::sync::Arc::new(DisplayList::default()));
+
+        let img = r8_image(1, 1, vec![255]);
+        let hash = img.get_hash();
+        let mut results = std::collections::BTreeMap::new();
+        results.insert(hash, img);
+
+        let state = CpuRenderState::new(offsets)
+            .with_virtual_view_display_lists(lists)
+            .with_image_callback_results(results)
+            .with_system_style(Some(std::sync::Arc::new(
+                azul_css::system::SystemStyle::default(),
+            )));
+
+        assert_eq!(state.scroll_offsets.get(&1), Some(&(3.0, 4.0)));
+        assert_eq!(state.virtual_view_display_lists.len(), 1);
+        assert!(state.virtual_view_display_lists.contains_key(&DomId { inner: 9 }));
+        assert_eq!(state.image_callback_results.len(), 1);
+        assert!(state.image_callback_results.contains_key(&hash));
+        assert!(state.system_style.is_some());
+
+        // with_system_style(None) must clear it again.
+        let cleared = CpuRenderState::new(ScrollOffsetMap::new()).with_system_style(None);
+        assert!(cleared.system_style.is_none());
+    }
+
+    #[test]
+    fn cpu_render_state_builders_accept_empty_collections() {
+        let state = CpuRenderState::new(ScrollOffsetMap::new())
+            .with_virtual_view_display_lists(std::collections::BTreeMap::new())
+            .with_image_callback_results(std::collections::BTreeMap::new());
+        assert!(state.virtual_view_display_lists.is_empty());
+        assert!(state.image_callback_results.is_empty());
+    }
+
+    #[test]
+    fn extract_gpu_values_without_a_cache_is_empty() {
+        let (transforms, opacities) = extract_gpu_values(None, DomId::ROOT_ID);
+        assert!(transforms.is_empty());
+        assert!(opacities.is_empty());
+    }
+
+    #[test]
+    fn extract_gpu_values_flattens_keys_to_ids() {
+        let mut cache = GpuValueCache::default();
+        let node = NodeId::new(3);
+        let tkey = TransformKey { id: 11 };
+        let okey = OpacityKey { id: 22 };
+
+        cache.transform_keys.insert(node, tkey);
+        cache
+            .current_transform_values
+            .insert(node, ComputedTransform3D::IDENTITY);
+        cache.opacity_keys.insert(node, okey);
+        cache.current_opacity_values.insert(node, 0.25);
+
+        let (transforms, opacities) = extract_gpu_values(Some(&cache), DomId::ROOT_ID);
+        assert_eq!(transforms.len(), 1);
+        assert_eq!(transforms.get(&11).map(|t| t.m), Some(ComputedTransform3D::IDENTITY.m));
+        assert_eq!(opacities.get(&22), Some(&0.25));
+    }
+
+    #[test]
+    fn extract_gpu_values_drops_keys_without_a_value() {
+        // A key with no matching value must NOT be invented as a default.
+        let mut cache = GpuValueCache::default();
+        cache.transform_keys.insert(NodeId::new(0), TransformKey { id: 5 });
+        cache.opacity_keys.insert(NodeId::new(0), OpacityKey { id: 6 });
+        let (transforms, opacities) = extract_gpu_values(Some(&cache), DomId::ROOT_ID);
+        assert!(transforms.is_empty());
+        assert!(opacities.is_empty());
+    }
+
+    #[test]
+    fn extract_gpu_values_filters_scrollbar_opacity_by_dom_id() {
+        let mut cache = GpuValueCache::default();
+        let other_dom = DomId { inner: 42 };
+        let node = NodeId::new(1);
+        cache
+            .scrollbar_v_opacity_keys
+            .insert((other_dom, node), OpacityKey { id: 77 });
+        cache
+            .scrollbar_v_opacity_values
+            .insert((other_dom, node), 1.0);
+
+        // Querying a DIFFERENT dom must not leak the other dom's scrollbar fade.
+        let (_, opacities) = extract_gpu_values(Some(&cache), DomId::ROOT_ID);
+        assert!(opacities.is_empty());
+
+        // Querying the owning dom does return it.
+        let (_, opacities) = extract_gpu_values(Some(&cache), other_dom);
+        assert_eq!(opacities.get(&77), Some(&1.0));
+    }
+
+    #[test]
+    fn cpu_render_state_from_gpu_cache_matches_extract_gpu_values() {
+        let mut cache = GpuValueCache::default();
+        cache.css_transform_keys.insert(NodeId::new(2), TransformKey { id: 8 });
+        cache
+            .css_current_transform_values
+            .insert(NodeId::new(2), ComputedTransform3D::IDENTITY);
+
+        let mut offsets = ScrollOffsetMap::new();
+        offsets.insert(5, (10.0, 20.0));
+
+        let state = CpuRenderState::from_gpu_cache(Some(&cache), DomId::ROOT_ID, &offsets);
+        let (transforms, opacities) = extract_gpu_values(Some(&cache), DomId::ROOT_ID);
+        assert_eq!(state.transforms.len(), transforms.len());
+        assert!(state.transforms.contains_key(&8));
+        assert_eq!(state.opacities.len(), opacities.len());
+        assert_eq!(state.scroll_offsets.get(&5), Some(&(10.0, 20.0)));
+        assert!(state.system_style.is_none());
+
+        let empty = CpuRenderState::from_gpu_cache(None, DomId::ROOT_ID, &ScrollOffsetMap::new());
+        assert!(empty.transforms.is_empty() && empty.opacities.is_empty());
+    }
+
+    // ==================================================================
+    // probe_label_for_item
+    // ==================================================================
+
+    #[test]
+    fn probe_label_for_item_returns_a_distinct_static_label() {
+        let cases = [
+            (
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 0.0, 1.0, 1.0),
+                    color: RED,
+                    border_radius: BorderRadius::default(),
+                },
+                "dl:rect",
+            ),
+            (DisplayListItem::PopClip, "dl:pop_clip"),
+            (DisplayListItem::PopScrollFrame, "dl:pop_scroll"),
+            (DisplayListItem::PopOpacity, "dl:pop_opacity"),
+            (DisplayListItem::PopTextShadow, "dl:pop_tshadow"),
+            (DisplayListItem::PopImageMaskClip, "dl:pop_imask"),
+            (
+                DisplayListItem::BoxShadow {
+                    bounds: wrect(0.0, 0.0, 1.0, 1.0),
+                    shadow: shadow(0.0, 0.0, 0.0, BLACK),
+                    border_radius: BorderRadius::default(),
+                },
+                "dl:box_shadow",
+            ),
+        ];
+        for (item, expected) in cases {
+            assert_eq!(probe_label_for_item(&item), expected);
+        }
+    }
+
+    // ==================================================================
+    // compute_content_bounds
+    // ==================================================================
+
+    #[test]
+    fn compute_content_bounds_of_an_empty_list_is_none() {
+        assert!(compute_content_bounds(&DisplayList::default()).is_none());
+    }
+
+    #[test]
+    fn compute_content_bounds_ignores_state_management_items() {
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PopClip,
+                DisplayListItem::PopScrollFrame,
+                DisplayListItem::PopOpacity,
+            ],
+            ..Default::default()
+        };
+        assert!(
+            compute_content_bounds(&dl).is_none(),
+            "push/pop markers carry no content"
+        );
+    }
+
+    #[test]
+    fn compute_content_bounds_unions_every_drawing_item() {
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::Rect {
+                    bounds: wrect(10.0, 20.0, 30.0, 40.0),
+                    color: RED,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(-5.0, 0.0, 5.0, 5.0),
+                    color: BLUE,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopClip, // must not influence the box
+            ],
+            ..Default::default()
+        };
+        let (min_x, min_y, max_x, max_y) = compute_content_bounds(&dl).expect("has items");
+        assert_eq!((min_x, min_y), (-5.0, 0.0));
+        assert_eq!((max_x, max_y), (40.0, 60.0));
+    }
+
+    #[test]
+    fn compute_content_bounds_with_nan_bounds_does_not_produce_nan() {
+        // f32::min/max ignore a NaN operand, so a poisoned item cannot make the
+        // whole content box NaN (it would turn into a 0-sized PNG downstream).
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::Rect {
+                    bounds: wrect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+                    color: RED,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 0.0, 10.0, 10.0),
+                    color: BLUE,
+                    border_radius: BorderRadius::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let (min_x, min_y, max_x, max_y) = compute_content_bounds(&dl).expect("has items");
+        for v in [min_x, min_y, max_x, max_y] {
+            assert!(!v.is_nan(), "NaN item bounds must not poison the content box");
+        }
+        assert_eq!((max_x, max_y), (10.0, 10.0));
+    }
+
+    // ==================================================================
+    // build_rect_path / build_rounded_rect_path
+    // ==================================================================
+
+    #[test]
+    fn build_rect_path_is_a_closed_quad() {
+        let rect = AzRect::from_xywh(1.0, 2.0, 3.0, 4.0).unwrap();
+        let path = build_rect_path(&rect);
+        // move_to + 3x line_to + end_poly
+        assert_eq!(path.total_vertices(), 5);
+        let (mut x, mut y) = (0.0, 0.0);
+        path.vertex_idx(0, &mut x, &mut y);
+        assert_eq!((x, y), (1.0, 2.0));
+        path.vertex_idx(2, &mut x, &mut y);
+        assert_eq!((x, y), (4.0, 6.0), "the opposite corner is origin + size");
+    }
+
+    #[test]
+    fn build_rounded_rect_path_falls_back_to_a_quad_for_non_positive_radii() {
+        let rect = AzRect::from_xywh(0.0, 0.0, 10.0, 10.0).unwrap();
+        let plain = build_rect_path(&rect).total_vertices();
+
+        // Zero radii.
+        assert_eq!(
+            build_rounded_rect_path(&rect, &BorderRadius::default(), 1.0).total_vertices(),
+            plain
+        );
+        // Negative radii must not generate arcs.
+        let negative = BorderRadius {
+            top_left: -5.0,
+            top_right: -5.0,
+            bottom_left: -5.0,
+            bottom_right: -5.0,
+        };
+        assert_eq!(
+            build_rounded_rect_path(&rect, &negative, 1.0).total_vertices(),
+            plain
+        );
+        // A 0 dpi factor scales every radius to 0 -> the plain quad again.
+        let positive = BorderRadius {
+            top_left: 4.0,
+            top_right: 4.0,
+            bottom_left: 4.0,
+            bottom_right: 4.0,
+        };
+        assert_eq!(
+            build_rounded_rect_path(&rect, &positive, 0.0).total_vertices(),
+            plain
+        );
+    }
+
+    #[test]
+    fn build_rounded_rect_path_emits_arc_vertices_for_positive_radii() {
+        let rect = AzRect::from_xywh(0.0, 0.0, 40.0, 40.0).unwrap();
+        let radius = BorderRadius {
+            top_left: 8.0,
+            top_right: 8.0,
+            bottom_left: 8.0,
+            bottom_right: 8.0,
+        };
+        let rounded = build_rounded_rect_path(&rect, &radius, 1.0).total_vertices();
+        assert!(
+            rounded > build_rect_path(&rect).total_vertices(),
+            "arcs must add vertices (a square-cornered path would be the old bug)"
+        );
+    }
+
+    #[test]
+    fn build_rounded_rect_path_normalizes_oversized_radii() {
+        // Radii far larger than the rect must be clamped, not explode the path.
+        let rect = AzRect::from_xywh(0.0, 0.0, 10.0, 10.0).unwrap();
+        let radius = BorderRadius {
+            top_left: 1e6,
+            top_right: 1e6,
+            bottom_left: 1e6,
+            bottom_right: 1e6,
+        };
+        let path = build_rounded_rect_path(&rect, &radius, 1.0);
+        assert!(path.total_vertices() > 4);
+        let (mut x, mut y) = (0.0, 0.0);
+        for i in 0..path.total_vertices() {
+            path.vertex_idx(i, &mut x, &mut y);
+            assert!(
+                x.is_finite() && y.is_finite(),
+                "vertex {i} is not finite: ({x}, {y})"
+            );
+            assert!(
+                (-1.0..=11.0).contains(&x) && (-1.0..=11.0).contains(&y),
+                "vertex {i} ({x}, {y}) escaped the 10x10 rect"
+            );
+        }
+    }
+
+    // ==================================================================
+    // text_lcd_enabled
+    // ==================================================================
+
+    #[test]
+    fn text_lcd_enabled_is_read_once_and_stable() {
+        let first = text_lcd_enabled();
+        assert_eq!(first, text_lcd_enabled(), "the OnceLock must not flip");
+        if std::env::var("AZ_TEXT_LCD").is_err() {
+            assert_eq!(first, TEXT_LCD_DEFAULT, "unset env -> the documented default");
+        }
+    }
+
+    // ==================================================================
+    // render_single_item — stack discipline
+    // ==================================================================
+
+    #[test]
+    fn unbalanced_pops_never_underflow_the_stacks() {
+        // An over-popped display list (a real bookkeeping mismatch has shipped
+        // before) must clamp, NOT abort the frame or panic.
+        let mut p = pixmap(8, 8);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut st = Stacks::new();
+        for item in [
+            DisplayListItem::PopClip,
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopReferenceFrame,
+            DisplayListItem::PopStackingContext,
+            DisplayListItem::PopOpacity,
+            DisplayListItem::PopTextShadow,
+            DisplayListItem::PopImageMaskClip,
+            DisplayListItem::PopFilter,
+            DisplayListItem::PopBackdropFilter,
+        ] {
+            let res = run_item(&item, &mut p, &mut st, &state);
+            assert_eq!(res, Ok(()), "{item:?} must not error");
+        }
+        assert_eq!(st.clips.len(), 1, "the base clip must never be popped");
+        assert_eq!(st.transforms.len(), 1);
+        assert_eq!(st.scrolls.len(), 1);
+        assert!(st.masks.is_empty());
+        assert!(st.shadows.is_empty());
+    }
+
+    #[test]
+    #[should_panic = "called `Option::unwrap()` on a `None` value"]
+    fn render_single_item_with_an_empty_clip_stack_panics_as_documented() {
+        // The documented contract ("Panics if the clip stack is empty"). The
+        // renderer always seeds `vec![None]`; this pins the precondition.
+        let mut p = pixmap(4, 4);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut st = Stacks::new();
+        st.clips.clear();
+        let _ = run_item(
+            &DisplayListItem::Rect {
+                bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                color: RED,
+                border_radius: BorderRadius::default(),
+            },
+            &mut p,
+            &mut st,
+            &state,
+        );
+    }
+
+    #[test]
+    fn push_clip_intersects_with_the_active_clip_and_never_widens_it() {
+        let mut p = pixmap(16, 16);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut st = Stacks::new();
+
+        run_item(
+            &DisplayListItem::PushClip {
+                bounds: wrect(0.0, 0.0, 10.0, 10.0),
+                border_radius: BorderRadius::default(),
+            },
+            &mut p,
+            &mut st,
+            &state,
+        )
+        .unwrap();
+        // A nested clip that reaches beyond the parent must be narrowed to it.
+        run_item(
+            &DisplayListItem::PushClip {
+                bounds: wrect(5.0, 5.0, 100.0, 100.0),
+                border_radius: BorderRadius::default(),
+            },
+            &mut p,
+            &mut st,
+            &state,
+        )
+        .unwrap();
+
+        let top = st.clips.last().copied().flatten().expect("clip present");
+        assert_eq!((top.x, top.y), (5.0, 5.0));
+        assert_eq!((top.width, top.height), (5.0, 5.0), "the child cannot escape the parent");
+
+        run_item(&DisplayListItem::PopClip, &mut p, &mut st, &state).unwrap();
+        run_item(&DisplayListItem::PopClip, &mut p, &mut st, &state).unwrap();
+        assert_eq!(st.clips.len(), 1);
+    }
+
+    #[test]
+    fn push_clip_with_degenerate_bounds_pushes_an_unpaintable_clip() {
+        let mut p = pixmap(8, 8);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut st = Stacks::new();
+        run_item(
+            &DisplayListItem::PushClip {
+                bounds: wrect(0.0, 0.0, f32::NAN, f32::NAN),
+                border_radius: BorderRadius::default(),
+            },
+            &mut p,
+            &mut st,
+            &state,
+        )
+        .unwrap();
+        assert_eq!(st.clips.len(), 2, "the pop must still find a matching push");
+
+        let before = snap(&p);
+        run_item(
+            &DisplayListItem::Rect {
+                bounds: wrect(0.0, 0.0, 8.0, 8.0),
+                color: RED,
+                border_radius: BorderRadius::default(),
+            },
+            &mut p,
+            &mut st,
+            &state,
+        )
+        .unwrap();
+        assert_eq!(before, p.data(), "a NaN clip must not silently become 'no clip'");
+    }
+
+    #[test]
+    fn scroll_frames_shift_item_bounds_by_the_accumulated_offset() {
+        let mut offsets = ScrollOffsetMap::new();
+        offsets.insert(7, (0.0, 5.0));
+        let state = CpuRenderState::new(offsets);
+
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds: wrect(0.0, 0.0, 10.0, 10.0),
+                    content_size: LogicalSize {
+                        width: 10.0,
+                        height: 100.0,
+                    },
+                    scroll_id: 7,
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 5.0, 10.0, 2.0),
+                    color: RED,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopScrollFrame,
+            ],
+            ..Default::default()
+        };
+
+        let mut p = pixmap(10, 10);
+        run_list_with_state(&dl, &mut p, &state).expect("must render");
+        assert!(
+            is_reddish(px_at(&p, 0, 0)),
+            "content at y=5 scrolled by 5 must land on row 0"
+        );
+        assert_eq!(px_at(&p, 0, 5), [255, 255, 255, 255], "row 5 is now empty");
+    }
+
+    #[test]
+    fn a_missing_scroll_id_defaults_to_a_zero_offset() {
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds: wrect(0.0, 0.0, 10.0, 10.0),
+                    content_size: LogicalSize {
+                        width: 10.0,
+                        height: 10.0,
+                    },
+                    scroll_id: 999, // not in the map
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 0.0, 2.0, 2.0),
+                    color: RED,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopScrollFrame,
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(10, 10);
+        run_list_with_state(&dl, &mut p, &CpuRenderState::new(ScrollOffsetMap::new()))
+            .expect("must render");
+        assert!(is_reddish(px_at(&p, 0, 0)), "an unknown scroll id must not shift");
+    }
+
+    // ==================================================================
+    // opacity layers
+    // ==================================================================
+
+    /// Draw black over white inside a `PushOpacity(op)` layer and return the
+    /// resulting gray level.
+    fn opacity_layer_result(op: f32) -> u8 {
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    opacity: op,
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    color: BLACK,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopOpacity,
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(4, 4);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        px_at(&p, 1, 1)[0]
+    }
+
+    #[test]
+    fn opacity_layer_blends_against_the_pre_push_snapshot() {
+        assert_eq!(opacity_layer_result(1.0), 0, "opacity 1 keeps the drawing");
+        assert_eq!(opacity_layer_result(0.0), 255, "opacity 0 restores the snapshot");
+        let half = opacity_layer_result(0.5);
+        assert!(
+            (120..=136).contains(&half),
+            "opacity 0.5 must land near mid-gray, got {half}"
+        );
+    }
+
+    #[test]
+    fn opacity_layer_saturates_out_of_range_and_nan_values() {
+        // Out-of-range opacities clamp; NaN degrades to "fully transparent"
+        // (0 after the cast) rather than panicking or writing garbage.
+        assert_eq!(opacity_layer_result(5.0), 0, "opacity > 1 clamps to opaque");
+        assert_eq!(opacity_layer_result(-5.0), 255, "opacity < 0 clamps to transparent");
+        assert_eq!(opacity_layer_result(f32::INFINITY), 0);
+        assert_eq!(opacity_layer_result(f32::NEG_INFINITY), 255);
+        assert_eq!(opacity_layer_result(f32::NAN), 255);
+    }
+
+    #[test]
+    fn push_opacity_with_degenerate_bounds_pushes_nothing() {
+        // No rect -> no snapshot -> nothing to pop; the matching PopOpacity must
+        // not blow up or consume an unrelated mask entry.
+        let mut p = pixmap(8, 8);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut st = Stacks::new();
+        run_item(
+            &DisplayListItem::PushOpacity {
+                bounds: wrect(0.0, 0.0, f32::NAN, 0.0),
+                opacity: 0.5,
+            },
+            &mut p,
+            &mut st,
+            &state,
+        )
+        .unwrap();
+        assert!(st.masks.is_empty());
+        assert_eq!(
+            run_item(&DisplayListItem::PopOpacity, &mut p, &mut st, &state),
+            Ok(())
+        );
+    }
+
+    // ==================================================================
+    // image mask clips
+    // ==================================================================
+
+    #[test]
+    fn image_mask_clip_masks_the_drawing_it_wraps() {
+        // A 2x2 R8 mask: left column opaque, right column clipped.
+        let mask = r8_image(2, 2, vec![255, 0, 255, 0]);
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushImageMaskClip {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    mask_image: mask,
+                    mask_rect: wrect(0.0, 0.0, 4.0, 4.0),
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    color: BLACK,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopImageMaskClip,
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(4, 4);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        assert_eq!(px_at(&p, 0, 0), [0, 0, 0, 255], "mask=255 keeps the fill");
+        assert_eq!(
+            px_at(&p, 3, 0),
+            [255, 255, 255, 255],
+            "mask=0 restores the background"
+        );
+    }
+
+    #[test]
+    fn image_mask_clip_with_a_degenerate_rect_is_skipped() {
+        let mask = r8_image(1, 1, vec![255]);
+        let mut p = pixmap(8, 8);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut st = Stacks::new();
+        run_item(
+            &DisplayListItem::PushImageMaskClip {
+                bounds: wrect(0.0, 0.0, 8.0, 8.0),
+                mask_image: mask,
+                mask_rect: wrect(0.0, 0.0, 0.0, 0.0),
+            },
+            &mut p,
+            &mut st,
+            &state,
+        )
+        .unwrap();
+        assert!(st.masks.is_empty(), "a 0-sized mask rect pushes no entry");
+    }
+
+    // ==================================================================
+    // text items without fonts
+    // ==================================================================
+
+    #[test]
+    fn a_text_item_whose_font_is_unknown_paints_nothing() {
+        let dl = DisplayList {
+            items: vec![DisplayListItem::Text {
+                glyphs: vec![GlyphInstance {
+                    index: 1,
+                    point: LogicalPosition { x: 0.0, y: 10.0 },
+                    size: LogicalSize {
+                        width: 8.0,
+                        height: 16.0,
+                    },
+                }],
+                font_hash: FontHash { font_hash: 0xdead_beef },
+                font_size_px: 16.0,
+                color: BLACK,
+                clip_rect: wrect(0.0, 0.0, 16.0, 16.0),
+                source_node_index: None,
+            }],
+            ..Default::default()
+        };
+        let mut p = pixmap(16, 16);
+        let before = snap(&p);
+        run_list(&dl, &mut p, 1.0).expect("a missing font must not fail the frame");
+        assert_eq!(before, p.data());
+    }
+
+    #[test]
+    fn a_text_item_with_no_glyphs_or_no_alpha_paints_nothing() {
+        for (glyphs, color) in [
+            (Vec::new(), BLACK),
+            (
+                vec![GlyphInstance {
+                    index: 1,
+                    point: LogicalPosition { x: 0.0, y: 10.0 },
+                    size: LogicalSize {
+                        width: 8.0,
+                        height: 16.0,
+                    },
+                }],
+                CLEAR,
+            ),
+        ] {
+            let dl = DisplayList {
+                items: vec![DisplayListItem::Text {
+                    glyphs,
+                    font_hash: FontHash { font_hash: 1 },
+                    font_size_px: 16.0,
+                    color,
+                    clip_rect: wrect(0.0, 0.0, 16.0, 16.0),
+                    source_node_index: None,
+                }],
+                ..Default::default()
+            };
+            let mut p = pixmap(16, 16);
+            let before = snap(&p);
+            run_list(&dl, &mut p, 1.0).expect("must render");
+            assert_eq!(before, p.data());
+        }
+    }
+
+    // ==================================================================
+    // render_image (through the display list)
+    // ==================================================================
+
+    #[test]
+    fn an_rgba_image_is_blitted_with_its_channels_in_order() {
+        // Solid red, opaque.
+        let img = rgba_image(2, 2, vec![255, 0, 0, 255].repeat(4));
+        let dl = DisplayList {
+            items: vec![DisplayListItem::Image {
+                bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                image: img,
+                border_radius: BorderRadius::default(),
+            }],
+            ..Default::default()
+        };
+        let mut p = pixmap(8, 8);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        assert!(
+            is_reddish(px_at(&p, 1, 1)),
+            "an RGBA image must not come out swizzled or gray, got {:?}",
+            px_at(&p, 1, 1)
+        );
+        assert_eq!(px_at(&p, 6, 6), [255, 255, 255, 255], "outside the bounds");
+    }
+
+    #[test]
+    fn an_image_with_degenerate_bounds_is_skipped() {
+        for bad in DEGENERATE {
+            let img = rgba_image(1, 1, vec![255, 0, 0, 255]);
+            let dl = DisplayList {
+                items: vec![DisplayListItem::Image {
+                    bounds: wrect(0.0, 0.0, bad, bad),
+                    image: img,
+                    border_radius: BorderRadius::default(),
+                }],
+                ..Default::default()
+            };
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            run_list(&dl, &mut p, 1.0).expect("must render");
+            assert_eq!(before, p.data(), "image size {bad} must be rejected");
+        }
+    }
+
+    #[test]
+    fn a_fully_transparent_image_leaves_the_background_alone() {
+        let img = rgba_image(2, 2, vec![255, 0, 0, 0].repeat(4));
+        let dl = DisplayList {
+            items: vec![DisplayListItem::Image {
+                bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                image: img,
+                border_radius: BorderRadius::default(),
+            }],
+            ..Default::default()
+        };
+        let mut p = pixmap(8, 8);
+        let before = snap(&p);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        assert_eq!(before, p.data(), "alpha=0 source pixels must not blend");
+    }
+
+    // ==================================================================
+    // render_border / render_border_sides
+    // ==================================================================
+
+    #[test]
+    fn render_border_draws_the_frame_but_not_the_middle() {
+        let mut p = pixmap(20, 20);
+        render_border(
+            &mut p,
+            &lrect(0.0, 0.0, 20.0, 20.0),
+            RED,
+            2.0,
+            BorderStyle::Solid,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert!(is_reddish(px_at(&p, 0, 0)), "the frame is painted");
+        assert!(is_reddish(px_at(&p, 19, 19)));
+        assert_eq!(px_at(&p, 10, 10), [255, 255, 255, 255], "the middle stays clear");
+    }
+
+    #[test]
+    fn render_border_zero_or_negative_width_is_a_noop() {
+        for width in [0.0, -1.0, -1e30, f32::NEG_INFINITY] {
+            let mut p = pixmap(10, 10);
+            let before = snap(&p);
+            render_border(
+                &mut p,
+                &lrect(0.0, 0.0, 10.0, 10.0),
+                RED,
+                width,
+                BorderStyle::Solid,
+                &BorderRadius::default(),
+                None,
+                1.0,
+            );
+            assert_eq!(before, p.data(), "border width {width} must not paint");
+        }
+    }
+
+    #[test]
+    fn render_border_nan_width_and_hidden_styles_are_noops() {
+        // NaN width: `width <= 0.0` is false for NaN, so this runs the whole
+        // pipeline with a poisoned width. It must stay inside the buffer and,
+        // above all, must not flood the box (a NaN stroke width that degraded
+        // into a fill would swallow the element's content).
+        let mut p = pixmap(10, 10);
+        render_border(
+            &mut p,
+            &lrect(0.0, 0.0, 10.0, 10.0),
+            RED,
+            f32::NAN,
+            BorderStyle::Solid,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert_eq!(p.data().len(), 400, "the buffer must be intact");
+        assert_eq!(
+            px_at(&p, 5, 5),
+            [255, 255, 255, 255],
+            "a NaN border width must not fill the middle of the box"
+        );
+
+        for style in [BorderStyle::None, BorderStyle::Hidden] {
+            let mut p = pixmap(10, 10);
+            let before = snap(&p);
+            render_border(
+                &mut p,
+                &lrect(0.0, 0.0, 10.0, 10.0),
+                RED,
+                2.0,
+                style,
+                &BorderRadius::default(),
+                None,
+                1.0,
+            );
+            assert_eq!(before, p.data(), "{style:?} must not paint");
+        }
+    }
+
+    #[test]
+    fn render_border_transparent_color_and_degenerate_dpi_are_noops() {
+        let mut p = pixmap(10, 10);
+        let before = snap(&p);
+        render_border(
+            &mut p,
+            &lrect(0.0, 0.0, 10.0, 10.0),
+            CLEAR,
+            2.0,
+            BorderStyle::Solid,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert_eq!(before, p.data());
+
+        for dpi in DEGENERATE {
+            let mut p = pixmap(10, 10);
+            let before = snap(&p);
+            render_border(
+                &mut p,
+                &lrect(0.0, 0.0, 10.0, 10.0),
+                RED,
+                2.0,
+                BorderStyle::Solid,
+                &BorderRadius::default(),
+                None,
+                dpi,
+            );
+            assert_eq!(before, p.data(), "dpi {dpi} must be rejected");
+        }
+    }
+
+    #[test]
+    fn render_border_width_larger_than_the_box_does_not_panic() {
+        // The inner rect goes negative -> AzRect::from_xywh returns None and the
+        // border degrades to a solid fill instead of underflowing.
+        let mut p = pixmap(10, 10);
+        render_border(
+            &mut p,
+            &lrect(0.0, 0.0, 10.0, 10.0),
+            RED,
+            1000.0,
+            BorderStyle::Solid,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert!(is_reddish(px_at(&p, 5, 5)));
+    }
+
+    #[test]
+    fn render_border_dashed_and_dotted_styles_paint_without_panicking() {
+        for style in [BorderStyle::Dashed, BorderStyle::Dotted] {
+            let mut p = pixmap(20, 20);
+            let before = snap(&p);
+            render_border(
+                &mut p,
+                &lrect(2.0, 2.0, 16.0, 16.0),
+                RED,
+                2.0,
+                style,
+                &BorderRadius::default(),
+                None,
+                1.0,
+            );
+            assert_ne!(before, p.data(), "{style:?} must paint something");
+        }
+    }
+
+    #[test]
+    fn render_border_sides_with_mixed_widths_paints_each_side() {
+        let mut p = pixmap(20, 20);
+        render_border_sides(
+            &mut p,
+            &lrect(0.0, 0.0, 20.0, 20.0),
+            [RED, BLUE, RED, BLUE],
+            [3.0, 1.0, 3.0, 1.0],
+            [
+                BorderStyle::Solid,
+                BorderStyle::Solid,
+                BorderStyle::Solid,
+                BorderStyle::Solid,
+            ],
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert!(is_reddish(px_at(&p, 10, 0)), "the top side is red");
+        assert_eq!(px_at(&p, 10, 10), [255, 255, 255, 255], "the middle stays clear");
+    }
+
+    #[test]
+    fn render_border_sides_zero_widths_and_degenerate_values_are_noops() {
+        let styles = [
+            BorderStyle::Solid,
+            BorderStyle::Solid,
+            BorderStyle::Solid,
+            BorderStyle::Solid,
+        ];
+        let mut p = pixmap(10, 10);
+        let before = snap(&p);
+        render_border_sides(
+            &mut p,
+            &lrect(0.0, 0.0, 10.0, 10.0),
+            [RED; 4],
+            [0.0; 4],
+            styles,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert_eq!(before, p.data(), "0-width sides must not paint");
+
+        for bad in DEGENERATE {
+            let mut p = pixmap(10, 10);
+            let before = snap(&p);
+            render_border_sides(
+                &mut p,
+                &lrect(0.0, 0.0, 10.0, 10.0),
+                [RED; 4],
+                [2.0; 4],
+                styles,
+                &BorderRadius::default(),
+                None,
+                bad,
+            );
+            assert_eq!(before, p.data(), "dpi {bad} must be rejected");
+        }
+
+        // NaN / inf widths must not corrupt the buffer either.
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -5.0] {
+            let mut p = pixmap(10, 10);
+            render_border_sides(
+                &mut p,
+                &lrect(0.0, 0.0, 10.0, 10.0),
+                [RED; 4],
+                [bad; 4],
+                styles,
+                &BorderRadius::default(),
+                None,
+                1.0,
+            );
+            assert_eq!(p.data().len(), 400, "width {bad} must not resize the buffer");
+        }
+    }
+
+    // ==================================================================
+    // render_display_list_damaged
+    // ==================================================================
+
+    fn damaged(
+        dl: &DisplayList,
+        p: &mut AzulPixmap,
+        rects: &[LogicalRect],
+    ) -> Result<(), String> {
+        let res = RendererResources::default();
+        let mut gc = GlyphCache::new();
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        render_display_list_damaged(dl, p, 1.0, &res, None, &mut gc, &state, rects)
+    }
+
+    fn full_red_dl() -> DisplayList {
+        DisplayList {
+            items: vec![DisplayListItem::Rect {
+                bounds: wrect(0.0, 0.0, 8.0, 8.0),
+                color: RED,
+                border_radius: BorderRadius::default(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn damaged_render_without_rects_is_a_noop() {
+        let mut p = pixmap(8, 8);
+        p.fill(0, 0, 255, 255);
+        let before = snap(&p);
+        damaged(&full_red_dl(), &mut p, &[]).expect("must succeed");
+        assert_eq!(before, p.data(), "no damage -> no repaint at all");
+    }
+
+    #[test]
+    fn damaged_render_only_repaints_inside_the_damage_rect() {
+        let mut p = pixmap(8, 8);
+        p.fill(0, 0, 255, 255); // stale blue frame
+        damaged(&full_red_dl(), &mut p, &[lrect(0.0, 0.0, 4.0, 4.0)]).expect("must succeed");
+        assert!(is_reddish(px_at(&p, 1, 1)), "the damaged region is repainted");
+        assert_eq!(
+            px_at(&p, 6, 6),
+            [0, 0, 255, 255],
+            "untouched pixels must survive — a union-clip repaint used to wipe them"
+        );
+    }
+
+    #[test]
+    fn damaged_render_with_nan_rects_paints_nothing() {
+        let mut p = pixmap(8, 8);
+        p.fill(0, 0, 255, 255);
+        let before = snap(&p);
+        damaged(
+            &full_red_dl(),
+            &mut p,
+            &[lrect(f32::NAN, f32::NAN, f32::NAN, f32::NAN)],
+        )
+        .expect("must succeed");
+        assert_eq!(before, p.data(), "a NaN damage rect must collapse to nothing");
+    }
+
+    #[test]
+    fn damaged_render_clamps_saturating_rects_to_the_pixmap() {
+        let mut p = pixmap(8, 8);
+        p.fill(0, 0, 255, 255);
+        damaged(&full_red_dl(), &mut p, &[lrect(-1e9, -1e9, 3e9, 3e9)]).expect("must succeed");
+        assert!(
+            p.data().chunks_exact(4).all(|c| c[0] > 200 && c[1] < 60),
+            "an oversized damage rect clamps to the buffer and repaints all of it"
+        );
+    }
+
+    #[test]
+    fn damaged_render_merges_overlapping_rects_without_double_blending() {
+        // Two overlapping damage rects must be merged so the overlap is not
+        // alpha-blended twice (a half-transparent fill would double-darken).
+        let half_red = ColorU { r: 255, g: 0, b: 0, a: 128 };
+        let dl = DisplayList {
+            items: vec![DisplayListItem::Rect {
+                bounds: wrect(0.0, 0.0, 8.0, 8.0),
+                color: half_red,
+                border_radius: BorderRadius::default(),
+            }],
+            ..Default::default()
+        };
+
+        let mut once = pixmap(8, 8);
+        damaged(&dl, &mut once, &[lrect(0.0, 0.0, 8.0, 8.0)]).expect("must succeed");
+
+        let mut twice = pixmap(8, 8);
+        damaged(
+            &dl,
+            &mut twice,
+            &[lrect(0.0, 0.0, 6.0, 6.0), lrect(2.0, 2.0, 6.0, 6.0)],
+        )
+        .expect("must succeed");
+
+        assert_eq!(
+            px_at(&once, 3, 3),
+            px_at(&twice, 3, 3),
+            "the overlap must be blended exactly once"
+        );
+    }
+
+    #[test]
+    fn damaged_render_with_a_zero_area_rect_is_a_noop() {
+        let mut p = pixmap(8, 8);
+        p.fill(0, 0, 255, 255);
+        let before = snap(&p);
+        damaged(&full_red_dl(), &mut p, &[lrect(4.0, 4.0, 0.0, 0.0)]).expect("must succeed");
+        assert_eq!(before, p.data());
+    }
+
+    // ==================================================================
+    // render_component_preview / render_text_run_to_pixmap
+    // ==================================================================
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn component_preview_of_a_degenerate_size_never_panics() {
+        use rust_fontconfig::FcFontCache;
+
+        let mut dom = azul_core::dom::Dom::create_body();
+        let styled = azul_core::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let fm = FontManager::<FontRef>::new(FcFontCache::default()).expect("font manager");
+
+        // Sizes are kept small on purpose: `render_component_preview` clamps to
+        // MAX_SIZE (4096) and then ALLOCATES that, so sweeping huge widths here
+        // would allocate + PNG-encode a 4096x4096 buffer per case.
+        for (w, h, dpi) in [
+            (Some(0.0), Some(0.0), 1.0),
+            (Some(8.0), Some(8.0), 0.0),
+            (Some(8.0), Some(8.0), 1.0),
+        ] {
+            let o = ComponentPreviewOptions {
+                width: w,
+                height: h,
+                dpi_factor: dpi,
+                ..ComponentPreviewOptions::default()
+            };
+            match render_component_preview(&styled, &fm, o, None) {
+                Ok(res) => {
+                    assert!(
+                        res.content_width.is_finite() && res.content_height.is_finite(),
+                        "{w:?}x{h:?}@{dpi} produced non-finite content bounds"
+                    );
+                    assert!(
+                        res.content_width <= 4096.0 && res.content_height <= 4096.0,
+                        "the preview must stay bounded by MAX_SIZE"
+                    );
+                }
+                Err(e) => assert!(!e.is_empty(), "an error must carry a message"),
+            }
+        }
+    }
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn text_run_to_pixmap_without_any_font_returns_none_for_every_input() {
+        use rust_fontconfig::FcFontCache;
+
+        // An EMPTY font cache: every input must bail out with None — no panic,
+        // no unbounded allocation, no hang. This is the fallback path shells hit
+        // when fontconfig finds nothing.
+        let empty = FcFontCache::default();
+        let long = "A".repeat(1_000_000);
+        let nested = "[".repeat(10_000);
+        let inputs = [
+            "",
+            "   ",
+            "\t\n\r",
+            "\0\u{1}\u{7f}",
+            "0",
+            "-0",
+            "9223372036854775807",
+            "NaN",
+            "inf",
+            "-inf",
+            "  valid  ",
+            "valid;garbage",
+            "\u{1F600}\u{1F1E9}\u{1F1EA}",
+            "e\u{301}\u{323}\u{489}",
+            long.as_str(),
+            nested.as_str(),
+        ];
+        for text in inputs {
+            let got = render_text_run_to_pixmap(&empty, text, 16.0, BLACK, WHITE, 2.0, 1.0);
+            assert!(
+                got.is_none(),
+                "no resolvable font must yield None (input len {})",
+                text.len()
+            );
+        }
+
+        // Degenerate numerics must not panic either.
+        for size in [0.0, -16.0, f32::NAN, f32::INFINITY] {
+            assert!(render_text_run_to_pixmap(&empty, "hi", size, BLACK, WHITE, 0.0, 1.0).is_none());
+        }
+        for dpi in [0.0, -1.0, f32::NAN] {
+            assert!(render_text_run_to_pixmap(&empty, "hi", 16.0, BLACK, WHITE, 2.0, dpi).is_none());
+        }
+    }
+
+    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
+    #[test]
+    fn text_run_to_pixmap_renders_dark_glyphs_on_the_background() {
+        use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
+
+        let candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ];
+        let Some(bytes) = candidates.iter().find_map(|p| std::fs::read(p).ok()) else {
+            eprintln!("[skip] no system font file available");
+            return;
+        };
+
+        let cache = FcFontCache::default();
+        cache.with_memory_fonts(vec![(
+            FcPattern {
+                family: Some("sans-serif".to_string()),
+                ..Default::default()
+            },
+            FcFont {
+                bytes,
+                font_index: 0,
+                id: "autotest-sans".to_string(),
+            },
+        )]);
+
+        let Some(p) = render_text_run_to_pixmap(&cache, "Hi", 24.0, BLACK, WHITE, 4.0, 1.0) else {
+            eprintln!("[skip] the memory font did not resolve through fontconfig");
+            return;
+        };
+        assert!(p.width >= 1 && p.height >= 1);
+        let dark = p.data().chunks_exact(4).filter(|c| c[0] < 128).count();
+        assert!(dark > 0, "the glyph run must actually rasterize");
+
+        // Empty text still produces a valid, background-only pixmap (it is a
+        // tooltip surface — callers blit it unconditionally).
+        let empty = render_text_run_to_pixmap(&cache, "", 24.0, BLACK, WHITE, 4.0, 1.0)
+            .expect("empty text must still give a pixmap");
+        assert!(empty.width >= 1 && empty.height >= 1);
+        assert!(
+            empty.data().chunks_exact(4).all(|c| c[0] == 255 && c[1] == 255),
+            "empty text must paint no glyphs"
+        );
+
+        // Multibyte / unreachable-codepoint input falls back to glyph 0.
+        assert!(
+            render_text_run_to_pixmap(&cache, "\u{1F600}é\u{301}", 24.0, BLACK, WHITE, 4.0, 1.0)
+                .is_some(),
+            "unicode input must not panic or bail out"
+        );
+    }
+}

@@ -4893,3 +4893,1464 @@ const BASE64_ALPHABET: &[u8; 64] =
 
     output
 }
+
+#[cfg(all(test, feature = "std"))]
+#[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
+mod autotest_generated {
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // Harness
+    // ------------------------------------------------------------------
+
+    /// Runs `f` with a fully-constructed `CallbackInfo` backed by an *empty*
+    /// `LayoutWindow` (no layout results, no timers, no threads, no routes).
+    /// Every query API therefore hits its "nothing there" path — which is
+    /// exactly the path adversarial tests need to exercise.
+    fn with_info<R>(hit: DomNodeId, f: impl FnOnce(&mut CallbackInfo) -> R) -> R {
+        let layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let current_window_state = FullWindowState::default();
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(SystemStyle::default()),
+            monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
+        };
+
+        let changes: Arc<std::sync::Mutex<Vec<CallbackChange>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let mut info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            hit,
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+
+        f(&mut info)
+    }
+
+    /// `DomNodeId` pointing at node 0 of the root DOM.
+    fn node0() -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+        }
+    }
+
+    /// `DomNodeId` whose node component is `None` (the "no concrete node" case).
+    fn node_none() -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::NONE,
+        }
+    }
+
+    extern "C" fn cb_do_nothing(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    extern "C" fn cb_refresh_dom(_: RefAny, _: CallbackInfo) -> Update {
+        Update::RefreshDom
+    }
+
+    /// Pushes a change, so we can prove `invoke` really reaches the transaction log.
+    extern "C" fn cb_pushes_change(_: RefAny, mut info: CallbackInfo) -> Update {
+        info.stop_propagation();
+        Update::RefreshDomAllWindows
+    }
+
+    extern "C" fn img_cb(_: RefAny, _: RenderImageCallbackInfo) -> ImageRef {
+        ImageRef::null_image(0, 0, azul_core::resources::RawImageFormat::RGBA8, Vec::new())
+    }
+
+    fn a_css_property() -> CssProperty {
+        use azul_css::props::{basic::PixelValue, layout::dimensions::LayoutWidth};
+        CssProperty::const_width(LayoutWidth::Px(PixelValue::px(123.0)))
+    }
+
+    fn a_cursor() -> TextCursor {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId};
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // base64_encode - round-trip, boundary, huge, unicode
+    // ------------------------------------------------------------------
+
+    /// Strict RFC-4648 decoder, written independently of the encoder so that
+    /// `decode(encode(x)) == x` is a real round-trip and not a tautology.
+    fn base64_decode(s: &str) -> Option<Vec<u8>> {
+        fn val(c: u8) -> Option<u32> {
+            match c {
+                b'A'..=b'Z' => Some((c - b'A') as u32),
+                b'a'..=b'z' => Some((c - b'a') as u32 + 26),
+                b'0'..=b'9' => Some((c - b'0') as u32 + 52),
+                b'+' => Some(62),
+                b'/' => Some(63),
+                _ => None,
+            }
+        }
+
+        let bytes = s.as_bytes();
+        if bytes.len() % 4 != 0 {
+            return None;
+        }
+        let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+        for chunk in bytes.chunks(4) {
+            let pad = chunk.iter().filter(|&&c| c == b'=').count();
+            if pad > 2 {
+                return None;
+            }
+            let mut n: u32 = 0;
+            for (i, &c) in chunk.iter().enumerate() {
+                let v = if c == b'=' { 0 } else { val(c)? };
+                n |= v << (18 - 6 * i as u32);
+            }
+            out.push(((n >> 16) & 0xFF) as u8);
+            if pad < 2 {
+                out.push(((n >> 8) & 0xFF) as u8);
+            }
+            if pad < 1 {
+                out.push((n & 0xFF) as u8);
+            }
+        }
+        Some(out)
+    }
+
+    #[test]
+    fn base64_encode_rfc4648_test_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn base64_encode_extreme_bytes() {
+        // All-zero and all-ones map to the first / last alphabet entries.
+        assert_eq!(base64_encode(&[0x00, 0x00, 0x00]), "AAAA");
+        assert_eq!(base64_encode(&[0xFF, 0xFF, 0xFF]), "////");
+        // Single 0xFF byte: two significant chars + two pad chars.
+        assert_eq!(base64_encode(&[0xFF]), "/w==");
+        assert_eq!(base64_encode(&[0xFF, 0xFF]), "//8=");
+        // Every 6-bit value 0..63 appears exactly once in the alphabet.
+        let all: Vec<u8> = (0u8..=255).collect();
+        let enc = base64_encode(&all);
+        assert_eq!(base64_decode(&enc).as_deref(), Some(all.as_slice()));
+    }
+
+    #[test]
+    fn base64_encode_output_length_is_ceil_div_3_times_4() {
+        for n in 0usize..=64 {
+            let input = vec![0xABu8; n];
+            let enc = base64_encode(&input);
+            assert_eq!(
+                enc.len(),
+                n.div_ceil(3) * 4,
+                "unexpected encoded length for {n} input bytes"
+            );
+            // Padding is only ever at the very end, and never more than 2 chars.
+            let pad = enc.bytes().filter(|&c| c == b'=').count();
+            assert!(pad <= 2, "too much padding for n = {n}");
+            assert_eq!(pad, (3 - n % 3) % 3, "wrong padding count for n = {n}");
+            if pad > 0 {
+                assert!(enc.ends_with(&"=".repeat(pad)));
+            }
+        }
+    }
+
+    #[test]
+    fn base64_encode_emits_only_alphabet_characters() {
+        let input: Vec<u8> = (0u8..=255).chain(0u8..=255).collect();
+        let enc = base64_encode(&input);
+        for c in enc.bytes() {
+            assert!(
+                c == b'=' || BASE64_ALPHABET.contains(&c),
+                "non-base64 char {c:?} in output"
+            );
+        }
+    }
+
+    #[test]
+    fn base64_encode_round_trips_for_every_length_remainder() {
+        // 0, 1, 2 mod 3 all exercise a different padding branch.
+        for n in 0usize..=130 {
+            let input: Vec<u8> = (0..n).map(|i| (i * 7 + 13) as u8).collect();
+            let enc = base64_encode(&input);
+            let dec = base64_decode(&enc).unwrap_or_else(|| panic!("failed to decode {enc:?}"));
+            assert_eq!(dec, input, "round-trip failed at length {n}");
+        }
+    }
+
+    #[test]
+    fn base64_encode_unicode_bytes_round_trip() {
+        for s in [
+            "\u{1F600}",                 // emoji (4-byte UTF-8)
+            "e\u{301}",                  // combining acute accent
+            "\u{0}\u{7F}\u{80}\u{FFFF}", // control + boundary code points
+            "тест 日本語 🌍",
+        ] {
+            let enc = base64_encode(s.as_bytes());
+            assert_eq!(base64_decode(&enc).as_deref(), Some(s.as_bytes()));
+        }
+        // Known-good positive control: base64("😀") == "8J+YgA=="
+        assert_eq!(base64_encode("\u{1F600}".as_bytes()), "8J+YgA==");
+    }
+
+    #[test]
+    fn base64_encode_one_megabyte_does_not_panic_or_hang() {
+        let input = vec![0x5Au8; 1_000_000];
+        let enc = base64_encode(&input);
+        assert_eq!(enc.len(), 1_000_000usize.div_ceil(3) * 4);
+        // 1_000_000 % 3 == 1 -> exactly two padding chars.
+        assert!(enc.ends_with("=="));
+        assert_eq!(base64_decode(&enc).map(|v| v.len()), Some(1_000_000));
+    }
+
+    // ------------------------------------------------------------------
+    // PenTilt / SelectAllResult / DeleteResult (From conversions)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn pen_tilt_from_tuple_preserves_extreme_floats() {
+        let t = PenTilt::from((0.0, -0.0));
+        assert_eq!(t.x_tilt, 0.0);
+        assert!(t.y_tilt.is_sign_negative());
+
+        let t = PenTilt::from((f32::MAX, f32::MIN));
+        assert_eq!(t.x_tilt, f32::MAX);
+        assert_eq!(t.y_tilt, f32::MIN);
+
+        let t = PenTilt::from((f32::INFINITY, f32::NEG_INFINITY));
+        assert!(t.x_tilt.is_infinite() && t.x_tilt.is_sign_positive());
+        assert!(t.y_tilt.is_infinite() && t.y_tilt.is_sign_negative());
+
+        // NaN is passed through unchanged (no sanitisation) - and, being NaN,
+        // makes the derived PartialEq report "not equal to itself".
+        let t = PenTilt::from((f32::NAN, 90.0));
+        assert!(t.x_tilt.is_nan());
+        assert_eq!(t.y_tilt, 90.0);
+        assert_ne!(t, t);
+    }
+
+    #[test]
+    fn option_pen_tilt_is_some_is_none_are_exclusive() {
+        let some = OptionPenTilt::Some(PenTilt::from((1.0, 2.0)));
+        let none = OptionPenTilt::None;
+        assert!(some.is_some() && !some.is_none());
+        assert!(none.is_none() && !none.is_some());
+    }
+
+    #[test]
+    fn select_all_result_from_tuple_keeps_fields_including_empty_and_huge() {
+        let range = SelectionRange {
+            start: a_cursor(),
+            end: a_cursor(),
+        };
+
+        let empty = SelectAllResult::from((String::new(), range));
+        assert_eq!(empty.full_text.as_str(), "");
+        assert_eq!(empty.selection_range, range);
+
+        let huge = SelectAllResult::from(("x".repeat(100_000), range));
+        assert_eq!(huge.full_text.as_str().len(), 100_000);
+
+        let unicode = SelectAllResult::from(("🌍\u{0}é".to_string(), range));
+        assert_eq!(unicode.full_text.as_str(), "🌍\u{0}é");
+    }
+
+    #[test]
+    fn delete_result_from_tuple_keeps_fields() {
+        let range = SelectionRange {
+            start: a_cursor(),
+            end: a_cursor(),
+        };
+        let d = DeleteResult::from((range, String::new()));
+        assert_eq!(d.range_to_delete, range);
+        assert_eq!(d.deleted_text.as_str(), "");
+
+        let d = DeleteResult::from((range, "\u{1F600}".to_string()));
+        assert_eq!(d.deleted_text.as_str(), "\u{1F600}");
+    }
+
+    // ------------------------------------------------------------------
+    // Callback: constructors, core round-trip, invoke, eq/hash invariants
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn callback_from_ptr_and_create_and_from_agree() {
+        let a = Callback::from_ptr(cb_do_nothing);
+        let b = Callback::create(cb_do_nothing as CallbackType);
+        let c = Callback::from(cb_do_nothing as CallbackType);
+
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        // Constructed from a bare fn pointer => no FFI ctx attached.
+        assert!(a.ctx.is_none());
+        assert!(b.ctx.is_none());
+        assert!(c.ctx.is_none());
+        assert_ne!(a.cb as usize, 0);
+    }
+
+    #[test]
+    fn callback_to_core_from_core_round_trips_pointer_and_ctx() {
+        let original = Callback {
+            cb: cb_refresh_dom,
+            ctx: OptionRefAny::Some(RefAny::new(0xDEAD_BEEFu32)),
+        };
+        let ptr = original.cb as usize;
+
+        let core = original.to_core();
+        assert_eq!(core.cb, ptr);
+        assert!(core.ctx.is_some(), "to_core must not drop the FFI ctx");
+
+        let back = Callback::from_core(core);
+        assert_eq!(back.cb as usize, ptr, "encode == decode for the fn pointer");
+        assert!(
+            back.ctx.is_some(),
+            "from_core must preserve ctx (managed-FFI handlers rely on it)"
+        );
+    }
+
+    #[test]
+    fn callback_to_core_of_ctxless_callback_keeps_ctx_none() {
+        let core = Callback::from_ptr(cb_do_nothing).to_core();
+        assert!(core.ctx.is_none());
+        assert_eq!(Callback::from_core(core).cb as usize, cb_do_nothing as usize);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "CoreCallback.cb is null")]
+    fn callback_from_core_null_pointer_trips_debug_assert() {
+        // A null fn pointer would be UB to call; from_core must not silently
+        // hand one back in a debug build.
+        let _ = Callback::from_core(CoreCallback {
+            cb: 0,
+            ctx: OptionRefAny::None,
+        });
+    }
+
+    #[test]
+    fn callback_invoke_returns_the_functions_update() {
+        let update = with_info(node_none(), |info| {
+            Callback::from_ptr(cb_refresh_dom).invoke(RefAny::new(1u8), *info)
+        });
+        assert!(matches!(update, Update::RefreshDom));
+
+        let update = with_info(node_none(), |info| {
+            Callback::from_ptr(cb_do_nothing).invoke(RefAny::new(1u8), *info)
+        });
+        assert!(matches!(update, Update::DoNothing));
+    }
+
+    #[test]
+    fn callback_invoke_changes_reach_the_callers_transaction_log() {
+        // CallbackInfo is Copy; a change pushed through the *copy* handed to the
+        // callback must still land in the original's change vector.
+        let changes = with_info(node_none(), |info| {
+            let update = Callback::from_ptr(cb_pushes_change).invoke(RefAny::new(0u8), *info);
+            assert!(matches!(update, Update::RefreshDomAllWindows));
+            info.take_changes()
+        });
+        assert_eq!(changes.len(), 1);
+        assert!(matches!(changes[0], CallbackChange::StopPropagation));
+    }
+
+    #[test]
+    fn callback_eq_and_hash_ignore_ctx_but_stay_consistent() {
+        use std::{
+            collections::hash_map::DefaultHasher,
+            hash::{Hash, Hasher},
+        };
+
+        let plain = Callback::from_ptr(cb_do_nothing);
+        let with_ctx = Callback {
+            cb: cb_do_nothing,
+            ctx: OptionRefAny::Some(RefAny::new(7u64)),
+        };
+        let other_fn = Callback::from_ptr(cb_refresh_dom);
+
+        // Documented macro behaviour: identity is the fn pointer alone.
+        assert_eq!(plain, with_ctx);
+        assert_ne!(plain, other_fn);
+
+        // Eq/Hash must agree, or these end up as duplicate keys in a HashMap.
+        let hash = |c: &Callback| {
+            let mut h = DefaultHasher::new();
+            c.hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hash(&plain), hash(&with_ctx));
+    }
+
+    // ------------------------------------------------------------------
+    // OptionCallback / OptionMenuCallback predicates + round-trips
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn option_callback_predicates_are_exclusive_and_total() {
+        let none = OptionCallback::None;
+        let some = OptionCallback::Some(Callback::from_ptr(cb_do_nothing));
+
+        assert!(none.is_none() && !none.is_some());
+        assert!(some.is_some() && !some.is_none());
+        // Exactly one of the two predicates holds, for every value.
+        for v in [&none, &some] {
+            assert!(v.is_some() ^ v.is_none());
+        }
+    }
+
+    #[test]
+    fn option_callback_round_trips_through_std_option() {
+        let cb = Callback::from_ptr(cb_do_nothing);
+
+        let round = OptionCallback::from(Some(cb.clone())).into_option();
+        assert_eq!(round, Some(cb.clone()));
+
+        let round = OptionCallback::from(None).into_option();
+        assert_eq!(round, None);
+
+        // and the other direction of the From impls
+        let ffi: OptionCallback = Some(cb.clone()).into();
+        let back: Option<Callback> = ffi.into();
+        assert_eq!(back, Some(cb));
+
+        let ffi: OptionCallback = None.into();
+        let back: Option<Callback> = ffi.into();
+        assert_eq!(back, None);
+    }
+
+    #[test]
+    fn option_menu_callback_predicates_and_round_trip() {
+        let mc = MenuCallback {
+            callback: Callback::from_ptr(cb_do_nothing),
+            refany: RefAny::new(5i32),
+        };
+
+        let none = OptionMenuCallback::None;
+        assert!(none.is_none() && !none.is_some());
+        assert_eq!(none.into_option(), None);
+
+        let some = OptionMenuCallback::from(Some(mc.clone()));
+        assert!(some.is_some() && !some.is_none());
+        assert_eq!(some.into_option(), Some(mc));
+
+        let back: Option<MenuCallback> = OptionMenuCallback::None.into();
+        assert!(back.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // RenderImageCallback + RenderImageCallbackInfo
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn render_image_callback_core_round_trip() {
+        let cb = RenderImageCallback::create(img_cb);
+        assert!(cb.ctx.is_none());
+        let ptr = cb.cb as usize;
+
+        let core = cb.to_core();
+        assert_eq!(core.cb, ptr);
+
+        let back = RenderImageCallback::from_core(&core);
+        assert_eq!(back.cb as usize, ptr);
+        assert!(back.ctx.is_none());
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "CoreRenderImageCallback.cb is null")]
+    fn render_image_callback_from_core_null_pointer_trips_debug_assert() {
+        let core = azul_core::callbacks::CoreRenderImageCallback {
+            cb: 0,
+            ctx: OptionRefAny::None,
+        };
+        let _ = RenderImageCallback::from_core(&core);
+    }
+
+    #[test]
+    fn render_image_callback_info_getters_and_null_ctx() {
+        let gl = OptionGlContextPtr::None;
+        let image_cache = ImageCache::default();
+        let fonts = FcFontCache::default();
+        let bounds = HidpiAdjustedBounds {
+            logical_size: LogicalSize::new(640.0, 480.0),
+            hidpi_factor: azul_core::resources::DpiScaleFactor::new(2.0),
+        };
+
+        let info = RenderImageCallbackInfo::new(node0(), bounds, &gl, &image_cache, &fonts);
+
+        assert_eq!(info.get_callback_node_id(), node0());
+        assert_eq!(info.get_bounds().logical_size, LogicalSize::new(640.0, 480.0));
+        // callable_ptr is null for native Rust callbacks: get_ctx must return
+        // None rather than dereferencing the null pointer.
+        assert!(info.get_ctx().is_none());
+        assert!(info.get_gl_context().is_none());
+
+        // Clone is a field-wise pointer copy - the getters must still work.
+        let cloned = info.clone();
+        assert_eq!(cloned.get_callback_node_id(), node0());
+        assert!(cloned.get_ctx().is_none());
+    }
+
+    #[test]
+    fn render_image_callback_info_accepts_degenerate_and_nan_bounds() {
+        let gl = OptionGlContextPtr::None;
+        let image_cache = ImageCache::default();
+        let fonts = FcFontCache::default();
+
+        for (w, h, dpi) in [
+            (0.0f32, 0.0f32, 0.0f32),
+            (-1.0, -1.0, 1.0),
+            (f32::MAX, f32::MAX, f32::MAX),
+            (f32::INFINITY, f32::NAN, 1.0),
+        ] {
+            let bounds = HidpiAdjustedBounds {
+                logical_size: LogicalSize::new(w, h),
+                hidpi_factor: azul_core::resources::DpiScaleFactor::new(dpi),
+            };
+            let info = RenderImageCallbackInfo::new(node_none(), bounds, &gl, &image_cache, &fonts);
+            let got = info.get_bounds().logical_size;
+            assert_eq!(got.width.is_nan(), w.is_nan());
+            assert_eq!(got.height.is_nan(), h.is_nan());
+        }
+    }
+
+    #[test]
+    fn render_image_callback_info_set_callable_ptr_makes_ctx_visible() {
+        let gl = OptionGlContextPtr::None;
+        let image_cache = ImageCache::default();
+        let fonts = FcFontCache::default();
+        let bounds = HidpiAdjustedBounds {
+            logical_size: LogicalSize::new(1.0, 1.0),
+            hidpi_factor: azul_core::resources::DpiScaleFactor::new(1.0),
+        };
+        let mut info = RenderImageCallbackInfo::new(node0(), bounds, &gl, &image_cache, &fonts);
+
+        let ctx = OptionRefAny::Some(RefAny::new(99u32));
+        // SAFETY: `ctx` outlives `info` (both are dropped at the end of this fn).
+        unsafe { info.set_callable_ptr(core::ptr::from_ref(&ctx)) };
+        assert!(info.get_ctx().is_some());
+
+        // Resetting to null must go back to the safe "no ctx" answer.
+        unsafe { info.set_callable_ptr(core::ptr::null()) };
+        assert!(info.get_ctx().is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // FocusUpdateRequest - predicate + round-trip laws
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn focus_update_request_is_change_matches_variant() {
+        assert!(FocusUpdateRequest::FocusNode(node0()).is_change());
+        assert!(FocusUpdateRequest::ClearFocus.is_change());
+        assert!(!FocusUpdateRequest::NoChange.is_change());
+    }
+
+    #[test]
+    fn focus_update_request_optional_round_trip_is_lossless() {
+        for req in [
+            FocusUpdateRequest::FocusNode(node0()),
+            FocusUpdateRequest::FocusNode(node_none()),
+            FocusUpdateRequest::ClearFocus,
+            FocusUpdateRequest::NoChange,
+        ] {
+            assert_eq!(
+                FocusUpdateRequest::from_optional(req.to_focused_node()),
+                req,
+                "from_optional . to_focused_node must be the identity"
+            );
+        }
+
+        // ... and in the other direction, for the legacy Option<Option<_>> form.
+        for opt in [Some(Some(node0())), Some(None), None] {
+            assert_eq!(FocusUpdateRequest::from_optional(opt).to_focused_node(), opt);
+        }
+
+        // is_change agrees with "to_focused_node produced something"
+        for req in [
+            FocusUpdateRequest::FocusNode(node0()),
+            FocusUpdateRequest::ClearFocus,
+            FocusUpdateRequest::NoChange,
+        ] {
+            assert_eq!(req.is_change(), req.to_focused_node().is_some());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // FFI Result enums
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn result_u8vec_string_from_maps_ok_and_err() {
+        let ok = ResultU8VecString::from(Ok(Vec::new()));
+        assert!(matches!(&ok, ResultU8VecString::Ok(v) if v.len() == 0));
+
+        let ok = ResultU8VecString::from(Ok(vec![0u8; 100_000]));
+        assert!(matches!(&ok, ResultU8VecString::Ok(v) if v.len() == 100_000));
+
+        let err = ResultU8VecString::from(Err(AzString::from("boom")));
+        assert!(matches!(&err, ResultU8VecString::Err(e) if e.as_str() == "boom"));
+    }
+
+    #[test]
+    fn result_void_string_from_maps_ok_and_err() {
+        assert!(matches!(ResultVoidString::from(Ok(())), ResultVoidString::Ok));
+        let err = ResultVoidString::from(Err(AzString::from("")));
+        assert!(matches!(&err, ResultVoidString::Err(e) if e.as_str().is_empty()));
+    }
+
+    #[test]
+    fn result_string_string_from_keeps_both_sides_distinct() {
+        let ok = ResultStringString::from(Ok(AzString::from("x")));
+        assert!(matches!(&ok, ResultStringString::Ok(s) if s.as_str() == "x"));
+        // Same payload type on both sides - the discriminant is what carries meaning.
+        let err = ResultStringString::from(Err(AzString::from("x")));
+        assert!(matches!(&err, ResultStringString::Err(s) if s.as_str() == "x"));
+    }
+
+    // ------------------------------------------------------------------
+    // ExternalSystemCallbacks
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn external_system_callbacks_time_fn_is_callable_and_monotonic() {
+        let cbs = ExternalSystemCallbacks::rust_internal();
+        let t0 = (cbs.get_system_time_fn.cb)();
+        let t1 = (cbs.get_system_time_fn.cb)();
+        // Both calls must succeed; we only assert they produce a value (the
+        // clock resolution makes strict ordering flaky).
+        let _ = (t0, t1);
+    }
+
+    // ------------------------------------------------------------------
+    // CallbackInfo: transaction log (push / take / relayout predicate)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn callback_info_starts_with_an_empty_change_log() {
+        with_info(node_none(), |info| {
+            assert!(info.take_changes().is_empty());
+            assert!(!info.has_pending_relayout_change());
+            assert!(!info.get_changes_ptr().is_null());
+        });
+    }
+
+    #[test]
+    fn callback_info_take_changes_drains_the_log() {
+        with_info(node_none(), |info| {
+            info.stop_propagation();
+            info.prevent_default();
+            let first = info.take_changes();
+            assert_eq!(first.len(), 2);
+            // Second take must not hand out the same changes again.
+            assert!(
+                info.take_changes().is_empty(),
+                "take_changes must consume the log"
+            );
+        });
+    }
+
+    #[test]
+    fn callback_info_is_copy_and_copies_share_one_change_log() {
+        with_info(node_none(), |info| {
+            let mut copy = *info;
+            copy.stop_immediate_propagation();
+            assert_eq!(
+                info.get_changes_ptr(),
+                copy.get_changes_ptr(),
+                "a Copy of CallbackInfo must alias the same Arc<Mutex<..>>"
+            );
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            assert!(matches!(changes[0], CallbackChange::StopImmediatePropagation));
+        });
+    }
+
+    #[test]
+    fn has_pending_relayout_change_is_true_only_for_relayout_changes() {
+        // Known-false: a propagation change needs no relayout.
+        with_info(node_none(), |info| {
+            info.stop_propagation();
+            assert!(!info.has_pending_relayout_change());
+        });
+        // Known-true: window resize.
+        with_info(node_none(), |info| {
+            info.modify_window_state(FullWindowState::default());
+            assert!(info.has_pending_relayout_change());
+        });
+        // Known-true: scroll.
+        with_info(node_none(), |info| {
+            info.scroll_to(
+                DomId::ROOT_ID,
+                NodeHierarchyItemId::NONE,
+                LogicalPosition::new(0.0, 0.0),
+            );
+            assert!(info.has_pending_relayout_change());
+        });
+        // Known-true: queued synthetic input sequence.
+        with_info(node_none(), |info| {
+            info.queue_window_state_sequence(FullWindowStateVec::from_vec(vec![
+                FullWindowState::default(),
+            ]));
+            assert!(info.has_pending_relayout_change());
+        });
+        // A relayout change anywhere in the log counts, not just at the head.
+        with_info(node_none(), |info| {
+            info.prevent_default();
+            info.hide_tooltip();
+            info.close_window();
+            assert!(!info.has_pending_relayout_change());
+            info.modify_window_state(FullWindowState::default());
+            assert!(info.has_pending_relayout_change());
+            // Querying must not consume the log.
+            assert!(info.has_pending_relayout_change());
+            assert_eq!(info.take_changes().len(), 4);
+        });
+    }
+
+    #[test]
+    fn callback_info_flag_mutators_queue_exactly_one_matching_change() {
+        macro_rules! assert_queues {
+            ($call:expr, $pat:pat) => {{
+                with_info(node_none(), |info| {
+                    let f: &dyn Fn(&mut CallbackInfo) = &$call;
+                    f(info);
+                    let changes = info.take_changes();
+                    assert_eq!(changes.len(), 1, "expected exactly one queued change");
+                    assert!(
+                        matches!(changes[0], $pat),
+                        "queued the wrong CallbackChange: {:?}",
+                        changes[0]
+                    );
+                });
+            }};
+        }
+
+        assert_queues!(
+            |i: &mut CallbackInfo| i.stop_propagation(),
+            CallbackChange::StopPropagation
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.stop_immediate_propagation(),
+            CallbackChange::StopImmediatePropagation
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.prevent_default(),
+            CallbackChange::PreventDefault
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.close_window(),
+            CallbackChange::CloseWindow
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.begin_interactive_move(),
+            CallbackChange::BeginInteractiveMove
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.commit_undo_snapshot(),
+            CallbackChange::CommitUndoSnapshot
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.undo_app_state(),
+            CallbackChange::UndoAppState
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.redo_app_state(),
+            CallbackChange::RedoAppState
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.update_all_image_callbacks(),
+            CallbackChange::UpdateAllImageCallbacks
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.trigger_all_virtual_view_rerender(),
+            CallbackChange::UpdateAllVirtualViews
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.reload_system_fonts(),
+            CallbackChange::ReloadSystemFonts
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.hide_tooltip(),
+            CallbackChange::HideTooltip
+        );
+    }
+
+    #[test]
+    fn callback_info_timer_and_thread_ids_survive_boundary_values() {
+        with_info(node_none(), |info| {
+            info.add_timer(TimerId { id: 0 }, Timer::default());
+            info.add_timer(TimerId { id: usize::MAX }, Timer::default());
+            info.remove_timer(TimerId { id: usize::MAX });
+            info.remove_thread(ThreadId::unique());
+
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 4);
+            assert!(
+                matches!(&changes[1], CallbackChange::AddTimer { timer_id, .. } if timer_id.id == usize::MAX)
+            );
+            assert!(
+                matches!(&changes[2], CallbackChange::RemoveTimer { timer_id } if timer_id.id == usize::MAX)
+            );
+            assert!(matches!(&changes[3], CallbackChange::RemoveThread { .. }));
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // CallbackInfo: numeric edges (scroll / menu / tooltip positions)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn scroll_to_records_position_verbatim_at_numeric_extremes() {
+        let positions = [
+            LogicalPosition::new(0.0, 0.0),
+            LogicalPosition::new(-0.0, -1_000_000.0),
+            LogicalPosition::new(f32::MIN, f32::MAX),
+            LogicalPosition::new(f32::INFINITY, f32::NEG_INFINITY),
+            LogicalPosition::new(f32::NAN, f32::NAN),
+        ];
+
+        with_info(node_none(), |info| {
+            for p in positions {
+                info.scroll_to(DomId::ROOT_ID, NodeHierarchyItemId::NONE, p);
+            }
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), positions.len());
+
+            for (change, expected) in changes.iter().zip(positions) {
+                let CallbackChange::ScrollTo {
+                    position, unclamped, ..
+                } = change
+                else {
+                    panic!("expected ScrollTo, got {change:?}");
+                };
+                assert!(!*unclamped, "scroll_to must request clamping");
+                // No sanitisation happens here - NaN/inf reach the change log
+                // unchanged, and clamping is the change-processor's job.
+                assert_eq!(position.x.is_nan(), expected.x.is_nan());
+                if !expected.x.is_nan() {
+                    assert_eq!(position.x, expected.x);
+                    assert_eq!(position.y, expected.y);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn scroll_to_unclamped_sets_the_unclamped_flag() {
+        with_info(node_none(), |info| {
+            info.scroll_to_unclamped(
+                DomId { inner: usize::MAX },
+                NodeHierarchyItemId::from_raw(usize::MAX),
+                LogicalPosition::new(-99999.0, 99999.0),
+            );
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            let CallbackChange::ScrollTo {
+                unclamped,
+                dom_id,
+                position,
+                ..
+            } = &changes[0]
+            else {
+                panic!("expected ScrollTo");
+            };
+            assert!(*unclamped, "scroll_to_unclamped must skip clamping");
+            assert_eq!(dom_id.inner, usize::MAX, "an unknown DomId is not rejected here");
+            assert_eq!(position.x, -99999.0);
+        });
+    }
+
+    #[test]
+    fn scroll_node_into_view_queues_the_options_verbatim() {
+        use crate::managers::scroll_into_view::ScrollIntoViewOptions;
+        with_info(node_none(), |info| {
+            info.scroll_node_into_view(node_none(), ScrollIntoViewOptions::nearest());
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            assert!(matches!(changes[0], CallbackChange::ScrollIntoView { .. }));
+        });
+    }
+
+    #[test]
+    fn open_menu_at_and_show_tooltip_at_accept_extreme_positions() {
+        let menu = || Menu::create(azul_core::menu::MenuItemVec::from_const_slice(&[]));
+
+        with_info(node_none(), |info| {
+            info.open_menu(menu());
+            info.open_menu_at(menu(), LogicalPosition::new(0.0, 0.0));
+            info.open_menu_at(menu(), LogicalPosition::new(f32::MIN, f32::MAX));
+            info.open_menu_at(menu(), LogicalPosition::new(f32::NAN, f32::INFINITY));
+
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 4);
+            // open_menu keeps the menu's own position (None override) ...
+            assert!(matches!(
+                &changes[0],
+                CallbackChange::OpenMenu { position: None, .. }
+            ));
+            // ... open_menu_at always overrides it.
+            for change in &changes[1..] {
+                assert!(matches!(
+                    change,
+                    CallbackChange::OpenMenu {
+                        position: Some(_),
+                        ..
+                    }
+                ));
+            }
+        });
+
+        with_info(node_none(), |info| {
+            info.show_tooltip(AzString::from(""));
+            info.show_tooltip_at(AzString::from("🌍"), LogicalPosition::new(f32::NAN, -0.0));
+            info.show_tooltip_at(
+                AzString::from("x".repeat(100_000)),
+                LogicalPosition::new(f32::MAX, f32::MIN),
+            );
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 3);
+            assert!(matches!(&changes[0], CallbackChange::ShowTooltip { text, .. } if text.as_str().is_empty()));
+            assert!(matches!(&changes[1], CallbackChange::ShowTooltip { text, position } if text.as_str() == "🌍" && position.x.is_nan()));
+            assert!(matches!(&changes[2], CallbackChange::ShowTooltip { text, .. } if text.as_str().len() == 100_000));
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // CallbackInfo: CSS property helpers (documented panics)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn set_css_property_wraps_a_single_property() {
+        with_info(node_none(), |info| {
+            info.set_css_property(node0(), a_css_property());
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            let CallbackChange::ChangeNodeCssProperties {
+                dom_id,
+                node_id,
+                properties,
+            } = &changes[0]
+            else {
+                panic!("expected ChangeNodeCssProperties");
+            };
+            assert_eq!(*dom_id, DomId::ROOT_ID);
+            assert_eq!(node_id.index(), 0);
+            assert_eq!(properties.len(), 1);
+        });
+    }
+
+    #[test]
+    fn override_css_property_uses_the_override_channel_not_the_cascade() {
+        with_info(node_none(), |info| {
+            info.override_css_property(node0(), a_css_property());
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            assert!(
+                matches!(changes[0], CallbackChange::OverrideNodeCssProperties { .. }),
+                "must not fall back to the invalidating ChangeNodeCssProperties path"
+            );
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "DomNodeId node should not be None")]
+    fn set_css_property_panics_on_a_none_node_as_documented() {
+        with_info(node_none(), |info| {
+            info.set_css_property(node_none(), a_css_property());
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "DomNodeId node should not be None")]
+    fn override_css_property_panics_on_a_none_node_as_documented() {
+        with_info(node_none(), |info| {
+            info.override_css_property(node_none(), a_css_property());
+        });
+    }
+
+    #[test]
+    fn change_node_css_properties_accepts_an_empty_property_vec() {
+        with_info(node_none(), |info| {
+            info.change_node_css_properties(
+                DomId::ROOT_ID,
+                NodeId::new(usize::MAX),
+                CssPropertyVec::from_const_slice(&[]),
+            );
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            assert!(
+                matches!(&changes[0], CallbackChange::ChangeNodeCssProperties { properties, .. } if properties.len() == 0)
+            );
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // CallbackInfo: text / DOM mutation payloads (malformed + unicode + huge)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn change_node_text_passes_hostile_strings_through_unchanged() {
+        let inputs = [
+            String::new(),
+            "   \t\n  ".to_string(),
+            "\u{0}embedded nul".to_string(),
+            "🌍é\u{301}\u{200B}".to_string(),
+            "x".repeat(1_000_000),
+        ];
+
+        with_info(node_none(), |info| {
+            for s in &inputs {
+                info.change_node_text(node0(), AzString::from(s.clone()));
+            }
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), inputs.len());
+            for (change, expected) in changes.iter().zip(&inputs) {
+                let CallbackChange::ChangeNodeText { text, .. } = change else {
+                    panic!("expected ChangeNodeText");
+                };
+                assert_eq!(text.as_str(), expected.as_str());
+            }
+        });
+    }
+
+    #[test]
+    fn insert_child_node_accepts_empty_and_garbage_type_strings() {
+        with_info(node_none(), |info| {
+            // Neither an empty tag nor a garbage tag is validated at queue time.
+            info.insert_child_node(
+                DomId::ROOT_ID,
+                NodeId::new(0),
+                AzString::from(""),
+                OptionUsize::None,
+                StringVec::from_const_slice(&[]),
+                OptionString::None,
+            );
+            info.insert_child_node(
+                DomId { inner: usize::MAX },
+                NodeId::new(usize::MAX),
+                AzString::from("\u{0}<<not a tag>>"),
+                OptionUsize::Some(usize::MAX),
+                StringVec::from_const_slice(&[]),
+                OptionString::None,
+            );
+            assert_eq!(info.take_changes().len(), 2);
+        });
+    }
+
+    #[test]
+    fn text_editing_mutators_queue_their_changes() {
+        with_info(node_none(), |info| {
+            info.insert_text(DomId::ROOT_ID, NodeId::new(0), AzString::from("🌍"));
+            info.move_cursor(DomId::ROOT_ID, NodeId::new(0), a_cursor());
+            info.set_selection(
+                DomId::ROOT_ID,
+                NodeId::new(0),
+                Selection::Cursor(a_cursor()),
+            );
+            info.set_text_changeset(PendingTextEdit {
+                node: node0(),
+                inserted_text: AzString::from(""),
+                old_text: AzString::from(""),
+            });
+            info.create_text_input(AzString::from("\u{0}"));
+            info.delete_node(DomId::ROOT_ID, NodeId::new(usize::MAX));
+            info.set_node_ids_and_classes(
+                DomId::ROOT_ID,
+                NodeId::new(0),
+                azul_core::dom::IdOrClassVec::from_const_slice(&[]),
+            );
+
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 7);
+            assert!(matches!(&changes[0], CallbackChange::InsertText { text, .. } if text.as_str() == "🌍"));
+            assert!(matches!(changes[1], CallbackChange::MoveCursor { .. }));
+            assert!(matches!(changes[2], CallbackChange::SetSelection { .. }));
+            assert!(matches!(changes[3], CallbackChange::SetTextChangeset { .. }));
+            assert!(matches!(changes[5], CallbackChange::DeleteNode { .. }));
+        });
+    }
+
+    #[test]
+    fn image_cache_mutators_accept_empty_ids_and_null_images() {
+        with_info(node_none(), |info| {
+            let img = || {
+                ImageRef::null_image(0, 0, azul_core::resources::RawImageFormat::RGBA8, Vec::new())
+            };
+            info.add_image_to_cache(AzString::from(""), img());
+            info.remove_image_from_cache(AzString::from(""));
+            info.change_node_image(
+                DomId::ROOT_ID,
+                NodeId::new(0),
+                img(),
+                UpdateImageType::Content,
+            );
+            info.update_image_callback(DomId { inner: usize::MAX }, NodeId::new(usize::MAX));
+            info.trigger_virtual_view_rerender(DomId::ROOT_ID, NodeId::new(usize::MAX));
+            assert_eq!(info.take_changes().len(), 5);
+        });
+    }
+
+    #[test]
+    fn focus_mutators_queue_set_focus_target() {
+        with_info(node_none(), |info| {
+            info.set_focus(FocusTarget::NoFocus);
+            info.set_focus_to_node(DomId::ROOT_ID, NodeId::new(usize::MAX));
+            info.focus_next();
+            info.focus_previous();
+            info.focus_first();
+            info.focus_last();
+            info.clear_focus();
+
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 7);
+            for change in &changes {
+                assert!(matches!(change, CallbackChange::SetFocusTarget { .. }));
+            }
+            assert!(matches!(
+                &changes[2],
+                CallbackChange::SetFocusTarget {
+                    target: FocusTarget::Next
+                }
+            ));
+            assert!(matches!(
+                &changes[6],
+                CallbackChange::SetFocusTarget {
+                    target: FocusTarget::NoFocus
+                }
+            ));
+        });
+    }
+
+    #[test]
+    fn create_window_queues_window_creation() {
+        with_info(node_none(), |info| {
+            info.create_window(WindowCreateOptions::default());
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            assert!(matches!(changes[0], CallbackChange::CreateNewWindow { .. }));
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // CallbackInfo: routing
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn route_getters_return_empty_strings_when_no_route_is_active() {
+        with_info(node_none(), |info| {
+            assert_eq!(info.get_route_pattern().as_str(), "");
+            assert_eq!(info.get_route_param(AzString::from("id")).as_str(), "");
+            // Malformed / hostile keys must not panic either.
+            assert_eq!(info.get_route_param(AzString::from("")).as_str(), "");
+            assert_eq!(info.get_route_param(AzString::from("\u{0}🌍")).as_str(), "");
+            assert_eq!(
+                info.get_route_param(AzString::from("k".repeat(100_000)))
+                    .as_str(),
+                ""
+            );
+        });
+    }
+
+    #[test]
+    fn set_route_param_without_an_active_route_queues_nothing() {
+        with_info(node_none(), |info| {
+            info.set_route_param(AzString::from("id"), AzString::from("42"));
+            assert!(
+                info.take_changes().is_empty(),
+                "no active route => no SwitchRoute change may be queued"
+            );
+        });
+    }
+
+    #[test]
+    fn switch_route_queues_the_pattern_verbatim() {
+        with_info(node_none(), |info| {
+            info.switch_route(
+                AzString::from("/user/:id"),
+                azul_core::window::StringPairVec::from_vec(vec![azul_core::window::AzStringPair {
+                    key: AzString::from("id"),
+                    value: AzString::from("42"),
+                }]),
+            );
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1);
+            assert!(
+                matches!(&changes[0], CallbackChange::SwitchRoute { pattern, params } if pattern.as_str() == "/user/:id" && params.len() == 1)
+            );
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // CallbackInfo: query APIs against an EMPTY layout window
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn get_node_id_by_id_attribute_returns_none_for_hostile_ids() {
+        let long = "a".repeat(1_000_000);
+        let nested = "[".repeat(10_000);
+        let ids: [&str; 12] = [
+            "",
+            "   ",
+            "\t\n",
+            "\u{0}",
+            "!@#$%^&*()",
+            "0",
+            "-0",
+            "9223372036854775807",
+            "NaN",
+            "inf",
+            "  valid  ",
+            "valid;garbage",
+        ];
+
+        with_info(node_none(), |info| {
+            for id in ids {
+                assert_eq!(
+                    info.get_node_id_by_id_attribute(DomId::ROOT_ID, id),
+                    None,
+                    "id {id:?} must not resolve in an empty layout tree"
+                );
+            }
+            // Unicode / combining marks / emoji.
+            for id in ["\u{1F600}", "e\u{301}", "🌍🌍🌍"] {
+                assert_eq!(info.get_node_id_by_id_attribute(DomId::ROOT_ID, id), None);
+            }
+            // Extremely long + deeply "nested" input must not hang or overflow.
+            assert_eq!(
+                info.get_node_id_by_id_attribute(DomId::ROOT_ID, &long),
+                None
+            );
+            assert_eq!(
+                info.get_node_id_by_id_attribute(DomId::ROOT_ID, &nested),
+                None
+            );
+            // An out-of-range DomId is a miss, not a panic.
+            assert_eq!(
+                info.get_node_id_by_id_attribute(DomId { inner: usize::MAX }, "x"),
+                None
+            );
+        });
+    }
+
+    #[test]
+    fn hierarchy_navigation_is_none_and_zero_on_an_empty_layout_tree() {
+        with_info(node_none(), |info| {
+            for dom in [DomId::ROOT_ID, DomId { inner: usize::MAX }] {
+                for node in [NodeId::new(0), NodeId::new(usize::MAX)] {
+                    assert_eq!(info.get_parent_node(dom, node), None);
+                    assert_eq!(info.get_next_sibling_node(dom, node), None);
+                    assert_eq!(info.get_previous_sibling_node(dom, node), None);
+                    assert_eq!(info.get_first_child_node(dom, node), None);
+                    assert_eq!(info.get_last_child_node(dom, node), None);
+                    assert_eq!(info.get_children_count(dom, node), 0);
+                    assert_eq!(info.get_all_children_nodes(dom, node).len(), 0);
+                }
+            }
+            // The DomNodeId-flavoured navigation must agree.
+            assert_eq!(info.get_parent(node0()), None);
+            assert_eq!(info.get_first_child(node0()), None);
+            assert_eq!(info.get_last_child(node0()), None);
+            assert_eq!(info.get_next_sibling(node_none()), None);
+            assert_eq!(info.get_previous_sibling(node_none()), None);
+        });
+    }
+
+    #[test]
+    fn geometry_and_css_queries_are_none_on_an_empty_layout_tree() {
+        with_info(node0(), |info| {
+            assert_eq!(info.get_node_size(node0()), None);
+            assert_eq!(info.get_node_position(node0()), None);
+            assert_eq!(info.get_node_rect(node0()), None);
+            assert_eq!(info.get_node_hit_test_bounds(node0()), None);
+            assert_eq!(info.get_hit_node_rect(), None);
+            assert!(info.get_computed_width(node0()).is_none());
+            assert!(info.get_computed_height(node0()).is_none());
+            assert!(info
+                .get_computed_css_property(node_none(), CssPropertyType::Width)
+                .is_none());
+            assert!(info.get_layout_result(&DomId::ROOT_ID).is_none());
+            assert!(info.get_gpu_cache(&DomId::ROOT_ID).is_none());
+            assert_eq!(info.get_dom_ids().len(), 0);
+        });
+    }
+
+    #[test]
+    fn state_getters_reflect_the_construction_arguments() {
+        let hit = node0();
+        with_info(hit, |info| {
+            assert_eq!(info.get_hit_node(), hit);
+            // No cursor was supplied at construction.
+            assert!(info.get_cursor_relative_to_viewport().is_none());
+            assert!(info.get_cursor_relative_to_node().is_none());
+            // Native Rust callback => no FFI ctx, no GL context.
+            assert!(info.get_ctx().is_none());
+            assert!(info.get_gl_context().is_none());
+            // No previous frame yet.
+            assert!(info.get_previous_window_state().is_none());
+            assert!(info.get_previous_window_flags().is_none());
+            assert!(info.get_previous_mouse_state().is_none());
+            assert!(info.get_previous_keyboard_state().is_none());
+            assert!(matches!(
+                info.get_current_window_handle(),
+                RawWindowHandle::Unsupported
+            ));
+            assert_eq!(info.get_monitors().len(), 0);
+            assert!(info.get_current_monitor().is_none());
+            assert_eq!(info.get_timer_ids().len(), 0);
+            assert_eq!(info.get_thread_ids().len(), 0);
+            assert!(info.get_timer(&TimerId { id: 0 }).is_none());
+            assert!(info.get_thread(&ThreadId::unique()).is_none());
+            // The system-time callback must be wired up and callable.
+            let _now = info.get_current_time();
+        });
+    }
+
+    #[test]
+    fn selection_and_undo_queries_are_empty_for_unknown_nodes() {
+        with_info(node_none(), |info| {
+            assert!(!info.has_any_selection());
+            assert_eq!(info.get_selection_count(&DomId::ROOT_ID), 0);
+            assert!(info.get_primary_selection(&DomId::ROOT_ID).is_none());
+            assert!(!info.node_has_selection(node0()));
+
+            for node in [NodeId::new(0), NodeId::new(usize::MAX)] {
+                assert!(!info.can_undo(node));
+                assert!(!info.can_redo(node));
+                assert!(info.get_undo_text(node).is_none());
+                assert!(info.get_redo_text(node).is_none());
+                assert!(info.inspect_undo_operation(node).is_none());
+                assert!(info.inspect_redo_operation(node).is_none());
+            }
+
+            assert!(info.get_node_text_content(node0()).is_none());
+            assert_eq!(info.get_node_text_length(node0()), None);
+            assert!(info.get_text_changeset().is_none());
+            assert!(!info.is_node_focused(node0()));
+            assert!(!info.has_focus(node0()));
+            assert!(info.get_focused_node().is_none());
+        });
+    }
+
+    #[test]
+    fn cursor_inspection_is_none_without_a_text_layout() {
+        with_info(node_none(), |info| {
+            assert!(info.inspect_move_cursor_left(node0()).is_none());
+            assert!(info.inspect_move_cursor_right(node0()).is_none());
+            assert!(info.inspect_move_cursor_up(node0()).is_none());
+            assert!(info.inspect_move_cursor_down(node0()).is_none());
+            assert!(info.inspect_move_cursor_to_line_start(node0()).is_none());
+            assert!(info.inspect_move_cursor_to_line_end(node0()).is_none());
+            assert!(info.inspect_backspace(node0()).is_none());
+            assert!(info.inspect_delete(node0()).is_none());
+            // ... and the same for a node id that does not decode at all.
+            assert!(info.inspect_move_cursor_left(node_none()).is_none());
+            assert!(info.inspect_backspace(node_none()).is_none());
+        });
+    }
+
+    #[test]
+    fn drag_and_gesture_queries_are_inactive_by_default() {
+        with_info(node_none(), |info| {
+            assert!(!info.is_dragging());
+            assert!(!info.is_drag_active());
+            assert!(!info.is_node_drag_active());
+            assert!(!info.is_file_drag_active());
+            assert!(info.get_drag_delta().is_none());
+            assert!(info.get_drag_delta_screen().is_none());
+            assert!(info.get_drag_delta_screen_incremental().is_none());
+            assert!(!info.was_double_clicked());
+            assert!(info.get_pen_pressure().is_none());
+            assert!(info.get_pen_tilt().is_none());
+            assert!(!info.is_pen_in_contact());
+            assert!(!info.is_pen_eraser());
+            assert!(!info.is_pen_barrel_button_pressed());
+            assert_eq!(info.get_drag_types().len(), 0);
+            assert!(info.get_drag_data("text/plain").is_none());
+            assert!(info.get_drag_data("").is_none());
+        });
+    }
+
+    #[test]
+    #[cfg(feature = "text_layout")]
+    fn get_loaded_font_bytes_returns_none_for_boundary_hashes() {
+        with_info(node_none(), |info| {
+            // No fonts are loaded, so every hash - including the numeric
+            // boundaries - must miss rather than index out of bounds.
+            for hash in [0u64, 1, u64::MAX, u64::MAX / 2] {
+                assert!(info.get_loaded_font_bytes(hash).is_none());
+            }
+            assert_eq!(info.get_loaded_fonts().len(), 0);
+        });
+    }
+
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn take_screenshot_of_a_missing_dom_is_an_error_not_a_panic() {
+        with_info(node_none(), |info| {
+            let err = info
+                .take_screenshot(DomId::ROOT_ID)
+                .expect_err("an empty layout window has no DOM to screenshot");
+            assert_eq!(err.as_str(), "DOM not found in layout results");
+
+            let err = info
+                .take_screenshot(DomId { inner: usize::MAX })
+                .expect_err("an out-of-range DomId must be rejected");
+            assert_eq!(err.as_str(), "DOM not found in layout results");
+
+            assert!(info.take_screenshot_base64(DomId::ROOT_ID).is_err());
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // CallbackChange payload smoke test
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn callback_change_is_debug_and_clone() {
+        let change = CallbackChange::ScrollTo {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeHierarchyItemId::NONE,
+            position: LogicalPosition::new(f32::NAN, 0.0),
+            unclamped: true,
+        };
+        let cloned = change.clone();
+        assert!(matches!(
+            cloned,
+            CallbackChange::ScrollTo { unclamped: true, .. }
+        ));
+        assert!(!format!("{change:?}").is_empty());
+    }
+}

@@ -1038,3 +1038,1021 @@ pub fn parse_style_aspect_ratio(
         height: 1000,
     }))
 }
+
+#[cfg(all(test, feature = "parser"))]
+#[allow(
+    clippy::float_cmp,
+    clippy::unreadable_literal,
+    clippy::too_many_lines,
+    clippy::cast_precision_loss
+)]
+mod autotest_generated {
+    use super::*;
+    use crate::{
+        props::{
+            basic::{
+                error::ParseFloatError as CssParseFloatError, pixel::PixelValue,
+            },
+            formatter::PrintAsCssValue,
+            style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical},
+        },
+    };
+
+    const ALL_VISIBILITY: [StyleVisibility; 3] = [
+        StyleVisibility::Visible,
+        StyleVisibility::Hidden,
+        StyleVisibility::Collapse,
+    ];
+
+    const ALL_BLEND_MODES: [StyleMixBlendMode; 16] = [
+        StyleMixBlendMode::Normal,
+        StyleMixBlendMode::Multiply,
+        StyleMixBlendMode::Screen,
+        StyleMixBlendMode::Overlay,
+        StyleMixBlendMode::Darken,
+        StyleMixBlendMode::Lighten,
+        StyleMixBlendMode::ColorDodge,
+        StyleMixBlendMode::ColorBurn,
+        StyleMixBlendMode::HardLight,
+        StyleMixBlendMode::SoftLight,
+        StyleMixBlendMode::Difference,
+        StyleMixBlendMode::Exclusion,
+        StyleMixBlendMode::Hue,
+        StyleMixBlendMode::Saturation,
+        StyleMixBlendMode::Color,
+        StyleMixBlendMode::Luminosity,
+    ];
+
+    const ALL_CURSORS: [StyleCursor; 30] = [
+        StyleCursor::Alias,
+        StyleCursor::AllScroll,
+        StyleCursor::Cell,
+        StyleCursor::ColResize,
+        StyleCursor::ContextMenu,
+        StyleCursor::Copy,
+        StyleCursor::Crosshair,
+        StyleCursor::Default,
+        StyleCursor::EResize,
+        StyleCursor::EwResize,
+        StyleCursor::Grab,
+        StyleCursor::Grabbing,
+        StyleCursor::Help,
+        StyleCursor::Move,
+        StyleCursor::NResize,
+        StyleCursor::NsResize,
+        StyleCursor::NeswResize,
+        StyleCursor::NwseResize,
+        StyleCursor::Pointer,
+        StyleCursor::Progress,
+        StyleCursor::RowResize,
+        StyleCursor::SResize,
+        StyleCursor::SeResize,
+        StyleCursor::Text,
+        StyleCursor::Unset,
+        StyleCursor::VerticalText,
+        StyleCursor::WResize,
+        StyleCursor::Wait,
+        StyleCursor::ZoomIn,
+        StyleCursor::ZoomOut,
+    ];
+
+    const ALL_OBJECT_FIT: [StyleObjectFit; 5] = [
+        StyleObjectFit::Fill,
+        StyleObjectFit::Contain,
+        StyleObjectFit::Cover,
+        StyleObjectFit::None,
+        StyleObjectFit::ScaleDown,
+    ];
+
+    const ALL_TEXT_ORIENTATION: [StyleTextOrientation; 3] = [
+        StyleTextOrientation::Mixed,
+        StyleTextOrientation::Upright,
+        StyleTextOrientation::Sideways,
+    ];
+
+    /// Inputs no keyword parser may ever accept, and none may panic on.
+    /// Deliberately mixes empty / whitespace / punctuation / multibyte input.
+    const HOSTILE_KEYWORDS: [&str; 14] = [
+        "",
+        " ",
+        "\t\n\r",
+        "\u{a0}",           // NBSP — `str::trim` treats it as whitespace
+        ";",
+        "{}",
+        "/*",
+        "0",
+        "-1",
+        "NaN",
+        "inf",
+        "\u{1F600}",        // emoji
+        "e\u{0301}",        // combining acute accent
+        "\u{0665}",         // ARABIC-INDIC DIGIT FIVE (multibyte, `is_numeric`)
+    ];
+
+    // ------------------------------------------------ StyleMixBlendMode::fmt ---
+
+    #[test]
+    fn blend_mode_display_is_well_formed_for_every_variant() {
+        for mode in ALL_BLEND_MODES {
+            let shown = mode.to_string();
+            assert!(!shown.is_empty(), "{mode:?} renders as an empty string");
+            assert!(
+                shown
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '-'),
+                "{mode:?} renders as {shown:?}, which is not a CSS ident"
+            );
+            // `PrintAsCssValue` delegates to `Display`; pin them together so a
+            // future divergence has to be deliberate.
+            assert_eq!(shown, mode.print_as_css_value());
+        }
+    }
+
+    #[test]
+    fn blend_mode_display_of_default_is_normal() {
+        assert_eq!(StyleMixBlendMode::default().to_string(), "normal");
+        assert_eq!(StyleMixBlendMode::default(), StyleMixBlendMode::Normal);
+    }
+
+    #[test]
+    fn blend_mode_display_survives_width_and_precision_flags() {
+        // The impl forwards through `write!(f, "{}", ..)` instead of `f.pad(..)`,
+        // so the caller's width/precision/fill flags are dropped rather than
+        // applied. Not a panic, but pin it: `{:>10}` does NOT pad.
+        assert_eq!(format!("{:>10}", StyleMixBlendMode::Normal), "normal");
+        assert_eq!(format!("{:.2}", StyleMixBlendMode::Multiply), "multiply");
+        assert_eq!(format!("{:*^30}", StyleMixBlendMode::ColorDodge), "color-dodge");
+    }
+
+    // ----------------------------------------------------- parse_style_opacity ---
+
+    #[test]
+    fn opacity_rejects_empty_and_whitespace_only_input() {
+        for input in ["", " ", "   ", "\t\n", "\r\n\t ", "\u{a0}"] {
+            assert!(
+                parse_style_opacity(input).is_err(),
+                "{input:?} must not parse as an opacity"
+            );
+        }
+    }
+
+    #[test]
+    fn opacity_rejects_garbage() {
+        for input in [
+            "auto", "abc", "%", ";;;", "50%%", "#0.5", "0.5;garbage", "1 2", "rgb(0,0,0)",
+            "0,5", "--", "..", "-", ".",
+        ] {
+            assert!(
+                parse_style_opacity(input).is_err(),
+                "{input:?} must not parse as an opacity"
+            );
+        }
+    }
+
+    #[test]
+    fn opacity_boundary_numbers() {
+        // In range.
+        assert_eq!(parse_style_opacity("0").unwrap().inner.normalized(), 0.0);
+        assert_eq!(parse_style_opacity("1").unwrap().inner.normalized(), 1.0);
+        assert_eq!(parse_style_opacity("0%").unwrap().inner.normalized(), 0.0);
+        assert_eq!(parse_style_opacity("100%").unwrap().inner.normalized(), 1.0);
+        // `-0.0 == 0.0` under IEEE-754, so the `0.0..=1.0` guard accepts it.
+        assert_eq!(parse_style_opacity("-0").unwrap().inner.normalized(), 0.0);
+        assert_eq!(parse_style_opacity("-0%").unwrap().inner.normalized(), 0.0);
+        // Below the fixed-point resolution: quantized to 0, still in range.
+        assert!(parse_style_opacity("0.0000001").is_ok());
+
+        // Out of range.
+        for input in ["1.001", "1.1", "2", "101%", "-0.001", "-1", "-100%"] {
+            assert!(
+                matches!(
+                    parse_style_opacity(input),
+                    Err(OpacityParseError::OutOfRange(_))
+                ),
+                "{input:?} should be rejected as out-of-range"
+            );
+        }
+
+        // Float extremes: `str::parse::<f32>` maps 1e39 to +inf, which must not
+        // panic through the fixed-point cast and must land out of range.
+        for input in ["1e39", "3.5e38", "9223372036854775807", "1e30"] {
+            assert!(
+                parse_style_opacity(input).is_err(),
+                "{input:?} should be rejected as out-of-range"
+            );
+        }
+
+        // `NaN` / `inf` contain no numeric char, so the scanner bails out first.
+        for input in ["NaN", "nan", "inf", "infinity", "-inf", "-NaN"] {
+            assert!(
+                parse_style_opacity(input).is_err(),
+                "{input:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn opacity_trims_but_rejects_trailing_junk() {
+        assert_eq!(
+            parse_style_opacity("  0.5  ").unwrap().inner.normalized(),
+            0.5
+        );
+        assert_eq!(
+            parse_style_opacity("\t50%\n").unwrap().inner.normalized(),
+            0.5
+        );
+        for input in ["0.5;", "0.5 !important", "0.5px", "0.5 0.5"] {
+            assert!(
+                parse_style_opacity(input).is_err(),
+                "{input:?} must not parse as an opacity"
+            );
+        }
+
+        // Lax, pinned: the unit is trimmed *after* being split off the number, so
+        // an internal space between value and unit is accepted even though CSS
+        // forbids it.
+        assert_eq!(parse_style_opacity("50 %").unwrap().inner.normalized(), 0.5);
+    }
+
+    #[test]
+    fn opacity_non_numeric_unicode_does_not_panic() {
+        // Multibyte input whose *last* numeric char is ASCII (or which has no
+        // numeric char at all) must be rejected without slicing mid-codepoint.
+        // See `known_bug_opacity_multibyte_numeric_char_panics` for the case
+        // that does not hold.
+        for input in [
+            "\u{1F600}",         // emoji only
+            "\u{1F600}0.5",      // emoji then ASCII digits
+            "0.5\u{0301}",       // digits then a combining acute accent
+            "\u{2603}%",         // snowman + percent sign
+            "\u{4F60}\u{597D}",  // CJK
+            "\u{202E}0.5",       // RTL override
+        ] {
+            assert!(
+                parse_style_opacity(input).is_err(),
+                "{input:?} must not parse as an opacity"
+            );
+        }
+    }
+
+    #[test]
+    fn opacity_extremely_long_input_terminates() {
+        // 100k digits overflow f32 to +inf => out of range, but must not hang.
+        let huge = "1".repeat(100_000);
+        assert!(parse_style_opacity(&huge).is_err());
+
+        // 100k *leading* fraction zeros exercise the slow float path and stay
+        // in range.
+        let tiny = format!("0.{}5", "0".repeat(100_000));
+        assert_eq!(parse_style_opacity(&tiny).unwrap().inner.normalized(), 0.0);
+
+        // A long trailing unit is rejected, not truncated.
+        let long_unit = format!("0.5{}", "z".repeat(100_000));
+        assert!(parse_style_opacity(&long_unit).is_err());
+    }
+
+    #[test]
+    fn opacity_deeply_nested_brackets_do_not_stack_overflow() {
+        let nested = "(".repeat(10_000);
+        assert!(parse_style_opacity(&nested).is_err());
+
+        let wrapped = format!("{}0.5{}", "(".repeat(10_000), ")".repeat(10_000));
+        assert!(parse_style_opacity(&wrapped).is_err());
+    }
+
+    #[test]
+    fn opacity_valid_minimal_positive_control() {
+        assert!(parse_style_opacity("1").unwrap() == StyleOpacity::default());
+        assert!(parse_style_opacity("50%").unwrap() == StyleOpacity::new(50.0));
+        assert!(parse_style_opacity("0.5").unwrap() == StyleOpacity::new(50.0));
+        // `0.5` (fraction) and `50%` are the same value.
+        assert!(parse_style_opacity("0.5").unwrap() == parse_style_opacity("50%").unwrap());
+    }
+
+    #[test]
+    fn opacity_round_trips_through_print_as_css_value_and_display() {
+        for pct in [0.0f32, 12.5, 25.0, 50.0, 75.0, 99.9, 100.0] {
+            let opacity = StyleOpacity::new(pct);
+
+            // `PrintAsCssValue` emits the normalized 0..=1 fraction.
+            let printed = opacity.print_as_css_value();
+            let reparsed = parse_style_opacity(&printed)
+                .unwrap_or_else(|e| panic!("{printed:?} (from {pct}%) failed to re-parse: {e}"));
+            assert_eq!(
+                reparsed.inner.normalized(),
+                opacity.inner.normalized(),
+                "{pct}% printed as {printed:?} but re-parsed differently"
+            );
+
+            // `Display` emits the percentage form; that must re-parse too.
+            let displayed = opacity.to_string();
+            let reparsed = parse_style_opacity(&displayed)
+                .unwrap_or_else(|e| panic!("{displayed:?} (from {pct}%) failed to re-parse: {e}"));
+            assert_eq!(reparsed.inner.normalized(), opacity.inner.normalized());
+        }
+    }
+
+    // ------------------------------------------------- parse_style_visibility ---
+
+    #[test]
+    fn visibility_parses_every_keyword_and_round_trips() {
+        assert_eq!(parse_style_visibility("visible").unwrap(), StyleVisibility::Visible);
+        assert_eq!(parse_style_visibility("hidden").unwrap(), StyleVisibility::Hidden);
+        assert_eq!(parse_style_visibility("collapse").unwrap(), StyleVisibility::Collapse);
+        assert_eq!(StyleVisibility::default(), StyleVisibility::Visible);
+
+        for v in ALL_VISIBILITY {
+            let printed = v.print_as_css_value();
+            assert!(!printed.is_empty());
+            assert_eq!(parse_style_visibility(&printed).unwrap(), v);
+            // Surrounding whitespace is trimmed, not rejected.
+            assert_eq!(parse_style_visibility(&format!("  {printed}\t")).unwrap(), v);
+        }
+    }
+
+    #[test]
+    fn visibility_rejects_hostile_input() {
+        for input in HOSTILE_KEYWORDS {
+            assert!(
+                parse_style_visibility(input).is_err(),
+                "{input:?} must not parse as a visibility"
+            );
+        }
+        for input in ["none", "show", "visible hidden", "visible;", "vis", "visibleX"] {
+            assert!(
+                parse_style_visibility(input).is_err(),
+                "{input:?} must not parse as a visibility"
+            );
+        }
+    }
+
+    // -------------------------------------------- parse_style_mix_blend_mode ---
+
+    #[test]
+    fn blend_mode_parses_every_keyword_and_round_trips() {
+        for mode in ALL_BLEND_MODES {
+            let printed = mode.print_as_css_value();
+            assert_eq!(
+                parse_style_mix_blend_mode(&printed).unwrap(),
+                mode,
+                "{printed:?} did not round-trip"
+            );
+            assert_eq!(parse_style_mix_blend_mode(&format!(" {printed} ")).unwrap(), mode);
+        }
+        assert_eq!(StyleMixBlendMode::default(), StyleMixBlendMode::Normal);
+    }
+
+    #[test]
+    fn blend_mode_rejects_hostile_input() {
+        for input in HOSTILE_KEYWORDS {
+            assert!(
+                parse_style_mix_blend_mode(input).is_err(),
+                "{input:?} must not parse as a mix-blend-mode"
+            );
+        }
+        // Near-misses: separator swaps, plain-CSS-adjacent words, partial idents.
+        for input in [
+            "mix", "color dodge", "color_dodge", "colordodge", "normal normal", "plus-lighter",
+            "multiply;", "screen!",
+        ] {
+            assert!(
+                parse_style_mix_blend_mode(input).is_err(),
+                "{input:?} must not parse as a mix-blend-mode"
+            );
+        }
+    }
+
+    // ------------------------------------------------------ parse_style_cursor ---
+
+    #[test]
+    fn cursor_parses_every_keyword_and_round_trips() {
+        for cursor in ALL_CURSORS {
+            let printed = cursor.print_as_css_value();
+            assert_eq!(
+                parse_style_cursor(&printed).unwrap(),
+                cursor,
+                "{printed:?} did not round-trip"
+            );
+            assert_eq!(parse_style_cursor(&format!("\n{printed}  ")).unwrap(), cursor);
+        }
+        assert_eq!(StyleCursor::default(), StyleCursor::Default);
+    }
+
+    #[test]
+    fn cursor_keyword_printing_is_injective() {
+        // Two variants mapping to the same CSS ident would silently collapse on
+        // re-parse; the round-trip test above cannot catch that on its own.
+        let mut printed: Vec<String> = ALL_CURSORS.iter().map(PrintAsCssValue::print_as_css_value).collect();
+        printed.sort();
+        let count = printed.len();
+        printed.dedup();
+        assert_eq!(printed.len(), count, "two StyleCursor variants print the same ident");
+    }
+
+    #[test]
+    fn cursor_rejects_hostile_input() {
+        for input in HOSTILE_KEYWORDS {
+            assert!(
+                parse_style_cursor(input).is_err(),
+                "{input:?} must not parse as a cursor"
+            );
+        }
+        for input in [
+            "hand",           // legacy IE alias, deliberately unsupported
+            "col resize",     // space instead of hyphen
+            "e_resize",
+            "pointer pointer",
+            "url(cursor.png)",
+            "auto",           // valid CSS, but not in the enum
+        ] {
+            assert!(
+                parse_style_cursor(input).is_err(),
+                "{input:?} must not parse as a cursor"
+            );
+        }
+    }
+
+    // -------------------------------------------------- parse_style_object_fit ---
+
+    #[test]
+    fn object_fit_parses_every_keyword_and_round_trips() {
+        for fit in ALL_OBJECT_FIT {
+            let printed = fit.print_as_css_value();
+            assert_eq!(parse_style_object_fit(&printed).unwrap(), fit);
+            assert_eq!(parse_style_object_fit(&format!("  {printed} ")).unwrap(), fit);
+        }
+        assert_eq!(StyleObjectFit::default(), StyleObjectFit::Fill);
+    }
+
+    #[test]
+    fn object_fit_rejects_hostile_input() {
+        for input in HOSTILE_KEYWORDS {
+            assert!(
+                parse_style_object_fit(input).is_err(),
+                "{input:?} must not parse as an object-fit"
+            );
+        }
+        for input in ["stretch", "scale_down", "scale down", "cover cover", "fill;"] {
+            assert!(
+                parse_style_object_fit(input).is_err(),
+                "{input:?} must not parse as an object-fit"
+            );
+        }
+    }
+
+    // -------------------------------------------- parse_style_text_orientation ---
+
+    #[test]
+    fn text_orientation_parses_every_keyword_and_round_trips() {
+        for orientation in ALL_TEXT_ORIENTATION {
+            let printed = orientation.print_as_css_value();
+            assert_eq!(parse_style_text_orientation(&printed).unwrap(), orientation);
+            assert_eq!(
+                parse_style_text_orientation(&format!("\t{printed}\n")).unwrap(),
+                orientation
+            );
+        }
+        assert_eq!(StyleTextOrientation::default(), StyleTextOrientation::Mixed);
+    }
+
+    #[test]
+    fn text_orientation_rejects_hostile_input() {
+        for input in HOSTILE_KEYWORDS {
+            assert!(
+                parse_style_text_orientation(input).is_err(),
+                "{input:?} must not parse as a text-orientation"
+            );
+        }
+        for input in ["vertical", "sideways-right", "upright mixed", "mixed;"] {
+            assert!(
+                parse_style_text_orientation(input).is_err(),
+                "{input:?} must not parse as a text-orientation"
+            );
+        }
+    }
+
+    // ----------------------------------------- keyword parsers, shared invariant ---
+
+    #[test]
+    fn keyword_parsers_are_case_sensitive() {
+        // CSS idents are ASCII case-insensitive per spec, but every keyword
+        // parser in this crate matches the lowercase form only. Pinned so that
+        // adding case-folding is a deliberate, crate-wide change rather than an
+        // accident in one parser.
+        assert!(parse_style_visibility("VISIBLE").is_err());
+        assert!(parse_style_mix_blend_mode("Multiply").is_err());
+        assert!(parse_style_cursor("Pointer").is_err());
+        assert!(parse_style_object_fit("COVER").is_err());
+        assert!(parse_style_text_orientation("Upright").is_err());
+        assert!(parse_style_aspect_ratio("AUTO").is_err());
+    }
+
+    #[test]
+    fn keyword_parsers_do_not_hang_on_extremely_long_input() {
+        let long = "a".repeat(500_000);
+        assert!(parse_style_visibility(&long).is_err());
+        assert!(parse_style_mix_blend_mode(&long).is_err());
+        assert!(parse_style_cursor(&long).is_err());
+        assert!(parse_style_object_fit(&long).is_err());
+        assert!(parse_style_text_orientation(&long).is_err());
+
+        // A valid keyword buried in 500k of padding is still just whitespace-
+        // trimmed, so it parses; the padding must not be quadratic.
+        let padded = format!("{}visible{}", " ".repeat(250_000), " ".repeat(250_000));
+        assert_eq!(parse_style_visibility(&padded).unwrap(), StyleVisibility::Visible);
+    }
+
+    #[test]
+    fn keyword_parsers_do_not_stack_overflow_on_nested_input() {
+        let nested = format!("{}center{}", "(".repeat(10_000), ")".repeat(10_000));
+        assert!(parse_style_visibility(&nested).is_err());
+        assert!(parse_style_cursor(&nested).is_err());
+        assert!(parse_style_object_fit(&nested).is_err());
+        assert!(parse_style_object_position(&nested).is_err());
+        assert!(parse_style_aspect_ratio(&nested).is_err());
+    }
+
+    // --------------------------------------------- parse_style_object_position ---
+
+    #[test]
+    fn object_position_parses_single_keywords() {
+        use BackgroundPositionHorizontal as H;
+        use BackgroundPositionVertical as V;
+
+        for (input, h, v) in [
+            ("center", H::Center, V::Center),
+            ("left", H::Left, V::Center),
+            ("right", H::Right, V::Center),
+            ("top", H::Center, V::Top),
+            ("bottom", H::Center, V::Bottom),
+        ] {
+            let parsed = parse_style_object_position(input).unwrap();
+            assert_eq!(parsed.horizontal, h, "{input:?} horizontal");
+            assert_eq!(parsed.vertical, v, "{input:?} vertical");
+        }
+    }
+
+    #[test]
+    fn object_position_parses_lengths_and_percentages() {
+        let px = parse_style_object_position("10px 20px").unwrap();
+        assert_eq!(px.horizontal, BackgroundPositionHorizontal::Exact(PixelValue::px(10.0)));
+        assert_eq!(px.vertical, BackgroundPositionVertical::Exact(PixelValue::px(20.0)));
+
+        let pct = parse_style_object_position("50% 50%").unwrap();
+        assert_eq!(
+            pct.horizontal,
+            BackgroundPositionHorizontal::Exact(PixelValue::percent(50.0))
+        );
+        assert_eq!(
+            pct.vertical,
+            BackgroundPositionVertical::Exact(PixelValue::percent(50.0))
+        );
+
+        // A single length applies to *both* axes.
+        let single = parse_style_object_position("25%").unwrap();
+        assert_eq!(
+            single.horizontal,
+            BackgroundPositionHorizontal::Exact(PixelValue::percent(25.0))
+        );
+        assert_eq!(
+            single.vertical,
+            BackgroundPositionVertical::Exact(PixelValue::percent(25.0))
+        );
+
+        // Mixed keyword + length, both orders.
+        assert_eq!(
+            parse_style_object_position("left 25%").unwrap(),
+            StyleObjectPosition {
+                horizontal: BackgroundPositionHorizontal::Left,
+                vertical: BackgroundPositionVertical::Exact(PixelValue::percent(25.0)),
+            }
+        );
+        assert_eq!(
+            parse_style_object_position("25% top").unwrap(),
+            StyleObjectPosition {
+                horizontal: BackgroundPositionHorizontal::Exact(PixelValue::percent(25.0)),
+                vertical: BackgroundPositionVertical::Top,
+            }
+        );
+    }
+
+    #[test]
+    fn object_position_collapses_internal_whitespace() {
+        // `split_whitespace` means any run of blanks separates the components.
+        let expected = parse_style_object_position("left top").unwrap();
+        for input in ["left  top", "left\ttop", "  left \n top  ", "left\r\ntop"] {
+            assert_eq!(
+                parse_style_object_position(input).unwrap(),
+                expected,
+                "{input:?} should be equivalent to \"left top\""
+            );
+        }
+    }
+
+    #[test]
+    fn object_position_rejects_wrong_component_counts_and_garbage() {
+        for input in [
+            "",
+            "   ",
+            "\t\n",
+            "left top center",
+            "10px 20px 30px",
+            "center center center center",
+            "invalid",
+            "left left",     // second component must be a vertical keyword or a length
+            "top top",       // first component must be a horizontal keyword or a length
+            "left,top",      // comma is not a component separator
+            ";",
+            "\u{1F600}",
+            "\u{1F600} \u{1F600}",
+        ] {
+            assert!(
+                parse_style_object_position(input).is_err(),
+                "{input:?} must not parse as an object-position"
+            );
+        }
+    }
+
+    #[test]
+    fn object_position_extreme_lengths_do_not_panic() {
+        // `parse_pixel_value` accepts bare floats (incl. NaN/inf) and saturates
+        // them in the fixed-point cast — characterized in pixel.rs. All that is
+        // asserted here is that object-position does not panic on them.
+        for input in [
+            "NaN NaN", "inf inf", "-inf", "1e39px", "-1e39px", "340282350000000000000000000000000000000px",
+        ] {
+            let _ = parse_style_object_position(input);
+        }
+        let long = format!("{}px", "9".repeat(100_000));
+        let _ = parse_style_object_position(&long);
+    }
+
+    #[test]
+    fn object_position_round_trips_through_print_as_css_value() {
+        use BackgroundPositionHorizontal as H;
+        use BackgroundPositionVertical as V;
+
+        let horizontals = [H::Left, H::Center, H::Right, H::Exact(PixelValue::percent(25.0))];
+        let verticals = [V::Top, V::Center, V::Bottom, V::Exact(PixelValue::px(30.0))];
+
+        for horizontal in horizontals {
+            for vertical in verticals {
+                let position = StyleObjectPosition { horizontal, vertical };
+                let printed = position.print_as_css_value();
+                let reparsed = parse_style_object_position(&printed)
+                    .unwrap_or_else(|e| panic!("{position:?} printed as {printed:?}, which failed to re-parse: {e}"));
+                assert_eq!(reparsed, position, "{printed:?} did not round-trip");
+            }
+        }
+
+        // The documented initial value is `50% 50%`.
+        let default = StyleObjectPosition::default();
+        assert_eq!(default.print_as_css_value(), "50% 50%");
+        assert_eq!(parse_style_object_position("50% 50%").unwrap(), default);
+        assert_eq!(parse_style_object_position("center").unwrap().print_as_css_value(), "center center");
+    }
+
+    // ------------------------------------------------------ aspect_f32_to_u32 ---
+
+    #[test]
+    fn aspect_f32_to_u32_saturates_instead_of_panicking() {
+        // Zero / truncation.
+        assert_eq!(aspect_f32_to_u32(0.0), 0);
+        assert_eq!(aspect_f32_to_u32(-0.0), 0);
+        assert_eq!(aspect_f32_to_u32(0.9), 0);
+        assert_eq!(aspect_f32_to_u32(1.0), 1);
+        assert_eq!(aspect_f32_to_u32(1.9), 1);
+        assert_eq!(aspect_f32_to_u32(f32::MIN_POSITIVE), 0);
+
+        // Negatives saturate to 0 (`as` is a saturating cast since Rust 1.45).
+        assert_eq!(aspect_f32_to_u32(-1.0), 0);
+        assert_eq!(aspect_f32_to_u32(-0.5), 0);
+        assert_eq!(aspect_f32_to_u32(-1e30), 0);
+        assert_eq!(aspect_f32_to_u32(f32::MIN), 0);
+        assert_eq!(aspect_f32_to_u32(f32::NEG_INFINITY), 0);
+
+        // Above u32::MAX saturates to u32::MAX.
+        assert_eq!(aspect_f32_to_u32(f32::MAX), u32::MAX);
+        assert_eq!(aspect_f32_to_u32(f32::INFINITY), u32::MAX);
+        assert_eq!(aspect_f32_to_u32(1e30), u32::MAX);
+        // `u32::MAX as f32` rounds *up* to 2^32, so it saturates back down.
+        assert_eq!(aspect_f32_to_u32(u32::MAX as f32), u32::MAX);
+
+        // NaN is defined to be 0, not UB and not a panic.
+        assert_eq!(aspect_f32_to_u32(f32::NAN), 0);
+        assert_eq!(aspect_f32_to_u32(-f32::NAN), 0);
+
+        // The largest value the parser can hand it (100_000 * 1000) fits exactly.
+        assert_eq!(aspect_f32_to_u32(100_000.0 * 1000.0), 100_000_000);
+    }
+
+    #[test]
+    fn aspect_f32_to_u32_is_usable_in_const_context() {
+        const TRUNCATED: u32 = aspect_f32_to_u32(1.999);
+        const SATURATED: u32 = aspect_f32_to_u32(f32::INFINITY);
+        const NEGATIVE: u32 = aspect_f32_to_u32(-5.0);
+        const NOT_A_NUMBER: u32 = aspect_f32_to_u32(f32::NAN);
+        assert_eq!((TRUNCATED, SATURATED, NEGATIVE, NOT_A_NUMBER), (1, u32::MAX, 0, 0));
+    }
+
+    // ------------------------------------------------ parse_style_aspect_ratio ---
+
+    #[test]
+    fn aspect_ratio_parses_valid_forms() {
+        assert_eq!(parse_style_aspect_ratio("auto").unwrap(), StyleAspectRatio::Auto);
+        assert_eq!(StyleAspectRatio::default(), StyleAspectRatio::Auto);
+
+        for input in ["16 / 9", "16/9", "16 /9", "16/ 9", "  16  /  9  "] {
+            assert_eq!(
+                parse_style_aspect_ratio(input).unwrap(),
+                StyleAspectRatio::Ratio(AspectRatioValue { width: 16000, height: 9000 }),
+                "{input:?} should parse as 16/9"
+            );
+        }
+
+        // A bare number is `<number> / 1`, stored as fixed-point * 1000.
+        assert_eq!(
+            parse_style_aspect_ratio("1").unwrap(),
+            StyleAspectRatio::Ratio(AspectRatioValue { width: 1000, height: 1000 })
+        );
+        assert_eq!(
+            parse_style_aspect_ratio("1.5").unwrap(),
+            StyleAspectRatio::Ratio(AspectRatioValue { width: 1500, height: 1000 })
+        );
+
+        // Boundary of the documented range: 100_000 is accepted, just above is not.
+        assert_eq!(
+            parse_style_aspect_ratio("100000").unwrap(),
+            StyleAspectRatio::Ratio(AspectRatioValue { width: 100_000_000, height: 1000 })
+        );
+        assert!(parse_style_aspect_ratio("100001").is_err());
+        assert!(parse_style_aspect_ratio("100000.1 / 1").is_err());
+        assert!(parse_style_aspect_ratio("1 / 100001").is_err());
+    }
+
+    #[test]
+    fn aspect_ratio_rejects_non_positive_and_malformed_input() {
+        for input in [
+            "", "   ", "\t\n", "abc", "auto / auto", "16 / 9 / 4", "1/2/3", "/", "//", "/9",
+            "16/", "16 9", ";", "16,9", "\u{1F600}", "\u{1F600}/\u{1F600}",
+        ] {
+            assert!(
+                parse_style_aspect_ratio(input).is_err(),
+                "{input:?} must not parse as an aspect-ratio"
+            );
+        }
+
+        // Zero and negative components are explicitly rejected.
+        for input in ["0", "0 / 1", "1 / 0", "0/0", "-0", "-0 / 1", "1 / -0", "-1 / 1", "-1", "-1.5"] {
+            assert!(
+                parse_style_aspect_ratio(input).is_err(),
+                "{input:?} must not parse as an aspect-ratio"
+            );
+        }
+
+        // Infinities exceed the 100_000 bound (or are non-positive).
+        for input in ["inf", "inf / 1", "1 / inf", "-inf", "-inf / 1", "1e39", "1e39 / 1"] {
+            assert!(
+                parse_style_aspect_ratio(input).is_err(),
+                "{input:?} should be rejected: out of the [0, 100_000] range"
+            );
+        }
+    }
+
+    #[test]
+    fn aspect_ratio_extremely_long_input_terminates() {
+        let long = "9".repeat(100_000);
+        assert!(parse_style_aspect_ratio(&long).is_err());
+        assert!(parse_style_aspect_ratio(&format!("{long}/{long}")).is_err());
+
+        // 100k slashes: `find('/')` hits the first one, both sides fail to parse.
+        let slashes = "/".repeat(100_000);
+        assert!(parse_style_aspect_ratio(&slashes).is_err());
+    }
+
+    #[test]
+    fn aspect_ratio_auto_round_trips() {
+        let printed = StyleAspectRatio::Auto.print_as_css_value();
+        assert_eq!(printed, "auto");
+        assert_eq!(parse_style_aspect_ratio(&printed).unwrap(), StyleAspectRatio::Auto);
+    }
+
+    // ------------------------------------------- error types: to_contained/to_shared ---
+
+    #[test]
+    fn opacity_parse_error_round_trips_through_the_owned_form() {
+        let errors = [
+            OpacityParseError::ParsePercentage(
+                PercentageParseError::ValueParseErr(CssParseFloatError::Empty),
+                "",
+            ),
+            OpacityParseError::ParsePercentage(
+                PercentageParseError::ValueParseErr(CssParseFloatError::Invalid),
+                "abc",
+            ),
+            OpacityParseError::ParsePercentage(PercentageParseError::NoPercentSign, "0.5"),
+            OpacityParseError::ParsePercentage(
+                PercentageParseError::InvalidUnit(String::from("px").into()),
+                "5px",
+            ),
+            OpacityParseError::OutOfRange("1.5"),
+            OpacityParseError::OutOfRange(""),
+            OpacityParseError::OutOfRange("\u{1F600}"),
+        ];
+
+        for error in errors {
+            let owned = error.to_contained();
+            assert_eq!(owned.to_shared(), error, "{error:?} did not round-trip");
+            assert_eq!(owned.to_shared().to_contained(), owned);
+
+            let shown = error.to_string();
+            assert!(!shown.is_empty(), "{error:?} renders as an empty message");
+            // `impl_debug_as_display` forwards Debug to Display.
+            assert_eq!(format!("{error:?}"), shown);
+        }
+    }
+
+    #[test]
+    fn opacity_parse_error_to_contained_copies_the_borrowed_input() {
+        // The owned form must not alias the (possibly temporary) input slice.
+        let owned = {
+            let input = String::from("1.5");
+            parse_style_opacity(&input).unwrap_err().to_contained()
+        };
+        assert_eq!(owned, OpacityParseErrorOwned::OutOfRange(String::from("1.5").into()));
+        assert!(owned.to_shared().to_string().contains("1.5"));
+    }
+
+    #[test]
+    fn keyword_parse_errors_round_trip_through_the_owned_form() {
+        // All four `InvalidValueErr`-backed error types, over hostile payloads.
+        for payload in ["", "junk", "  ", "\u{1F600}", "a\0b", "\u{0665}"] {
+            let visibility = StyleVisibilityParseError::InvalidValue(InvalidValueErr(payload));
+            assert_eq!(visibility.to_contained().to_shared(), visibility);
+            assert!(!visibility.to_string().is_empty());
+            assert_eq!(format!("{visibility:?}"), visibility.to_string());
+
+            let blend = MixBlendModeParseError::InvalidValue(InvalidValueErr(payload));
+            assert_eq!(blend.to_contained().to_shared(), blend);
+            assert!(!blend.to_string().is_empty());
+
+            let cursor = CursorParseError::InvalidValue(InvalidValueErr(payload));
+            assert_eq!(cursor.to_contained().to_shared(), cursor);
+            assert!(!cursor.to_string().is_empty());
+
+            // The `&str`-backed error types.
+            let object_fit = StyleObjectFitParseError::InvalidValue(payload);
+            assert_eq!(object_fit.to_contained().to_shared(), object_fit);
+            assert!(!object_fit.to_string().is_empty());
+
+            let orientation = StyleTextOrientationParseError::InvalidValue(payload);
+            assert_eq!(orientation.to_contained().to_shared(), orientation);
+            assert!(!orientation.to_string().is_empty());
+
+            let position = StyleObjectPositionParseError::InvalidValue(payload);
+            assert_eq!(position.to_contained().to_shared(), position);
+            assert!(!position.to_string().is_empty());
+
+            let ratio = StyleAspectRatioParseError::InvalidValue(payload);
+            assert_eq!(ratio.to_contained().to_shared(), ratio);
+            assert!(!ratio.to_string().is_empty());
+        }
+    }
+
+    #[test]
+    fn parse_errors_quote_the_offending_input() {
+        // The rejected value has to survive into the message, or authors cannot
+        // find the bad declaration.
+        assert!(parse_style_visibility("show").unwrap_err().to_string().contains("show"));
+        assert!(parse_style_mix_blend_mode("mix").unwrap_err().to_string().contains("mix"));
+        assert!(parse_style_cursor("hand").unwrap_err().to_string().contains("hand"));
+        assert!(parse_style_object_fit("stretch").unwrap_err().to_string().contains("stretch"));
+        assert!(parse_style_text_orientation("vertical").unwrap_err().to_string().contains("vertical"));
+        assert!(parse_style_object_position("nope").unwrap_err().to_string().contains("nope"));
+        assert!(parse_style_aspect_ratio("nope").unwrap_err().to_string().contains("nope"));
+        assert!(parse_style_opacity("1.5").unwrap_err().to_string().contains("1.5"));
+    }
+
+    #[test]
+    fn parse_errors_report_the_trimmed_input_not_the_raw_slice() {
+        // Every keyword parser trims *before* constructing the error, so the
+        // message never contains the caller's padding.
+        let shown = parse_style_cursor("  hand  ").unwrap_err().to_string();
+        assert!(shown.contains("\"hand\""), "expected the trimmed value, got {shown:?}");
+
+        // ...except `parse_style_opacity`, which passes the *untrimmed* input to
+        // the error. Pinned so the inconsistency is visible.
+        let shown = parse_style_opacity("  1.5  ").unwrap_err().to_string();
+        assert!(shown.contains("\"  1.5  \""), "expected the raw value, got {shown:?}");
+    }
+
+    #[test]
+    fn owned_error_forms_are_independent_of_the_source_buffer() {
+        // `to_contained` must deep-copy: the owned error has to outlive the
+        // String it was parsed from.
+        let owned = {
+            let input = String::from("stretch");
+            parse_style_object_fit(&input).unwrap_err().to_contained()
+        };
+        assert_eq!(
+            owned,
+            StyleObjectFitParseErrorOwned::InvalidValue(String::from("stretch").into())
+        );
+        assert!(owned.to_shared().to_string().contains("stretch"));
+    }
+
+    // ------------------------------------------------------------ known bugs ---
+    //
+    // The tests below assert the behaviour these functions *should* have. They
+    // currently fail, so they are #[ignore]d rather than deleted or weakened —
+    // run them with `cargo test -p azul-css -- --ignored` after fixing.
+
+    #[test]
+    #[ignore = "KNOWN BUG (css/src/props/basic/length.rs): parse_percentage_value \
+                panics on multi-byte `char::is_numeric()` input, and \
+                parse_style_opacity inherits it"]
+    fn known_bug_opacity_multibyte_numeric_char_panics() {
+        // `char::is_numeric()` is true for Nd/Nl/No, including multi-byte chars
+        // like '½' (U+00BD) and '٥' (U+0665). `parse_percentage_value` records
+        // the *start* byte index of the last such char and then slices at
+        // `split_pos + 1`, which lands inside the codepoint => the slice panics.
+        //
+        // `opacity: ½` in any author stylesheet therefore panics the CSS parser.
+        // See `known_bug_percentage_multibyte_numeric_char_panics` in length.rs.
+        for input in ["\u{00BD}", "\u{00BD}%", "0.5\u{0665}", "\u{FF15}%"] {
+            assert!(
+                parse_style_opacity(input).is_err(),
+                "{input:?} should be rejected, not panic"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "KNOWN BUG: NaN bypasses the aspect-ratio range guards and yields \
+                a degenerate 0-width / 0-height ratio"]
+    fn known_bug_aspect_ratio_nan_bypasses_the_range_guards() {
+        // Every guard in `parse_style_aspect_ratio` is a float comparison
+        // (`h <= 0.0 || w <= 0.0 || w > 100_000.0 || h > 100_000.0`), and every
+        // comparison against NaN is false — so a NaN component sails through and
+        // `aspect_f32_to_u32(NaN)` turns it into 0. The parser explicitly rejects
+        // "0 / 1", but happily returns `Ratio { width: 0, height: 1000 }` for
+        // "NaN", which is a division by zero waiting to happen in layout.
+        for input in ["NaN", "nan", "NaN / 1", "1 / NaN", "nan/nan", "-NaN"] {
+            assert!(
+                parse_style_aspect_ratio(input).is_err(),
+                "{input:?} should be rejected, but parsed as {:?}",
+                parse_style_aspect_ratio(input)
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "KNOWN BUG: aspect-ratio values below the fixed-point resolution \
+                round down to a 0 component despite the `> 0` guard"]
+    fn known_bug_aspect_ratio_tiny_positive_values_round_down_to_zero() {
+        // `w > 0.0` passes, but `(w * 1000.0).round()` is 0 for anything below
+        // 0.0005 — so a positive ratio silently becomes the degenerate 0 that the
+        // guard exists to prevent.
+        for input in ["0.0001", "0.0004 / 1", "1 / 0.0001", "1e-10"] {
+            let Ok(StyleAspectRatio::Ratio(ratio)) = parse_style_aspect_ratio(input) else {
+                continue; // rejected outright — that is the fix
+            };
+            assert!(
+                ratio.width > 0 && ratio.height > 0,
+                "{input:?} produced the degenerate ratio {ratio:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "KNOWN BUG: PrintAsCssValue for StyleAspectRatio prints the raw \
+                fixed-point numerator/denominator instead of dividing by 1000"]
+    fn known_bug_aspect_ratio_does_not_survive_a_print_reparse_cycle() {
+        // `Ratio { width: 16000, height: 9000 }` (i.e. 16/9) prints as
+        // "16000 / 9000", so every print/parse cycle multiplies both components
+        // by 1000. One cycle changes the stored value; two cycles exceed the
+        // 100_000 bound and fail to parse at all.
+        let ratio = parse_style_aspect_ratio("16 / 9").unwrap();
+        let printed = ratio.print_as_css_value();
+        assert_eq!(printed, "16 / 9", "printed the fixed-point form: {printed:?}");
+        assert_eq!(parse_style_aspect_ratio(&printed).unwrap(), ratio);
+    }
+
+    #[test]
+    #[ignore = "KNOWN BUG: object-position rejects the `top left` keyword order, \
+                which CSS Values 4 §<position> allows"]
+    fn known_bug_object_position_rejects_reversed_keyword_pairs() {
+        // `<position>` is `[left|center|right] || [top|center|bottom]` — the `||`
+        // means either order is valid, so `object-position: top left` is legal
+        // CSS. The parser only ever reads parts[0] as the horizontal component,
+        // so it hands "top" to `parse_pixel_value` and fails.
+        assert_eq!(
+            parse_style_object_position("top left").unwrap(),
+            parse_style_object_position("left top").unwrap()
+        );
+        assert_eq!(
+            parse_style_object_position("bottom right").unwrap(),
+            parse_style_object_position("right bottom").unwrap()
+        );
+    }
+}

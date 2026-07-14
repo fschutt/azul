@@ -1707,6 +1707,2004 @@ pub mod parser {
             _ => Err(InvalidValueErr(input)),
         }
     }
+
+    /// Adversarial tests. Lives inside `mod parser` (not at file scope) because
+    /// the interesting helpers -- `parse_gradient`, `split_color_and_offsets`,
+    /// `try_split_last_offset`, `is_likely_offset`, `parse_conic_first_item`,
+    /// `parse_shape`, ... -- are private to this module.
+    #[cfg(test)]
+    #[allow(
+        clippy::float_cmp,
+        clippy::too_many_lines,
+        clippy::unreadable_literal,
+        clippy::cognitive_complexity,
+        clippy::wildcard_imports
+    )]
+    mod autotest_generated {
+        // `super::*` = the private parser helpers under test; the second glob pulls in
+        // the value/error types from the enclosing `background` module.
+        use super::*;
+        use crate::props::style::background::*;
+        use crate::{
+            props::basic::{
+                angle::CssAngleValueParseError,
+                color::{CssColorParseError, OptionColorU, SystemColorRef},
+                direction::CssDirectionParseError,
+                error::InvalidValueErr,
+                length::PercentageParseError,
+                parse::{CssImageParseError, ParenthesisParseError},
+                pixel::CssPixelValueParseError,
+            },
+            system::SystemColors,
+        };
+        use alloc::{string::ToString, vec::Vec};
+
+        // ---------------------------------------------------------------
+        // fixtures
+        // ---------------------------------------------------------------
+
+        /// Inputs that every `&str` parser in this file is swept over: empty,
+        /// whitespace, garbage, boundary numbers, unbalanced braces, unicode.
+        const ADVERSARIAL: &[&str] = &[
+            "",
+            " ",
+            "   ",
+            "\t\n\r",
+            "\u{0}",
+            "!!!",
+            ";",
+            ",",
+            ",,",
+            "(",
+            ")",
+            "()",
+            "((((",
+            "0",
+            "-0",
+            "+0",
+            "NaN",
+            "nan",
+            "inf",
+            "-inf",
+            "1e40",
+            "-1e40",
+            "1e-45",
+            "3.4028235e38",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "\u{1F600}",
+            "e\u{0301}\u{0301}\u{0301}",
+            "\u{00a0}",
+            "red\u{00a0}50%",
+            "  valid  ",
+            "valid;garbage",
+            "red;blue",
+            "linear-gradient",
+            "linear-gradient(",
+            "linear-gradient()",
+            "url(",
+            "url()",
+            "rgba(",
+            "rgb(0,0,0",
+            "to right",
+            "circle",
+            "from",
+        ];
+
+        const ALL_SYSTEM_REFS: [SystemColorRef; 9] = [
+            SystemColorRef::Text,
+            SystemColorRef::Background,
+            SystemColorRef::Accent,
+            SystemColorRef::AccentText,
+            SystemColorRef::ButtonFace,
+            SystemColorRef::ButtonText,
+            SystemColorRef::WindowBackground,
+            SystemColorRef::SelectionBackground,
+            SystemColorRef::SelectionText,
+        ];
+
+        const ALL_GRADIENT_TYPES: [GradientType; 6] = [
+            GradientType::LinearGradient,
+            GradientType::RepeatingLinearGradient,
+            GradientType::RadialGradient,
+            GradientType::RepeatingRadialGradient,
+            GradientType::ConicGradient,
+            GradientType::RepeatingConicGradient,
+        ];
+
+        fn blue() -> ColorU {
+            ColorU::new_rgb(0, 0, 255)
+        }
+
+        fn linear(input: &str) -> LinearGradient {
+            match parse_style_background_content(input) {
+                Ok(StyleBackgroundContent::LinearGradient(g)) => g,
+                other => panic!("expected a linear gradient for {input:?}, got {other:?}"),
+            }
+        }
+
+        fn radial(input: &str) -> RadialGradient {
+            match parse_style_background_content(input) {
+                Ok(StyleBackgroundContent::RadialGradient(g)) => g,
+                other => panic!("expected a radial gradient for {input:?}, got {other:?}"),
+            }
+        }
+
+        fn conic(input: &str) -> ConicGradient {
+            match parse_style_background_content(input) {
+                Ok(StyleBackgroundContent::ConicGradient(g)) => g,
+                other => panic!("expected a conic gradient for {input:?}, got {other:?}"),
+            }
+        }
+
+        /// Offsets of a linear/radial gradient, in percent.
+        fn offsets(stops: &NormalizedLinearColorStopVec) -> Vec<f32> {
+            stops
+                .iter()
+                .map(|s| s.offset.normalized() * 100.0)
+                .collect()
+        }
+
+        // ---------------------------------------------------------------
+        // serializers: Shape::fmt / RadialGradientSize::fmt
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_shape_display_is_exact_and_never_empty() {
+            assert_eq!(Shape::Ellipse.to_string(), "ellipse");
+            assert_eq!(Shape::Circle.to_string(), "circle");
+            assert_eq!(Shape::default(), Shape::Ellipse);
+            assert_eq!(Shape::default().to_string(), "ellipse");
+            for s in [Shape::Ellipse, Shape::Circle] {
+                assert!(!s.to_string().is_empty());
+                // The serialized form is a valid input for the parser.
+                assert_eq!(parse_shape(&s.to_string()).unwrap(), s);
+            }
+        }
+
+        #[test]
+        fn autotest_radial_gradient_size_display_is_exact_and_never_empty() {
+            assert_eq!(RadialGradientSize::ClosestSide.to_string(), "closest-side");
+            assert_eq!(
+                RadialGradientSize::ClosestCorner.to_string(),
+                "closest-corner"
+            );
+            assert_eq!(
+                RadialGradientSize::FarthestSide.to_string(),
+                "farthest-side"
+            );
+            assert_eq!(
+                RadialGradientSize::FarthestCorner.to_string(),
+                "farthest-corner"
+            );
+            assert_eq!(
+                RadialGradientSize::default(),
+                RadialGradientSize::FarthestCorner
+            );
+            for s in [
+                RadialGradientSize::ClosestSide,
+                RadialGradientSize::ClosestCorner,
+                RadialGradientSize::FarthestSide,
+                RadialGradientSize::FarthestCorner,
+            ] {
+                assert!(!s.to_string().is_empty());
+                assert_eq!(parse_radial_gradient_size(&s.to_string()).unwrap(), s);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // constructors: Normalized{Linear,Radial}ColorStop::new
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_normalized_linear_stop_new_keeps_its_arguments() {
+            let stop = NormalizedLinearColorStop::new(PercentageValue::new(42.5), ColorU::RED);
+            assert_eq!(stop.offset.normalized() * 100.0, 42.5);
+            assert_eq!(stop.color, ColorOrSystem::Color(ColorU::RED));
+
+            // Extreme offsets must not panic, and must stay finite: FloatValue
+            // encodes f32*1000 into an isize, and `as` saturates (NaN -> 0).
+            for f in [
+                0.0_f32,
+                -0.0,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::MAX,
+                f32::MIN,
+                f32::MIN_POSITIVE,
+                -100.0,
+                1e30,
+            ] {
+                let stop = NormalizedLinearColorStop::new(
+                    PercentageValue::new(f),
+                    ColorU::TRANSPARENT,
+                );
+                assert!(
+                    stop.offset.normalized().is_finite(),
+                    "offset went non-finite for {f}"
+                );
+                assert_eq!(stop.color, ColorOrSystem::Color(ColorU::TRANSPARENT));
+            }
+            // NaN is flushed to 0, not propagated.
+            assert_eq!(
+                NormalizedLinearColorStop::new(PercentageValue::new(f32::NAN), ColorU::RED).offset,
+                PercentageValue::new(0.0)
+            );
+        }
+
+        #[test]
+        fn autotest_normalized_radial_stop_new_keeps_its_arguments() {
+            let stop = NormalizedRadialColorStop::new(AngleValue::deg(90.0), ColorU::RED);
+            assert_eq!(stop.angle, AngleValue::deg(90.0));
+            assert_eq!(stop.angle.to_degrees_raw(), 90.0);
+            assert_eq!(stop.color, ColorOrSystem::Color(ColorU::RED));
+
+            for f in [
+                0.0_f32,
+                -0.0,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::MAX,
+                f32::MIN,
+                720.0,
+                -360.0,
+            ] {
+                let stop = NormalizedRadialColorStop::new(AngleValue::deg(f), ColorU::WHITE);
+                assert!(
+                    stop.angle.to_degrees_raw().is_finite(),
+                    "angle went non-finite for {f}"
+                );
+                assert_eq!(stop.color, ColorOrSystem::Color(ColorU::WHITE));
+            }
+            assert_eq!(
+                NormalizedRadialColorStop::new(AngleValue::deg(f32::NAN), ColorU::RED).angle,
+                AngleValue::deg(0.0)
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // Normalized{Linear,Radial}ColorStop::resolve
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_resolve_concrete_color_ignores_system_colors() {
+            let stop = NormalizedLinearColorStop::new(PercentageValue::new(0.0), ColorU::RED);
+            assert_eq!(stop.resolve(&SystemColors::default(), ColorU::WHITE), ColorU::RED);
+
+            let populated = SystemColors {
+                accent: OptionColorU::Some(ColorU::new_rgb(1, 2, 3)),
+                ..SystemColors::default()
+            };
+            assert_eq!(stop.resolve(&populated, ColorU::WHITE), ColorU::RED);
+
+            let rstop = NormalizedRadialColorStop::new(AngleValue::deg(0.0), ColorU::RED);
+            assert_eq!(rstop.resolve(&populated, ColorU::WHITE), ColorU::RED);
+        }
+
+        #[test]
+        fn autotest_resolve_system_stop_falls_back_for_every_variant() {
+            let fallback = ColorU::rgba(9, 8, 7, 6);
+            for r in ALL_SYSTEM_REFS {
+                let lin = NormalizedLinearColorStop {
+                    offset: PercentageValue::new(50.0),
+                    color: ColorOrSystem::System(r),
+                };
+                let rad = NormalizedRadialColorStop {
+                    angle: AngleValue::deg(180.0),
+                    color: ColorOrSystem::System(r),
+                };
+                // Nothing is populated -> every variant resolves to the fallback.
+                assert_eq!(lin.resolve(&SystemColors::default(), fallback), fallback);
+                assert_eq!(rad.resolve(&SystemColors::default(), fallback), fallback);
+            }
+
+            // A populated key resolves; the others still fall back.
+            let accent = ColorU::new_rgb(0, 122, 255);
+            let populated = SystemColors {
+                accent: OptionColorU::Some(accent),
+                ..SystemColors::default()
+            };
+            let stop = NormalizedLinearColorStop {
+                offset: PercentageValue::new(0.0),
+                color: ColorOrSystem::System(SystemColorRef::Accent),
+            };
+            assert_eq!(stop.resolve(&populated, fallback), accent);
+            let other = NormalizedLinearColorStop {
+                offset: PercentageValue::new(0.0),
+                color: ColorOrSystem::System(SystemColorRef::ButtonText),
+            };
+            assert_eq!(other.resolve(&populated, fallback), fallback);
+        }
+
+        // ---------------------------------------------------------------
+        // numeric: scale_for_dpi
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_background_position_horizontal_scale_for_dpi() {
+            // Keywords are immune to scaling, for *any* factor.
+            for f in [0.0_f32, 1.0, -1.0, f32::NAN, f32::INFINITY, f32::MIN, f32::MAX] {
+                for keyword in [
+                    BackgroundPositionHorizontal::Left,
+                    BackgroundPositionHorizontal::Center,
+                    BackgroundPositionHorizontal::Right,
+                ] {
+                    let mut k = keyword;
+                    k.scale_for_dpi(f);
+                    assert_eq!(k, keyword, "keyword mutated by scale factor {f}");
+                }
+            }
+
+            let mut exact = BackgroundPositionHorizontal::Exact(PixelValue::px(10.0));
+            exact.scale_for_dpi(2.0);
+            assert_eq!(exact, BackgroundPositionHorizontal::Exact(PixelValue::px(20.0)));
+
+            // zero, negative
+            let mut zeroed = BackgroundPositionHorizontal::Exact(PixelValue::px(10.0));
+            zeroed.scale_for_dpi(0.0);
+            assert_eq!(zeroed, BackgroundPositionHorizontal::Exact(PixelValue::px(0.0)));
+
+            let mut negated = BackgroundPositionHorizontal::Exact(PixelValue::px(10.0));
+            negated.scale_for_dpi(-1.0);
+            assert_eq!(
+                negated,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(-10.0))
+            );
+
+            // NaN is flushed to 0 by the isize cast, never propagated.
+            let mut nan = BackgroundPositionHorizontal::Exact(PixelValue::px(10.0));
+            nan.scale_for_dpi(f32::NAN);
+            assert_eq!(nan, BackgroundPositionHorizontal::Exact(PixelValue::px(0.0)));
+
+            // +-inf and MIN/MAX saturate to the isize bounds -- finite, no panic.
+            for f in [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN] {
+                let mut v = BackgroundPositionHorizontal::Exact(PixelValue::px(10.0));
+                v.scale_for_dpi(f);
+                let BackgroundPositionHorizontal::Exact(px) = v else {
+                    panic!("variant changed under scaling");
+                };
+                assert!(px.number.get().is_finite(), "non-finite result for {f}");
+                assert_eq!(px.number.get().is_sign_negative(), f.is_sign_negative());
+            }
+        }
+
+        #[test]
+        fn autotest_background_position_vertical_scale_for_dpi() {
+            for f in [0.0_f32, 1.0, -1.0, f32::NAN, f32::INFINITY, f32::MIN, f32::MAX] {
+                for keyword in [
+                    BackgroundPositionVertical::Top,
+                    BackgroundPositionVertical::Center,
+                    BackgroundPositionVertical::Bottom,
+                ] {
+                    let mut k = keyword;
+                    k.scale_for_dpi(f);
+                    assert_eq!(k, keyword, "keyword mutated by scale factor {f}");
+                }
+            }
+
+            let mut exact = BackgroundPositionVertical::Exact(PixelValue::em(4.0));
+            exact.scale_for_dpi(0.5);
+            assert_eq!(exact, BackgroundPositionVertical::Exact(PixelValue::em(2.0)));
+
+            let mut nan = BackgroundPositionVertical::Exact(PixelValue::px(10.0));
+            nan.scale_for_dpi(f32::NAN);
+            assert_eq!(nan, BackgroundPositionVertical::Exact(PixelValue::px(0.0)));
+
+            // Saturation is a fixed point: scaling an already-saturated value again
+            // must not wrap around into a negative number.
+            let mut saturated = BackgroundPositionVertical::Exact(PixelValue::px(f32::MAX));
+            saturated.scale_for_dpi(f32::MAX);
+            let once = saturated;
+            saturated.scale_for_dpi(f32::MAX);
+            assert_eq!(saturated, once);
+            let BackgroundPositionVertical::Exact(px) = saturated else {
+                panic!("variant changed under scaling");
+            };
+            assert!(px.number.get() > 0.0);
+            assert!(px.number.get().is_finite());
+        }
+
+        #[test]
+        fn autotest_style_background_position_scale_for_dpi_scales_both_axes() {
+            let mut pos = StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Exact(PixelValue::px(10.0)),
+                vertical: BackgroundPositionVertical::Exact(PixelValue::px(20.0)),
+            };
+            pos.scale_for_dpi(3.0);
+            assert_eq!(
+                pos.horizontal,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(30.0))
+            );
+            assert_eq!(
+                pos.vertical,
+                BackgroundPositionVertical::Exact(PixelValue::px(60.0))
+            );
+
+            // Scaling compounds -- pinned, because a double-applied DPI scale is a
+            // classic layout bug.
+            pos.scale_for_dpi(2.0);
+            assert_eq!(
+                pos.horizontal,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(60.0))
+            );
+
+            // The all-keyword default is a fixed point for every factor.
+            for f in [0.0_f32, 1.0, -2.5, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let mut default = StyleBackgroundPosition::default();
+                default.scale_for_dpi(f);
+                assert_eq!(default, StyleBackgroundPosition::default());
+            }
+        }
+
+        #[test]
+        fn autotest_style_background_size_scale_for_dpi() {
+            // Contain / Cover carry no number and must survive any factor.
+            for f in [0.0_f32, 2.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                for keyword in [StyleBackgroundSize::Contain, StyleBackgroundSize::Cover] {
+                    let mut k = keyword;
+                    k.scale_for_dpi(f);
+                    assert_eq!(k, keyword, "keyword mutated by scale factor {f}");
+                }
+            }
+
+            let mut size = StyleBackgroundSize::ExactSize(PixelValueSize {
+                width: PixelValue::px(10.0),
+                height: PixelValue::percent(50.0),
+            });
+            size.scale_for_dpi(2.0);
+            assert_eq!(
+                size,
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(20.0),
+                    // NOTE: percentages are scaled too, which is arguably wrong for a
+                    // DPI change -- pinned as current behaviour.
+                    height: PixelValue::percent(100.0),
+                })
+            );
+
+            let mut nan = StyleBackgroundSize::ExactSize(PixelValueSize {
+                width: PixelValue::px(10.0),
+                height: PixelValue::px(20.0),
+            });
+            nan.scale_for_dpi(f32::NAN);
+            assert_eq!(
+                nan,
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(0.0),
+                    height: PixelValue::px(0.0),
+                })
+            );
+
+            let mut inf = StyleBackgroundSize::ExactSize(PixelValueSize {
+                width: PixelValue::px(1.0),
+                height: PixelValue::px(-1.0),
+            });
+            inf.scale_for_dpi(f32::INFINITY);
+            let StyleBackgroundSize::ExactSize(s) = inf else {
+                panic!("variant changed under scaling");
+            };
+            assert!(s.width.number.get().is_finite() && s.width.number.get() > 0.0);
+            assert!(s.height.number.get().is_finite() && s.height.number.get() < 0.0);
+        }
+
+        // ---------------------------------------------------------------
+        // getters: to_contained / to_shared round-trips
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_css_background_parse_error_round_trips() {
+            let errors = [
+                CssBackgroundParseError::Error(""),
+                CssBackgroundParseError::Error("boom \u{1F600}"),
+                CssBackgroundParseError::InvalidBackground(ParenthesisParseError::EmptyInput),
+                CssBackgroundParseError::InvalidBackground(
+                    ParenthesisParseError::StopWordNotFound("nope"),
+                ),
+                CssBackgroundParseError::UnclosedGradient(""),
+                CssBackgroundParseError::NoDirection("nodir"),
+                CssBackgroundParseError::TooFewGradientStops("few"),
+                CssBackgroundParseError::DirectionParseError(CssDirectionParseError::Error("d")),
+                CssBackgroundParseError::DirectionParseError(
+                    CssDirectionParseError::InvalidArguments("args"),
+                ),
+                CssBackgroundParseError::GradientParseError(CssGradientStopParseError::Error("g")),
+                CssBackgroundParseError::ConicGradient(CssConicGradientParseError::NoAngle("a")),
+                CssBackgroundParseError::ShapeParseError(CssShapeParseError::ShapeErr(
+                    InvalidValueErr("s"),
+                )),
+                CssBackgroundParseError::ImageParseError(CssImageParseError::UnclosedQuotes("q")),
+                CssBackgroundParseError::ColorParseError(CssColorParseError::InvalidColor("c")),
+                CssBackgroundParseError::ColorParseError(CssColorParseError::EmptyInput),
+            ];
+            for e in &errors {
+                let owned = e.to_contained();
+                assert_eq!(&owned.to_shared(), e, "round-trip changed {e:?}");
+                // Display must survive the round-trip as well.
+                assert_eq!(
+                    alloc::format!("{}", owned.to_shared()),
+                    alloc::format!("{e}")
+                );
+            }
+        }
+
+        #[test]
+        fn autotest_error_round_trip_survives_huge_and_unicode_payloads() {
+            let huge = "x".repeat(100_000);
+            let weird = "\u{1F600}\u{0}\u{00a0}e\u{0301}";
+            for s in [huge.as_str(), weird, "", " "] {
+                let e = CssBackgroundParseError::UnclosedGradient(s);
+                assert_eq!(e.to_contained().to_shared(), e);
+
+                let e = CssGradientStopParseError::Error(s);
+                assert_eq!(e.to_contained().to_shared(), e);
+
+                let e = CssConicGradientParseError::NoAngle(s);
+                assert_eq!(e.to_contained().to_shared(), e);
+
+                let e = CssShapeParseError::ShapeErr(InvalidValueErr(s));
+                assert_eq!(e.to_contained().to_shared(), e);
+
+                let e = CssBackgroundPositionParseError::NoPosition(s);
+                assert_eq!(e.to_contained().to_shared(), e);
+            }
+        }
+
+        #[test]
+        fn autotest_css_gradient_stop_parse_error_round_trips() {
+            let errors = [
+                CssGradientStopParseError::Error("boom"),
+                CssGradientStopParseError::Percentage(PercentageParseError::NoPercentSign),
+                CssGradientStopParseError::Percentage(PercentageParseError::InvalidUnit(
+                    "px".to_string().into(),
+                )),
+                CssGradientStopParseError::Angle(CssAngleValueParseError::EmptyString),
+                CssGradientStopParseError::Angle(CssAngleValueParseError::InvalidAngle("q")),
+                CssGradientStopParseError::ColorParseError(CssColorParseError::InvalidColor("c")),
+            ];
+            for e in &errors {
+                assert_eq!(&e.to_contained().to_shared(), e, "round-trip changed {e:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_css_conic_and_shape_parse_error_round_trip() {
+            let errors = [
+                CssConicGradientParseError::NoAngle("n"),
+                CssConicGradientParseError::Angle(CssAngleValueParseError::EmptyString),
+                CssConicGradientParseError::Position(
+                    CssBackgroundPositionParseError::NoPosition("p"),
+                ),
+            ];
+            for e in &errors {
+                assert_eq!(&e.to_contained().to_shared(), e);
+            }
+
+            let shape = CssShapeParseError::ShapeErr(InvalidValueErr("blob"));
+            assert_eq!(shape.to_contained().to_shared(), shape);
+        }
+
+        #[test]
+        fn autotest_css_background_position_parse_error_round_trips() {
+            let errors = [
+                CssBackgroundPositionParseError::NoPosition(""),
+                CssBackgroundPositionParseError::TooManyComponents("a b c"),
+                CssBackgroundPositionParseError::FirstComponentWrong(
+                    CssPixelValueParseError::EmptyString,
+                ),
+                CssBackgroundPositionParseError::FirstComponentWrong(
+                    CssPixelValueParseError::InvalidPixelValue("q"),
+                ),
+                CssBackgroundPositionParseError::SecondComponentWrong(
+                    CssPixelValueParseError::InvalidPixelValue("\u{1F600}"),
+                ),
+            ];
+            for e in &errors {
+                assert_eq!(&e.to_contained().to_shared(), e, "round-trip changed {e:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_real_parse_errors_round_trip_through_the_owned_form() {
+            // Errors as actually produced by the parsers, not hand-built ones.
+            for input in ADVERSARIAL {
+                if let Err(e) = parse_style_background_content(input) {
+                    assert_eq!(e.to_contained().to_shared(), e, "for input {input:?}");
+                }
+                if let Err(e) = parse_style_background_position(input) {
+                    assert_eq!(e.to_contained().to_shared(), e, "for input {input:?}");
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // GradientType::get_extend_mode (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_get_extend_mode_is_repeat_exactly_for_the_repeating_variants() {
+            assert_eq!(
+                GradientType::LinearGradient.get_extend_mode(),
+                ExtendMode::Clamp
+            );
+            assert_eq!(
+                GradientType::RadialGradient.get_extend_mode(),
+                ExtendMode::Clamp
+            );
+            assert_eq!(
+                GradientType::ConicGradient.get_extend_mode(),
+                ExtendMode::Clamp
+            );
+            assert_eq!(
+                GradientType::RepeatingLinearGradient.get_extend_mode(),
+                ExtendMode::Repeat
+            );
+            assert_eq!(
+                GradientType::RepeatingRadialGradient.get_extend_mode(),
+                ExtendMode::Repeat
+            );
+            assert_eq!(
+                GradientType::RepeatingConicGradient.get_extend_mode(),
+                ExtendMode::Repeat
+            );
+            // Total + pure: same input, same answer.
+            for t in ALL_GRADIENT_TYPES {
+                assert_eq!(t.get_extend_mode(), t.get_extend_mode());
+            }
+            assert_eq!(ExtendMode::default(), ExtendMode::Clamp);
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_style_background_content
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_background_content_never_panics_and_is_deterministic() {
+            for input in ADVERSARIAL {
+                let a = parse_style_background_content(input);
+                let b = parse_style_background_content(input);
+                assert_eq!(a, b, "non-deterministic for {input:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_background_content_rejects_empty_whitespace_and_garbage() {
+            for input in ["", " ", "   ", "\t\n\r", "\u{0}", "!!!", ";", "valid;garbage"] {
+                assert!(
+                    parse_style_background_content(input).is_err(),
+                    "{input:?} should not parse as a background"
+                );
+            }
+        }
+
+        #[test]
+        fn autotest_background_content_valid_minimal_positive_controls() {
+            assert_eq!(
+                parse_style_background_content("red").unwrap(),
+                StyleBackgroundContent::Color(ColorU::RED)
+            );
+            // Leading/trailing whitespace is trimmed, not rejected.
+            assert_eq!(
+                parse_style_background_content("  red  ").unwrap(),
+                StyleBackgroundContent::Color(ColorU::RED)
+            );
+            assert_eq!(
+                parse_style_background_content("system:accent").unwrap(),
+                StyleBackgroundContent::SystemColor(SystemColorRef::Accent)
+            );
+            assert_eq!(
+                parse_style_background_content("url(a.png)").unwrap(),
+                StyleBackgroundContent::Image("a.png".into())
+            );
+        }
+
+        #[test]
+        fn autotest_background_content_unicode_is_rejected_without_panicking() {
+            for input in [
+                "\u{1F600}",
+                "url(\u{1F600}.png)",
+                "linear-gradient(\u{1F600}, red)",
+                "e\u{0301}\u{0301}\u{0301}",
+                "\u{00a0}",
+            ] {
+                let parsed = parse_style_background_content(input);
+                // url() accepts any payload; everything else must be an error.
+                if input.starts_with("url(") {
+                    assert!(parsed.is_ok());
+                } else {
+                    assert!(parsed.is_err(), "{input:?} unexpectedly parsed");
+                }
+            }
+        }
+
+        #[test]
+        fn autotest_background_content_extremely_long_input_terminates() {
+            let huge = "a".repeat(100_000);
+            assert!(parse_style_background_content(&huge).is_err());
+
+            let huge_gradient =
+                alloc::format!("linear-gradient({})", "red, ".repeat(2_000) + "blue");
+            let g = linear(&huge_gradient);
+            assert_eq!(g.stops.len(), 2_001);
+
+            let huge_url = alloc::format!("url({})", "a".repeat(100_000));
+            assert!(matches!(
+                parse_style_background_content(&huge_url),
+                Ok(StyleBackgroundContent::Image(_))
+            ));
+        }
+
+        #[test]
+        fn autotest_background_content_deep_nesting_does_not_stack_overflow() {
+            let nested = alloc::format!(
+                "linear-gradient({}red{})",
+                "(".repeat(10_000),
+                ")".repeat(10_000)
+            );
+            assert!(parse_style_background_content(&nested).is_err());
+
+            let unbalanced = alloc::format!("linear-gradient({}", "(".repeat(10_000));
+            assert!(parse_style_background_content(&unbalanced).is_err());
+        }
+
+        #[test]
+        fn autotest_unclosed_gradient_reports_a_color_error_not_unclosed_gradient() {
+            // parse_parentheses fails (no ')'), so the input falls through to the
+            // color branch -- the `UnclosedGradient` variant is never produced here.
+            let err = parse_style_background_content("linear-gradient(red, blue").unwrap_err();
+            assert!(
+                matches!(err, CssBackgroundParseError::ColorParseError(_)),
+                "got {err:?}"
+            );
+        }
+
+        #[test]
+        fn autotest_empty_gradient_body_is_a_no_direction_error() {
+            let err = parse_style_background_content("linear-gradient()").unwrap_err();
+            assert!(matches!(err, CssBackgroundParseError::NoDirection(_)), "got {err:?}");
+            for f in [
+                "radial-gradient()",
+                "conic-gradient()",
+                "repeating-linear-gradient()",
+            ] {
+                assert!(parse_style_background_content(f).is_err(), "{f:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_url_with_empty_payload_is_accepted_as_an_empty_image() {
+            // Pinned: `url()` yields an empty image id rather than an error.
+            assert_eq!(
+                parse_style_background_content("url()").unwrap(),
+                StyleBackgroundContent::Image("".into())
+            );
+        }
+
+        #[test]
+        fn autotest_gradient_boundary_number_directions_stay_finite() {
+            // "NaN" parses as a bare number -> a NaN angle, which the isize cast
+            // flushes to 0deg. Pinned: it is silently accepted, not rejected.
+            let g = linear("linear-gradient(NaN, red, blue)");
+            assert_eq!(g.direction, Direction::Angle(AngleValue::deg(0.0)));
+
+            // Overflowing / tiny literals must not panic and must stay finite.
+            for input in [
+                "linear-gradient(0deg, red, blue)",
+                "linear-gradient(-0deg, red, blue)",
+                "linear-gradient(1e40deg, red, blue)",
+                "linear-gradient(-1e40deg, red, blue)",
+                "linear-gradient(1e-45deg, red, blue)",
+                "linear-gradient(inf, red, blue)",
+                "linear-gradient(-inf, red, blue)",
+                "linear-gradient(9223372036854775807deg, red, blue)",
+            ] {
+                let g = linear(input);
+                let Direction::Angle(a) = g.direction else {
+                    panic!("expected an angle direction for {input:?}");
+                };
+                assert!(a.to_degrees_raw().is_finite(), "non-finite angle for {input:?}");
+                assert_eq!(g.stops.len(), 2, "{input:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_gradient_stop_offsets_are_monotonic_and_finite() {
+            for input in [
+                "linear-gradient(red, blue)",
+                "linear-gradient(red, green, blue)",
+                "linear-gradient(red 50%, blue 20%)",
+                "linear-gradient(red -50%, blue)",
+                "linear-gradient(red 0%, yellow, green, blue 100%)",
+                "linear-gradient(red 10% 30%, blue)",
+                "linear-gradient(red 200%, blue 10%)",
+                "repeating-linear-gradient(red, blue 20%)",
+                "radial-gradient(circle, red, blue)",
+            ] {
+                let content = parse_style_background_content(input).unwrap();
+                let stops = match &content {
+                    StyleBackgroundContent::LinearGradient(g) => &g.stops,
+                    StyleBackgroundContent::RadialGradient(g) => &g.stops,
+                    other => panic!("unexpected content {other:?}"),
+                };
+                let mut prev = f32::NEG_INFINITY;
+                for o in offsets(stops) {
+                    assert!(o.is_finite(), "non-finite offset in {input:?}");
+                    assert!(o >= prev, "offsets not monotonic in {input:?}: {o} < {prev}");
+                    prev = o;
+                }
+            }
+        }
+
+        #[test]
+        fn autotest_negative_and_overflowing_stop_offsets_are_clamped() {
+            // A negative first offset is clamped to the running maximum (0%).
+            let g = linear("linear-gradient(red -50%, blue)");
+            assert_eq!(offsets(&g.stops), alloc::vec![0.0, 100.0]);
+
+            // An out-of-range offset is *not* clamped down to 100% -- the later
+            // stop is dragged up to it instead.
+            let g = linear("linear-gradient(red 200%, blue 10%)");
+            assert_eq!(offsets(&g.stops), alloc::vec![200.0, 200.0]);
+        }
+
+        #[test]
+        fn autotest_offsets_that_are_not_percentages_are_rejected() {
+            // "50px" looks like an offset (is_likely_offset), but a linear stop
+            // offset must be a percentage -> hard error, no silent fallback.
+            let err = parse_style_background_content("linear-gradient(red 50px, blue)").unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    CssBackgroundParseError::GradientParseError(
+                        CssGradientStopParseError::Percentage(_)
+                    )
+                ),
+                "got {err:?}"
+            );
+
+            // A bare number is *not* recognised as an offset at all, so the whole
+            // token is treated as part of the color and fails to parse.
+            assert!(parse_style_background_content("linear-gradient(red 0.5, blue)").is_err());
+            // Neither is "NaN%" (no ASCII digit).
+            assert!(parse_style_background_content("linear-gradient(red NaN%, blue)").is_err());
+        }
+
+        #[test]
+        fn autotest_huge_stop_offsets_do_not_produce_nan_or_inf() {
+            let g = linear("linear-gradient(red 1e40%, blue)");
+            assert_eq!(g.stops.len(), 2);
+            for o in offsets(&g.stops) {
+                assert!(o.is_finite(), "offset leaked a non-finite value: {o}");
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_style_background_content_multiple
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_background_content_multiple_empty_input_yields_an_empty_vec() {
+            // Pinned: empty input is *not* an error -- split_string_respect_comma
+            // returns no items, so the result is an empty layer list.
+            let parsed = parse_style_background_content_multiple("").unwrap();
+            assert_eq!(parsed.len(), 0);
+
+            // Whitespace-only *is* an error (one empty item that fails to parse).
+            assert!(parse_style_background_content_multiple("   ").is_err());
+            assert!(parse_style_background_content_multiple(",").is_err());
+            assert!(parse_style_background_content_multiple("red,,blue").is_err());
+        }
+
+        #[test]
+        fn autotest_background_content_multiple_valid_and_adversarial() {
+            let parsed =
+                parse_style_background_content_multiple("linear-gradient(red, blue), url(a.png)")
+                    .unwrap();
+            assert_eq!(parsed.len(), 2);
+            assert!(matches!(
+                parsed.as_slice()[0],
+                StyleBackgroundContent::LinearGradient(_)
+            ));
+            assert!(matches!(
+                parsed.as_slice()[1],
+                StyleBackgroundContent::Image(_)
+            ));
+
+            // One bad layer poisons the whole list.
+            assert!(parse_style_background_content_multiple("red, !!!").is_err());
+
+            // Long repeated input terminates.
+            let many = "red,".repeat(2_000) + "blue";
+            assert_eq!(
+                parse_style_background_content_multiple(&many).unwrap().len(),
+                2_001
+            );
+
+            for input in ADVERSARIAL {
+                let a = parse_style_background_content_multiple(input);
+                let b = parse_style_background_content_multiple(input);
+                assert_eq!(a, b, "non-deterministic for {input:?}");
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_style_background_position(_multiple)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_background_position_empty_and_whitespace() {
+            assert_eq!(
+                parse_style_background_position(""),
+                Err(CssBackgroundPositionParseError::NoPosition(""))
+            );
+            assert_eq!(
+                parse_style_background_position("   "),
+                Err(CssBackgroundPositionParseError::NoPosition(""))
+            );
+            assert_eq!(
+                parse_style_background_position("\t\n\r"),
+                Err(CssBackgroundPositionParseError::NoPosition(""))
+            );
+        }
+
+        #[test]
+        fn autotest_background_position_valid_minimal_and_keyword_order() {
+            let p = parse_style_background_position("left").unwrap();
+            assert_eq!(p.horizontal, BackgroundPositionHorizontal::Left);
+            assert_eq!(p.vertical, BackgroundPositionVertical::Center);
+
+            // A lone vertical keyword also works: the horizontal falls back to center.
+            let p = parse_style_background_position("top").unwrap();
+            assert_eq!(p.horizontal, BackgroundPositionHorizontal::Center);
+            assert_eq!(p.vertical, BackgroundPositionVertical::Top);
+
+            // Either order is accepted for keyword pairs.
+            assert_eq!(
+                parse_style_background_position("left top").unwrap(),
+                parse_style_background_position("top left").unwrap()
+            );
+
+            // ... but "left right" is a vertical-slot error, not silently accepted.
+            assert!(matches!(
+                parse_style_background_position("left right"),
+                Err(CssBackgroundPositionParseError::SecondComponentWrong(_))
+            ));
+        }
+
+        #[test]
+        fn autotest_background_position_too_many_components() {
+            assert!(matches!(
+                parse_style_background_position("left 10px top 20px"),
+                Err(CssBackgroundPositionParseError::TooManyComponents(_))
+            ));
+            assert!(matches!(
+                parse_style_background_position("a b c"),
+                Err(CssBackgroundPositionParseError::TooManyComponents(_))
+            ));
+        }
+
+        #[test]
+        fn autotest_background_position_boundary_numbers_are_accepted_and_saturate() {
+            // Pinned: parse_pixel_value accepts a bare number as px -- so "NaN" and
+            // "inf" are *valid* background positions, flushed to 0 / saturated.
+            assert_eq!(
+                parse_style_background_position("NaN").unwrap().horizontal,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(0.0))
+            );
+            assert_eq!(
+                parse_style_background_position("-0").unwrap().horizontal,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(0.0))
+            );
+            assert_eq!(
+                parse_style_background_position("inf").unwrap().horizontal,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(f32::INFINITY))
+            );
+            for input in ["0", "1e40px", "-1e40px", "1e-45px", "3.4028235e38px"] {
+                let p = parse_style_background_position(input).unwrap();
+                let BackgroundPositionHorizontal::Exact(px) = p.horizontal else {
+                    panic!("expected an exact value for {input:?}");
+                };
+                assert!(px.number.get().is_finite(), "non-finite for {input:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_background_position_garbage_unicode_and_long_input() {
+            for input in ["garbage", "!!!", "\u{1F600}", "e\u{0301}", "left;top"] {
+                assert!(
+                    parse_style_background_position(input).is_err(),
+                    "{input:?} unexpectedly parsed"
+                );
+            }
+            let huge = "a".repeat(100_000);
+            assert!(parse_style_background_position(&huge).is_err());
+            let nested = "(".repeat(10_000);
+            assert!(parse_style_background_position(&nested).is_err());
+
+            for input in ADVERSARIAL {
+                let a = parse_style_background_position(input);
+                let b = parse_style_background_position(input);
+                assert_eq!(a, b, "non-deterministic for {input:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_background_position_multiple() {
+            // Empty input -> empty vec (no error), same as the other *_multiple fns.
+            assert_eq!(parse_style_background_position_multiple("").unwrap().len(), 0);
+
+            let parsed = parse_style_background_position_multiple("left top, 10px 20px").unwrap();
+            assert_eq!(parsed.len(), 2);
+            assert_eq!(
+                parsed.as_slice()[1].horizontal,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(10.0))
+            );
+
+            assert!(parse_style_background_position_multiple("left top, !!!").is_err());
+            assert!(parse_style_background_position_multiple("   ").is_err());
+
+            let many = "left top,".repeat(2_000) + "center";
+            assert_eq!(
+                parse_style_background_position_multiple(&many).unwrap().len(),
+                2_001
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_style_background_size(_multiple)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_background_size_empty_whitespace_and_garbage() {
+            for input in ["", "   ", "\t\n", "auto", "!!!", "\u{1F600}", "CONTAIN", "Cover"] {
+                assert!(
+                    parse_style_background_size(input).is_err(),
+                    "{input:?} unexpectedly parsed"
+                );
+            }
+            let huge = "a".repeat(100_000);
+            assert!(parse_style_background_size(&huge).is_err());
+        }
+
+        #[test]
+        fn autotest_background_size_valid_minimal_and_trimming() {
+            assert_eq!(
+                parse_style_background_size("  contain  ").unwrap(),
+                StyleBackgroundSize::Contain
+            );
+            assert_eq!(
+                parse_style_background_size("cover").unwrap(),
+                StyleBackgroundSize::Cover
+            );
+            // A single value applies to both axes.
+            assert_eq!(
+                parse_style_background_size("50%").unwrap(),
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::percent(50.0),
+                    height: PixelValue::percent(50.0),
+                })
+            );
+        }
+
+        #[test]
+        fn autotest_background_size_silently_ignores_extra_components() {
+            // BUG-ish, pinned: unlike background-position (TooManyComponents), a third
+            // component is dropped on the floor instead of being rejected.
+            assert_eq!(
+                parse_style_background_size("10px 20px 30px").unwrap(),
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(10.0),
+                    height: PixelValue::px(20.0),
+                })
+            );
+        }
+
+        #[test]
+        fn autotest_background_size_boundary_numbers_saturate_without_panicking() {
+            // Bare numbers parse as px, so "NaN" is accepted and flushed to 0px.
+            assert_eq!(
+                parse_style_background_size("NaN").unwrap(),
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(0.0),
+                    height: PixelValue::px(0.0),
+                })
+            );
+            assert_eq!(
+                parse_style_background_size("inf").unwrap(),
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(f32::INFINITY),
+                    height: PixelValue::px(f32::INFINITY),
+                })
+            );
+            for input in ["0", "-0", "1e40px", "-1e40px", "1e-45px"] {
+                let StyleBackgroundSize::ExactSize(s) =
+                    parse_style_background_size(input).unwrap()
+                else {
+                    panic!("expected an exact size for {input:?}");
+                };
+                assert!(s.width.number.get().is_finite(), "non-finite for {input:?}");
+                assert!(s.height.number.get().is_finite(), "non-finite for {input:?}");
+            }
+
+            for input in ADVERSARIAL {
+                let a = parse_style_background_size(input);
+                let b = parse_style_background_size(input);
+                assert_eq!(a, b, "non-deterministic for {input:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_background_size_multiple() {
+            assert_eq!(parse_style_background_size_multiple("").unwrap().len(), 0);
+
+            let parsed = parse_style_background_size_multiple("contain, 10px 20px, cover").unwrap();
+            assert_eq!(parsed.len(), 3);
+            assert_eq!(parsed.as_slice()[0], StyleBackgroundSize::Contain);
+            assert_eq!(parsed.as_slice()[2], StyleBackgroundSize::Cover);
+
+            assert!(parse_style_background_size_multiple("cover, auto").is_err());
+            assert!(parse_style_background_size_multiple("   ").is_err());
+
+            let many = "cover,".repeat(2_000) + "contain";
+            assert_eq!(
+                parse_style_background_size_multiple(&many).unwrap().len(),
+                2_001
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_style_background_repeat(_multiple)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_background_repeat_valid_and_invalid() {
+            assert_eq!(
+                parse_style_background_repeat("  repeat  ").unwrap(),
+                StyleBackgroundRepeat::PatternRepeat
+            );
+            assert_eq!(
+                parse_style_background_repeat("no-repeat").unwrap(),
+                StyleBackgroundRepeat::NoRepeat
+            );
+            assert_eq!(
+                parse_style_background_repeat("repeat-x").unwrap(),
+                StyleBackgroundRepeat::RepeatX
+            );
+            assert_eq!(
+                parse_style_background_repeat("repeat-y").unwrap(),
+                StyleBackgroundRepeat::RepeatY
+            );
+            assert_eq!(StyleBackgroundRepeat::default(), StyleBackgroundRepeat::PatternRepeat);
+
+            for input in [
+                "",
+                "   ",
+                "\t\n",
+                "REPEAT",
+                "Repeat",
+                "repeat-xy",
+                "repeat repeat",
+                "!!!",
+                "\u{1F600}",
+                "0",
+                "NaN",
+            ] {
+                assert!(
+                    parse_style_background_repeat(input).is_err(),
+                    "{input:?} unexpectedly parsed"
+                );
+            }
+
+            let huge = "repeat".repeat(20_000);
+            assert!(parse_style_background_repeat(&huge).is_err());
+
+            for input in ADVERSARIAL {
+                let a = parse_style_background_repeat(input);
+                let b = parse_style_background_repeat(input);
+                assert_eq!(a, b, "non-deterministic for {input:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_background_repeat_multiple() {
+            assert_eq!(parse_style_background_repeat_multiple("").unwrap().len(), 0);
+
+            let parsed = parse_style_background_repeat_multiple("repeat, no-repeat").unwrap();
+            assert_eq!(parsed.len(), 2);
+            assert_eq!(parsed.as_slice()[0], StyleBackgroundRepeat::PatternRepeat);
+            assert_eq!(parsed.as_slice()[1], StyleBackgroundRepeat::NoRepeat);
+
+            assert!(parse_style_background_repeat_multiple("repeat,,repeat").is_err());
+            assert!(parse_style_background_repeat_multiple("   ").is_err());
+
+            let many = "repeat,".repeat(2_000) + "no-repeat";
+            assert_eq!(
+                parse_style_background_repeat_multiple(&many).unwrap().len(),
+                2_001
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_gradient (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_parse_gradient_empty_input_is_no_direction_for_every_type() {
+            for t in ALL_GRADIENT_TYPES {
+                assert!(
+                    matches!(
+                        parse_gradient("", t),
+                        Err(CssBackgroundParseError::NoDirection(_))
+                    ),
+                    "empty body accepted for {t:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn autotest_parse_gradient_extend_mode_follows_the_gradient_type() {
+            let StyleBackgroundContent::LinearGradient(g) =
+                parse_gradient("red, blue", GradientType::LinearGradient).unwrap()
+            else {
+                panic!("expected a linear gradient");
+            };
+            assert_eq!(g.extend_mode, ExtendMode::Clamp);
+
+            let StyleBackgroundContent::LinearGradient(g) =
+                parse_gradient("red, blue", GradientType::RepeatingLinearGradient).unwrap()
+            else {
+                panic!("expected a linear gradient");
+            };
+            assert_eq!(g.extend_mode, ExtendMode::Repeat);
+
+            let StyleBackgroundContent::RadialGradient(g) =
+                parse_gradient("red, blue", GradientType::RepeatingRadialGradient).unwrap()
+            else {
+                panic!("expected a radial gradient");
+            };
+            assert_eq!(g.extend_mode, ExtendMode::Repeat);
+
+            let StyleBackgroundContent::ConicGradient(g) =
+                parse_gradient("red, blue", GradientType::RepeatingConicGradient).unwrap()
+            else {
+                panic!("expected a conic gradient");
+            };
+            assert_eq!(g.extend_mode, ExtendMode::Repeat);
+        }
+
+        #[test]
+        fn autotest_parse_gradient_accepts_gradients_with_too_few_stops() {
+            // W3C requires >= 2 color stops. Pinned: this parser happily returns
+            // gradients with one or zero stops -- `TooFewGradientStops` is dead code.
+            let StyleBackgroundContent::LinearGradient(g) =
+                parse_gradient("red", GradientType::LinearGradient).unwrap()
+            else {
+                panic!("expected a linear gradient");
+            };
+            assert_eq!(g.stops.len(), 1);
+            assert_eq!(offsets(&g.stops), alloc::vec![0.0]);
+
+            // A direction with no stops at all -> zero stops, still Ok.
+            let StyleBackgroundContent::LinearGradient(g) =
+                parse_gradient("to right", GradientType::LinearGradient).unwrap()
+            else {
+                panic!("expected a linear gradient");
+            };
+            assert_eq!(g.stops.len(), 0);
+
+            // Same for a radial gradient that only names a shape.
+            let StyleBackgroundContent::RadialGradient(g) =
+                parse_gradient("circle", GradientType::RadialGradient).unwrap()
+            else {
+                panic!("expected a radial gradient");
+            };
+            assert_eq!(g.shape, Shape::Circle);
+            assert_eq!(g.stops.len(), 0);
+        }
+
+        #[test]
+        fn autotest_parse_gradient_never_panics_on_adversarial_input() {
+            let huge = "a".repeat(100_000);
+            let nested = "(".repeat(10_000) + &")".repeat(10_000);
+            let many_commas = ",".repeat(10_000);
+            for t in ALL_GRADIENT_TYPES {
+                for input in ADVERSARIAL {
+                    let a = parse_gradient(input, t);
+                    let b = parse_gradient(input, t);
+                    assert_eq!(a, b, "non-deterministic for {input:?} / {t:?}");
+                }
+                for input in [huge.as_str(), nested.as_str(), many_commas.as_str()] {
+                    let a = parse_gradient(input, t);
+                    let b = parse_gradient(input, t);
+                    assert_eq!(a, b, "non-deterministic for a long input / {t:?}");
+                }
+                // An empty body is rejected for every gradient type.
+                assert!(parse_gradient("", t).is_err(), "empty body accepted for {t:?}");
+                // A comma-only body has nothing but empty stops -> always an error.
+                assert!(
+                    parse_gradient(&many_commas, t).is_err(),
+                    "comma soup accepted for {t:?}"
+                );
+            }
+            // Linear and conic reject junk outright. (Radial does not -- see
+            // `autotest_radial_gradient_silently_drops_unparseable_items`.)
+            for t in [
+                GradientType::LinearGradient,
+                GradientType::RepeatingLinearGradient,
+                GradientType::ConicGradient,
+                GradientType::RepeatingConicGradient,
+            ] {
+                assert!(parse_gradient(&huge, t).is_err(), "junk accepted for {t:?}");
+                assert!(parse_gradient(&nested, t).is_err(), "junk accepted for {t:?}");
+                assert!(parse_gradient("!!!", t).is_err(), "junk accepted for {t:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_radial_gradient_silently_drops_unparseable_items() {
+            // BUG (pinned): in the radial branch, a comma-item that is neither a
+            // shape/size/position *nor* a valid color stop is skipped rather than
+            // rejected -- so pure garbage parses as a gradient with no stops, and a
+            // junk leading item simply disappears.
+            let StyleBackgroundContent::RadialGradient(g) =
+                parse_gradient("!!!", GradientType::RadialGradient).unwrap()
+            else {
+                panic!("expected a radial gradient");
+            };
+            assert_eq!(g.stops.len(), 0);
+
+            let g = radial("radial-gradient(!!!, red)");
+            assert_eq!(g.stops.len(), 1, "the junk item should have been dropped");
+            assert_eq!(
+                g.stops.as_ref()[0].color,
+                ColorOrSystem::Color(ColorU::RED)
+            );
+
+            // The same input is a hard error for a linear gradient.
+            assert!(parse_style_background_content("linear-gradient(!!!, red)").is_err());
+        }
+
+        #[test]
+        fn autotest_radial_gradient_position_is_ignored_when_combined_with_a_shape() {
+            // BUG (pinned): `parse_style_background_position` is handed the *whole*
+            // comma-item ("circle at 50% 50%"), which has 4 whitespace components and
+            // therefore fails -- so the `at <position>` part is silently dropped and
+            // the position stays at its Left/Top default.
+            let g = radial("radial-gradient(circle at 50% 50%, red, blue)");
+            assert_eq!(g.shape, Shape::Circle);
+            assert_eq!(g.position, StyleBackgroundPosition::default());
+            assert_eq!(g.stops.len(), 2);
+
+            // A position on its own (no shape/size in the same item) *is* honoured.
+            let g = radial("radial-gradient(50% 50%, red, blue)");
+            assert_eq!(
+                g.position,
+                StyleBackgroundPosition {
+                    horizontal: BackgroundPositionHorizontal::Exact(PixelValue::percent(50.0)),
+                    vertical: BackgroundPositionVertical::Exact(PixelValue::percent(50.0)),
+                }
+            );
+            assert_eq!(g.stops.len(), 2);
+        }
+
+        #[test]
+        fn autotest_radial_gradient_shape_and_size_keywords() {
+            let g = radial("radial-gradient(circle closest-side, red, blue)");
+            assert_eq!(g.shape, Shape::Circle);
+            assert_eq!(g.size, RadialGradientSize::ClosestSide);
+
+            let g = radial("radial-gradient(ellipse farthest-side, red, blue)");
+            assert_eq!(g.shape, Shape::Ellipse);
+            assert_eq!(g.size, RadialGradientSize::FarthestSide);
+
+            // Defaults when nothing is named.
+            let g = radial("radial-gradient(red, blue)");
+            assert_eq!(g.shape, Shape::default());
+            assert_eq!(g.size, RadialGradientSize::default());
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_linear_color_stop / parse_radial_color_stop (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_parse_linear_color_stop_valid_minimal() {
+            let s = parse_linear_color_stop("red").unwrap();
+            assert_eq!(s.color, ColorOrSystem::Color(ColorU::RED));
+            assert_eq!(s.offset1, OptionPercentageValue::None);
+            assert_eq!(s.offset2, OptionPercentageValue::None);
+
+            let s = parse_linear_color_stop("  red 50%  ").unwrap();
+            assert_eq!(
+                s.offset1,
+                OptionPercentageValue::Some(PercentageValue::new(50.0))
+            );
+            assert_eq!(s.offset2, OptionPercentageValue::None);
+
+            let s = parse_linear_color_stop("red 10% 30%").unwrap();
+            assert_eq!(
+                s.offset1,
+                OptionPercentageValue::Some(PercentageValue::new(10.0))
+            );
+            assert_eq!(
+                s.offset2,
+                OptionPercentageValue::Some(PercentageValue::new(30.0))
+            );
+
+            // Colors that themselves contain spaces and digits still split correctly.
+            let s = parse_linear_color_stop("rgba(0, 0, 0, 0.5) 50%").unwrap();
+            assert_eq!(
+                s.offset1,
+                OptionPercentageValue::Some(PercentageValue::new(50.0))
+            );
+
+            // System colors are accepted as stop colors.
+            let s = parse_linear_color_stop("system:accent 50%").unwrap();
+            assert_eq!(s.color, ColorOrSystem::System(SystemColorRef::Accent));
+        }
+
+        #[test]
+        fn autotest_parse_linear_color_stop_rejects_junk() {
+            for input in [
+                "",
+                "   ",
+                "\t\n",
+                "!!!",
+                "\u{1F600}",
+                "red 50px",       // offset must be a percentage
+                "red 0.5",        // bare number is not recognised as an offset
+                "red 10% 20% 30%", // three offsets -> the color part is junk
+                "red blue",
+            ] {
+                assert!(
+                    parse_linear_color_stop(input).is_err(),
+                    "{input:?} unexpectedly parsed"
+                );
+            }
+            let huge = "a".repeat(100_000);
+            assert!(parse_linear_color_stop(&huge).is_err());
+        }
+
+        #[test]
+        fn autotest_parse_radial_color_stop_valid_and_junk() {
+            let s = parse_radial_color_stop("red").unwrap();
+            assert_eq!(s.color, ColorOrSystem::Color(ColorU::RED));
+            assert_eq!(s.offset1, OptionAngleValue::None);
+
+            let s = parse_radial_color_stop("red 90deg").unwrap();
+            assert_eq!(s.offset1, OptionAngleValue::Some(AngleValue::deg(90.0)));
+            assert_eq!(s.offset2, OptionAngleValue::None);
+
+            let s = parse_radial_color_stop("red 45deg 90deg").unwrap();
+            assert_eq!(s.offset1, OptionAngleValue::Some(AngleValue::deg(45.0)));
+            assert_eq!(s.offset2, OptionAngleValue::Some(AngleValue::deg(90.0)));
+
+            // Pinned: a *percentage* is a valid angle for a conic stop.
+            assert!(parse_radial_color_stop("red 50%").is_ok());
+
+            for input in ["", "   ", "!!!", "\u{1F600}", "red 5", "red 90deg 45deg 10deg"] {
+                assert!(
+                    parse_radial_color_stop(input).is_err(),
+                    "{input:?} unexpectedly parsed"
+                );
+            }
+            let huge = "a".repeat(100_000);
+            assert!(parse_radial_color_stop(&huge).is_err());
+        }
+
+        // ---------------------------------------------------------------
+        // other: split_color_and_offsets / try_split_last_offset (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_split_color_and_offsets_w3c_shapes() {
+            assert_eq!(split_color_and_offsets("red"), ("red", None, None));
+            assert_eq!(
+                split_color_and_offsets("red 50%"),
+                ("red", Some("50%"), None)
+            );
+            assert_eq!(
+                split_color_and_offsets("red 10% 30%"),
+                ("red", Some("10%"), Some("30%"))
+            );
+            assert_eq!(
+                split_color_and_offsets("rgba(0, 0, 0, 0.5) 10% 30%"),
+                ("rgba(0, 0, 0, 0.5)", Some("10%"), Some("30%"))
+            );
+            // A direction is never mistaken for offsets (no digits).
+            assert_eq!(
+                split_color_and_offsets("to right bottom"),
+                ("to right bottom", None, None)
+            );
+        }
+
+        #[test]
+        fn autotest_split_color_and_offsets_never_panics_on_edges() {
+            assert_eq!(split_color_and_offsets(""), ("", None, None));
+            assert_eq!(split_color_and_offsets("   "), ("", None, None));
+            // Multibyte input: splitting must land on a char boundary.
+            assert_eq!(
+                split_color_and_offsets("\u{1F600} 50%"),
+                ("\u{1F600}", Some("50%"), None)
+            );
+            // A non-breaking space counts as whitespace for rfind *and* for trim.
+            assert_eq!(
+                split_color_and_offsets("red\u{00a0}50%"),
+                ("red", Some("50%"), None)
+            );
+            let huge = "a".repeat(100_000);
+            assert_eq!(split_color_and_offsets(&huge), (huge.as_str(), None, None));
+
+            for input in ADVERSARIAL {
+                assert_eq!(
+                    split_color_and_offsets(input),
+                    split_color_and_offsets(input)
+                );
+            }
+        }
+
+        #[test]
+        fn autotest_try_split_last_offset() {
+            assert_eq!(try_split_last_offset("red 50%"), Some(("red", "50%")));
+            assert_eq!(try_split_last_offset("red 10px"), Some(("red", "10px")));
+            // No whitespace -> nothing to split off.
+            assert_eq!(try_split_last_offset("50%"), None);
+            // Not offset-shaped.
+            assert_eq!(try_split_last_offset("red blue"), None);
+            assert_eq!(try_split_last_offset("red 5"), None);
+            assert_eq!(try_split_last_offset("to right"), None);
+            // Empty / whitespace-only.
+            assert_eq!(try_split_last_offset(""), None);
+            assert_eq!(try_split_last_offset("   "), None);
+            assert_eq!(try_split_last_offset("\t\n"), None);
+
+            for input in ADVERSARIAL {
+                assert_eq!(try_split_last_offset(input), try_split_last_offset(input));
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // predicate: is_likely_offset (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_is_likely_offset_basic_true_false() {
+            for s in [
+                "50%", "10px", "0.5turn", "90deg", "1rem", "2vmin", "3vmax", "4grad", "5rad",
+                "-50%", "1e40%",
+            ] {
+                assert!(is_likely_offset(s), "{s:?} should look like an offset");
+            }
+            for s in [
+                "", " ", "red", "px", "%", "5", "0.5", "NaN%", "to", "right", "\u{1F600}",
+                "contain",
+            ] {
+                assert!(!is_likely_offset(s), "{s:?} should not look like an offset");
+            }
+        }
+
+        #[test]
+        fn autotest_is_likely_offset_is_a_shape_check_not_a_validator() {
+            // Pinned: it only requires "contains an ASCII digit" + "ends with a unit",
+            // so plainly invalid tokens pass. The real parse still rejects them.
+            assert!(is_likely_offset("abc1px"));
+            assert!(is_likely_offset("\u{1F600}5%"));
+            assert!(is_likely_offset("--1--px"));
+            assert!(is_likely_offset("1%%%"));
+            // ... and the digit check must be ASCII: an Arabic-Indic digit does not
+            // count, so this is *not* treated as an offset.
+            assert!(!is_likely_offset("\u{0661}%"));
+
+            let huge = "9".repeat(100_000) + "%";
+            assert!(is_likely_offset(&huge));
+            for input in ADVERSARIAL {
+                assert_eq!(is_likely_offset(input), is_likely_offset(input));
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_conic_first_item (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_parse_conic_first_item_valid_and_absent() {
+            // Not a "from ..." prelude -> Ok(None), so the item is a color stop.
+            assert_eq!(parse_conic_first_item("").unwrap(), None);
+            assert_eq!(parse_conic_first_item("red").unwrap(), None);
+            assert_eq!(parse_conic_first_item("   ").unwrap(), None);
+
+            let (angle, pos) = parse_conic_first_item("from 90deg").unwrap().unwrap();
+            assert_eq!(angle, AngleValue::deg(90.0));
+            assert_eq!(pos, StyleBackgroundPosition::default());
+
+            let (angle, pos) = parse_conic_first_item("from 0deg at center").unwrap().unwrap();
+            assert_eq!(angle, AngleValue::deg(0.0));
+            assert_eq!(pos.horizontal, BackgroundPositionHorizontal::Center);
+            assert_eq!(pos.vertical, BackgroundPositionVertical::Center);
+        }
+
+        #[test]
+        fn autotest_parse_conic_first_item_rejects_malformed_preludes() {
+            // "from" with no angle.
+            assert!(parse_conic_first_item("from").is_err());
+            assert!(parse_conic_first_item("from at center").is_err());
+            // Pinned quirk: any token *starting with* "from" enters the prelude branch,
+            // so a would-be color like "fromage" becomes an angle error.
+            assert!(parse_conic_first_item("fromage").is_err());
+            // Too many position components.
+            assert!(matches!(
+                parse_conic_first_item("from 90deg at left top center"),
+                Err(CssConicGradientParseError::Position(_))
+            ));
+
+            let huge = alloc::format!("from {}", "9".repeat(100_000));
+            let _ = parse_conic_first_item(&huge);
+            for input in ADVERSARIAL {
+                let a = parse_conic_first_item(input);
+                let b = parse_conic_first_item(input);
+                assert_eq!(a, b, "non-deterministic for {input:?}");
+            }
+        }
+
+        #[test]
+        fn autotest_conic_gradient_end_to_end() {
+            let g = conic("conic-gradient(from 45deg, red, blue)");
+            assert_eq!(g.angle, AngleValue::deg(45.0));
+            assert_eq!(g.extend_mode, ExtendMode::Clamp);
+            assert_eq!(g.stops.len(), 2);
+            assert_eq!(g.stops.as_ref()[0].angle.to_degrees_raw(), 0.0);
+            assert_eq!(g.stops.as_ref()[1].angle.to_degrees_raw(), 360.0);
+
+            // Conic stop angles are monotonic and finite, even for silly inputs.
+            for input in [
+                "conic-gradient(red, blue)",
+                "conic-gradient(red 0deg, blue 180deg, green 360deg)",
+                "conic-gradient(red 180deg, blue 90deg)",
+                "conic-gradient(red -90deg, blue)",
+                "repeating-conic-gradient(red, blue 30deg)",
+            ] {
+                let g = conic(input);
+                let mut prev = f32::NEG_INFINITY;
+                for s in g.stops.iter() {
+                    let deg = s.angle.to_degrees_raw();
+                    assert!(deg.is_finite(), "non-finite angle in {input:?}");
+                    assert!(deg >= prev, "angles not monotonic in {input:?}");
+                    prev = deg;
+                }
+            }
+
+            // An overflowing angle saturates instead of leaking inf into the stops.
+            let g = conic("conic-gradient(red 1e40deg, blue)");
+            assert_eq!(g.stops.len(), 2);
+            for s in g.stops.iter() {
+                assert!(s.angle.to_degrees_raw().is_finite());
+            }
+
+            assert!(parse_style_background_content("conic-gradient(from, red)").is_err());
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_background_position_{horizontal,vertical} (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_parse_background_position_horizontal() {
+            assert_eq!(
+                parse_background_position_horizontal("left").unwrap(),
+                BackgroundPositionHorizontal::Left
+            );
+            assert_eq!(
+                parse_background_position_horizontal("center").unwrap(),
+                BackgroundPositionHorizontal::Center
+            );
+            assert_eq!(
+                parse_background_position_horizontal("right").unwrap(),
+                BackgroundPositionHorizontal::Right
+            );
+            assert_eq!(
+                parse_background_position_horizontal("10px").unwrap(),
+                BackgroundPositionHorizontal::Exact(PixelValue::px(10.0))
+            );
+            // Vertical keywords are not horizontal ones.
+            assert!(parse_background_position_horizontal("top").is_err());
+            // Pinned: no trimming here (callers pass whitespace-split tokens).
+            assert!(parse_background_position_horizontal(" left").is_err());
+            assert!(parse_background_position_horizontal("").is_err());
+            assert!(parse_background_position_horizontal("\u{1F600}").is_err());
+
+            let huge = "a".repeat(100_000);
+            assert!(parse_background_position_horizontal(&huge).is_err());
+        }
+
+        #[test]
+        fn autotest_parse_background_position_vertical() {
+            assert_eq!(
+                parse_background_position_vertical("top").unwrap(),
+                BackgroundPositionVertical::Top
+            );
+            assert_eq!(
+                parse_background_position_vertical("center").unwrap(),
+                BackgroundPositionVertical::Center
+            );
+            assert_eq!(
+                parse_background_position_vertical("bottom").unwrap(),
+                BackgroundPositionVertical::Bottom
+            );
+            assert_eq!(
+                parse_background_position_vertical("-10px").unwrap(),
+                BackgroundPositionVertical::Exact(PixelValue::px(-10.0))
+            );
+            assert!(parse_background_position_vertical("left").is_err());
+            assert!(parse_background_position_vertical("").is_err());
+            assert!(parse_background_position_vertical("\u{1F600}").is_err());
+
+            let huge = "a".repeat(100_000);
+            assert!(parse_background_position_vertical(&huge).is_err());
+        }
+
+        // ---------------------------------------------------------------
+        // parser: parse_shape / parse_radial_gradient_size (private)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_parse_shape() {
+            assert_eq!(parse_shape("circle").unwrap(), Shape::Circle);
+            assert_eq!(parse_shape("  ellipse  ").unwrap(), Shape::Ellipse);
+            for input in ["", "   ", "Circle", "CIRCLE", "circles", "!!!", "\u{1F600}", "0"] {
+                assert!(parse_shape(input).is_err(), "{input:?} unexpectedly parsed");
+            }
+            let huge = "a".repeat(100_000);
+            assert!(parse_shape(&huge).is_err());
+            for input in ADVERSARIAL {
+                assert_eq!(parse_shape(input), parse_shape(input));
+            }
+        }
+
+        #[test]
+        fn autotest_parse_radial_gradient_size() {
+            assert_eq!(
+                parse_radial_gradient_size("closest-side").unwrap(),
+                RadialGradientSize::ClosestSide
+            );
+            assert_eq!(
+                parse_radial_gradient_size("  closest-corner ").unwrap(),
+                RadialGradientSize::ClosestCorner
+            );
+            assert_eq!(
+                parse_radial_gradient_size("farthest-side").unwrap(),
+                RadialGradientSize::FarthestSide
+            );
+            assert_eq!(
+                parse_radial_gradient_size("farthest-corner").unwrap(),
+                RadialGradientSize::FarthestCorner
+            );
+            for input in [
+                "",
+                "   ",
+                "closest",
+                "CLOSEST-SIDE",
+                "farthest-corners",
+                "!!!",
+                "\u{1F600}",
+            ] {
+                assert!(
+                    parse_radial_gradient_size(input).is_err(),
+                    "{input:?} unexpectedly parsed"
+                );
+            }
+            let huge = "a".repeat(100_000);
+            assert!(parse_radial_gradient_size(&huge).is_err());
+        }
+
+        // ---------------------------------------------------------------
+        // round-trips: print_as_css_value -> parse
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn autotest_round_trip_background_repeat() {
+            for r in [
+                StyleBackgroundRepeat::NoRepeat,
+                StyleBackgroundRepeat::PatternRepeat,
+                StyleBackgroundRepeat::RepeatX,
+                StyleBackgroundRepeat::RepeatY,
+            ] {
+                let printed = r.print_as_css_value();
+                assert!(!printed.is_empty());
+                assert_eq!(parse_style_background_repeat(&printed).unwrap(), r);
+            }
+        }
+
+        #[test]
+        fn autotest_round_trip_background_size() {
+            for s in [
+                StyleBackgroundSize::Contain,
+                StyleBackgroundSize::Cover,
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(100.0),
+                    height: PixelValue::em(20.0),
+                }),
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::percent(50.0),
+                    height: PixelValue::percent(50.0),
+                }),
+                StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(0.0),
+                    height: PixelValue::px(-25.5),
+                }),
+            ] {
+                let printed = s.print_as_css_value();
+                assert_eq!(
+                    parse_style_background_size(&printed).unwrap(),
+                    s,
+                    "round-trip failed for {printed:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn autotest_round_trip_background_position() {
+            let horizontals = [
+                BackgroundPositionHorizontal::Left,
+                BackgroundPositionHorizontal::Center,
+                BackgroundPositionHorizontal::Right,
+                BackgroundPositionHorizontal::Exact(PixelValue::px(50.0)),
+                BackgroundPositionHorizontal::Exact(PixelValue::percent(25.0)),
+            ];
+            let verticals = [
+                BackgroundPositionVertical::Top,
+                BackgroundPositionVertical::Center,
+                BackgroundPositionVertical::Bottom,
+                BackgroundPositionVertical::Exact(PixelValue::px(-10.0)),
+                BackgroundPositionVertical::Exact(PixelValue::em(2.5)),
+            ];
+            for horizontal in horizontals {
+                for vertical in verticals {
+                    let pos = StyleBackgroundPosition {
+                        horizontal,
+                        vertical,
+                    };
+                    let printed = pos.print_as_css_value();
+                    assert_eq!(
+                        parse_style_background_position(&printed).unwrap(),
+                        pos,
+                        "round-trip failed for {printed:?}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn autotest_round_trip_background_content_colors_and_images() {
+            for content in [
+                StyleBackgroundContent::Color(ColorU::RED),
+                StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+                StyleBackgroundContent::Color(ColorU::rgba(1, 2, 3, 4)),
+                StyleBackgroundContent::Color(ColorU::WHITE),
+                StyleBackgroundContent::Image("a.png".into()),
+                StyleBackgroundContent::Image("some/deep/path.jpeg".into()),
+                StyleBackgroundContent::SystemColor(SystemColorRef::Accent),
+                StyleBackgroundContent::SystemColor(SystemColorRef::SelectionText),
+            ] {
+                let printed = content.print_as_css_value();
+                assert_eq!(
+                    parse_style_background_content(&printed).unwrap(),
+                    content,
+                    "round-trip failed for {printed:?}"
+                );
+            }
+            assert_eq!(
+                StyleBackgroundContent::default(),
+                StyleBackgroundContent::Color(ColorU::TRANSPARENT)
+            );
+        }
+
+        #[test]
+        fn autotest_round_trip_gradients() {
+            for input in [
+                "linear-gradient(to right, red 0%, blue 100%)",
+                "repeating-linear-gradient(to bottom, red 25%, blue 75%)",
+                "linear-gradient(45deg, red 0%, blue 50%)",
+                "radial-gradient(circle farthest-corner at left top, red 0%, blue 100%)",
+                "conic-gradient(from 90deg at left top, red 0deg, blue 360deg)",
+                "repeating-conic-gradient(from 0deg at left top, red 0deg, blue 180deg)",
+            ] {
+                let parsed = parse_style_background_content(input).unwrap();
+                let printed = parsed.print_as_css_value();
+                let reparsed = parse_style_background_content(&printed).unwrap();
+                assert_eq!(
+                    parsed, reparsed,
+                    "gradient did not survive print -> parse ({printed:?})"
+                );
+                // ... and printing is stable across the round-trip.
+                assert_eq!(printed, reparsed.print_as_css_value());
+            }
+        }
+
+        #[test]
+        fn autotest_round_trip_vec_printing_is_comma_separated() {
+            let contents = parse_style_background_content_multiple("red, blue").unwrap();
+            assert_eq!(contents.print_as_css_value(), "#ff0000ff, #0000ffff");
+            assert_eq!(contents.as_slice()[1], StyleBackgroundContent::Color(blue()));
+            let reparsed =
+                parse_style_background_content_multiple(&contents.print_as_css_value()).unwrap();
+            assert_eq!(reparsed, contents);
+
+            let sizes = parse_style_background_size_multiple("contain, 10px 20px").unwrap();
+            assert_eq!(
+                parse_style_background_size_multiple(&sizes.print_as_css_value()).unwrap(),
+                sizes
+            );
+
+            let repeats = parse_style_background_repeat_multiple("repeat, no-repeat").unwrap();
+            assert_eq!(
+                parse_style_background_repeat_multiple(&repeats.print_as_css_value()).unwrap(),
+                repeats
+            );
+
+            let positions = parse_style_background_position_multiple("left top, 10px 20px").unwrap();
+            assert_eq!(
+                parse_style_background_position_multiple(&positions.print_as_css_value()).unwrap(),
+                positions
+            );
+        }
+
+        #[test]
+        fn autotest_normalized_stop_printing_is_reparseable() {
+            let stop = NormalizedLinearColorStop::new(PercentageValue::new(25.0), ColorU::RED);
+            assert_eq!(stop.print_as_css_value(), "#ff0000ff 25%");
+            let reparsed = parse_linear_color_stop(&stop.print_as_css_value()).unwrap();
+            assert_eq!(reparsed.color, stop.color);
+            assert_eq!(
+                reparsed.offset1,
+                OptionPercentageValue::Some(PercentageValue::new(25.0))
+            );
+
+            let rstop = NormalizedRadialColorStop::new(AngleValue::deg(90.0), blue());
+            assert_eq!(rstop.print_as_css_value(), "#0000ffff 90deg");
+            let reparsed = parse_radial_color_stop(&rstop.print_as_css_value()).unwrap();
+            assert_eq!(reparsed.color, rstop.color);
+            assert_eq!(
+                reparsed.offset1,
+                OptionAngleValue::Some(AngleValue::deg(90.0))
+            );
+
+            // System-colored stops print their `system:*` name and re-parse.
+            let sys = NormalizedLinearColorStop {
+                offset: PercentageValue::new(50.0),
+                color: ColorOrSystem::System(SystemColorRef::Accent),
+            };
+            assert_eq!(sys.print_as_css_value(), "system:accent 50%");
+            assert_eq!(
+                parse_linear_color_stop(&sys.print_as_css_value()).unwrap().color,
+                ColorOrSystem::System(SystemColorRef::Accent)
+            );
+        }
+
+        #[test]
+        fn autotest_empty_gradient_printing_does_not_panic() {
+            // Default gradients have zero stops -- printing must still produce
+            // something well-formed (and not, say, index out of bounds).
+            let lg = StyleBackgroundContent::LinearGradient(LinearGradient::default());
+            assert!(lg.print_as_css_value().starts_with("linear-gradient("));
+
+            let rg = StyleBackgroundContent::RadialGradient(RadialGradient::default());
+            assert!(rg.print_as_css_value().starts_with("radial-gradient("));
+
+            let cg = StyleBackgroundContent::ConicGradient(ConicGradient::default());
+            assert!(cg.print_as_css_value().starts_with("conic-gradient("));
+
+            // A gradient built from an empty stop list is also printable.
+            let empty_stops = StyleBackgroundContent::LinearGradient(LinearGradient {
+                extend_mode: ExtendMode::Repeat,
+                stops: Vec::<NormalizedLinearColorStop>::new().into(),
+                ..LinearGradient::default()
+            });
+            assert!(empty_stops
+                .print_as_css_value()
+                .starts_with("repeating-linear-gradient("));
+        }
+    }
 }
 
 #[cfg(feature = "parser")]

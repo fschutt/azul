@@ -6729,3 +6729,1975 @@ mod pagination_text_tests {
         assert!(items.is_empty());
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use super::*;
+
+    // ---------------------------------------------------------------------
+    // Construction helpers
+    // ---------------------------------------------------------------------
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    fn opaque() -> ColorU {
+        ColorU { r: 10, g: 20, b: 30, a: 255 }
+    }
+
+    fn glyph(index: u32, x: f32, y: f32) -> GlyphInstance {
+        GlyphInstance {
+            index,
+            point: LogicalPosition::new(x, y),
+            size: LogicalSize::new(8.0, 12.0),
+        }
+    }
+
+    fn no_widths() -> StyleBorderWidths {
+        StyleBorderWidths { top: None, right: None, bottom: None, left: None }
+    }
+
+    fn all_widths() -> StyleBorderWidths {
+        StyleBorderWidths {
+            top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth::default())),
+            right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth::default())),
+            bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth::default())),
+            left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth::default())),
+        }
+    }
+
+    fn no_colors() -> StyleBorderColors {
+        StyleBorderColors { top: None, right: None, bottom: None, left: None }
+    }
+
+    fn no_styles() -> StyleBorderStyles {
+        StyleBorderStyles { top: None, right: None, bottom: None, left: None }
+    }
+
+    fn all_styles() -> StyleBorderStyles {
+        StyleBorderStyles {
+            top: Some(CssPropertyValue::Exact(StyleBorderTopStyle::default())),
+            right: Some(CssPropertyValue::Exact(StyleBorderRightStyle::default())),
+            bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle::default())),
+            left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle::default())),
+        }
+    }
+
+    fn zero_style_radius() -> StyleBorderRadius {
+        StyleBorderRadius {
+            top_left: PixelValue::zero(),
+            top_right: PixelValue::zero(),
+            bottom_left: PixelValue::zero(),
+            bottom_right: PixelValue::zero(),
+        }
+    }
+
+    fn test_image() -> ImageRef {
+        ImageRef::null_image(4, 4, azul_core::resources::RawImageFormat::RGBA8, Vec::new())
+    }
+
+    fn text_item(src: Option<usize>, clip: LogicalRect, glyphs: Vec<GlyphInstance>) -> DisplayListItem {
+        DisplayListItem::Text {
+            glyphs,
+            font_hash: FontHash::from_hash(7),
+            font_size_px: 16.0,
+            color: opaque(),
+            clip_rect: clip.into(),
+            source_node_index: src,
+        }
+    }
+
+    fn list_of(items: Vec<DisplayListItem>) -> DisplayList {
+        let node_mapping = vec![None; items.len()];
+        DisplayList { items, node_mapping, ..DisplayList::default() }
+    }
+
+    #[cfg(feature = "text_layout")]
+    fn positioned(line_index: usize, x: f32, y: f32, w: f32, h: f32) -> PositionedItem {
+        PositionedItem {
+            item: crate::text3::cache::ShapedItem::Tab {
+                source: azul_core::selection::ContentIndex { run_index: 0, item_index: 0 },
+                bounds: crate::text3::cache::Rect { x: 0.0, y: 0.0, width: w, height: h },
+            },
+            position: crate::text3::cache::Point { x, y },
+            line_index,
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // WindowLogicalRect / BorderBoxRect / ContentBoxRect
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn window_logical_rect_accessors_roundtrip() {
+        let origin = LogicalPosition::new(-3.5, 12.25);
+        let size = LogicalSize::new(100.0, 40.0);
+        let w = WindowLogicalRect::new(origin, size);
+
+        assert_eq!(w.origin(), origin);
+        assert_eq!(w.size(), size);
+        assert_eq!(*w.inner(), LogicalRect::new(origin, size));
+        assert_eq!(w.into_inner(), LogicalRect::new(origin, size));
+        // From/Into must be the identity on the wrapped rect.
+        assert_eq!(WindowLogicalRect::from(w.into_inner()), w);
+        assert_eq!(LogicalRect::from(w), w.into_inner());
+    }
+
+    #[test]
+    fn window_logical_rect_zero_is_neutral() {
+        let z = WindowLogicalRect::zero();
+        assert_eq!(z, WindowLogicalRect::default());
+        assert_eq!(z.origin(), LogicalPosition::zero());
+        assert_eq!(z.size(), LogicalSize::zero());
+        assert_eq!(z.into_inner(), LogicalRect::zero());
+    }
+
+    #[test]
+    fn window_logical_rect_extreme_values_do_not_panic() {
+        for (x, y, w, h) in [
+            (f32::MAX, f32::MAX, f32::MAX, f32::MAX),
+            (f32::MIN, f32::MIN, 0.0, 0.0),
+            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, 0.0),
+            (f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+        ] {
+            let r = WindowLogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h));
+            // Accessors must round-trip the raw bits regardless of how odd they are.
+            assert_eq!(r.origin().x.to_bits(), x.to_bits());
+            assert_eq!(r.size().height.to_bits(), h.to_bits());
+            let _ = format!("{r:?}");
+        }
+    }
+
+    #[test]
+    fn border_box_to_content_box_subtracts_padding_and_border() {
+        let bb = BorderBoxRect(rect(10.0, 20.0, 100.0, 50.0));
+        let padding = crate::solver3::geometry::EdgeSizes { top: 1.0, right: 2.0, bottom: 3.0, left: 4.0 };
+        let border = crate::solver3::geometry::EdgeSizes { top: 5.0, right: 6.0, bottom: 7.0, left: 8.0 };
+
+        let cb = bb.to_content_box(&padding, &border);
+        assert_eq!(cb.rect(), rect(22.0, 26.0, 80.0, 34.0));
+        assert_eq!(bb.rect(), rect(10.0, 20.0, 100.0, 50.0), "receiver copy is unchanged");
+    }
+
+    #[test]
+    fn border_box_to_content_box_zero_edges_is_identity() {
+        let bb = BorderBoxRect(rect(1.0, 2.0, 3.0, 4.0));
+        let zero = crate::solver3::geometry::EdgeSizes::default();
+        assert_eq!(bb.to_content_box(&zero, &zero).rect(), bb.rect());
+    }
+
+    #[test]
+    fn border_box_to_content_box_overinset_yields_negative_size_not_a_panic() {
+        // padding + border exceed the box: the result is a NEGATIVE content box.
+        // Nothing clamps it, so downstream code must tolerate it. Pin that here so
+        // a future clamp is a deliberate, visible change.
+        let bb = BorderBoxRect(rect(0.0, 0.0, 10.0, 10.0));
+        let big = crate::solver3::geometry::EdgeSizes { top: 50.0, right: 50.0, bottom: 50.0, left: 50.0 };
+        let cb = bb.to_content_box(&big, &big);
+        assert!(cb.rect().size.width < 0.0);
+        assert!(cb.rect().size.height < 0.0);
+    }
+
+    #[test]
+    fn border_box_to_content_box_nan_and_inf_do_not_panic() {
+        let bb = BorderBoxRect(rect(0.0, 0.0, f32::MAX, f32::MAX));
+        let nan = crate::solver3::geometry::EdgeSizes {
+            top: f32::NAN, right: f32::NAN, bottom: f32::NAN, left: f32::NAN,
+        };
+        let inf = crate::solver3::geometry::EdgeSizes {
+            top: f32::INFINITY, right: f32::INFINITY, bottom: f32::INFINITY, left: f32::INFINITY,
+        };
+        assert!(bb.to_content_box(&nan, &nan).rect().size.width.is_nan());
+        // MAX - inf - inf ... = -inf (defined, not a trap)
+        assert!(bb.to_content_box(&inf, &inf).rect().size.width.is_infinite());
+    }
+
+    #[test]
+    fn content_box_rect_getter_returns_wrapped_rect() {
+        let r = rect(-1.0, -2.0, 0.0, 0.0);
+        assert_eq!(ContentBoxRect(r).rect(), r);
+        assert_eq!(ContentBoxRect(LogicalRect::zero()).rect(), LogicalRect::zero());
+    }
+
+    // ---------------------------------------------------------------------
+    // BorderRadius::is_zero
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn border_radius_is_zero_basic() {
+        assert!(BorderRadius::default().is_zero());
+        assert!(!BorderRadius { top_left: 1.0, ..BorderRadius::default() }.is_zero());
+        assert!(!BorderRadius { bottom_right: 0.001, ..BorderRadius::default() }.is_zero());
+    }
+
+    #[test]
+    fn border_radius_is_zero_edge_floats() {
+        // -0.0 == 0.0 in IEEE-754, so a negative zero radius still counts as zero.
+        assert!(BorderRadius { top_left: -0.0, top_right: -0.0, bottom_left: -0.0, bottom_right: -0.0 }.is_zero());
+        // NaN != 0.0, so a NaN radius is (conservatively) *not* zero — no panic.
+        assert!(!BorderRadius { top_left: f32::NAN, ..BorderRadius::default() }.is_zero());
+        assert!(!BorderRadius { top_right: f32::INFINITY, ..BorderRadius::default() }.is_zero());
+        // A negative radius is not zero either.
+        assert!(!BorderRadius { bottom_left: -5.0, ..BorderRadius::default() }.is_zero());
+    }
+
+    // ---------------------------------------------------------------------
+    // DisplayListItem predicates / getters
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn is_state_management_true_for_push_pop_only() {
+        let state = [
+            DisplayListItem::PushClip { bounds: rect(0.0, 0.0, 1.0, 1.0).into(), border_radius: BorderRadius::default() },
+            DisplayListItem::PopClip,
+            DisplayListItem::PopImageMaskClip,
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopStackingContext,
+            DisplayListItem::PopReferenceFrame,
+            DisplayListItem::PopFilter,
+            DisplayListItem::PopBackdropFilter,
+            DisplayListItem::PopOpacity,
+            DisplayListItem::PopTextShadow,
+            DisplayListItem::PushStackingContext { z_index: 0, bounds: WindowLogicalRect::zero() },
+            DisplayListItem::PushOpacity { bounds: WindowLogicalRect::zero(), opacity: 0.5 },
+            DisplayListItem::PushTextShadow { shadow: StyleBoxShadow::default() },
+        ];
+        for item in &state {
+            assert!(item.is_state_management(), "{item:?} must be state management");
+        }
+
+        let drawing = [
+            DisplayListItem::Rect { bounds: WindowLogicalRect::zero(), color: opaque(), border_radius: BorderRadius::default() },
+            DisplayListItem::CursorRect { bounds: WindowLogicalRect::zero(), color: opaque() },
+            // HitTestArea paints nothing but is NOT a stack command — it must not be forced through.
+            DisplayListItem::HitTestArea { bounds: WindowLogicalRect::zero(), tag: (0, TAG_TYPE_DOM_NODE) },
+            text_item(None, LogicalRect::zero(), Vec::new()),
+        ];
+        for item in &drawing {
+            assert!(!item.is_state_management(), "{item:?} must NOT be state management");
+        }
+    }
+
+    #[test]
+    fn bounds_reports_none_only_for_pop_and_text_shadow() {
+        let r = rect(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(
+            DisplayListItem::Rect { bounds: r.into(), color: opaque(), border_radius: BorderRadius::default() }.bounds(),
+            Some(r)
+        );
+        // Text reports its CLIP rect as its bounds, not a glyph hull.
+        assert_eq!(text_item(Some(0), r, vec![glyph(1, 999.0, 999.0)]).bounds(), Some(r));
+        assert_eq!(
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: r.into(),
+                content_size: LogicalSize::new(9.0, 9.0),
+                scroll_id: 3,
+            }.bounds(),
+            Some(r)
+        );
+        assert_eq!(DisplayListItem::PopClip.bounds(), None);
+        assert_eq!(DisplayListItem::PopOpacity.bounds(), None);
+        assert_eq!(
+            DisplayListItem::PushTextShadow { shadow: StyleBoxShadow::default() }.bounds(),
+            None,
+            "a text shadow has no bounds of its own"
+        );
+    }
+
+    #[test]
+    fn bounds_on_degenerate_rects_does_not_panic() {
+        for r in [
+            LogicalRect::zero(),
+            rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+            rect(f32::MIN, f32::MIN, f32::MAX, f32::MAX),
+            rect(0.0, 0.0, -10.0, -10.0),
+        ] {
+            let item = DisplayListItem::Rect { bounds: r.into(), color: opaque(), border_radius: BorderRadius::default() };
+            assert!(item.bounds().is_some());
+            assert!(item.visual_bounds().is_some());
+        }
+    }
+
+    #[test]
+    fn visual_bounds_matches_bounds_for_non_shadow_items() {
+        let r = rect(5.0, 6.0, 7.0, 8.0);
+        let item = DisplayListItem::Rect { bounds: r.into(), color: opaque(), border_radius: BorderRadius::default() };
+        assert_eq!(item.visual_bounds(), item.bounds());
+        assert_eq!(DisplayListItem::PopClip.visual_bounds(), None);
+    }
+
+    #[test]
+    fn visual_bounds_expands_box_shadow_by_offset_blur_and_spread() {
+        use azul_css::props::basic::pixel::PixelValueNoPercent;
+        let shadow = StyleBoxShadow {
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(2) },
+            offset_y: PixelValueNoPercent { inner: PixelValue::const_px(3) },
+            blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(4) },
+            spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(5) },
+            clip_mode: BoxShadowClipMode::default(),
+            color: ColorU::BLACK,
+        };
+        let item = DisplayListItem::BoxShadow {
+            bounds: rect(100.0, 100.0, 50.0, 50.0).into(),
+            shadow,
+            border_radius: BorderRadius::default(),
+        };
+        // expand = |2| + |3| + |4| + |5| = 14, applied on every side.
+        let vb = item.visual_bounds().expect("box shadow has visual bounds");
+        assert_eq!(vb, rect(86.0, 86.0, 78.0, 78.0));
+        // The visual bounds must strictly contain the paint bounds.
+        let b = item.bounds().unwrap();
+        assert!(vb.origin.x < b.origin.x && vb.size.width > b.size.width);
+    }
+
+    #[test]
+    fn visual_bounds_box_shadow_with_negative_offsets_uses_absolute_values() {
+        use azul_css::props::basic::pixel::PixelValueNoPercent;
+        let shadow = StyleBoxShadow {
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(-10) },
+            offset_y: PixelValueNoPercent { inner: PixelValue::const_px(-10) },
+            blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+            spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+            clip_mode: BoxShadowClipMode::default(),
+            color: ColorU::BLACK,
+        };
+        let item = DisplayListItem::BoxShadow {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            shadow,
+            border_radius: BorderRadius::default(),
+        };
+        // .abs() is applied, so the shadow expands symmetrically by 20 in each direction.
+        assert_eq!(item.visual_bounds().unwrap(), rect(-20.0, -20.0, 50.0, 50.0));
+    }
+
+    // ---------------------------------------------------------------------
+    // DisplayListItem::is_visually_equal
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn is_visually_equal_reflexive_and_discriminant_guarded() {
+        let a = DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        assert!(a.is_visually_equal(&a));
+        assert!(!a.is_visually_equal(&DisplayListItem::PopClip), "different variants are never equal");
+        assert!(!DisplayListItem::PopClip.is_visually_equal(&a));
+    }
+
+    #[test]
+    fn is_visually_equal_detects_field_changes() {
+        let base = DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let moved = DisplayListItem::Rect {
+            bounds: rect(1.0, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let recolored = DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+            border_radius: BorderRadius::default(),
+        };
+        let rounded = DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius { top_left: 4.0, ..BorderRadius::default() },
+        };
+        assert!(!base.is_visually_equal(&moved));
+        assert!(!base.is_visually_equal(&recolored));
+        assert!(!base.is_visually_equal(&rounded));
+    }
+
+    #[test]
+    fn is_visually_equal_pops_are_always_equal() {
+        for (a, b) in [
+            (DisplayListItem::PopClip, DisplayListItem::PopClip),
+            (DisplayListItem::PopScrollFrame, DisplayListItem::PopScrollFrame),
+            (DisplayListItem::PopOpacity, DisplayListItem::PopOpacity),
+            (DisplayListItem::PopTextShadow, DisplayListItem::PopTextShadow),
+        ] {
+            assert!(a.is_visually_equal(&b));
+        }
+        assert!(!DisplayListItem::PopClip.is_visually_equal(&DisplayListItem::PopOpacity));
+    }
+
+    #[test]
+    fn is_visually_equal_hit_test_areas_never_damage() {
+        // Documented: hit-test areas paint no pixels, so ANY two are visually equal
+        // (regression guard for issue #12 — a moved hit region must not force a repaint).
+        let a = DisplayListItem::HitTestArea { bounds: rect(0.0, 0.0, 1.0, 1.0).into(), tag: (1, TAG_TYPE_DOM_NODE) };
+        let b = DisplayListItem::HitTestArea { bounds: rect(500.0, 900.0, 7.0, 7.0).into(), tag: (99, TAG_TYPE_CURSOR) };
+        assert!(a.is_visually_equal(&b));
+    }
+
+    #[test]
+    fn is_visually_equal_text_layout_uses_arc_pointer_identity() {
+        let shared: Arc<dyn std::any::Any + Send + Sync> = Arc::new(42u32);
+        let other: Arc<dyn std::any::Any + Send + Sync> = Arc::new(42u32);
+        let make = |layout: Arc<dyn std::any::Any + Send + Sync>| DisplayListItem::TextLayout {
+            layout,
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            font_hash: FontHash::from_hash(1),
+            font_size_px: 16.0,
+            color: opaque(),
+        };
+        assert!(make(shared.clone()).is_visually_equal(&make(shared)), "same Arc => reuse => no damage");
+        assert!(
+            !make(Arc::new(42u32)).is_visually_equal(&make(other)),
+            "distinct allocations => conservatively different"
+        );
+    }
+
+    #[test]
+    fn is_visually_equal_image_uses_pointer_identity_not_content() {
+        let img = test_image();
+        let a = DisplayListItem::Image {
+            bounds: rect(0.0, 0.0, 4.0, 4.0).into(),
+            image: img.clone(),
+            border_radius: BorderRadius::default(),
+        };
+        let same_alloc = DisplayListItem::Image {
+            bounds: rect(0.0, 0.0, 4.0, 4.0).into(),
+            image: img,
+            border_radius: BorderRadius::default(),
+        };
+        assert!(a.is_visually_equal(&same_alloc));
+
+        // A byte-identical but separately allocated image is conservatively "different".
+        let b = DisplayListItem::Image {
+            bounds: rect(0.0, 0.0, 4.0, 4.0).into(),
+            image: test_image(),
+            border_radius: BorderRadius::default(),
+        };
+        assert!(!a.is_visually_equal(&b));
+    }
+
+    #[test]
+    fn is_visually_equal_text_compares_glyph_ids_and_positions() {
+        let clip = rect(0.0, 0.0, 100.0, 20.0);
+        let a = text_item(Some(1), clip, vec![glyph(5, 0.0, 10.0), glyph(6, 8.0, 10.0)]);
+        let same = text_item(Some(999), clip, vec![glyph(5, 0.0, 10.0), glyph(6, 8.0, 10.0)]);
+        let diff_gid = text_item(Some(1), clip, vec![glyph(5, 0.0, 10.0), glyph(7, 8.0, 10.0)]);
+        let diff_pos = text_item(Some(1), clip, vec![glyph(5, 0.0, 10.0), glyph(6, 9.0, 10.0)]);
+        let shorter = text_item(Some(1), clip, vec![glyph(5, 0.0, 10.0)]);
+        let empty = text_item(Some(1), clip, Vec::new());
+
+        assert!(a.is_visually_equal(&same), "source_node_index is not a visual property");
+        assert!(!a.is_visually_equal(&diff_gid));
+        assert!(!a.is_visually_equal(&diff_pos));
+        assert!(!a.is_visually_equal(&shorter), "glyph count mismatch => different");
+        assert!(!a.is_visually_equal(&empty));
+        assert!(empty.is_visually_equal(&empty), "empty glyph runs are equal to each other");
+    }
+
+    #[test]
+    fn is_visually_equal_nan_thickness_is_conservatively_unequal() {
+        // Raw f32 `==` on thickness: NaN != NaN, so even a self-comparison of a NaN
+        // thickness reports "changed". That is the SAFE direction (forces a repaint),
+        // and it must not panic.
+        let a = DisplayListItem::Underline {
+            bounds: rect(0.0, 0.0, 10.0, 1.0).into(),
+            color: opaque(),
+            thickness: f32::NAN,
+        };
+        assert!(!a.is_visually_equal(&a));
+    }
+
+    #[test]
+    fn is_visually_equal_bounds_are_quantized_to_a_thousandth_of_a_pixel() {
+        // LogicalRect equality is fixed-point (1/1000 px). Sub-quantum jitter is
+        // deliberately treated as "no visual change" so float noise cannot damage.
+        let a = DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let jittered = DisplayListItem::Rect {
+            bounds: rect(0.000_01, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        assert!(a.is_visually_equal(&jittered));
+
+        // A whole-pixel move is above the quantum and *is* reported.
+        let moved = DisplayListItem::Rect {
+            bounds: rect(1.0, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        assert!(!a.is_visually_equal(&moved));
+    }
+
+    // ---------------------------------------------------------------------
+    // DisplayListBuilder
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn builder_new_is_empty_and_matches_with_debug_false() {
+        let b = DisplayListBuilder::new();
+        assert!(b.items.is_empty());
+        assert!(b.node_mapping.is_empty());
+        assert!(!b.debug_enabled);
+        assert!(b.forced_page_breaks.is_empty());
+        assert!(b.fixed_position_item_ranges.is_empty());
+        assert!(b.fixed_position_start.is_none());
+
+        let dl = DisplayListBuilder::new().build();
+        assert!(dl.items.is_empty());
+        assert!(dl.node_mapping.is_empty());
+    }
+
+    #[test]
+    fn builder_with_debug_toggles_message_collection() {
+        let mut off = DisplayListBuilder::with_debug(false);
+        off.debug_log("dropped".to_string());
+        assert!(off.debug_messages.is_empty());
+
+        let mut on = DisplayListBuilder::with_debug(true);
+        on.debug_log(String::new());
+        on.debug_log("x".repeat(100_000)); // huge message must not panic
+        on.debug_log("🦀 unicode \u{0}\u{FFFD} nul".to_string());
+        assert_eq!(on.debug_messages.len(), 3);
+    }
+
+    #[test]
+    fn builder_push_item_keeps_node_mapping_in_lockstep() {
+        let mut b = DisplayListBuilder::new();
+        b.set_current_node(Some(NodeId::new(4)));
+        b.push_rect(rect(0.0, 0.0, 1.0, 1.0), opaque(), BorderRadius::default());
+        b.set_current_node(None);
+        b.pop_clip();
+
+        let dl = b.build();
+        assert_eq!(dl.items.len(), 2);
+        assert_eq!(dl.items.len(), dl.node_mapping.len(), "node_mapping must parallel items");
+        assert_eq!(dl.node_mapping[0], Some(NodeId::new(4)));
+        assert_eq!(dl.node_mapping[1], None);
+    }
+
+    #[test]
+    fn builder_skips_fully_transparent_fills() {
+        let mut b = DisplayListBuilder::new();
+        b.push_rect(rect(0.0, 0.0, 10.0, 10.0), ColorU::TRANSPARENT, BorderRadius::default());
+        b.push_selection_rect(rect(0.0, 0.0, 10.0, 10.0), ColorU::TRANSPARENT, BorderRadius::default());
+        b.push_scrollbar(rect(0.0, 0.0, 10.0, 10.0), ColorU::TRANSPARENT, ScrollbarOrientation::Vertical, None, None);
+        assert!(b.items.is_empty(), "alpha == 0 with no opacity key paints nothing");
+
+        // An opacity key means the alpha is animated on the GPU — it must still be pushed.
+        b.push_scrollbar(
+            rect(0.0, 0.0, 10.0, 10.0),
+            ColorU::TRANSPARENT,
+            ScrollbarOrientation::Vertical,
+            Some(OpacityKey::unique()),
+            None,
+        );
+        assert_eq!(b.items.len(), 1);
+    }
+
+    #[test]
+    fn builder_cursor_rect_is_emitted_even_when_invisible() {
+        // Blink-off carets MUST still emit an item so the item count stays stable
+        // across blink phases (otherwise damage falls back to a full-window repaint).
+        let mut b = DisplayListBuilder::new();
+        b.push_cursor_rect(rect(0.0, 0.0, 1.0, 16.0), ColorU::TRANSPARENT);
+        assert_eq!(b.items.len(), 1);
+        assert!(matches!(b.items[0], DisplayListItem::CursorRect { .. }));
+    }
+
+    #[test]
+    fn builder_text_decorations_require_positive_thickness_and_alpha() {
+        let bounds = rect(0.0, 0.0, 10.0, 2.0);
+        for thickness in [0.0, -1.0, f32::NAN, f32::NEG_INFINITY] {
+            let mut b = DisplayListBuilder::new();
+            b.push_underline(bounds, opaque(), thickness);
+            b.push_strikethrough(bounds, opaque(), thickness);
+            b.push_overline(bounds, opaque(), thickness);
+            assert!(b.items.is_empty(), "thickness {thickness} must not paint");
+        }
+
+        // +inf is > 0.0, so it *is* pushed (defined, no panic).
+        let mut b = DisplayListBuilder::new();
+        b.push_underline(bounds, opaque(), f32::INFINITY);
+        assert_eq!(b.items.len(), 1);
+
+        // Transparent decorations are skipped regardless of thickness.
+        let mut b = DisplayListBuilder::new();
+        b.push_overline(bounds, ColorU::TRANSPARENT, 3.0);
+        assert!(b.items.is_empty());
+    }
+
+    #[test]
+    fn builder_text_run_skips_empty_glyphs_and_transparent_color() {
+        let clip = rect(0.0, 0.0, 100.0, 20.0);
+        let mut b = DisplayListBuilder::new();
+        b.push_text_run(Vec::new(), FontHash::invalid(), 16.0, opaque(), clip, Some(0));
+        b.push_text_run(vec![glyph(1, 0.0, 0.0)], FontHash::invalid(), 16.0, ColorU::TRANSPARENT, clip, Some(0));
+        assert!(b.items.is_empty());
+
+        // NaN / huge font sizes are pass-through values, not a panic.
+        b.push_text_run(vec![glyph(1, 0.0, 0.0)], FontHash::invalid(), f32::NAN, opaque(), clip, None);
+        b.push_text_run(vec![glyph(2, 0.0, 0.0)], FontHash::invalid(), f32::MAX, opaque(), clip, None);
+        assert_eq!(b.items.len(), 2);
+    }
+
+    #[test]
+    fn builder_border_requires_both_a_width_and_a_style() {
+        let bounds = rect(0.0, 0.0, 10.0, 10.0);
+
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, no_widths(), no_colors(), no_styles(), zero_style_radius());
+        assert!(b.items.is_empty(), "no widths + no styles => nothing to draw");
+
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, all_widths(), no_colors(), no_styles(), zero_style_radius());
+        assert!(b.items.is_empty(), "width without style => nothing to draw");
+
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, no_widths(), no_colors(), all_styles(), zero_style_radius());
+        assert!(b.items.is_empty(), "style without width => nothing to draw");
+
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, all_widths(), no_colors(), all_styles(), zero_style_radius());
+        assert_eq!(b.items.len(), 1);
+    }
+
+    #[test]
+    fn builder_forced_page_breaks_are_deduped_and_sorted() {
+        let mut b = DisplayListBuilder::new();
+        b.add_forced_page_break(300.0);
+        b.add_forced_page_break(100.0);
+        b.add_forced_page_break(300.0); // exact duplicate
+        b.add_forced_page_break(200.0);
+        b.add_forced_page_break(0.0);
+        b.add_forced_page_break(-50.0); // negative is accepted verbatim
+        b.add_forced_page_break(f32::INFINITY);
+        b.add_forced_page_break(f32::NEG_INFINITY);
+        assert_eq!(
+            b.forced_page_breaks,
+            vec![f32::NEG_INFINITY, -50.0, 0.0, 100.0, 200.0, 300.0, f32::INFINITY]
+        );
+    }
+
+    #[test]
+    fn builder_forced_page_break_nan_is_never_deduped() {
+        // `contains(&NaN)` is always false (NaN != NaN), so NaN breaks are NOT deduped —
+        // repeated calls accumulate. The sort uses partial_cmp().unwrap_or(Equal), so it
+        // survives the non-total order rather than panicking on an `unwrap`.
+        let mut b = DisplayListBuilder::new();
+        b.add_forced_page_break(f32::NAN);
+        b.add_forced_page_break(f32::NAN);
+        b.add_forced_page_break(100.0);
+        assert_eq!(b.forced_page_breaks.len(), 3, "a NaN break is never deduped");
+        assert_eq!(b.forced_page_breaks.iter().filter(|v| v.is_nan()).count(), 2);
+    }
+
+    #[test]
+    fn builder_fixed_position_ranges_need_a_begin_and_at_least_one_item() {
+        // end without begin: no-op, no panic.
+        let mut b = DisplayListBuilder::new();
+        b.end_fixed_position_element();
+        assert!(b.fixed_position_item_ranges.is_empty());
+
+        // begin + end with zero items in between: nothing recorded (end > start is false).
+        let mut b = DisplayListBuilder::new();
+        b.begin_fixed_position_element();
+        b.end_fixed_position_element();
+        assert!(b.fixed_position_item_ranges.is_empty());
+
+        // begin + items + end: the half-open [start, end) range is recorded.
+        let mut b = DisplayListBuilder::new();
+        b.pop_clip(); // one pre-existing item at index 0
+        b.begin_fixed_position_element();
+        b.push_rect(rect(0.0, 0.0, 1.0, 1.0), opaque(), BorderRadius::default());
+        b.push_rect(rect(0.0, 0.0, 2.0, 2.0), opaque(), BorderRadius::default());
+        b.end_fixed_position_element();
+        assert_eq!(b.fixed_position_item_ranges, vec![(1, 3)]);
+
+        // A second end() without a matching begin() must not re-record.
+        b.end_fixed_position_element();
+        assert_eq!(b.fixed_position_item_ranges.len(), 1);
+    }
+
+    #[test]
+    fn builder_build_with_debug_transfers_messages() {
+        let mut b = DisplayListBuilder::with_debug(true);
+        b.debug_log("hello".to_string());
+        b.push_rect(rect(0.0, 0.0, 1.0, 1.0), opaque(), BorderRadius::default());
+
+        let mut sink = Some(vec![LayoutDebugMessage::info("pre-existing".to_string())]);
+        let dl = b.build_with_debug(&mut sink);
+        let msgs = sink.expect("sink stays Some");
+        assert_eq!(msgs.len(), 2, "messages are appended, not replaced");
+        assert_eq!(dl.items.len(), 1);
+
+        // A None sink must swallow the messages rather than panic.
+        let mut b = DisplayListBuilder::with_debug(true);
+        b.debug_log("dropped".to_string());
+        let mut none_sink: Option<Vec<LayoutDebugMessage>> = None;
+        let dl = b.build_with_debug(&mut none_sink);
+        assert!(none_sink.is_none());
+        assert!(dl.items.is_empty());
+    }
+
+    #[test]
+    fn builder_stack_pushes_accept_extreme_arguments() {
+        let mut b = DisplayListBuilder::new();
+        // i32 extremes for z-index, degenerate bounds, and an all-NaN clip.
+        b.push_stacking_context(i32::MIN, rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN));
+        b.push_stacking_context(i32::MAX, rect(0.0, 0.0, -1.0, -1.0));
+        b.pop_stacking_context();
+        b.push_clip(rect(f32::MIN, f32::MIN, f32::MAX, f32::MAX), BorderRadius { top_left: f32::INFINITY, ..BorderRadius::default() });
+        b.pop_clip();
+        b.push_scroll_frame(LogicalRect::zero(), LogicalSize::new(f32::MAX, f32::MAX), u64::MAX);
+        b.pop_scroll_frame();
+        b.push_image_mask_clip(LogicalRect::zero(), test_image(), rect(0.0, 0.0, -5.0, -5.0));
+        b.pop_image_mask_clip();
+        b.push_reference_frame(TransformKey::unique(), ComputedTransform3D::IDENTITY, LogicalRect::zero());
+        b.pop_reference_frame();
+        b.push_virtual_view_placeholder(NodeId::ZERO, LogicalRect::zero(), LogicalRect::zero());
+        b.push_hit_test_area(rect(0.0, 0.0, 1.0, 1.0), (u64::MAX, TAG_TYPE_CURSOR));
+        b.push_image(LogicalRect::zero(), test_image(), BorderRadius::default());
+        b.push_linear_gradient(LogicalRect::zero(), LinearGradient::default(), BorderRadius::default());
+        b.push_radial_gradient(LogicalRect::zero(), RadialGradient::default(), BorderRadius::default());
+        b.push_conic_gradient(LogicalRect::zero(), ConicGradient::default(), BorderRadius::default());
+
+        let dl = b.build();
+        assert_eq!(dl.items.len(), 17);
+        assert_eq!(dl.items.len(), dl.node_mapping.len());
+    }
+
+    // ---------------------------------------------------------------------
+    // Free geometry helpers: rect_intersects / clip_rect_bounds / offset_rect_y
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn rect_intersects_uses_a_half_open_page_interval() {
+        let page = (100.0f32, 200.0f32);
+        // Fully inside.
+        assert!(rect_intersects(&rect(0.0, 120.0, 10.0, 10.0), page.0, page.1));
+        // Straddling both edges.
+        assert!(rect_intersects(&rect(0.0, 50.0, 10.0, 300.0), page.0, page.1));
+        // Entirely above / below.
+        assert!(!rect_intersects(&rect(0.0, 0.0, 10.0, 10.0), page.0, page.1));
+        assert!(!rect_intersects(&rect(0.0, 500.0, 10.0, 10.0), page.0, page.1));
+        // Touching exactly: bottom edge == page_top is NOT an intersection...
+        assert!(!rect_intersects(&rect(0.0, 90.0, 10.0, 10.0), page.0, page.1));
+        // ...and top edge == page_bottom is NOT either.
+        assert!(!rect_intersects(&rect(0.0, 200.0, 10.0, 10.0), page.0, page.1));
+        // A zero-height rect strictly inside DOES intersect (its single edge is in range).
+        assert!(rect_intersects(&rect(0.0, 150.0, 10.0, 0.0), page.0, page.1));
+        // ...but a zero-height rect sitting exactly on either page edge does not.
+        assert!(!rect_intersects(&rect(0.0, 100.0, 10.0, 0.0), page.0, page.1));
+        assert!(!rect_intersects(&rect(0.0, 200.0, 10.0, 0.0), page.0, page.1));
+    }
+
+    #[test]
+    fn rect_intersects_with_nan_is_false_not_a_panic() {
+        assert!(!rect_intersects(&rect(0.0, f32::NAN, 10.0, 10.0), 0.0, 100.0));
+        assert!(!rect_intersects(&rect(0.0, 10.0, 10.0, f32::NAN), 0.0, 100.0));
+        assert!(!rect_intersects(&rect(0.0, 10.0, 10.0, 10.0), f32::NAN, f32::NAN));
+        // Infinite page bounds cover everything finite.
+        assert!(rect_intersects(&rect(0.0, 10.0, 10.0, 10.0), f32::NEG_INFINITY, f32::INFINITY));
+    }
+
+    #[test]
+    fn clip_rect_bounds_clips_and_rebases_to_page_relative_coords() {
+        // Item straddles the top of page [100, 200): keep the visible slice, rebase to y=0.
+        let clipped = clip_rect_bounds(rect(5.0, 50.0, 20.0, 100.0), 100.0, 200.0).unwrap();
+        assert_eq!(clipped, rect(5.0, 0.0, 20.0, 50.0));
+
+        // Item straddles the bottom: kept slice starts at its own offset into the page.
+        let clipped = clip_rect_bounds(rect(5.0, 180.0, 20.0, 100.0), 100.0, 200.0).unwrap();
+        assert_eq!(clipped, rect(5.0, 80.0, 20.0, 20.0));
+
+        // Item strictly inside: only rebased, never resized.
+        let clipped = clip_rect_bounds(rect(5.0, 120.0, 20.0, 30.0), 100.0, 200.0).unwrap();
+        assert_eq!(clipped, rect(5.0, 20.0, 20.0, 30.0));
+
+        // Item larger than the page on both sides: clamped to exactly the page height.
+        let clipped = clip_rect_bounds(rect(0.0, 0.0, 20.0, 10_000.0), 100.0, 200.0).unwrap();
+        assert_eq!(clipped, rect(0.0, 0.0, 20.0, 100.0));
+    }
+
+    #[test]
+    fn clip_rect_bounds_rejects_off_page_and_edge_touching_rects() {
+        assert_eq!(clip_rect_bounds(rect(0.0, 0.0, 10.0, 10.0), 100.0, 200.0), None);
+        assert_eq!(clip_rect_bounds(rect(0.0, 300.0, 10.0, 10.0), 100.0, 200.0), None);
+        // bottom == page_top -> outside (half-open interval).
+        assert_eq!(clip_rect_bounds(rect(0.0, 90.0, 10.0, 10.0), 100.0, 200.0), None);
+        // top == page_bottom -> outside.
+        assert_eq!(clip_rect_bounds(rect(0.0, 200.0, 10.0, 10.0), 100.0, 200.0), None);
+    }
+
+    #[test]
+    fn clip_rect_bounds_zero_height_rects() {
+        // A zero-height rect sitting exactly on page_top is rejected (bottom <= top).
+        assert_eq!(clip_rect_bounds(rect(0.0, 100.0, 10.0, 0.0), 100.0, 200.0), None);
+        // A zero-height rect strictly inside survives as a zero-height slice.
+        assert_eq!(
+            clip_rect_bounds(rect(0.0, 150.0, 10.0, 0.0), 100.0, 200.0),
+            Some(rect(0.0, 50.0, 10.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn clip_rect_bounds_with_an_inverted_page_produces_a_degenerate_rect_not_a_panic() {
+        // page_top > page_bottom is never produced by calculate_page_break_positions,
+        // but nothing rejects it here: the height goes NEGATIVE. Pinned so the missing
+        // guard is visible rather than silently feeding a negative rect downstream.
+        let out = clip_rect_bounds(rect(0.0, 0.0, 10.0, 500.0), 200.0, 100.0)
+            .expect("an inverted page is not rejected");
+        assert!(out.size.height < 0.0, "no clamp: an inverted page yields a negative height");
+    }
+
+    #[test]
+    fn clip_rect_bounds_with_extreme_pages_does_not_panic() {
+        // An unbounded page keeps the item intact (no clipping).
+        let full = clip_rect_bounds(rect(0.0, 10.0, 10.0, 10.0), f32::NEG_INFINITY, f32::INFINITY)
+            .expect("an infinite page contains everything");
+        assert_eq!(full.size, LogicalSize::new(10.0, 10.0));
+
+        // NaN page bounds: every comparison is false, so the rect is kept. f32::max/min
+        // drop the NaN operand, so the SIZE stays clean and only the rebased origin goes
+        // NaN. Defined, total, and crucially NOT a panic.
+        let nan_page = clip_rect_bounds(rect(0.0, 10.0, 10.0, 10.0), f32::NAN, f32::NAN)
+            .expect("NaN bounds fail both rejection tests");
+        assert!(nan_page.origin.y.is_nan(), "the page-relative rebase propagates NaN");
+        assert_eq!(nan_page.size.height, 10.0, "min/max ignore NaN, so the height survives");
+
+        // f32::MAX height must not overflow into a panic.
+        assert_eq!(
+            clip_rect_bounds(rect(0.0, 0.0, 10.0, f32::MAX), 0.0, 100.0),
+            Some(rect(0.0, 0.0, 10.0, 100.0))
+        );
+    }
+
+    #[test]
+    fn offset_rect_y_only_moves_y_and_preserves_size() {
+        assert_eq!(offset_rect_y(rect(1.0, 2.0, 3.0, 4.0), 0.0), rect(1.0, 2.0, 3.0, 4.0));
+        assert_eq!(offset_rect_y(rect(1.0, 2.0, 3.0, 4.0), 10.0), rect(1.0, 12.0, 3.0, 4.0));
+        assert_eq!(offset_rect_y(rect(1.0, 2.0, 3.0, 4.0), -10.0), rect(1.0, -8.0, 3.0, 4.0));
+
+        // Non-finite offsets are propagated, never trapped.
+        assert!(offset_rect_y(rect(0.0, 0.0, 1.0, 1.0), f32::INFINITY).origin.y.is_infinite());
+        assert!(offset_rect_y(rect(0.0, 0.0, 1.0, 1.0), f32::NAN).origin.y.is_nan());
+        // MAX + MAX saturates to +inf under IEEE-754, not a wrap.
+        assert!(offset_rect_y(rect(0.0, f32::MAX, 1.0, 1.0), f32::MAX).origin.y.is_infinite());
+        // The size is untouched in every case.
+        assert_eq!(offset_rect_y(rect(0.0, 0.0, 3.0, 4.0), f32::NAN).size, LogicalSize::new(3.0, 4.0));
+    }
+
+    // ---------------------------------------------------------------------
+    // Per-item page clipping
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn clip_rect_item_drops_off_page_and_rebases_on_page() {
+        assert!(clip_rect_item(rect(0.0, 0.0, 10.0, 10.0), opaque(), BorderRadius::default(), 100.0, 200.0).is_none());
+
+        let item = clip_rect_item(rect(0.0, 150.0, 10.0, 100.0), opaque(), BorderRadius::default(), 100.0, 200.0)
+            .expect("overlaps the page");
+        match item {
+            DisplayListItem::Rect { bounds, color, .. } => {
+                assert_eq!(bounds.into_inner(), rect(0.0, 50.0, 10.0, 50.0));
+                assert_eq!(color, opaque());
+            }
+            other => panic!("expected Rect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clip_cursor_selection_hittest_and_scrollbar_items_share_the_page_test() {
+        let off = rect(0.0, 0.0, 10.0, 10.0);
+        let on = rect(0.0, 120.0, 10.0, 10.0);
+        let (top, bottom) = (100.0, 200.0);
+
+        assert!(clip_cursor_rect_item(off, opaque(), top, bottom).is_none());
+        assert!(clip_cursor_rect_item(on, opaque(), top, bottom).is_some());
+
+        assert!(clip_selection_rect_item(off, BorderRadius::default(), opaque(), top, bottom).is_none());
+        assert!(clip_selection_rect_item(on, BorderRadius::default(), opaque(), top, bottom).is_some());
+
+        assert!(clip_hit_test_area_item(off, (1, TAG_TYPE_DOM_NODE), top, bottom).is_none());
+        assert!(clip_hit_test_area_item(on, (1, TAG_TYPE_DOM_NODE), top, bottom).is_some());
+
+        assert!(clip_scrollbar_item(off, opaque(), ScrollbarOrientation::Vertical, None, None, top, bottom).is_none());
+        assert!(clip_scrollbar_item(on, opaque(), ScrollbarOrientation::Vertical, None, None, top, bottom).is_some());
+
+        assert!(clip_image_item(off, test_image(), BorderRadius::default(), top, bottom).is_none());
+        assert!(clip_image_item(on, test_image(), BorderRadius::default(), top, bottom).is_some());
+
+        assert!(clip_virtual_view_item(DomId::ROOT_ID, off, off, top, bottom).is_none());
+        assert!(clip_virtual_view_item(DomId::ROOT_ID, on, on, top, bottom).is_some());
+    }
+
+    #[test]
+    fn clip_text_decoration_item_preserves_the_decoration_kind() {
+        let on = rect(0.0, 120.0, 10.0, 2.0);
+        let (top, bottom) = (100.0, 200.0);
+
+        assert!(matches!(
+            clip_text_decoration_item(on, opaque(), 1.0, TextDecorationType::Underline, top, bottom),
+            Some(DisplayListItem::Underline { .. })
+        ));
+        assert!(matches!(
+            clip_text_decoration_item(on, opaque(), 1.0, TextDecorationType::Strikethrough, top, bottom),
+            Some(DisplayListItem::Strikethrough { .. })
+        ));
+        assert!(matches!(
+            clip_text_decoration_item(on, opaque(), 1.0, TextDecorationType::Overline, top, bottom),
+            Some(DisplayListItem::Overline { .. })
+        ));
+        // Off-page decorations are dropped even with a NaN thickness.
+        assert!(clip_text_decoration_item(
+            rect(0.0, 0.0, 10.0, 2.0), opaque(), f32::NAN, TextDecorationType::Underline, top, bottom
+        ).is_none());
+    }
+
+    #[test]
+    fn clip_text_item_filters_glyphs_by_baseline_into_a_half_open_page() {
+        let clip = rect(0.0, 90.0, 200.0, 120.0);
+        let glyphs = vec![
+            glyph(1, 0.0, 99.0),   // above page  -> dropped
+            glyph(2, 8.0, 100.0),  // exactly page_top -> KEPT (>= top)
+            glyph(3, 16.0, 150.0), // inside -> kept
+            glyph(4, 24.0, 200.0), // exactly page_bottom -> dropped (< bottom)
+            glyph(5, 32.0, 250.0), // below -> dropped
+        ];
+
+        let item = clip_text_item(&glyphs, FontHash::from_hash(9), 16.0, opaque(), clip, 100.0, 200.0)
+            .expect("some glyphs are on the page");
+        match item {
+            DisplayListItem::Text { glyphs: kept, clip_rect, source_node_index, .. } => {
+                assert_eq!(kept.iter().map(|g| g.index).collect::<Vec<_>>(), vec![2, 3]);
+                // Kept glyphs are rebased to page-relative Y.
+                assert_eq!(kept[0].point.y, 0.0);
+                assert_eq!(kept[1].point.y, 50.0);
+                // X is never touched.
+                assert_eq!(kept[0].point.x, 8.0);
+                assert_eq!(clip_rect.into_inner().origin.y, -10.0);
+                assert_eq!(source_node_index, None, "the paginated copy loses its source node");
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clip_text_item_returns_none_when_nothing_survives() {
+        let clip = rect(0.0, 90.0, 200.0, 120.0);
+        // The clip rect overlaps the page but no glyph baseline does.
+        let outside = vec![glyph(1, 0.0, 95.0), glyph(2, 8.0, 400.0)];
+        assert!(clip_text_item(&outside, FontHash::from_hash(1), 16.0, opaque(), clip, 100.0, 200.0).is_none());
+
+        // An empty glyph run is dropped too.
+        assert!(clip_text_item(&[], FontHash::from_hash(1), 16.0, opaque(), clip, 100.0, 200.0).is_none());
+
+        // A clip rect entirely off the page short-circuits before glyph filtering.
+        assert!(clip_text_item(
+            &[glyph(1, 0.0, 150.0)], FontHash::from_hash(1), 16.0, opaque(),
+            rect(0.0, 0.0, 10.0, 10.0), 100.0, 200.0
+        ).is_none());
+
+        // NaN glyph baselines never satisfy either bound -> filtered out -> None.
+        let nan_glyphs = vec![glyph(1, 0.0, f32::NAN)];
+        assert!(clip_text_item(&nan_glyphs, FontHash::from_hash(1), 16.0, opaque(), clip, 100.0, 200.0).is_none());
+    }
+
+    #[test]
+    fn clip_border_item_hides_the_bottom_border_when_clipped_at_the_bottom() {
+        let (top, bottom) = (100.0f32, 200.0f32);
+        // Spans past the bottom of the page.
+        let original = rect(0.0, 50.0, 100.0, 200.0);
+        let item = clip_border_item(original, all_widths(), no_colors(), all_styles(), zero_style_radius(), top, bottom)
+            .expect("overlaps the page");
+        match item {
+            DisplayListItem::Border { widths, .. } => {
+                assert!(widths.bottom.is_none(), "a border cut by the page edge must not draw its bottom rule");
+                assert!(widths.left.is_some() && widths.right.is_some(), "side borders survive");
+            }
+            other => panic!("expected Border, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn adjust_border_widths_keeps_every_side_for_a_fully_contained_border() {
+        let (top, bottom) = (100.0f32, 200.0f32);
+        let original = rect(0.0, 110.0, 100.0, 50.0); // strictly inside the page
+        let clipped = clip_rect_bounds(original, top, bottom).unwrap();
+        assert_eq!(clipped, rect(0.0, 10.0, 100.0, 50.0), "unclipped => only rebased");
+
+        let widths = adjust_border_widths_for_clipping(all_widths(), original, clipped, top, bottom);
+        assert!(widths.top.is_some());
+        assert!(widths.bottom.is_some());
+        assert!(widths.left.is_some());
+        assert!(widths.right.is_some());
+    }
+
+    #[test]
+    fn adjust_border_widths_with_nan_page_bounds_does_not_panic() {
+        let original = rect(0.0, 0.0, 10.0, 10.0);
+        let clipped = rect(0.0, 0.0, 10.0, 10.0);
+        let w = adjust_border_widths_for_clipping(all_widths(), original, clipped, f32::NAN, f32::NAN);
+        // Every NaN comparison is false, so nothing is hidden — defined and total.
+        assert!(w.top.is_some() && w.bottom.is_some());
+    }
+
+    #[test]
+    fn clip_and_offset_display_item_drops_state_management_commands() {
+        // Pagination cannot re-derive a clip/scroll/stacking stack per page, so those
+        // items are deliberately dropped. Pin it so a change is visible.
+        for item in [
+            DisplayListItem::PushClip { bounds: rect(0.0, 120.0, 10.0, 10.0).into(), border_radius: BorderRadius::default() },
+            DisplayListItem::PopClip,
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: rect(0.0, 120.0, 10.0, 10.0).into(),
+                content_size: LogicalSize::new(10.0, 10.0),
+                scroll_id: 1,
+            },
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PushStackingContext { z_index: 0, bounds: rect(0.0, 120.0, 10.0, 10.0).into() },
+            DisplayListItem::PopStackingContext,
+            DisplayListItem::PopOpacity,
+            DisplayListItem::PopTextShadow,
+            DisplayListItem::VirtualViewPlaceholder {
+                node_id: NodeId::ZERO,
+                bounds: rect(0.0, 120.0, 10.0, 10.0).into(),
+                clip_rect: rect(0.0, 120.0, 10.0, 10.0).into(),
+            },
+        ] {
+            assert!(
+                clip_and_offset_display_item(&item, 100.0, 200.0).is_none(),
+                "{item:?} must be dropped by the paginator"
+            );
+        }
+    }
+
+    #[test]
+    fn clip_and_offset_display_item_dispatches_drawing_items() {
+        let on_page = DisplayListItem::Rect {
+            bounds: rect(0.0, 150.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let clipped = clip_and_offset_display_item(&on_page, 100.0, 200.0).expect("on page");
+        assert_eq!(clipped.bounds(), Some(rect(0.0, 50.0, 10.0, 10.0)));
+
+        let off_page = DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        assert!(clip_and_offset_display_item(&off_page, 100.0, 200.0).is_none());
+
+        // Gradients use a plain bounds test (no sub-item filtering).
+        let grad = DisplayListItem::LinearGradient {
+            bounds: rect(0.0, 150.0, 10.0, 10.0).into(),
+            gradient: LinearGradient::default(),
+            border_radius: BorderRadius::default(),
+        };
+        assert!(clip_and_offset_display_item(&grad, 100.0, 200.0).is_some());
+        assert!(clip_and_offset_display_item(&grad, 1000.0, 2000.0).is_none());
+    }
+
+    // ---------------------------------------------------------------------
+    // get_display_item_bounds / offset_display_item_y / heights
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn get_display_item_bounds_mirrors_item_bounds() {
+        let r = rect(1.0, 2.0, 3.0, 4.0);
+        let item = DisplayListItem::Rect { bounds: r.into(), color: opaque(), border_radius: BorderRadius::default() };
+        assert_eq!(get_display_item_bounds(&item), Some(WindowLogicalRect::from(r)));
+        assert_eq!(get_display_item_bounds(&DisplayListItem::PopClip), None);
+    }
+
+    #[test]
+    fn offset_display_item_y_zero_offset_is_a_pure_clone() {
+        let item = text_item(Some(3), rect(0.0, 10.0, 100.0, 20.0), vec![glyph(1, 5.0, 15.0)]);
+        let same = offset_display_item_y(&item, 0.0);
+        assert!(item.is_visually_equal(&same));
+        assert_eq!(same.bounds(), item.bounds());
+    }
+
+    #[test]
+    fn offset_display_item_y_moves_glyphs_and_clip_together() {
+        let item = text_item(Some(3), rect(0.0, 10.0, 100.0, 20.0), vec![glyph(1, 5.0, 15.0), glyph(2, 13.0, 15.0)]);
+        match offset_display_item_y(&item, -10.0) {
+            DisplayListItem::Text { glyphs, clip_rect, .. } => {
+                assert_eq!(clip_rect.into_inner(), rect(0.0, 0.0, 100.0, 20.0));
+                assert_eq!(glyphs[0].point.y, 5.0);
+                assert_eq!(glyphs[1].point.y, 5.0);
+                assert_eq!(glyphs[0].point.x, 5.0, "X must not move");
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn offset_display_item_y_with_nonfinite_offsets_does_not_panic() {
+        let item = DisplayListItem::Rect {
+            bounds: rect(0.0, 10.0, 5.0, 5.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        assert!(offset_display_item_y(&item, f32::NAN).bounds().unwrap().origin.y.is_nan());
+        assert!(offset_display_item_y(&item, f32::INFINITY).bounds().unwrap().origin.y.is_infinite());
+        assert!(offset_display_item_y(&item, f32::MIN).bounds().unwrap().origin.y.is_finite());
+    }
+
+    #[test]
+    fn calculate_display_list_height_ignores_hairline_items() {
+        assert_eq!(calculate_display_list_height(&DisplayList::default()), 0.0);
+
+        // Items thinner than 0.1px do not contribute (they are not "visible content").
+        let dl = list_of(vec![
+            DisplayListItem::Rect {
+                bounds: rect(0.0, 5000.0, 10.0, 0.05).into(),
+                color: opaque(),
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::Rect {
+                bounds: rect(0.0, 10.0, 10.0, 40.0).into(),
+                color: opaque(),
+                border_radius: BorderRadius::default(),
+            },
+        ]);
+        assert_eq!(calculate_display_list_height(&dl), 50.0);
+    }
+
+    #[test]
+    fn calculate_display_list_height_never_returns_negative_or_nan() {
+        // Negative and NaN geometry must floor at 0.0 rather than poison the height
+        // (a NaN height would panic the paginator's `partial_cmp().unwrap()` sort).
+        let dl = list_of(vec![
+            DisplayListItem::Rect {
+                bounds: rect(0.0, -500.0, 10.0, 100.0).into(),
+                color: opaque(),
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::Rect {
+                bounds: rect(0.0, f32::NAN, 10.0, f32::NAN).into(),
+                color: opaque(),
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::PopClip, // no bounds at all
+        ]);
+        let h = calculate_display_list_height(&dl);
+        assert!(!h.is_nan(), "a NaN total height would panic the page-break sort");
+        assert_eq!(h, 0.0);
+    }
+
+    // ---------------------------------------------------------------------
+    // get_scroll_id
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn get_scroll_id_maps_node_index_and_collides_none_with_node_zero() {
+        assert_eq!(get_scroll_id(None), 0);
+        assert_eq!(get_scroll_id(Some(NodeId::new(5))), 5);
+        assert_eq!(get_scroll_id(Some(NodeId::new(usize::MAX))), usize::MAX as u64);
+        // NOTE: the "no node" sentinel and the root node both map to 0.
+        assert_eq!(get_scroll_id(Some(NodeId::ZERO)), get_scroll_id(None));
+    }
+
+    // ---------------------------------------------------------------------
+    // SlicerConfig
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn slicer_config_builders_set_the_fields_they_name() {
+        let simple = SlicerConfig::simple(800.0);
+        assert_eq!(simple.page_content_height, 800.0);
+        assert_eq!(simple.page_gap, 0.0);
+        assert!(simple.allow_clipping);
+        assert_eq!(simple.page_width, DEFAULT_A4_WIDTH_PT);
+        assert_eq!(simple.page_slot_height(), 800.0);
+
+        let gapped = SlicerConfig::with_gap(800.0, 40.0);
+        assert_eq!(gapped.page_gap, 40.0);
+        assert_eq!(gapped.page_slot_height(), 840.0);
+
+        let wide = SlicerConfig::simple(800.0).with_page_width(1000.0);
+        assert_eq!(wide.page_width, 1000.0);
+        assert_eq!(wide.page_content_height, 800.0, "with_page_width must not disturb the height");
+    }
+
+    #[test]
+    fn slicer_config_builders_accept_extreme_values() {
+        for h in [0.0, -100.0, f32::MAX, f32::INFINITY, f32::NAN] {
+            let c = SlicerConfig::simple(h);
+            assert_eq!(c.page_content_height.to_bits(), h.to_bits());
+            let _ = c.page_slot_height();
+            let _ = c.page_for_y(10.0);
+            let _ = c.page_bounds(0);
+        }
+        // NaN gap propagates into the slot height without panicking.
+        assert!(SlicerConfig::with_gap(100.0, f32::NAN).page_slot_height().is_nan());
+    }
+
+    #[test]
+    fn page_for_y_basic_and_boundary() {
+        let c = SlicerConfig::simple(100.0);
+        assert_eq!(c.page_for_y(0.0), 0);
+        assert_eq!(c.page_for_y(99.999), 0);
+        assert_eq!(c.page_for_y(100.0), 1, "the page boundary belongs to the next page");
+        assert_eq!(c.page_for_y(250.0), 2);
+
+        // The gap counts towards the slot: page 1 starts at 120, not 100.
+        let g = SlicerConfig::with_gap(100.0, 20.0);
+        assert_eq!(g.page_for_y(119.0), 0);
+        assert_eq!(g.page_for_y(120.0), 1);
+    }
+
+    #[test]
+    fn page_for_y_saturates_instead_of_wrapping_or_trapping() {
+        let c = SlicerConfig::simple(100.0);
+        // Negative Y floors to a negative page; the f32->usize cast SATURATES to 0
+        // (Rust >= 1.45), it does not wrap to usize::MAX.
+        assert_eq!(c.page_for_y(-1.0), 0);
+        assert_eq!(c.page_for_y(-1e30), 0);
+        assert_eq!(c.page_for_y(f32::NEG_INFINITY), 0);
+        // NaN saturates to 0 as well.
+        assert_eq!(c.page_for_y(f32::NAN), 0);
+        // Enormous Y saturates to usize::MAX rather than overflowing.
+        assert_eq!(c.page_for_y(f32::INFINITY), usize::MAX);
+        assert_eq!(c.page_for_y(f32::MAX), usize::MAX);
+    }
+
+    #[test]
+    fn page_for_y_with_a_nonpositive_slot_is_always_page_zero() {
+        // Guard against a division by zero / infinite page index.
+        assert_eq!(SlicerConfig::default().page_for_y(f32::MAX), 0);
+        assert_eq!(SlicerConfig::simple(0.0).page_for_y(500.0), 0);
+        assert_eq!(SlicerConfig::with_gap(100.0, -100.0).page_for_y(500.0), 0, "slot == 0");
+        assert_eq!(SlicerConfig::with_gap(100.0, -500.0).page_for_y(500.0), 0, "slot < 0");
+        // A NaN slot is not > 0.0, but it also fails the `<= 0.0` guard; the cast still
+        // saturates NaN to 0 rather than trapping.
+        assert_eq!(SlicerConfig::simple(f32::NAN).page_for_y(500.0), 0);
+    }
+
+    #[test]
+    fn page_bounds_are_contiguous_without_a_gap_and_spaced_with_one() {
+        let c = SlicerConfig::simple(100.0);
+        assert_eq!(c.page_bounds(0), (0.0, 100.0));
+        assert_eq!(c.page_bounds(1), (100.0, 200.0));
+        assert_eq!(c.page_bounds(3), (300.0, 400.0));
+
+        let g = SlicerConfig::with_gap(100.0, 20.0);
+        assert_eq!(g.page_bounds(0), (0.0, 100.0));
+        assert_eq!(g.page_bounds(2), (240.0, 340.0), "the gap is dead space between pages");
+
+        // page_for_y and page_bounds must agree.
+        for page in 0..5usize {
+            let (start, _end) = g.page_bounds(page);
+            assert_eq!(g.page_for_y(start), page);
+        }
+    }
+
+    #[test]
+    fn page_bounds_at_extreme_indices_do_not_panic() {
+        let c = SlicerConfig::simple(100.0);
+        let (start, end) = c.page_bounds(usize::MAX);
+        assert!(start.is_finite() && end.is_finite(), "usize::MAX as f32 * 100 stays in f32 range");
+        assert!(start > 0.0);
+
+        // A zero-height config collapses every page onto (0, 0).
+        assert_eq!(SlicerConfig::default().page_bounds(9999), (0.0, 0.0));
+    }
+
+    // ---------------------------------------------------------------------
+    // calculate_page_break_positions
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn page_breaks_for_an_empty_or_zero_height_list_is_a_single_page() {
+        let pages = calculate_page_break_positions(&DisplayList::default(), 100.0, 100.0);
+        assert_eq!(pages, vec![(0.0, 100.0)], "an empty document still has one page");
+
+        // first_page_height <= 0 short-circuits to a single page too.
+        let dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+        assert_eq!(calculate_page_break_positions(&dl, 0.0, 100.0), vec![(0.0, 250.0)]);
+        assert_eq!(calculate_page_break_positions(&dl, -50.0, 100.0), vec![(0.0, 250.0)]);
+    }
+
+    #[test]
+    fn page_breaks_split_at_regular_intervals() {
+        let dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+        let pages = calculate_page_break_positions(&dl, 100.0, 100.0);
+        assert_eq!(pages, vec![(0.0, 100.0), (100.0, 200.0), (200.0, 250.0)]);
+
+        // Pages must tile the document with no gaps and no overlaps.
+        for w in pages.windows(2) {
+            assert_eq!(w[0].1, w[1].0);
+        }
+        assert_eq!(pages.first().unwrap().0, 0.0);
+        assert_eq!(pages.last().unwrap().1, 250.0);
+    }
+
+    #[test]
+    fn page_breaks_honour_forced_breaks_and_merge_near_duplicates() {
+        let mut dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+        dl.forced_page_breaks = vec![50.0];
+        assert_eq!(
+            calculate_page_break_positions(&dl, 100.0, 100.0),
+            vec![(0.0, 50.0), (50.0, 100.0), (100.0, 200.0), (200.0, 250.0)]
+        );
+
+        // A forced break within 1px of a regular break is merged, not duplicated
+        // (a duplicate would emit a zero-height page).
+        dl.forced_page_breaks = vec![100.5];
+        let pages = calculate_page_break_positions(&dl, 100.0, 100.0);
+        assert_eq!(pages, vec![(0.0, 100.0), (100.0, 200.0), (200.0, 250.0)]);
+        assert!(pages.iter().all(|(s, e)| e > s), "no zero-height pages");
+    }
+
+    #[test]
+    fn page_breaks_ignore_out_of_range_and_nan_forced_breaks() {
+        // A NaN forced break MUST be filtered before the sort — the sort uses
+        // `partial_cmp().unwrap()` and would panic on a NaN.
+        let mut dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+        dl.forced_page_breaks = vec![f32::NAN, -10.0, 0.0, 250.0, 9999.0, f32::INFINITY];
+        let pages = calculate_page_break_positions(&dl, 100.0, 100.0);
+        // Only the regular interval breaks survive.
+        assert_eq!(pages, vec![(0.0, 100.0), (100.0, 200.0), (200.0, 250.0)]);
+    }
+
+    #[test]
+    fn page_breaks_with_a_nan_first_page_height_still_yields_one_page() {
+        let dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+        // `while NaN < total` is immediately false, so no regular breaks are produced
+        // and the whole document lands on one page. Defined, and NOT a hang.
+        let pages = calculate_page_break_positions(&dl, f32::NAN, 100.0);
+        assert_eq!(pages, vec![(0.0, 250.0)]);
+    }
+
+    // ---------------------------------------------------------------------
+    // paginate_display_list_with_slicer_and_breaks (public entry point)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn paginate_with_a_degenerate_page_height_returns_the_list_unsliced() {
+        let rr = RendererResources::default();
+        let dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+
+        for h in [0.0, -1.0, f32::MAX, f32::INFINITY] {
+            let pages = paginate_display_list_with_slicer_and_breaks(dl.clone(), &SlicerConfig::simple(h), &rr)
+                .expect("degenerate page height must not error");
+            assert_eq!(pages.len(), 1, "page height {h} => no slicing");
+            assert_eq!(pages[0].items.len(), 1);
+        }
+    }
+
+    #[test]
+    fn paginate_slices_content_into_pages() {
+        let rr = RendererResources::default();
+        let dl = list_of(vec![DisplayListItem::Rect {
+            bounds: rect(0.0, 0.0, 10.0, 250.0).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        }]);
+        let pages = paginate_display_list_with_slicer_and_breaks(dl, &SlicerConfig::simple(100.0), &rr)
+            .expect("pagination succeeds");
+        assert_eq!(pages.len(), 3);
+        // The tall rect is clipped onto every page it crosses, always rebased to y=0.
+        for page in &pages {
+            let r = page.items.iter().find_map(DisplayListItem::bounds).expect("each page keeps a slice");
+            assert_eq!(r.origin.y, 0.0);
+            assert!(r.size.height > 0.0 && r.size.height <= 100.0);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // DisplayList::patch_text_glyphs
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn patch_text_glyphs_replaces_matching_runs_and_returns_their_damage() {
+        let clip = rect(10.0, 20.0, 100.0, 30.0);
+        let mut dl = list_of(vec![text_item(Some(7), clip, vec![glyph(1, 0.0, 0.0)])]);
+
+        let damage = dl.patch_text_glyphs(7, &[vec![glyph(42, 5.0, 6.0), glyph(43, 13.0, 6.0)]]);
+        assert_eq!(damage, Some(clip), "damage covers the run's clip rect");
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs, .. } => {
+                assert_eq!(glyphs.iter().map(|g| g.index).collect::<Vec<_>>(), vec![42, 43]);
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn patch_text_glyphs_unions_damage_across_runs() {
+        let a = rect(0.0, 0.0, 50.0, 10.0);
+        let b = rect(100.0, 200.0, 50.0, 10.0);
+        let mut dl = list_of(vec![
+            text_item(Some(3), a, vec![glyph(1, 0.0, 0.0)]),
+            text_item(Some(3), b, vec![glyph(2, 0.0, 0.0)]),
+        ]);
+
+        let damage = dl.patch_text_glyphs(3, &[vec![glyph(9, 0.0, 0.0)], vec![glyph(10, 0.0, 0.0)]])
+            .expect("both runs matched");
+        // The union spans from a's top-left to b's bottom-right.
+        assert_eq!(damage, rect(0.0, 0.0, 150.0, 210.0));
+    }
+
+    #[test]
+    fn patch_text_glyphs_returns_none_when_nothing_matches() {
+        let clip = rect(0.0, 0.0, 10.0, 10.0);
+        let mut dl = list_of(vec![
+            text_item(Some(7), clip, vec![glyph(1, 0.0, 0.0)]),
+            text_item(None, clip, vec![glyph(2, 0.0, 0.0)]), // no source node => never patched
+            DisplayListItem::PopClip,
+        ]);
+
+        assert_eq!(dl.patch_text_glyphs(8, &[vec![glyph(9, 0.0, 0.0)]]), None, "wrong node index");
+        assert_eq!(dl.patch_text_glyphs(usize::MAX, &[vec![glyph(9, 0.0, 0.0)]]), None);
+        assert_eq!(dl.patch_text_glyphs(7, &[]), None, "no replacement runs => nothing to do");
+
+        // Nothing was mutated by any of the failed patches.
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs, .. } => assert_eq!(glyphs[0].index, 1),
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn patch_text_glyphs_stops_when_it_runs_out_of_replacement_runs() {
+        let clip = rect(0.0, 0.0, 10.0, 10.0);
+        let mut dl = list_of(vec![
+            text_item(Some(1), clip, vec![glyph(100, 0.0, 0.0)]),
+            text_item(Some(1), clip, vec![glyph(200, 0.0, 0.0)]),
+            text_item(Some(1), clip, vec![glyph(300, 0.0, 0.0)]),
+        ]);
+
+        // Only one replacement run for three matching items: patch the first, leave the rest.
+        assert!(dl.patch_text_glyphs(1, &[vec![glyph(999, 0.0, 0.0)]]).is_some());
+        let ids: Vec<u32> = dl.items.iter().map(|i| match i {
+            DisplayListItem::Text { glyphs, .. } => glyphs[0].index,
+            other => panic!("expected Text, got {other:?}"),
+        }).collect();
+        assert_eq!(ids, vec![999, 200, 300]);
+    }
+
+    #[test]
+    fn patch_text_glyphs_accepts_an_empty_replacement_run() {
+        let clip = rect(0.0, 0.0, 10.0, 10.0);
+        let mut dl = list_of(vec![text_item(Some(0), clip, vec![glyph(1, 0.0, 0.0)])]);
+        // An empty run erases the glyphs but still reports damage over the old area.
+        assert_eq!(dl.patch_text_glyphs(0, &[Vec::new()]), Some(clip));
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs, .. } => assert!(glyphs.is_empty()),
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // DisplayList::compute_text_damage_rect (text_layout)
+    // ---------------------------------------------------------------------
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn compute_text_damage_rect_empty_inputs_yield_the_zero_rect() {
+        let r = DisplayList::compute_text_damage_rect(&[], &[], LogicalPosition::new(100.0, 200.0), 0);
+        assert_eq!(r, LogicalRect::zero(), "no items => no damage (not a MAX..MIN garbage rect)");
+    }
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn compute_text_damage_rect_translates_by_the_container_origin() {
+        let old = vec![positioned(0, 10.0, 20.0, 30.0, 40.0)];
+        let r = DisplayList::compute_text_damage_rect(&old, &[], LogicalPosition::new(100.0, 200.0), 0);
+        assert_eq!(r, rect(110.0, 220.0, 30.0, 40.0));
+    }
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn compute_text_damage_rect_unions_old_and_new() {
+        let old = vec![positioned(0, 0.0, 0.0, 10.0, 10.0)];
+        let new = vec![positioned(0, 90.0, 190.0, 10.0, 10.0)];
+        let r = DisplayList::compute_text_damage_rect(&old, &new, LogicalPosition::zero(), 0);
+        assert_eq!(r, rect(0.0, 0.0, 100.0, 200.0), "damage must cover both the before and after ink");
+    }
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn compute_text_damage_rect_skips_lines_before_the_affected_line() {
+        let items = vec![
+            positioned(0, 0.0, 0.0, 1000.0, 10.0),  // line 0 — untouched, must be excluded
+            positioned(5, 10.0, 50.0, 20.0, 10.0),  // line 5 — the reflowed line
+        ];
+        let r = DisplayList::compute_text_damage_rect(&items, &items, LogicalPosition::zero(), 5);
+        assert_eq!(r, rect(10.0, 50.0, 20.0, 10.0));
+
+        // An affected_line past every line damages nothing.
+        let none = DisplayList::compute_text_damage_rect(&items, &items, LogicalPosition::zero(), usize::MAX);
+        assert_eq!(none, LogicalRect::zero());
+    }
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn compute_text_damage_rect_nan_positions_are_ignored_not_propagated() {
+        // f32::min/max drop NaN operands, so a NaN-positioned item contributes nothing.
+        let nan_only = vec![positioned(0, f32::NAN, f32::NAN, 10.0, 10.0)];
+        let r = DisplayList::compute_text_damage_rect(&nan_only, &[], LogicalPosition::zero(), 0);
+        assert_eq!(r, LogicalRect::zero(), "an all-NaN run must not produce a NaN damage rect");
+
+        // Mixed: the real item still defines the rect.
+        let mixed = vec![positioned(0, f32::NAN, 0.0, 10.0, 10.0), positioned(0, 5.0, 5.0, 10.0, 10.0)];
+        let r = DisplayList::compute_text_damage_rect(&mixed, &[], LogicalPosition::zero(), 0);
+        assert!(!r.origin.x.is_nan() && !r.size.width.is_nan());
+        assert_eq!(r, rect(5.0, 5.0, 10.0, 10.0));
+    }
+
+    // ---------------------------------------------------------------------
+    // item_center_on_page / transform_items_to_page_coords (text_layout)
+    // ---------------------------------------------------------------------
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn item_center_on_page_uses_the_item_midpoint_half_open() {
+        let item = positioned(0, 0.0, 0.0, 10.0, 20.0); // height 20 => center at +10
+        // layout_origin_y 90 => absolute y 90, center 100 == page_top => on page.
+        assert!(item_center_on_page(&item, 90.0, 100.0, 200.0));
+        // center 99.99 => just above the page.
+        assert!(!item_center_on_page(&item, 89.99, 100.0, 200.0));
+        // center exactly page_bottom => OFF page (half-open interval).
+        assert!(!item_center_on_page(&item, 190.0, 100.0, 200.0));
+        assert!(item_center_on_page(&item, 189.0, 100.0, 200.0));
+    }
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn item_center_on_page_with_nonfinite_values_is_false_not_a_panic() {
+        let item = positioned(0, 0.0, f32::NAN, 10.0, 20.0);
+        assert!(!item_center_on_page(&item, 0.0, 100.0, 200.0));
+
+        let inf = positioned(0, 0.0, f32::INFINITY, 10.0, 20.0);
+        assert!(!item_center_on_page(&inf, 0.0, 100.0, 200.0));
+
+        let ok = positioned(0, 0.0, 150.0, 10.0, 20.0);
+        assert!(!item_center_on_page(&ok, 0.0, f32::NAN, f32::NAN));
+    }
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn transform_items_to_page_coords_rebases_and_reports_extents() {
+        let items = vec![
+            positioned(0, 0.0, 10.0, 30.0, 20.0),
+            positioned(1, 5.0, 40.0, 50.0, 20.0),
+        ];
+        // layout starts at y=100; the page starts at y=100, so new_origin_y = 0.
+        let (out, min_y, max_y, max_width) = transform_items_to_page_coords(items, 100.0, 100.0, 0.0);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].position.y, 10.0);
+        assert_eq!(out[1].position.y, 40.0);
+        assert_eq!(out[0].position.x, 0.0, "X is never rebased");
+        assert_eq!(min_y, 10.0);
+        assert_eq!(max_y, 60.0);
+        assert_eq!(max_width, 55.0, "max_width is position.x + item width");
+    }
+
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn transform_items_to_page_coords_on_an_empty_input_returns_sentinel_extents() {
+        let (out, min_y, max_y, max_width) = transform_items_to_page_coords(Vec::new(), 0.0, 0.0, 0.0);
+        assert!(out.is_empty());
+        // The seeds are returned untouched — callers MUST NOT treat these as real bounds.
+        assert_eq!(min_y, f32::MAX);
+        assert_eq!(max_y, f32::MIN);
+        assert_eq!(max_width, 0.0);
+    }
+
+    // ---------------------------------------------------------------------
+    // DisplayList::to_debug_json
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn to_debug_json_on_an_empty_list_reports_a_balanced_zero_item_list() {
+        let json = DisplayList::default().to_debug_json();
+        assert!(json.contains("\"total_items\": 0"));
+        assert!(json.contains("\"balanced\": true"));
+        assert!(json.contains("\"final_clip_depth\": 0"));
+    }
+
+    #[test]
+    fn to_debug_json_flags_an_unbalanced_clip_stack() {
+        // A PushClip with no PopClip must be reported as unbalanced.
+        let dl = list_of(vec![DisplayListItem::PushClip {
+            bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+            border_radius: BorderRadius::default(),
+        }]);
+        let json = dl.to_debug_json();
+        assert!(json.contains("\"final_clip_depth\": 1"));
+        assert!(json.contains("\"balanced\": false"));
+
+        // A stray PopClip drives the depth negative — also unbalanced, not a panic.
+        let json = list_of(vec![DisplayListItem::PopClip]).to_debug_json();
+        assert!(json.contains("\"final_clip_depth\": -1"));
+        assert!(json.contains("\"balanced\": false"));
+    }
+
+    #[test]
+    fn to_debug_json_survives_a_truncated_node_mapping_and_extreme_values() {
+        // node_mapping shorter than items must not index out of bounds.
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushClip {
+                    bounds: rect(f32::NAN, f32::INFINITY, f32::MAX, -1.0).into(),
+                    border_radius: BorderRadius { top_left: f32::NAN, ..BorderRadius::default() },
+                },
+                DisplayListItem::PopClip,
+                DisplayListItem::PushStackingContext { z_index: i32::MIN, bounds: WindowLogicalRect::zero() },
+                DisplayListItem::PopStackingContext,
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds: WindowLogicalRect::zero(),
+                    content_size: LogicalSize::new(f32::MAX, f32::MAX),
+                    scroll_id: u64::MAX,
+                },
+                DisplayListItem::PopScrollFrame,
+                DisplayListItem::PopTextShadow, // exercises the `_ =>` fallback arm
+            ],
+            node_mapping: Vec::new(), // deliberately desynced
+            ..DisplayList::default()
+        };
+        let json = dl.to_debug_json();
+        assert!(json.contains("\"total_items\": 7"));
+        assert!(json.contains("\"balanced\": true"), "every push is matched by a pop");
+    }
+
+    // ---------------------------------------------------------------------
+    // apply_text_overflow_ellipsis
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn ellipsis_leaves_non_overflowing_text_alone() {
+        let container = rect(0.0, 0.0, 100.0, 20.0);
+        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 10.0, 10.0)]; // right edge 18 < 100
+        let mut dl = list_of(vec![text_item(Some(0), rect(0.0, 0.0, 100.0, 20.0), glyphs.clone())]);
+
+        apply_text_overflow_ellipsis(&mut dl, container, "…");
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs: g, .. } => {
+                assert_eq!(g.len(), glyphs.len());
+                assert_eq!(g.iter().map(|x| x.index).collect::<Vec<_>>(), vec![1, 2]);
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ellipsis_truncates_overflowing_text_and_appends_u2026() {
+        let container = rect(0.0, 0.0, 50.0, 20.0);
+        // Glyphs at x = 0,10,20,30,40,50 each 8 wide => right edges 8,18,28,38,48,58.
+        let glyphs: Vec<_> = (0..6).map(|i| glyph(i + 1, (i as f32) * 10.0, 10.0)).collect();
+        let mut dl = list_of(vec![text_item(Some(0), rect(0.0, 0.0, 500.0, 20.0), glyphs)]);
+
+        apply_text_overflow_ellipsis(&mut dl, container, "…");
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs: g, clip_rect, .. } => {
+                // font_size 16 => ellipsis width 9.6 => truncation edge 40.4;
+                // glyph right edges 8/18/28/38 fit, 48 does not.
+                assert_eq!(g.len(), 5, "4 kept glyphs + 1 ellipsis");
+                assert_eq!(g.last().unwrap().index, 0x2026, "U+2026 HORIZONTAL ELLIPSIS");
+                assert_eq!(g[3].index, 4, "the last kept glyph");
+                // The clip rect is retargeted to the container so nothing spills past it.
+                assert_eq!(clip_rect.into_inner(), container);
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ellipsis_on_a_container_too_narrow_for_any_glyph_leaves_only_the_ellipsis() {
+        // keep_count == 0 => glyphs.truncate(0) => `glyphs.last()` is None. The fallback
+        // must anchor the ellipsis to the container origin instead of panicking.
+        let container = rect(3.0, 4.0, 1.0, 20.0);
+        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 10.0, 10.0)];
+        let mut dl = list_of(vec![text_item(Some(0), rect(0.0, 0.0, 500.0, 20.0), glyphs)]);
+
+        apply_text_overflow_ellipsis(&mut dl, container, "…");
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs: g, .. } => {
+                assert_eq!(g.len(), 1);
+                assert_eq!(g[0].index, 0x2026);
+                assert_eq!(g[0].point, LogicalPosition::new(3.0, 4.0), "anchored to the container origin");
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ellipsis_skips_empty_runs_and_non_text_items() {
+        let container = rect(0.0, 0.0, 1.0, 20.0);
+        let mut dl = list_of(vec![
+            text_item(Some(0), rect(0.0, 0.0, 500.0, 20.0), Vec::new()),
+            DisplayListItem::PopClip,
+            DisplayListItem::Rect {
+                bounds: rect(0.0, 0.0, 900.0, 20.0).into(),
+                color: opaque(),
+                border_radius: BorderRadius::default(),
+            },
+        ]);
+        apply_text_overflow_ellipsis(&mut dl, container, "…");
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs, .. } => assert!(glyphs.is_empty(), "an empty run is left alone"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+        assert_eq!(dl.items.len(), 3, "no items added or removed");
+    }
+
+    #[test]
+    fn ellipsis_with_a_nan_font_size_does_not_panic() {
+        // A NaN ellipsis width makes every `glyph_right > truncation_edge` comparison
+        // false, so nothing is truncated — but an ellipsis is still appended.
+        let container = rect(0.0, 0.0, 50.0, 20.0);
+        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 100.0, 10.0)];
+        let mut dl = list_of(vec![DisplayListItem::Text {
+            glyphs,
+            font_hash: FontHash::invalid(),
+            font_size_px: f32::NAN,
+            color: opaque(),
+            clip_rect: rect(0.0, 0.0, 500.0, 20.0).into(),
+            source_node_index: None,
+        }]);
+
+        apply_text_overflow_ellipsis(&mut dl, container, "…");
+        match &dl.items[0] {
+            DisplayListItem::Text { glyphs: g, .. } => {
+                assert_eq!(g.len(), 3, "both glyphs kept + ellipsis");
+                assert_eq!(g.last().unwrap().index, 0x2026);
+                assert!(g.last().unwrap().size.width.is_nan());
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // resolve_clip_path
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn resolve_clip_path_none_is_no_clip() {
+        use azul_css::props::layout::shape::ClipPath;
+        assert_eq!(resolve_clip_path(&ClipPath::None, rect(0.0, 0.0, 100.0, 100.0)), None);
+        assert_eq!(resolve_clip_path(&ClipPath::default(), rect(0.0, 0.0, 100.0, 100.0)), None);
+    }
+
+    #[test]
+    fn resolve_clip_path_inset_shrinks_from_every_edge() {
+        use azul_css::{corety::OptionF32, props::layout::shape::ClipPath, shape::{CssShape, ShapeInset}};
+        let path = ClipPath::Shape(CssShape::Inset(ShapeInset {
+            inset_top: 10.0,
+            inset_right: 20.0,
+            inset_bottom: 30.0,
+            inset_left: 40.0,
+            border_radius: OptionF32::Some(6.0),
+        }));
+        let (r, radius) = resolve_clip_path(&path, rect(100.0, 200.0, 300.0, 400.0)).expect("inset clips");
+        assert_eq!(r, rect(140.0, 210.0, 240.0, 360.0));
+        assert_eq!(radius, 6.0);
+    }
+
+    #[test]
+    fn resolve_clip_path_over_inset_clamps_the_size_to_zero() {
+        use azul_css::{corety::OptionF32, props::layout::shape::ClipPath, shape::{CssShape, ShapeInset}};
+        let path = ClipPath::Shape(CssShape::Inset(ShapeInset {
+            inset_top: 500.0,
+            inset_right: 500.0,
+            inset_bottom: 500.0,
+            inset_left: 500.0,
+            border_radius: OptionF32::None,
+        }));
+        let (r, radius) = resolve_clip_path(&path, rect(0.0, 0.0, 100.0, 100.0)).expect("still returns a rect");
+        assert_eq!(r.size, LogicalSize::zero(), "insets larger than the box collapse, they do not go negative");
+        assert_eq!(radius, 0.0, "OptionF32::None => radius 0");
+    }
+
+    #[test]
+    fn resolve_clip_path_circle_and_ellipse_use_their_bounding_box() {
+        use azul_css::{props::layout::shape::ClipPath, shape::{CssShape, ShapeCircle, ShapeEllipse, ShapePoint}};
+
+        let circle = ClipPath::Shape(CssShape::Circle(ShapeCircle {
+            center: ShapePoint { x: 50.0, y: 50.0 },
+            radius: 20.0,
+        }));
+        let (r, radius) = resolve_clip_path(&circle, rect(100.0, 100.0, 200.0, 200.0)).expect("circle clips");
+        assert_eq!(r, rect(130.0, 130.0, 40.0, 40.0), "centre is relative to the node origin");
+        assert_eq!(radius, 20.0);
+
+        let ellipse = ClipPath::Shape(CssShape::Ellipse(ShapeEllipse {
+            center: ShapePoint { x: 50.0, y: 50.0 },
+            radius_x: 10.0,
+            radius_y: 30.0,
+        }));
+        let (r, radius) = resolve_clip_path(&ellipse, rect(0.0, 0.0, 100.0, 100.0)).expect("ellipse clips");
+        assert_eq!(r, rect(40.0, 20.0, 20.0, 60.0));
+        assert_eq!(radius, 10.0, "the rounding uses the SMALLER of the two radii");
+    }
+
+    #[test]
+    fn resolve_clip_path_circle_with_a_degenerate_radius_does_not_panic() {
+        use azul_css::{props::layout::shape::ClipPath, shape::{CssShape, ShapeCircle, ShapePoint}};
+        for radius in [0.0, -10.0, f32::NAN, f32::INFINITY] {
+            let path = ClipPath::Shape(CssShape::Circle(ShapeCircle {
+                center: ShapePoint { x: 0.0, y: 0.0 },
+                radius,
+            }));
+            // The value is passed through unclamped; the contract here is only that it
+            // returns a value deterministically instead of panicking.
+            let out = resolve_clip_path(&path, rect(0.0, 0.0, 100.0, 100.0));
+            assert!(out.is_some(), "radius {radius} must still resolve");
+        }
+    }
+
+    #[test]
+    fn resolve_clip_path_polygon_bbox_and_empty_polygon() {
+        use azul_css::{props::layout::shape::ClipPath, shape::{CssShape, ShapePoint, ShapePolygon}};
+
+        // An empty polygon has no bounding box => no clip.
+        let empty = ClipPath::Shape(CssShape::Polygon(ShapePolygon { points: Vec::new().into() }));
+        assert_eq!(resolve_clip_path(&empty, rect(0.0, 0.0, 100.0, 100.0)), None);
+
+        // A real polygon collapses to its axis-aligned bounding box.
+        let tri = ClipPath::Shape(CssShape::Polygon(ShapePolygon {
+            points: vec![
+                ShapePoint { x: 10.0, y: 90.0 },
+                ShapePoint { x: 50.0, y: 10.0 },
+                ShapePoint { x: 90.0, y: 90.0 },
+            ].into(),
+        }));
+        let (r, radius) = resolve_clip_path(&tri, rect(1000.0, 2000.0, 100.0, 100.0)).expect("polygon clips");
+        assert_eq!(r, rect(1010.0, 2010.0, 80.0, 80.0));
+        assert_eq!(radius, 0.0, "a polygon bbox is never rounded");
+    }
+
+    #[test]
+    fn resolve_clip_path_polygon_with_nan_points_collapses_instead_of_panicking() {
+        use azul_css::{props::layout::shape::ClipPath, shape::{CssShape, ShapePoint, ShapePolygon}};
+        let nan_poly = ClipPath::Shape(CssShape::Polygon(ShapePolygon {
+            points: vec![ShapePoint { x: f32::NAN, y: f32::NAN }].into(),
+        }));
+        let (r, _) = resolve_clip_path(&nan_poly, rect(0.0, 0.0, 100.0, 100.0)).expect("still resolves");
+        // f32::min/max drop NaN, leaving the ±INFINITY seeds; the `.max(0.0)` on the size
+        // keeps the result degenerate-but-finite rather than negative.
+        assert_eq!(r.size, LogicalSize::zero());
+    }
+
+    #[test]
+    fn resolve_clip_path_svg_path_is_unsupported_and_does_not_clip() {
+        use azul_css::{props::layout::shape::ClipPath, shape::{CssShape, ShapePath}};
+        let path = ClipPath::Shape(CssShape::Path(ShapePath {
+            data: String::from("M 0 0 L 10 10 Z").into(),
+        }));
+        assert_eq!(
+            resolve_clip_path(&path, rect(0.0, 0.0, 100.0, 100.0)),
+            None,
+            "path() clip-paths are not implemented => no clipping (rather than a wrong clip)"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // apply_clip_path
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn apply_clip_path_wraps_the_tail_of_the_list_and_keeps_the_mapping_in_sync() {
+        let mut dl = list_of(vec![
+            DisplayListItem::Rect {
+                bounds: rect(0.0, 0.0, 10.0, 10.0).into(),
+                color: opaque(),
+                border_radius: BorderRadius::default(),
+            },
+            DisplayListItem::Rect {
+                bounds: rect(0.0, 0.0, 20.0, 20.0).into(),
+                color: opaque(),
+                border_radius: BorderRadius::default(),
+            },
+        ]);
+
+        apply_clip_path(&mut dl, 1, rect(5.0, 5.0, 50.0, 50.0), 8.0);
+
+        assert_eq!(dl.items.len(), 4, "PushClip inserted + PopClip appended");
+        assert_eq!(dl.items.len(), dl.node_mapping.len(), "node_mapping must stay parallel to items");
+        assert!(matches!(dl.items[1], DisplayListItem::PushClip { .. }));
+        assert!(matches!(dl.items[3], DisplayListItem::PopClip));
+        assert_eq!(dl.node_mapping[1], None);
+        assert_eq!(dl.node_mapping[3], None);
+
+        match &dl.items[1] {
+            DisplayListItem::PushClip { bounds, border_radius } => {
+                assert_eq!(bounds.into_inner(), rect(5.0, 5.0, 50.0, 50.0));
+                // A positive radius is applied uniformly to all four corners.
+                assert_eq!(border_radius.top_left, 8.0);
+                assert_eq!(border_radius.bottom_right, 8.0);
+            }
+            other => panic!("expected PushClip, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn apply_clip_path_with_a_nonpositive_radius_uses_square_corners() {
+        for radius in [0.0, -5.0, f32::NAN] {
+            let mut dl = list_of(vec![DisplayListItem::PopClip]);
+            apply_clip_path(&mut dl, 0, rect(0.0, 0.0, 10.0, 10.0), radius);
+            match &dl.items[0] {
+                DisplayListItem::PushClip { border_radius, .. } => {
+                    assert!(border_radius.is_zero(), "radius {radius} must not round the clip");
+                }
+                other => panic!("expected PushClip, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn apply_clip_path_at_the_end_index_appends_rather_than_panicking() {
+        let mut dl = list_of(vec![DisplayListItem::PopClip]);
+        // start_index == items.len() is the boundary case and must be accepted.
+        apply_clip_path(&mut dl, 1, rect(0.0, 0.0, 10.0, 10.0), 0.0);
+        assert_eq!(dl.items.len(), 3);
+        assert_eq!(dl.items.len(), dl.node_mapping.len());
+        assert!(matches!(dl.items[1], DisplayListItem::PushClip { .. }));
+        assert!(matches!(dl.items[2], DisplayListItem::PopClip));
+    }
+
+    #[test]
+    #[should_panic(expected = "insertion index")]
+    fn apply_clip_path_past_the_end_panics_on_the_vec_insert() {
+        // BUG: `start_index` is not validated against `items.len()`, so an out-of-range
+        // index panics inside `Vec::insert` instead of being rejected. Pinned so the
+        // panic is a deliberate, visible contract rather than a latent crash.
+        let mut dl = DisplayList::default();
+        apply_clip_path(&mut dl, 3, rect(0.0, 0.0, 10.0, 10.0), 0.0);
+    }
+}

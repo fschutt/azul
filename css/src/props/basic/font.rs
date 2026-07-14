@@ -1131,3 +1131,1141 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::too_many_lines, clippy::float_cmp)]
+mod autotest_generated {
+    use std::collections::hash_map::DefaultHasher;
+
+    use super::*;
+    use crate::props::basic::{
+        error::ParseIntError as CParseIntError, length::SizeMetric,
+    };
+
+    fn hash_of<T: Hash>(value: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Leaks nothing: the matching destructor below reconstructs the `Box`.
+    fn boxed_font_data(value: u64) -> *const c_void {
+        Box::into_raw(Box::new(value)).cast::<c_void>().cast_const()
+    }
+
+    extern "C" fn noop_destructor(_ptr: *mut c_void) {}
+
+    // One counter per test: `cargo test` runs tests in parallel within a single
+    // process, so a shared counter would race.
+    static SINGLE_DTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn single_counting_destructor(ptr: *mut c_void) {
+        SINGLE_DTOR_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        if !ptr.is_null() {
+            unsafe { drop(Box::from_raw(ptr.cast::<u64>())) };
+        }
+    }
+
+    static CLONE_DTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn clone_counting_destructor(ptr: *mut c_void) {
+        CLONE_DTOR_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        if !ptr.is_null() {
+            unsafe { drop(Box::from_raw(ptr.cast::<u64>())) };
+        }
+    }
+
+    static MANY_DTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn many_counting_destructor(ptr: *mut c_void) {
+        MANY_DTOR_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        if !ptr.is_null() {
+            unsafe { drop(Box::from_raw(ptr.cast::<u64>())) };
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // next_font_ref_id (private)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn next_font_ref_id_is_monotonic_and_never_zero() {
+        let a = next_font_ref_id();
+        let b = next_font_ref_id();
+        // `id == 0` is the "un-initialised / raw-reconstructed" sentinel, so the
+        // counter must never hand it out.
+        assert!(a >= 1, "id 0 is reserved as the null-handle sentinel");
+        assert!(b > a, "ids must be strictly increasing ({a} -> {b})");
+    }
+
+    // ---------------------------------------------------------------------
+    // FontRef::new / FontRef::get_parsed
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn font_ref_new_post_construction_invariants() {
+        let ptr = boxed_font_data(0xDEAD);
+        let font = FontRef::new(ptr, single_counting_destructor);
+
+        assert_eq!(font.get_parsed(), ptr, "get_parsed must return the pointer passed to new()");
+        assert!(font.run_destructor);
+        assert!(font.id >= 1);
+        assert!(!font.copies.is_null());
+        assert_eq!(unsafe { (*font.copies).load(AtomicOrdering::SeqCst) }, 1);
+
+        assert_eq!(SINGLE_DTOR_CALLS.load(AtomicOrdering::SeqCst), 0);
+        drop(font);
+        assert_eq!(
+            SINGLE_DTOR_CALLS.load(AtomicOrdering::SeqCst),
+            1,
+            "the destructor must run exactly once when the last handle drops"
+        );
+    }
+
+    #[test]
+    fn font_ref_new_accepts_null_pointer_without_panicking() {
+        let font = FontRef::new(core::ptr::null(), noop_destructor);
+        assert!(font.get_parsed().is_null());
+        assert!(font.id >= 1);
+        // Debug must not choke on a null `parsed`.
+        let dbg = format!("{font:?}");
+        assert!(dbg.starts_with("FontRef(0x0"), "unexpected Debug output: {dbg}");
+        assert!(dbg.contains("copies: 1"), "unexpected Debug output: {dbg}");
+    }
+
+    #[test]
+    fn font_ref_clone_shares_identity_and_defers_the_destructor() {
+        let ptr = boxed_font_data(42);
+        let original = FontRef::new(ptr, clone_counting_destructor);
+        let copy = original.clone();
+
+        assert_eq!(original, copy, "shallow clones are the same font");
+        assert_eq!(original.id, copy.id);
+        assert_eq!(hash_of(&original), hash_of(&copy));
+        assert_eq!(original.cmp(&copy), Ordering::Equal);
+        assert_eq!(original.get_parsed(), copy.get_parsed());
+        assert_eq!(unsafe { (*original.copies).load(AtomicOrdering::SeqCst) }, 2);
+
+        drop(copy);
+        assert_eq!(
+            CLONE_DTOR_CALLS.load(AtomicOrdering::SeqCst),
+            0,
+            "dropping one of two handles must not free the parsed data"
+        );
+        drop(original);
+        assert_eq!(CLONE_DTOR_CALLS.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[test]
+    fn font_ref_many_clones_run_the_destructor_exactly_once() {
+        let ptr = boxed_font_data(7);
+        let original = FontRef::new(ptr, many_counting_destructor);
+        let clones: Vec<FontRef> = (0..1000).map(|_| original.clone()).collect();
+
+        assert_eq!(unsafe { (*original.copies).load(AtomicOrdering::SeqCst) }, 1001);
+        assert!(clones.iter().all(|c| *c == original));
+
+        drop(clones);
+        assert_eq!(MANY_DTOR_CALLS.load(AtomicOrdering::SeqCst), 0);
+        drop(original);
+        assert_eq!(MANY_DTOR_CALLS.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[test]
+    fn font_ref_identity_is_the_id_not_the_pointer() {
+        // Two independently-constructed handles over the *same* pointer value must
+        // NOT compare equal — that is the whole point of the `id` field (a freed
+        // font's heap address can be reused by a later font).
+        let a = FontRef::new(core::ptr::null(), noop_destructor);
+        let b = FontRef::new(core::ptr::null(), noop_destructor);
+
+        assert_eq!(a.get_parsed(), b.get_parsed(), "same (null) pointer");
+        assert_ne!(a, b, "same pointer must not forge identity");
+        assert_ne!(a.id, b.id);
+        assert_ne!(hash_of(&a), hash_of(&b));
+        assert_eq!(a.cmp(&b), Ordering::Less, "ids are handed out in increasing order");
+        assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
+    }
+
+    #[test]
+    fn font_ref_raw_zero_handle_is_drop_safe() {
+        // A handle reconstructed from raw parts (id == 0, no refcount) must not be
+        // dereferenced by Debug/Drop.
+        let make = || FontRef {
+            parsed: core::ptr::null(),
+            copies: core::ptr::null(),
+            id: 0,
+            run_destructor: false,
+            parsed_destructor: noop_destructor,
+        };
+        let raw = make();
+        let raw2 = make();
+
+        assert!(raw.get_parsed().is_null());
+        assert_eq!(format!("{raw:?}"), "FontRef(0x0)");
+        assert_eq!(raw, raw2, "both carry the id==0 sentinel");
+
+        let cloned = raw.clone();
+        assert_eq!(cloned.id, 0);
+        assert!(cloned.copies.is_null(), "cloning must not allocate a refcount for a raw handle");
+
+        drop(cloned);
+        drop(raw2);
+        drop(raw); // must not double-free / deref null
+    }
+
+    // ---------------------------------------------------------------------
+    // StyleFontFamily::as_string
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn style_font_family_as_string_quotes_only_when_whitespace_is_present() {
+        assert_eq!(StyleFontFamily::System("Arial".into()).as_string(), "Arial");
+        assert_eq!(
+            StyleFontFamily::System("Times New Roman".into()).as_string(),
+            "\"Times New Roman\""
+        );
+        // An empty family name is not quoted (it has no whitespace).
+        assert_eq!(StyleFontFamily::System("".into()).as_string(), "");
+        // Tabs / newlines count as whitespace.
+        assert_eq!(StyleFontFamily::System("a\tb".into()).as_string(), "\"a\tb\"");
+        assert_eq!(StyleFontFamily::System("a\nb".into()).as_string(), "\"a\nb\"");
+    }
+
+    #[test]
+    fn style_font_family_as_string_handles_unicode() {
+        // No ASCII whitespace -> unquoted, bytes preserved.
+        assert_eq!(StyleFontFamily::System("日本語".into()).as_string(), "日本語");
+        assert_eq!(StyleFontFamily::System("\u{1F600}".into()).as_string(), "\u{1F600}");
+        // Combining marks are not whitespace.
+        assert_eq!(StyleFontFamily::System("e\u{0301}".into()).as_string(), "e\u{0301}");
+        // U+00A0 NO-BREAK SPACE *is* `char::is_whitespace`, so it gets quoted.
+        assert_eq!(
+            StyleFontFamily::System("a\u{00A0}b".into()).as_string(),
+            "\"a\u{00A0}b\""
+        );
+    }
+
+    #[test]
+    fn style_font_family_as_string_file_and_systemtype_and_ref() {
+        // `File` is never quoted, even when it contains whitespace.
+        assert_eq!(
+            StyleFontFamily::File("my font.ttf".into()).as_string(),
+            "url(my font.ttf)"
+        );
+        assert_eq!(
+            StyleFontFamily::SystemType(SystemFontType::MonospaceBold).as_string(),
+            "system:monospace:bold"
+        );
+
+        let ptr = 0xdead_beef_usize as *const c_void;
+        let fam = StyleFontFamily::Ref(FontRef::new(ptr, noop_destructor));
+        assert_eq!(fam.as_string(), "font-ref(0xdeadbeef)");
+    }
+
+    #[test]
+    fn style_font_family_as_string_on_huge_name_does_not_panic() {
+        let huge = "x".repeat(1_000_000);
+        let fam = StyleFontFamily::System(huge.as_str().into());
+        assert_eq!(fam.as_string().len(), 1_000_000);
+    }
+
+    // ---------------------------------------------------------------------
+    // parse_font_weight
+    // ---------------------------------------------------------------------
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_valid_minimal_and_full_roundtrip() {
+        assert_eq!(parse_font_weight("normal").unwrap(), StyleFontWeight::Normal);
+
+        for weight in [
+            StyleFontWeight::Lighter,
+            StyleFontWeight::W100,
+            StyleFontWeight::W200,
+            StyleFontWeight::W300,
+            StyleFontWeight::Normal,
+            StyleFontWeight::W500,
+            StyleFontWeight::W600,
+            StyleFontWeight::Bold,
+            StyleFontWeight::W800,
+            StyleFontWeight::W900,
+            StyleFontWeight::Bolder,
+        ] {
+            let css = weight.print_as_css_value();
+            assert_eq!(
+                parse_font_weight(&css).unwrap(),
+                weight,
+                "encode==decode failed for {weight:?} (printed as {css:?})"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_numeric_aliases_collapse_onto_keywords() {
+        // 400/700 are accepted but re-print as keywords, so the *string* round-trip
+        // is deliberately lossy in one direction.
+        assert_eq!(parse_font_weight("400").unwrap(), StyleFontWeight::Normal);
+        assert_eq!(parse_font_weight("700").unwrap(), StyleFontWeight::Bold);
+        assert_eq!(StyleFontWeight::Normal.print_as_css_value(), "normal");
+        assert_eq!(StyleFontWeight::Bold.print_as_css_value(), "bold");
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_rejects_empty_and_whitespace_only() {
+        for input in ["", " ", "   ", "\t\n", "\r\n\t "] {
+            let err = parse_font_weight(input).unwrap_err();
+            assert!(
+                matches!(err, CssFontWeightParseError::InvalidValue(InvalidValueErr(""))),
+                "expected trimmed InvalidValue(\"\") for {input:?}, got {err:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_rejects_garbage_and_reports_the_trimmed_input() {
+        assert_eq!(
+            parse_font_weight("  thin  ").unwrap_err(),
+            CssFontWeightParseError::InvalidValue(InvalidValueErr("thin")),
+            "the error must carry the trimmed input"
+        );
+        for input in ["thin", "boldest", "bold;garbage", "normal!", "\u{0}\u{1}\u{7f}", "-"] {
+            assert!(parse_font_weight(input).is_err(), "{input:?} must not parse");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_rejects_boundary_numbers_without_ever_yielding_invalidnumber() {
+        // `parse_font_weight` only matches literal keyword/number strings; it never
+        // calls `str::parse`, so the `InvalidNumber` variant is unreachable here.
+        for input in [
+            "0",
+            "-0",
+            "450",
+            "1000",
+            "0400",
+            "+400",
+            "400.0",
+            "4e2",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "18446744073709551616",
+            "NaN",
+            "inf",
+            "-inf",
+            "1e309",
+        ] {
+            let err = parse_font_weight(input).unwrap_err();
+            assert!(
+                matches!(err, CssFontWeightParseError::InvalidValue(_)),
+                "{input:?} should be an InvalidValue, got {err:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_trims_unicode_whitespace() {
+        // `str::trim` uses `char::is_whitespace`, so U+00A0 / U+2028 are stripped —
+        // stricter CSS tokenisers would not do this.
+        assert_eq!(
+            parse_font_weight("\u{00A0}bold\u{00A0}").unwrap(),
+            StyleFontWeight::Bold
+        );
+        assert_eq!(parse_font_weight("\u{2028}400").unwrap(), StyleFontWeight::Normal);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_unicode_garbage_is_rejected_and_displayable() {
+        let err = parse_font_weight("\u{1F600}").unwrap_err();
+        assert_eq!(
+            err,
+            CssFontWeightParseError::InvalidValue(InvalidValueErr("\u{1F600}"))
+        );
+        // Display / Debug must not panic on multibyte payloads.
+        let msg = format!("{err}");
+        assert!(msg.contains('\u{1F600}'), "unexpected message: {msg}");
+        assert!(!format!("{err:?}").is_empty());
+
+        assert!(parse_font_weight("bold\u{0301}").is_err(), "combining mark must not be trimmed");
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_weight_survives_extremely_long_and_deeply_nested_input() {
+        let long = "bold".repeat(250_000); // 1_000_000 chars
+        assert!(parse_font_weight(&long).is_err());
+
+        let nested = "(".repeat(10_000);
+        assert!(parse_font_weight(&nested).is_err());
+
+        let long_digits = "9".repeat(100_000);
+        assert!(parse_font_weight(&long_digits).is_err());
+    }
+
+    // ---------------------------------------------------------------------
+    // parse_font_style
+    // ---------------------------------------------------------------------
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_style_valid_minimal_and_full_roundtrip() {
+        assert_eq!(parse_font_style("normal").unwrap(), StyleFontStyle::Normal);
+        for style in [
+            StyleFontStyle::Normal,
+            StyleFontStyle::Italic,
+            StyleFontStyle::Oblique,
+        ] {
+            let css = style.print_as_css_value();
+            assert_eq!(parse_font_style(&css).unwrap(), style, "encode==decode failed for {style:?}");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_style_rejects_empty_whitespace_and_garbage() {
+        for input in ["", "   ", "\t\n"] {
+            assert_eq!(
+                parse_font_style(input).unwrap_err(),
+                CssFontStyleParseError::InvalidValue(InvalidValueErr(""))
+            );
+        }
+        for input in [
+            "slanted",
+            "italics",
+            "ITALIC",
+            "italic;garbage",
+            "oblique 14deg",
+            "0",
+            "-0",
+            "NaN",
+            "inf",
+            "9223372036854775807",
+        ] {
+            assert!(parse_font_style(input).is_err(), "{input:?} must not parse");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_style_leading_trailing_junk_and_unicode() {
+        assert_eq!(parse_font_style("  italic  ").unwrap(), StyleFontStyle::Italic);
+        assert_eq!(
+            parse_font_style(" italic;").unwrap_err(),
+            CssFontStyleParseError::InvalidValue(InvalidValueErr("italic;"))
+        );
+        let err = parse_font_style("\u{1F600}\u{0301}").unwrap_err();
+        assert!(!format!("{err}").is_empty());
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_font_style_survives_extremely_long_and_deeply_nested_input() {
+        let long = "italic".repeat(200_000); // 1_200_000 chars
+        assert!(parse_font_style(&long).is_err());
+        let nested = "[".repeat(10_000);
+        assert!(parse_font_style(&nested).is_err());
+    }
+
+    // ---------------------------------------------------------------------
+    // parse_style_font_size
+    // ---------------------------------------------------------------------
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_valid_minimal_and_metric_roundtrip() {
+        assert_eq!(parse_style_font_size("16px").unwrap().inner, PixelValue::px(16.0));
+
+        // NOTE: `SizeMetric::Vmin` is deliberately excluded — see
+        // `parse_style_font_size_vmin_is_shadowed_by_the_in_suffix`.
+        for metric in [
+            SizeMetric::Px,
+            SizeMetric::Pt,
+            SizeMetric::Em,
+            SizeMetric::Rem,
+            SizeMetric::In,
+            SizeMetric::Cm,
+            SizeMetric::Mm,
+            SizeMetric::Percent,
+            SizeMetric::Vw,
+            SizeMetric::Vh,
+            SizeMetric::Vmax,
+        ] {
+            let size = StyleFontSize {
+                inner: PixelValue::from_metric(metric, 12.0),
+            };
+            let css = size.print_as_css_value();
+            assert_eq!(
+                parse_style_font_size(&css).unwrap(),
+                size,
+                "encode==decode failed for {metric:?} (printed as {css:?})"
+            );
+        }
+
+        // The default (12pt) must survive a print/parse round-trip too.
+        let default = StyleFontSize::default();
+        assert_eq!(default.print_as_css_value(), "12pt");
+        assert_eq!(parse_style_font_size("12pt").unwrap(), default);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_vmin_is_shadowed_by_the_in_suffix() {
+        // BUG (in `parse_pixel_value`'s suffix table, css/src/props/basic/pixel.rs):
+        // "in" is tested before "vmin", so "12vmin" strips to "12vm" and fails to
+        // parse. `12vmax` is unaffected (no earlier suffix matches). Asserted here
+        // as-is so the suite stays green; reported as a real defect.
+        let size = StyleFontSize {
+            inner: PixelValue::from_metric(SizeMetric::Vmin, 12.0),
+        };
+        let css = size.print_as_css_value();
+        assert_eq!(css, "12vmin");
+
+        let err = parse_style_font_size(&css).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                CssStyleFontSizeParseError::PixelValue(CssPixelValueParseError::ValueParseErr(
+                    _, "12vm"
+                ))
+            ),
+            "expected the (buggy) 'in'-suffix strip, got {err:?}"
+        );
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_rejects_empty_and_whitespace_only() {
+        for input in ["", " ", "   ", "\t\n"] {
+            let err = parse_style_font_size(input).unwrap_err();
+            assert_eq!(
+                err,
+                CssStyleFontSizeParseError::PixelValue(CssPixelValueParseError::EmptyString),
+                "unexpected error for {input:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_rejects_garbage_and_bare_units() {
+        let err = parse_style_font_size("px").unwrap_err();
+        assert!(
+            matches!(
+                err,
+                CssStyleFontSizeParseError::PixelValue(CssPixelValueParseError::NoValueGiven(
+                    "px",
+                    SizeMetric::Px
+                ))
+            ),
+            "expected NoValueGiven, got {err:?}"
+        );
+
+        for input in [
+            "medium",
+            "larger",
+            "16PX",      // unit matching is case-sensitive
+            "16px;junk",
+            "16 px junk",
+            "\u{1F600}",
+            "--",
+            "px16",
+        ] {
+            assert!(parse_style_font_size(input).is_err(), "{input:?} must not parse");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_accepts_unitless_numbers_as_px() {
+        // Deviation from CSS (which only allows a unitless `0`): any bare number is
+        // accepted and silently treated as `px`.
+        assert_eq!(parse_style_font_size("0").unwrap().inner, PixelValue::px(0.0));
+        assert_eq!(parse_style_font_size("16").unwrap().inner, PixelValue::px(16.0));
+        assert_eq!(parse_style_font_size("-16").unwrap().inner, PixelValue::px(-16.0));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_boundary_numbers_saturate_instead_of_panicking() {
+        // Signed zero collapses to +0.
+        assert_eq!(parse_style_font_size("-0px").unwrap().inner.number.get(), 0.0);
+        assert_eq!(parse_style_font_size("0px").unwrap().inner.number.get(), 0.0);
+
+        // f32 overflow -> +/-inf -> the isize encoding saturates (no UB, no panic).
+        let big = parse_style_font_size("1e40px").unwrap().inner.number.get();
+        assert!(big.is_finite() && big > 0.0, "expected a saturated finite value, got {big}");
+        let small = parse_style_font_size("-1e40px").unwrap().inner.number.get();
+        assert!(small.is_finite() && small < 0.0, "expected a saturated finite value, got {small}");
+
+        // Literal infinities are accepted by `f32::from_str` and saturate as well.
+        let inf = parse_style_font_size("inf").unwrap().inner.number.get();
+        assert!(inf.is_finite() && inf > 0.0);
+        let neg_inf = parse_style_font_size("-infinitypx").unwrap().inner.number.get();
+        assert!(neg_inf.is_finite() && neg_inf < 0.0);
+
+        // i64::MAX / u64::MAX as bare numbers: no overflow panic.
+        for input in ["9223372036854775807", "18446744073709551615px"] {
+            let v = parse_style_font_size(input).unwrap().inner.number.get();
+            assert!(v.is_finite(), "{input:?} produced {v}");
+        }
+
+        // Sub-milli precision is truncated by the fixed-point encoding, not rounded.
+        assert_eq!(parse_style_font_size("16.0004px").unwrap().inner, PixelValue::px(16.0));
+        assert_eq!(parse_style_font_size("1e-40px").unwrap().inner.number.get(), 0.0);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_nan_is_silently_coerced_to_zero() {
+        // `f32::from_str` accepts "NaN", and the fixed-point cast maps NaN -> 0.
+        // A stricter CSS parser would reject this outright; asserted as-is.
+        let parsed = parse_style_font_size("NaN").unwrap();
+        assert_eq!(parsed.inner.metric, SizeMetric::Px);
+        assert_eq!(parsed.inner.number.get(), 0.0);
+        assert_eq!(parse_style_font_size("nanpx").unwrap().inner.number.get(), 0.0);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_leading_trailing_whitespace_is_trimmed() {
+        assert_eq!(parse_style_font_size("  16px  ").unwrap().inner, PixelValue::px(16.0));
+        // Whitespace *between* number and unit is tolerated as well.
+        assert_eq!(parse_style_font_size("16 px").unwrap().inner, PixelValue::px(16.0));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_size_survives_extremely_long_and_deeply_nested_input() {
+        let long_digits = "1".repeat(50_000);
+        let parsed = parse_style_font_size(&long_digits).unwrap();
+        assert!(parsed.inner.number.get().is_finite());
+
+        let long_garbage = "z".repeat(1_000_000);
+        assert!(parse_style_font_size(&long_garbage).is_err());
+
+        let nested = "(".repeat(10_000);
+        assert!(parse_style_font_size(&nested).is_err());
+    }
+
+    // ---------------------------------------------------------------------
+    // parse_style_font_family
+    // ---------------------------------------------------------------------
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_valid_minimal() {
+        let parsed = parse_style_font_family("Arial").unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("Arial".into()));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_never_returns_err() {
+        // Every failure path inside the parser falls back to "treat it as an
+        // unquoted family name", so the `Err` half of the signature (and with it
+        // `CssStyleFontFamilyParseError`) is unreachable. Documented, not weakened.
+        let nested = "(".repeat(10_000);
+        let long = "x".repeat(1_000_000);
+        let inputs: Vec<&str> = vec![
+            "",
+            "   ",
+            "\t\n",
+            ",",
+            ",,,",
+            "'unclosed",
+            "\"unclosed",
+            "\"Arial'",
+            "'Arial\"",
+            "\u{1F600}",
+            "system:",
+            "system:bogus",
+            "url(x.ttf)",
+            "font-ref(0xdeadbeef)",
+            "\u{0}\u{7f}",
+            &nested,
+            &long,
+        ];
+        for input in inputs {
+            assert!(
+                parse_style_font_family(input).is_ok(),
+                "parse_style_font_family unexpectedly failed for {:?}",
+                &input[..input.len().min(32)]
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_empty_input_yields_one_empty_family() {
+        // Deviation from CSS (an empty font-family list is invalid there): the
+        // parser produces a single, empty `System` name instead of erroring.
+        let parsed = parse_style_font_family("").unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("".into()));
+
+        let parsed = parse_style_font_family("   ").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("".into()));
+
+        let parsed = parse_style_font_family(",,,").unwrap();
+        assert_eq!(parsed.len(), 4, "N commas produce N+1 (empty) families");
+        assert!(parsed
+            .iter()
+            .all(|f| *f == StyleFontFamily::System("".into())));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_unclosed_quotes_keep_the_quote_character() {
+        // `strip_quotes` errors, and the parser then keeps the *raw* token — so the
+        // quote survives into the family name rather than surfacing UnclosedQuotes.
+        let parsed = parse_style_font_family("'unclosed").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("'unclosed".into()));
+
+        let parsed = parse_style_font_family("\"Arial'").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("\"Arial'".into()));
+
+        // An empty quoted string strips down to an empty family name.
+        let parsed = parse_style_font_family("\"\"").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("".into()));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_system_prefix_is_case_sensitive_and_falls_back() {
+        // Unknown `system:` types fall through to a literal family name.
+        let parsed = parse_style_font_family("system:bogus").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("system:bogus".into()));
+        let parsed = parse_style_font_family("system:").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("system:".into()));
+        // Uppercase prefix is not recognised as a system font.
+        let parsed = parse_style_font_family("SYSTEM:UI").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("SYSTEM:UI".into()));
+        let parsed = parse_style_font_family("system:UI").unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("system:UI".into()));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_never_produces_file_or_ref_variants() {
+        for input in ["url(x.ttf)", "font-ref(0x1)", "Arial", "system:ui", "'a'", "\u{1F600}"] {
+            let parsed = parse_style_font_family(input).unwrap();
+            assert!(
+                parsed.iter().all(|f| matches!(
+                    f,
+                    StyleFontFamily::System(_) | StyleFontFamily::SystemType(_)
+                )),
+                "the parser must only ever yield System/SystemType, got {parsed:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_handles_unicode_names() {
+        let parsed = parse_style_font_family("日本語, \u{1F600}, e\u{0301}").unwrap();
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("日本語".into()));
+        assert_eq!(parsed.as_slice()[1], StyleFontFamily::System("\u{1F600}".into()));
+        assert_eq!(parsed.as_slice()[2], StyleFontFamily::System("e\u{0301}".into()));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn parse_style_font_family_survives_extremely_long_and_deeply_nested_input() {
+        let huge_name = "x".repeat(1_000_000);
+        let parsed = parse_style_font_family(&huge_name).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System(huge_name.as_str().into()));
+
+        let many = "Arial,".repeat(10_000);
+        let parsed = parse_style_font_family(&many).unwrap();
+        assert_eq!(parsed.len(), 10_001, "trailing comma adds one empty family");
+
+        let nested = "(".repeat(10_000);
+        let parsed = parse_style_font_family(&nested).unwrap();
+        assert_eq!(parsed.len(), 1);
+    }
+
+    // ---------------------------------------------------------------------
+    // as_string <-> parse_style_font_family round-trips
+    // ---------------------------------------------------------------------
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn style_font_family_as_string_roundtrips_through_the_parser() {
+        for name in ["Arial", "Times New Roman", "", "日本語", "a\u{00A0}b", "Fo\"o", "serif"] {
+            let family = StyleFontFamily::System(name.into());
+            let css = family.as_string();
+            let parsed = parse_style_font_family(&css).unwrap();
+            assert_eq!(parsed.len(), 1, "{name:?} printed as {css:?}");
+            assert_eq!(parsed.as_slice()[0], family, "encode==decode failed for {name:?}");
+        }
+
+        for ft in [
+            SystemFontType::Ui,
+            SystemFontType::UiBold,
+            SystemFontType::Monospace,
+            SystemFontType::MonospaceBold,
+            SystemFontType::MonospaceItalic,
+            SystemFontType::Title,
+            SystemFontType::TitleBold,
+            SystemFontType::Menu,
+            SystemFontType::Small,
+            SystemFontType::Serif,
+            SystemFontType::SerifBold,
+        ] {
+            let family = StyleFontFamily::SystemType(ft);
+            let parsed = parse_style_font_family(&family.as_string()).unwrap();
+            assert_eq!(parsed.as_slice()[0], family, "encode==decode failed for {ft:?}");
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn style_font_family_as_string_does_not_escape_commas() {
+        // LOSSY: `as_string()` quotes on whitespace only, so a comma inside a family
+        // name re-parses as two families. Asserted as-is; reported as a defect.
+        let family = StyleFontFamily::System("Foo,Bar".into());
+        assert_eq!(family.as_string(), "Foo,Bar");
+        let parsed = parse_style_font_family(&family.as_string()).unwrap();
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn style_font_family_file_and_ref_do_not_roundtrip() {
+        // `url(...)` / `font-ref(...)` are printable but not parseable: they come
+        // back as plain `System` names.
+        let file = StyleFontFamily::File("f.ttf".into());
+        let parsed = parse_style_font_family(&file.as_string()).unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("url(f.ttf)".into()));
+
+        let font = StyleFontFamily::Ref(FontRef::new(core::ptr::null(), noop_destructor));
+        let parsed = parse_style_font_family(&font.as_string()).unwrap();
+        assert_eq!(parsed.as_slice()[0], StyleFontFamily::System("font-ref(0x0)".into()));
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn style_font_family_vec_print_as_css_value_roundtrips() {
+        let css = "Arial, \"Times New Roman\", system:ui";
+        let parsed = parse_style_font_family(css).unwrap();
+        assert_eq!(parsed.print_as_css_value(), css);
+        let reparsed = parse_style_font_family(&parsed.print_as_css_value()).unwrap();
+        assert_eq!(reparsed, parsed, "encode==decode failed for a font stack");
+    }
+
+    // ---------------------------------------------------------------------
+    // Error to_contained / to_shared
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn css_font_weight_parse_error_invalid_value_roundtrips() {
+        for value in ["", "thin", "\u{1F600}", "a\u{0}b"] {
+            let shared = CssFontWeightParseError::InvalidValue(InvalidValueErr(value));
+            let owned = shared.to_contained();
+            assert_eq!(
+                owned,
+                CssFontWeightParseErrorOwned::InvalidValue(InvalidValueErrOwned {
+                    value: value.into()
+                })
+            );
+            assert_eq!(owned.to_shared(), shared, "to_contained/to_shared must round-trip");
+            assert!(!format!("{shared}").is_empty());
+        }
+    }
+
+    #[test]
+    fn css_font_weight_parse_error_invalid_number_roundtrips() {
+        let cases = [
+            "".parse::<i32>().unwrap_err(),
+            "x".parse::<i32>().unwrap_err(),
+            "99999999999999999999".parse::<i32>().unwrap_err(),
+            "-99999999999999999999".parse::<i32>().unwrap_err(),
+        ];
+        for err in cases {
+            let shared = CssFontWeightParseError::InvalidNumber(err);
+            let owned = shared.to_contained();
+            assert_eq!(owned.to_shared(), shared, "kind must survive the FFI round-trip");
+            assert!(!format!("{shared}").is_empty());
+        }
+    }
+
+    #[test]
+    fn css_font_weight_parse_error_zero_kind_roundtrip_is_lossy() {
+        // `IntErrorKind::Zero` cannot be reconstructed on stable Rust — the source
+        // documents this; assert the documented degradation to InvalidDigit.
+        let zero_err = "0".parse::<core::num::NonZeroU32>().unwrap_err();
+        let shared = CssFontWeightParseError::InvalidNumber(zero_err);
+        let owned = shared.to_contained();
+        assert_eq!(
+            owned,
+            CssFontWeightParseErrorOwned::InvalidNumber(CParseIntError::Zero),
+            "the Zero kind must survive into the owned form"
+        );
+        assert_ne!(
+            owned.to_shared(),
+            shared,
+            "to_std() cannot rebuild a Zero-kind ParseIntError (documented)"
+        );
+    }
+
+    #[test]
+    fn css_font_style_parse_error_roundtrips() {
+        for value in ["", "slanted", "\u{1F600}"] {
+            let shared = CssFontStyleParseError::InvalidValue(InvalidValueErr(value));
+            let owned = shared.to_contained();
+            assert_eq!(
+                owned,
+                CssFontStyleParseErrorOwned::InvalidValue(InvalidValueErrOwned {
+                    value: value.into()
+                })
+            );
+            assert_eq!(owned.to_shared(), shared);
+            assert!(!format!("{shared}").is_empty());
+        }
+    }
+
+    #[test]
+    fn css_style_font_size_parse_error_roundtrips_every_variant() {
+        let cases = [
+            CssPixelValueParseError::EmptyString,
+            CssPixelValueParseError::NoValueGiven("px", SizeMetric::Px),
+            CssPixelValueParseError::NoValueGiven("%", SizeMetric::Percent),
+            CssPixelValueParseError::ValueParseErr("abc".parse::<f32>().unwrap_err(), "abc"),
+            CssPixelValueParseError::ValueParseErr("".parse::<f32>().unwrap_err(), ""),
+            CssPixelValueParseError::InvalidPixelValue("medium"),
+            CssPixelValueParseError::InvalidPixelValue("\u{1F600}"),
+        ];
+        for inner in cases {
+            let shared = CssStyleFontSizeParseError::PixelValue(inner);
+            let owned = shared.to_contained();
+            assert_eq!(owned.to_shared(), shared, "to_contained/to_shared must round-trip");
+            assert!(!format!("{shared}").is_empty());
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    #[test]
+    fn css_style_font_family_parse_error_roundtrips_every_variant() {
+        let cases = [
+            CssStyleFontFamilyParseError::InvalidStyleFontFamily(""),
+            CssStyleFontFamilyParseError::InvalidStyleFontFamily("bogus"),
+            CssStyleFontFamilyParseError::UnclosedQuotes(UnclosedQuotesError("\"Arial")),
+            CssStyleFontFamilyParseError::UnclosedQuotes(UnclosedQuotesError("\u{1F600}")),
+        ];
+        for shared in cases {
+            let owned = shared.to_contained();
+            assert_eq!(owned.to_shared(), shared, "to_contained/to_shared must round-trip");
+            assert!(!format!("{shared}").is_empty());
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // FormatAsRustCode / defaults / ordering
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn font_enum_defaults_and_ordering() {
+        assert_eq!(StyleFontWeight::default(), StyleFontWeight::Normal);
+        assert_eq!(StyleFontStyle::default(), StyleFontStyle::Normal);
+        assert_eq!(StyleFontSize::default().inner, PixelValue::const_pt(12));
+
+        // Derived Ord follows declaration order (numeric weights are ordered).
+        assert!(StyleFontWeight::W100 < StyleFontWeight::W900);
+        assert!(StyleFontWeight::Normal < StyleFontWeight::Bold);
+        assert!(StyleFontWeight::Lighter < StyleFontWeight::W100);
+        assert!(StyleFontWeight::Bolder > StyleFontWeight::W900);
+    }
+
+    #[test]
+    fn format_as_rust_code_matches_the_debug_variant_names() {
+        for weight in [
+            StyleFontWeight::Lighter,
+            StyleFontWeight::W100,
+            StyleFontWeight::W200,
+            StyleFontWeight::W300,
+            StyleFontWeight::Normal,
+            StyleFontWeight::W500,
+            StyleFontWeight::W600,
+            StyleFontWeight::Bold,
+            StyleFontWeight::W800,
+            StyleFontWeight::W900,
+            StyleFontWeight::Bolder,
+        ] {
+            assert_eq!(
+                weight.format_as_rust_code(0),
+                format!("StyleFontWeight::{weight:?}")
+            );
+        }
+        for style in [
+            StyleFontStyle::Normal,
+            StyleFontStyle::Italic,
+            StyleFontStyle::Oblique,
+        ] {
+            assert_eq!(
+                style.format_as_rust_code(0),
+                format!("StyleFontStyle::{style:?}")
+            );
+        }
+        assert_eq!(
+            StyleFontFamily::SystemType(SystemFontType::Ui).format_as_rust_code(0),
+            "StyleFontFamily::SystemType(SystemFontType::Ui)"
+        );
+        assert!(StyleFontFamily::System("Arial".into())
+            .format_as_rust_code(0)
+            .starts_with("StyleFontFamily::System(STRING_"));
+        assert!(StyleFontFamily::File("a.ttf".into())
+            .format_as_rust_code(0)
+            .starts_with("StyleFontFamily::File(STRING_"));
+    }
+
+    // ---------------------------------------------------------------------
+    // Panose::zero / FontMetrics::zero + getters
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn panose_zero_is_the_neutral_element() {
+        const P: Panose = Panose::zero();
+        assert_eq!(P, Panose::default());
+        assert_eq!(hash_of(&P), hash_of(&Panose::default()));
+        assert_eq!(P.family_type, 0);
+        assert_eq!(P.serif_style, 0);
+        assert_eq!(P.weight, 0);
+        assert_eq!(P.proportion, 0);
+        assert_eq!(P.contrast, 0);
+        assert_eq!(P.stroke_variation, 0);
+        assert_eq!(P.arm_style, 0);
+        assert_eq!(P.letterform, 0);
+        assert_eq!(P.midline, 0);
+        assert_eq!(P.x_height, 0);
+
+        let mut max = Panose::zero();
+        max.family_type = u8::MAX;
+        assert!(max > P, "derived Ord must order by the first field");
+    }
+
+    #[test]
+    fn font_metrics_zero_invariants() {
+        const M: FontMetrics = FontMetrics::zero();
+        assert_eq!(M, FontMetrics::default());
+
+        // Documented: a zero font still declares a sane em square / weight class.
+        assert_eq!(M.units_per_em, 1000);
+        assert_eq!(M.us_weight_class, 400);
+        assert_eq!(M.us_width_class, 5);
+        assert_eq!(M.panose, Panose::zero());
+
+        assert_eq!(M.get_ascender(), 0);
+        assert_eq!(M.get_descender(), 0);
+        assert_eq!(M.get_line_gap(), 0);
+        assert_eq!(M.get_advance_width_max(), 0);
+        assert_eq!(M.get_min_left_side_bearing(), 0);
+        assert_eq!(M.get_min_right_side_bearing(), 0);
+        assert_eq!(M.get_x_min(), 0);
+        assert_eq!(M.get_y_min(), 0);
+        assert_eq!(M.get_x_max(), 0);
+        assert_eq!(M.get_y_max(), 0);
+        assert_eq!(M.get_x_max_extent(), 0);
+        assert_eq!(M.get_x_avg_char_width(), 0);
+        assert_eq!(M.get_y_subscript_x_size(), 0);
+        assert_eq!(M.get_y_subscript_y_size(), 0);
+        assert_eq!(M.get_y_subscript_x_offset(), 0);
+        assert_eq!(M.get_y_subscript_y_offset(), 0);
+        assert_eq!(M.get_y_superscript_x_size(), 0);
+        assert_eq!(M.get_y_superscript_y_size(), 0);
+        assert_eq!(M.get_y_superscript_x_offset(), 0);
+        assert_eq!(M.get_y_superscript_y_offset(), 0);
+        assert_eq!(M.get_y_strikeout_size(), 0);
+        assert_eq!(M.get_y_strikeout_position(), 0);
+        assert!(!M.use_typo_metrics());
+
+        assert!(matches!(M.ul_code_page_range1, OptionU32::None));
+        assert!(matches!(M.ul_code_page_range2, OptionU32::None));
+        assert!(matches!(M.s_typo_ascender, OptionI16::None));
+        assert!(matches!(M.s_typo_descender, OptionI16::None));
+        assert!(matches!(M.s_typo_line_gap, OptionI16::None));
+        assert!(matches!(M.us_win_ascent, OptionU16::None));
+        assert!(matches!(M.us_win_descent, OptionU16::None));
+        assert!(matches!(M.sx_height, OptionI16::None));
+        assert!(matches!(M.s_cap_height, OptionI16::None));
+    }
+
+    #[test]
+    fn font_metrics_getters_return_extreme_values_unchanged() {
+        let mut m = FontMetrics::zero();
+        m.ascender = i16::MAX;
+        m.descender = i16::MIN;
+        m.line_gap = i16::MIN;
+        m.advance_width_max = u16::MAX;
+        m.min_left_side_bearing = i16::MIN;
+        m.min_right_side_bearing = i16::MAX;
+        m.x_min = i16::MIN;
+        m.y_min = i16::MIN;
+        m.x_max = i16::MAX;
+        m.y_max = i16::MAX;
+        m.x_max_extent = i16::MAX;
+        m.x_avg_char_width = i16::MIN;
+        m.y_subscript_x_size = i16::MAX;
+        m.y_subscript_y_size = i16::MIN;
+        m.y_subscript_x_offset = i16::MAX;
+        m.y_subscript_y_offset = i16::MIN;
+        m.y_superscript_x_size = i16::MAX;
+        m.y_superscript_y_size = i16::MIN;
+        m.y_superscript_x_offset = i16::MAX;
+        m.y_superscript_y_offset = i16::MIN;
+        m.y_strikeout_size = i16::MAX;
+        m.y_strikeout_position = i16::MIN;
+
+        // Getters are plain field reads: no clamping, no sign flips, no panics.
+        assert_eq!(m.get_ascender(), i16::MAX);
+        assert_eq!(m.get_descender(), i16::MIN);
+        assert_eq!(m.get_line_gap(), i16::MIN);
+        assert_eq!(m.get_advance_width_max(), u16::MAX);
+        assert_eq!(m.get_min_left_side_bearing(), i16::MIN);
+        assert_eq!(m.get_min_right_side_bearing(), i16::MAX);
+        assert_eq!(m.get_x_min(), i16::MIN);
+        assert_eq!(m.get_y_min(), i16::MIN);
+        assert_eq!(m.get_x_max(), i16::MAX);
+        assert_eq!(m.get_y_max(), i16::MAX);
+        assert_eq!(m.get_x_max_extent(), i16::MAX);
+        assert_eq!(m.get_x_avg_char_width(), i16::MIN);
+        assert_eq!(m.get_y_subscript_x_size(), i16::MAX);
+        assert_eq!(m.get_y_subscript_y_size(), i16::MIN);
+        assert_eq!(m.get_y_subscript_x_offset(), i16::MAX);
+        assert_eq!(m.get_y_subscript_y_offset(), i16::MIN);
+        assert_eq!(m.get_y_superscript_x_size(), i16::MAX);
+        assert_eq!(m.get_y_superscript_y_size(), i16::MIN);
+        assert_eq!(m.get_y_superscript_x_offset(), i16::MAX);
+        assert_eq!(m.get_y_superscript_y_offset(), i16::MIN);
+        assert_eq!(m.get_y_strikeout_size(), i16::MAX);
+        assert_eq!(m.get_y_strikeout_position(), i16::MIN);
+
+        // An "inverted" font (ascender < descender) is accepted verbatim — the
+        // getters do no validation.
+        assert!(m.get_ascender() > m.get_descender());
+    }
+
+    #[test]
+    fn font_metrics_use_typo_metrics_reads_exactly_bit_7() {
+        let mut m = FontMetrics::zero();
+        for bit in 0..16u16 {
+            m.fs_selection = 1 << bit;
+            assert_eq!(
+                m.use_typo_metrics(),
+                bit == 7,
+                "fs_selection bit {bit} must not affect USE_TYPO_METRICS"
+            );
+        }
+        m.fs_selection = u16::MAX;
+        assert!(m.use_typo_metrics());
+        m.fs_selection = u16::MAX ^ 0x0080;
+        assert!(!m.use_typo_metrics(), "clearing bit 7 must clear the flag");
+        m.fs_selection = 0;
+        assert!(!m.use_typo_metrics());
+    }
+}
