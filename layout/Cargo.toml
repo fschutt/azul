@@ -17,6 +17,17 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2021"
+# These two integration tests `include_bytes!` fonts from the *workspace* asset tree —
+# `examples/assets/fonts/KoHo-Light.ttf` and `doc/fonts/SourceSerifPro-Regular.ttf` — which
+# live outside the crate root and so cannot be packaged alongside them. Cargo ships
+# `tests/` but not those fonts, leaving `cargo test` on the published crate unable to
+# compile. They are repo-only tests; keep them out of the package. (Contrast
+# `src/text3/mock_fonts.rs`, which is a `pub mod` and so had its fonts vendored into
+# `layout/assets/` instead.) The `publish_safety` CI job enforces this.
+exclude = [
+    "tests/loaded_font_introspection.rs",
+    "tests/web_flexbox_simple_ref.rs",
+]
 resolver = "2"
 autoexamples = true
 
