@@ -229,6 +229,8 @@ dependencies = [
 [[package]]
 name = "allsorts-azul"
 version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c652f26321a22e93b603f5589b07f49a99c20d53d88de889a04b45079abf25ca"
 dependencies = [
  "bitflags 2.11.1",
  "brotli-decompressor",
@@ -6544,11 +6546,11 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "4.4.4"
+version = "4.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43065fe29d0d6e295fa41528b48629bea90e6d1d5ddd12c1beec2bb4fa50df58"
+checksum = "bc208ba5149efc7241c54497f6a38343b510c67f24b876236d0c995bbeba0bbe"
 dependencies = [
- "allsorts-azul 0.16.5",
+ "allsorts-azul 0.17.1",
  "bincode 1.3.3",
  "dirs",
  "mmapio",

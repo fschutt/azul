@@ -4441,11 +4441,132 @@ jobs:
   #    `--dry-run` always validates packaging; the real publish runs only when
   #    CARGO_REGISTRY_TOKEN is set.
   # ---------------------------------------------------------------------------
+  # PUBLISH SAFETY — runs on every push. This one is allowed to fail the build.
+  #
+  # `cargo publish` STRIPS [patch.crates-io]. A crate published while one of its
+  # dependencies is patched is compiled against DIFFERENT CODE than what was tested
+  # here — the local checkout and the artifact users install are different programs.
+  #
+  # This is not hypothetical. azul-layout 0.0.9 shipped needing
+  # `hint_glyph_with_flags_pp1`, a method that existed only in the vendored
+  # `third_party/allsorts` tree; the published allsorts-azul 0.17.0 kept the same
+  # version number without it. It also shipped 48 raw
+  # `write_volatile(0x400EC as *mut u32, ...)` calls that segfault on any hosted OS.
+  # Both slipped through because the only publish check used `--no-verify` and
+  # downgraded every failure to a warning.
+  # ---------------------------------------------------------------------------
+  publish_safety:
+    name: Publish safety (no [patch] on published deps)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+
+      # A [patch] on one of azul's OWN workspace crates is fine — those are path deps
+      # that cargo replaces with the real registry version at publish time. A [patch] on
+      # anything the published crates *depend on* is not: it swaps that crate's code
+      # while keeping its version number, and publish throws the swap away.
+      - name: Refuse a [patch] on any dependency of a published crate
+        run: |
+          python3 - <<'PY'
+          import json, re, subprocess, sys, pathlib
+
+          patched = set(re.findall(r'^([A-Za-z0-9_-]+)\s*=', 
+              re.search(r'(?ms)^\[patch\.crates-io\]\n(.*?)(?=^\[|\Z)',
+                        pathlib.Path("Cargo.toml").read_text()).group(1), re.M))
+
+          md = json.loads(subprocess.run(
+              ["cargo", "metadata", "--format-version=1", "--no-deps"],
+              capture_output=True, text=True, check=True).stdout)
+
+          PUBLISHED = {"azul-css", "azul-core", "azul-layout"}
+          members = {p["name"] for p in md["packages"]}
+
+          offenders = {}
+          for pkg in md["packages"]:
+              if pkg["name"] not in PUBLISHED:
+                  continue
+              for dep in pkg["dependencies"]:
+                  # Patching a sibling workspace crate is harmless — it is a path dep.
+                  if dep["name"] in patched and dep["name"] not in members:
+                      offenders.setdefault(dep["name"], []).append(pkg["name"])
+
+          if offenders:
+              for crate, users in sorted(offenders.items()):
+                  print(f"::error::[patch.crates-io] patches '{crate}', which "
+                        f"{', '.join(sorted(set(users)))} depend(s) on and publish against.")
+                  print(f"::error::cargo publish strips the patch, so the published crate "
+                        f"would be built against whatever '{crate}' is on crates.io — not this code.")
+              print("::error::Publish the patched crate to crates.io under a NEW version, then pin it.")
+              sys.exit(1)
+
+          print("no [patch] on any dependency of azul-css / azul-core / azul-layout")
+          PY
+
+      # azul-css has no azul siblings, so this is a complete verification build against
+      # the real registry graph — exactly what a user gets.
+      - name: cargo package --verify azul-css
+        run: cargo package -p azul-css --allow-dirty
+
+      # azul-core / azul-layout cannot be fully verified until their siblings are on
+      # crates.io, so check the two things that verification would have caught:
+      #   1. they compile against the real registry dep graph (no patch swaps them now),
+      #   2. every include_bytes!/include_str! target is actually inside the tarball.
+      # (2) is how azul-layout 0.0.10's first publish failed: text3::mock_fonts pulled two
+      # .ttf files from the *workspace* assets dir, outside the crate root.
+      - name: cargo check azul-core / azul-layout against the published dep graph
+        run: cargo check -p azul-core -p azul-layout
+
+      - name: Every include_bytes!/include_str! must live inside the package
+        run: |
+          set -euo pipefail
+          for crate in azul-core azul-layout; do
+            cargo package -p "$crate" --allow-dirty --no-verify >/dev/null
+          done
+          python3 - <<'PY'
+          import pathlib, re, subprocess, sys, tarfile, tempfile, json
+
+          md = json.loads(subprocess.run(["cargo","metadata","--format-version=1","--no-deps"],
+                                         capture_output=True, text=True, check=True).stdout)
+          target = pathlib.Path(md["target_directory"]) / "package"
+
+          bad = False
+          for tar_path in sorted(target.glob("azul-*.crate")):
+              with tarfile.open(tar_path) as tf:
+                  names = set(tf.getnames())
+                  root = tar_path.name[:-len(".crate")]
+                  for member in tf.getmembers():
+                      if not member.name.endswith(".rs"):
+                          continue
+                      src = tf.extractfile(member).read().decode("utf-8", "replace")
+                      here = pathlib.PurePosixPath(member.name).parent
+                      for macro, rel in re.findall(r'include_(bytes|str)!\s*\(\s*"([^"]+)"', src):
+                          resolved = str(pathlib.PurePosixPath(*(here / rel).parts))
+                          # normalise ../ segments
+                          parts = []
+                          for p in (here / rel).parts:
+                              if p == "..":
+                                  if parts: parts.pop()
+                              else:
+                                  parts.append(p)
+                          resolved = "/".join(parts)
+                          if resolved not in names:
+                              print(f"::error::{tar_path.name}: {member.name} include_{macro}!(\"{rel}\") "
+                                    f"resolves outside the package ({resolved}) — it will not ship.")
+                              bad = True
+              print(f"checked {tar_path.name}")
+          sys.exit(1 if bad else 0)
+          PY
+
+
+  # ---------------------------------------------------------------------------
   crates-io:
     name: crates.io (azul-css / azul-core / azul-layout)
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    needs: publish_safety
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -4473,8 +4594,9 @@ jobs:
           # are still exercised.
           for crate in azul-css azul-core azul-layout; do
             echo "::group::cargo publish --dry-run -p $crate"
-            cargo publish --dry-run -p "$crate" --allow-dirty --no-verify || \
-              echo "::warning::dry-run packaging of $crate reported an issue (likely an as-yet-unpublished sibling dep)."
+            # NO --no-verify: the verification build against the real registry deps is
+            # the entire point. Skipping it is how 0.0.9 shipped.
+            cargo publish --dry-run -p "$crate" --allow-dirty
             echo "::endgroup::"
           done
 
@@ -4491,9 +4613,7 @@ jobs:
           # time to expose each new version to the next crate's resolver.
           for crate in azul-css azul-core azul-layout; do
             echo "::group::cargo publish -p $crate"
-            cargo publish -p "$crate" --token "$CARGO_REGISTRY_TOKEN" || {
-              echo "::warning::cargo publish -p $crate failed (already published, or needs version bump?)"
-            }
+            cargo publish -p "$crate" --token "$CARGO_REGISTRY_TOKEN"
             echo "::endgroup::"
             sleep 20
           done
