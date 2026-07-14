@@ -2376,8 +2376,10 @@ mod autotest_generated {
         };
         let b = c.get_bounds();
         assert_eq!((b.x, b.y, b.width, b.height), (2.5, -7.5, 5.0, 5.0));
-        // a point just inside the bbox's left edge is still outside the circle
-        assert!(!c.contains_point(b.x + 0.1, b.y + b.height / 2.0));
+        // A bbox CORNER is outside the inscribed circle. (Mid-edge is not: the
+        // previous probe sat on the horizontal diameter, 2.4 from the centre, i.e.
+        // strictly inside the radius-2.5 circle.)
+        assert!(!c.contains_point(b.x + 0.1, b.y + 0.1));
         assert!(c.contains_point(c.center_x, c.center_y));
     }
 

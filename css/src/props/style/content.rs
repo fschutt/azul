@@ -481,7 +481,10 @@ mod autotest_generated {
         let c = parse_content(input).unwrap();
         assert_eq!(c.inner.as_str(), input.trim());
         assert_eq!(c.inner.as_str().len(), input.trim().len());
-        assert_eq!(c.inner.as_str().chars().count(), 4);
+        // 5 scalar values, not 4 glyphs: U+0301 COMBINING ACUTE ACCENT is its own
+        // `char` (it renders as one grapheme with the preceding 'a', but `chars()`
+        // counts scalars).
+        assert_eq!(c.inner.as_str().chars().count(), 5);
     }
 
     #[test]

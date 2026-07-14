@@ -491,11 +491,10 @@ mod autotest_generated {
 
     fn is_checked(state: &RefAny) -> bool {
         let mut state = state.clone();
-        state
+        let wrapper = state
             .downcast_ref::<CheckBoxStateWrapper>()
-            .expect("the widget state changed type")
-            .inner
-            .checked
+            .expect("the widget state changed type");
+        wrapper.inner.checked
     }
 
     /// The opacity overrides pushed onto the content node, in push order.
@@ -648,10 +647,10 @@ mod autotest_generated {
 
     fn read_log(probe: &RefAny) -> ToggleLog {
         let mut probe = probe.clone();
-        probe
+        let log = probe
             .downcast_ref::<ToggleLog>()
-            .expect("the user payload changed type")
-            .clone()
+            .expect("the user payload changed type");
+        log.clone()
     }
 
     // ==================================================================
@@ -1263,7 +1262,10 @@ mod autotest_generated {
     fn clicking_a_node_that_is_not_in_the_layout_does_not_panic_or_toggle() {
         // Stale hit ids reach callbacks after a DOM mutation. `set_css_property` *panics*
         // on a None node id, so the handler has to bail out before that point.
-        for hit in [node(99), node(usize::MAX), node_none()] {
+        // usize::MAX is unencodable by NodeId's 1-based scheme and would overflow while
+        // building this fixture, before `click()` is even called. usize::MAX - 1 is the
+        // repo's MAX_ENCODABLE_NODE and still absent from the layout.
+        for hit in [node(99), node(usize::MAX - 1), node_none()] {
             let (styled, state) = laid_out(CheckBox::create(true));
             let (update, changes) = click(styled, &state, hit);
 

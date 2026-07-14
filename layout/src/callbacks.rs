@@ -6027,7 +6027,10 @@ mod autotest_generated {
     fn focus_mutators_queue_set_focus_target() {
         with_info(node_none(), |info| {
             info.set_focus(FocusTarget::NoFocus);
-            info.set_focus_to_node(DomId::ROOT_ID, NodeId::new(usize::MAX));
+            // usize::MAX is the ONE index NodeId's 1-based encoding cannot represent
+            // (into_raw does `inner + 1`); the repo pins usize::MAX - 1 as
+            // MAX_ENCODABLE_NODE for exactly this. Still an out-of-range node.
+            info.set_focus_to_node(DomId::ROOT_ID, NodeId::new(usize::MAX - 1));
             info.focus_next();
             info.focus_previous();
             info.focus_first();

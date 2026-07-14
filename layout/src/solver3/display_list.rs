@@ -8273,11 +8273,13 @@ mod autotest_generated {
         let r = DisplayList::compute_text_damage_rect(&nan_only, &[], LogicalPosition::zero(), 0);
         assert_eq!(r, LogicalRect::zero(), "an all-NaN run must not produce a NaN damage rect");
 
-        // Mixed: the real item still defines the rect.
+        // Mixed: min/max are applied PER AXIS, so the half-NaN item is not dropped
+        // wholesale -- its NaN x contributes nothing, but its finite y=0.0 still
+        // widens the union. The result is a safe non-NaN superset: y spans [0,15].
         let mixed = vec![positioned(0, f32::NAN, 0.0, 10.0, 10.0), positioned(0, 5.0, 5.0, 10.0, 10.0)];
         let r = DisplayList::compute_text_damage_rect(&mixed, &[], LogicalPosition::zero(), 0);
         assert!(!r.origin.x.is_nan() && !r.size.width.is_nan());
-        assert_eq!(r, rect(5.0, 5.0, 10.0, 10.0));
+        assert_eq!(r, rect(5.0, 0.0, 10.0, 15.0));
     }
 
     // ---------------------------------------------------------------------

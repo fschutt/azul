@@ -247,7 +247,9 @@ mod autotest_generated {
         for path in [
             "\u{0}",
             "abc\u{0}def",
-            "//////",
+            // NOTE: "//////" is deliberately NOT here -- POSIX collapses a run of
+            // slashes to "/", and opening the root directory read-only legitimately
+            // succeeds. It is not garbage.
             "::**?<>|\"",
             "\u{FFFD}\u{202E}\u{200B}",
         ] {

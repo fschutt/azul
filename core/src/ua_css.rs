@@ -1207,7 +1207,8 @@ mod autotest_generated {
             NT::DataList, NT::MenuItem, NT::S, NT::Big, NT::Acronym,
             NT::Object, NT::Param, NT::Embed, NT::Source, NT::Track, NT::Map,
             NT::Area, NT::Meta, NT::Base, NT::Before, NT::After, NT::Marker,
-            NT::Placeholder, NT::SvgG, NT::SvgPath, NT::SvgRect, NT::SvgText,
+            NT::Placeholder, NT::SvgG, NT::SvgPath, NT::SvgRect,
+            NT::SvgText(AzString::from("svg-text")),
             // payload-carrying variants
             text_node(""),
             text_node("hello"),

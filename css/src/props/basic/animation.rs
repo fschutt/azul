@@ -881,10 +881,13 @@ mod autotest_generated {
     #[test]
     fn contains_point_at_f32_extremes_does_not_panic() {
         let r = rect(f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-        // x + width overflows to +inf here; must still answer, not trap.
+        // Unlike integers, `f32::MIN == -f32::MAX` exactly, so x + width is exactly
+        // 0.0 -- no overflow to +inf. That puts (0,0) exactly ON the rect's corner,
+        // and `contains_point` is strictly exclusive on every edge (see
+        // `contains_point_is_strictly_exclusive_on_every_edge`), so it is NOT inside.
         let _ = r.contains_point(p(f32::MAX, f32::MAX));
         let _ = r.contains_point(p(f32::MIN, f32::MIN));
-        assert!(r.contains_point(p(0.0, 0.0)));
+        assert!(!r.contains_point(p(0.0, 0.0)));
     }
 
     // ---- 7. SvgRect::expand (numeric) --------------------------------------

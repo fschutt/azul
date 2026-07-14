@@ -3982,7 +3982,8 @@ mod autotest_generated {
         #[test]
         fn text_color_error_round_trips_and_preserves_its_message() {
             let e = parse_style_text_color("not-a-color").unwrap_err();
-            let round_tripped = e.to_contained().to_shared();
+            let owned = e.to_contained();
+            let round_tripped = owned.to_shared();
             assert_eq!(format!("{e}"), format!("{round_tripped}"));
             assert!(parse_style_text_color("").is_err());
             assert!(parse_style_text_color("#gggggg").is_err());

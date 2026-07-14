@@ -609,20 +609,23 @@ mod autotest_generated {
         assert_eq!(menu.get_hash(), cloned.get_hash());
     }
 
-    /// KNOWN HAZARD — pinned, not weakened. `RefAny::clone()` mints a fresh `instance_id`
-    /// (root = 0, clones >= 1) and `instance_id` participates in `RefAny`'s derived
-    /// `Hash`/`Eq`. So a menu carrying a callback is *not* equal to its own clone, and
-    /// `get_hash()` — whose documented job is change detection for caching — reports
-    /// "changed" for a structurally identical menu. This test records today's behaviour so
-    /// that fixing `RefAny` flips it loudly instead of silently.
+    /// FIXED (was: "KNOWN HAZARD — pinned, not weakened"). `RefAny::clone()` still mints a
+    /// fresh `instance_id`, but `instance_id` is no longer part of `RefAny`'s `Hash`/`Eq` —
+    /// those now key on `sharing_info` alone (see the comment on `RefAny` in
+    /// `core/src/refany.rs`). A menu carrying a callback is therefore equal to its own
+    /// clone, and `get_hash()` — whose documented job is change detection for caching — no
+    /// longer reports "changed" for a structurally identical menu.
+    ///
+    /// The old test asserted the broken behaviour on purpose, "so that fixing `RefAny`
+    /// flips it loudly instead of silently". It did exactly that; this is the flip.
     #[test]
-    fn menu_get_hash_is_unstable_across_clone_with_callback_known_hazard() {
+    fn menu_get_hash_is_stable_across_clone_with_callback() {
         let menu = Menu::create(MenuItemVec::from_item(MenuItem::String(
             StringMenuItem::create("Save".into()).with_callback(RefAny::new(1u32), 0xDEAD_usize),
         )));
         let cloned = menu.clone();
-        assert_ne!(menu, cloned, "clone identity leaks through RefAny::instance_id");
-        assert_ne!(menu.get_hash(), cloned.get_hash());
+        assert_eq!(menu, cloned, "a clone shares the same RefAny data, so it must compare equal");
+        assert_eq!(menu.get_hash(), cloned.get_hash());
     }
 
     // ---- StringMenuItem::create ------------------------------------------

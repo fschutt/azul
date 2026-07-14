@@ -571,7 +571,7 @@ impl<T> core::ops::DerefMut for RefMut<'_, T> {
 ///     *value_mut = 100;
 /// };
 /// ```
-#[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct RefAny {
     /// Shared metadata: reference counts, type info, destructor, AND data pointer.
@@ -588,6 +588,47 @@ pub struct RefAny {
     ///
     /// Used to distinguish between the original and clones for debugging.
     pub instance_id: u64,
+}
+
+// The comparison traits below are hand-written, NOT derived, and key on
+// `sharing_info` ALONE. `instance_id` is deliberately omitted:
+//
+//     // self.instance_id == other.instance_id   <-- NEVER compare this
+//
+// `instance_id` is a debug-only counter that `clone()` increments (original = 0,
+// first clone = 1, ...). Deriving equality folded it in, so a `RefAny` never
+// equaled its own clone even though both point at the same `RefCountInner` — the
+// same heap data, same refcount. Equality here means "same data", not "same
+// handle"; `sharing_info` (a pointer + flag) already distinguishes unrelated
+// instances.
+//
+// Hash/Ord must key on exactly the same fields as PartialEq or they break their
+// own contracts (equal values must hash equally; `cmp() == Equal` must imply
+// `==`), so all five delegate to `sharing_info`.
+impl PartialEq for RefAny {
+    fn eq(&self, other: &Self) -> bool {
+        self.sharing_info == other.sharing_info
+    }
+}
+
+impl Eq for RefAny {}
+
+impl core::hash::Hash for RefAny {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        core::hash::Hash::hash(&self.sharing_info, state);
+    }
+}
+
+impl PartialOrd for RefAny {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RefAny {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.sharing_info.cmp(&other.sharing_info)
+    }
 }
 
 impl_option!(

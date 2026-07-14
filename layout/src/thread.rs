@@ -1306,13 +1306,13 @@ mod autotest_generated {
     }
 
     #[test]
-    fn thread_write_back_msg_clone_shares_payload_but_compares_unequal() {
-        // FINDING: RefAny's derived PartialEq includes `instance_id`, which
-        // RefAny::clone() increments. Every type that transitively contains a
-        // RefAny and derives PartialEq (ThreadWriteBackMsg, ThreadReceiveMsg,
-        // OptionThreadReceiveMsg, ThreadSendMsg) therefore violates the
-        // `a.clone() == a` contract, even though the clone shares the same heap
-        // payload. This test pins the (surprising) status quo.
+    fn thread_write_back_msg_clone_shares_payload_and_compares_equal() {
+        // FIXED (this test previously pinned the opposite). `RefAny`'s equality no
+        // longer includes `instance_id` — it keys on `sharing_info` alone (see the
+        // comment on `RefAny` in core/src/refany.rs). So every type that transitively
+        // contains a `RefAny` and derives `PartialEq` (ThreadWriteBackMsg,
+        // ThreadReceiveMsg, OptionThreadReceiveMsg, ThreadSendMsg) now honours the
+        // `a.clone() == a` contract, matching the shared heap payload.
         let msg = ThreadWriteBackMsg::new(
             wb_do_nothing as WriteBackCallbackType,
             RefAny::new(5_usize),
@@ -1325,10 +1325,10 @@ mod autotest_generated {
             cloned.refany.downcast_ref::<usize>().map(|v| *v),
             Some(5_usize)
         );
-        // ... yet not `==`, because the clone got a fresh instance_id.
-        assert_ne!(msg, cloned);
-        // Two clones of the same message are unequal to each other as well.
-        assert_ne!(msg.clone(), msg.clone());
+        // ... and therefore `==`.
+        assert_eq!(msg, cloned);
+        // Two clones of the same message are equal to each other as well.
+        assert_eq!(msg.clone(), msg.clone());
     }
 
     // ==================================================================

@@ -1349,7 +1349,7 @@ mod autotest_generated {
 
     #[test]
     fn map_role_is_total_and_matches_the_documented_table() {
-        let cases: [(AccessibilityRole, Role); 64] = [
+        let cases: [(AccessibilityRole, Role); 65] = [
             (AccessibilityRole::TitleBar, Role::TitleBar),
             (AccessibilityRole::MenuBar, Role::MenuBar),
             (AccessibilityRole::ScrollBar, Role::ScrollBar),

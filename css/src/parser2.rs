@@ -2564,7 +2564,7 @@ mod autotest_generated {
     fn parse_px_value_overflow_and_underflow_saturate_without_panicking() {
         assert_eq!(parse_px_value("-0"), Some(-0.0));
         assert_eq!(parse_px_value("1e-50"), Some(0.0));
-        assert_eq!(parse_px_value("3.5e38px"), Some(3.5e38));
+        assert_eq!(parse_px_value("3.4e38px"), Some(3.4e38));
 
         let overflowed = parse_px_value("1e39px").expect("f32 overflow still parses");
         assert!(overflowed.is_infinite(), "1e39 should saturate to infinity");

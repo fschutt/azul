@@ -14767,6 +14767,7 @@ mod autotest_generated {
         let m = manager();
         let empty = ResolvedFontChains {
             chains: HashMap::new(),
+            ..Default::default()
         };
         let failed = m.load_missing_for_chains(
             &empty,

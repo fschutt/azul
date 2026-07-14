@@ -6079,6 +6079,7 @@ mod autotest_generated {
     fn empty_chains() -> ResolvedFontChains {
         ResolvedFontChains {
             chains: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -6888,7 +6889,7 @@ mod autotest_generated {
             FontChainKeyOrRef::Chain(key.clone()),
             chain_with(Vec::new(), Vec::new()),
         );
-        let r = ResolvedFontChains { chains };
+        let r = ResolvedFontChains { chains, ..Default::default() };
 
         assert!(r.get_by_chain_key(&key).is_some());
         assert!(r.get(&FontChainKeyOrRef::Chain(key.clone())).is_some());
@@ -6921,7 +6922,7 @@ mod autotest_generated {
             FontChainKeyOrRef::Ref(usize::MAX),
             chain_with(Vec::new(), Vec::new()),
         );
-        let r = ResolvedFontChains { chains };
+        let r = ResolvedFontChains { chains, ..Default::default() };
 
         assert_eq!(r.len(), 3);
         assert!(!r.is_empty());
@@ -6950,7 +6951,7 @@ mod autotest_generated {
             FontChainKeyOrRef::Chain(key),
             chain_with(Vec::new(), Vec::new()),
         );
-        let r = ResolvedFontChains { chains };
+        let r = ResolvedFontChains { chains, ..Default::default() };
 
         assert!(r.get_for_font_stack(&selectors).is_some());
         // An empty stack must not accidentally alias the "Arial" key.
@@ -6981,7 +6982,7 @@ mod autotest_generated {
                 vec![font_match(3, &[]), font_match(u128::MAX, &[])],
             ),
         );
-        let ids = collect_font_ids_from_chains(&ResolvedFontChains { chains });
+        let ids = collect_font_ids_from_chains(&ResolvedFontChains { chains, ..Default::default() });
         assert_eq!(ids.len(), 4, "ids 1, 2, 3 and u128::MAX, each exactly once");
         for probe in [1_u128, 2, 3, u128::MAX] {
             assert!(ids.contains(&FontId(probe)), "missing FontId({probe})");
@@ -7005,7 +7006,7 @@ mod autotest_generated {
                 Vec::new(),
             ),
         );
-        assert!(collect_font_ids_from_chains(&ResolvedFontChains { chains }).is_empty());
+        assert!(collect_font_ids_from_chains(&ResolvedFontChains { chains, ..Default::default() }).is_empty());
     }
 
     #[test]

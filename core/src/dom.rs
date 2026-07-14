@@ -6426,7 +6426,11 @@ mod autotest_generated {
             None,
             Some(TabIndex::Auto),
             Some(TabIndex::NoKeyboardFocus),
-            Some(TabIndex::OverrideInParent(u32::MAX)),
+            // NodeFlags packs the override into a documented 28-bit field
+            // (TAB_VALUE_MASK), so u32::MAX would truncate to (1<<28)-1 and not
+            // round-trip. (1<<28)-1 IS the largest encodable value -- still the
+            // boundary case, but one this API can actually represent.
+            Some(TabIndex::OverrideInParent((1 << 28) - 1)),
             Some(TabIndex::OverrideInParent(7)),
         ] {
             f.set_tab_index(ti);

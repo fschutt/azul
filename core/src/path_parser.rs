@@ -1014,8 +1014,10 @@ mod autotest_generated {
 
     #[test]
     fn char_at_zero_and_ascii() {
+        // "M0 0" is ['M', '0', ' ', '0'] -- the space is at index 2, not 3.
         assert_eq!(char_at(b"M0 0", 0), 'M');
-        assert_eq!(char_at(b"M0 0", 3), ' ');
+        assert_eq!(char_at(b"M0 0", 2), ' ');
+        assert_eq!(char_at(b"M0 0", 3), '0');
     }
 
     #[test]

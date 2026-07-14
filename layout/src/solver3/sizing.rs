@@ -3613,7 +3613,11 @@ mod autotest_generated {
         // (f32::max drops NaN), so nothing downstream can see a NaN size.
         let dom = constraints_dom();
         assert_eq!(width_constrained(&dom, PLAIN, f32::NAN, 800.0), 0.0);
-        assert_eq!(width_constrained(&dom, MAXED, f32::NAN, 800.0), 0.0);
+        // MAXED has a max-width, so the FIRST `.min(max_width)` absorbs the NaN (IEEE
+        // 754: f32::min drops NaN) and lands on the max, before `.max(min_width)` ever
+        // sees it. NaN doesn't always collapse to min_width -- it collapses to
+        // whichever clamp touches it first.
+        assert_eq!(width_constrained(&dom, MAXED, f32::NAN, 800.0), 100.0);
         assert_eq!(width_constrained(&dom, CLAMPED, f32::NAN, 800.0), 200.0);
     }
 

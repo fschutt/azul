@@ -2891,10 +2891,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn language_empty_prefix_matches_everything_ascii() {
+    fn language_empty_prefix_matches_only_the_empty_tag() {
+        // An empty prefix is NOT a wildcard. `matches` is a subtag/dash-boundary
+        // prefix matcher, and CSS agrees: for `[att^=val]`, "if val is the empty
+        // string then the selector does not represent anything"
+        // (Selectors Level 3 §6.3.2). Both `@lang()` parsers refuse to build
+        // `Prefix("")` anyway, so this value is unreachable in practice.
         let cond = LanguageCondition::Prefix(AzString::from_const_str(""));
         assert!(cond.matches(""));
-        assert!(cond.matches("en-US"));
+        assert!(!cond.matches("en-US"));
     }
 
     #[test]

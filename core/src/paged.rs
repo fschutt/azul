@@ -469,7 +469,9 @@ mod autotest_generated {
     fn getters_absorb_a_tiny_operand_next_to_a_huge_one_without_error() {
         // Classic float-precision trap: 1e30 + 1.0 == 1e30. Documented, not a bug —
         // pin it so nobody "fixes" the sum into something lossier.
-        let m = PageMargins::new(1.0e30, 1.0, 1.0e30, 1.0);
+        // horizontal() = left + right, vertical() = top + bottom -- so each axis has
+        // to MIX magnitudes for absorption to happen at all. (top, right, bottom, left)
+        let m = PageMargins::new(1.0e30, 1.0, 1.0, 1.0e30);
         assert_eq!(m.horizontal(), 1.0e30);
         assert_eq!(m.vertical(), 1.0e30);
     }

@@ -3364,9 +3364,14 @@ mod autotest_generated {
             c.width_constraint_matches(AvailableSpace::Definite(100.09)),
             "sub-0.1px drift must not force a relayout"
         );
+        // 100.1 is NOT exactly 0.1 away: the f32 literal is 100.0999984741211, so the
+        // real diff is ~0.09999847, which genuinely IS < 0.1. Binary floats, not
+        // decimal. (Pick a literal that clears the epsilon after rounding to test the
+        // miss branch -- see below.)
+        assert!(c.width_constraint_matches(AvailableSpace::Definite(100.1)));
         assert!(
-            !c.width_constraint_matches(AvailableSpace::Definite(100.1)),
-            "the epsilon is strict (`< 0.1`), so exactly 0.1 is a miss"
+            !c.width_constraint_matches(AvailableSpace::Definite(100.2)),
+            "the epsilon is strict (`< 0.1`), so a 0.2 drift must miss"
         );
         assert!(!c.width_constraint_matches(AvailableSpace::Definite(0.0)));
     }

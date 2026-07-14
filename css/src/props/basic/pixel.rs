@@ -1521,11 +1521,12 @@ mod autotest_generated {
         assert_eq!(neg_inf, PixelValue::px(f32::NEG_INFINITY));
         assert!(neg_inf.number.get().is_finite() && neg_inf.number.get() < 0.0);
 
-        // "inf" is (accidentally) rejected -- the "in" suffix eats it first.
-        assert!(matches!(
-            parse_pixel_value("inf").unwrap_err(),
-            CssPixelValueParseError::ValueParseErr(_, "f")
-        ));
+        // "inf" is accepted too. The "in" (inches) suffix does NOT eat it: a suffix
+        // match needs the string to END in "in", and "inf" ends in "nf" -- so it
+        // falls through to the same `str::parse::<f32>()` path as "infinity" above.
+        let inf_short = parse_pixel_value("inf").unwrap();
+        assert_eq!(inf_short, PixelValue::px(f32::INFINITY));
+        assert!(inf_short.number.get().is_finite() && inf_short.number.get() > 0.0);
     }
 
     #[test]

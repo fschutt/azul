@@ -11661,7 +11661,7 @@ mod autotest_generated {
         let useless = ComponentError::UselessFunctionArgument(UselessFunctionArgumentError {
             component_name: AzString::from("c"),
             argument_name: AzString::from("a"),
-            valid_args: Vec::new().into(),
+            valid_args: Vec::<AzString>::new().into(),
         });
         assert!(!format!("{useless}").is_empty());
 

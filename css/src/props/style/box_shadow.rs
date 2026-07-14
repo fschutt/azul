@@ -327,7 +327,10 @@ mod autotest_generated {
     use super::*;
     use crate::{
         codegen::format::FormatAsRustCode,
-        props::basic::pixel::{CssPixelValueParseError, PixelValue, SizeMetric},
+        props::basic::{
+            pixel::{CssPixelValueParseError, PixelValue},
+            SizeMetric,
+        },
     };
 
     fn px(val: f32) -> PixelValueNoPercent {

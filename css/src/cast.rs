@@ -288,14 +288,16 @@ mod autotest_generated {
 
     #[test]
     fn int_to_float_is_monotonic() {
+        // Must stay sorted ascending -- the windows(2) check below compares each
+        // neighbouring pair. TWO_POW_24 (16_777_216) is smaller than 1e9.
         let samples = [
             isize::MIN,
             -1_000_000_000,
             -1,
             0,
             1,
-            1_000_000_000,
             TWO_POW_24 as isize,
+            1_000_000_000,
             isize::MAX,
         ];
         for w in samples.windows(2) {
