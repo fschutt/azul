@@ -4023,16 +4023,17 @@ mod autotest_generated {
                 ("vw", SizeMetric::Vw),
                 ("vh", SizeMetric::Vh),
                 ("vmax", SizeMetric::Vmax),
+                // FIXED: `vmin` used to be unreachable — the suffix table tried "in"
+                // before "vmin", so "1vmin" was stripped to "1vm" and failed to parse,
+                // making every parse_pixel_value-backed property (letter-spacing,
+                // word-spacing, text-indent, tab-size, vertical-align) reject a valid
+                // CSS unit. The table now puts "vmin" ahead of "in".
+                ("vmin", SizeMetric::Vmin),
             ] {
                 let parsed = parse_style_letter_spacing(&format!("1{unit}")).unwrap();
                 assert_eq!(parsed.inner.metric, metric, "unit {unit}");
                 assert_eq!(parsed.inner.number.get(), 1.0);
             }
-            // BUG: `vmin` is unreachable — the suffix table tries "in" before "vmin", so
-            // "1vmin" is stripped to "1vm" and fails to parse. Every property backed by
-            // parse_pixel_value (letter-spacing, word-spacing, text-indent, tab-size,
-            // vertical-align) therefore rejects a valid CSS unit. See the report.
-            assert!(parse_style_letter_spacing("1vmin").is_err());
         }
     }
 }

@@ -48,12 +48,15 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
     let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
 
     for sy in 0..sh {
-        let dy = px_y + sy;
+        // saturating: px_y/px_x are caller-supplied device offsets that a large-but-legal
+        // CSS transform can push to ~i32::MAX; a plain `+` overflows. A saturated result
+        // fails the bounds check below and is skipped, which is the intended outcome.
+        let dy = px_y.saturating_add(sy);
         if dy < 0 || dy >= dh {
             continue;
         }
         for sx in 0..sw {
-            let dx = px_x + sx;
+            let dx = px_x.saturating_add(sx);
             if dx < 0 || dx >= dw {
                 continue;
             }
@@ -93,7 +96,9 @@ pub fn shift_pixbuf(pixmap: &mut AzulPixmap, dx: i32, dy: i32) {
     use core::cmp::Ordering;
     let w = pixmap.width as i32;
     let h = pixmap.height as i32;
-    if dx.abs() >= w || dy.abs() >= h {
+    // `i32::MIN.abs()` panics — MIN has no positive i32 counterpart. `unsigned_abs`
+    // is total. `w`/`h` come from unsigned dimensions, so they are never negative.
+    if dx.unsigned_abs() >= w.unsigned_abs() || dy.unsigned_abs() >= h.unsigned_abs() {
         // Entire buffer is exposed — just clear it
         pixmap.fill(0, 0, 0, 0);
         return;
@@ -173,7 +178,12 @@ impl AzulPixmap {
         if width == 0 || height == 0 {
             return None;
         }
-        let len = (width as usize) * (height as usize) * 4;
+        // checked: author-controllable dimensions (e.g. an SVG intrinsic size) can make
+        // width*height*4 overflow usize — a debug panic, and a silently-undersized
+        // buffer in release. Refuse absurd sizes instead.
+        let len = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))?;
         let data = vec![255u8; len]; // opaque white
         Some(Self {
             data,
@@ -202,8 +212,10 @@ impl AzulPixmap {
         let y0 = y.max(0).min(ph);
         // saturating: a non-finite/huge layout size casts to i32::MAX, and `x + w`
         // would then overflow (debug panic). Clamp instead.
-        let x1 = x.saturating_add(w).max(0).min(pw);
-        let y1 = y.saturating_add(h).max(0).min(ph);
+        // `.clamp(x0, ..)` (not just `.max(0)`): a NEGATIVE w gives x1 < x0, and the
+        // `data[start..end]` slice below panics on a reversed range. Force x1 >= x0.
+        let x1 = x.saturating_add(w).clamp(x0, pw);
+        let y1 = y.saturating_add(h).clamp(y0, ph);
         for row in y0..y1 {
             let start = (row * pw + x0) as usize * 4;
             let end = (row * pw + x1) as usize * 4;
@@ -745,12 +757,13 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
     let dh = dst.height as i32;
 
     for py in 0..src_h as i32 {
-        let ty = dy + py;
+        // saturating: see blit_pixmap — a saturated offset just fails the bounds check.
+        let ty = dy.saturating_add(py);
         if ty < 0 || ty >= dh {
             continue;
         }
         for px in 0..src_w as i32 {
-            let tx = dx + px;
+            let tx = dx.saturating_add(px);
             if tx < 0 || tx >= dw {
                 continue;
             }
@@ -798,12 +811,13 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
     let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
 
     for py in 0..h as i32 {
-        let sy = y + py;
+        // saturating: an extreme snapshot origin would overflow a plain `+`.
+        let sy = y.saturating_add(py);
         if sy < 0 || sy >= ph {
             continue;
         }
         for px in 0..w as i32 {
-            let sx = x + px;
+            let sx = x.saturating_add(px);
             if sx < 0 || sx >= pw {
                 continue;
             }
@@ -832,12 +846,13 @@ pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y:
     let dw = dst.width as i32;
     let dh = dst.height as i32;
     for py in 0..h as i32 {
-        let dy = y + py;
+        // saturating: an extreme write-region origin would overflow a plain `+`.
+        let dy = y.saturating_add(py);
         if dy < 0 || dy >= dh {
             continue;
         }
         for px in 0..w as i32 {
-            let dx = x + px;
+            let dx = x.saturating_add(px);
             if dx < 0 || dx >= dw {
                 continue;
             }

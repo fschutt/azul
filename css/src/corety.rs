@@ -775,6 +775,12 @@ impl StringArena {
                     v.extend_from_slice(bytes);
                     let p = v.as_ptr();
                     chunks.push(v);
+                    // This dedicated chunk is FULL (len == cap). `remaining` must not
+                    // keep describing the previous chunk, or the next small intern
+                    // below would see a stale positive `remaining`, skip allocating,
+                    // and `extend_from_slice` into THIS chunk — reallocating it and
+                    // dangling the `p` we just handed out.
+                    *remaining = 0;
                     p
                 } else {
                     if *remaining < len {

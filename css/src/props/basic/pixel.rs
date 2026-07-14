@@ -792,17 +792,19 @@ pub fn parse_pixel_value(input: &str) -> Result<PixelValue, CssPixelValueParseEr
     parse_pixel_value_inner(
         input,
         &[
+            // ORDER IS LOAD-BEARING: matching is by `strip_suffix`, first hit wins, so
+            // any unit that is a SUFFIX of another must come after it.
             ("px", SizeMetric::Px),
-            ("rem", SizeMetric::Rem), // Must be before "em" to match correctly
+            ("rem", SizeMetric::Rem), // before "em" ("rem" ends with "em")
             ("em", SizeMetric::Em),
             ("pt", SizeMetric::Pt),
+            ("vmax", SizeMetric::Vmax),
+            ("vmin", SizeMetric::Vmin), // before "in" -- "vmin" ends with "in"!
+            ("vw", SizeMetric::Vw),
+            ("vh", SizeMetric::Vh),
             ("in", SizeMetric::In),
             ("mm", SizeMetric::Mm),
             ("cm", SizeMetric::Cm),
-            ("vmax", SizeMetric::Vmax), // Must be before "vw" to match correctly
-            ("vmin", SizeMetric::Vmin), // Must be before "vw" to match correctly
-            ("vw", SizeMetric::Vw),
-            ("vh", SizeMetric::Vh),
             ("%", SizeMetric::Percent),
         ],
     )
@@ -818,17 +820,18 @@ pub fn parse_pixel_value_no_percent(
         inner: parse_pixel_value_inner(
             input,
             &[
+                // ORDER IS LOAD-BEARING -- see parse_pixel_value above.
                 ("px", SizeMetric::Px),
-                ("rem", SizeMetric::Rem), // Must be before "em" to match correctly
+                ("rem", SizeMetric::Rem), // before "em" ("rem" ends with "em")
                 ("em", SizeMetric::Em),
                 ("pt", SizeMetric::Pt),
+                ("vmax", SizeMetric::Vmax),
+                ("vmin", SizeMetric::Vmin), // before "in" -- "vmin" ends with "in"!
+                ("vw", SizeMetric::Vw),
+                ("vh", SizeMetric::Vh),
                 ("in", SizeMetric::In),
                 ("mm", SizeMetric::Mm),
                 ("cm", SizeMetric::Cm),
-                ("vmax", SizeMetric::Vmax), // Must be before "vw" to match correctly
-                ("vmin", SizeMetric::Vmin), // Must be before "vw" to match correctly
-                ("vw", SizeMetric::Vw),
-                ("vh", SizeMetric::Vh),
             ],
         )?,
     })
@@ -1374,24 +1377,19 @@ mod autotest_generated {
 
     #[test]
     fn parse_pixel_value_vmin_is_shadowed_by_the_in_suffix() {
-        // BUG (real defect, characterized here so the suite stays green): the
-        // suffix table in `parse_pixel_value` tests "in" BEFORE "vmin", so
-        // "5vmin" strips the "in" and then fails to parse the "5vm" remainder.
-        // Every vmin length in a stylesheet is therefore rejected. "vmax" is
-        // unaffected: no earlier entry is a suffix of it.
-        let err = parse_pixel_value("5vmin").unwrap_err();
-        assert!(
-            matches!(
-                err,
-                CssPixelValueParseError::ValueParseErr(_, remainder) if remainder == "5vm"
-            ),
-            "expected the (buggy) 'in'-suffix strip, got {err:?}"
+        // FIXED (was a characterization of the bug): the suffix table used to test
+        // "in" BEFORE "vmin", so "5vmin" stripped the "in" and failed to parse the
+        // "5vm" remainder — every vmin length in a stylesheet was rejected. The table
+        // now orders "vmin"/"vmax" ahead of "in".
+        assert_eq!(
+            parse_pixel_value("5vmin").unwrap(),
+            PixelValue::from_metric(SizeMetric::Vmin, 5.0)
         );
-        // Same shadowing for the bare unit: "vmin" -> "vm" -> parse error,
-        // instead of the NoValueGiven that every other bare unit reports.
+        // The bare unit now reports NoValueGiven like every other bare unit, instead
+        // of the bogus "vm" ValueParseErr.
         assert!(matches!(
             parse_pixel_value("vmin").unwrap_err(),
-            CssPixelValueParseError::ValueParseErr(_, "vm")
+            CssPixelValueParseError::NoValueGiven(..)
         ));
 
         // The sibling viewport units are all fine.
@@ -1641,8 +1639,11 @@ mod autotest_generated {
             CssPixelValueParseError::EmptyString
         );
         assert!(parse_pixel_value_no_percent("\u{1F600}").is_err());
-        // Inherits the vmin shadowing bug from the shared inner parser.
-        assert!(parse_pixel_value_no_percent("5vmin").is_err());
+        // FIXED: "5vmin" now parses (the suffix table orders "vmin" before "in").
+        assert_eq!(
+            parse_pixel_value_no_percent("5vmin").unwrap().inner,
+            PixelValue::from_metric(SizeMetric::Vmin, 5.0)
+        );
     }
 
     #[test]

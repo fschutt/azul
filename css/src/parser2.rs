@@ -118,12 +118,33 @@ impl CssParseErrorOwned {
     }
 }
 
+/// Clamps a byte offset into `s` so it is in-bounds AND on a UTF-8 char boundary,
+/// rounding DOWN to the nearest boundary.
+///
+/// Error locations are recorded as raw byte offsets and are reachable from public,
+/// unvalidated fields, so they cannot be fed to a slice directly: an out-of-range or
+/// mid-character offset panics. Every error-reporting path routes through here.
+#[must_use]
+fn clamp_to_char_boundary(s: &str, pos: usize) -> usize {
+    let mut pos = pos.min(s.len());
+    while pos > 0 && !s.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    pos
+}
+
 impl<'a> CssParseError<'a> {
     /// Returns the string between the (start, end) location
     #[must_use] pub fn get_error_string(&self) -> &'a str {
         let (start, end) = (self.location.start.original_pos, self.location.end.original_pos);
-        let s = &self.css_string[start..end];
-        s.trim()
+        // `location` is a pub field on a pub struct and `CssParseErrorOwned::to_shared`
+        // rebuilds one without revalidating, so start/end are NOT trustworthy: they can
+        // sit past the end, be reversed, or land inside a multi-byte char. A raw slice
+        // panics on all three -- while merely *displaying* an error. Clamp instead.
+        let start = clamp_to_char_boundary(self.css_string, start);
+        let end = clamp_to_char_boundary(self.css_string, end);
+        let (start, end) = (start.min(end), start.max(end));
+        self.css_string[start..end].trim()
     }
 }
 
@@ -614,7 +635,13 @@ pub struct ErrorLocationRange {
 impl ErrorLocation {
     /// Given an error location, returns the (line, column)
     #[must_use] pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
-        let error_location = self.original_pos.saturating_sub(1);
+        // `original_pos` is a pub field and, at Token::EndOfStream, `get_error_location`
+        // records it as exactly `css_string.len()` -- so `- 1` lands INSIDE the final
+        // character whenever the stylesheet ends in a multi-byte char, and an
+        // out-of-range value is trivially constructible. Both used to panic here, i.e.
+        // simply Display-ing a parse error on Unicode CSS would abort.
+        let error_location =
+            clamp_to_char_boundary(css_string, self.original_pos.saturating_sub(1));
         let (mut line_number, mut total_characters) = (0, 0);
 
         for line in css_string[0..error_location].lines() {
@@ -1169,11 +1196,19 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
 /// Parses a pixel value like "800px" and returns the numeric value
 fn parse_px_value(value: &str) -> Option<f32> {
     let value = value.trim();
-    value.strip_suffix("px").map_or_else(
-        // Try parsing as a bare number
-        || value.parse::<f32>().ok(),
-        |num_str| num_str.trim().parse::<f32>().ok(),
-    )
+    value
+        .strip_suffix("px")
+        .map_or_else(
+            // Try parsing as a bare number
+            || value.parse::<f32>().ok(),
+            |num_str| num_str.trim().parse::<f32>().ok(),
+        )
+        // `str::parse::<f32>` accepts "NaN"/"inf"/"infinity"; the CSS <number-token>
+        // grammar does not (CSS Syntax L3 §4.3.6 — digits, no keywords). Letting a NaN
+        // through is not merely lax: `MinMaxRange` encodes "no bound" AS NaN, so
+        // `@media (min-width: NaN)` would silently become an unconditional match
+        // instead of an invalid feature. Reject non-finite at the source.
+        .filter(|v| v.is_finite())
 }
 
 /// Parses a ratio value like "16/9" or "1.777" and returns it as f32
@@ -1183,9 +1218,11 @@ fn parse_ratio_value(value: &str) -> Option<f32> {
         let num: f32 = num.trim().parse().ok()?;
         let den: f32 = den.trim().parse().ok()?;
         if den == 0.0 { return None; }
-        Some(num / den)
+        // Same NaN-sentinel hazard as parse_px_value: "inf/inf" and "1/NaN" both parse,
+        // and a NaN ratio reads back out of MinMaxRange as "no bound".
+        Some(num / den).filter(|r| r.is_finite())
     } else {
-        value.parse::<f32>().ok()
+        value.parse::<f32>().ok().filter(|r| r.is_finite())
     }
 }
 
@@ -2566,8 +2603,12 @@ mod autotest_generated {
         assert_eq!(parse_px_value("1e-50"), Some(0.0));
         assert_eq!(parse_px_value("3.4e38px"), Some(3.4e38));
 
-        let overflowed = parse_px_value("1e39px").expect("f32 overflow still parses");
-        assert!(overflowed.is_infinite(), "1e39 should saturate to infinity");
+        // FIXED: parse_px_value now rejects non-finite results (see
+        // parse_px_value_rejects_non_finite_values). "1e39" is valid CSS number
+        // *syntax* but overflows f32 to infinity, and an infinite length is exactly
+        // the non-finite value that would collide with MinMaxRange's NaN "no bound"
+        // sentinel — so it is rejected rather than saturated. (Was: Some(inf).)
+        assert_eq!(parse_px_value("1e39px"), None);
 
         let huge_digits = "9".repeat(100_000);
         let r = catch(|| parse_px_value(&huge_digits));

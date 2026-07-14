@@ -1613,25 +1613,19 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn parse_style_font_size_vmin_is_shadowed_by_the_in_suffix() {
-        // BUG (in `parse_pixel_value`'s suffix table, css/src/props/basic/pixel.rs):
-        // "in" is tested before "vmin", so "12vmin" strips to "12vm" and fails to
-        // parse. `12vmax` is unaffected (no earlier suffix matches). Asserted here
-        // as-is so the suite stays green; reported as a real defect.
+        // FIXED (was a characterization of the bug): "in" used to be tested before
+        // "vmin", so "12vmin" stripped to "12vm" and failed to parse. The suffix
+        // table in css/src/props/basic/pixel.rs now orders "vmin" ahead of "in", so
+        // font-size in vmin round-trips.
         let size = StyleFontSize {
             inner: PixelValue::from_metric(SizeMetric::Vmin, 12.0),
         };
         let css = size.print_as_css_value();
         assert_eq!(css, "12vmin");
 
-        let err = parse_style_font_size(&css).unwrap_err();
-        assert!(
-            matches!(
-                err,
-                CssStyleFontSizeParseError::PixelValue(CssPixelValueParseError::ValueParseErr(
-                    _, "12vm"
-                ))
-            ),
-            "expected the (buggy) 'in'-suffix strip, got {err:?}"
+        assert_eq!(
+            parse_style_font_size(&css).unwrap().inner,
+            PixelValue::from_metric(SizeMetric::Vmin, 12.0)
         );
     }
 

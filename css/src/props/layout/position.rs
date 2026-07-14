@@ -1062,20 +1062,14 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn vmin_suffix_is_shadowed_by_in_bug() {
-        assert!(parse_layout_top("10vmin").is_err());
-        assert!(parse_layout_right("0vmin").is_err());
-        assert!(parse_layout_bottom("2.5vmin").is_err());
-        assert!(parse_layout_left("100vmin").is_err());
+        // FIXED (was a characterization of the bug): "vmin" used to be shadowed by an
+        // earlier "in" suffix and rejected. It now parses on every longhand.
+        assert!(parse_layout_top("10vmin").is_ok());
+        assert!(parse_layout_right("0vmin").is_ok());
+        assert!(parse_layout_bottom("2.5vmin").is_ok());
+        assert!(parse_layout_left("100vmin").is_ok());
 
-        // The error proves the misparse: it complains about "10vm", i.e. the
-        // input with a bogus "in" suffix stripped off.
-        let err = parse_layout_top("10vmin").unwrap_err();
-        assert!(
-            err.to_string().contains("10vm"),
-            "expected the stripped-\"in\" remainder in the error, got {err:?}"
-        );
-
-        // Sanity: the neighbouring viewport units are unaffected.
+        // The neighbouring viewport units keep working too.
         assert!(parse_layout_top("10vmax").is_ok());
         assert!(parse_layout_top("10vw").is_ok());
         assert!(parse_layout_top("10vh").is_ok());

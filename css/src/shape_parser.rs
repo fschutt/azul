@@ -275,8 +275,11 @@ fn parse_path(args: &str) -> Result<CssShape, ShapeParseError> {
 
     let args = args.trim();
 
-    // Path data should be quoted
-    if !args.starts_with('"') || !args.ends_with('"') {
+    // Path data should be quoted.
+    // The len >= 2 check is load-bearing: a LONE `"` satisfies both starts_with and
+    // ends_with (same byte is first and last), and the slice below then became the
+    // reversed range 1..0, which panics instead of returning this Err.
+    if args.len() < 2 || !args.starts_with('"') || !args.ends_with('"') {
         return Err(ShapeParseError::InvalidSyntax(
             "Path data must be quoted".into(),
         ));

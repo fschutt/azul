@@ -736,6 +736,20 @@ impl RefAny {
             // still references (we are in the final drop). We move it out exactly
             // once (`count = 1`) and run its drop glue.
             let run = || unsafe {
+                // A ZST has no bytes to move, and `ptr` is not a real pointer to one:
+                // `RefAny::new` never allocates for a ZST, and `RefCount::drop`
+                // substitutes a 1-byte-aligned dummy. Feeding that to
+                // `copy_nonoverlapping` violates its "aligned and non-null"
+                // precondition (`[u64; 0]` demands align 8) — UB, and Rust's debug
+                // check turns it into a NON-UNWINDING abort that kills the process.
+                //
+                // A ZST has exactly one value, so conjure it directly and run its drop
+                // glue without touching `ptr` at all.
+                if mem::size_of::<U>() == 0 {
+                    drop(mem::MaybeUninit::<U>::uninit().assume_init());
+                    return;
+                }
+
                 // Allocate uninitialized stack space for one `U`
                 let mut stack_mem = mem::MaybeUninit::<U>::uninit();
 

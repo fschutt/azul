@@ -135,6 +135,25 @@ macro_rules! impl_vec {
                 }
             }
 
+            /// True when the buffer is heap memory THIS type allocated, and may
+            /// therefore be realloc'd / deep-cloned / freed by us.
+            ///
+            /// Private, and deliberately not part of the C API surface. Lives here
+            /// rather than in `impl_vec_mut!` because only `impl_vec!` is given the
+            /// name of the destructor enum.
+            #[inline]
+            fn owns_buffer(&self) -> bool {
+                matches!(self.destructor, $destructor_name::DefaultRust)
+            }
+
+            /// Records that the buffer is now heap memory we own. Must be called after
+            /// any allocation that replaces a borrowed (`NoDestructor`/`External`)
+            /// buffer, or `clone_self`/`Drop` keep believing it is borrowed.
+            #[inline]
+            fn mark_rust_owned(&mut self) {
+                self.destructor = $destructor_name::DefaultRust;
+            }
+
             #[inline]
             #[must_use] pub const fn from_vec(input: alloc::vec::Vec<$struct_type>) -> Self {
                 let ptr = input.as_ptr();
@@ -642,12 +661,37 @@ macro_rules! impl_vec_mut {
 
                 $struct_name::alloc_guard(new_layout.size())?;
 
+                // ONLY a buffer we allocated ourselves (`DefaultRust`) may be handed to
+                // `realloc`. `current_layout()` reports `Some` for any `cap != 0`, which
+                // is NOT the same question: a vec built by `from_const_slice` points at
+                // `&'static` memory (`NoDestructor`), and one handed over by C owns its
+                // buffer elsewhere (`External`). Realloc'ing either would tell the Rust
+                // allocator to free memory it never handed out.
+                //
+                // Everything else therefore gets a fresh allocation with the existing
+                // elements copied across.
+                let owns_buffer = self.owns_buffer();
+
                 let res = unsafe {
                     match self.current_layout() {
-                        Some(layout) => {
+                        Some(layout) if owns_buffer => {
                             alloc::alloc::realloc(self.ptr.cast::<u8>().cast_mut(), layout, new_layout.size())
                         }
-                        None => alloc::alloc::alloc(new_layout),
+                        _ => {
+                            let fresh = alloc::alloc::alloc(new_layout);
+                            // NOTE: for `External`, the original buffer is left for its
+                            // owner to free — we must not touch it. That orphans its
+                            // destructor, but leaking is strictly better than the
+                            // cross-allocator free this used to do.
+                            if !fresh.is_null() && self.len > 0 {
+                                core::ptr::copy_nonoverlapping(
+                                    self.ptr,
+                                    fresh.cast::<$struct_type>(),
+                                    self.len,
+                                );
+                            }
+                            fresh
+                        }
                     }
                 };
 
@@ -657,6 +701,13 @@ macro_rules! impl_vec_mut {
 
                 self.ptr = res as *mut $struct_type;
                 self.cap = new_cap;
+                // The buffer is now heap memory WE own, whatever it was before, so the
+                // tag has to follow. Leaving it as `NoDestructor` was a use-after-free:
+                // `clone_self` branches on this tag and would take the shallow
+                // pointer-copy path, so the clone and the original aliased one
+                // allocation — and the next growth realloc'd it out from under the other
+                // side. (`Drop` would also have leaked it.)
+                self.mark_rust_owned();
 
                 Ok(())
             }

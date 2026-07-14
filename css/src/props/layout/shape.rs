@@ -407,11 +407,11 @@ mod autotest_generated {
         shape_parser::ShapeParseError,
     };
 
-    /// Inputs that currently make `shape_parser::parse_path` panic.
-    ///
-    /// See `known_bug_path_lone_quote_panics` — a lone `"` as the argument
-    /// satisfies both `starts_with('"')` and `ends_with('"')`, so the parser
-    /// slices `[1..0]`.
+    /// Inputs that USED to make `shape_parser::parse_path` panic (a lone `"` argument
+    /// satisfies both `starts_with('"')` and `ends_with('"')`, so the parser sliced
+    /// `[1..0]`). Now fixed — these return `Err`. Kept as a corpus of formerly-panicking
+    /// inputs; `path_lone_quote_returns_err_not_panic` asserts the graceful rejection,
+    /// and the fuzz guards below tolerate them for free.
     const KNOWN_PANIC_INPUTS: &[&str] = &["path(\")", "path( \" )"];
 
     fn is_known_panic(input: &str) -> bool {
@@ -601,22 +601,20 @@ mod autotest_generated {
     /// `clip-path: path(")`. The correct result is
     /// `Err(ShapeParseError::InvalidSyntax(_))`.
     ///
-    /// WHEN `parse_path` IS FIXED (require `args.len() >= 2` before slicing),
-    /// this test fails — delete it and add the inputs to `nasty_corpus`'s
-    /// ordinary rejection paths, asserting:
-    ///     assert!(parse_clip_path("path(\")").is_err());
+    /// FIXED: `parse_path` now requires `args.len() >= 2` before slicing, so a lone
+    /// `"` argument returns `Err(InvalidSyntax)` instead of panicking on the reversed
+    /// `[1..0]` slice. These inputs are reachable from untrusted CSS (`clip-path:
+    /// path(")`), so the graceful-rejection guarantee matters.
     #[test]
-    fn known_bug_path_lone_quote_panics() {
+    fn path_lone_quote_returns_err_not_panic() {
         for input in KNOWN_PANIC_INPUTS {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 parse_clip_path(input)
             }));
-            assert!(
-                outcome.is_err(),
-                "parse_clip_path({input:?}) no longer panics — the parse_path \
-                 slice bug is fixed. Replace this test with an is_err() assertion \
-                 and move {input:?} into the normal rejection corpus."
-            );
+            match outcome {
+                Ok(res) => assert!(res.is_err(), "{input:?} must be rejected, got {res:?}"),
+                Err(_) => panic!("parse_clip_path({input:?}) still panics — the slice bug regressed"),
+            }
         }
     }
 
@@ -634,10 +632,10 @@ mod autotest_generated {
     ///     assert_eq!(parse_shape_margin("10vmin").unwrap().inner.metric, SizeMetric::Vmin);
     #[test]
     fn known_bug_vmin_unit_is_rejected_by_metric_table_order() {
-        assert!(
-            parse_shape_margin("10vmin").is_err(),
-            "`10vmin` now parses — the parse_pixel_value metric-order bug is \
-             fixed. Assert SizeMetric::Vmin here instead."
+        // FIXED (as this pin's own message instructed): "10vmin" now parses to Vmin.
+        assert_eq!(
+            parse_shape_margin("10vmin").unwrap().inner.metric,
+            SizeMetric::Vmin
         );
 
         // The sibling viewport units do work, which is what makes the bug easy

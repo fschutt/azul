@@ -533,10 +533,13 @@ pub enum CombinedCssPropertyType {
 
 impl fmt::Display for CombinedCssPropertyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The map is `[(CombinedCssPropertyType, &str)]`, so the NAME is slot 1.
+        // `.map(|(k, _)| k)` bound slot 0 — the enum itself — and `write!` then called
+        // this very impl on it again, recursing until the stack blew.
         let key = COMBINED_CSS_PROPERTIES_KEY_MAP
             .iter()
             .find(|(v, _)| *v == *self)
-            .map(|(k, _)| k)
+            .map(|(_, k)| k)
             .unwrap();
         write!(f, "{key}")
     }

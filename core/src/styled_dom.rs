@@ -2152,6 +2152,16 @@ impl From<Dom> for CompactDom {
                 cur_node_id,
             );
         }
+
+        // AUTHORITATIVE last_child. The per-child `last_child` set at construction used
+        // `child_node_id + estimated_total_children`, which is the last node of the
+        // whole SUBTREE (its deepest descendant), NOT the last DIRECT child — wrong
+        // whenever that last child has children of its own. It corrupted `last_child_id()`
+        // and, through it, append_child (which spliced onto the wrong node). The loop
+        // above already tracked `previous_sibling_id`, which now holds the real last
+        // direct child (None if there were none), so overwrite with it. This runs for
+        // every node including the root, so it also corrects the root's own computation.
+        node_hierarchy[parent_node_id.index()].last_child = previous_sibling_id;
     }
 
     // Pre-allocate all nodes (+ 1 root node)

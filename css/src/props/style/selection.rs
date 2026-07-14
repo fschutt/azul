@@ -621,18 +621,22 @@ mod autotest_generated {
     /// and add `SizeMetric::Vmin` to `ROUND_TRIPPABLE_METRICS`.
     #[test]
     fn known_bug_vmin_radius_is_rejected_by_metric_table_order() {
-        assert!(
-            parse_selection_radius("5vmin").is_err(),
-            "`5vmin` now parses — the parse_pixel_value metric-order bug is fixed. \
-             Assert SizeMetric::Vmin here instead."
+        // FIXED (as this pin's own message instructed): the metric-order bug is fixed,
+        // so "5vmin" now parses to SizeMetric::Vmin.
+        assert_eq!(
+            parse_selection_radius("5vmin").unwrap().inner.metric,
+            SizeMetric::Vmin
         );
 
-        // Which also means this value can be printed but never read back:
+        // And it now round-trips instead of being print-only:
         let v = SelectionRadius {
             inner: PixelValue::from_metric(SizeMetric::Vmin, 5.0),
         };
         assert_eq!(v.print_as_css_value(), "5vmin");
-        assert!(parse_selection_radius(&v.print_as_css_value()).is_err());
+        assert_eq!(
+            parse_selection_radius(&v.print_as_css_value()).unwrap().inner.metric,
+            SizeMetric::Vmin
+        );
 
         // The sibling viewport units are fine — only the unit that *ends in* an
         // earlier metric is shadowed, which is what makes this easy to miss.

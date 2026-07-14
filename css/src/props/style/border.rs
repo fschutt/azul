@@ -1470,12 +1470,17 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn border_width_longhands_inherit_the_vmin_suffix_shadowing_bug() {
-        // KNOWN BUG (in parse_pixel_value, see pixel.rs): the suffix table tests
-        // "in" before "vmin", so "5vmin" strips "in" and then fails to parse the
-        // "5vm" remainder. Every `border-width: 5vmin` is therefore rejected.
-        // "vmax" is unaffected. Pinned here so a fix flips this test loudly.
-        assert!(parse_border_top_width("5vmin").is_err());
-        assert!(parse_border_left_width("5vmin").is_err());
+        // FIXED (this pin flipped, as intended): the suffix table used to test "in"
+        // before "vmin", so "5vmin" stripped "in" and failed to parse "5vm" — every
+        // `border-width: 5vmin` was rejected. The table now orders "vmin" ahead of "in".
+        assert_eq!(
+            parse_border_top_width("5vmin").unwrap().inner,
+            PixelValue::from_metric(crate::props::basic::SizeMetric::Vmin, 5.0)
+        );
+        assert_eq!(
+            parse_border_left_width("5vmin").unwrap().inner,
+            PixelValue::from_metric(crate::props::basic::SizeMetric::Vmin, 5.0)
+        );
         assert_eq!(
             parse_border_top_width("5vmax").unwrap().inner,
             PixelValue::from_metric(crate::props::basic::SizeMetric::Vmax, 5.0)

@@ -686,7 +686,14 @@ fn parse_linux_version(s: &str) -> Option<OsVersion> {
     let major = parts.next()?.parse::<u32>().ok()?;
     let minor = parts.next().map_or(Some(0), |p| p.parse::<u32>().ok())?;
     let patch = parts.next().map_or(Some(0), |p| p.parse::<u32>().ok())?;
-    Some(OsVersion::new(OsFamily::Linux, major * 1000 + minor * 10 + patch))
+    // Checked: this string comes straight from CSS text via parse_os_at_rule_content
+    // (`@os(linux >= 5000000)` parses fine), and there is no digit-count precondition.
+    // Unchecked `major * 1000 + minor * 10 + patch` overflowed u32 and panicked.
+    let encoded = major
+        .checked_mul(1000)?
+        .checked_add(minor.checked_mul(10)?)?
+        .checked_add(patch)?;
+    Some(OsVersion::new(OsFamily::Linux, encoded))
 }
 
 /// Linux desktop environment for `@os(linux:<de>)` CSS selectors.
@@ -788,8 +795,14 @@ impl LanguageCondition {
                 if language.len() < prefix_str.len() {
                     return false;
                 }
-                // Check if language starts with prefix (case-insensitive)
-                let lang_prefix = &language[..prefix_str.len()];
+                // Check if language starts with prefix (case-insensitive).
+                // `get` (not a raw index): the byte-LENGTH guard above says nothing
+                // about char boundaries, so a multi-byte language tag -- which `:lang()`
+                // accepts, it is arbitrary UTF-8 -- would slice mid-character and panic.
+                // A split inside a character is never a prefix match anyway.
+                let Some(lang_prefix) = language.get(..prefix_str.len()) else {
+                    return false;
+                };
                 if !lang_prefix.eq_ignore_ascii_case(prefix_str) {
                     return false;
                 }

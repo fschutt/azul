@@ -847,13 +847,11 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "BUG: the `in` suffix shadows `vmin` in parse_pixel_value's suffix table"]
-    fn vmin_radius_should_parse_but_is_shadowed_by_in() {
-        // `border-radius: 3vmin` is valid CSS. parse_pixel_value checks the
-        // "in" suffix before "vmin", so "3vmin" strips to "3vm" and fails to
-        // parse as f32. Every other metric round-trips (see the test above).
-        // Fix: order "vmin"/"vmax" before "in" in the suffix table in
-        // css/src/props/basic/pixel.rs.
+    fn vmin_radius_parses() {
+        // `border-radius: 3vmin` is valid CSS. parse_pixel_value used to check the
+        // "in" suffix before "vmin", so "3vmin" stripped to "3vm" and failed to
+        // parse as f32. The suffix table now orders "vmin"/"vmax" before "in"
+        // (css/src/props/basic/pixel.rs), so this round-trips like every other metric.
         let printed = StyleBorderTopLeftRadius {
             inner: PixelValue::from_metric(SizeMetric::Vmin, 3.0),
         }

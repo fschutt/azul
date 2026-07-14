@@ -582,6 +582,29 @@ impl<T> FlatVecVec<T> {
         self.offsets = new_offsets;
     }
 
+    /// Return to build phase from read (flattened) phase, preserving all data, so
+    /// `push_to` / `build_mut` work again. No-op if already in build phase.
+    ///
+    /// The build → flatten → read progression is otherwise one-way, but `restyle()`
+    /// legitimately runs more than once on the same cache (`StyledDom::create` does one
+    /// internal pass, then the public API may do more), and building the compact cache
+    /// flattens these vecs in between. Without re-entering build phase, the next
+    /// restyle's `push_to` / `build_mut` would index an emptied `build` and panic.
+    pub fn ensure_build_phase(&mut self) where T: Clone {
+        if self.offsets.is_empty() {
+            return; // already in build phase (or wholly empty)
+        }
+        let mut build = Vec::with_capacity(self.offsets.len());
+        for &(start, len) in &self.offsets {
+            let s = start as usize;
+            let l = len as usize;
+            build.push(self.data[s..s + l].to_vec());
+        }
+        self.build = build;
+        self.data = Vec::new();
+        self.offsets = Vec::new();
+    }
+
     /// Like `retain`, but passes each item's owning node index to the predicate.
     /// Must be called after flatten. Preserves per-node ordering.
     pub fn retain_with_node_index(
@@ -1117,8 +1140,21 @@ impl CssPropertyCache {
                 }
             }
 
-            // Clear all css_props before assigning
-            for entry in self.css_props.build_iter_mut() { entry.clear(); }
+            // Re-enter build phase before repopulating. restyle() is not
+            // single-shot: StyledDom::create runs one restyle internally, and building
+            // the compact cache flattens these vecs — so on a later restyle both are in
+            // read phase, where the old reset `build_iter_mut().clear()` silently
+            // iterated ZERO entries (flatten empties `build`). The push_to / build_mut
+            // below then indexed an emptied Vec and panicked.
+            //
+            // css_props is rebuilt from scratch each restyle (repopulated below,
+            // flattened at the end), so replace it with a fresh build-phase vec.
+            // cascaded_props must PRESERVE its contents — restyle READS parents'
+            // cascaded slices to inherit, and it accumulates across restyles with
+            // or_insert dedup — so un-flatten it in place instead of clearing.
+            let node_count = self.css_props.len();
+            self.css_props = FlatVecVec::new(node_count);
+            self.cascaded_props.ensure_build_phase();
 
             // Collect global-only rule declarations ONCE (not per-node).
             // These are stored in self.global_css_props and applied during
