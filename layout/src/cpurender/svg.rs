@@ -532,6 +532,13 @@ fn parse_svg_transform(s: &str) -> TransAffine {
 fn parse_svg_color(s: &str) -> Option<Rgba8> {
     let s = s.trim();
     if let Some(hex) = s.strip_prefix('#') {
+        // The arms below index `hex` at fixed BYTE offsets, but `hex.len()` is a byte
+        // count: a multibyte char (e.g. "#€123", € = 3 bytes) makes the byte length hit
+        // the 6/3 arm while the slice boundary lands mid-character and panics. Valid hex
+        // is ASCII, so reject anything else up front.
+        if !hex.is_ascii() {
+            return None;
+        }
         return match hex.len() {
             6 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).ok()?;

@@ -10120,6 +10120,19 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
     }
 }
 
+/// True for separators that add word-spacing but must NOT offer a soft-wrap opportunity
+/// (UAX#14 class GL/WJ): NBSP, NARROW NO-BREAK SPACE, WORD JOINER, ZWNBSP. These are a
+/// subset of `is_word_separator` — they still contribute Glue, but no break Penalty.
+pub fn is_no_break_space(item: &ShapedItem) -> bool {
+    if let ShapedItem::Cluster(c) = item {
+        c.text
+            .chars()
+            .any(|ch| matches!(ch, '\u{00A0}' | '\u{202F}' | '\u{2060}' | '\u{FEFF}'))
+    } else {
+        false
+    }
+}
+
 // +spec:margin-collapsing:6706c1 - fixed-width spaces (U+2000–U+200A, U+3000) excluded from word separators
 /// Returns true if the character is a word-separator character per CSS Text §7.1.
 /// Punctuation and fixed-width spaces (U+3000, U+2000 through U+200A) are NOT

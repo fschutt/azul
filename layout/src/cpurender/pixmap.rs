@@ -652,6 +652,13 @@ pub fn agg_fill_path_clipped(
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
     if let Some(c) = clip {
+        // A degenerate (non-positive-area) clip means "nothing visible". Bail BEFORE
+        // building the integer clip box: `(c.x + c.width) as i32 - 1` for width 0 is
+        // `c.x - 1`, an INVERTED box that clip_box_i()'s normalize() silently repairs
+        // into a small VALID box — so an empty clip used to paint a few pixels.
+        if c.width <= 0.0 || c.height <= 0.0 {
+            return;
+        }
         rb.clip_box_i(
             c.x as i32,
             c.y as i32,
@@ -661,6 +668,21 @@ pub fn agg_fill_path_clipped(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(rule);
+    // Clip GEOMETRY to the target pixmap (intersected with any caller clip) before
+    // rasterizing. Without this, the scanline sweep runs once per row the path crosses,
+    // so a huge/infinite coordinate — reachable from a large-but-legal CSS transform or
+    // SVG attribute — is O(coordinate magnitude), i.e. an effective hang. Clamping the
+    // rasterizer's clip box bounds the work to the visible area.
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = match clip {
+        Some(c) => (
+            f64::from(c.x).max(0.0),
+            f64::from(c.y).max(0.0),
+            f64::from(c.x + c.width).min(f64::from(w)),
+            f64::from(c.y + c.height).min(f64::from(h)),
+        ),
+        None => (0.0, 0.0, f64::from(w), f64::from(h)),
+    };
+    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
     ras.add_path(path, 0);
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
@@ -728,6 +750,11 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
     if let Some(c) = clip {
+        // Degenerate clip = nothing visible; bail before the inverted-box trap (see
+        // agg_fill_path_clipped).
+        if c.width <= 0.0 || c.height <= 0.0 {
+            return;
+        }
         rb.clip_box_i(
             c.x as i32,
             c.y as i32,
@@ -737,6 +764,16 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = match clip {
+        Some(c) => (
+            f64::from(c.x).max(0.0),
+            f64::from(c.y).max(0.0),
+            f64::from(c.x + c.width).min(f64::from(w)),
+            f64::from(c.y + c.height).min(f64::from(h)),
+        ),
+        None => (0.0, 0.0, f64::from(w), f64::from(h)),
+    };
+    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
     ras.add_path(path, 0);
     let mut sl = ScanlineU8::new();
 

@@ -863,11 +863,21 @@ fn resolve_font_size_to_px(
         SizeMetric::Em => pv.number.get() * parent_font_size_px,
         SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
         SizeMetric::Rem => {
-            tier2_dims
-                .first()
-                .and_then(|r| decode_pixel_value_u32(r.font_size))
-                .map_or(16.0, |rpv| rpv.number.get())
-                * pv.number.get()
+            // rem = the ROOT element's font size. For the root itself that is circular,
+            // so CSS resolves root rem against the 16px INITIAL value (Selectors/Values:
+            // "when specified on the root element, rem refers to the initial value").
+            // tier2_dims[0] IS the root's slot, but while resolving the root it still
+            // holds the root's own unresolved raw rem — so `html { font-size: 2rem }`
+            // computed 2*2 = 4px instead of 2*16 = 32px.
+            let rem_base = if parent_id.is_none() {
+                16.0
+            } else {
+                tier2_dims
+                    .first()
+                    .and_then(|r| decode_pixel_value_u32(r.font_size))
+                    .map_or(16.0, |rpv| rpv.number.get())
+            };
+            rem_base * pv.number.get()
         }
         SizeMetric::Pt => pv.number.get() * 96.0 / 72.0,
         _ => pv.number.get(),

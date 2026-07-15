@@ -7,7 +7,8 @@ use hyphenation::{Hyphenator, Standard};
 use crate::text3::cache::Standard;
 
 use crate::text3::cache::{
-    get_base_direction_from_logical, get_item_measure, is_word_separator, is_zero_width_space,
+    get_base_direction_from_logical, get_item_measure, is_no_break_space, is_word_separator,
+    is_zero_width_space,
     AvailableSpace, BidiDirection, JustifyContent, LayoutError, LoadedFonts,
     LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
     ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
@@ -136,11 +137,16 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     stretch: width * SPACE_STRETCH_RATIO,
                     shrink: width * SPACE_SHRINK_RATIO,
                 });
-                nodes.push(LayoutNode::Penalty {
-                    item: None,
-                    width: 0.0,
-                    penalty: 0.0,
-                });
+                // NBSP & friends (UAX#14 class GL/WJ) add word-spacing Glue but are NOT
+                // soft-wrap opportunities, so suppress the break Penalty for them —
+                // otherwise "1\u{00A0}km" could wrap between the number and unit.
+                if !is_no_break_space(item) {
+                    nodes.push(LayoutNode::Penalty {
+                        item: None,
+                        width: 0.0,
+                        penalty: 0.0,
+                    });
+                }
             }
             ShapedItem::Cluster(cluster)
                 if cluster.text.ends_with('\u{002D}')
