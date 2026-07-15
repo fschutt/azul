@@ -265,7 +265,13 @@ impl Default for ConicGradient {
     fn default() -> Self {
         Self {
             extend_mode: ExtendMode::default(),
-            center: StyleBackgroundPosition::default(),
+            // CSS default for conic-gradient is `at center` (50% 50%), NOT the generic
+            // Left/Top of StyleBackgroundPosition::default() — a corner-anchored cone maps
+            // the whole element into one angular slice and renders a flat color.
+            center: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
             angle: AngleValue::default(),
             stops: Vec::new().into(),
         }
