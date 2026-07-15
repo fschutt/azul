@@ -1757,7 +1757,8 @@ impl CssPropertyWithConditionsVec {
                     let key = key.trim();
                     let value = value.trim();
                     let px_value = value.strip_suffix("px")
-                        .and_then(|v| v.trim().parse::<f32>().ok());
+                        .and_then(|v| v.trim().parse::<f32>().ok())
+                        .filter(|px| !px.is_nan()); // reject NaN (sentinel); keep inf (never-matching)
                     match key {
                         "min-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_min(px))); } }
                         "max-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_max(px))); } }
@@ -1797,10 +1798,15 @@ impl CssPropertyWithConditionsVec {
                 let key = key.trim();
                 let value = value.trim();
                 
-                // Parse pixel value
+                // Reject only NaN, not infinity. NaN collides with MinMaxRange's NaN
+                // "no bound" sentinel — `(min-width: NaN)` would silently match every
+                // viewport. Infinity is a valid, meaningful bound: `(min-width: inf)`
+                // creates a range no finite viewport satisfies (matches nothing), which
+                // is the correct outcome, so it must be KEPT.
                 let px_value = value.strip_suffix("px")
-                    .and_then(|v| v.trim().parse::<f32>().ok());
-                
+                    .and_then(|v| v.trim().parse::<f32>().ok())
+                    .filter(|px| !px.is_nan());
+
                 match key {
                     "min-width" => {
                         if let Some(px) = px_value {

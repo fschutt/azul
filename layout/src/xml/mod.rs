@@ -908,6 +908,14 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
         node_stack.pop();
     }
 
+    // A well-formed document unwinds back to just the root sentinel. If an element was
+    // left open (e.g. a bare "<svg" with no closing bracket, which the fragment tokenizer
+    // yields as one ElementStart then cleanly ends), node_stack still holds it — reject
+    // it instead of returning a "valid" partial tree.
+    if node_stack.len() != 1 {
+        return Err(XmlError::UnclosedRootNode);
+    }
+
     Ok(root_node.children.into())
 }
 

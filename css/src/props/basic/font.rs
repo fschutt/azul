@@ -339,6 +339,18 @@ impl StyleFontFamily {
             Self::Ref(s) => format!("font-ref(0x{:x})", s.parsed as usize),
         }
     }
+
+    /// The RAW family name, for querying the font backend (fontconfig). Unlike
+    /// `as_string()` this does NOT apply CSS serialization — a multi-word name comes
+    /// back as `Times New Roman`, not `"Times New Roman"`, since the backend matches on
+    /// the bare name and the quotes would corrupt the query.
+    pub fn as_query_string(&self) -> String {
+        match &self {
+            Self::System(s) | Self::File(s) => s.clone().into_library_owned_string(),
+            Self::SystemType(st) => st.as_css_str().to_string(),
+            Self::Ref(s) => format!("font-ref(0x{:x})", s.parsed as usize),
+        }
+    }
 }
 
 impl_vec!(StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecDestructor, StyleFontFamilyVecDestructorType, StyleFontFamilyVecSlice, OptionStyleFontFamily);

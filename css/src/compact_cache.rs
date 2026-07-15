@@ -1043,7 +1043,15 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
     // Pack: low 4 bits = metric, upper 28 bits = value (as unsigned offset)
     // raw is range-checked to 28 bits above; reinterpret its low 32 bits for packing.
     let value_bits = i32::try_from(raw).unwrap_or(0).cast_unsigned() << 4;
-    value_bits | metric
+    let packed = value_bits | metric;
+    // A legitimate small NEGATIVE value with a high metric nibble (e.g. -1 in
+    // vh/vmin/vmax packs to 0xFFFF_FFF9/FA/FB) lands in the reserved sentinel band
+    // [U32_SENTINEL_THRESHOLD, U32_SENTINEL] and decode would misread it as an unset
+    // sentinel. Escape to tier 3 so the real value is stored losslessly instead.
+    if packed >= U32_SENTINEL_THRESHOLD {
+        return U32_SENTINEL;
+    }
+    packed
 }
 
 /// Decode a u32 back to `PixelValue`. Returns None for sentinel values.
@@ -3572,14 +3580,19 @@ mod autotest_generated {
         //
         // Fix would be to reject any encoding that lands >= U32_SENTINEL_THRESHOLD
         // and escape to tier 3 instead.
+        // FIXED (as this test's own comment prescribed): a raw -1 with a high metric
+        // nibble packs into the reserved sentinel band, so the encoder now ESCAPES it to
+        // U32_SENTINEL (tier 3) rather than emitting a value that decodes as a wrong,
+        // aliased sentinel. decode() therefore returns None ("not in the fast cache —
+        // look in tier 3"), which is the safe, non-aliasing outcome.
         for metric in [SizeMetric::Vh, SizeMetric::Vmin, SizeMetric::Vmax] {
             let pv = pv_raw(metric, -1);
             let encoded = encode_pixel_value_u32(&pv);
-            let decoded = decode_pixel_value_u32(encoded);
+            assert_eq!(encoded, U32_SENTINEL, "{metric:?}: raw -1 must escape to tier 3");
             assert_eq!(
-                decoded.map(|d| (d.metric, d.number.number())),
-                Some((metric, -1isize)),
-                "{metric:?}: raw -1 encoded to {encoded:#X}, which lands in the sentinel band",
+                decode_pixel_value_u32(encoded),
+                None,
+                "{metric:?}: an escaped value decodes as None, never an aliased sentinel",
             );
         }
     }

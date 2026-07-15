@@ -456,22 +456,21 @@ impl SvgMultiPolygon {
 
     /// Returns the axis-aligned bounding rectangle of all rings in this multi-polygon.
     #[must_use] pub fn get_bounds(&self) -> SvgRect {
-        let Some(mut first_bounds) = self
-            .rings
-            .get(0)
-            .and_then(|b| b.items.get(0).map(SvgPathElement::get_bounds))
-        else {
-            // Empty polygon has zero-sized bounds at origin
-            return SvgRect::default();
-        };
-
+        // Seed from the FIRST item found in ANY ring, not specifically rings[0].items[0]:
+        // an empty first ring used to make the old seed-or-bail return SvgRect::default()
+        // and silently drop every later ring's geometry.
+        let mut bounds: Option<SvgRect> = None;
         for ring in &self.rings {
             for item in &ring.items {
-                first_bounds.union_with(&item.get_bounds());
+                let item_bounds = item.get_bounds();
+                match &mut bounds {
+                    Some(b) => b.union_with(&item_bounds),
+                    None => bounds = Some(item_bounds),
+                }
             }
         }
-
-        first_bounds
+        // Empty polygon (no items in any ring) has zero-sized bounds at origin.
+        bounds.unwrap_or_default()
     }
 }
 

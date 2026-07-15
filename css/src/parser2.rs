@@ -820,11 +820,14 @@ pub fn parse_css_path(input: &str) -> Result<CssPath, CssPathParseError<'_>> {
             Token::UniversalSelector => {
                 selectors.push(CssPathSelector::Global);
             }
-            Token::TypeSelector(div_type) => {
-                if let Ok(nt) = NodeTypeTag::from_str(div_type) {
-                    selectors.push(CssPathSelector::Type(nt));
-                }
-            }
+            Token::TypeSelector(div_type) => match NodeTypeTag::from_str(div_type) {
+                // An unknown type selector must invalidate the whole path (Selectors L4:
+                // an invalid simple selector invalidates the selector), not be silently
+                // dropped — dropping it left a dangling combinator that matched every
+                // descendant of the previous selector.
+                Ok(nt) => selectors.push(CssPathSelector::Type(nt)),
+                Err(e) => return Err(CssPathParseError::NodeTypeTag(e)),
+            },
             Token::IdSelector(id) => {
                 selectors.push(CssPathSelector::Id(id.to_string().into()));
             }
@@ -1472,8 +1475,20 @@ fn new_from_str_inner<'a>(
             Ok(token) => token,
             Err(e) => {
                 let error_location = get_error_location(tokenizer);
+                // An unclosed block that still contains a declaration makes the
+                // tokenizer raise UnexpectedEndOfStream while scanning past the last `;`
+                // for the missing `}`, BEFORE the loop ever reaches Token::EndOfStream.
+                // Emit the same dedicated "unclosed blocks" diagnostic that arm would,
+                // rather than a generic parse error, when we're still inside a block.
+                let warning = if block_nesting != 0 {
+                    CssParseWarnMsgInner::MalformedStructure {
+                        message: "Unclosed blocks at end of file",
+                    }
+                } else {
+                    CssParseWarnMsgInner::ParseError(e.into())
+                };
                 warnings.push(CssParseWarnMsg {
-                    warning: CssParseWarnMsgInner::ParseError(e.into()),
+                    warning,
                     location: ErrorLocationRange { start: last_error_location, end: error_location },
                 });
                 // On error, break to avoid infinite loop - the tokenizer may be stuck
@@ -1540,26 +1555,39 @@ fn new_from_str_inner<'a>(
                         last_path.clear();
                     }
 
-                    // Get parent paths and combine with current paths
-                    let parent_paths = get_parent_paths(&nesting_stack);
-                    let combined_paths: Vec<Vec<CssPathSelector>> = if parent_paths.is_empty() {
-                        current_paths.clone()
+                    // Get parent paths and combine with current paths.
+                    //
+                    // Each nesting level appends ~2 selectors to the combined path AND
+                    // get_parent_paths clones the parent's (ever-growing) path every
+                    // level, so unbounded nesting makes the whole parse O(depth^2) — a
+                    // hang on adversarial input like `div{` × 10_000. Beyond a sane cap,
+                    // stop combining with the ancestor chain (deeper rules keep only
+                    // their own local selector); no realistic stylesheet nests this deep,
+                    // and it bounds parse time/memory.
+                    const MAX_NESTING_DEPTH: usize = 1024;
+                    let combined_paths: Vec<Vec<CssPathSelector>> = if block_nesting > MAX_NESTING_DEPTH {
+                        std::mem::take(&mut current_paths)
                     } else {
-                        // Combine each parent path with each current path
-                        let mut result = Vec::new();
-                        for parent in &parent_paths {
-                            for child in &current_paths {
-                                // Check if child starts with pseudo-selector
-                                let is_pseudo_only = child.first().is_some_and(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
-                                let mut combined = parent.clone();
-                                if !is_pseudo_only && !child.is_empty() {
-                                    combined.push(CssPathSelector::Children);
+                        let parent_paths = get_parent_paths(&nesting_stack);
+                        if parent_paths.is_empty() {
+                            current_paths.clone()
+                        } else {
+                            // Combine each parent path with each current path
+                            let mut result = Vec::new();
+                            for parent in &parent_paths {
+                                for child in &current_paths {
+                                    // Check if child starts with pseudo-selector
+                                    let is_pseudo_only = child.first().is_some_and(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
+                                    let mut combined = parent.clone();
+                                    if !is_pseudo_only && !child.is_empty() {
+                                        combined.push(CssPathSelector::Children);
+                                    }
+                                    combined.extend(child.iter().cloned());
+                                    result.push(combined);
                                 }
-                                combined.extend(child.iter().cloned());
-                                result.push(combined);
                             }
+                            result
                         }
-                        result
                     };
 
                     // Push to nesting stack
@@ -2361,11 +2389,13 @@ mod autotest_generated {
         assert_eq!(parse_css_path(""), Err(CssPathParseError::EmptyPath));
         assert_eq!(parse_css_path("   "), Err(CssPathParseError::EmptyPath));
         assert_eq!(parse_css_path("\t\r\n "), Err(CssPathParseError::EmptyPath));
-        // A path made only of unknown type tags yields no selectors at all.
-        assert_eq!(
+        // An unknown type tag is now a hard error (Selectors L4: an invalid simple
+        // selector invalidates the selector) rather than being silently dropped into an
+        // empty path. See parse_css_path_unknown_type_tag_is_not_silently_dropped.
+        assert!(matches!(
             parse_css_path("definitelynotatag"),
-            Err(CssPathParseError::EmptyPath)
-        );
+            Err(CssPathParseError::NodeTypeTag(_))
+        ));
     }
 
     #[test]

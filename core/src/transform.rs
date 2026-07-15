@@ -224,30 +224,37 @@ impl ComputedTransform3D {
 
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn determinant(&self) -> f32 {
-        self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0]
-            - self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0]
-            - self.m[0][3] * self.m[1][1] * self.m[2][2] * self.m[3][0]
-            + self.m[0][1] * self.m[1][3] * self.m[2][2] * self.m[3][0]
-            + self.m[0][2] * self.m[1][1] * self.m[2][3] * self.m[3][0]
-            - self.m[0][1] * self.m[1][2] * self.m[2][3] * self.m[3][0]
-            - self.m[0][3] * self.m[1][2] * self.m[2][0] * self.m[3][1]
-            + self.m[0][2] * self.m[1][3] * self.m[2][0] * self.m[3][1]
-            + self.m[0][3] * self.m[1][0] * self.m[2][2] * self.m[3][1]
-            - self.m[0][0] * self.m[1][3] * self.m[2][2] * self.m[3][1]
-            - self.m[0][2] * self.m[1][0] * self.m[2][3] * self.m[3][1]
-            + self.m[0][0] * self.m[1][2] * self.m[2][3] * self.m[3][1]
-            + self.m[0][3] * self.m[1][1] * self.m[2][0] * self.m[3][2]
-            - self.m[0][1] * self.m[1][3] * self.m[2][0] * self.m[3][2]
-            - self.m[0][3] * self.m[1][0] * self.m[2][1] * self.m[3][2]
-            + self.m[0][0] * self.m[1][3] * self.m[2][1] * self.m[3][2]
-            + self.m[0][1] * self.m[1][0] * self.m[2][3] * self.m[3][2]
-            - self.m[0][0] * self.m[1][1] * self.m[2][3] * self.m[3][2]
-            - self.m[0][2] * self.m[1][1] * self.m[2][0] * self.m[3][3]
-            + self.m[0][1] * self.m[1][2] * self.m[2][0] * self.m[3][3]
-            + self.m[0][2] * self.m[1][0] * self.m[2][1] * self.m[3][3]
-            - self.m[0][0] * self.m[1][2] * self.m[2][1] * self.m[3][3]
-            - self.m[0][1] * self.m[1][0] * self.m[2][2] * self.m[3][3]
-            + self.m[0][0] * self.m[1][1] * self.m[2][2] * self.m[3][3]
+        // Accumulate in f64. Individual f32 products (e.g. m[0][0]*m[1][1] on a
+        // diag(1e20) matrix = 1e40) overflow to ±inf BEFORE the legitimately-zero
+        // off-diagonal factors multiply in, and inf * 0 = NaN, poisoning the whole sum.
+        // f64 has the range to hold the products; the final cast saturates a real
+        // overflow to ±inf and propagates a NaN input as NaN.
+        let m = |i: usize, j: usize| f64::from(self.m[i][j]);
+        let det = m(0, 3) * m(1, 2) * m(2, 1) * m(3, 0)
+            - m(0, 2) * m(1, 3) * m(2, 1) * m(3, 0)
+            - m(0, 3) * m(1, 1) * m(2, 2) * m(3, 0)
+            + m(0, 1) * m(1, 3) * m(2, 2) * m(3, 0)
+            + m(0, 2) * m(1, 1) * m(2, 3) * m(3, 0)
+            - m(0, 1) * m(1, 2) * m(2, 3) * m(3, 0)
+            - m(0, 3) * m(1, 2) * m(2, 0) * m(3, 1)
+            + m(0, 2) * m(1, 3) * m(2, 0) * m(3, 1)
+            + m(0, 3) * m(1, 0) * m(2, 2) * m(3, 1)
+            - m(0, 0) * m(1, 3) * m(2, 2) * m(3, 1)
+            - m(0, 2) * m(1, 0) * m(2, 3) * m(3, 1)
+            + m(0, 0) * m(1, 2) * m(2, 3) * m(3, 1)
+            + m(0, 3) * m(1, 1) * m(2, 0) * m(3, 2)
+            - m(0, 1) * m(1, 3) * m(2, 0) * m(3, 2)
+            - m(0, 3) * m(1, 0) * m(2, 1) * m(3, 2)
+            + m(0, 0) * m(1, 3) * m(2, 1) * m(3, 2)
+            + m(0, 1) * m(1, 0) * m(2, 3) * m(3, 2)
+            - m(0, 0) * m(1, 1) * m(2, 3) * m(3, 2)
+            - m(0, 2) * m(1, 1) * m(2, 0) * m(3, 3)
+            + m(0, 1) * m(1, 2) * m(2, 0) * m(3, 3)
+            + m(0, 2) * m(1, 0) * m(2, 1) * m(3, 3)
+            - m(0, 0) * m(1, 2) * m(2, 1) * m(3, 3)
+            - m(0, 1) * m(1, 0) * m(2, 2) * m(3, 3)
+            + m(0, 0) * m(1, 1) * m(2, 2) * m(3, 3);
+        det as f32
     }
 
     fn multiply_scalar(&self, x: f32) -> Self {

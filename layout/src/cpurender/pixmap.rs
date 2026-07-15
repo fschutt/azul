@@ -390,6 +390,12 @@ impl AzulPixmap {
         let info = reader
             .next_frame(&mut buf)
             .map_err(|e| format!("PNG frame error: {e}"))?;
+        // Require the stream to reach IEND. next_frame() returns Ok as soon as the
+        // deflate stream has yielded enough bytes for the declared image, so a TRUNCATED
+        // PNG still "decodes"; finish() enforces a proper end and rejects the truncation.
+        reader
+            .finish()
+            .map_err(|e| format!("PNG truncated or corrupt: {e}"))?;
         let width = info.width;
         let height = info.height;
 
@@ -581,6 +587,10 @@ pub struct AzRect {
 }
 
 impl AzRect {
+    /// A zero-area rect used as an explicit "clip away everything" value — distinct from
+    /// `None`, which means "no clip / unclipped".
+    pub(crate) const DENY_ALL: Self = Self { x: 0.0, y: 0.0, width: 0.0, height: 0.0 };
+
     pub(crate) fn from_xywh(x: f32, y: f32, w: f32, h: f32) -> Option<Self> {
         if w <= 0.0
             || h <= 0.0
@@ -621,6 +631,38 @@ impl AzRect {
 // ============================================================================
 // AGG helper: fill a PathStorage with a solid color into an AzulPixmap
 // ============================================================================
+
+/// Wraps a `VertexSource` and clamps every coordinate to a finite range the AGG
+/// rasterizer can handle. A coordinate of ~1e30 (or ±inf) saturates the rasterizer's
+/// 24.8 fixed-point conversion to ~i32::MAX and makes its scanline sweep run once per
+/// row crossed — O(coordinate magnitude), i.e. an effective hang (>1GB RAM, spins
+/// forever) on a large-but-legal transform or an SVG numeric attribute. Anything far
+/// outside the target contributes no visible pixels, so clamping it to just off-screen
+/// is visually equivalent and bounds the work to the visible area.
+struct ClampVertexSource<'a> {
+    inner: &'a mut dyn VertexSource,
+    limit: f64,
+}
+
+impl VertexSource for ClampVertexSource<'_> {
+    fn rewind(&mut self, path_id: u32) {
+        self.inner.rewind(path_id);
+    }
+
+    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
+        let cmd = self.inner.vertex(x, y);
+        *x = if x.is_nan() { 0.0 } else { x.clamp(-self.limit, self.limit) };
+        *y = if y.is_nan() { 0.0 } else { y.clamp(-self.limit, self.limit) };
+        cmd
+    }
+}
+
+/// Coordinate clamp limit for a `w`×`h` target: far larger than any on-screen coordinate
+/// (so real geometry is untouched) yet small enough that the rasterizer's work stays
+/// bounded. Off-screen geometry gets pinned just outside the target.
+fn coord_clamp_limit(w: u32, h: u32) -> f64 {
+    (f64::from(w) + f64::from(h)) * 4.0 + 4096.0
+}
 
 pub fn agg_fill_path(
     pixmap: &mut AzulPixmap,
@@ -683,7 +725,11 @@ pub fn agg_fill_path_clipped(
         None => (0.0, 0.0, f64::from(w), f64::from(h)),
     };
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    ras.add_path(path, 0);
+    // Clamp coordinates before rasterizing — see ClampVertexSource. This is the actual
+    // guard against the huge/infinite-coordinate hang (the rasterizer's own clip_box
+    // above does not bound the work for saturated fixed-point coords).
+    let mut clamped = ClampVertexSource { inner: path, limit: coord_clamp_limit(w, h) };
+    ras.add_path(&mut clamped, 0);
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
@@ -774,11 +820,19 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
         None => (0.0, 0.0, f64::from(w), f64::from(h)),
     };
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    ras.add_path(path, 0);
+    let mut clamped = ClampVertexSource { inner: path, limit: coord_clamp_limit(w, h) };
+    ras.add_path(&mut clamped, 0);
     let mut sl = ScanlineU8::new();
 
     let interp = SpanInterpolatorLinear::new(transform);
-    let mut sg = SpanGradient::new(interp, gradient_fn, lut, d1, d2);
+    // Clamp gradient distances to a range ALL of SpanGradient's internal i32 math can
+    // hold. It rounds d1/d2 to 24.8 fixed-point AND later computes `(d - d1) * color_size`
+    // (span_gradient.rs) — with color_size 256 and the extra ×256 of fixed-point, even a
+    // few-million value overflows i32. ±8192 keeps every product in range and is far
+    // beyond any real gradient extent (callers pass 0..100); pathological NaN/±inf/f64::MAX
+    // just pin to the edge.
+    let clamp_d = |d: f64| if d.is_nan() { 0.0 } else { d.clamp(-8192.0, 8192.0) };
+    let mut sg = SpanGradient::new(interp, gradient_fn, lut, clamp_d(d1), clamp_d(d2));
     let mut alloc = SpanAllocator::<Rgba8>::new();
     render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, &mut sg);
 }

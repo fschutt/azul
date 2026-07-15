@@ -88,6 +88,17 @@ impl Css {
         wrapped.push_str(style);
         wrapped.push_str("\n}");
         let (mut css, _warnings) = crate::parser2::new_from_str(&wrapped);
+        // A `}` in `style` closes the `* {` wrapper early, so the remainder is parsed as
+        // a free-standing rule with a caller-controlled selector (selector injection).
+        // Every rule an inline style produces MUST stay rooted at the `*` wrapper, so
+        // drop any that isn't Global-rooted. Legitimate pseudo/at-rule nesting stays a
+        // child of `*` (still Global-rooted per push_front_scope), so it is kept.
+        css.rules.retain(|rule| {
+            matches!(
+                rule.path.selectors.as_ref().first(),
+                None | Some(CssPathSelector::Global)
+            )
+        });
         for rule in css.rules.as_mut() {
             rule.priority = rule_priority::INLINE;
         }
@@ -333,10 +344,11 @@ impl<T> BoxOrStatic<T> {
     /// Consume self and return the inner value.
     #[inline]
     #[must_use] pub fn into_inner(self) -> T where T: Clone {
-        let val = self.as_ref().clone();
-        // Don't double-free: std::mem::forget prevents Drop from running
-        core::mem::forget(self);
-        val
+        // Clone the inner value, then let `self` drop normally so `Drop` frees the
+        // heap box (for the Boxed variant). The old `mem::forget(self)` LEAKED that
+        // box on every call — the clone is an independent value, so there is no
+        // double-free to guard against.
+        self.as_ref().clone()
     }
 }
 
@@ -1251,6 +1263,7 @@ impl NodeTypeTag {
             "base" => Ok(Self::Base),
 
             // Special
+            "text" => Ok(Self::Text), // Display emits "text"; from_str must accept it back
             "img" => Ok(Self::Img),
             "virtual-view" | "iframe" => Ok(Self::VirtualView),
             "icon" => Ok(Self::Icon),

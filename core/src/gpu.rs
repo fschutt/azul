@@ -173,9 +173,16 @@ impl GpuValueCache {
                     }
                 }
                 let node_data = &node_data[node_id];
-                let current_transform = css_property_cache
-                    .get_transform(node_data, &node_id, styled_node_state)?
-                    .get_property()
+                // NOT `get_transform(...)?`: a `?` here skips the whole node when there
+                // is no transform cascade entry (the ordinary case), so a node that just
+                // LOST its transform never reaches the `(Some(old), None) => Removed` arm
+                // and its cached TransformKey is never evicted. Turn "no entry" into
+                // `None` instead (mirrors the transform_origin handling below).
+                let transform_prop =
+                    css_property_cache.get_transform(node_data, &node_id, styled_node_state);
+                let current_transform = transform_prop
+                    .as_ref()
+                    .and_then(|v| v.get_property())
                     .map(|t| {
                         // TODO: look up the parent nodes size properly to resolve animation of
                         // transforms with %

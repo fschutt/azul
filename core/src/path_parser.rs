@@ -522,6 +522,17 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
         });
     }
 
+    // A `d` made up solely of comma/whitespace filler (e.g. ",") consumes to EOF
+    // without ever reading a command and used to be accepted as an empty Ok. The SVG
+    // path grammar requires a moveto to start; a bare separator is only valid BETWEEN
+    // commands, never as the whole string.
+    if parser.last_command == 0 && rings.is_empty() {
+        return Err(SvgPathParseError::UnexpectedChar {
+            pos: 0,
+            ch: char_at(parser.input, 0),
+        });
+    }
+
     Ok(SvgMultiPolygon {
         rings: SvgPathVec::from_vec(rings),
     })

@@ -631,9 +631,13 @@ impl Default for TitlebarMetrics {
         Self {
             button_side: TitlebarButtonSide::Right,
             buttons: TitlebarButtons::default(),
-            height: OptionPixelValue::Some(PixelValue::px(32.0)),
-            button_area_width: OptionPixelValue::Some(PixelValue::px(100.0)),
-            padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+            // None = "not detected", like title_font above: SystemMetrics::default()
+            // must be able to represent an unknown titlebar so PixelValueOrSystem's
+            // resolve() falls back to system detection instead of these hardcoded
+            // guesses. (The concrete px values pinned the fallback path unreachable.)
+            height: OptionPixelValue::None,
+            button_area_width: OptionPixelValue::None,
+            padding_horizontal: OptionPixelValue::None,
             safe_area: SafeAreaInsets::default(),
             title_font: OptionString::None,
             title_font_size: OptionF32::Some(13.0),
@@ -3072,8 +3076,11 @@ mod autotest_generated {
 
     #[test]
     fn titlebar_metrics_have_sane_geometry() {
+        // NB: TitlebarMetrics::default() is deliberately the "unknown" variant (all-None,
+        // so SystemMetrics::default() can represent "not detected" and resolve() falls
+        // back) — it is NOT a rendering profile, so it is excluded here. The platform
+        // constructors below are the ones that must carry concrete, sane geometry.
         let all = [
-            ("default", TitlebarMetrics::default()),
             ("windows", TitlebarMetrics::windows()),
             ("macos", TitlebarMetrics::macos()),
             ("linux_gnome", TitlebarMetrics::linux_gnome()),

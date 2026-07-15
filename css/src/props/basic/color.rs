@@ -1227,6 +1227,12 @@ fn parse_color_no_hash(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
             ))
         }
         6 => {
+            // u32::from_str_radix silently accepts a leading '+' ("+f0000"), which is
+            // not a valid <hex-color> (CSS Color 4 §5.1: only hex digits). The 3/4-digit
+            // branches decode per-byte and already reject it; guard the radix branches.
+            if !input.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(CssColorParseError::InvalidColor(input));
+            }
             let val = u32::from_str_radix(input, 16)?;
             Ok(ColorU::new_rgb(
                 ((val >> 16) & 0xFF) as u8,
@@ -1235,6 +1241,9 @@ fn parse_color_no_hash(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
             ))
         }
         8 => {
+            if !input.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(CssColorParseError::InvalidColor(input));
+            }
             let val = u32::from_str_radix(input, 16)?;
             Ok(ColorU::new(
                 ((val >> 24) & 0xFF) as u8,

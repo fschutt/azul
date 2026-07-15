@@ -3386,7 +3386,10 @@ fn build_font_selector_stack(
             }
         } else {
             stack.push(FontSelector {
-                family: family.as_string(),
+                // as_query_string, NOT as_string: FontManager queries fontconfig with the
+                // RAW name. as_string() CSS-quotes whitespace names ("Times New Roman" ->
+                // "\"Times New Roman\""), which corrupts the query for every multi-word font.
+                family: family.as_query_string(),
                 weight: fc_weight,
                 style: fc_style,
                 unicode_ranges: Vec::new(),

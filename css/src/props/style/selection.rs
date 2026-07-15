@@ -666,20 +666,16 @@ mod autotest_generated {
     /// WHEN color.rs IS FIXED (reject any non-hex-digit byte before the radix
     /// conversion), this test fails — flip the two `unwrap()`s to `is_err()`.
     #[test]
-    fn known_bug_hex_color_accepts_a_leading_plus_sign() {
-        assert_eq!(
-            parse_selection_color("#+fff000f").unwrap().inner,
-            ColorU::new(0x0f, 0xff, 0x00, 0x0f),
-            "the leading '+' is no longer swallowed — assert is_err() here instead"
-        );
-        assert_eq!(
-            parse_selection_background_color("#+fff00").unwrap().inner,
-            ColorU::new(0x0f, 0xff, 0x00, 255)
-        );
+    fn hex_color_rejects_a_leading_plus_sign() {
+        // FIXED (as this pin's own message instructed): the 6-/8-digit branches now
+        // reject any non-hex-digit byte before the radix conversion, so a leading '+'
+        // (which u32::from_str_radix used to swallow) is an error like every other
+        // non-hex character.
+        assert!(parse_selection_color("#+fff000f").is_err());
+        assert!(parse_selection_background_color("#+fff00").is_err());
 
-        // A leading '-' is rejected (unsigned from_str_radix refuses it), and the
-        // short branches reject '+' properly: "+ff" is 3 bytes and "+fff" is 4,
-        // so both go through the per-byte hex decoder.
+        // A leading '-' was already rejected (unsigned from_str_radix refuses it), and
+        // the short branches reject '+' too via the per-byte hex decoder.
         assert!(parse_selection_color("#-fff000f").is_err());
         assert!(parse_selection_color("#+ff").is_err());
         assert!(parse_selection_color("#+fff").is_err());

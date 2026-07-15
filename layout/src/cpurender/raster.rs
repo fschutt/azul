@@ -1700,6 +1700,11 @@ pub fn render_single_item(
             //    composite clip, so the child painted over the whole window
             //    (the maps header/toolbar disappeared under the tile grid).
             let new_clip = logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor);
+            // A PushClip carries MANDATORY bounds, so a None here means those bounds were
+            // degenerate/NaN — an UNPAINTABLE clip, not "no clip". intersect_clips reads
+            // None as "unclipped", which would let a subsequent full-canvas draw escape
+            // the clip; substitute an explicit zero-area deny-all rect instead.
+            let new_clip = Some(new_clip.unwrap_or(AzRect::DENY_ALL));
             let merged = intersect_clips(clip_stack.last().copied().flatten(), new_clip);
             clip_stack.push(merged);
         }

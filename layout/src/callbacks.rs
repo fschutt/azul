@@ -4195,6 +4195,19 @@ impl CallbackInfo {
     #[must_use] pub fn get_node_text_content(&self, target: DomNodeId) -> Option<String> {
         let layout_window = self.get_layout_window();
         let node_id = target.node.into_crate_internal()?;
+        // Some("") must mean "the node exists and its text is empty" — an empty string is
+        // valid text content. get_text_before_textinput returns an empty Vec for BOTH a
+        // missing node and an existing-but-empty one, so verify the node actually exists
+        // (committed layout or a pending edit) before returning Some; otherwise None,
+        // like the sibling selection/undo queries.
+        let exists = layout_window.dirty_text_nodes.contains_key(&(target.dom, node_id))
+            || layout_window
+                .layout_results
+                .get(&target.dom)
+                .is_some_and(|lr| node_id.index() < lr.styled_dom.node_data.as_ref().len());
+        if !exists {
+            return None;
+        }
         let content = layout_window.get_text_before_textinput(target.dom, node_id);
         Some(layout_window.extract_text_from_inline_content(&content))
     }

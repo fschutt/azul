@@ -1491,9 +1491,42 @@ impl GlContextPtr {
         format: GLenum,
         pixel_type: GLenum,
     ) -> U8Vec {
-        self.get()
-            .read_pixels(x, y, width, height, format, pixel_type)
-            .into()
+        // gl-context-loader's own read_pixels sizes the buffer as
+        // width*height*bytes_per_component and OMITS the format's channel count, so a
+        // 2x3 RGBA/UNSIGNED_BYTE read allocates 6 bytes instead of 24 — a heap overflow
+        // once a real driver writes the pixels. Size it correctly from format + type and
+        // read into our own buffer. (Raw GL enum values so this doesn't depend on which
+        // constants the gl module happens to re-export.)
+        let channels: usize = match format {
+            // RED, ALPHA, LUMINANCE, DEPTH_COMPONENT, STENCIL_INDEX, RED_INTEGER
+            0x1903 | 0x1906 | 0x1909 | 0x1902 | 0x1901 | 0x8D94 => 1,
+            // RG, LUMINANCE_ALPHA, RG_INTEGER, DEPTH_STENCIL
+            0x8227 | 0x190A | 0x8228 | 0x84F9 => 2,
+            // RGB, BGR, RGB_INTEGER
+            0x1907 | 0x80E0 | 0x8D98 => 3,
+            // RGBA, BGRA, RGBA_INTEGER, and a conservative default
+            _ => 4,
+        };
+        let bytes_per_component: usize = match pixel_type {
+            0x1400 | 0x1401 => 1,          // BYTE, UNSIGNED_BYTE
+            0x1402 | 0x1403 | 0x140B => 2, // SHORT, UNSIGNED_SHORT, HALF_FLOAT
+            _ => 4,                        // INT, UNSIGNED_INT, FLOAT, and default
+        };
+        let len = (width.max(0) as usize)
+            .saturating_mul(height.max(0) as usize)
+            .saturating_mul(channels)
+            .saturating_mul(bytes_per_component);
+        let mut buf = vec![0u8; len];
+        self.get().read_pixels_into_buffer(
+            x,
+            y,
+            width,
+            height,
+            format,
+            pixel_type,
+            buf.as_mut_slice(),
+        );
+        buf.into()
     }
     pub fn read_pixels_into_pbo(
         &self,

@@ -432,10 +432,20 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
 
 #[cfg(all(feature = "std", feature = "xml"))]
 fn attr_f64(node: &azul_core::xml::XmlNode, key: &str) -> f64 {
-    node.attributes
+    let v: f64 = node
+        .attributes
         .get_key(key)
         .and_then(|s| s.as_str().parse().ok())
-        .unwrap_or(0.0)
+        .unwrap_or(0.0);
+    // Clamp to a finite range far beyond any real SVG coordinate. A pathological
+    // attribute (r="1e308", width="1e400", NaN) otherwise flows into geometry as ±inf
+    // and hangs AGG's adaptive Bézier/arc flattening, which subdivides forever trying to
+    // meet a flatness tolerance it can never reach. Real coordinates are untouched.
+    if v.is_nan() {
+        0.0
+    } else {
+        v.clamp(-1.0e6, 1.0e6)
+    }
 }
 
 /// Convert `SvgMultiPolygon` to agg `PathStorage`.
@@ -1243,24 +1253,27 @@ mod autotest_generated {
     }
 
     #[test]
-    fn attr_f64_boundary_numbers_do_not_panic() {
-        assert!(attr_f64(&el("rect", &[("width", "NaN")]), "width").is_nan());
-        assert!(attr_f64(&el("rect", &[("width", "inf")]), "width").is_infinite());
-        assert!(attr_f64(&el("rect", &[("width", "1e400")]), "width").is_infinite());
-        assert!(attr_f64(&el("rect", &[("width", "1e-400")]), "width") == 0.0);
+    fn attr_f64_boundary_numbers_are_sanitized_to_finite() {
+        // attr_f64 now clamps to a finite range (NaN -> 0, ±inf/huge -> ±1e6) so
+        // pathological attributes cannot flow into geometry and hang the flattener.
+        assert_eq!(attr_f64(&el("rect", &[("width", "NaN")]), "width"), 0.0);
+        assert_eq!(attr_f64(&el("rect", &[("width", "inf")]), "width"), 1.0e6);
+        assert_eq!(attr_f64(&el("rect", &[("width", "1e400")]), "width"), 1.0e6);
+        assert_eq!(attr_f64(&el("rect", &[("width", "1e-400")]), "width"), 0.0);
 
         let neg_zero = attr_f64(&el("rect", &[("x", "-0")]), "x");
         assert!(neg_zero.is_sign_negative() && neg_zero == 0.0);
 
         let big = attr_f64(&el("rect", &[("x", "9223372036854775807")]), "x");
-        assert!(big.is_finite());
+        assert!(big.is_finite() && big == 1.0e6);
     }
 
     #[test]
     fn attr_f64_extremely_long_value_does_not_hang() {
         let long = "9".repeat(1_000_000);
         let v = attr_f64(&el("rect", &[("width", long.as_str())]), "width");
-        assert!(v.is_infinite(), "a 1e999999-ish literal saturates to +inf");
+        // Parses (saturating to +inf) then clamps to the finite ceiling.
+        assert_eq!(v, 1.0e6, "a 1e999999-ish literal is sanitized to the finite ceiling");
     }
 
     // ==================================================================
@@ -1358,17 +1371,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_agg_path_circle_nan_radius_slips_past_the_guard_but_does_not_panic() {
-        // `if r <= 0.0` is FALSE for NaN, so a NaN radius is *not* rejected and a
-        // path full of NaN coordinates gets built. The rasterizer tolerates it
-        // (cf. pixmap.rs `agg_fill_path_nan_coordinates_do_not_panic`), so this
-        // is a robustness note rather than a crash.
-        let p = build_agg_path(&el("circle", &[("r", "NaN")])).expect("NaN passes the guard");
-        assert_eq!(p.total_vertices(), 14);
-        let mut x = 0.0;
-        let mut y = 0.0;
-        p.vertex_idx(0, &mut x, &mut y);
-        assert!(y.is_nan(), "a NaN radius propagates into the geometry");
+    fn build_agg_path_circle_nan_radius_is_rejected() {
+        // attr_f64 now sanitizes NaN -> 0, so a NaN radius becomes r == 0 and is caught
+        // by the `if r <= 0.0` guard — rejected up front instead of building a path full
+        // of NaN coordinates that could hang the flattener.
+        assert!(build_agg_path(&el("circle", &[("r", "NaN")])).is_none());
     }
 
     #[test]
@@ -1435,18 +1442,16 @@ mod autotest_generated {
 
     #[test]
     fn build_agg_path_rect_nan_and_huge_sizes_do_not_panic() {
-        // NaN slips past `w <= 0.0` (all NaN comparisons are false).
-        let p = build_agg_path(&el("rect", &[("width", "NaN"), ("height", "NaN")]))
-            .expect("NaN passes the guard");
-        assert!(p.total_vertices() > 0);
+        // attr_f64 sanitizes NaN -> 0, so a NaN size is caught by `w <= 0.0` -> None.
+        assert!(build_agg_path(&el("rect", &[("width", "NaN"), ("height", "NaN")])).is_none());
 
+        // Huge sizes clamp to the finite ceiling and build a valid (bounded) path.
         let p = build_agg_path(&el("rect", &[("width", "1e400"), ("height", "1e400")]))
-            .expect("inf passes the guard");
+            .expect("huge size clamps to a finite, buildable rect");
         assert!(p.total_vertices() > 0);
 
-        // f64 -> f32 downcast overflows to inf; must not panic.
         let p = build_agg_path(&el("rect", &[("width", "1e300"), ("height", "1e300")]))
-            .expect("1e300 > f32::MAX");
+            .expect("huge size clamps to a finite, buildable rect");
         assert!(p.total_vertices() > 0);
     }
 

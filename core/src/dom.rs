@@ -1666,7 +1666,7 @@ impl Default for ComponentOrigin {
 ///
 /// Each SVG element type stores its parsed attribute data here.
 /// Also used for raster image clip masks (legacy C API).
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialOrd)]
 pub enum SvgNodeData {
     /// Raster R8 image clip mask (legacy C API for chart.c style manual masks).
     ImageClipMask(ImageMask),
@@ -1694,6 +1694,105 @@ pub enum SvgNodeData {
     Use { href: AzString, x: f32, y: f32 },
     /// `<image href="" x="" y="" width="" height="">`.
     SvgImageData { href: AzString, x: f32, y: f32, width: f32, height: f32 },
+}
+
+// PartialEq compares f32 fields by BIT PATTERN (to_bits), mirroring the Hash impl
+// below, so a NaN coordinate is equal to itself and Eq/Hash agree. A derived PartialEq
+// used raw float `==` (NaN != NaN), breaking Eq's reflexivity for e.g. a NaN Rect —
+// and NodeType embeds this type, so the break propagated.
+impl PartialEq for SvgNodeData {
+    #[allow(clippy::match_same_arms)]
+    fn eq(&self, other: &Self) -> bool {
+        // f32 bit-equality (matches Hash's to_bits).
+        fn fb(a: f32, b: f32) -> bool {
+            a.to_bits() == b.to_bits()
+        }
+        use self::SvgNodeData::{
+            Circle, Ellipse, GradientStop, ImageClipMask, Line, LinearGradient, Path,
+            PointsList, RadialGradient, Rect, SvgImageData, Use, ViewBox,
+        };
+        match (self, other) {
+            (ImageClipMask(a), ImageClipMask(b)) => a == b,
+            (Path(a), Path(b)) => {
+                let ra = a.rings.as_ref();
+                let rb = b.rings.as_ref();
+                ra.len() == rb.len()
+                    && ra.iter().zip(rb.iter()).all(|(x, y)| {
+                        let ia = x.items.as_ref();
+                        let ib = y.items.as_ref();
+                        ia.len() == ib.len()
+                            && ia.iter().zip(ib.iter()).all(|(p, q)| svg_path_element_bits_eq(p, q))
+                    })
+            }
+            (Circle { cx, cy, r }, Circle { cx: cx2, cy: cy2, r: r2 }) => {
+                fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*r, *r2)
+            }
+            (
+                Rect { x, y, width, height, rx, ry },
+                Rect { x: x2, y: y2, width: w2, height: h2, rx: rx2, ry: ry2 },
+            ) => {
+                fb(*x, *x2) && fb(*y, *y2) && fb(*width, *w2)
+                    && fb(*height, *h2) && fb(*rx, *rx2) && fb(*ry, *ry2)
+            }
+            (Ellipse { cx, cy, rx, ry }, Ellipse { cx: cx2, cy: cy2, rx: rx2, ry: ry2 }) => {
+                fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*rx, *rx2) && fb(*ry, *ry2)
+            }
+            (Line { x1, y1, x2, y2 }, Line { x1: a1, y1: b1, x2: a2, y2: b2 })
+            | (LinearGradient { x1, y1, x2, y2 }, LinearGradient { x1: a1, y1: b1, x2: a2, y2: b2 }) => {
+                fb(*x1, *a1) && fb(*y1, *b1) && fb(*x2, *a2) && fb(*y2, *b2)
+            }
+            (PointsList { points: pa, closed: ca }, PointsList { points: pb, closed: cb }) => {
+                ca == cb
+                    && pa.len() == pb.len()
+                    && pa.iter().zip(pb.iter()).all(|(p, q)| fb(p.x, q.x) && fb(p.y, q.y))
+            }
+            (
+                ViewBox { min_x, min_y, width, height },
+                ViewBox { min_x: a, min_y: b, width: w, height: h },
+            ) => fb(*min_x, *a) && fb(*min_y, *b) && fb(*width, *w) && fb(*height, *h),
+            (
+                RadialGradient { cx, cy, r, fx, fy },
+                RadialGradient { cx: cx2, cy: cy2, r: r2, fx: fx2, fy: fy2 },
+            ) => {
+                fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*r, *r2) && fb(*fx, *fx2) && fb(*fy, *fy2)
+            }
+            (GradientStop { offset: a }, GradientStop { offset: b }) => fb(*a, *b),
+            (Use { href, x, y }, Use { href: h2, x: x2, y: y2 }) => {
+                href == h2 && fb(*x, *x2) && fb(*y, *y2)
+            }
+            (
+                SvgImageData { href, x, y, width, height },
+                SvgImageData { href: h2, x: x2, y: y2, width: w2, height: hh2 },
+            ) => {
+                href == h2 && fb(*x, *x2) && fb(*y, *y2) && fb(*width, *w2) && fb(*height, *hh2)
+            }
+            // Different variants are never equal.
+            _ => false,
+        }
+    }
+}
+
+/// Bit-equality for two `SvgPathElement`s (matches the Hash impl's per-coordinate
+/// to_bits), so NaN path coordinates are self-equal.
+fn svg_path_element_bits_eq(
+    a: &crate::svg::SvgPathElement,
+    b: &crate::svg::SvgPathElement,
+) -> bool {
+    use crate::svg::SvgPathElement::{CubicCurve, Line, QuadraticCurve};
+    fn pb(a: &azul_css::props::basic::SvgPoint, b: &azul_css::props::basic::SvgPoint) -> bool {
+        a.x.to_bits() == b.x.to_bits() && a.y.to_bits() == b.y.to_bits()
+    }
+    match (a, b) {
+        (Line(a), Line(b)) => pb(&a.start, &b.start) && pb(&a.end, &b.end),
+        (QuadraticCurve(a), QuadraticCurve(b)) => {
+            pb(&a.start, &b.start) && pb(&a.ctrl, &b.ctrl) && pb(&a.end, &b.end)
+        }
+        (CubicCurve(a), CubicCurve(b)) => {
+            pb(&a.start, &b.start) && pb(&a.ctrl_1, &b.ctrl_1)
+                && pb(&a.ctrl_2, &b.ctrl_2) && pb(&a.end, &b.end)
+        }
+        _ => false,
+    }
 }
 
 impl Eq for SvgNodeData {}
