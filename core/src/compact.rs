@@ -282,11 +282,16 @@ impl CssPropertyCache {
                     match exact {
                         LayoutZIndex::Auto => result.tier2_cold[i].z_index = I16_AUTO,
                         LayoutZIndex::Integer(z) => {
-                            if *z >= i32::from(I16_SENTINEL_THRESHOLD) {
-                                result.tier2_cold[i].z_index = I16_SENTINEL;
-                            } else {
-                                result.tier2_cold[i].z_index = *z as i16;
-                            }
+                            // Two-sided, like the line-height encoder: a large NEGATIVE z
+                            // used to fall through to `*z as i16` and WRAP positive
+                            // (-40000 -> +25536). Escape both out-of-range ends to the
+                            // sentinel (tier 3) so the real value is preserved.
+                            result.tier2_cold[i].z_index =
+                                if *z >= -32768 && *z < i32::from(I16_SENTINEL_THRESHOLD) {
+                                    *z as i16
+                                } else {
+                                    I16_SENTINEL
+                                };
                         }
                     }
                 }
@@ -1014,7 +1019,13 @@ fn apply_css_property_to_compact(
                 match exact {
                     LayoutZIndex::Auto => cold.z_index = I16_AUTO,
                     LayoutZIndex::Integer(z) => {
-                        cold.z_index = if *z >= i32::from(I16_SENTINEL_THRESHOLD) { I16_SENTINEL } else { *z as i16 };
+                        // Two-sided (see the tier2_cold path above): a large negative z
+                        // used to wrap positive via `*z as i16`. Escape both ends.
+                        cold.z_index = if *z >= -32768 && *z < i32::from(I16_SENTINEL_THRESHOLD) {
+                            *z as i16
+                        } else {
+                            I16_SENTINEL
+                        };
                     }
                 }
             }

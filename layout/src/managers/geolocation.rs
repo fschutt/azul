@@ -1109,12 +1109,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn a_nan_probe_config_re_emits_reconfigure_on_every_frame() {
-        // Characterisation: the Reconfigure check uses `PartialEq` on
-        // `GeolocationProbeConfig`, whose `max_accuracy_m` is an f32. A NaN
-        // there never compares equal to itself, so an *unchanged* config
-        // still looks drifted and every frame queues another Reconfigure.
-        // (`set_latest_fix` avoids exactly this trap by comparing bits.)
+    fn a_nan_probe_config_settles_like_any_other() {
+        // FIXED (was "re_emits_reconfigure_on_every_frame"): the Reconfigure check uses
+        // `PartialEq` on `GeolocationProbeConfig`, whose `max_accuracy_m` is an f32.
+        // That PartialEq now compares by BIT PATTERN (see core/src/geolocation.rs), so a
+        // NaN config equals itself and an *unchanged* config no longer looks drifted —
+        // it settles after one Reconfigure instead of re-queuing every frame.
         let nan_cfg = probe_cfg(false, f32::NAN);
 
         let mut mgr = GeolocationManager::new();
@@ -1123,16 +1123,13 @@ mod autotest_generated {
 
         for _ in 0..3 {
             mgr.diff_layout(|emit| emit(nan_cfg));
-            let events = mgr.take_pending_events();
-            assert_eq!(
-                events.len(),
-                1,
-                "an unchanged NaN config still queues a Reconfigure every frame"
+            assert!(
+                mgr.take_pending_events().is_empty(),
+                "an unchanged NaN config must NOT re-queue a Reconfigure"
             );
-            assert!(matches!(events[0], GeolocationDiffEvent::Reconfigure { .. }));
         }
 
-        // A sane config settles immediately, by contrast.
+        // A sane config also settles immediately.
         mgr.diff_layout(|emit| emit(probe_cfg(false, 0.0)));
         assert_eq!(mgr.take_pending_events().len(), 1, "one Reconfigure to sane");
         mgr.diff_layout(|emit| emit(probe_cfg(false, 0.0)));

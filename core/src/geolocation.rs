@@ -83,7 +83,7 @@ impl LocationFix {
 /// Configuration the user attaches to a `NodeType::GeolocationProbe`
 /// to tune the platform subscription. Maps to W3C `PositionOptions`
 /// (`enableHighAccuracy` + `maximumAge` + `timeout`).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct GeolocationProbeConfig {
     /// `true` requests precise (GPS-driven) location. iOS maps this to
@@ -113,6 +113,20 @@ impl Default for GeolocationProbeConfig {
             max_accuracy_m: 0.0,
             min_interval_ms: 0,
         }
+    }
+}
+
+// PartialEq is hand-written (not derived) to compare the f32 via `to_bits`, matching
+// Ord + Hash below. A derived PartialEq uses raw float `==`, under which a NaN
+// `max_accuracy_m` is not equal to itself — breaking `Eq`'s reflexivity contract while
+// Ord/Hash (bit-pattern based) treat it as equal. NodeType embeds this type, so the
+// break propagated.
+impl PartialEq for GeolocationProbeConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.high_accuracy == other.high_accuracy
+            && self.background == other.background
+            && self.max_accuracy_m.to_bits() == other.max_accuracy_m.to_bits()
+            && self.min_interval_ms == other.min_interval_ms
     }
 }
 

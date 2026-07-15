@@ -79,7 +79,11 @@ impl CascadeInfoVec {
 
     // The rightmost group must match the target node directly.
     let (ref first_group, first_reason) = groups[0];
-    let is_last_content_group = groups.len() == 1;
+    // groups[0] is ALWAYS the subject (rightmost) group, so it is the "last content
+    // group" that an interactive pseudo (:hover/:focus/:active) attaches to — regardless
+    // of how many ancestor groups precede it. The old `groups.len() == 1` disabled
+    // :hover on the subject of every multi-group selector (e.g. `body > div:hover`).
+    let is_last_content_group = true;
     if !selector_group_matches(
         first_group,
         html_node_tree[node_id],
@@ -183,7 +187,12 @@ fn find_non_anonymous_parent(
     None
 }
 
-/// Find the first non-anonymous previous sibling of a node.
+/// Find the first previous sibling of a node that the `+`/`~` combinators can target:
+/// an element, skipping anonymous boxes AND non-element (text) nodes.
+///
+/// CSS sibling combinators operate on ELEMENTS (Selectors L4 §15.2), so an intervening
+/// text node must not block `.a + .b` from reaching the preceding element. Skipping only
+/// anonymous boxes left text siblings in the way.
 fn find_non_anonymous_prev_sibling(
     node_id: NodeId,
     node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
@@ -191,7 +200,7 @@ fn find_non_anonymous_prev_sibling(
 ) -> Option<NodeId> {
     let mut next = node_hierarchy[node_id].previous_sibling_id();
     while let Some(n) = next {
-        if !node_data[n].is_anonymous() {
+        if !node_data[n].is_anonymous() && !node_data[n].is_text_node() {
             return Some(n);
         }
         next = node_hierarchy[n].previous_sibling_id();
@@ -1783,12 +1792,13 @@ mod autotest_generated {
         let h = NodeDataContainerRef::from_slice(&hier_items);
         let d = NodeDataContainerRef::from_slice(&data);
 
-        // NOTE: text nodes are NOT anonymous, so the text node (2) IS returned
-        // as the previous sibling of the div (3) — see
+        // The text node (2) between div.a (1) and div.b (3) is SKIPPED — sibling
+        // combinators target elements only — so the previous element sibling of node 3
+        // is div.a (1), not the text node. See
         // `matches_html_element_adjacent_sibling_skips_text_nodes`.
         assert_eq!(
             find_non_anonymous_prev_sibling(NodeId::new(3), &h, &d),
-            Some(NodeId::new(2))
+            Some(NodeId::new(1))
         );
         assert_eq!(
             find_non_anonymous_prev_sibling(NodeId::new(5), &h, &d),

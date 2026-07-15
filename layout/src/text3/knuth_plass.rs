@@ -387,7 +387,11 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 
     let mut breakpoints = vec![
         Breakpoint {
-            demerit: INFINITY_BADNESS,
+            // TRUE infinity for "not yet reached", NOT the finite INFINITY_BADNESS
+            // (10_000). Demerits accumulate across lines, so once the optimal path's
+            // cumulative demerit passed 10_000 no later candidate could beat a finite
+            // sentinel, and the whole paragraph collapsed onto one overfull line.
+            demerit: f32::INFINITY,
             previous: 0,
             line: 0
         };

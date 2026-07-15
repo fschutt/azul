@@ -647,7 +647,15 @@ impl Xml {
         // url(...) scan (case-insensitive)
         let mut search_from = 0;
         while let Some(rel) = lower[search_from..].find("url(") {
-            let after = search_from + rel + 4;
+            let url_start = search_from + rel;
+            let after = url_start + 4;
+            // Skip a `url(` that is the argument of an `@import` — the @import scan
+            // below emits it, correctly tagged as a Stylesheet. Without this guard the
+            // same URL is pushed twice (once here, mistagged "url()").
+            if lower[..url_start].trim_end().ends_with("@import") {
+                search_from = after;
+                continue;
+            }
             let after_url = &css[after..];
             if let Some(url) = Self::extract_url_value(after_url) {
                 let mime = Self::guess_mime_from_url(&url, "");
@@ -4906,8 +4914,10 @@ impl fmt::Display for RenderDomError {
 pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
     let mut html_node_iterator = root_nodes.iter().filter_map(|child| {
         if let XmlNodeChild::Element(node) = child {
-            let node_type_normalized = normalize_casing(&node.node_type);
-            if &node_type_normalized == "html" {
+            // HTML element names are case-insensitive (ASCII). NOT normalize_casing:
+            // that inserts '_' before each uppercase letter for component-name
+            // canonicalisation, so "HTML" would become "h_t_m_l" and never match.
+            if node.node_type.as_str().eq_ignore_ascii_case("html") {
                 Some(node)
             } else {
                 None
@@ -4942,8 +4952,8 @@ pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
         }
         for child in nodes {
             if let XmlNodeChild::Element(node) = child {
-                let node_type_normalized = normalize_casing(&node.node_type);
-                if &node_type_normalized == "body" {
+                // case-insensitive ASCII tag match; see get_html_node.
+                if node.node_type.as_str().eq_ignore_ascii_case("body") {
                     return Some(node);
                 }
                 // Recurse into children
@@ -4958,8 +4968,8 @@ pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
     // First try to find body as a direct child (proper HTML structure)
     let direct_body = root_nodes.iter().find_map(|child| {
         if let XmlNodeChild::Element(node) = child {
-            let node_type_normalized = normalize_casing(&node.node_type);
-            if &node_type_normalized == "body" {
+            // case-insensitive ASCII tag match; see get_html_node.
+            if node.node_type.as_str().eq_ignore_ascii_case("body") {
                 Some(node)
             } else {
                 None
@@ -4985,7 +4995,8 @@ fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Opt
     // First check direct children
     for child in root_nodes {
         if let XmlNodeChild::Element(node) = child {
-            if normalize_casing(&node.node_type).as_str() == node_type {
+            // case-insensitive ASCII tag match; see get_html_node.
+            if node.node_type.as_str().eq_ignore_ascii_case(node_type) {
                 return Some(node);
             }
         }
@@ -6291,10 +6302,13 @@ fn decode_entities(input: &str) -> String {
         last_line_was_empty = current_line_is_empty;
     }
 
-    let line_len = final_lines.len();
     let mut target = String::with_capacity(input_len);
     for (line_idx, line) in final_lines.iter().enumerate() {
-        if !(line.starts_with(RETURN) || line_idx == 0 || line_idx == line_len.saturating_sub(1)) {
+        // A joining space goes before every line EXCEPT the first (idx 0) and a
+        // paragraph break (RETURN-prefixed). The old code also skipped the LAST line,
+        // which dropped the word boundary for a soft-wrapped final line
+        // ("Hello\nworld" -> "Helloworld").
+        if !(line.starts_with(RETURN) || line_idx == 0) {
             target.push_str(SPACE);
         }
         target.push_str(line);
@@ -6903,14 +6917,18 @@ fn compile_node_to_rust_code_inner(
 /// exported page maps them to a plain `div` container (structure preserved; the
 /// user re-wires behavior). Keep these CamelCase to match `NodeTypeTag` debug names.
 const SAFE_CONTAINER_TAGS: &[&str] = &[
+    // These must match the real `NodeType` Debug names exactly (the lookup below is a
+    // string compare against `{:?}`). Six used to be mis-cased — "Blockquote",
+    // "Colgroup", "Figcaption", "Tbody", "Tfoot", "Thead" — so those tags silently
+    // degraded to "Div".
     "Abbr", "Acronym", "Address", "Article", "Aside", "B", "Bdi", "Bdo", "Big",
-    "Blockquote", "Body", "Br", "Caption", "Cite", "Code", "Colgroup", "Dd",
-    "Del", "Dfn", "Dir", "Div", "Dl", "Dt", "Em", "Embed", "Figcaption",
+    "BlockQuote", "Body", "Br", "Caption", "Cite", "Code", "ColGroup", "Dd",
+    "Del", "Dfn", "Dir", "Div", "Dl", "Dt", "Em", "Embed", "FigCaption",
     "Figure", "Footer", "H1", "H2", "H3", "H4", "H5", "H6", "Head", "Header",
     "Hr", "Html", "I", "Ins", "Kbd", "Li", "Link", "Main", "Map", "Mark",
     "Meta", "Nav", "Object", "Ol", "P", "Pre", "Q", "Rp", "Rt", "Rtc", "Ruby",
     "S", "Samp", "Script", "Section", "Small", "Span", "Strong", "Style", "Sub",
-    "Sup", "Svg", "Tbody", "Td", "Tfoot", "Th", "Thead", "Title", "Tr", "U",
+    "Sup", "Svg", "TBody", "Td", "TFoot", "Th", "THead", "Title", "Tr", "U",
     "Ul", "Var", "Wbr",
 ];
 
@@ -9334,9 +9352,10 @@ mod autotest_generated {
         assert!(find_node_by_type(&roots, "   ").is_none());
         assert!(find_node_by_type(&roots, "\u{1F600}").is_none());
         assert!(find_node_by_type(&roots, &"z".repeat(LONG)).is_none());
-        // The needle is compared against the NORMALIZED tag, so it must already
-        // be in normalized (lowercase / snake) form.
-        assert!(find_node_by_type(&roots, "DIV").is_none());
+        // Tag matching is ASCII case-insensitive (HTML tags are), so "DIV" matches a
+        // <div> node. (It used to compare against the normalize_casing'd tag, which was
+        // case-sensitive on the needle AND mangled uppercase tags to "d_i_v".)
+        assert!(find_node_by_type(&roots, "DIV").is_some());
     }
 
     #[test]

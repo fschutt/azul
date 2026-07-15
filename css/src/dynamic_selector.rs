@@ -213,12 +213,43 @@ impl core::hash::Hash for DynamicSelector {
 
 /// Min/Max Range for numeric conditions (C-compatible)
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy)]
 pub struct MinMaxRange {
     /// Minimum value (NaN = no minimum limit)
     pub min: f32,
     /// Maximum value (NaN = no maximum limit)
     pub max: f32,
+}
+
+// The f32 fields use NaN as the "no bound" sentinel, so equality and order compare by
+// BIT PATTERN (via to_bits), NOT raw float `==`/`<`. Deriving them used raw float, under
+// which a NaN-bounded range — i.e. EVERY single-sided `(min-width: …)` / `(max-width: …)`
+// selector — was not equal to itself, breaking the `Eq` contract that `DynamicSelector`
+// asserts, and disagreeing with `DynamicSelector::cmp` (which already orders these fields
+// via to_bits). PartialEq and PartialOrd must move together: a to_bits PartialEq with a
+// raw-float PartialOrd would itself be inconsistent (NaN == NaN true, partial_cmp None).
+// The sentinel is always the canonical `f32::NAN`, so all sentinels share one bit pattern.
+impl PartialEq for MinMaxRange {
+    fn eq(&self, other: &Self) -> bool {
+        self.min.to_bits() == other.min.to_bits() && self.max.to_bits() == other.max.to_bits()
+    }
+}
+
+impl Eq for MinMaxRange {}
+
+// NB: deliberately NO `impl Ord` — `Ord::min`/`Ord::max` take `self` by value and would
+// shadow the inherent `min(&self)`/`max(&self)` getters in method resolution (the by-value
+// receiver is tried before autoref to `&self`), breaking every `range.min()` call.
+// `PartialOrd` is fine (it adds no `min`/`max` method) and gives a total, to_bits-based
+// order consistent with `PartialEq`. `DynamicSelector::cmp` orders these fields directly,
+// so it never needed `MinMaxRange: Ord` anyway.
+impl PartialOrd for MinMaxRange {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(
+            (self.min.to_bits(), self.max.to_bits())
+                .cmp(&(other.min.to_bits(), other.max.to_bits())),
+        )
+    }
 }
 
 impl MinMaxRange {
@@ -1058,7 +1089,10 @@ impl DynamicSelector {
             OsVersionCondition::DesktopEnvMax(d) =>
                 de_matches(&d.env) && de_version != 0 && de_version <= d.version_id,
             OsVersionCondition::DesktopEnvExact(d) =>
-                de_matches(&d.env) && de_version == d.version_id,
+                // `de_version != 0` like the Min/Max arms: 0 is the "unknown" sentinel,
+                // so a DE-version constraint (including `= 0`) must fail until detection
+                // is wired up — otherwise `@os(linux:gnome = 0)` matched every session.
+                de_matches(&d.env) && de_version != 0 && de_version == d.version_id,
         }
     }
 

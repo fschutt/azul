@@ -3538,7 +3538,7 @@ impl fmt::Display for VertexBuffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "VertexBuffer {{ buffer: {} (length: {}) }})",
+            "VertexBuffer {{ buffer: {} (length: {}) }}",
             self.vertex_buffer_id, self.vertex_buffer_len
         )
     }
@@ -5543,7 +5543,7 @@ mod autotest_generated {
         assert_eq!(vb.index_buffer_format, IndexBufferFormat::TriangleStrip);
         assert_eq!(
             alloc::format!("{vb}"),
-            "VertexBuffer { buffer: 11 (length: 300) }})"
+            "VertexBuffer { buffer: 11 (length: 300) }"
         );
 
         // Eq/Hash are by vertex_buffer_id.
