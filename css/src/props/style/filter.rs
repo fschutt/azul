@@ -867,10 +867,9 @@ pub mod parser {
     }
 
     #[cfg(test)]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::float_cmp)]
     mod autotest_generated {
         // Parsed values are compared against the exact source literals.
-        #![allow(clippy::float_cmp)]
 
         #[allow(clippy::wildcard_imports)]
         use super::*;
@@ -933,7 +932,7 @@ pub mod parser {
         }
 
         /// A `core::num::ParseFloatError` (the `Invalid` kind).
-        fn float_err() -> core::num::ParseFloatError {
+        fn float_err() -> ParseFloatError {
             "x".parse::<f32>().unwrap_err()
         }
 

@@ -752,7 +752,7 @@ mod autotest_generated {
 
     /// A value is "scrollable" (per CSS Overflow 3 § 3.1) when it is neither
     /// `visible` nor `clip` — i.e. it establishes a scroll container.
-    fn is_scrollable(o: LayoutOverflow) -> bool {
+    const fn is_scrollable(o: LayoutOverflow) -> bool {
         !matches!(o, LayoutOverflow::Visible | LayoutOverflow::Clip)
     }
 

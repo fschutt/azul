@@ -661,10 +661,9 @@ mod autotest_generated {
         assert_eq!(r.counter_name.as_str(), "a");
         assert_eq!(r.value, 1);
 
-        let i = parse_counter_increment("a b").unwrap_err();
-        // ...unless the second token is not an integer, in which case it errors
-        // instead of falling back to the default value.
-        assert_eq!(i, ());
+        // ...the parse errors instead of falling back to a default when the
+        // second token is not an integer.
+        parse_counter_increment("a b").unwrap_err();
     }
 
     #[test]

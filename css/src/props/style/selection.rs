@@ -617,7 +617,7 @@ mod autotest_generated {
     ///
     /// WHEN pixel.rs IS FIXED (longest-suffix-first, or move vmax/vmin ahead of
     /// "in"), this test fails — replace it with the positive assertion:
-    ///     assert_eq!(parse_selection_radius("5vmin").unwrap().inner.metric, SizeMetric::Vmin);
+    ///     `assert_eq!(parse_selection_radius("5vmin").unwrap().inner.metric`, `SizeMetric::Vmin`);
     /// and add `SizeMetric::Vmin` to `ROUND_TRIPPABLE_METRICS`.
     #[test]
     fn known_bug_vmin_radius_is_rejected_by_metric_table_order() {

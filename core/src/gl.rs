@@ -1512,6 +1512,8 @@ impl GlContextPtr {
             0x1402 | 0x1403 | 0x140B => 2, // SHORT, UNSIGNED_SHORT, HALF_FLOAT
             _ => 4,                        // INT, UNSIGNED_INT, FLOAT, and default
         };
+        // width/height are clamped to >= 0 before the cast, so no sign is lost.
+        #[allow(clippy::cast_sign_loss)]
         let len = (width.max(0) as usize)
             .saturating_mul(height.max(0) as usize)
             .saturating_mul(channels)
@@ -4645,9 +4647,9 @@ mod autotest_generated {
 
         // Hash must be consistent with Eq (equal values -> equal hashes).
         fn hash_of(v: &U8VecRef) -> u64 {
-            let mut h = core::hash::BuildHasherDefault::<TestHasher>::default().build_hasher();
-            v.hash(&mut h);
-            h.finish()
+            
+            
+            core::hash::BuildHasherDefault::<TestHasher>::default().hash_one(v)
         }
         #[derive(Default)]
         struct TestHasher(u64);

@@ -1253,7 +1253,7 @@ mod autotest_generated {
         for step in 0..=10 {
             let offset = len * f64::from(step) / 10.0;
             let t = c.get_t_at_offset(offset);
-            assert!(t >= -1e-9 && t <= 1.0 + 1e-9, "t out of range: {t}");
+            assert!((-1e-9..=1.0 + 1e-9).contains(&t), "t out of range: {t}");
             assert!(t >= prev - 1e-9, "t went backwards: {prev} -> {t}");
             prev = t;
         }
@@ -1618,7 +1618,7 @@ mod autotest_generated {
             libm::hypot(rotated.x, rotated.y)
         );
         // dot product of perpendicular vectors is zero
-        assert_eq!(original.x * rotated.x + original.y * rotated.y, 0.0);
+        assert_eq!(original.x.mul_add(rotated.x, original.y * rotated.y), 0.0);
     }
 
     #[test]
@@ -1741,8 +1741,8 @@ mod autotest_generated {
     fn quadratic_midpoint_matches_the_closed_form() {
         // B(0.5) = (start + 2*ctrl + end) / 4
         let q = quad();
-        let expected_x = (f64::from(q.start.x) + 2.0 * f64::from(q.ctrl.x) + f64::from(q.end.x)) / 4.0;
-        let expected_y = (f64::from(q.start.y) + 2.0 * f64::from(q.ctrl.y) + f64::from(q.end.y)) / 4.0;
+        let expected_x = (2.0f64.mul_add(f64::from(q.ctrl.x), f64::from(q.start.x)) + f64::from(q.end.x)) / 4.0;
+        let expected_y = (2.0f64.mul_add(f64::from(q.ctrl.y), f64::from(q.start.y)) + f64::from(q.end.y)) / 4.0;
         assert!(approx(q.get_x_at_t(0.5), expected_x, 1e-12));
         assert!(approx(q.get_y_at_t(0.5), expected_y, 1e-12));
     }
@@ -1827,7 +1827,7 @@ mod autotest_generated {
         let mut prev = f64::NEG_INFINITY;
         for step in 0..=10 {
             let t = q.get_t_at_offset(len * f64::from(step) / 10.0);
-            assert!(t >= -1e-9 && t <= 1.0 + 1e-9, "t out of range: {t}");
+            assert!((-1e-9..=1.0 + 1e-9).contains(&t), "t out of range: {t}");
             assert!(t >= prev - 1e-9, "t went backwards: {prev} -> {t}");
             prev = t;
         }

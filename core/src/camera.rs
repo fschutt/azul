@@ -387,7 +387,7 @@ mod autotest_generated {
                 assert_eq!(lt + eq + gt, 1, "trichotomy must hold for ({a:?},{b:?})");
                 // Antisymmetry: a < b implies !(b < a).
                 if a < b {
-                    assert!(!(b < a), "antisymmetry violated for ({a:?},{b:?})");
+                    assert!((b >= a), "antisymmetry violated for ({a:?},{b:?})");
                 }
             }
         }
@@ -753,7 +753,7 @@ mod autotest_generated {
         };
         // A NaN-carrying stats value can never be *found* by equality search,
         // so consumers must not rely on `contains` / dedup for it.
-        let haystack = vec![s, CaptureStats::default()];
+        let haystack = [s, CaptureStats::default()];
         assert!(!haystack.contains(&s), "NaN stats is unfindable by Eq");
         assert!(haystack.contains(&CaptureStats::default()));
     }

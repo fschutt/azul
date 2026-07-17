@@ -1701,10 +1701,10 @@ pub enum SvgNodeData {
 // used raw float `==` (NaN != NaN), breaking Eq's reflexivity for e.g. a NaN Rect —
 // and NodeType embeds this type, so the break propagated.
 impl PartialEq for SvgNodeData {
-    #[allow(clippy::match_same_arms)]
+    #[allow(clippy::match_same_arms, clippy::similar_names)] // SVG coord names (cx/cy/fx/fy, min_x/min_y) are domain-standard
     fn eq(&self, other: &Self) -> bool {
         // f32 bit-equality (matches Hash's to_bits).
-        fn fb(a: f32, b: f32) -> bool {
+        const fn fb(a: f32, b: f32) -> bool {
             a.to_bits() == b.to_bits()
         }
         use self::SvgNodeData::{
@@ -1773,23 +1773,23 @@ impl PartialEq for SvgNodeData {
 }
 
 /// Bit-equality for two `SvgPathElement`s (matches the Hash impl's per-coordinate
-/// to_bits), so NaN path coordinates are self-equal.
-fn svg_path_element_bits_eq(
+/// `to_bits`), so NaN path coordinates are self-equal.
+const fn svg_path_element_bits_eq(
     a: &crate::svg::SvgPathElement,
     b: &crate::svg::SvgPathElement,
 ) -> bool {
     use crate::svg::SvgPathElement::{CubicCurve, Line, QuadraticCurve};
-    fn pb(a: &azul_css::props::basic::SvgPoint, b: &azul_css::props::basic::SvgPoint) -> bool {
+    const fn pb(a: azul_css::props::basic::SvgPoint, b: azul_css::props::basic::SvgPoint) -> bool {
         a.x.to_bits() == b.x.to_bits() && a.y.to_bits() == b.y.to_bits()
     }
     match (a, b) {
-        (Line(a), Line(b)) => pb(&a.start, &b.start) && pb(&a.end, &b.end),
+        (Line(a), Line(b)) => pb(a.start, b.start) && pb(a.end, b.end),
         (QuadraticCurve(a), QuadraticCurve(b)) => {
-            pb(&a.start, &b.start) && pb(&a.ctrl, &b.ctrl) && pb(&a.end, &b.end)
+            pb(a.start, b.start) && pb(a.ctrl, b.ctrl) && pb(a.end, b.end)
         }
         (CubicCurve(a), CubicCurve(b)) => {
-            pb(&a.start, &b.start) && pb(&a.ctrl_1, &b.ctrl_1)
-                && pb(&a.ctrl_2, &b.ctrl_2) && pb(&a.end, &b.end)
+            pb(a.start, b.start) && pb(a.ctrl_1, b.ctrl_1)
+                && pb(a.ctrl_2, b.ctrl_2) && pb(a.end, b.end)
         }
         _ => false,
     }

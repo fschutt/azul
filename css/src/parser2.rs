@@ -1360,6 +1360,12 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
 /// May return "warning" messages, i.e. messages that just serve as a warning,
 /// instead of being actual errors. These warnings may be ignored by the caller,
 /// but can be useful for debugging.
+// Beyond this CSS nesting depth, get_parent_paths clones the ever-growing
+// ancestor path every level (parse becomes O(depth^2) — a hang on adversarial
+// input like `div{` x 10_000), so deeper rules keep only their own local
+// selector. No realistic stylesheet nests this deep; this bounds parse time.
+const MAX_NESTING_DEPTH: usize = 1024;
+
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 fn new_from_str_inner<'a>(
     css_string: &'a str,
@@ -1555,16 +1561,9 @@ fn new_from_str_inner<'a>(
                         last_path.clear();
                     }
 
-                    // Get parent paths and combine with current paths.
-                    //
-                    // Each nesting level appends ~2 selectors to the combined path AND
-                    // get_parent_paths clones the parent's (ever-growing) path every
-                    // level, so unbounded nesting makes the whole parse O(depth^2) — a
-                    // hang on adversarial input like `div{` × 10_000. Beyond a sane cap,
-                    // stop combining with the ancestor chain (deeper rules keep only
-                    // their own local selector); no realistic stylesheet nests this deep,
-                    // and it bounds parse time/memory.
-                    const MAX_NESTING_DEPTH: usize = 1024;
+                    // Get parent paths and combine with current paths. Beyond
+                    // MAX_NESTING_DEPTH, stop combining with the ancestor chain to
+                    // bound the O(depth^2) path-cloning (see the const's doc above).
                     let combined_paths: Vec<Vec<CssPathSelector>> = if block_nesting > MAX_NESTING_DEPTH {
                         std::mem::take(&mut current_paths)
                     } else {

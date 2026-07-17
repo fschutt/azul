@@ -533,7 +533,7 @@ pub enum LayoutGridAutoFlow {
 
 
 impl PrintAsCssValue for LayoutGridAutoFlow {
-    fn print_as_css_value(&self) -> alloc::string::String {
+    fn print_as_css_value(&self) -> String {
         match self {
             Self::Row => "row".to_string(),
             Self::Column => "column".to_string(),
@@ -618,7 +618,7 @@ pub enum LayoutJustifySelf {
 
 
 impl PrintAsCssValue for LayoutJustifySelf {
-    fn print_as_css_value(&self) -> alloc::string::String {
+    fn print_as_css_value(&self) -> String {
         match self {
             Self::Auto => "auto".to_string(),
             Self::Start => "start".to_string(),
@@ -702,7 +702,7 @@ pub enum LayoutJustifyItems {
 
 
 impl PrintAsCssValue for LayoutJustifyItems {
-    fn print_as_css_value(&self) -> alloc::string::String {
+    fn print_as_css_value(&self) -> String {
         match self {
             Self::Start => "start".to_string(),
             Self::End => "end".to_string(),
@@ -785,7 +785,7 @@ impl core::fmt::Debug for LayoutGap {
 }
 
 impl PrintAsCssValue for LayoutGap {
-    fn print_as_css_value(&self) -> alloc::string::String {
+    fn print_as_css_value(&self) -> String {
         self.inner.print_as_css_value()
     }
 }
@@ -1930,7 +1930,7 @@ mod autotest_generated {
         // reject anything (see below).
         for garbage in ["", "   ", "!!!", ";;;", "\u{1F600}", "\0", "span", "100px", "1 2"] {
             let parsed = parse_grid_line_owned(garbage)
-                .unwrap_or_else(|_| panic!("{garbage:?} unexpectedly errored"));
+                .unwrap_or_else(|()| panic!("{garbage:?} unexpectedly errored"));
             assert!(
                 matches!(parsed, GridLine::Named(_)),
                 "{garbage:?} became {parsed:?}, expected a Named catch-all"

@@ -673,7 +673,7 @@ mod autotest_generated {
         const TABLE_CTX: bool = LayoutDisplay::InlineTable.creates_table_context();
         const INTERNAL: bool = LayoutDisplay::TableCell.is_layout_internal();
         const INLINE: bool = LayoutDisplay::InlineGrid.is_inline_level();
-        assert!(BLOCK_CTX && FLEX_CTX && TABLE_CTX && INTERNAL && INLINE);
+        const _: () = assert!(BLOCK_CTX && FLEX_CTX && TABLE_CTX && INTERNAL && INLINE);
     }
 
     // -----------------------------------------------------------------

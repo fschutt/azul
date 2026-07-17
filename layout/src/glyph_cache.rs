@@ -26,7 +26,7 @@ pub(crate) struct SliceVertexSource<'a> {
 }
 
 impl<'a> SliceVertexSource<'a> {
-    pub(crate) fn new(verts: &'a [VertexD]) -> Self {
+    pub(crate) const fn new(verts: &'a [VertexD]) -> Self {
         Self { verts, pos: 0 }
     }
 }

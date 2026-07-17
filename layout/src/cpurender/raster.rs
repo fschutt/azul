@@ -5840,7 +5840,7 @@ mod autotest_generated {
     #[test]
     fn an_rgba_image_is_blitted_with_its_channels_in_order() {
         // Solid red, opaque.
-        let img = rgba_image(2, 2, vec![255, 0, 0, 255].repeat(4));
+        let img = rgba_image(2, 2, [255, 0, 0, 255].repeat(4));
         let dl = DisplayList {
             items: vec![DisplayListItem::Image {
                 bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -5880,7 +5880,7 @@ mod autotest_generated {
 
     #[test]
     fn a_fully_transparent_image_leaves_the_background_alone() {
-        let img = rgba_image(2, 2, vec![255, 0, 0, 0].repeat(4));
+        let img = rgba_image(2, 2, [255, 0, 0, 0].repeat(4));
         let dl = DisplayList {
             items: vec![DisplayListItem::Image {
                 bounds: wrect(0.0, 0.0, 4.0, 4.0),

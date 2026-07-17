@@ -2408,8 +2408,11 @@ mod autotest_generated {
         assert_eq!(*b, 123, "Deref must agree with as_ref");
         assert_eq!(*BoxOrStatic::heap(u32::MAX).as_ref(), u32::MAX);
         assert_eq!(*BoxOrStatic::heap(0_u32).as_ref(), 0);
-        // Zero-sized and large payloads.
-        assert_eq!(*BoxOrStatic::heap(()).as_ref(), ());
+        // Zero-sized payload: exercise as_ref + Deref on the ZST heap path (no
+        // value to compare; Miri is the UB oracle here).
+        let z = BoxOrStatic::heap(());
+        let _: &() = z.as_ref();
+        let () = *z;
         let big = BoxOrStatic::heap(vec![0_u8; 1_000_000]);
         assert_eq!(big.as_ref().len(), 1_000_000);
     }
@@ -2541,8 +2544,8 @@ mod autotest_generated {
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn box_or_static_is_the_documented_16_bytes() {
-        assert_eq!(core::mem::size_of::<BoxOrStatic<u32>>(), 16);
-        assert_eq!(core::mem::size_of::<BoxOrStaticString>(), 16);
+        assert_eq!(size_of::<BoxOrStatic<u32>>(), 16);
+        assert_eq!(size_of::<BoxOrStaticString>(), 16);
     }
 
     // =====================================================================
@@ -2762,10 +2765,10 @@ mod autotest_generated {
 
     #[test]
     fn rule_priority_slots_are_strictly_ordered() {
-        assert!(rule_priority::UA < rule_priority::SYSTEM);
-        assert!(rule_priority::SYSTEM < rule_priority::AUTHOR);
-        assert!(rule_priority::AUTHOR < rule_priority::INLINE);
-        assert!(rule_priority::INLINE < rule_priority::RUNTIME);
+        const _: () = assert!(rule_priority::UA < rule_priority::SYSTEM);
+        const _: () = assert!(rule_priority::SYSTEM < rule_priority::AUTHOR);
+        const _: () = assert!(rule_priority::AUTHOR < rule_priority::INLINE);
+        const _: () = assert!(rule_priority::INLINE < rule_priority::RUNTIME);
     }
 
     // =====================================================================

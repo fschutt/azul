@@ -3026,7 +3026,7 @@ mod autotest_generated {
         let map = m.build_scroll_offset_map(DOM, &ids);
         assert_eq!(map.len(), 1, "node 4 has no scroll_id; DOM1 is a different dom");
         assert_eq!(map.get(&100), Some(&(0.0, 25.0)));
-        assert!(map.get(&700).is_none());
+        assert!(!map.contains_key(&700));
     }
 
     // ====================================================== find_scroll_parent

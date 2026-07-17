@@ -1503,8 +1503,10 @@ mod autotest_generated {
     fn the_scrollbar_reflow_bound_is_a_usable_positive_limit() {
         // `loop_count > MAX` is the only thing standing between a pathological
         // scrollbar oscillation and a hung frame. 0 would mean "never lay out".
-        assert!(MAX_SCROLLBAR_REFLOW_ITERATIONS >= 1);
-        assert!(MAX_SCROLLBAR_REFLOW_ITERATIONS <= 64, "an absurd bound = a hung frame");
+        const _: () = assert!(
+            MAX_SCROLLBAR_REFLOW_ITERATIONS >= 1 && MAX_SCROLLBAR_REFLOW_ITERATIONS <= 64,
+            "the scrollbar reflow bound must be a usable positive limit; an absurd bound = a hung frame"
+        );
     }
 
     // ==================================================================

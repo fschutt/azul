@@ -1826,7 +1826,7 @@ mod autotest_generated {
             ],
             // large allocation: the FFI wrapper owns the buffer, so this is the
             // shape most likely to trip a bad len/cap or double-free.
-            core::iter::repeat(AccessibilityState::Selected).take(10_000).collect(),
+            std::iter::repeat_n(AccessibilityState::Selected, 10_000).collect(),
         ];
 
         for original in cases {

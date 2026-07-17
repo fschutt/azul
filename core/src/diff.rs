@@ -2191,8 +2191,7 @@ mod autotest_generated {
     fn autotest_change_report_scope_alone_forces_layout() {
         // An empty change_set with a non-None scope must still request layout:
         // `needs_layout()` ORs the two sources.
-        let mut r = NodeChangeReport::default();
-        r.relayout_scope = RelayoutScope::IfcOnly;
+        let r = NodeChangeReport { relayout_scope: RelayoutScope::IfcOnly, ..Default::default() };
         assert!(r.needs_layout());
         assert!(!r.needs_paint());
         assert!(!r.is_visually_unchanged());
@@ -2316,7 +2315,7 @@ mod autotest_generated {
     fn autotest_cursor_huge_inputs_do_not_hang_or_panic() {
         // 200k-byte strings: the prefix/suffix scans are linear, so this must
         // complete quickly and stay in-bounds.
-        let old: String = core::iter::repeat('a').take(200_000).collect();
+        let old: String = std::iter::repeat_n('a', 200_000).collect();
         let mut new = old.clone();
         new.push_str("tail");
 
@@ -2325,8 +2324,8 @@ mod autotest_generated {
         assert!(new.is_char_boundary(r));
 
         // Huge multibyte string: every returned offset must still be a boundary.
-        let old_u: String = core::iter::repeat('é').take(50_000).collect();
-        let new_u: String = core::iter::repeat('é').take(49_999).collect();
+        let old_u: String = std::iter::repeat_n('é', 50_000).collect();
+        let new_u: String = std::iter::repeat_n('é', 49_999).collect();
         let r = reconcile_cursor_position(&old_u, &new_u, old_u.len());
         assert!(r <= new_u.len());
         assert!(new_u.is_char_boundary(r));
@@ -2919,8 +2918,8 @@ mod autotest_generated {
         let r = diff_flat(&old, &new);
         assert_eq!(r.node_moves.len(), 50);
 
-        let mut seen_old = vec![false; 50];
-        let mut seen_new = vec![false; 50];
+        let mut seen_old = [false; 50];
+        let mut seen_new = [false; 50];
         for m in &r.node_moves {
             assert!(!seen_old[m.old_node_id.index()], "old node claimed twice");
             assert!(!seen_new[m.new_node_id.index()], "new node matched twice");

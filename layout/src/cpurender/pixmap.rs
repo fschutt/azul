@@ -634,7 +634,7 @@ impl AzRect {
 
 /// Wraps a `VertexSource` and clamps every coordinate to a finite range the AGG
 /// rasterizer can handle. A coordinate of ~1e30 (or ±inf) saturates the rasterizer's
-/// 24.8 fixed-point conversion to ~i32::MAX and makes its scanline sweep run once per
+/// 24.8 fixed-point conversion to ~`i32::MAX` and makes its scanline sweep run once per
 /// row crossed — O(coordinate magnitude), i.e. an effective hang (>1GB RAM, spins
 /// forever) on a large-but-legal transform or an SVG numeric attribute. Anything far
 /// outside the target contributes no visible pixels, so clamping it to just off-screen
@@ -661,7 +661,7 @@ impl VertexSource for ClampVertexSource<'_> {
 /// (so real geometry is untouched) yet small enough that the rasterizer's work stays
 /// bounded. Off-screen geometry gets pinned just outside the target.
 fn coord_clamp_limit(w: u32, h: u32) -> f64 {
-    (f64::from(w) + f64::from(h)) * 4.0 + 4096.0
+    (f64::from(w) + f64::from(h)).mul_add(4.0, 4096.0)
 }
 
 pub fn agg_fill_path(
@@ -680,6 +680,7 @@ pub fn agg_fill_path(
 /// border-radius is TODO (would need a mask), transforms are handled by
 /// transforming the clip box through the inverse transform before setting it.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // clip-box coordinate names (clip_x0/y0/x1/y1)
 pub fn agg_fill_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
@@ -715,15 +716,15 @@ pub fn agg_fill_path_clipped(
     // so a huge/infinite coordinate — reachable from a large-but-legal CSS transform or
     // SVG attribute — is O(coordinate magnitude), i.e. an effective hang. Clamping the
     // rasterizer's clip box bounds the work to the visible area.
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = match clip {
-        Some(c) => (
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
+        || (0.0, 0.0, f64::from(w), f64::from(h)),
+        |c| (
             f64::from(c.x).max(0.0),
             f64::from(c.y).max(0.0),
             f64::from(c.x + c.width).min(f64::from(w)),
             f64::from(c.y + c.height).min(f64::from(h)),
         ),
-        None => (0.0, 0.0, f64::from(w), f64::from(h)),
-    };
+    );
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
     // Clamp coordinates before rasterizing — see ClampVertexSource. This is the actual
     // guard against the huge/infinite-coordinate hang (the rasterizer's own clip_box
@@ -779,6 +780,7 @@ fn agg_fill_gradient<G: GradientFunction>(
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
+#[allow(clippy::similar_names)] // clip-box / gradient coordinate names (clip_x0/y0/x1/y1, d1/d2)
 pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,
@@ -810,15 +812,15 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = match clip {
-        Some(c) => (
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
+        || (0.0, 0.0, f64::from(w), f64::from(h)),
+        |c| (
             f64::from(c.x).max(0.0),
             f64::from(c.y).max(0.0),
             f64::from(c.x + c.width).min(f64::from(w)),
             f64::from(c.y + c.height).min(f64::from(h)),
         ),
-        None => (0.0, 0.0, f64::from(w), f64::from(h)),
-    };
+    );
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
     let mut clamped = ClampVertexSource { inner: path, limit: coord_clamp_limit(w, h) };
     ras.add_path(&mut clamped, 0);
@@ -1190,12 +1192,13 @@ mod autotest_generated {
             rect_intersection(&nan, &ok),
             rect_intersection(&ok, &nan),
             rect_intersection(&nan, &nan),
-        ] {
-            if let Some(r) = r {
-                assert!(!r.size.width.is_nan(), "NaN width leaked out: {r:?}");
-                assert!(!r.size.height.is_nan(), "NaN height leaked out: {r:?}");
-                assert!(r.size.width >= 0.0 && r.size.height >= 0.0);
-            }
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(!r.size.width.is_nan(), "NaN width leaked out: {r:?}");
+            assert!(!r.size.height.is_nan(), "NaN height leaked out: {r:?}");
+            assert!(r.size.width >= 0.0 && r.size.height >= 0.0);
         }
     }
 
@@ -1895,7 +1898,7 @@ mod autotest_generated {
     #[test]
     fn decode_png_deeply_nested_brackets_is_err() {
         let mut nested = vec![b'['; 10_000];
-        nested.extend(std::iter::repeat(b']').take(10_000));
+        nested.extend(std::iter::repeat_n(b']', 10_000));
         assert!(AzulPixmap::decode_png(&nested).is_err());
     }
 

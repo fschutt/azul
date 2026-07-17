@@ -428,7 +428,8 @@ mod autotest_generated {
 
     /// Every keyword parser, type-erased to `&str -> bool` (is it accepted?), so
     /// the malformed-input cases can be asserted against all four at once.
-    const KEYWORD_PARSERS: &[(&str, fn(&str) -> bool)] = &[
+    type KeywordParser = (&'static str, fn(&str) -> bool);
+    const KEYWORD_PARSERS: &[KeywordParser] = &[
         ("table-layout", table_layout_ok),
         ("border-collapse", border_collapse_ok),
         ("caption-side", caption_side_ok),

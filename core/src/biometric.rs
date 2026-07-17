@@ -202,8 +202,7 @@ mod autotest_generated {
         const FACE: BiometricKind = BiometricKind::Face;
         const NONE_AVAIL: bool = NONE.is_available();
         const FACE_AVAIL: bool = FACE.is_available();
-        assert!(!NONE_AVAIL);
-        assert!(FACE_AVAIL);
+        const _: () = assert!(!NONE_AVAIL && FACE_AVAIL);
     }
 
     // ------------------------------------------------------------------
@@ -256,8 +255,7 @@ mod autotest_generated {
         const BAD: BiometricResult = BiometricResult::Failed;
         const OK_S: bool = OK.is_success();
         const BAD_S: bool = BAD.is_success();
-        assert!(OK_S);
-        assert!(!BAD_S);
+        const _: () = assert!(OK_S && !BAD_S);
     }
 
     // ------------------------------------------------------------------

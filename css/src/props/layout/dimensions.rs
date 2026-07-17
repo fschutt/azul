@@ -655,7 +655,7 @@ mod autotest_generated {
 
     /// Maps a `CalcAstItem` to a discriminant tag, so tests can compare the *shape*
     /// of two ASTs without depending on `FloatValue`'s 1/1000 quantisation.
-    fn tag(item: &CalcAstItem) -> u8 {
+    const fn tag(item: &CalcAstItem) -> u8 {
         match item {
             CalcAstItem::Value(_) => 0,
             CalcAstItem::Add => 1,

@@ -3429,7 +3429,6 @@ mod autotest_generated {
     fn node_state(dom: &StyledDom, id: NodeId) -> StyledNodeState {
         dom.styled_nodes.as_container()[id]
             .styled_node_state
-            .clone()
     }
 
     fn used_size(

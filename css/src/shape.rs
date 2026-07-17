@@ -537,7 +537,7 @@ mod autotest_generated {
         assert_eq!(P.x, 1.0);
         assert_eq!(Z, ShapePoint::zero());
         // repr(C) layout guarantee relied on across the FFI boundary.
-        assert_eq!(core::mem::size_of::<ShapePoint>(), 8);
+        assert_eq!(size_of::<ShapePoint>(), 8);
     }
 
     // ---------------------------------------------------------------------

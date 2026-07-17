@@ -3499,10 +3499,10 @@ mod autotest_generated {
                 parse_style_overflow_wrap,
                 [OW::Normal, OW::Anywhere, OW::BreakWord]
             );
-            type TAL = StyleTextAlignLast;
+            type Tal = StyleTextAlignLast;
             assert_keyword_round_trip!(
                 parse_style_text_align_last,
-                [TAL::Auto, TAL::Start, TAL::End, TAL::Left, TAL::Right, TAL::Center, TAL::Justify]
+                [Tal::Auto, Tal::Start, Tal::End, Tal::Left, Tal::Right, Tal::Center, Tal::Justify]
             );
             type TT = StyleTextTransform;
             assert_keyword_round_trip!(
@@ -3526,15 +3526,15 @@ mod autotest_generated {
                 parse_style_unicode_bidi,
                 [UB::Normal, UB::Embed, UB::Isolate, UB::BidiOverride, UB::IsolateOverride, UB::Plaintext]
             );
-            type TBT = StyleTextBoxTrim;
+            type Tbt = StyleTextBoxTrim;
             assert_keyword_round_trip!(
                 parse_style_text_box_trim,
-                [TBT::None, TBT::TrimStart, TBT::TrimEnd, TBT::TrimBoth]
+                [Tbt::None, Tbt::TrimStart, Tbt::TrimEnd, Tbt::TrimBoth]
             );
-            type TBE = StyleTextBoxEdge;
+            type Tbe = StyleTextBoxEdge;
             assert_keyword_round_trip!(
                 parse_style_text_box_edge,
-                [TBE::Auto, TBE::TextEdge, TBE::CapHeight, TBE::ExHeight]
+                [Tbe::Auto, Tbe::TextEdge, Tbe::CapHeight, Tbe::ExHeight]
             );
             type DB = StyleDominantBaseline;
             assert_keyword_round_trip!(
@@ -3552,15 +3552,15 @@ mod autotest_generated {
                     AB::Central, AB::Mathematical, AB::TextTop
                 ]
             );
-            type ILA = StyleInitialLetterAlign;
+            type Ila = StyleInitialLetterAlign;
             assert_keyword_round_trip!(
                 parse_style_initial_letter_align,
-                [ILA::Auto, ILA::Alphabetic, ILA::Hanging, ILA::Ideographic]
+                [Ila::Auto, Ila::Alphabetic, Ila::Hanging, Ila::Ideographic]
             );
-            type ILW = StyleInitialLetterWrap;
+            type Ilw = StyleInitialLetterWrap;
             assert_keyword_round_trip!(
                 parse_style_initial_letter_wrap,
-                [ILW::None, ILW::First, ILW::All, ILW::Grid]
+                [Ilw::None, Ilw::First, Ilw::All, Ilw::Grid]
             );
         }
 

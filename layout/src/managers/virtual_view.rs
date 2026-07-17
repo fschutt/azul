@@ -461,13 +461,10 @@ impl crate::managers::NodeIdRemap for VirtualViewManager {
             if *d != dom {
                 return true;
             }
-            match map.resolve(*node_id) {
-                Some(new_id) => {
-                    *node_id = new_id;
-                    true
-                }
-                None => false,
-            }
+            map.resolve(*node_id).is_some_and(|new_id| {
+                *node_id = new_id;
+                true
+            })
         });
     }
 }

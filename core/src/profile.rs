@@ -423,7 +423,7 @@ mod autotest_generated {
 
     #[test]
     fn parse_extremely_long_single_token_does_not_panic_or_hang() {
-        let huge: String = core::iter::repeat('a').take(1_000_000).collect();
+        let huge: String = std::iter::repeat_n('a', 1_000_000).collect();
         assert_eq!(ProfileFlags::parse(&huge), ProfileFlags::default());
 
         // A 1M-char token that *starts* with a valid token must still not match
@@ -435,7 +435,7 @@ mod autotest_generated {
 
     #[test]
     fn parse_million_separators_does_not_panic_or_hang() {
-        let commas: String = core::iter::repeat(',').take(1_000_000).collect();
+        let commas: String = std::iter::repeat_n(',', 1_000_000).collect();
         assert_eq!(ProfileFlags::parse(&commas), ProfileFlags::default());
 
         // 1M empty tokens with one real token buried at the end.

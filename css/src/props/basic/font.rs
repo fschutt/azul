@@ -76,7 +76,7 @@ impl PrintAsCssValue for StyleFontWeight {
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for StyleFontWeight {
+impl FormatAsRustCode for StyleFontWeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontWeight::{Lighter, W100, W200, W300, Normal, W500, W600, Bold, W800, W900, Bolder};
         format!(
@@ -122,7 +122,7 @@ impl PrintAsCssValue for StyleFontStyle {
     }
 }
 
-impl crate::codegen::format::FormatAsRustCode for StyleFontStyle {
+impl FormatAsRustCode for StyleFontStyle {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontStyle::{Normal, Italic, Oblique};
         format!(
@@ -344,7 +344,7 @@ impl StyleFontFamily {
     /// `as_string()` this does NOT apply CSS serialization — a multi-word name comes
     /// back as `Times New Roman`, not `"Times New Roman"`, since the backend matches on
     /// the bare name and the quotes would corrupt the query.
-    pub fn as_query_string(&self) -> String {
+    #[must_use] pub fn as_query_string(&self) -> String {
         match &self {
             Self::System(s) | Self::File(s) => s.clone().into_library_owned_string(),
             Self::SystemType(st) => st.as_css_str().to_string(),
@@ -376,7 +376,7 @@ impl PrintAsCssValue for StyleFontFamilyVec {
 }
 
 // Formatting to Rust code for StyleFontFamilyVec
-impl crate::codegen::format::FormatAsRustCode for StyleFontFamilyVec {
+impl FormatAsRustCode for StyleFontFamilyVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_{}_ITEMS)",
@@ -396,7 +396,7 @@ pub enum CssFontWeightParseError<'a> {
 }
 
 // Formatting to Rust code for StyleFontFamily
-impl crate::codegen::format::FormatAsRustCode for StyleFontFamily {
+impl FormatAsRustCode for StyleFontFamily {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             Self::System(id) => {

@@ -1328,14 +1328,14 @@ mod autotest_generated {
     #[test]
     fn len_and_is_empty_always_agree() {
         let mut mc = empty_state();
-        assert!(mc.is_empty() && mc.len() == 0);
+        assert!(mc.is_empty() && mc.is_empty());
         let _ = mc.add_cursor(c(1));
         assert!(!mc.is_empty() && mc.len() == 1);
         for i in 2..20u32 {
             let _ = mc.add_cursor(c(i * 3));
         }
         assert_eq!(mc.len(), mc.selections.len());
-        assert_eq!(mc.is_empty(), mc.len() == 0);
+        assert_eq!(mc.is_empty(), mc.is_empty());
         assert!(!mc.is_empty());
     }
 

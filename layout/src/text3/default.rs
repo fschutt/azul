@@ -1153,7 +1153,7 @@ mod autotest_generated {
     fn path_loader_new_is_a_zero_sized_stateless_handle() {
         assert_eq!(core::mem::size_of::<PathLoader>(), 0);
         let a = PathLoader::new();
-        let b = PathLoader::default();
+        let b = PathLoader;
         // both handles behave identically: no hidden per-instance state
         assert!(a.load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0).is_err());
         assert!(b.load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0).is_err());

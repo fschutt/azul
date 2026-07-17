@@ -206,14 +206,14 @@ pub static TEST_CLOCK_OFFSET_MS: core::sync::atomic::AtomicU64 =
 /// Advance the injectable test clock by `ms` (E2E `tick_ms`).
 #[cfg(feature = "std")]
 pub fn advance_test_clock_ms(ms: u64) -> u64 {
-    TEST_CLOCK_OFFSET_MS.fetch_add(ms, core::sync::atomic::Ordering::SeqCst) + ms
+    TEST_CLOCK_OFFSET_MS.fetch_add(ms, Ordering::SeqCst) + ms
 }
 
 /// The current test-clock offset in ms (0 unless `tick_ms` was used).
 #[cfg(feature = "std")]
 #[must_use]
 pub fn test_clock_offset_ms() -> u64 {
-    TEST_CLOCK_OFFSET_MS.load(core::sync::atomic::Ordering::SeqCst)
+    TEST_CLOCK_OFFSET_MS.load(Ordering::SeqCst)
 }
 
 /// `std::time::Instant::now()` shifted by the injectable test-clock offset.

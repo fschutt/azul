@@ -3308,8 +3308,10 @@ mod autotest_generated {
 
     #[test]
     fn reset_incremental_drops_reuse_state_keeps_the_rest_and_is_idempotent() {
-        let mut cache = LayoutCache::default();
-        cache.tree = Some(build_tree(vec![plain(None)], warm_default(1), &[vec![]]));
+        let mut cache = LayoutCache {
+            tree: Some(build_tree(vec![plain(None)], warm_default(1), &[vec![]])),
+            ..Default::default()
+        };
         cache.cache_map.resize_to_tree(2);
         cache.cached_display_list = Some((
             SubtreeHash(9),

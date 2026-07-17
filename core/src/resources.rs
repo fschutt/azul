@@ -4090,8 +4090,6 @@ mod autotest_generated {
             assert!(v >= prev, "normalize_u16 must be monotonic ({i} -> {v})");
             prev = v;
         }
-        // Never wraps: the value is always <= u8::MAX by construction.
-        assert!(normalize_u16(u16::MAX - 1) <= u8::MAX);
     }
 
     #[test]
@@ -5294,7 +5292,7 @@ mod autotest_generated {
         let px = img.pixels.get_u8_vec_ref().expect("u8").as_ref().to_vec();
 
         // Pixel (1,1) is 0.71 px from the center -> inside the hard core.
-        let idx = (1 * 4 + 1) * 4;
+        let idx = (4 + 1) * 4;
         assert_eq!(&px[idx..idx + 4], &[255, 0, 0, 255], "center pixel must be opaque red");
         // Pixel (0,0) is 2.12 px away -> outside the radius -> untouched.
         assert_eq!(&px[0..4], &[0, 0, 0, 0], "pixels beyond the radius stay untouched");
@@ -5306,7 +5304,7 @@ mod autotest_generated {
         img.data_format = RawImageFormat::BGRA8;
         img.paint_dot(2.0, 2.0, Brush::new(opaque_red(), 2.0));
         let px = img.pixels.get_u8_vec_ref().expect("u8").as_ref().to_vec();
-        let idx = (1 * 4 + 1) * 4;
+        let idx = (4 + 1) * 4;
         // BGRA: red lands in byte 2, blue in byte 0.
         assert_eq!(&px[idx..idx + 4], &[0, 0, 255, 255]);
     }
@@ -5381,7 +5379,7 @@ mod autotest_generated {
             img.paint_dot(2.0, 2.0, brush);
         }
         let px = img.pixels.get_u8_vec_ref().expect("u8").as_ref().to_vec();
-        let idx = (1 * 4 + 1) * 4;
+        let idx = (4 + 1) * 4;
         assert_eq!(&px[idx..idx + 4], &[255, 0, 0, 255]);
 
         // A NaN hardness makes the coverage NaN; the `a <= 0.0` check is false
@@ -5458,7 +5456,7 @@ mod autotest_generated {
         let mut img = rgba8_image(4, 4);
         img.paint_stroke(2.0, 2.0, 2.0, 2.0, Brush::new(opaque_red(), 2.0));
         let px = img.pixels.get_u8_vec_ref().expect("u8").as_ref().to_vec();
-        let idx = (1 * 4 + 1) * 4;
+        let idx = (4 + 1) * 4;
         assert_eq!(&px[idx..idx + 4], &[255, 0, 0, 255]);
     }
 

@@ -348,7 +348,7 @@ mod autotest_generated {
         const S: GamepadState = GamepadState::empty(GamepadId { id: u32::MAX });
         assert_eq!(S.id.id, u32::MAX);
         assert_eq!(S.buttons, 0);
-        assert!(!S.connected);
+        const _: () = assert!(!S.connected);
     }
 
     // ------------------------------------------------------------------
@@ -473,9 +473,7 @@ mod autotest_generated {
         const SOUTH: bool = S.is_pressed(GamepadButton::South);
         const EAST: bool = S.is_pressed(GamepadButton::East);
         const NORTH: bool = S.is_pressed(GamepadButton::North);
-        assert!(SOUTH);
-        assert!(!EAST);
-        assert!(NORTH);
+        const _: () = assert!(SOUTH && !EAST && NORTH);
     }
 
     /// invariant: `is_pressed` is a read-only view — polling every button

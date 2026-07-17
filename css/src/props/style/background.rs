@@ -3372,7 +3372,7 @@ pub mod parser {
             ] {
                 let g = conic(input);
                 let mut prev = f32::NEG_INFINITY;
-                for s in g.stops.iter() {
+                for s in &g.stops {
                     let deg = s.angle.to_degrees_raw();
                     assert!(deg.is_finite(), "non-finite angle in {input:?}");
                     assert!(deg >= prev, "angles not monotonic in {input:?}");
@@ -3383,7 +3383,7 @@ pub mod parser {
             // An overflowing angle saturates instead of leaking inf into the stops.
             let g = conic("conic-gradient(red 1e40deg, blue)");
             assert_eq!(g.stops.len(), 2);
-            for s in g.stops.iter() {
+            for s in &g.stops {
                 assert!(s.angle.to_degrees_raw().is_finite());
             }
 

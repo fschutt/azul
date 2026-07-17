@@ -1416,6 +1416,7 @@ impl StyledDom {
     /// only, so subtrees stay contiguous in the flat arena) grows `parent`'s and its
     /// ancestors' subtrees; bump the inclusive `end` of every scope that already
     /// covers `parent` out to the new node.
+    #[allow(clippy::similar_names)] // new_node/parent and the p/n index locals read clearly in context
     pub fn extend_author_scopes_for_appended(&mut self, new_node: NodeId, parent: NodeId) {
         use azul_css::css::CssPathSelector;
         let p = parent.index();

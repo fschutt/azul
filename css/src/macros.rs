@@ -142,7 +142,7 @@ macro_rules! impl_vec {
             /// rather than in `impl_vec_mut!` because only `impl_vec!` is given the
             /// name of the destructor enum.
             #[inline]
-            fn owns_buffer(&self) -> bool {
+            const fn owns_buffer(&self) -> bool {
                 matches!(self.destructor, $destructor_name::DefaultRust)
             }
 
@@ -150,7 +150,7 @@ macro_rules! impl_vec {
             /// any allocation that replaces a borrowed (`NoDestructor`/`External`)
             /// buffer, or `clone_self`/`Drop` keep believing it is borrowed.
             #[inline]
-            fn mark_rust_owned(&mut self) {
+            const fn mark_rust_owned(&mut self) {
                 self.destructor = $destructor_name::DefaultRust;
             }
 

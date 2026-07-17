@@ -191,8 +191,7 @@ mod autotest_generated {
 
         assert_eq!(CONT_H, f32::MAX);
         assert_eq!(A4_H, 842.0);
-        assert!(!CONT_PAGED);
-        assert!(A4_PAGED);
+        const _: () = assert!(!CONT_PAGED && A4_PAGED);
         assert_eq!(UNIFORM.top, 10.0);
         assert_eq!(EXPLICIT.left, 4.0);
     }

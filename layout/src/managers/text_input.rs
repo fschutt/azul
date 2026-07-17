@@ -236,12 +236,9 @@ impl crate::managers::NodeIdRemap for TextInputManager {
         let Some(ref mut pending) = self.pending_changeset else {
             return;
         };
-        match map.resolve_dom_node_id(dom, pending.node) {
-            Some(new_id) => pending.node = new_id,
-            None => {
-                self.pending_changeset = None;
-                self.input_source = None;
-            }
+        if let Some(new_id) = map.resolve_dom_node_id(dom, pending.node) { pending.node = new_id } else {
+            self.pending_changeset = None;
+            self.input_source = None;
         }
     }
 }

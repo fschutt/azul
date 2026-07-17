@@ -3386,7 +3386,7 @@ mod autotest_generated {
                 );
             }
             // System rules must lose against author CSS.
-            assert!(rule_priority::SYSTEM < rule_priority::AUTHOR);
+            const _: () = assert!(rule_priority::SYSTEM < rule_priority::AUTHOR);
         }
     }
 

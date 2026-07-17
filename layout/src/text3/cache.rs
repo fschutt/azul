@@ -855,7 +855,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         &mut self,
         family: &str,
         bytes: &[u8],
-        coverage: Vec<rust_fontconfig::UnicodeRange>,
+        coverage: Vec<UnicodeRange>,
     ) -> FontId {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
 
@@ -864,7 +864,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // would mint a second `FontId` for the same bytes, orphan the first
         // in the cache's metadata table and make the family's id
         // non-deterministic. Reuse the existing memory font instead.
-        let mut existing: Vec<(FontId, Vec<rust_fontconfig::UnicodeRange>)> = Vec::new();
+        let mut existing: Vec<(FontId, Vec<UnicodeRange>)> = Vec::new();
         self.fc_cache.for_each_pattern(|pattern, id| {
             let hit = pattern
                 .family
@@ -10134,10 +10134,11 @@ pub fn is_word_separator(item: &ShapedItem) -> bool {
     }
 }
 
-/// True for separators that add word-spacing but must NOT offer a soft-wrap opportunity
+/// True for separators that add word-spacing but must NOT offer a soft-wrap opportunity.
+///
 /// (UAX#14 class GL/WJ): NBSP, NARROW NO-BREAK SPACE, WORD JOINER, ZWNBSP. These are a
 /// subset of `is_word_separator` — they still contribute Glue, but no break Penalty.
-pub fn is_no_break_space(item: &ShapedItem) -> bool {
+#[must_use] pub fn is_no_break_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.text
             .chars()
@@ -13911,8 +13912,10 @@ mod autotest_generated {
         assert!(!TextShapingCache::use_old_layout(&c, &c, &old, &bigger));
 
         // Different constraints → no reuse.
-        let mut c2 = UnifiedConstraints::default();
-        c2.available_width = AvailableSpace::Definite(100.0);
+        let c2 = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(100.0),
+            ..Default::default()
+        };
         assert!(!TextShapingCache::use_old_layout(&c, &c2, &old, &old));
     }
 

@@ -961,8 +961,8 @@ mod autotest_generated {
     #[test]
     fn empty_struct_is_ffi_safe_non_zero_size() {
         // The whole point of the type: `()` is zero-sized and not FFI-safe.
-        assert_eq!(core::mem::size_of::<EmptyStruct>(), 1);
-        assert_eq!(core::mem::align_of::<EmptyStruct>(), 1);
+        assert_eq!(size_of::<EmptyStruct>(), 1);
+        assert_eq!(align_of::<EmptyStruct>(), 1);
     }
 
     #[test]

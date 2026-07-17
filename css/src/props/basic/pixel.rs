@@ -1293,8 +1293,8 @@ mod autotest_generated {
     /// only reachable with a live `Formatter`.
     struct CssVal<T>(T);
 
-    impl<T: FormatAsCssValue> core::fmt::Display for CssVal<T> {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    impl<T: FormatAsCssValue> fmt::Display for CssVal<T> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             self.0.format_as_css_value(f)
         }
     }

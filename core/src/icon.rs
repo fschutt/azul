@@ -744,10 +744,11 @@ mod autotest_generated {
     /// A `StyledDom` with *zero* nodes — `StyledDom::default()` has one (a Body),
     /// so the truly-empty case has to be built by hand.
     fn zero_node_styled_dom() -> StyledDom {
-        let mut sd = StyledDom::default();
-        sd.node_data = NodeDataVec::from_vec(Vec::new());
-        sd.styled_nodes = StyledNodeVec::from_vec(Vec::new());
-        sd
+        StyledDom {
+            node_data: NodeDataVec::from_vec(Vec::new()),
+            styled_nodes: StyledNodeVec::from_vec(Vec::new()),
+            ..StyledDom::default()
+        }
     }
 
     fn node_type_at(sd: &StyledDom, idx: usize) -> NodeType {

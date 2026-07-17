@@ -361,8 +361,7 @@ mod autotest_generated {
     fn is_vertical_is_const_evaluable() {
         const HORIZONTAL: bool = LayoutWritingMode::HorizontalTb.is_vertical();
         const VERTICAL: bool = LayoutWritingMode::VerticalRl.is_vertical();
-        assert!(!HORIZONTAL);
-        assert!(VERTICAL);
+        const _: () = assert!(!HORIZONTAL && VERTICAL);
     }
 
     #[test]
@@ -738,9 +737,7 @@ mod autotest_generated {
     #[test]
     fn parse_error_payload_borrows_the_trimmed_slice_not_the_whole_input() {
         let input = "   bogus-value   ";
-        let payload = match parse_layout_clear(input).unwrap_err() {
-            LayoutClearParseError::InvalidValue(s) => s,
-        };
+        let LayoutClearParseError::InvalidValue(payload) = parse_layout_clear(input).unwrap_err();
         // The error echoes the TRIMMED slice, not the raw input.
         assert_eq!(payload, "bogus-value");
         assert_eq!(payload.len(), 11);
@@ -845,9 +842,7 @@ mod autotest_generated {
         let huge = "x".repeat(100_000);
         let shared = LayoutClearParseError::InvalidValue(huge.as_str());
         let owned = shared.to_contained();
-        let back = match owned.to_shared() {
-            LayoutClearParseError::InvalidValue(s) => s,
-        };
+        let LayoutClearParseError::InvalidValue(back) = owned.to_shared();
         assert_eq!(back.len(), 100_000);
         assert_eq!(back, huge.as_str());
     }

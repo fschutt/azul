@@ -1117,11 +1117,10 @@ mod tests {
 }
 
 #[cfg(all(test, feature = "parser"))]
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::float_cmp)]
 mod autotest_generated {
     // Tests compare parsed values against exact source literals, and deliberately
     // feed NaN/inf through the numeric encoders.
-    #![allow(clippy::float_cmp)]
 
     use super::*;
     use crate::props::basic::length::SizeMetric;
@@ -2342,7 +2341,7 @@ mod autotest_generated {
         // to_contained() must deep-copy the &str payload: the owned error has to
         // outlive the input it was parsed from.
         let owned = {
-            let input = alloc::string::String::from("translatex(1px)");
+            let input = String::from("translatex(1px)");
             parse_style_transform(&input).unwrap_err().to_contained()
         };
         assert_eq!(

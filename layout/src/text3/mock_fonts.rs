@@ -5,7 +5,7 @@
 //! Every text assertion made against a *system* font is a guess: the engine
 //! has no control over Arial's advances, and on a CI box Arial may not even
 //! exist (see `register_named_font` — a family that fontconfig cannot find
-//! silently falls back, which is exactly how the "8 families → 2 FontIds"
+//! silently falls back, which is exactly how the "8 families → 2 `FontIds`"
 //! bug hid for so long). So text tests degenerate into "roughly this wide".
 //!
 //! The mock fonts fix that by making text layout ARITHMETIC:
@@ -71,8 +71,10 @@ pub const BUILTIN_MOCK_FONTS: &[(&str, &[u8])] = &[
 ];
 
 /// Advance of one glyph of `family` at `font_size_px`, or `None` if the
-/// family is not a mock font. Test helper: lets a test compute the expected
-/// width of a string without hardcoding the em fraction twice.
+/// family is not a mock font.
+///
+/// Test helper: lets a test compute the expected width of a string without
+/// hardcoding the em fraction twice.
 #[must_use]
 pub fn mock_advance_px(family: &str, font_size_px: f32) -> Option<f32> {
     match family {

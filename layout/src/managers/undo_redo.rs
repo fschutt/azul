@@ -659,9 +659,7 @@ mod autotest_generated {
     }
 
     fn one(c: InlineContent) -> Vec<InlineContent> {
-        let mut v = Vec::new();
-        v.push(c);
-        v
+        vec![c]
     }
 
     // ---------------------------------------------------------------------

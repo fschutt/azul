@@ -5528,7 +5528,7 @@ mod autotest_generated {
     #[test]
     fn result_u8vec_string_from_maps_ok_and_err() {
         let ok = ResultU8VecString::from(Ok(Vec::new()));
-        assert!(matches!(&ok, ResultU8VecString::Ok(v) if v.len() == 0));
+        assert!(matches!(&ok, ResultU8VecString::Ok(v) if v.is_empty()));
 
         let ok = ResultU8VecString::from(Ok(vec![0u8; 100_000]));
         assert!(matches!(&ok, ResultU8VecString::Ok(v) if v.len() == 100_000));
@@ -5925,7 +5925,7 @@ mod autotest_generated {
             let changes = info.take_changes();
             assert_eq!(changes.len(), 1);
             assert!(
-                matches!(&changes[0], CallbackChange::ChangeNodeCssProperties { properties, .. } if properties.len() == 0)
+                matches!(&changes[0], CallbackChange::ChangeNodeCssProperties { properties, .. } if properties.is_empty())
             );
         });
     }

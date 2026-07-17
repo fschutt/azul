@@ -953,7 +953,7 @@ mod autotest_generated {
         assert_eq!(map.len(), 2, "node 1's state must be GC'd");
         assert_eq!(map.get(&nid(1)).copied(), Some(20));
         assert_eq!(map.get(&nid(2)).copied(), Some(30));
-        assert!(map.get(&nid(3)).is_none(), "no state may remain at a dead index");
+        assert!(!map.contains_key(&nid(3)), "no state may remain at a dead index");
     }
 
     #[test]
@@ -1034,7 +1034,7 @@ mod autotest_generated {
                 i - 1
             );
         }
-        assert!(map.get(&nid(n - 1)).is_none(), "the vacated tail index is empty");
+        assert!(!map.contains_key(&nid(n - 1)), "the vacated tail index is empty");
     }
 
     /// Ordering trap: an entry is rewritten ONTO an index that another (about to
@@ -1073,7 +1073,7 @@ mod autotest_generated {
         remap_dom_keys(&mut map, DOM0, &node_map);
 
         assert_eq!(map.get(&(DOM0, nid(1))).copied(), Some(20), "DOM 0's entry is remapped");
-        assert!(map.get(&(DOM0, nid(2))).is_none(), "the old DOM 0 key is gone");
+        assert!(!map.contains_key(&(DOM0, nid(2))), "the old DOM 0 key is gone");
         assert_eq!(
             map.get(&(DOM1, nid(2))).copied(),
             Some(99),
@@ -1092,7 +1092,7 @@ mod autotest_generated {
 
         remap_dom_keys(&mut map, DOM0, &node_map);
 
-        assert!(map.get(&(DOM0, nid(1))).is_none());
+        assert!(!map.contains_key(&(DOM0, nid(1))));
         assert_eq!(map.get(&(DOM1, nid(1))).copied(), Some(11));
         assert_eq!(map.len(), 1);
     }
@@ -1161,7 +1161,7 @@ mod autotest_generated {
             "usize::MAX remaps like any other index"
         );
         assert!(
-            map.get(&(DOM_MAX, nid(usize::MAX - 1))).is_none(),
+            !map.contains_key(&(DOM_MAX, nid(usize::MAX - 1))),
             "unmounted in DOM_MAX -> dropped"
         );
         assert_eq!(

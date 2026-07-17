@@ -201,18 +201,15 @@ impl crate::managers::NodeIdRemap for FocusManager {
             if pending.dom_id != dom_id {
                 return;
             }
-            match (
+            if let (Some(container), Some(text)) = (
                 map.resolve(pending.container_node_id),
                 map.resolve(pending.text_node_id),
             ) {
-                (Some(container), Some(text)) => {
-                    pending.container_node_id = container;
-                    pending.text_node_id = text;
-                }
-                _ => {
-                    self.pending_contenteditable_focus = None;
-                    self.cursor_needs_initialization = false;
-                }
+                pending.container_node_id = container;
+                pending.text_node_id = text;
+            } else {
+                self.pending_contenteditable_focus = None;
+                self.cursor_needs_initialization = false;
             }
         }
     }

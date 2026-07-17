@@ -769,7 +769,7 @@ pub fn detail_enabled() -> bool {
 #[must_use] pub const fn detail_enabled() -> bool { false }
 
 #[cfg(test)]
-#[allow(clippy::let_underscore_drop, clippy::too_many_lines)]
+#[allow(let_underscore_drop, clippy::too_many_lines)]
 mod autotest_generated {
     use super::*;
 

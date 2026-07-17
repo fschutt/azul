@@ -844,9 +844,7 @@ mod autotest_generated {
         const GRANTED: bool = PermissionState::Granted(PermissionQuality::Reduced).is_granted();
         const RE_PROMPT: bool = PermissionState::NotDetermined.could_re_prompt();
         const DENIED_GRANTED: bool = PermissionState::Denied.is_granted();
-        assert!(GRANTED);
-        assert!(RE_PROMPT);
-        assert!(!DENIED_GRANTED);
+        const _: () = assert!(GRANTED && RE_PROMPT && !DENIED_GRANTED);
     }
 
     // ── constructors ────────────────────────────────────────────────────
@@ -1609,9 +1607,9 @@ mod autotest_generated {
 
         let drained = drain_async_results();
         assert_eq!(drained.len(), THREADS * PER_THREAD, "results were lost");
-        for t in 0..THREADS {
-            let count = drained.iter().filter(|(c, _)| *c == ALL_CAPS[t]).count();
-            assert_eq!(count, PER_THREAD, "{:?} lost results", ALL_CAPS[t]);
+        for cap in ALL_CAPS.iter().take(THREADS) {
+            let count = drained.iter().filter(|(c, _)| c == cap).count();
+            assert_eq!(count, PER_THREAD, "{cap:?} lost results");
         }
         assert!(drain_async_results().is_empty());
     }

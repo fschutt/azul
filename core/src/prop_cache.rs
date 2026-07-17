@@ -712,7 +712,7 @@ pub struct CssPropertyCache {
     // only ever receive UA defaults + inheritance, never its author CSS.
     // (This struct lives behind `CssPropertyCachePtr`, so the field is invisible
     // to the C ABI.)
-    pub retained_author_css: azul_css::css::Css,
+    pub retained_author_css: Css,
 
     // properties that were overridden in callbacks (not specific to any node state)
     pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
@@ -1834,7 +1834,7 @@ impl CssPropertyCache {
     #[must_use] pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
-            retained_author_css: azul_css::css::Css::default(),
+            retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
 
             cascaded_props: FlatVecVec::new(node_count),

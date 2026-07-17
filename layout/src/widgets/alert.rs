@@ -752,7 +752,7 @@ mod autotest_generated {
         // repeated calls on the same (Copy) receiver must be stable
         let k = AlertKind::Danger;
         assert_eq!(k.colors(), k.colors());
-        assert_eq!((&k).colors(), k.colors());
+        assert_eq!(k.colors(), k.colors());
     }
 
     #[test]

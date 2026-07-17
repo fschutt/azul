@@ -410,8 +410,7 @@ mod autotest_generated {
     fn sensor_kind_is_a_c_int() {
         assert_eq!(core::mem::size_of::<SensorKind>(), 4);
         assert!(
-            core::mem::size_of::<OptionSensorReading>()
-                >= core::mem::size_of::<SensorReading>() + 1
+            core::mem::size_of::<OptionSensorReading>() > core::mem::size_of::<SensorReading>()
         );
     }
 

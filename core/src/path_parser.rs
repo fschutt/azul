@@ -1078,7 +1078,7 @@ mod autotest_generated {
         assert_eq!(char_at(&[b'A', 0xFF], 0), char::REPLACEMENT_CHARACTER);
         assert_eq!(char_at(&[0xFF], 0), char::REPLACEMENT_CHARACTER);
         // ...but a clean tail after the char still decodes.
-        assert_eq!(char_at(&[b'A', b'B'], 0), 'A');
+        assert_eq!(char_at(b"AB", 0), 'A');
     }
 
     // ============================================ SvgPathParseError (serializer)
@@ -1288,7 +1288,7 @@ mod autotest_generated {
     #[test]
     fn parse_number_unicode_does_not_panic() {
         for s in ["😀", "\u{0301}", "ü", "€1", "１"] {
-            assert!(matches!(num(s), Err(_)), "{s:?} must be rejected");
+            assert!(num(s).is_err(), "{s:?} must be rejected");
         }
         // A number immediately followed by a multibyte char stops at the boundary.
         let mut p = PathParser::new("1😀".as_bytes());
@@ -1361,18 +1361,18 @@ mod autotest_generated {
 
     #[test]
     fn parse_flag_valid_minimal() {
-        assert_eq!(flag("0").unwrap(), false);
-        assert_eq!(flag("1").unwrap(), true);
-        assert_eq!(flag("  , 1").unwrap(), true, "separators are skipped first");
+        assert!(!flag("0").unwrap());
+        assert!(flag("1").unwrap());
+        assert!(flag("  , 1").unwrap(), "separators are skipped first");
     }
 
     /// A flag is exactly one byte: "11" is two flags, not the number eleven.
     #[test]
     fn parse_flag_consumes_exactly_one_byte() {
         let mut p = PathParser::new(b"10");
-        assert_eq!(p.parse_flag().unwrap(), true);
+        assert!(p.parse_flag().unwrap());
         assert_eq!(p.pos, 1);
-        assert_eq!(p.parse_flag().unwrap(), false);
+        assert!(!p.parse_flag().unwrap());
         assert_eq!(p.pos, 2);
     }
 

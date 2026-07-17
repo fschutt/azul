@@ -230,8 +230,7 @@ mod autotest_generated {
         // is no longer const-safe.
         const NULL_IS_NULL: bool = DbValue::Null.is_null();
         const INT_IS_NULL: bool = DbValue::Integer(9).is_null();
-        assert!(NULL_IS_NULL);
-        assert!(!INT_IS_NULL);
+        const _: () = assert!(NULL_IS_NULL && !INT_IS_NULL);
     }
 
     // ---- DbValue::as_integer (getter) --------------------------------------

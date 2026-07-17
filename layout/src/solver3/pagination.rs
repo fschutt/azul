@@ -1091,11 +1091,13 @@ mod autotest_generated {
         // produce text — otherwise a disabled box still costs a callback call.
         let calls = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&calls);
-        let mut cfg = HeaderFooterConfig::default();
-        cfg.header_content = MarginBoxContent::Custom(Arc::new(move |_| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            "leaked".to_string()
-        }));
+        let mut cfg = HeaderFooterConfig {
+            header_content: MarginBoxContent::Custom(Arc::new(move |_| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                "leaked".to_string()
+            })),
+            ..Default::default()
+        };
         assert_eq!(cfg.header_text(PageInfo::new(1, 1)), "");
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }

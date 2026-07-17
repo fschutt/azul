@@ -629,7 +629,7 @@ mod autotest_generated {
     ///
     /// WHEN pixel.rs IS FIXED (match longest metric first, or move vmax/vmin
     /// ahead of "in"), this test fails — replace it with:
-    ///     assert_eq!(parse_shape_margin("10vmin").unwrap().inner.metric, SizeMetric::Vmin);
+    ///     `assert_eq!(parse_shape_margin("10vmin").unwrap().inner.metric`, `SizeMetric::Vmin`);
     #[test]
     fn known_bug_vmin_unit_is_rejected_by_metric_table_order() {
         // FIXED (as this pin's own message instructed): "10vmin" now parses to Vmin.
@@ -664,7 +664,7 @@ mod autotest_generated {
     /// contract — a `Vec::contains` will miss a value that a `BTreeMap` finds.
     ///
     /// The fix belongs upstream (reject non-finite lengths in `parse_length`, or
-    /// hand-write PartialEq to match Ord). WHEN IT LANDS this test fails —
+    /// hand-write `PartialEq` to match Ord). WHEN IT LANDS this test fails —
     /// replace it with `assert!(parse_clip_path("circle(NaN)").is_err())` or with
     /// a reflexivity assertion, whichever way it was fixed.
     #[test]
@@ -685,7 +685,7 @@ mod autotest_generated {
              inconsistency is fixed. Update this test."
         );
         assert!(
-            !(a == a),
+            (a != a),
             "`a == a` is now true for a NaN shape — Eq reflexivity is restored. \
              Update this test."
         );
@@ -705,17 +705,14 @@ mod autotest_generated {
 
         // "NaNpx" is *accepted* (leniency worth tightening) but cannot produce a
         // NaN PixelValue. Written to also pass once the parser rejects it.
-        match parse_shape_margin("NaNpx") {
-            Ok(margin) => {
-                assert!(
-                    margin.inner.number.get().is_finite(),
-                    "NaN leaked into a PixelValue"
-                );
-                assert_eq!(margin.inner.number.get(), 0.0);
-                assert_eq!(margin, margin);
-            }
-            Err(_) => { /* rejecting "NaNpx" outright would be more correct */ }
-        }
+        if let Ok(margin) = parse_shape_margin("NaNpx") {
+            assert!(
+                margin.inner.number.get().is_finite(),
+                "NaN leaked into a PixelValue"
+            );
+            assert_eq!(margin.inner.number.get(), 0.0);
+            assert_eq!(margin, margin);
+        } else { /* rejecting "NaNpx" outright would be more correct */ }
     }
 
     // ---------------------------------------------------------------------
@@ -1437,10 +1434,7 @@ mod autotest_generated {
     #[test]
     fn margin_uppercase_units_never_yield_a_wrong_value() {
         for input in ["10PX", "10Px", "10EM", "10%"] {
-            match parse_shape_margin(input) {
-                Ok(margin) => assert_eq!(margin.inner.number.get(), 10.0, "{input:?}"),
-                Err(_) => { /* current behaviour for the uppercase forms */ }
-            }
+            if let Ok(margin) = parse_shape_margin(input) { assert_eq!(margin.inner.number.get(), 10.0, "{input:?}") } else { /* current behaviour for the uppercase forms */ }
         }
     }
 

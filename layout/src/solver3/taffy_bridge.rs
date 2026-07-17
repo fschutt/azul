@@ -3350,6 +3350,7 @@ mod autotest_generated {
     // from_layout_width / from_layout_height / store_calc_and_make_dimension
     // ==================================================================
 
+    #[allow(clippy::vec_box)] // return type must mirror the production calc_storage (Box = stable element addresses)
     fn empty_calc_storage() -> std::cell::RefCell<Vec<Box<CalcResolveContext>>> {
         std::cell::RefCell::new(Vec::new())
     }

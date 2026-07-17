@@ -254,7 +254,9 @@ impl ComputedTransform3D {
             - m(0, 0) * m(1, 2) * m(2, 1) * m(3, 3)
             - m(0, 1) * m(1, 0) * m(2, 2) * m(3, 3)
             + m(0, 0) * m(1, 1) * m(2, 2) * m(3, 3);
-        det as f32
+        #[allow(clippy::cast_possible_truncation)] // determinant computed in f64, narrowed to the f32 public type
+        let det = det as f32;
+        det
     }
 
     fn multiply_scalar(&self, x: f32) -> Self {

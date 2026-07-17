@@ -1029,11 +1029,8 @@ mod autotest_generated {
     /// Drain every message currently queued on the main->worker side.
     fn drain(inner: &mut ThreadInner) -> Vec<ThreadReceiveMsg> {
         let mut out = Vec::new();
-        loop {
-            match inner.receiver_try_recv() {
-                OptionThreadReceiveMsg::Some(msg) => out.push(msg),
-                OptionThreadReceiveMsg::None => break,
-            }
+        while let OptionThreadReceiveMsg::Some(msg) = inner.receiver_try_recv() {
+            out.push(msg);
         }
         out
     }

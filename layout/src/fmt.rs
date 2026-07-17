@@ -420,8 +420,8 @@ mod autotest_generated {
             format!("{:e}", 1234.0_f64)
         );
         assert_eq!(
-            run("{v:.3}", &[("v", FmtValue::Double(3.141_59))]),
-            format!("{:.3}", 3.141_59_f64)
+            run("{v:.3}", &[("v", FmtValue::Double(1.234_56))]),
+            format!("{:.3}", 1.234_56_f64)
         );
     }
 

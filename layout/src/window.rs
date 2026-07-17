@@ -282,7 +282,7 @@ extern "C" fn cursor_blink_timer_destructor(_: RefAny) {
 /// was originally defined) so that it can be stored on [`LayoutWindow`] and
 /// therefore be reachable from a `CallbackInfo` — i.e. from an E2E assertion.
 /// `dll::desktop::shell2::headless::FrameDamage` is a re-export of this type.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum FrameDamage {
     /// Nothing changed; render was skipped, the previous frame is still valid.
     #[default]
@@ -308,7 +308,7 @@ impl FrameDamage {
 
     /// Number of damage rects (`None` → 0, `Full` → 1).
     #[must_use]
-    pub fn rect_count(&self) -> usize {
+    pub const fn rect_count(&self) -> usize {
         match self {
             Self::None => 0,
             Self::Full => 1,
@@ -350,7 +350,7 @@ impl FrameDamage {
     ///   OUTWARD (floor origin / ceil far edge — truncation would under-cover
     ///   fractional edges and leave 1px stale seams), clamped to the buffer.
     ///   More than 16 rects collapses to one full-buffer rect (bounded cost,
-    ///   per DAMAGE_REGION_PLAN §3).
+    ///   per `DAMAGE_REGION_PLAN` §3).
     /// - `Full` → one full-buffer rect.
     ///
     /// "Present must never silently be empty when a present is required" —
@@ -417,7 +417,7 @@ impl FrameDamage {
 /// The `*_since_reset` counters are STICKY: they are never cleared automatically
 /// (a per-tick reset would race the assertion that wants to read them). Use the
 /// `reset_frame_counters` debug op to zero them at a known point in a test.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FrameReport {
     /// Monotonic index of the last CPU-rendered frame.
     pub frame_index: u64,
@@ -502,11 +502,10 @@ impl FrameReport {
 
     fn merge_into(acc: &mut FrameDamage, next: &FrameDamage) {
         match (&mut *acc, next) {
-            (_, FrameDamage::None) => {}
-            (FrameDamage::Full, _) => {}
+            (_, FrameDamage::None) | (FrameDamage::Full, _) => {}
             (_, FrameDamage::Full) => *acc = FrameDamage::Full,
             (FrameDamage::None, FrameDamage::Rects(r)) => *acc = FrameDamage::Rects(r.clone()),
-            (FrameDamage::Rects(a), FrameDamage::Rects(b)) => a.extend(b.iter().cloned()),
+            (FrameDamage::Rects(a), FrameDamage::Rects(b)) => a.extend(b.iter().copied()),
         }
     }
 }
@@ -1401,7 +1400,7 @@ impl LayoutWindow {
                     .all(|d| *d == dom_id);
                 if single_dom {
                     let keep_ids =
-                        crate::solver3::getters::collect_font_ids_from_chains(&chains);
+                        solver3::getters::collect_font_ids_from_chains(&chains);
                     let keep_hashes: std::collections::HashSet<u64> = styled_dom
                         .css_property_cache
                         .ptr

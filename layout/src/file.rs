@@ -1219,7 +1219,7 @@ mod autotest_generated {
     fn file_error_from_io_error_tolerates_empty_and_raw_os_errors() {
         use std::io::{Error, ErrorKind};
 
-        let empty = FileError::from_io_error(Error::new(ErrorKind::Other, ""));
+        let empty = FileError::from_io_error(Error::other(""));
         assert_eq!(empty.kind, FileErrorKind::IoError);
         assert_eq!(empty.message.as_str(), "");
 
@@ -1629,7 +1629,7 @@ mod autotest_generated {
         let case = CaseDir::new("dir_delete");
         let sub = case.child("sub");
         assert!(dir_create(&sub).is_ok());
-        assert!(file_write_string(&path_join(&sub, "f.txt").as_str().to_string(), "x").is_ok());
+        assert!(file_write_string(path_join(&sub, "f.txt").as_str(), "x").is_ok());
 
         let err = dir_delete(&sub).expect_err("non-empty directory");
         #[cfg(unix)]
@@ -1808,7 +1808,7 @@ mod autotest_generated {
         // directories (`f.txt/../f.txt` is ENOTDIR, not a lexical rewrite).
         let sub = case.child("sub");
         assert!(dir_create(&sub).is_ok());
-        let via_dotdot = path_join(&path_join(&sub, "..").as_str().to_string(), "f.txt")
+        let via_dotdot = path_join(path_join(&sub, "..").as_str(), "f.txt")
             .as_str()
             .to_string();
         assert_eq!(
@@ -1816,7 +1816,7 @@ mod autotest_generated {
             canon.as_str()
         );
 
-        let through_a_file = path_join(&path_join(&f, "..").as_str().to_string(), "f.txt")
+        let through_a_file = path_join(path_join(&f, "..").as_str(), "f.txt")
             .as_str()
             .to_string();
         assert!(

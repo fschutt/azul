@@ -3931,6 +3931,7 @@ fn split_memory_matches(
 /// against the passed-in snapshot, which is what
 /// [`resolve_font_chains`] does and what every code path did before
 /// Phase 3.
+#[allow(clippy::implicit_hasher)] // internal; memory_families always uses the default hasher
 #[must_use] pub fn resolve_font_chains_with_registry(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
@@ -4024,7 +4025,7 @@ fn split_memory_matches(
         };
         if !mem_groups.is_empty() {
             let mut merged = mem_groups;
-            merged.extend(chain.css_fallbacks.drain(..));
+            merged.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = merged;
         }
 
@@ -4214,6 +4215,7 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
 /// same keys the legacy resolver emits, so downstream code
 /// (`load_missing_for_chains`, `shape_with_font_fallback`) is
 /// unchanged.
+#[allow(clippy::implicit_hasher)] // internal; memory_families always uses the default hasher
 pub fn resolve_font_chains_fast(
     collected: &CollectedFontStacks,
     registry: &rust_fontconfig::registry::FcFontRegistry,
@@ -4297,13 +4299,13 @@ pub fn resolve_font_chains_fast(
         }
         // Merge: memory-matched groups (in CSS order) + whatever the disk
         // probe found for the remaining families.
-        let mut chain = chains_out.pop().unwrap_or(FontFallbackChain {
+        let mut chain = chains_out.pop().unwrap_or_else(|| FontFallbackChain {
             css_fallbacks: Vec::new(),
             unicode_fallbacks: Vec::new(),
             original_stack: font_families.clone(),
         });
         if !css_fallbacks.is_empty() {
-            css_fallbacks.extend(chain.css_fallbacks.drain(..));
+            css_fallbacks.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = css_fallbacks;
         }
 
@@ -4363,10 +4365,10 @@ fn is_generic_family(family: &str) -> bool {
 /// identically looked like correct behaviour to every test we had.
 fn report_unresolved_families(resolved: &ResolvedFontChains) {
     use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<std::collections::BTreeSet<String>>> = OnceLock::new();
     if resolved.unresolved_families.is_empty() {
         return;
     }
-    static SEEN: OnceLock<Mutex<std::collections::BTreeSet<String>>> = OnceLock::new();
     let seen = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
     let Ok(mut seen) = seen.lock() else { return };
     for family in &resolved.unresolved_families {

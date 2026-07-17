@@ -963,7 +963,7 @@ mod autotest_generated {
         let out = rubber_band_clamp(10.0, 0.0, 0.0, 100.0, 0.5);
         assert!(out > 0.0 && out <= 100.0, "{out}");
         let out = rubber_band_clamp(-10.0, 0.0, 0.0, 100.0, 0.5);
-        assert!(out < 0.0 && out >= -100.0, "{out}");
+        assert!((-100.0..0.0).contains(&out), "{out}");
     }
 
     // ==================================================================

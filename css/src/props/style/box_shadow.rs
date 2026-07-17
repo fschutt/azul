@@ -339,7 +339,7 @@ mod autotest_generated {
         }
     }
 
-    fn shadow(
+    const fn shadow(
         offset_x: PixelValueNoPercent,
         offset_y: PixelValueNoPercent,
         blur_radius: PixelValueNoPercent,

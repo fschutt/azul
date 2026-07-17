@@ -8146,7 +8146,7 @@ mod autotest_generated {
     #[test]
     fn combined_css_property_type_round_trips_and_display_agrees() {
         let map = get_css_key_map();
-        for (_, t) in &map.shorthands {
+        for t in map.shorthands.values() {
             let s = t.to_str(&map);
             assert!(!s.is_empty());
             assert_eq!(
@@ -8700,7 +8700,7 @@ mod autotest_generated {
         // `initial` short-circuits ahead of every value parser, so all 27
         // shorthands must expand to a non-empty list of `initial` longhands.
         let map = get_css_key_map();
-        for (_, key) in &map.shorthands {
+        for key in map.shorthands.values() {
             let props = parse_combined_css_property(*key, "initial")
                 .unwrap_or_else(|e| panic!("{key:?}: initial failed: {e}"));
             assert!(

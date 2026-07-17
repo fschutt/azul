@@ -745,7 +745,10 @@ impl RefAny {
                 //
                 // A ZST has exactly one value, so conjure it directly and run its drop
                 // glue without touching `ptr` at all.
-                if mem::size_of::<U>() == 0 {
+                if size_of::<U>() == 0 {
+                    // Sound for a ZST (exactly one value, touches no memory); the
+                    // size_of == 0 guard is what makes assume_init well-defined here.
+                    #[allow(clippy::uninit_assumed_init)]
                     drop(mem::MaybeUninit::<U>::uninit().assume_init());
                     return;
                 }
@@ -2193,10 +2196,7 @@ mod autotest_generated {
         round_trip(String::from("héllo 🌍 \u{202E}rtl\u{0}nul"));
         round_trip('🌍');
 
-        let mut v: Vec<String> = Vec::new();
-        v.push(String::from("a"));
-        v.push(String::from("🎉"));
-        v.push(String::new());
+        let v: Vec<String> = vec![String::from("a"), String::from("🎉"), String::new()];
         round_trip(v);
     }
 

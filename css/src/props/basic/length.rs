@@ -1209,9 +1209,9 @@ mod autotest_generated {
         // 200k digits: must not hang, must not panic; Rust yields Ok(inf), which
         // then saturates in the encoding.
         let huge = "9".repeat(200_000);
-        match parse_float_value(&huge) {
-            Ok(v) => assert!(v.get().is_finite(), "200k digits decoded to {}", v.get()),
-            Err(_) => {} // rejecting is acceptable too — just don't panic/hang
+        // Rejecting is acceptable too — just don't panic/hang on the huge input.
+        if let Ok(v) = parse_float_value(&huge) {
+            assert!(v.get().is_finite(), "200k digits decoded to {}", v.get());
         }
 
         // Long *garbage* must be rejected rather than scanned quadratically.
@@ -1351,10 +1351,7 @@ mod autotest_generated {
     #[test]
     fn parse_percentage_value_extremely_long_input_terminates() {
         let huge = format!("{}%", "9".repeat(200_000));
-        match parse_percentage_value(&huge) {
-            Ok(v) => assert!(v.normalized().is_finite()),
-            Err(_) => {}
-        }
+        if let Ok(v) = parse_percentage_value(&huge) { assert!(v.normalized().is_finite()) }
         let long_junk = format!("{}%", "a".repeat(200_000));
         assert!(parse_percentage_value(&long_junk).is_err());
     }

@@ -359,8 +359,8 @@ mod autotest_generated {
         let lower = to_alphabetic(usize::MAX, false);
         let upper = to_alphabetic(usize::MAX, true);
         assert!(!lower.is_empty());
-        assert!(lower.bytes().all(|b| (b'a'..=b'z').contains(&b)));
-        assert!(upper.bytes().all(|b| (b'A'..=b'Z').contains(&b)));
+        assert!(lower.bytes().all(|b: u8| b.is_ascii_lowercase()));
+        assert!(upper.bytes().all(|b: u8| b.is_ascii_uppercase()));
         // The extreme still encodes *exactly* — no digit dropped, no wrap.
         assert_eq!(decode_alphabetic(&lower, false), Some(usize::MAX as u128));
         assert_eq!(decode_alphabetic(&upper, true), Some(usize::MAX as u128));

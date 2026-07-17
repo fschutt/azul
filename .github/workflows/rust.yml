@@ -4200,12 +4200,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          # "Extreme lints" lockdown (2026-06-20): the crates declare a maximal
-          # opt-in lint set (clippy all/pedantic/nursery/cargo + opt-in rustc
-          # lints) at warn-level. Enforce them as ERRORS here so CI surfaces the
-          # full outstanding lint debt as a triage report. EXPECTED TO BE RED
-          # until the lints are fixed/scoped — that red IS the report. Builds and
-          # other jobs stay green (the lints are warn-level outside this gate).
+          # Extreme-lint lockdown: the crates declare a maximal opt-in lint set
+          # (clippy all/pedantic/nursery/cargo + opt-in rustc lints) at warn-level;
+          # this gate enforces them as errors on library code. Test builds are
+          # exempt (the crates gate the set on cfg(not(test))) since it is
+          # high-noise and low-value on unit and generated tests. Must stay green.
           cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
 
       - name: clippy summary

@@ -247,7 +247,8 @@ mod autotest_generated {
     /// Every axis field, paired with a setter, so a test can walk all six
     /// without depending on `GamepadState::axis` (a bug there must not mask a
     /// bug here).
-    const AXIS_SETTERS: [(&str, fn(&mut GamepadState, f32)); 6] = [
+    type AxisSetter = (&'static str, fn(&mut GamepadState, f32));
+    const AXIS_SETTERS: [AxisSetter; 6] = [
         ("left_stick_x", |s, v| s.left_stick_x = v),
         ("left_stick_y", |s, v| s.left_stick_y = v),
         ("right_stick_x", |s, v| s.right_stick_x = v),
