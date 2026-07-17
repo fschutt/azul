@@ -163,15 +163,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "agg-rust"
-version = "1.0.2"
-source = "git+https://github.com/fschutt/agg-rust?branch=fix%2Fgradient-lut-reaches-endpoint#9cf27ba89983954534c11322664de4b3e10ead85"
-
-[[package]]
 name = "agg-rust-azul"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "361630274b7329ec95000b76dbaeed33a1187e6b5c215780148865fa19fe69c6"
+checksum = "e782814ac90251de42fae8457a0ca3de88e9ad42cd3a218a57a0f1a3e31e80a2"
 
 [[package]]
 name = "aho-corasick"
@@ -869,7 +864,7 @@ name = "azul-layout"
 version = "0.0.10"
 dependencies = [
  "accesskit",
- "agg-rust",
+ "agg-rust-azul",
  "allsorts-azul 0.17.1",
  "azul-core 0.0.9",
  "azul-css 0.0.9",

@@ -46,7 +46,7 @@ accesskit               = { version = "0.24", default-features = false, optional
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 smallvec                = { version = "1.13", default-features = false, features = ["union"] }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
-agg-rust                = { git = "https://github.com/fschutt/agg-rust", branch = "fix/gradient-lut-reaches-endpoint", default-features = false, optional = true }
+agg-rust                = { package = "agg-rust-azul", version = "1.0.3", default-features = false, optional = true }
 png                     = { version = "0.18", default-features = false, optional = true }
 roxmltree               = { version = "0.21.1",   default-features = false, optional = true }
 xmlwriter               = { version = "0.1.0",    default-features = false, optional = true }
