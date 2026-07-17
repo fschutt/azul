@@ -3242,11 +3242,9 @@ dependencies = [
 [[package]]
 name = "gpu-video"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cef89763e3504bd4ebfd96335863dcbc1e81f02623cfd3001712a2c015aa80c4"
+source = "git+https://github.com/fschutt/smelter?branch=fix%2Fvulkan-compute-queue-fallback#92caa09d049486cfb8222b094dca0f73b73316d7"
 dependencies = [
  "ash",
- "bytemuck",
  "bytes",
  "cfg_aliases",
  "derivative",

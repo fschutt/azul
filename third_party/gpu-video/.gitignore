@@ -1,7 +1,0 @@
-/target
-Cargo.lock
-*.h264
-*.h265
-*.jpeg
-*.mp4
-*.nv12
