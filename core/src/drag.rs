@@ -647,7 +647,11 @@ impl DragContext {
 
         // Calculate the scrollable range
         let scrollable_range = drag.content_length_px - drag.viewport_length_px;
-        if scrollable_range <= 0.0 || drag.track_length_px <= 0.0 {
+        // `!(x > 0.0)` (not `x <= 0.0`) so a NaN scrollable_range — from a NaN, or
+        // inf-minus-inf, content/viewport length — is caught here and never
+        // reaches the `clamp(0.0, scrollable_range)` below, whose f32::clamp would
+        // panic (it asserts min <= max, and every NaN comparison is false).
+        if !(scrollable_range > 0.0) || drag.track_length_px <= 0.0 {
             return Some(drag.start_scroll_offset);
         }
 
@@ -1751,35 +1755,31 @@ mod autotest_generated {
         assert!(off.is_nan(), "expected the 0 * inf NaN, got {off}");
     }
 
-    // BUG: f32::clamp(min, max) asserts `min <= max`, and every NaN comparison
-    // is false — so a NaN `scrollable_range` (from a NaN or inf/inf content or
-    // viewport metric) makes `new_offset.clamp(0.0, scrollable_range)` PANIC
-    // inside a getter. A layout that produced a NaN content length would take
-    // the whole app down on the next scrollbar drag event. The guards at the
-    // top of the function do not catch it because `NaN <= 0.0` is false.
+    // A NaN `scrollable_range` (from a NaN, or inf-minus-inf, content/viewport
+    // length) used to make `new_offset.clamp(0.0, scrollable_range)` PANIC inside
+    // this getter (f32::clamp asserts min <= max, and every NaN comparison is
+    // false), taking the app down on the next scrollbar drag. The guard now uses
+    // `!(range > 0.0)`, so a NaN range falls back to the start offset.
     #[test]
-    #[should_panic]
-    fn scroll_offset_nan_content_length_panics_in_clamp() {
+    fn scroll_offset_nan_content_length_falls_back_without_panicking() {
         let mut ctx = vscroll(0.0, 100.0, f32::NAN, 100.0);
         ctx.update_position(LogicalPosition::new(0.0, 10.0));
-        let _ = ctx.calculate_scrollbar_scroll_offset();
+        assert_eq!(ctx.calculate_scrollbar_scroll_offset(), Some(0.0));
     }
 
     #[test]
-    #[should_panic]
-    fn scroll_offset_nan_viewport_length_panics_in_clamp() {
+    fn scroll_offset_nan_viewport_length_falls_back_without_panicking() {
         let mut ctx = vscroll(0.0, 100.0, 200.0, f32::NAN);
         ctx.update_position(LogicalPosition::new(0.0, 10.0));
-        let _ = ctx.calculate_scrollbar_scroll_offset();
+        assert_eq!(ctx.calculate_scrollbar_scroll_offset(), Some(0.0));
     }
 
     #[test]
-    #[should_panic]
-    fn scroll_offset_infinite_content_and_viewport_panics_in_clamp() {
-        // inf - inf = NaN scrollable_range => same clamp assertion.
+    fn scroll_offset_infinite_content_and_viewport_falls_back_without_panicking() {
+        // inf - inf = NaN scrollable_range => the guard falls back to start.
         let mut ctx = vscroll(0.0, 100.0, f32::INFINITY, f32::INFINITY);
         ctx.update_position(LogicalPosition::new(0.0, 10.0));
-        let _ = ctx.calculate_scrollbar_scroll_offset();
+        assert_eq!(ctx.calculate_scrollbar_scroll_offset(), Some(0.0));
     }
 
     // ================================================ remap_node_ids / targets

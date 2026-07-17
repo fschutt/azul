@@ -103,7 +103,11 @@ impl DbRows {
         if col >= cols {
             return None;
         }
-        self.values.as_ref().get(row * cols + col)
+        // Checked so an out-of-range `row` (whose `row * cols + col` overflows
+        // usize) resolves to None instead of panicking (debug) / wrapping to a
+        // real cell (release).
+        let idx = row.checked_mul(cols)?.checked_add(col)?;
+        self.values.as_ref().get(idx)
     }
 }
 

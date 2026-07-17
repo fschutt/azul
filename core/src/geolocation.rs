@@ -116,16 +116,30 @@ impl Default for GeolocationProbeConfig {
     }
 }
 
-// PartialEq is hand-written (not derived) to compare the f32 via `to_bits`, matching
-// Ord + Hash below. A derived PartialEq uses raw float `==`, under which a NaN
-// `max_accuracy_m` is not equal to itself — breaking `Eq`'s reflexivity contract while
-// Ord/Hash (bit-pattern based) treat it as equal. NodeType embeds this type, so the
-// break propagated.
+/// Canonical bit pattern for hashing / total-ordering / equality of an f32 config
+/// field: -0.0 and +0.0 collapse to the same value (they compare numerically
+/// equal), and every NaN maps to one canonical NaN (so a NaN is equal to — and
+/// hashes like — itself). Used by PartialEq, Ord and Hash so all three agree.
+fn canon_bits(f: f32) -> u32 {
+    let bits = f.to_bits();
+    if bits & 0x7FFF_FFFF == 0 {
+        0 // +0.0 and -0.0 collapse to +0.0
+    } else if f.is_nan() {
+        f32::NAN.to_bits() // all NaN payloads -> one canonical NaN
+    } else {
+        bits
+    }
+}
+
+// PartialEq / Ord / Hash are hand-written to compare `max_accuracy_m` via
+// `canon_bits` so all three agree: a derived PartialEq's raw float `==` makes a
+// NaN unequal to itself, and raw `to_bits` makes -0.0 != +0.0 — either way
+// breaking the Eq/Hash/Ord contracts that NodeType (which embeds this) relies on.
 impl PartialEq for GeolocationProbeConfig {
     fn eq(&self, other: &Self) -> bool {
         self.high_accuracy == other.high_accuracy
             && self.background == other.background
-            && self.max_accuracy_m.to_bits() == other.max_accuracy_m.to_bits()
+            && canon_bits(self.max_accuracy_m) == canon_bits(other.max_accuracy_m)
             && self.min_interval_ms == other.min_interval_ms
     }
 }
@@ -145,13 +159,13 @@ impl Ord for GeolocationProbeConfig {
         (
             self.high_accuracy,
             self.background,
-            self.max_accuracy_m.to_bits(),
+            canon_bits(self.max_accuracy_m),
             self.min_interval_ms,
         )
             .cmp(&(
                 other.high_accuracy,
                 other.background,
-                other.max_accuracy_m.to_bits(),
+                canon_bits(other.max_accuracy_m),
                 other.min_interval_ms,
             ))
     }
@@ -161,7 +175,7 @@ impl core::hash::Hash for GeolocationProbeConfig {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.high_accuracy.hash(state);
         self.background.hash(state);
-        self.max_accuracy_m.to_bits().hash(state);
+        canon_bits(self.max_accuracy_m).hash(state);
         self.min_interval_ms.hash(state);
     }
 }
@@ -756,9 +770,9 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // KNOWN BUGS — these assert the *correct* invariant and fail today.
-    // Ignored so the suite stays green; un-ignore when the impl is fixed
-    // (implement PartialEq via `to_bits`, mirroring Ord and Hash).
+    // Regression guards for Eq/Ord/Hash consistency of the f32 config field
+    // (canonicalized bits: -0.0 == +0.0, NaN == NaN). The derived PartialEq used
+    // to disagree with the hand-written Ord/Hash.
     // ---------------------------------------------------------------
 
     /// `impl Eq` + `impl Hash` promise: `a == b` implies `hash(a) == hash(b)`
@@ -767,7 +781,6 @@ mod autotest_generated {
     /// where they differ. A `HashMap`/`BTreeMap` keyed on a `NodeType` carrying
     /// this config can therefore fail to find an entry that compares equal.
     #[test]
-    #[ignore = "KNOWN BUG: -0.0 == 0.0 under derived PartialEq, but Hash/Ord use to_bits"]
     fn probe_config_eq_implies_equal_hash_and_ordering() {
         let pos = cfg(false, false, 0.0, 0);
         let neg = cfg(false, false, -0.0, 0);
@@ -782,7 +795,6 @@ mod autotest_generated {
     /// config with a NaN accuracy is not equal to itself — while `Ord` (via
     /// `to_bits`) reports `Equal` for the very same pair.
     #[test]
-    #[ignore = "KNOWN BUG: `impl Eq` claims reflexivity, but NaN max_accuracy_m breaks it"]
     #[allow(clippy::eq_op)]
     fn probe_config_eq_is_reflexive_with_nan() {
         let c = cfg(false, false, f32::NAN, 0);

@@ -1160,7 +1160,9 @@ pub fn transfer_states(
     
     // If cursor was in the unchanged suffix, adjust by length difference
     if old_cursor_byte >= old_suffix_start {
-        let offset_from_end = old_text.len() - old_cursor_byte;
+        // saturating: an out-of-range cursor (> old_text.len()) must clamp to the
+        // end of the new text like every other path here, not underflow-panic.
+        let offset_from_end = old_text.len().saturating_sub(old_cursor_byte);
         return snap(new_text.len().saturating_sub(offset_from_end));
     }
 
@@ -2349,7 +2351,6 @@ mod autotest_generated {
     // Kept as an #[ignore]d executable repro asserting the CORRECT behavior, so
     // it does not fail the suite but flips to green once the fix lands.
     #[test]
-    #[ignore = "known bug: subtract-with-overflow on out-of-range cursor; see comment above"]
     fn autotest_cursor_out_of_range_cursor_must_saturate_not_underflow() {
         // Expected: clamp to the end of the new text, exactly like every other path.
         assert_eq!(reconcile_cursor_position("abc", "abd", usize::MAX), 3);

@@ -1894,7 +1894,9 @@ impl RawImage {
             tag,
         } = self;
 
-        let expected_len = width * height;
+        // Checked: a width*height that overflows usize is not a real image; return
+        // None rather than panicking (debug) / wrapping to a bogus length (release).
+        let expected_len = width.checked_mul(height)?;
 
         let (bytes, data_format, is_opaque): (U8Vec, RawImageFormat, bool) = match data_format {
             RawImageFormat::R8 => {
@@ -5521,9 +5523,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "BUG: into_loaded_image_source computes `width * height` (and then \
-                `expected_len * channels`) without checked arithmetic -> overflow \
-                panic instead of the documented None"]
     fn bug_into_loaded_image_source_overflows_on_huge_dimensions() {
         // Documented contract: "Returns None if the width * height * BPP does not
         // match". With width == usize::MAX the multiplication overflows and
