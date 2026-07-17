@@ -1,0 +1,2965 @@
+//! Layout tree construction from a styled DOM, including anonymous box generation
+use std::{
+    cell::Cell,
+    collections::BTreeMap,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
+use azul_core::diff::NodeDataFingerprint;
+
+use crate::text3::cache::UnifiedConstraints;
+
+thread_local! {
+    /// Per-thread counter for IFC IDs, reset to 0 at the start of each layout
+    /// pass (see [`IfcId::reset_counter`]).
+    ///
+    /// This was previously a process-global `AtomicU32`. Two `layout_document`
+    /// calls running concurrently on different threads (the `Sync` layout bound
+    /// permits this) shared that single counter, so their IFC IDs interleaved and
+    /// collided. A thread-local counter gives each pass its own sequence — a single
+    /// pass is single-threaded (`LayoutContext` holds non-`Sync` `RefCell` caches),
+    /// so IDs stay deterministic and stable across frames while never colliding
+    /// across concurrent passes.
+    static IFC_ID_COUNTER: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Unique identifier for an Inline Formatting Context (IFC).
+///
+/// An IFC represents a region where inline content (text, inline-blocks, images)
+/// is laid out together. One IFC can contain content from multiple DOM nodes
+/// (e.g., `<p>Hello <span>world</span>!</p>` is one IFC with 3 text runs).
+///
+/// The ID is generated using a per-thread counter that resets at the start
+/// of each layout pass. This ensures:
+/// - IDs are unique within a layout pass
+/// - The same logical IFC gets the same ID across frames (for selection stability)
+/// - Concurrent `layout_document` passes on different threads can't collide
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IfcId(pub u32);
+
+impl IfcId {
+    /// Generate a new unique IFC ID (within the current thread's layout pass).
+    #[must_use] pub fn unique() -> Self {
+        IFC_ID_COUNTER.with(|c| {
+            let v = c.get();
+            c.set(v.wrapping_add(1));
+            Self(v)
+        })
+    }
+
+    /// Reset the IFC ID counter. Called at the start of each layout pass.
+    pub fn reset_counter() {
+        IFC_ID_COUNTER.with(|c| c.set(0));
+    }
+}
+
+/// Tracks a layout node's membership in an Inline Formatting Context.
+///
+/// Text nodes don't store their own `inline_layout_result` - instead, they
+/// participate in their parent's IFC. This struct provides the link from
+/// a text node back to its IFC's layout data.
+///
+/// # Architecture
+///
+/// ```text
+/// DOM:  <p>Hello <span>world</span>!</p>
+///
+/// Layout Tree:
+/// ├── LayoutNode (p) - IFC root
+/// │   └── inline_layout_result: Some(UnifiedLayout)
+/// │   └── ifc_id: IfcId(5)
+/// │
+/// ├── LayoutNode (::text "Hello ")
+/// │   └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 0 })
+/// │
+/// ├── LayoutNode (span)
+/// │   └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 1 })
+/// │   └── LayoutNode (::text "world")
+/// │       └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 1 })
+/// │
+/// └── LayoutNode (::text "!")
+///     └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 2 })
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IfcMembership {
+    /// The IFC ID this node's content was laid out in.
+    pub ifc_id: IfcId,
+    /// The index of the IFC root `LayoutNode` in the layout tree.
+    /// Used to quickly find the node with `inline_layout_result`.
+    pub ifc_root_layout_index: usize,
+    /// Which run index within the IFC corresponds to this node's text.
+    /// Maps to `ContentIndex::run_index` in the shaped items.
+    pub run_index: u32,
+}
+
+use azul_core::{
+    dom::{FormattingContext, NodeData, NodeId, NodeType},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    styled_dom::StyledDom,
+};
+use azul_css::{
+    corety::LayoutDebugMessage,
+    css::CssPropertyValue,
+    codegen::format::GetHash,
+    props::{
+        basic::{
+            pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
+        },
+        layout::{
+            LayoutDisplay, LayoutFloat, LayoutHeight, LayoutMaxHeight, LayoutMaxWidth,
+            LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutPosition, LayoutWidth,
+            LayoutWritingMode,
+        },
+        property::{CssProperty, CssPropertyType},
+        style::{StyleTextAlign, StyleWhiteSpace},
+    },
+};
+use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
+
+#[cfg(feature = "text_layout")]
+use crate::text3;
+use crate::{
+    debug_log,
+    font::parsed::ParsedFont,
+    font_traits::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
+    solver3::{
+        geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
+        getters::{
+            get_css_height, get_css_max_height, get_css_max_width, get_css_min_height,
+            get_css_min_width, get_css_width, get_direction_property as get_direction,
+            get_display_property, get_float, get_overflow_x,
+            get_overflow_y, get_position, get_text_align,
+            get_text_orientation_property as get_text_orientation,
+            get_white_space_property, get_writing_mode, MultiValue,
+        },
+        scrollbar::ScrollbarRequirements,
+        LayoutContext, Result,
+    },
+    text3::cache::AvailableSpace,
+};
+
+/// Represents the invalidation state of a layout node.
+///
+/// The states are ordered by severity, allowing for easy "upgrading" of the dirty state.
+/// A node marked for `Layout` does not also need to be marked for `Paint`.
+///
+/// Because this enum derives `PartialOrd` and `Ord`, you can directly compare variants:
+///
+/// - `DirtyFlag::Layout > DirtyFlag::Paint` is `true`
+/// - `DirtyFlag::Paint >= DirtyFlag::None` is `true`
+/// - `DirtyFlag::Paint < DirtyFlag::Layout` is `true`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum DirtyFlag {
+    /// The node's layout is valid and no repaint is needed. This is the "clean" state.
+    #[default]
+    None,
+    /// The node's geometry is valid, but its appearance (e.g., color) has changed.
+    /// Requires a display list update only.
+    Paint,
+    /// The node's geometry (size or position) is invalid.
+    /// Requires a full layout pass and a display list update.
+    Layout,
+}
+
+/// A hash that represents the content and style of a node PLUS all of its descendants.
+/// If two `SubtreeHashes` are equal, their entire subtrees are considered identical for layout
+/// purposes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub struct SubtreeHash(pub u64);
+
+/// Per-item metrics cached from the last IFC layout.
+///
+/// These metrics enable incremental IFC relayout (Phase 2 optimization):
+/// when a single inline item changes, we can check whether its advance width
+/// changed and potentially skip full line-breaking for unaffected lines.
+///
+/// Index in `CachedInlineLayout::item_metrics` matches the item order in
+/// `UnifiedLayout::items`.
+#[derive(Copy, Debug, Clone)]
+pub struct InlineItemMetrics {
+    /// The DOM `NodeId` of the source node for this item (for dirty checking).
+    /// `None` for generated content (list markers, hyphens, etc.)
+    pub source_node_id: Option<NodeId>,
+    /// Advance width of this item (glyph run width, inline-block width, etc.)
+    pub advance_width: f32,
+    /// Advance height contribution from this item to its line box.
+    pub line_height_contribution: f32,
+    /// Whether this item can participate in line breaking.
+    /// `false` for items inside `white-space: nowrap` or `white-space: pre`.
+    pub can_break: bool,
+    /// Which line this item was placed on (0-indexed).
+    pub line_index: u32,
+    /// X offset within its line.
+    pub x_offset: f32,
+}
+
+/// Cached inline layout result with the constraints used to compute it.
+///
+/// This structure solves a fundamental architectural problem: inline layouts
+/// (text wrapping, inline-block positioning) depend on the available width.
+/// Different layout phases may compute the layout with different widths:
+///
+/// 1. **Min-content measurement**: width = `MinContent` (effectively 0)
+/// 2. **Max-content measurement**: width = `MaxContent` (effectively infinite)
+/// 3. **Final layout**: width = `Definite(actual_column_width)`
+///
+/// Without tracking which constraints were used, a cached result from phase 1
+/// would incorrectly be reused in phase 3, causing text to wrap at the wrong
+/// positions (the root cause of table cell width bugs).
+///
+/// By storing the constraints alongside the result, we can:
+/// - Invalidate the cache when constraints change
+/// - Keep multiple cached results for different constraint types if needed
+/// - Ensure the final render always uses a layout computed with correct widths
+#[derive(Debug, Clone)]
+pub struct CachedInlineLayout {
+    /// The computed inline layout
+    pub layout: Arc<UnifiedLayout>,
+    /// The available width constraint used to compute this layout.
+    /// This is the key for cache validity checking.
+    /// +spec:writing-modes:1dcba2 - "available width" (CSS2.1) = auto size in inline axis
+    pub available_width: AvailableSpace,
+    /// Whether this layout was computed with float exclusions.
+    /// Float-aware layouts should not be overwritten by non-float layouts.
+    pub has_floats: bool,
+    /// The full constraints used to compute this layout.
+    /// Used for quick relayout after text edits without rebuilding from CSS.
+    pub constraints: Option<UnifiedConstraints>,
+    /// Per-item metrics for incremental IFC relayout (Phase 2).
+    ///
+    /// Each entry corresponds to one `PositionedItem` in `layout.items`.
+    /// These metrics enable the IFC relayout decision tree:
+    /// - Check if a dirty node's `advance_width` changed → skip repositioning if not
+    /// - Use `can_break` + `line_index` for the nowrap fast path
+    /// - Use `x_offset` for shifting subsequent items without full line-breaking
+    pub item_metrics: Vec<InlineItemMetrics>,
+    /// Cached line break boundaries for incremental relayout.
+    /// Enables checking if a width change fits on the same line without
+    /// re-running the full line-breaking algorithm.
+    pub line_breaks: Option<crate::text3::cache::CachedLineBreaks>,
+    /// Hash of the `InlineContent` this layout was shaped from. The Phase 2d
+    /// fast-path reuse in fc.rs keys cache validity on WIDTH only; without this,
+    /// a same-width `RefreshDom` whose text CHANGED would reuse the stale shaped
+    /// layout (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
+    pub inline_content_hash: u64,
+}
+
+impl CachedInlineLayout {
+    /// Creates a new cached inline layout.
+    #[must_use] pub fn new(
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+    ) -> Self {
+        let item_metrics = Self::extract_item_metrics(&layout);
+        Self {
+            layout,
+            available_width,
+            has_floats,
+            constraints: None,
+            item_metrics,
+            line_breaks: None,
+            inline_content_hash: 0,
+        }
+    }
+
+    /// Creates a new cached inline layout with full constraints.
+    #[must_use] pub fn new_with_constraints(
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+        constraints: UnifiedConstraints,
+    ) -> Self {
+        let item_metrics = Self::extract_item_metrics(&layout);
+        let available_width_px = match available_width {
+            AvailableSpace::Definite(w) => w,
+            _ => f32::MAX,
+        };
+        let line_breaks = Some(crate::text3::cache::extract_line_breaks(
+            &layout.items, available_width_px,
+        ));
+        Self {
+            layout,
+            available_width,
+            has_floats,
+            constraints: Some(constraints),
+            item_metrics,
+            line_breaks,
+            inline_content_hash: 0,
+        }
+    }
+
+    /// Extracts per-item metrics from a computed `UnifiedLayout`.
+    ///
+    /// This is called automatically by the constructors. The metrics
+    /// enable incremental IFC relayout in Phase 2c/2d by providing
+    /// cached advance widths, line assignments, and break information
+    /// for each positioned item.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    fn extract_item_metrics(layout: &UnifiedLayout) -> Vec<InlineItemMetrics> {
+        use crate::text3::cache::{ShapedItem, get_item_vertical_metrics_approx};
+
+        layout.items.iter().map(|positioned_item| {
+            let bounds = positioned_item.item.bounds();
+            let (ascent, descent) = get_item_vertical_metrics_approx(&positioned_item.item);
+
+            let source_node_id = match &positioned_item.item {
+                ShapedItem::Cluster(c) => c.source_node_id,
+                // Objects (inline-blocks, images) and other generated items
+                // don't expose source_node_id directly on ShapedItem.
+                // Phase 2c will refine this via the ContentIndex mapping.
+                ShapedItem::Object { .. }
+                | ShapedItem::CombinedBlock { .. }
+                | ShapedItem::Tab { .. }
+                | ShapedItem::Break { .. } => None,
+            };
+
+            // For Phase 2a, default can_break = true for all items.
+            // Phase 2c will refine this by checking the white-space property
+            // on the IFC root's style or the item's own style context.
+            // (Note: text3::StyleProperties doesn't carry white-space;
+            //  that's resolved at the IFC/BFC boundary level.)
+            let can_break = !matches!(&positioned_item.item, ShapedItem::Break { .. });
+
+            InlineItemMetrics {
+                source_node_id,
+                advance_width: bounds.width,
+                line_height_contribution: ascent + descent,
+                can_break,
+                line_index: positioned_item.line_index as u32,
+                x_offset: positioned_item.position.x,
+            }
+        }).collect()
+    }
+
+    /// Checks if this cached layout is valid for the given constraints.
+    ///
+    /// A cached layout is valid if:
+    /// 1. The available width matches (definite widths must be equal, or both are the same
+    ///    indefinite type)
+    /// 2. OR the new request doesn't have floats but the cached one does (keep float-aware layout)
+    ///
+    /// The second condition preserves float-aware layouts, which are more "correct" than
+    /// non-float layouts and shouldn't be overwritten.
+    #[must_use] pub fn is_valid_for(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
+        // If we have a float-aware layout and the new request doesn't have floats,
+        // keep the float-aware layout (it's more accurate)
+        if self.has_floats && !new_has_floats {
+            // But only if the width constraint type matches
+            return self.width_constraint_matches(new_width);
+        }
+
+        // Otherwise, require exact width match
+        self.width_constraint_matches(new_width)
+    }
+
+    /// Tolerance for comparing definite layout widths (in logical pixels).
+    /// Sub-pixel differences below this threshold are treated as identical
+    /// to avoid unnecessary relayout from floating-point rounding.
+    const LAYOUT_WIDTH_EPSILON: f32 = 0.1;
+
+    /// Checks if the width constraint matches.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    fn width_constraint_matches(&self, new_width: AvailableSpace) -> bool {
+        match (self.available_width, new_width) {
+            // Definite widths must match within a small epsilon
+            (AvailableSpace::Definite(old), AvailableSpace::Definite(new)) => {
+                (old - new).abs() < Self::LAYOUT_WIDTH_EPSILON
+            }
+            // MinContent matches MinContent
+            (AvailableSpace::MinContent, AvailableSpace::MinContent) => true,
+            // MaxContent matches MaxContent
+            (AvailableSpace::MaxContent, AvailableSpace::MaxContent) => true,
+            // Different constraint types don't match
+            _ => false,
+        }
+    }
+
+    /// Determines if this cached layout should be replaced by a new layout.
+    ///
+    /// Returns true if the new layout should replace this one.
+    #[must_use] pub fn should_replace_with(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
+        // Always replace if we gain float information
+        if new_has_floats && !self.has_floats {
+            return true;
+        }
+
+        // Replace if width constraint changed
+        !self.width_constraint_matches(new_width)
+    }
+
+    /// Returns a reference to the inner `UnifiedLayout`.
+    ///
+    /// This is a convenience method for code that only needs the layout data
+    /// and doesn't care about the caching metadata.
+    #[inline]
+    #[must_use] pub const fn get_layout(&self) -> &Arc<UnifiedLayout> {
+        &self.layout
+    }
+
+    /// Returns a clone of the inner Arc<UnifiedLayout>.
+    ///
+    /// This is useful for APIs that need to return an owned reference
+    /// to the layout without exposing the caching metadata.
+    #[inline]
+    #[must_use] pub fn clone_layout(&self) -> Arc<UnifiedLayout> {
+        self.layout.clone()
+    }
+}
+
+/// A layout tree node representing the CSS box model.
+///
+/// ## Memory Layout Optimization (`#[repr(C)]`)
+///
+/// Fields are ordered by access frequency (hottest first) to maximize CPU
+/// cache line utilization during tree traversal. With `#[repr(C)]`, the
+/// compiler preserves this ordering. The 6 hottest fields (~140 bytes)
+/// occupy the first 2-3 cache lines (64 bytes each), which are loaded
+/// first by the hardware prefetcher.
+///
+/// | Tier   | Fields                                  | ~Bytes | Accesses |
+/// |--------|-----------------------------------------|--------|----------|
+/// | HOT    | `box_props`, `dom_node_id`, children,       |  ~140  |  410+    |
+/// |        | `used_size`, `formatting_context`, parent    |        |          |
+/// | WARM   | `intrinsic_sizes..computed_style`          |  ~220  |  ~80     |
+/// | COLD   | `dirty_flag..is_anonymous`                 |  ~190  |  ~20     |
+///
+/// Note: An absolute position is a final paint-time value and shouldn't be
+/// cached on the node itself, as it can change even if the node's
+/// layout is clean (e.g., if a sibling changes size). We will calculate
+/// it in a separate map.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct LayoutNode {
+    // ── HOT tier: accessed on every node in every layout pass ────────────
+    // These fields should fit in the first 2-3 cache lines (~128-192 bytes).
+
+    /// The resolved box model properties (margin, border, padding)
+    /// in logical pixels. Cached after first resolution.
+    /// (148 accesses — hottest field)
+    pub box_props: BoxProps,
+    /// Reference back to the original DOM node (None for anonymous boxes)
+    /// (111 accesses)
+    pub dom_node_id: Option<NodeId>,
+    /// Children indices in the layout tree
+    /// (53 accesses)
+    pub children: Vec<usize>,
+    /// The size used during the last layout pass.
+    /// (43 accesses)
+    pub used_size: Option<LogicalSize>,
+    /// The formatting context this node establishes or participates in.
+    /// (30 accesses)
+    pub formatting_context: FormattingContext,
+    /// Parent index (None for root)
+    /// (25 accesses)
+    pub parent: Option<usize>,
+
+    // ── WARM tier: frequently accessed but not on every node ─────────────
+
+    /// Cached intrinsic sizes (min-content, max-content, etc.)
+    /// (16 accesses — sizing pass only)
+    pub intrinsic_sizes: Option<IntrinsicSizes>,
+    // +spec:display-property:af3a89 - alignment baseline for inline-level boxes
+    /// The baseline of this box, if applicable, measured from its content-box top edge.
+    /// (14 accesses — IFC/table alignment)
+    pub baseline: Option<f32>,
+    /// Cached inline layout result with the constraints used to compute it.
+    ///
+    /// This field stores both the computed layout AND the constraints (available width,
+    /// float state) under which it was computed. This is essential for correctness:
+    /// 
+    /// - Table cells are measured multiple times with different widths
+    /// - Min-content/max-content intrinsic sizing uses special constraint values
+    /// - The final layout must use the actual available width, not a measurement width
+    ///
+    /// By tracking the constraints, we avoid the bug where a min-content measurement
+    /// (with width=0) would be incorrectly reused for final rendering.
+    /// (13 accesses — IFC roots / table cells)
+    pub inline_layout_result: Option<CachedInlineLayout>,
+    /// Cached scrollbar information (calculated during layout)
+    /// Used to determine if scrollbars appeared/disappeared requiring reflow
+    /// (12 accesses — scrollable containers only)
+    pub scrollbar_info: Option<ScrollbarRequirements>,
+    /// The position of this node *relative to its parent's content box*.
+    /// (9 accesses — positioning pass)
+    pub relative_position: Option<LogicalPosition>,
+    /// The actual content size (children overflow size) for scrollable containers.
+    /// This is the size of all content that might need to be scrolled, which can
+    /// be larger than `used_size` when content overflows the container.
+    /// (7 accesses — scrollable containers)
+    pub overflow_content_size: Option<LogicalSize>,
+    /// Cache for Taffy layout computations for this node.
+    /// (6 accesses — Taffy bridge)
+    pub taffy_cache: TaffyCache,
+    /// Pre-computed CSS properties needed during layout.
+    /// Computed once during layout tree build to avoid repeated style lookups.
+    /// (5 accesses — cache.rs only)
+    pub computed_style: ComputedLayoutStyle,
+    /// Pseudo-element type (`::marker`, `::before`, `::after`) if this node is a pseudo-element
+    /// (5 accesses — pseudo-elements only)
+    pub pseudo_element: Option<PseudoElement>,
+    /// Escaped top margin (CSS 2.1 margin collapsing)
+    /// If this BFC's first child's top margin "escaped" the BFC, this contains
+    /// the collapsed margin that should be applied by the parent.
+    /// (4 accesses — BFC margin collapsing)
+    pub escaped_top_margin: Option<f32>,
+    /// Escaped bottom margin (CSS 2.1 margin collapsing)\
+    /// If this BFC's last child's bottom margin "escaped" the BFC, this contains
+    /// the collapsed margin that should be applied by the parent.
+    /// (4 accesses)
+    pub escaped_bottom_margin: Option<f32>,
+    /// Parent's formatting context (needed to determine if stretch applies)
+    /// (4 accesses — flex/grid children)
+    pub parent_formatting_context: Option<FormattingContext>,
+    /// If this node participates in an IFC (is inline content like text),
+    /// stores the reference back to the IFC root and the run index.
+    /// This allows text nodes to find their layout data in the parent's IFC.
+    /// (3 accesses — text nodes only)
+    pub ifc_membership: Option<IfcMembership>,
+    /// The layout tree index of this node's containing block.
+    /// - For abs-pos elements: nearest positioned (non-static) ancestor
+    /// - For fixed elements: root / None (viewport)
+    /// - For normal-flow: parent (None = implicit)
+    ///   Used for clip exemption: abs-pos elements whose containing block
+    ///   is above an overflow clipper should not be clipped.
+    pub containing_block_index: Option<usize>,
+
+    // ── COLD tier: construction / reconciliation / debugging only ────────
+
+    /// Type of anonymous box (if applicable)
+    /// (2 accesses)
+    pub anonymous_type: Option<AnonymousBoxType>,
+    /// Multi-field fingerprint of this node's data (style, text, etc.)
+    /// for granular change detection during reconciliation.
+    /// (2 accesses — reconciliation only)
+    pub node_data_fingerprint: NodeDataFingerprint,
+    /// A hash of this node's data and all of its descendants. Used for
+    /// fast reconciliation.
+    /// (9 accesses — all in cache.rs reconciliation)
+    pub subtree_hash: SubtreeHash,
+    /// Dirty flags to track what needs recalculation.
+    /// (7 accesses — reconciliation setup)
+    pub dirty_flag: DirtyFlag,
+    /// Unresolved box model properties (raw CSS values).
+    /// These are resolved lazily during layout when containing block is known.
+    /// (1 access — initial resolution only)
+    pub unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps,
+    /// If this node is an IFC root, stores the IFC ID.
+    /// Used to identify which IFC this node's `inline_layout_result` belongs to.
+    /// (1 access — IFC creation only)
+    pub ifc_id: Option<IfcId>,
+}
+
+/// Pre-computed CSS properties needed during layout.
+/// 
+/// This struct stores resolved CSS values that are frequently accessed during
+/// layout calculations. By computing these once during layout tree construction,
+/// we avoid O(n * m) style lookups where n = nodes and m = layout passes.
+///
+/// All values are resolved to their final form (no 'inherit', 'initial', etc.)
+#[derive(Debug, Clone, Default)]
+pub struct ComputedLayoutStyle {
+    /// CSS `display` property
+    pub display: LayoutDisplay,
+    /// CSS `position` property
+    pub position: LayoutPosition,
+    /// CSS `float` property
+    pub float: LayoutFloat,
+    /// CSS `overflow-x` property
+    pub overflow_x: LayoutOverflow,
+    /// CSS `overflow-y` property
+    pub overflow_y: LayoutOverflow,
+    /// CSS `writing-mode` property
+    pub writing_mode: azul_css::props::layout::LayoutWritingMode,
+    /// CSS `direction` property (ltr/rtl)
+    pub direction: azul_css::props::style::StyleDirection,
+    /// CSS `text-orientation` property (for vertical writing modes)
+    pub text_orientation: azul_css::props::style::effects::StyleTextOrientation,
+    /// CSS `width` property (None = auto)
+    pub width: Option<azul_css::props::layout::LayoutWidth>,
+    /// CSS `height` property (None = auto)
+    pub height: Option<azul_css::props::layout::LayoutHeight>,
+    /// CSS `min-width` property
+    pub min_width: Option<azul_css::props::layout::LayoutMinWidth>,
+    /// CSS `min-height` property
+    pub min_height: Option<azul_css::props::layout::LayoutMinHeight>,
+    /// CSS `max-width` property
+    pub max_width: Option<azul_css::props::layout::LayoutMaxWidth>,
+    /// CSS `max-height` property
+    pub max_height: Option<azul_css::props::layout::LayoutMaxHeight>,
+    /// CSS `text-align` property
+    pub text_align: azul_css::props::style::StyleTextAlign,
+}
+
+// Note: LayoutNode methods that cross hot/warm/cold boundaries have been
+// moved to LayoutTree methods (resolve_box_props, get_content_size).
+
+/// CSS pseudo-elements that can be generated
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PseudoElement {
+    /// `::marker` pseudo-element for list items
+    Marker,
+    /// `::before` pseudo-element
+    Before,
+    /// `::after` pseudo-element
+    After,
+}
+
+// +spec:display-property:b7f4bf - anonymous inline/block boxes are both called "anonymous boxes"
+/// Types of anonymous boxes that can be generated
+// +spec:display-property:ae4f16 - anonymous boxes are treated as descendants alongside pseudo-elements
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnonymousBoxType {
+    /// Anonymous block box wrapping inline content
+    InlineWrapper,
+    /// Anonymous box for a list item marker (bullet or number)
+    /// DEPRECATED: Use `PseudoElement::Marker` instead
+    ListItemMarker,
+    /// Anonymous table wrapper
+    TableWrapper,
+    /// Anonymous table row group (tbody)
+    TableRowGroup,
+    /// Anonymous table row
+    TableRow,
+    /// Anonymous table cell
+    TableCell,
+}
+
+// =============================================================================
+// SoA (struct-of-arrays) layout node split for cache performance
+// =============================================================================
+
+/// Hot layout node fields — accessed on every node in every layout pass.
+///
+/// Stored in a separate `Vec` for cache locality. At ~100 bytes per node,
+/// 1000 nodes fit in ~100 KB (L2 cache), vs ~550 KB with the monolithic struct.
+// ~100B per-node hot type stored/moved in Vecs across every layout pass; kept
+// non-Copy on purpose so it isn't silently bulk-copied (Copy would mask the
+// cost and churn the many `.clone()` call sites).
+#[allow(missing_copy_implementations)]
+#[derive(Debug, Clone)]
+pub struct LayoutNodeHot {
+    /// The resolved box model properties (margin, border, padding)
+    /// Stored in packed i16×10 encoding to reduce cache footprint.
+    /// Use `box_props.unpack()` to get f32 `ResolvedBoxProps` for computation.
+    pub box_props: crate::solver3::geometry::PackedBoxProps,
+    /// Reference back to the original DOM node (None for anonymous boxes)
+    pub dom_node_id: Option<NodeId>,
+    /// The size used during the last layout pass.
+    pub used_size: Option<LogicalSize>,
+    /// The formatting context this node establishes or participates in.
+    pub formatting_context: FormattingContext,
+    /// Parent index (None for root)
+    pub parent: Option<usize>,
+}
+
+/// Warm layout node fields — accessed frequently but not on every node.
+///
+/// Stored in a separate `Vec`. These fields are accessed during specific
+/// layout phases (sizing, IFC, table alignment) but not during the main
+/// constraint-solving loop.
+#[derive(Debug, Clone, Default)]
+pub struct LayoutNodeWarm {
+    /// Cached intrinsic sizes (min-content, max-content, etc.)
+    pub intrinsic_sizes: Option<IntrinsicSizes>,
+    /// The baseline of this box, measured from its content-box top edge.
+    pub baseline: Option<f32>,
+    /// Cached inline layout result with the constraints used to compute it.
+    pub inline_layout_result: Option<CachedInlineLayout>,
+    /// Cached scrollbar information
+    pub scrollbar_info: Option<ScrollbarRequirements>,
+    /// The position relative to parent's content box.
+    pub relative_position: Option<LogicalPosition>,
+    /// The actual content size for scrollable containers.
+    pub overflow_content_size: Option<LogicalSize>,
+    /// Cache for Taffy layout computations.
+    pub taffy_cache: TaffyCache,
+    /// Pre-computed CSS properties needed during layout.
+    pub computed_style: ComputedLayoutStyle,
+    /// Pseudo-element type if this node is a pseudo-element
+    pub pseudo_element: Option<PseudoElement>,
+    /// Escaped top margin (CSS 2.1 margin collapsing)
+    pub escaped_top_margin: Option<f32>,
+    /// Escaped bottom margin (CSS 2.1 margin collapsing)
+    pub escaped_bottom_margin: Option<f32>,
+    /// Parent's formatting context
+    pub parent_formatting_context: Option<FormattingContext>,
+    /// IFC membership for text nodes
+    pub ifc_membership: Option<IfcMembership>,
+    /// Containing block index for clip exemption
+    pub containing_block_index: Option<usize>,
+}
+
+/// Cold layout node fields — construction / reconciliation / debugging only.
+///
+/// Stored in a separate `Vec`. These fields are rarely accessed during layout;
+/// mostly used during tree construction, reconciliation, and dirty tracking.
+#[derive(Debug, Clone)]
+#[derive(Default)]
+pub struct LayoutNodeCold {
+    /// Type of anonymous box (if applicable)
+    pub anonymous_type: Option<AnonymousBoxType>,
+    /// Multi-field fingerprint for granular change detection.
+    pub node_data_fingerprint: NodeDataFingerprint,
+    /// Hash of this node's data + all descendants.
+    pub subtree_hash: SubtreeHash,
+    /// Dirty flags for recalculation tracking.
+    pub dirty_flag: DirtyFlag,
+    /// Unresolved box model properties (raw CSS values).
+    pub unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps,
+    /// IFC ID if this node is an IFC root.
+    pub ifc_id: Option<IfcId>,
+}
+
+
+impl LayoutNode {
+    /// Split this full layout node into hot/warm/cold components.
+    /// Used during `LayoutTreeBuilder::build()` to create the `SoA` layout.
+    #[must_use] pub fn split(self) -> (LayoutNodeHot, LayoutNodeWarm, LayoutNodeCold) {
+        (
+            LayoutNodeHot {
+                box_props: crate::solver3::geometry::PackedBoxProps::pack(&self.box_props),
+                dom_node_id: self.dom_node_id,
+                used_size: self.used_size,
+                formatting_context: self.formatting_context,
+                parent: self.parent,
+            },
+            LayoutNodeWarm {
+                intrinsic_sizes: self.intrinsic_sizes,
+                baseline: self.baseline,
+                inline_layout_result: self.inline_layout_result,
+                scrollbar_info: self.scrollbar_info,
+                relative_position: self.relative_position,
+                overflow_content_size: self.overflow_content_size,
+                taffy_cache: self.taffy_cache,
+                computed_style: self.computed_style,
+                pseudo_element: self.pseudo_element,
+                escaped_top_margin: self.escaped_top_margin,
+                escaped_bottom_margin: self.escaped_bottom_margin,
+                parent_formatting_context: self.parent_formatting_context,
+                ifc_membership: self.ifc_membership,
+                containing_block_index: self.containing_block_index,
+            },
+            LayoutNodeCold {
+                anonymous_type: self.anonymous_type,
+                node_data_fingerprint: self.node_data_fingerprint,
+                subtree_hash: self.subtree_hash,
+                dirty_flag: self.dirty_flag,
+                unresolved_box_props: self.unresolved_box_props,
+                ifc_id: self.ifc_id,
+            },
+        )
+    }
+}
+
+/// The complete layout tree structure.
+///
+/// Uses a struct-of-arrays (`SoA`) layout for cache performance:
+/// - `nodes` (hot): accessed on every node in every layout pass
+/// - `warm`: accessed during specific layout phases
+/// - `cold`: construction / reconciliation only
+#[derive(Debug, Clone)]
+pub struct LayoutTree {
+    /// Hot layout data — box props, parent, `used_size`, formatting context
+    pub nodes: Vec<LayoutNodeHot>,
+    /// Warm layout data — intrinsic sizes, baseline, inline layout, etc.
+    pub warm: Vec<LayoutNodeWarm>,
+    /// Cold layout data — dirty flags, fingerprints, reconciliation data
+    pub cold: Vec<LayoutNodeCold>,
+    /// Root node index
+    pub root: usize,
+    /// Mapping from DOM node IDs to layout node indices
+    // BTreeMap (not HashMap): std HashMap's RandomState hasher needs an RNG seed
+    // that isn't available in the remill-lifted wasm (no getrandom), so inserts
+    // silently no-op there — dom_to_layout came back empty (node mapping lost,
+    // get_node_size/position returned None → 0-rects). BTreeMap is deterministic,
+    // matches the rest of azul-core, and lifts reliably (M12.7).
+    pub dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
+    /// Flat arena holding all children indices contiguously.
+    pub children_arena: Vec<usize>,
+    /// Per-node (start, len) into `children_arena`. Indexed by node index.
+    pub children_offsets: Vec<(u32, u32)>,
+    /// Per-node bit: this node or any descendant establishes a shrink-to-fit
+    /// (STF) context whose sizing algorithm reads children's intrinsic sizes
+    /// (flex/grid/table/inline-block containers, floats, or abspos elements).
+    ///
+    /// If `subtree_needs_intrinsic[i]` is false AND no ancestor of `i` is STF
+    /// either, the intrinsic sizing pass can skip the entire subtree — nothing
+    /// will ever read those values. This is the static-DOM optimization from
+    /// §58 Win #3 (the "safely re-enabled Fix C").
+    ///
+    /// Computed once at tree build time in `generate_layout_tree`. An empty
+    /// vec means "assume every subtree needs intrinsics" (safe fallback for
+    /// code paths that construct `LayoutTree` without going through the
+    /// builder — currently none, but preserves the invariant for tests).
+    pub subtree_needs_intrinsic: Vec<bool>,
+}
+
+/// Approximate per-field heap-byte breakdown of a [`LayoutTree`].
+#[derive(Copy, Debug, Clone, Default)]
+pub struct LayoutTreeMemoryReport {
+    pub node_count: usize,
+    pub hot_bytes: usize,
+    pub warm_bytes: usize,
+    pub warm_inline_layout_bytes: usize,
+    pub warm_taffy_cache_bytes: usize,
+    pub cold_bytes: usize,
+    pub dom_to_layout_bytes: usize,
+    pub children_arena_bytes: usize,
+    pub children_offsets_bytes: usize,
+}
+
+impl LayoutTreeMemoryReport {
+    #[must_use] pub const fn total_bytes(&self) -> usize {
+        self.hot_bytes
+            + self.warm_bytes
+            + self.warm_inline_layout_bytes
+            + self.warm_taffy_cache_bytes
+            + self.cold_bytes
+            + self.dom_to_layout_bytes
+            + self.children_arena_bytes
+            + self.children_offsets_bytes
+    }
+}
+
+impl LayoutTree {
+    /// Approximate heap bytes retained by this `LayoutTree`.
+    #[must_use] pub fn memory_report(&self) -> LayoutTreeMemoryReport {
+        let mut report = LayoutTreeMemoryReport {
+            node_count: self.nodes.len(),
+            hot_bytes: self.nodes.capacity() * size_of::<LayoutNodeHot>(),
+            warm_bytes: self.warm.capacity() * size_of::<LayoutNodeWarm>(),
+            cold_bytes: self.cold.capacity() * size_of::<LayoutNodeCold>(),
+            children_arena_bytes: self.children_arena.capacity() * size_of::<usize>(),
+            children_offsets_bytes: self.children_offsets.capacity() * size_of::<(u32, u32)>(),
+            dom_to_layout_bytes: 0,
+            warm_inline_layout_bytes: 0,
+            warm_taffy_cache_bytes: 0,
+        };
+        // HashMap<NodeId, Vec<usize>> — approximate: (key + Vec-header) per entry
+        // plus heap for each inner Vec.
+        let entries = self.dom_to_layout.len();
+        report.dom_to_layout_bytes = entries * (size_of::<NodeId>() + size_of::<Vec<usize>>());
+        for v in self.dom_to_layout.values() {
+            report.dom_to_layout_bytes += v.capacity() * size_of::<usize>();
+        }
+        // Inline layout data lives behind Arc — count Arc heap-shares once
+        // per node that has a cached layout. Counted conservatively.
+        for w in &self.warm {
+            if let Some(cached) = &w.inline_layout_result {
+                // Arc<UnifiedLayout> — count the UnifiedLayout header + its items.
+                report.warm_inline_layout_bytes += size_of::<UnifiedLayout>();
+                report.warm_inline_layout_bytes += cached.layout.items.capacity()
+                    * size_of::<crate::text3::cache::PositionedItem>();
+                report.warm_inline_layout_bytes += cached.item_metrics.capacity()
+                    * size_of::<InlineItemMetrics>();
+                // Glyph bytes inside ShapedItem::Cluster — unbounded but bounded
+                // per entry. Approximate by counting clusters × 32 bytes/glyph.
+                for item in &cached.layout.items {
+                    if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
+                        report.warm_inline_layout_bytes += c.glyphs.capacity()
+                            * size_of::<crate::text3::cache::ShapedGlyph>();
+                        report.warm_inline_layout_bytes += c.text.capacity();
+                    }
+                }
+            }
+            // Taffy cache — each slot is an Option, ~50 B empty
+            report.warm_taffy_cache_bytes += size_of::<TaffyCache>();
+        }
+        report
+    }
+
+    /// Returns the children of node `index` as a contiguous slice from the arena.
+    #[inline]
+    #[must_use] pub fn children(&self, index: usize) -> &[usize] {
+        if let Some(&(start, len)) = self.children_offsets.get(index) {
+            &self.children_arena[(start as usize)..((start as usize) + (len as usize))]
+        } else {
+            &[]
+        }
+    }
+
+    /// Get hot layout data for a node (`box_props`, `dom_node_id`, `used_size`, etc.)
+    #[inline]
+    #[must_use] pub fn get(&self, index: usize) -> Option<&LayoutNodeHot> {
+        self.nodes.get(index)
+    }
+
+    /// Get mutable hot layout data for a node.
+    #[inline]
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNodeHot> {
+        self.nodes.get_mut(index)
+    }
+
+    /// Get warm layout data for a node (`intrinsic_sizes`, baseline, `inline_layout`, etc.)
+    #[inline]
+    #[must_use] pub fn warm(&self, index: usize) -> Option<&LayoutNodeWarm> {
+        self.warm.get(index)
+    }
+
+    /// Get mutable warm layout data for a node.
+    #[inline]
+    pub fn warm_mut(&mut self, index: usize) -> Option<&mut LayoutNodeWarm> {
+        self.warm.get_mut(index)
+    }
+
+    /// Get cold layout data for a node (`dirty_flag`, `subtree_hash`, fingerprint, etc.)
+    #[inline]
+    #[must_use] pub fn cold(&self, index: usize) -> Option<&LayoutNodeCold> {
+        self.cold.get(index)
+    }
+
+    /// Get mutable cold layout data for a node.
+    #[inline]
+    pub fn cold_mut(&mut self, index: usize) -> Option<&mut LayoutNodeCold> {
+        self.cold.get_mut(index)
+    }
+
+    fn root_node(&self) -> &LayoutNodeHot {
+        &self.nodes[self.root]
+    }
+
+    /// Reconstruct a full `LayoutNode` from the split hot/warm/cold arrays.
+    ///
+    /// Used when passing node data to `LayoutTreeBuilder::clone_node_from_old()`.
+    #[must_use] pub fn get_full_node(&self, index: usize) -> Option<LayoutNode> {
+        let hot = self.nodes.get(index)?;
+        let warm = self.warm.get(index).cloned().unwrap_or_default();
+        let cold = self.cold.get(index).cloned().unwrap_or_default();
+        let children = self.children(index).to_vec();
+        Some(LayoutNode {
+            box_props: hot.box_props.unpack(),
+            dom_node_id: hot.dom_node_id,
+            children,
+            used_size: hot.used_size,
+            formatting_context: hot.formatting_context,
+            parent: hot.parent,
+            intrinsic_sizes: warm.intrinsic_sizes,
+            baseline: warm.baseline,
+            inline_layout_result: warm.inline_layout_result,
+            scrollbar_info: warm.scrollbar_info,
+            relative_position: warm.relative_position,
+            overflow_content_size: warm.overflow_content_size,
+            taffy_cache: warm.taffy_cache,
+            computed_style: warm.computed_style,
+            pseudo_element: warm.pseudo_element,
+            escaped_top_margin: warm.escaped_top_margin,
+            escaped_bottom_margin: warm.escaped_bottom_margin,
+            parent_formatting_context: warm.parent_formatting_context,
+            ifc_membership: warm.ifc_membership,
+            containing_block_index: warm.containing_block_index,
+            anonymous_type: cold.anonymous_type,
+            node_data_fingerprint: cold.node_data_fingerprint,
+            subtree_hash: cold.subtree_hash,
+            dirty_flag: cold.dirty_flag,
+            unresolved_box_props: cold.unresolved_box_props,
+            ifc_id: cold.ifc_id,
+        })
+    }
+
+    /// Re-resolve box properties for a node with the actual containing block size.
+    fn resolve_box_props(
+        &mut self,
+        node_index: usize,
+        containing_block: LogicalSize,
+        viewport_size: LogicalSize,
+        element_font_size: f32,
+        root_font_size: f32,
+    ) {
+        let params = crate::solver3::geometry::ResolutionParams {
+            containing_block,
+            viewport_size,
+            element_font_size,
+            root_font_size,
+        };
+        if let (Some(hot), Some(cold)) = (self.nodes.get_mut(node_index), self.cold.get(node_index)) {
+            hot.box_props = crate::solver3::geometry::PackedBoxProps::pack(&cold.unresolved_box_props.resolve(&params));
+        }
+    }
+
+    /// Marks a node and its ancestors as dirty with the given flag.
+    pub fn mark_dirty(&mut self, start_index: usize, flag: DirtyFlag) {
+        if flag == DirtyFlag::None {
+            return;
+        }
+
+        let mut current_index = Some(start_index);
+        while let Some(index) = current_index {
+            let Some(cold) = self.cold.get_mut(index) else {
+                break;
+            };
+            if cold.dirty_flag >= flag {
+                break;
+            }
+            cold.dirty_flag = flag;
+            current_index = self.nodes.get(index).and_then(|n| n.parent);
+        }
+    }
+
+    /// Marks a node and its entire subtree of descendants with the given dirty flag.
+    fn mark_subtree_dirty(&mut self, start_index: usize, flag: DirtyFlag) {
+        if flag == DirtyFlag::None {
+            return;
+        }
+
+        let mut stack = vec![start_index];
+        while let Some(index) = stack.pop() {
+            let children = self.children(index).to_vec();
+            if let Some(cold) = self.cold.get_mut(index) {
+                if cold.dirty_flag < flag {
+                    cold.dirty_flag = flag;
+                }
+                stack.extend_from_slice(&children);
+            }
+        }
+    }
+
+    /// Resets the dirty flags of all nodes in the tree to `None` after layout is complete.
+    fn clear_all_dirty_flags(&mut self) {
+        for cold in &mut self.cold {
+            cold.dirty_flag = DirtyFlag::None;
+        }
+    }
+
+    /// Get inline layout for a node, navigating through IFC membership if needed.
+    #[must_use] pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
+        let warm = self.warm.get(layout_index)?;
+
+        // First, check if this node has its own inline_layout_result (it's an IFC root)
+        if let Some(cached) = &warm.inline_layout_result {
+            return Some(cached.get_layout());
+        }
+
+        // For text nodes, check if they have ifc_membership pointing to the IFC root
+        if let Some(ifc_membership) = &warm.ifc_membership {
+            let ifc_root_warm = self.warm.get(ifc_membership.ifc_root_layout_index)?;
+            if let Some(cached) = &ifc_root_warm.inline_layout_result {
+                return Some(cached.get_layout());
+            }
+        }
+
+        None
+    }
+
+    /// Return the layout index of the IFC root that owns `layout_index`'s inline content.
+    /// If the node IS an IFC root (has its own `inline_layout_result`) or has no
+    /// `ifc_membership`, returns `layout_index` unchanged. Inline text nodes never get
+    /// their own box position (it stays the `f32::MIN` sentinel) — their geometry lives
+    /// in the IFC root's content box, so selection/inline painting must anchor to the
+    /// IFC root's position, not the text node's. See `get_inline_layout_for_node`.
+    #[must_use] pub fn get_ifc_root_layout_index(&self, layout_index: usize) -> usize {
+        if let Some(warm) = self.warm.get(layout_index) {
+            if warm.inline_layout_result.is_none() {
+                if let Some(ifc_membership) = &warm.ifc_membership {
+                    return ifc_membership.ifc_root_layout_index;
+                }
+            }
+        }
+        layout_index
+    }
+
+    /// Get the content size of a node (for scrollbar calculations).
+    #[must_use] pub fn get_content_size(&self, index: usize) -> LogicalSize {
+        let Some(warm) = self.warm.get(index) else {
+            return LogicalSize::default();
+        };
+
+        if let Some(content_size) = warm.overflow_content_size {
+            return content_size;
+        }
+
+        let Some(hot) = self.nodes.get(index) else {
+            return LogicalSize::default();
+        };
+
+        let mut content_size = hot.used_size.unwrap_or_default();
+
+        if let Some(ref cached_layout) = warm.inline_layout_result {
+            let text_layout = &cached_layout.layout;
+            let mut max_x: f32 = 0.0;
+            let mut max_y: f32 = 0.0;
+            for positioned_item in &text_layout.items {
+                let item_bounds = positioned_item.item.bounds();
+                max_x = max_x.max(positioned_item.position.x + item_bounds.width);
+                max_y = max_y.max(positioned_item.position.y + item_bounds.height);
+            }
+            content_size.width = content_size.width.max(max_x);
+            content_size.height = content_size.height.max(max_y);
+        }
+
+        content_size
+    }
+}
+
+/// Generate layout tree from styled DOM with proper anonymous box generation
+/// # Errors
+///
+/// Returns a `LayoutError` if the layout tree cannot be built.
+pub fn generate_layout_tree<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+) -> Result<LayoutTree> {
+    let mut builder = LayoutTreeBuilder::new(ctx.viewport_size);
+    let root_id = ctx
+        .styled_dom
+        .root
+        .into_crate_internal()
+        .unwrap_or(NodeId::ZERO);
+    let root_index =
+        builder.process_node(ctx.styled_dom, root_id, None, ctx.debug_messages)?;
+    let mut layout_tree = builder.build(root_index);
+
+    // Pre-compute the STF (shrink-to-fit) subtree bitmap. This is static-DOM
+    // information: whether a subtree establishes any shrink-to-fit context
+    // depends only on the DOM structure + formatting context, both of which
+    // are frozen from here until the next layout-tree rebuild. The intrinsic
+    // sizing pass reads this to skip subtrees whose intrinsics are never
+    // consumed (§58 Win #3).
+    layout_tree.subtree_needs_intrinsic = compute_subtree_needs_intrinsic(ctx.styled_dom, &layout_tree);
+
+    debug_log!(
+        ctx,
+        "Generated layout tree with {} nodes (incl. anonymous)",
+        layout_tree.nodes.len()
+    );
+
+    Ok(layout_tree)
+}
+
+/// Returns true if `(dom_node_id, fc)` establishes a formatting context whose
+/// sizing algorithm reads children's intrinsic sizes. Covers:
+/// - flex containers (flex item sizing uses child min/max-content),
+/// - grid containers (grid-track sizing likewise),
+/// - tables and table cells,
+/// - inline-block (its own width may be shrink-to-fit),
+/// - floats and abspos elements (their `auto` width resolves to shrink-to-fit).
+///
+/// A `FormattingContext::Block` with a definite CSS width is NOT shrink-to-fit —
+/// its inner layout gets the width top-down, so descendant intrinsics don't
+/// feed back up. That's the path Fix C short-circuits.
+pub(crate) fn is_shrink_to_fit_context(
+    styled_dom: &StyledDom,
+    dom_node_id: Option<NodeId>,
+    fc: FormattingContext,
+) -> bool {
+    use crate::solver3::getters::{get_float, MultiValue};
+    use crate::solver3::positioning::get_position_type;
+    use azul_css::props::layout::{LayoutFloat, LayoutPosition};
+
+    match fc {
+        FormattingContext::Flex
+        | FormattingContext::Grid
+        | FormattingContext::Table
+        | FormattingContext::InlineBlock => return true,
+        _ => {}
+    }
+    let Some(dom_id) = dom_node_id else { return false; };
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let float_val = match get_float(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(v) => v,
+        _ => LayoutFloat::None,
+    };
+    if float_val != LayoutFloat::None {
+        return true;
+    }
+    let pos = get_position_type(styled_dom, Some(dom_id));
+    if pos == LayoutPosition::Absolute || pos == LayoutPosition::Fixed {
+        // Abspos only becomes shrink-to-fit when width is `auto`.
+        // Being conservative: treat as STF whenever abspos so we still
+        // compute intrinsics for the auto-width case. Misses no work.
+        return true;
+    }
+    false
+}
+
+/// Per-node bitmap of "this node or any descendant establishes a shrink-to-fit
+/// context." Post-order walk: `out[i] = self_stf(i) || any(out[child_of_i])`.
+/// Layout tree nodes are built top-down (pre-order), so iterating from the end
+/// visits children before parents.
+fn compute_subtree_needs_intrinsic(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+) -> Vec<bool> {
+    let n = tree.nodes.len();
+    let mut out = vec![false; n];
+    for idx in (0..n).rev() {
+        let hot = &tree.nodes[idx];
+        let self_stf = is_shrink_to_fit_context(styled_dom, hot.dom_node_id, hot.formatting_context);
+        let mut any = self_stf;
+        if !any {
+            for &child in tree.children(idx) {
+                if out.get(child).copied().unwrap_or(false) {
+                    any = true;
+                    break;
+                }
+            }
+        }
+        out[idx] = any;
+    }
+    out
+}
+
+/// Incrementally builds a [`LayoutTree`] from a [`StyledDom`].
+///
+/// Usage: create via [`LayoutTreeBuilder::new`], call [`process_node`](Self::process_node)
+/// on the root DOM node, then call [`build`](Self::build) to produce the final
+/// SoA-split `LayoutTree`. During `process_node`, anonymous boxes are generated
+/// as required by CSS 2.2 §9.2.1.1 (inline wrappers) and §17.2.1 (table fixup).
+#[derive(Debug)]
+pub struct LayoutTreeBuilder {
+    nodes: Vec<LayoutNode>,
+    dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
+    viewport_size: LogicalSize,
+}
+
+impl LayoutTreeBuilder {
+    #[must_use] pub const fn new(viewport_size: LogicalSize) -> Self {
+        Self {
+            nodes: Vec::new(),
+            dom_to_layout: BTreeMap::new(),
+            viewport_size,
+        }
+    }
+
+    #[must_use] pub fn get(&self, index: usize) -> Option<&LayoutNode> {
+        self.nodes.get(index)
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNode> {
+        self.nodes.get_mut(index)
+    }
+
+    // +spec:display-property:2188b7 - builds box tree: each element's principal box is child of nearest ancestor's principal box, with anonymous boxes for tables/inline wrapping
+    /// Main entry point for recursively building the layout tree.
+    /// This function dispatches to specialized handlers based on the node's
+    /// `display` property to correctly generate anonymous boxes.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    fn process_node(
+        &mut self,
+        styled_dom: &StyledDom,
+        dom_id: NodeId,
+        parent_idx: Option<usize>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<usize> {
+        let node_data = &styled_dom.node_data.as_container()[dom_id];
+        let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages);
+        let raw_display = get_display_type(styled_dom, dom_id);
+
+        // +spec:display-property:042f56 - replaced elements with layout-internal display use inline
+        // CSS Display 3 §2.4: "When the display property of a replaced element computes to
+        // one of the layout-internal values, it is handled as having a used value of inline."
+        let raw_display = if raw_display.is_layout_internal() && is_replaced_element(node_data) {
+            LayoutDisplay::Inline
+        } else {
+            raw_display
+        };
+
+        // +spec:display-property:0b40af - display/position/float interaction per CSS 2.2 §9.7
+        // +spec:display-property:ba53ba - float!=none or position!=static causes display to blockify
+        // +spec:positioning:69468c - absolute/fixed blockifies the box, float computes to none
+        // +spec:table-layout:cfc60a - CSS 2.2 §9.7: display/position/float interaction
+        // Blockification rules (CSS Display 3 §2.7 / §2.8):
+        // 1. Root element → blockify
+        // 2. position:absolute or position:fixed → float computes to 'none', blockify
+        // 3. float is not 'none' → blockify
+        // 4. Flex/Grid children → blockify
+        let node_position = self.nodes.get(node_idx).map(|n| n.computed_style.position).unwrap_or_default();
+        let node_float = self.nodes.get(node_idx).map(|n| n.computed_style.float).unwrap_or_default();
+        let is_absolute_or_fixed = matches!(node_position, LayoutPosition::Absolute | LayoutPosition::Fixed);
+        let is_floated = node_float != LayoutFloat::None;
+        let is_root = parent_idx.is_none();
+
+        // Per CSS 2.2 §9.7: if position is absolute or fixed, float computes to 'none'
+        if is_absolute_or_fixed && is_floated {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.float = LayoutFloat::None;
+            }
+        }
+
+        let is_flex_grid_child = parent_idx
+            .and_then(|p| self.nodes.get(p).map(|n| matches!(n.formatting_context, FormattingContext::Flex | FormattingContext::Grid)))
+            .unwrap_or(false);
+
+        let display_type = crate::solver3::getters::get_computed_display(
+            raw_display, is_absolute_or_fixed, is_floated, is_root, is_flex_grid_child,
+        );
+
+        // If blockification changed the display type, update the node's formatting context
+        if display_type != raw_display {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.display = display_type;
+                node.formatting_context = determine_formatting_context_for_display(
+                    styled_dom, dom_id, display_type,
+                );
+            }
+        }
+
+        // Compute containing block index for abs-pos clip exemption
+        if is_absolute_or_fixed {
+            let cb_index = if matches!(node_position, LayoutPosition::Fixed) {
+                // Fixed elements: containing block is the root (viewport)
+                None
+            } else {
+                // Absolute elements: containing block is nearest positioned ancestor
+                let mut ancestor = parent_idx;
+                loop {
+                    match ancestor {
+                        Some(idx) => {
+                            let pos = self.nodes.get(idx)
+                                .map(|n| n.computed_style.position)
+                                .unwrap_or_default();
+                            if pos.is_positioned() {
+                                break Some(idx);
+                            }
+                            ancestor = self.nodes.get(idx).and_then(|n| n.parent);
+                        }
+                        None => break None, // root
+                    }
+                }
+            };
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.containing_block_index = cb_index;
+            }
+        }
+
+        if parent_idx.is_none() {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                if let FormattingContext::Block { ref mut establishes_new_context } = node.formatting_context {
+                    *establishes_new_context = true;
+                }
+            }
+        }
+
+        // +spec:display-property:1f4039 - list-item generates ::marker pseudo-element + principal box
+        // +spec:display-property:2bb592 - list-item generates ::marker pseudo-element with list-style content
+        // +spec:display-property:3b507e - list-item generates ::marker pseudo-element
+        // +spec:display-property:a48f00 - additional boxes (marker, table wrapper) placed w.r.t. principal box
+        // +spec:display-property:998063 - list-item generates principal block box + marker box
+        // If this is a list-item, inject a ::marker pseudo-element as its first child
+        // +spec:display-property:a42905 - list-item generates ::marker pseudo-element with list-style content, principal box outer=block inner=flow
+        if display_type == LayoutDisplay::ListItem {
+            self.create_marker_pseudo_element(styled_dom, dom_id, node_idx);
+        }
+
+        // +spec:display-contents:376f2e - display:contents removes principal box, children render normally
+        // +spec:display-contents:3c7066 - display:contents strips element from formatting tree, hoists children
+        // +spec:display-contents:3f4884 - replaced elements / form controls not specially handled yet (spec note: use display:none instead)
+        // +spec:display-contents:4f9129 - semantic container role preserved: children promoted but DOM structure unchanged
+        // +spec:display-contents:7558e8 - display:contents is rendering-time only; DOM relationships unaffected
+        // +spec:display-contents:a079e3 - display:contents generates no box; children promoted to nearest non-contents ancestor (writing-mode parent lookup skips these)
+        // +spec:display-contents:e202d5 - display:contents removes principal box, children render as normal
+        // +spec:display-contents:6bbdf4 - display:contents preserves semantic container role (visibility context)
+        // +spec:display-property:d7a8de - display:none/contents elements generate no box; anonymous box generation ignores them
+        // +spec:display-property:dc2132 - display:none and display:contents control box generation
+        // display:contents - element generates no box; promote children to parent
+        // +spec:display-contents:61992e - element itself generates no boxes, children promoted to parent
+        // +spec:display-contents:af8feb - treated as if replaced in element tree by its contents
+        // +spec:display-contents:353e71 - display:contents box generation behavior
+        // +spec:display-contents:b0a76b - display:contents generates no box; children promoted to parent
+        // +spec:display-property:e370af - display:contents generates no box; children promoted to parent
+        //
+        // +spec:display-contents:852a59 - display:contents computes to display:none for replaced elements
+        // +spec:display-contents:4a524e - display:contents computes to display:none on replaced elements
+        // +spec:replaced-elements:af1e68 - display:contents on replaced elements has no effect (element renders normally)
+        // Per CSS Display 3 §2.5 / Appendix B: replaced elements (img, canvas, embed, object,
+        // audio, iframe, video, input, textarea, select, br, wbr, meter, progress)
+        // and similar cannot be "un-boxed" — display:contents becomes display:none.
+        if display_type == LayoutDisplay::Contents && is_replaced_element(node_data) {
+            // Treat as display:none — remove node from parent and skip children
+            if let Some(parent) = parent_idx {
+                if let Some(p) = self.nodes.get_mut(parent) {
+                    p.children.retain(|&c| c != node_idx);
+                }
+            }
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.display = LayoutDisplay::None;
+                node.formatting_context = FormattingContext::None;
+            }
+            return Ok(node_idx);
+        }
+
+        if display_type == LayoutDisplay::Contents {
+            // Remove the node we just created — it shouldn't generate a box
+            if let Some(parent) = parent_idx {
+                if let Some(p) = self.nodes.get_mut(parent) {
+                    p.children.retain(|&c| c != node_idx);
+                }
+            }
+            // Process children as if they belong to the parent (or root if no parent)
+            let effective_parent = parent_idx.unwrap_or(node_idx);
+            for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+                self.process_node(styled_dom, child_dom_id, Some(effective_parent), debug_messages)?;
+            }
+            return Ok(node_idx);
+        }
+
+        match display_type {
+            LayoutDisplay::Block
+            | LayoutDisplay::InlineBlock
+            | LayoutDisplay::FlowRoot
+            | LayoutDisplay::ListItem => {
+                self.process_block_children(styled_dom, dom_id, node_idx, debug_messages)?;
+            }
+            // +spec:table-layout:d52e09 - display:table/inline-table cause element to behave like a table element
+            // +spec:table-layout:360da0 - table display values cause table formatting behavior
+            LayoutDisplay::Table | LayoutDisplay::InlineTable => {
+                self.process_table_children(styled_dom, dom_id, node_idx, debug_messages)?;
+            }
+            LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup => {
+                self.process_table_row_group_children(styled_dom, dom_id, node_idx, debug_messages)?;
+            }
+            LayoutDisplay::TableRow => {
+                self.process_table_row_children(styled_dom, dom_id, node_idx, debug_messages)?;
+            }
+            LayoutDisplay::TableColumn => {
+                // +spec:table-layout:77974f - Stage 1: all children of table-column treated as display:none
+                // +spec:table-layout:c8dc69 - Stage 1: remove irrelevant boxes from table-column
+                // CSS 2.2 §17.2.1: "All child boxes of a 'table-column' parent are
+                // treated as if they had 'display: none'." - skip all children.
+            }
+            LayoutDisplay::TableColumnGroup => {
+                // CSS 2.2 §17.2.1: "If a child C of a 'table-column-group' parent is not
+                // a 'table-column' box, then it is treated as if it had 'display: none'."
+                for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+                    let child_display = get_display_type(styled_dom, child_dom_id);
+                    if child_display == LayoutDisplay::TableColumn {
+                        self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                    }
+                    // Non-table-column children are suppressed (treated as display:none)
+                }
+            }
+            // Inline, TableCell, etc., have their children processed as part of their
+            // formatting context layout and don't require anonymous box generation at this stage.
+            // of table-internal display values is handled via blockify_flex_item_if_table_internal
+            _ => {
+                // +spec:display-contents:34008d - display:none elements generate no boxes; excluded from formatting structure
+                // +spec:display-property:1f38b2 - display:none creates no box at all, filter from layout tree
+                // +spec:display-property:eb53f7 - display:none suppresses box generation; visibility:hidden boxes still affect layout
+                // Filter out display: none children - they don't participate in layout
+                // +spec:display-property:d1600a - display:none suppresses box generation; visibility:hidden boxes still affect layout
+                // ALSO filter out whitespace-only text nodes for Flex/Grid/etc containers
+                // to prevent them from becoming unwanted anonymous items.
+                let children: Vec<NodeId> = dom_id
+                    .az_children(&styled_dom.node_hierarchy.as_container())
+                    // +spec:display-property:9f02c6 - display:none elements generate no boxes
+                    .filter(|&child_id| {
+                        // +spec:display-property:3b507e - display:none excludes subtree from box tree
+                        if get_display_type(styled_dom, child_id) == LayoutDisplay::None {
+                            return false;
+                        }
+                        // Check for whitespace-only text
+                        let node_data = &styled_dom.node_data.as_container()[child_id];
+                        if let NodeType::Text(text) = node_data.get_node_type() {
+                            // Skip if text is empty or just whitespace
+                            return !text.as_str().trim().is_empty();
+                        }
+                        true
+                    })
+                    .collect();
+
+                let is_flex_or_grid = matches!(
+                    display_type,
+                    LayoutDisplay::Flex | LayoutDisplay::InlineFlex
+                    | LayoutDisplay::Grid | LayoutDisplay::InlineGrid
+                );
+
+                for child_dom_id in children {
+                    // +spec:display-property:934c84 - table wrapper box generation: display:table/inline-table generates a principal block container (table wrapper box) that establishes BFC and contains the table box + caption boxes
+                    // +spec:width-calculation:59d456 - table wrapper box is block-level, establishes BFC (CSS 2.2 §17.4)
+                    // the table wrapper box becomes the flex item; align-self applies to the
+                    // wrapper, flex longhands apply to the inner table box, caption contents
+                    // contribute to wrapper min/max-content sizes
+                    let child_display = get_display_type(styled_dom, child_dom_id);
+                    if is_flex_or_grid && child_display.creates_table_context() {
+                        let wrapper_idx = self.create_anonymous_node(
+                            node_idx,
+                            AnonymousBoxType::TableWrapper,
+                            FormattingContext::Block { establishes_new_context: true },
+                        );
+                        self.process_node(styled_dom, child_dom_id, Some(wrapper_idx), debug_messages)?;
+                    } else {
+                        let child_idx = self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                        // table-internal flex items are blockified, preventing anonymous table
+                        // box generation (e.g. two display:table-cell flex items become two
+                        // separate display:block flex items)
+                        if is_flex_or_grid {
+                            blockify_flex_item_if_table_internal(&mut self.nodes, child_idx);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(node_idx)
+    }
+
+    // +spec:display-property:5572e7 - Anonymous block boxes: wrap inline runs when block container has mixed block/inline children
+    // +spec:display-property:090043 - Anonymous block box properties inherited from enclosing non-anonymous box; non-inherited props get initial values
+    // +spec:display-property:7b9f7a - Block-level vs inline-level classification and anonymous block box creation
+    // +spec:display-property:078fe5 - Anonymous block boxes wrapping inline content in mixed block/inline contexts
+    // +spec:display-property:8d8ef3 - block container anonymous box generation: wraps inline runs in anonymous block boxes to ensure block containers contain only block-level or only inline-level boxes
+    // +spec:display-property:1fe2be - inline box construction with anonymous text interspersed with inline elements
+    // +spec:display-property:be80e3 - Anonymous inline boxes: text in block containers treated as anonymous inlines, whitespace-only runs collapsed
+    /// Handles children of a block-level element, creating anonymous block
+    /// wrappers for consecutive runs of inline-level children if necessary.
+    // +spec:display-property:b73c50 - blockify inline content by wrapping in anonymous block containers
+    fn process_block_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_dom_id: NodeId,
+        parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        // Filter out display: none children - they don't participate in layout
+        let children: Vec<NodeId> = parent_dom_id
+            .az_children(&styled_dom.node_hierarchy.as_container())
+            .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+            .collect();
+
+        // Debug: log which children we found
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[process_block_children] DOM node {} has {} children: {:?}",
+                parent_dom_id.index(),
+                children.len(),
+                children.iter().map(NodeId::index).collect::<Vec<_>>()
+            )));
+        }
+
+        let has_block_child = children.iter().any(|&id| is_block_level(styled_dom, id));
+
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[process_block_children] has_block_child={}, children display types: {:?}",
+                has_block_child,
+                children
+                    .iter()
+                    .map(|c| {
+                        let dt = get_display_type(styled_dom, *c);
+                        let is_block = is_block_level(styled_dom, *c);
+                        format!("{}:{:?}(block={})", c.index(), dt, is_block)
+                    })
+                    .collect::<Vec<_>>()
+            )));
+        }
+
+        if !has_block_child {
+            // All children are inline, no anonymous boxes needed.
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[process_block_children] All inline, processing {} children directly",
+                    children.len()
+                )));
+            }
+            for child_id in children {
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
+            }
+            return Ok(());
+        }
+
+        // Mixed block and inline content requires anonymous wrappers.
+        let mut inline_run = Vec::new();
+
+        for child_id in children {
+            if is_block_level(styled_dom, child_id) {
+                // +spec:display-contents:02a534 - contiguous text sequences with no text don't generate boxes
+                // End the current inline run — but skip if all nodes are whitespace-only text.
+                // +spec:display-property:7d1570 - whitespace-only text that would be collapsed does not generate anonymous inline boxes
+                // +spec:white-space-processing:b32f69 - whitespace-only inline runs between blocks don't generate anonymous inline boxes
+                // CSS 2.1 §9.2.2.1: "White space content that would subsequently be collapsed
+                // away according to the 'white-space' property does not generate any anonymous
+                // inline boxes."
+                if !inline_run.is_empty() {
+                    self.flush_inline_run(styled_dom, parent_idx, &mut inline_run, debug_messages)?;
+                }
+                // Process the block-level child directly
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[process_block_children] Processing block child DOM {}",
+                        child_id.index()
+                    )));
+                }
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
+            } else {
+                inline_run.push(child_id);
+            }
+        }
+        // Process any remaining inline children at the end — skip if all whitespace
+        if !inline_run.is_empty() {
+            self.flush_inline_run(styled_dom, parent_idx, &mut inline_run, debug_messages)?;
+        }
+
+        Ok(())
+    }
+
+    // +spec:table-layout:6bb84e - Anonymous table object generation (stages 1-3: remove irrelevant boxes, generate missing child wrappers, generate missing parents)
+    // +spec:table-layout:77974f - Stage 2: generate missing child wrappers for table/inline-table
+    // +spec:table-layout:c8dc69 - Stage 2: wrap non-proper children in anonymous table-row
+    // +spec:display-property:6f8f13 - anonymous table object generation (§17.2.1): suppress table-column/table-column-group children, wrap non-proper children in anonymous rows/cells
+    fn process_table_level_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_dom_id: NodeId,
+        parent_idx: usize,
+        is_expected_child: fn(LayoutDisplay) -> bool,
+        anon_type: AnonymousBoxType,
+        anon_fc: FormattingContext,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        let parent_display = get_display_type(styled_dom, parent_dom_id);
+        let mut non_matching_children = Vec::new();
+
+        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
+                continue;
+            }
+
+            let child_display = get_display_type(styled_dom, child_id);
+
+            if is_expected_child(child_display) {
+                if !non_matching_children.is_empty() {
+                    let anon_idx = self.create_anonymous_node(
+                        parent_idx,
+                        anon_type,
+                        anon_fc,
+                    );
+                    #[allow(clippy::iter_with_drain)] // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
+                    for np_id in non_matching_children.drain(..) {
+                        self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
+                    }
+                }
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
+            } else {
+                non_matching_children.push(child_id);
+            }
+        }
+
+        if !non_matching_children.is_empty() {
+            let anon_idx = self.create_anonymous_node(
+                parent_idx,
+                anon_type,
+                anon_fc,
+            );
+            for np_id in non_matching_children {
+                self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn process_table_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_dom_id: NodeId,
+        parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        self.process_table_level_children(
+            styled_dom, parent_dom_id, parent_idx,
+            is_proper_table_child,
+            AnonymousBoxType::TableRow,
+            FormattingContext::TableRow,
+            debug_messages,
+        )
+    }
+
+    fn process_table_row_group_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_dom_id: NodeId,
+        parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        self.process_table_level_children(
+            styled_dom, parent_dom_id, parent_idx,
+            |d| d == LayoutDisplay::TableRow,
+            AnonymousBoxType::TableRow,
+            FormattingContext::TableRow,
+            debug_messages,
+        )
+    }
+
+    fn process_table_row_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_dom_id: NodeId,
+        parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        self.process_table_level_children(
+            styled_dom, parent_dom_id, parent_idx,
+            |d| d == LayoutDisplay::TableCell,
+            AnonymousBoxType::TableCell,
+            FormattingContext::Block { establishes_new_context: true },
+            debug_messages,
+        )
+    }
+    // +spec:display-property:7d1570 - whitespace-only text that would be collapsed does not generate anonymous inline boxes
+    // +spec:white-space-processing:b32f69 - whitespace-only inline runs between blocks don't generate anonymous inline boxes
+    fn flush_inline_run(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_idx: usize,
+        inline_run: &mut Vec<NodeId>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        let all_whitespace = inline_run
+            .iter()
+            .all(|id| is_whitespace_only_text(styled_dom, *id));
+        if all_whitespace {
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[process_block_children] Skipping whitespace-only inline run: {:?}",
+                    inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                )));
+            }
+            inline_run.clear();
+        } else {
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[process_block_children] Creating anon wrapper for inline run: {:?}",
+                    inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                )));
+            }
+            let anon_idx = self.create_anonymous_node(
+                parent_idx,
+                AnonymousBoxType::InlineWrapper,
+                FormattingContext::Block {
+                    establishes_new_context: true,
+                },
+            );
+            for inline_child_id in inline_run.drain(..) {
+                self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;
+            }
+        }
+        Ok(())
+    }
+
+    // +spec:display-property:52f497 - anonymous inline boxes inherit inheritable properties from block parent; non-inherited properties use initial values (dom_node_id: None + BoxProps::default())
+    /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
+    /// "In this process, inline-level boxes are wrapped in anonymous boxes as needed
+    /// to satisfy the constraints of the table model."
+    ///
+    // +spec:display-property:ee83bf - Anonymous box generation: boxes not associated with elements, inheriting through box tree parentage
+    /// Helper to create an anonymous node in the tree.
+    /// Anonymous boxes don't have a corresponding DOM node and are used to enforce
+    /// the CSS box model structure (e.g., wrapping inline content in blocks,
+    /// or creating missing table structural elements).
+    // +spec:display-property:6ff51a - anonymous block boxes have no styles (box_props default), so parent element properties still apply to its content
+    pub fn create_anonymous_node(
+        &mut self,
+        parent: usize,
+        anon_type: AnonymousBoxType,
+        fc: FormattingContext,
+    ) -> usize {
+        let index = self.nodes.len();
+
+        // +spec:display-property:e67146 - Anonymous boxes inherit from enclosing non-anonymous box; non-inherited props use initial values
+        let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context);
+
+        self.nodes.push(LayoutNode {
+            // ── HOT ──
+            box_props: BoxProps::default(),
+            dom_node_id: None,
+            children: Vec::new(),
+            used_size: None,
+            formatting_context: fc,
+            parent: Some(parent),
+            // ── WARM ──
+            intrinsic_sizes: None,
+            baseline: None,
+            inline_layout_result: None,
+            scrollbar_info: None,
+            relative_position: None,
+            overflow_content_size: None,
+            taffy_cache: TaffyCache::new(),
+            computed_style: ComputedLayoutStyle::default(),
+            pseudo_element: None,
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
+            parent_formatting_context: parent_fc,
+            ifc_membership: None,
+            containing_block_index: None,
+            // ── COLD ──
+            anonymous_type: Some(anon_type),
+            node_data_fingerprint: NodeDataFingerprint::default(),
+            subtree_hash: SubtreeHash(0),
+            dirty_flag: DirtyFlag::Layout,
+            unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
+            ifc_id: None,
+        });
+
+        self.nodes[parent].children.push(index);
+        index
+    }
+
+    /// Creates a `::marker` pseudo-element as the first child of a list-item.
+    ///
+    /// Per CSS Lists Module Level 3, Section 3.1:
+    /// "For elements with display: list-item, user agents must generate a
+    /// `::marker` pseudo-element as the first child of the principal box."
+    ///
+    /// The `::marker` references the same DOM node as its parent list-item,
+    /// but is marked as a pseudo-element for proper counter resolution and styling.
+    pub fn create_marker_pseudo_element(
+        &mut self,
+        styled_dom: &StyledDom,
+        list_item_dom_id: NodeId,
+        list_item_idx: usize,
+    ) -> usize {
+        let index = self.nodes.len();
+
+        // The marker references the same DOM node as the list-item
+        // This is important for style resolution (the marker inherits from the list-item)
+        let parent_fc = self
+            .nodes
+            .get(list_item_idx)
+            .map(|n| n.formatting_context);
+        self.nodes.push(LayoutNode {
+            // ── HOT ──
+            box_props: BoxProps::default(),
+            dom_node_id: Some(list_item_dom_id),
+            children: Vec::new(),
+            used_size: None,
+            formatting_context: FormattingContext::Inline,
+            parent: Some(list_item_idx),
+            // ── WARM ──
+            intrinsic_sizes: None,
+            baseline: None,
+            inline_layout_result: None,
+            scrollbar_info: None,
+            relative_position: None,
+            overflow_content_size: None,
+            taffy_cache: TaffyCache::new(),
+            computed_style: ComputedLayoutStyle::default(),
+            pseudo_element: Some(PseudoElement::Marker),
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
+            parent_formatting_context: parent_fc,
+            ifc_membership: None,
+            containing_block_index: None,
+            // ── COLD ──
+            anonymous_type: None,
+            node_data_fingerprint: NodeDataFingerprint::default(),
+            subtree_hash: SubtreeHash(0),
+            dirty_flag: DirtyFlag::Layout,
+            unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
+            ifc_id: None,
+        });
+
+        // Insert as FIRST child (per spec)
+        self.nodes[list_item_idx].children.insert(0, index);
+
+        // Register with DOM mapping for counter resolution
+        self.dom_to_layout
+            .entry(list_item_dom_id)
+            .or_default()
+            .push(index);
+
+        index
+    }
+
+    // M12.7: returns `usize`, NOT `Result<usize>` — this fn has no error path
+    // (always `Ok(index)`). The `Result` forced callers to use `?`, whose lifted
+    // discriminant decode mis-reads the Ok as Err (the rc=5 root cause: reconcile
+    // reaches this fn but returns Err before its own Ok). Dropping the Result
+    // removes that mis-lifting `?`.
+    /// Apply CSS Display 3 §2.7/§2.8 blockification to a freshly-created node:
+    /// a flex/grid item (or root / abs-pos / floated box) whose specified display
+    /// is inline-level computes to its block-level equivalent.
+    ///
+    /// `process_node` (the full tree build) does this inline, but the INCREMENTAL
+    /// tree builder (`cache.rs` reconcile → `create_node_from_dom`) bypassed it.
+    /// Without it, a replaced inline flex item — e.g. an `<img>` canvas with
+    /// `flex-grow: 1` (`AzulPaint`) — stayed inline, so its flex-grow was ignored
+    /// and it was laid out 300×0 (the replaced-element default width, 0 height).
+    /// Must be called AFTER the node is created and AFTER its parent's
+    /// formatting context is known (the build is top-down, so the parent exists).
+    pub fn blockify_node_display(
+        &mut self,
+        styled_dom: &StyledDom,
+        dom_id: NodeId,
+        node_idx: usize,
+        parent_idx: Option<usize>,
+    ) {
+        let node_data = &styled_dom.node_data.as_container()[dom_id];
+        // CSS Display 3 §2.4: a replaced element with a layout-internal display
+        // value uses 'inline' — so it's inline-level and thus blockifiable.
+        let raw_display = {
+            let d = get_display_type(styled_dom, dom_id);
+            if d.is_layout_internal() && is_replaced_element(node_data) {
+                LayoutDisplay::Inline
+            } else {
+                d
+            }
+        };
+        let (position, float) = self
+            .nodes
+            .get(node_idx)
+            .map(|n| (n.computed_style.position, n.computed_style.float))
+            .unwrap_or_default();
+        let is_absolute_or_fixed =
+            matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed);
+        let is_floated = float != LayoutFloat::None;
+        let is_root = parent_idx.is_none();
+        let is_flex_grid_child = parent_idx
+            .and_then(|p| self.nodes.get(p))
+            .is_some_and(|n| {
+                matches!(
+                    n.formatting_context,
+                    FormattingContext::Flex | FormattingContext::Grid
+                )
+            });
+        let display_type = crate::solver3::getters::get_computed_display(
+            raw_display,
+            is_absolute_or_fixed,
+            is_floated,
+            is_root,
+            is_flex_grid_child,
+        );
+        if display_type != raw_display {
+            if let Some(node) = self.nodes.get_mut(node_idx) {
+                node.computed_style.display = display_type;
+                node.formatting_context =
+                    determine_formatting_context_for_display(styled_dom, dom_id, display_type);
+            }
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    pub fn create_node_from_dom(
+        &mut self,
+        styled_dom: &StyledDom,
+        dom_id: NodeId,
+        parent: Option<usize>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> usize {
+        let index = self.nodes.len();
+        // as IT sees it). If this is 0 but build() sees 0 nodes, the push is lost
+        // between here and build (builder &mut threading); if garbage, len mis-reads.
+        { let _ = (0xCE00_0000u32 | (index as u32 & 0xffff)); }
+        let parent_fc =
+            parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
+        // this is reached but step A is NOT, collect_box_props diverges; if this is
+        // NOT reached, the parent Option discriminant mis-lifts (None→Some garbage).
+        { let _ = (0xCD00_0001u32 | (u32::from(parent_fc.is_some()) << 8)); }
+        let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
+        { let _ = (0xCA00_0001u32); }
+        self.nodes.push(LayoutNode {
+            // ── HOT ──
+            box_props: collected.resolved,
+            dom_node_id: Some(dom_id),
+            children: Vec::new(),
+            used_size: None,
+            formatting_context: determine_formatting_context(styled_dom, dom_id),
+            parent,
+            // ── WARM ──
+            intrinsic_sizes: None,
+            baseline: None,
+            inline_layout_result: None,
+            scrollbar_info: None,
+            relative_position: None,
+            overflow_content_size: None,
+            taffy_cache: TaffyCache::new(),
+            // +spec:overflow:8f9f7e - viewport overflow propagation: visible→auto, clip→hidden
+            computed_style: {
+                let mut style = compute_layout_style(styled_dom, dom_id);
+                if parent.is_none() {
+                    // CSS Overflow 3 §3.3: If visible is applied to the viewport,
+                    // it must be interpreted as auto. If clip is applied to the
+                    // viewport, it must be interpreted as hidden.
+                    use azul_css::props::layout::LayoutOverflow;
+                    if style.overflow_x == LayoutOverflow::Visible {
+                        style.overflow_x = LayoutOverflow::Auto;
+                    } else if style.overflow_x == LayoutOverflow::Clip {
+                        style.overflow_x = LayoutOverflow::Hidden;
+                    }
+                    if style.overflow_y == LayoutOverflow::Visible {
+                        style.overflow_y = LayoutOverflow::Auto;
+                    } else if style.overflow_y == LayoutOverflow::Clip {
+                        style.overflow_y = LayoutOverflow::Hidden;
+                    }
+                }
+                style
+            },
+            pseudo_element: None,
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
+            parent_formatting_context: parent_fc,
+            ifc_membership: None,
+            containing_block_index: None,
+            // ── COLD ──
+            anonymous_type: None,
+            node_data_fingerprint: NodeDataFingerprint::compute(
+                &styled_dom.node_data.as_container()[dom_id],
+                styled_dom.styled_nodes.as_container().get(dom_id).map(|n| &n.styled_node_state),
+            ),
+            subtree_hash: SubtreeHash(0),
+            dirty_flag: DirtyFlag::Layout,
+            unresolved_box_props: collected.unresolved,
+            ifc_id: None,
+        });
+        { let _ = (0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8)); }
+        if let Some(p) = parent {
+            self.nodes[p].children.push(index);
+        }
+        self.dom_to_layout.entry(dom_id).or_default().push(index);
+        // DEBUG (2026-06-02 children-None tree-build): count create_node_from_dom
+        // calls @0x40500 + record each dom_id into a 14-slot ring @0x40504. REVERT
+        // before commit. Runs only in lifted wasm (server lifts, never runs natively).
+        unsafe {
+            let c = crate::az_mark_read(0x40500);
+            crate::az_mark(0x60500_u32, (c.wrapping_add(1)));
+            if (c as usize) < 14 {
+                crate::az_mark((0x40504 + (c as usize) * 4) as u32, (0xDD00_0000 | (dom_id.index() as u32 & 0xffff)));
+            }
+        }
+        index
+    }
+
+    pub fn clone_node_from_old(&mut self, old_node: &LayoutNode, parent: Option<usize>) -> usize {
+        let index = self.nodes.len();
+        let mut new_node = old_node.clone();
+        new_node.parent = parent;
+        new_node.parent_formatting_context =
+            parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
+        new_node.children = Vec::new();
+        new_node.dirty_flag = DirtyFlag::None;
+        self.nodes.push(new_node);
+        if let Some(p) = parent {
+            self.nodes[p].children.push(index);
+        }
+        if let Some(dom_id) = old_node.dom_node_id {
+            self.dom_to_layout.entry(dom_id).or_default().push(index);
+        }
+        index
+    }
+
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    #[must_use] pub fn build(self, root_idx: usize) -> LayoutTree {
+        let nodes = self.nodes;
+        let node_count = nodes.len();
+
+        // Flatten per-node children Vecs into a single contiguous arena.
+        let total_children: usize = nodes.iter().map(|n| n.children.len()).sum();
+        let mut arena = Vec::with_capacity(total_children);
+        let mut offsets = Vec::with_capacity(node_count);
+
+        // Split monolithic LayoutNodes into hot/warm/cold SoA arrays
+        let mut hot_nodes = Vec::with_capacity(node_count);
+        let mut warm_nodes = Vec::with_capacity(node_count);
+        let mut cold_nodes = Vec::with_capacity(node_count);
+
+        for node in nodes {
+            // Flatten children into arena first
+            let start = arena.len() as u32;
+            let len = node.children.len() as u32;
+            arena.extend_from_slice(&node.children);
+            offsets.push((start, len));
+
+            // Split into hot/warm/cold
+            let (hot, warm, cold) = node.split();
+            hot_nodes.push(hot);
+            warm_nodes.push(warm);
+            cold_nodes.push(cold);
+        }
+
+        // discriminant). If len>0 but calculate_intrinsic_recursive's
+        // `tree.get(root).ok_or(InvalidTree)?` still errors, that `?`/null-check
+        // mis-discriminates Some→None. If len==0, build's input was empty.
+        // if build>0 but get_node_size sees 0, the tree.clone() (hashbrown) drops the map.
+
+        LayoutTree {
+            nodes: hot_nodes,
+            warm: warm_nodes,
+            cold: cold_nodes,
+            root: root_idx,
+            dom_to_layout: self.dom_to_layout,
+            children_arena: arena,
+            children_offsets: offsets,
+            // Populated by `generate_layout_tree` after the tree is built,
+            // since the computation needs styled_dom for float/position lookup.
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+}
+
+// +spec:display-property:697082 - outer display type determines principal box's role in flow layout (block vs inline)
+// +spec:display-property:0d251b - Block-level elements: display 'block', 'list-item', 'table' generate block-level boxes
+// +spec:display-property:9464be - block-level vs block container distinction: not all block-level boxes are block containers (e.g. replaced elements, flex containers)
+#[must_use] pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    matches!(
+        get_display_type(styled_dom, node_id),
+        LayoutDisplay::Block
+            | LayoutDisplay::FlowRoot
+            | LayoutDisplay::Flex
+            | LayoutDisplay::Grid
+            | LayoutDisplay::Table
+            | LayoutDisplay::TableCaption
+            | LayoutDisplay::TableRow
+            | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableCell
+            | LayoutDisplay::ListItem
+    )
+}
+
+// +spec:display-property:23f111 - Inline-level elements: inline, inline-block, inline-table, inline-flex, inline-grid
+/// Checks if a node is inline-level (including text nodes).
+/// According to CSS spec, inline-level content includes:
+///
+/// - Elements with display: inline, inline-block, inline-table, inline-flex, inline-grid
+/// - Text nodes
+/// - Generated content
+fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    // Text nodes are always inline-level
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        return true;
+    }
+
+    // Check the display property
+    matches!(
+        get_display_type(styled_dom, node_id),
+        LayoutDisplay::Inline
+            | LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineTable
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::InlineGrid
+    )
+}
+
+// +spec:display-property:c2520b - Block containers with only inline-level children establish IFC; mixed content gets anonymous block wrappers
+/// Checks if a block container has only inline-level children.
+/// According to CSS 2.2 Section 9.4.2: "An inline formatting context is established
+/// by a block container box that contains no block-level boxes."
+// +spec:display-property:75d642 - block container with only inline-level content establishes IFC
+// +spec:display-property:c188d6 - IFC: all inline content within a containing block flows together as continuous text
+pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let Some(node_hier) = hierarchy.get(node_id) else {
+        return false;
+    };
+
+    // Get the first child
+    let mut current_child = node_hier.first_child_id(node_id);
+
+    // If there are no children, it's not an IFC (it's empty)
+    if current_child.is_none() {
+        return false;
+    }
+
+    // Check all children
+    while let Some(child_id) = current_child {
+        let is_inline = is_inline_level(styled_dom, child_id);
+
+        if !is_inline {
+            // Found a block-level child
+            return false;
+        }
+
+        // Move to next sibling
+        if let Some(child_hier) = hierarchy.get(child_id) {
+            current_child = child_hier.next_sibling_id();
+        } else {
+            break;
+        }
+    }
+
+    // All children are inline-level
+    true
+}
+
+/// Pre-computes all CSS properties needed during layout for a single node.
+/// 
+/// This is called once per node during layout tree construction, avoiding
+/// repeated style lookups during the actual layout pass (O(n) vs O(n²)).
+fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayoutStyle {
+    let styled_node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+
+    // Get display property
+    let display = match get_display_property(styled_dom, Some(dom_id)) {
+        MultiValue::Exact(d) => d,
+        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => LayoutDisplay::Block,
+    };
+
+    // Get position property
+    let position = get_position(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get float property  
+    let float = get_float(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get overflow properties
+    // +spec:overflow:48890c - overflow:hidden treated as overflow:clip on replaced elements
+    let is_replaced = matches!(
+        styled_dom.node_data.as_container()[dom_id].get_node_type(),
+        NodeType::Image(_) | NodeType::VirtualView
+    );
+    let overflow_x = {
+        let v = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+        if is_replaced && v == LayoutOverflow::Hidden { LayoutOverflow::Clip } else { v }
+    };
+    let overflow_y = {
+        let v = get_overflow_y(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+        if is_replaced && v == LayoutOverflow::Hidden { LayoutOverflow::Clip } else { v }
+    };
+
+    // Get writing mode, direction, and text-orientation
+    // +spec:writing-modes:2af307 - Propagate used writing-mode from <body> to <html> root
+    let writing_mode = {
+        let own_wm = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+        let nd = &styled_dom.node_data.as_container()[dom_id];
+        if matches!(nd.node_type, NodeType::Html) {
+            // If root <html>, propagate writing-mode from first <body> child
+            styled_dom
+                .node_hierarchy
+                .as_container()
+                .get(dom_id)
+                .and_then(|node| node.first_child_id(dom_id))
+                .and_then(|child_id| {
+                    let child_data = &styled_dom.node_data.as_container()[child_id];
+                    if matches!(child_data.node_type, NodeType::Body) {
+                        let child_state = &styled_dom
+                            .styled_nodes
+                            .as_container()[child_id]
+                            .styled_node_state;
+                        Some(get_writing_mode(styled_dom, child_id, child_state)
+                            .unwrap_or_default())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(own_wm)
+        } else {
+            own_wm
+        }
+    };
+    let direction = get_direction(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    let text_orientation = get_text_orientation(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get text-align
+    let text_align = get_text_align(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get explicit width/height (None = auto)
+    let width = match get_css_width(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(w) => Some(w),
+        _ => None,
+    };
+    let height = match get_css_height(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(h) => Some(h),
+        _ => None,
+    };
+
+    // Get min/max constraints
+    let min_width = match get_css_min_width(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+    let min_height = match get_css_min_height(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+    let max_width = match get_css_max_width(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+    let max_height = match get_css_max_height(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+
+    ComputedLayoutStyle {
+        display,
+        position,
+        float,
+        overflow_x,
+        overflow_y,
+        writing_mode,
+        direction,
+        text_orientation,
+        width,
+        height,
+        min_width,
+        min_height,
+        max_width,
+        max_height,
+        text_align,
+    }
+}
+
+// hash_node_data() removed — replaced by NodeDataFingerprint::compute()
+
+/// Helper function to get element's computed font-size
+fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    { let _ = (0xC3_000001u32); } // 2-arg wrapper entered
+    let node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| &n.styled_node_state)
+        .copied()
+        .unwrap_or_default();
+    { let _ = (0xC3_000002u32); } // after node_state (clone); next = 3-arg call
+
+    crate::solver3::getters::get_element_font_size(styled_dom, dom_id, &node_state)
+}
+
+/// Helper function to get parent's computed font-size
+fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    styled_dom
+        .node_hierarchy
+        .as_container()
+        .get(dom_id)
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        .map_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, |parent_id| get_element_font_size(styled_dom, parent_id))
+}
+
+/// Helper function to get root element's font-size
+fn get_root_font_size(styled_dom: &StyledDom) -> f32 {
+    // Root is always NodeId(0) in Azul
+    get_element_font_size(styled_dom, NodeId::new(0))
+}
+
+/// Create a `ResolutionContext` for a given node
+fn create_resolution_context(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    containing_block_size: Option<PhysicalSize>,
+    viewport_size: LogicalSize,
+) -> ResolutionContext {
+    { let _ = (0xC1_000001u32); } // create_resolution_context entered
+    let element_font_size = get_element_font_size(styled_dom, dom_id);
+    { let _ = (0xC1_000002u32); } // after get_element_font_size
+    let parent_font_size = get_parent_font_size(styled_dom, dom_id);
+    { let _ = (0xC1_000003u32); } // after get_parent_font_size
+    let root_font_size = get_root_font_size(styled_dom);
+    { let _ = (0xC1_000004u32); } // after get_root_font_size
+
+    ResolutionContext {
+        element_font_size,
+        parent_font_size,
+        root_font_size,
+        // +spec:box-model:ec6466 - percentage margins/padding resolve to 0 when containing block is unknown (intrinsic sizing), breaking cyclic dependencies per css-sizing-3 §5.2.1
+        containing_block_size: containing_block_size.unwrap_or(PhysicalSize::new(0.0, 0.0)),
+        element_size: None, // Not yet laid out
+        viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
+    }
+}
+
+/// Result of collecting box properties from the styled DOM.
+struct CollectedBoxProps {
+    unresolved: crate::solver3::geometry::UnresolvedBoxProps,
+    resolved: BoxProps,
+}
+
+/// Collects box properties from the styled DOM and returns both unresolved and resolved forms.
+///
+/// The unresolved form stores the raw CSS values for later re-resolution when
+/// the containing block size is known. The resolved form is an initial resolution
+/// using `viewport_size` for viewport-relative units.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn collect_box_props(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    viewport_size: LogicalSize,
+) -> CollectedBoxProps {
+    use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
+    #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+    use crate::solver3::getters::*;
+    use azul_css::props::style::border::BorderStyle;
+    // before create_node step A is the diverging call.
+    { let _ = (0xC0_000001u32); } // entered
+
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+
+    // Get styled node state
+    let node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| &n.styled_node_state)
+        .copied()
+        .unwrap_or_default();
+    { let _ = (0xC0_000002u32); } // after node_state (clone)
+
+    // Create resolution context for this element
+    // Note: containing_block_size is None here because we don't have it yet
+    // This is fine for initial resolution - will be re-resolved during layout
+    let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
+    { let _ = (0xC0_000003u32); } // after create_resolution_context
+
+    // Read margin values from styled_dom
+    let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
+    { let _ = (0xC0_000004u32); } // after get_css_margin_top
+    let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
+    let margin_bottom_mv = get_css_margin_bottom(styled_dom, dom_id, &node_state);
+    let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);
+
+    // Convert MultiValue to UnresolvedMargin
+    let to_unresolved_margin = |mv: &MultiValue<PixelValue>| -> UnresolvedMargin {
+        match mv {
+            MultiValue::Auto => UnresolvedMargin::Auto,
+            MultiValue::Exact(pv) => UnresolvedMargin::Length(*pv),
+            _ => UnresolvedMargin::Zero,
+        }
+    };
+
+    // Build unresolved margins
+    let unresolved_margin = UnresolvedEdge {
+        top: to_unresolved_margin(&margin_top_mv),
+        right: to_unresolved_margin(&margin_right_mv),
+        bottom: to_unresolved_margin(&margin_bottom_mv),
+        left: to_unresolved_margin(&margin_left_mv),
+    };
+    { let _ = (0xC0_000005u32); } // after margin block
+
+    // Read padding values
+    let padding_top_mv = get_css_padding_top(styled_dom, dom_id, &node_state);
+    let padding_right_mv = get_css_padding_right(styled_dom, dom_id, &node_state);
+    let padding_bottom_mv = get_css_padding_bottom(styled_dom, dom_id, &node_state);
+    let padding_left_mv = get_css_padding_left(styled_dom, dom_id, &node_state);
+
+    // Convert MultiValue to PixelValue (default to 0px)
+    let to_pixel_value = |mv: MultiValue<PixelValue>| -> PixelValue {
+        match mv {
+            MultiValue::Exact(pv) => pv,
+            _ => PixelValue::const_px(0),
+        }
+    };
+
+    // Build unresolved padding
+    let unresolved_padding = UnresolvedEdge {
+        top: to_pixel_value(padding_top_mv),
+        right: to_pixel_value(padding_right_mv),
+        bottom: to_pixel_value(padding_bottom_mv),
+        left: to_pixel_value(padding_left_mv),
+    };
+    { let _ = (0xC0_000056u32); } // after padding getters+values, before get_display_type
+
+    // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group, table-footer-group, table-row, table-column-group, table-column
+    // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
+    // 0xC0_57<dt> the CALL returned (dt = LayoutDisplay discriminant) and the MATCH below
+    // diverges; if it stays 0x56, get_display_type (the enum extraction) itself diverges.
+    // M12.7 NOTE: get_display_type RETURNS a valid dt here (captured =2), but the code
+    // immediately after diverges — and replacing the `match` below with a branchless
+    // bitmask test did NOT help (so it's NOT the multi-way-branch codegen). So the
+    // get_display_type CALL corrupts the caller frame / control flow (same class as
+    // create_node's return 0→48704), specific to ENUM-returning getters (pixel getters
+    // like get_css_margin_* lift fine). Remill-level. The match is kept (original).
+    let unresolved_padding = match get_display_type(styled_dom, dom_id) {
+        LayoutDisplay::TableRow
+        | LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup
+        | LayoutDisplay::TableColumn
+        | LayoutDisplay::TableColumnGroup => UnresolvedEdge {
+            top: PixelValue::const_px(0),
+            right: PixelValue::const_px(0),
+            bottom: PixelValue::const_px(0),
+            left: PixelValue::const_px(0),
+        },
+        _ => unresolved_padding,
+    };
+    { let _ = (0xC0_000006u32); } // after padding block
+
+    // Read border values
+    let border_top_mv = get_css_border_top_width(styled_dom, dom_id, &node_state);
+    let border_right_mv = get_css_border_right_width(styled_dom, dom_id, &node_state);
+    let border_bottom_mv = get_css_border_bottom_width(styled_dom, dom_id, &node_state);
+    let border_left_mv = get_css_border_left_width(styled_dom, dom_id, &node_state);
+
+    // +spec:box-model:17c0e0 - computed border-width is 0 if border-style is none or hidden
+    // +spec:box-model:5d2b66 - border-style none/hidden means no border
+    // CSS 2.2 §8.5.1: "Computed value: absolute length; '0' if the border style is 'none' or 'hidden'"
+    let style_zeroes_width = |s: BorderStyle| matches!(s, BorderStyle::None | BorderStyle::Hidden);
+
+    // Read border styles to check if widths should be zeroed.
+    // FAST PATH: compact cache returns styles directly for normal state — no
+    // cascade walks. Prior code here did 4 cascade walks × 586 nodes.
+    let (bs_top, bs_right, bs_bottom, bs_left) = {
+        let cache_ptr = &styled_dom.css_property_cache.ptr;
+        if node_state.is_normal() {
+            cache_ptr.compact_cache.as_ref().map_or_else(|| (
+                    cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                    cache_ptr.get_border_right_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                    cache_ptr.get_border_bottom_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                    cache_ptr.get_border_left_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                ), |cc| {
+                let idx = dom_id.index();
+                (cc.get_border_top_style(idx), cc.get_border_right_style(idx),
+                 cc.get_border_bottom_style(idx), cc.get_border_left_style(idx))
+            })
+        } else {
+            (
+                cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                cache_ptr.get_border_right_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                cache_ptr.get_border_bottom_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                cache_ptr.get_border_left_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+            )
+        }
+    };
+
+    // Build unresolved border, zeroing width when style is none or hidden
+    let unresolved_border = UnresolvedEdge {
+        top: if style_zeroes_width(bs_top) { PixelValue::const_px(0) } else { to_pixel_value(border_top_mv) },
+        right: if style_zeroes_width(bs_right) { PixelValue::const_px(0) } else { to_pixel_value(border_right_mv) },
+        bottom: if style_zeroes_width(bs_bottom) { PixelValue::const_px(0) } else { to_pixel_value(border_bottom_mv) },
+        left: if style_zeroes_width(bs_left) { PixelValue::const_px(0) } else { to_pixel_value(border_left_mv) },
+    };
+    { let _ = (0xC0_000007u32); } // after border block (incl is_normal/compact_cache fast-path)
+
+    // +spec:box-model:8538a9 - Internal table elements do not have margins (CSS 2.2 §17.5)
+    // "These boxes have content and borders and cells have padding as well.
+    //  Internal table elements do not have margins."
+    // +spec:box-model:b4923a - Internal table elements do not have margins (CSS 2.2 § 17.5)
+    // +spec:box-model:0a9f8e - Internal table elements do not have margins (CSS 2.2 § 17.5)
+    let display_type = get_display_type(styled_dom, dom_id);
+    let unresolved_margin = match display_type {
+        LayoutDisplay::TableRow
+        | LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup
+        | LayoutDisplay::TableCell
+        | LayoutDisplay::TableColumn
+        | LayoutDisplay::TableColumnGroup => UnresolvedEdge {
+            top: UnresolvedMargin::Zero,
+            right: UnresolvedMargin::Zero,
+            bottom: UnresolvedMargin::Zero,
+            left: UnresolvedMargin::Zero,
+        },
+        // +spec:box-model:1197a5 - height property does not apply to non-replaced inline elements; vertical margins zeroed
+        // +spec:replaced-elements:f07118 - non-replaced elements have rendering dictated by CSS model
+        // "These properties apply to all elements, but vertical margins will not have
+        //  any effect on non-replaced inline elements."
+        LayoutDisplay::Inline => {
+            let is_replaced = matches!(
+                node_data.get_node_type(),
+                NodeType::Image(_) | NodeType::VirtualView
+            );
+            if is_replaced {
+                unresolved_margin
+            } else {
+                UnresolvedEdge {
+                    top: UnresolvedMargin::Zero,
+                    bottom: UnresolvedMargin::Zero,
+                    ..unresolved_margin
+                }
+            }
+        },
+        _ => unresolved_margin,
+    };
+
+    // Build the UnresolvedBoxProps
+    let unresolved = UnresolvedBoxProps {
+        margin: unresolved_margin,
+        padding: unresolved_padding,
+        border: unresolved_border,
+    };
+
+    // Create initial resolution params (with viewport as containing block for now)
+    let params = crate::solver3::geometry::ResolutionParams {
+        containing_block: viewport_size,
+        viewport_size,
+        element_font_size: context.parent_font_size,
+        root_font_size: context.root_font_size,
+    };
+
+    // Resolve to get initial box_props
+    let resolved = unresolved.resolve(&params);
+
+    if let Some(msgs) = debug_messages.as_mut() {
+        msgs.push(LayoutDebugMessage::box_props(format!(
+            "[BOX] node[{}] {:?} pad=[{:.1} {:.1} {:.1} {:.1}] mar=[{:.1} {:.1} {:.1} {:.1}] bor=[{:.1} {:.1} {:.1} {:.1}]",
+            dom_id.index(), node_data.node_type,
+            resolved.padding.top, resolved.padding.right, resolved.padding.bottom, resolved.padding.left,
+            resolved.margin.top, resolved.margin.right, resolved.margin.bottom, resolved.margin.left,
+            resolved.border.top, resolved.border.right, resolved.border.bottom, resolved.border.left,
+        )));
+
+        let has_vh = match &unresolved_margin.top {
+            UnresolvedMargin::Length(pv) => pv.metric == azul_css::props::basic::SizeMetric::Vh,
+            _ => false,
+        };
+        if has_vh || resolved.margin.top > 0.0 || resolved.margin.left > 0.0 {
+            msgs.push(LayoutDebugMessage::box_props(format!(
+                "NodeId {:?} ({:?}): unresolved_margin_top={:?}, resolved_margin_top={:.2}, viewport_size={:?}",
+                dom_id, node_data.node_type,
+                unresolved_margin.top,
+                resolved.margin.top,
+                viewport_size
+            )));
+        }
+
+        msgs.push(LayoutDebugMessage::box_props(format!(
+            "NodeId {:?} ({:?}): margin_auto: left={}, right={}, top={}, bottom={} | margin_left={:?}",
+            dom_id, node_data.node_type,
+            resolved.margin_auto.left, resolved.margin_auto.right,
+            resolved.margin_auto.top, resolved.margin_auto.bottom,
+            unresolved_margin.left
+        )));
+
+        if matches!(node_data.node_type, NodeType::Body) {
+            msgs.push(LayoutDebugMessage::box_props(format!(
+                "Body margin resolved: top={:.2}, right={:.2}, bottom={:.2}, left={:.2}",
+                resolved.margin.top, resolved.margin.right,
+                resolved.margin.bottom, resolved.margin.left
+            )));
+        }
+    }
+
+    CollectedBoxProps { unresolved, resolved }
+}
+
+/// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:
+///
+/// "Remove all irrelevant boxes. These are boxes that do not contain table-related boxes
+/// and do not themselves have 'display' set to a table-related value. In this context,
+/// 'irrelevant boxes' means anonymous inline boxes that contain only white space."
+///
+/// Checks if a DOM node is whitespace-only text (for table anonymous box generation).
+/// Returns true if the node is a text node containing only whitespace characters
+/// that would be collapsed away by the white-space property.
+// according to the 'white-space' property does not generate any anonymous inline boxes (CSS2§9.2.2.1)
+#[must_use] pub fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let binding = styled_dom.node_data.as_container();
+    let node_data = binding.get(node_id);
+    if let Some(data) = node_data {
+        if let NodeType::Text(text) = data.get_node_type() {
+            // Check if the text contains only CSS document white space characters
+            // Per CSS Text 3 §4.1: document white space = U+0020, U+0009, segment breaks
+            if !text.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')) {
+                return false;
+            }
+            // Per CSS2§9.2.2.1: "White space content that would subsequently be
+            // collapsed away according to the 'white-space' property does not
+            // generate any anonymous inline boxes."
+            // For white-space: pre / pre-wrap / break-spaces, whitespace is preserved
+            // and should NOT be treated as collapsible.
+            let white_space = styled_dom
+                .styled_nodes
+                .as_container()
+                .get(node_id)
+                .map_or(StyleWhiteSpace::Normal, |n| {
+                    match get_white_space_property(styled_dom, node_id, &n.styled_node_state) {
+                        MultiValue::Exact(ws) => ws,
+                        _ => StyleWhiteSpace::Normal,
+                    }
+                });
+            return match white_space {
+                // These values collapse whitespace — whitespace-only text is collapsible
+                StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap | StyleWhiteSpace::PreLine => true,
+                // These values preserve whitespace — whitespace-only text is NOT collapsible
+                StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => false,
+            };
+        }
+    }
+
+    false
+}
+
+/// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:
+/// Determines if a node should be skipped in table structure generation.
+/// Whitespace-only text nodes are "irrelevant" and should not generate boxes
+/// when they appear between table-related elements.
+///
+/// Returns true if the node should be skipped (i.e., it's whitespace-only text
+/// and the parent is a table structural element).
+fn should_skip_for_table_structure(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    parent_display: LayoutDisplay,
+) -> bool {
+    // CSS 2.2 Section 17.2.1: Only skip whitespace text nodes when parent is
+    // a table structural element (table, row group, row)
+    matches!(
+        parent_display,
+        LayoutDisplay::Table
+            | LayoutDisplay::InlineTable
+            | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableRow
+    ) && is_whitespace_only_text(styled_dom, node_id)
+}
+
+/// Returns true if the given display type is a "proper table child" of a table/inline-table box.
+/// Per CSS 2.2 §17.2.1, proper table children are: table-row-group, table-header-group,
+/// table-footer-group, table-row, table-column-group, table-column, table-caption.
+const fn is_proper_table_child(display: LayoutDisplay) -> bool {
+    matches!(
+        display,
+        LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableRow
+            | LayoutDisplay::TableColumnGroup
+            | LayoutDisplay::TableColumn
+            | LayoutDisplay::TableCaption
+    )
+}
+
+// Determines the display type of a node based on its tag and CSS properties.
+// Delegates to getters::get_display_property which uses the compact cache fast path.
+// M12.7 ROOT: get_display_type (and every layout enum getter) mis-lifts to wasm via the
+// remill enum-return/decode path — the geometry-chain blocker. FOUR Rust workarounds all
+// FAILED to advance (none reached collect_box_props past get_display_type):
+//   1. skip the get_css_property! enum compact-cache fast path  → no change
+//   2. replace the LayoutDisplay `match` with a branchless bitmask → no change
+//   3. #[inline(never)] (wrap the call w/ enforce_sp_preservation) → made it diverge earlier
+//   4. bypass MultiValue<LayoutDisplay> by reading cc.get_display() directly → diverges earlier
+// So it is NOT the match codegen, NOT the MultiValue wrapper, NOT a frame/SP issue — it is
+// the lift of a fn RETURNING a small fieldless enum (LayoutDisplay) corrupting control flow
+// (pixel/i16-returning getters lift fine). Needs the remill m12-q-reg-x8-sret fork's
+// enum-return handling — not fixable in Rust. (Original kept.)
+#[must_use] pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
+    use crate::solver3::getters::get_display_property;
+    get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
+}
+
+// +spec:display-contents:95faa5 - blockification has no effect on none/contents (other => other)
+// +spec:display-property:f68848 - Automatic box type transformations: blockification of computed display values
+/// Blockify a display type per CSS Display 3 §2.7.
+// +spec:display-property:760c5f - blockification sets computed outer display type to block
+/// +spec:display-property:d50f70 - blockification affects computed values, determining principal box type only
+/// // +spec:inline-block:692e44 - blockification of inline-block per CSS2 compatibility
+// +spec:display-property:c3aca2 - inline-block blockifies to block, not flow-root
+// +spec:display-property:ee2d65 - blockification of inline-level display types (CSS Display 3 §2.7)
+// +spec:display-property:e4a8b7 - layout-internal boxes blockified to flow (block container)
+/// CSS Flexbox §3: flex items with table-internal display values
+/// (table-cell, table-row, table-row-group, table-header-group, table-footer-group,
+/// table-column, table-column-group, table-caption) are blockified to display:block
+/// before anonymous table box generation can occur. E.g. two consecutive
+/// display:table-cell flex items become two separate display:block flex items.
+fn blockify_flex_item_if_table_internal(nodes: &mut [LayoutNode], node_idx: usize) {
+    if let Some(node) = nodes.get_mut(node_idx) {
+        let is_table_internal = matches!(
+            node.formatting_context,
+            FormattingContext::TableCell
+                | FormattingContext::TableRow
+                | FormattingContext::TableRowGroup
+                | FormattingContext::TableColumnGroup
+                | FormattingContext::TableCaption
+                | FormattingContext::Table
+        );
+        if is_table_internal {
+            node.formatting_context = FormattingContext::Block {
+                establishes_new_context: true,
+            };
+        }
+    }
+}
+
+/// Returns true if the node is a replaced element per CSS Display 3 Appendix B.
+/// Replaced elements (img, canvas, embed, object, audio, video, input, textarea,
+/// select, br, wbr, meter, progress, virtual views) cannot be un-boxed by
+/// `display: contents` and always establish an independent formatting context.
+const fn is_replaced_element(node_data: &NodeData) -> bool {
+    matches!(
+        node_data.get_node_type(),
+        NodeType::Image(_)
+        | NodeType::VirtualView
+        | NodeType::Br
+        | NodeType::Wbr
+        | NodeType::Meter
+        | NodeType::Progress
+        | NodeType::Canvas
+        | NodeType::Embed
+        | NodeType::Object
+        | NodeType::Audio
+        | NodeType::Video
+        | NodeType::Input
+        | NodeType::TextArea
+        | NodeType::Select
+    )
+}
+
+// +spec:display-property:285fe7 - block box establishing a BFC (block-level block container with new BFC)
+/// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
+/// A BFC contains floats and prevents margin collapse.
+fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let display = get_display_type(styled_dom, node_id);
+    if matches!(
+        display,
+        LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::TableCaption | LayoutDisplay::FlowRoot
+    ) {
+        return true;
+    }
+
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
+        let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.styled_node_state);
+        if !overflow_x.is_visible_or_clip() {
+            return true;
+        }
+
+        let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.styled_node_state);
+        if !overflow_y.is_visible_or_clip() {
+            return true;
+        }
+
+        let position = get_position(styled_dom, node_id, &styled_node.styled_node_state);
+        if position.is_absolute_or_fixed() {
+            return true;
+        }
+
+        let float = get_float(styled_dom, node_id, &styled_node.styled_node_state);
+        if !float.is_none() {
+            return true;
+        }
+    }
+
+    // CSS Writing Modes 4 § 3.2: block container with different writing-mode than parent establishes BFC
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        if let Some(parent_dom_id) = hierarchy[node_id].parent_id() {
+            let parent_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+            let child_wm = get_writing_mode(styled_dom, node_id, &styled_node.styled_node_state).unwrap_or_default();
+            let parent_wm = get_writing_mode(styled_dom, parent_dom_id, parent_state).unwrap_or_default();
+            if child_wm != parent_wm {
+                return true;
+            }
+        }
+    }
+
+    // +spec:replaced-elements:4f494d - replaced elements always establish an independent formatting context
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if is_replaced_element(node_data) {
+        return true;
+    }
+
+    // The root element (<html>) also establishes a BFC.
+    if styled_dom.root.into_crate_internal() == Some(node_id) {
+        return true;
+    }
+
+    false
+}
+
+// +spec:display-property:0d93f1 - maps display value to box generation (principal box, none, or contents)
+/// Like `determine_formatting_context`, but uses an explicit (possibly blockified) display type
+/// instead of reading it from the DOM. Used when blockification changes the display.
+// +spec:display-property:80f43f - inner display type defines formatting context for non-replaced elements
+// +spec:display-property:46e71c - Maps outer display (block/inline) and inner display (flow/flow-root/table/flex/grid) to FormattingContext
+// +spec:display-property:aa582d - maps display types to formatting contexts (inline-level, block-level, atomic inline, block container)
+#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+fn determine_formatting_context_for_display(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    display_type: LayoutDisplay,
+) -> FormattingContext {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        // [g147h az-web-lift DIAG] CONSTANT marker of the COMPUTED FC per DOM node_id (0x60B60+slot),
+        // written WITHOUT reading the stored field. 1=text→Inline, 2=block-with-inline→Inline, 4=Block.
+        // For the divs (node_id 1,3): 2 ⇒ computed Inline correctly (bug is store/clone/read); 4 ⇒
+        // has_only_inline_children mis-lifted to false (computed Block).
+        #[cfg(feature = "web_lift")]
+        unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0001) as u32); }
+        return FormattingContext::Inline;
+    }
+    // +spec:display-property:2a8d62 - block containers with inline-level content establish an IFC
+    match display_type {
+        // +spec:display-property:37bcf3 - inline outer display type generates an inline box
+        // +spec:display-property:30a935 - outer display without inner defaults to flow (block/inline both use flow context)
+        LayoutDisplay::Inline => FormattingContext::Inline,
+        // +spec:block-formatting-context:97b03b - flow-root always establishes a new BFC; block/list-item may establish one based on other conditions
+        // +spec:display-property:0bac26 - list-item limited to flow layout inner types (block/flow-root)
+        // +spec:display-property:0beffc - block container with only inline children establishes IFC
+        // +spec:display-property:7c49c1 - block container with only inline children establishes an IFC
+        // +spec:display-property:90ba2a - flow-root always establishes a new BFC
+        LayoutDisplay::FlowRoot => FormattingContext::Block {
+            establishes_new_context: true,
+        },
+        LayoutDisplay::Block | LayoutDisplay::ListItem => {
+            if has_only_inline_children(styled_dom, node_id) {
+                #[cfg(feature = "web_lift")]
+                unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0002) as u32); }
+                FormattingContext::Inline
+            } else {
+                #[cfg(feature = "web_lift")]
+                unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0004) as u32); }
+                FormattingContext::Block {
+                    establishes_new_context: establishes_new_block_formatting_context(
+                        styled_dom, node_id,
+                    ),
+                }
+            }
+        }
+        LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
+        // +spec:display-property:723fe8 - CSS 2.2 §17.2 table model: display types map to formatting contexts, table-column/column-group not rendered, anonymous table objects generated
+        // +spec:table-layout:023714 - map display values to table formatting contexts per CSS 2.2 §17.2
+        // +spec:table-layout:6c5039 - row-primary table model: rows/cells/captions/columns mapped here
+        // +spec:table-layout:75eea9 - display property values for table elements (table, tr, td, etc.)
+        // +spec:table-layout:3ee121 - layout-internal display types map to table formatting context
+        // +spec:display-property:b02b7f - table display types map to table formatting contexts;
+        // table-column/table-column-group not rendered (treated as display:none for box generation)
+        LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
+        LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup => FormattingContext::TableRowGroup,
+        LayoutDisplay::TableRow => FormattingContext::TableRow,
+        LayoutDisplay::TableCell => FormattingContext::TableCell,
+        // +spec:display-property:da3fc7 - display:none/contents generate no boxes (no inner/outer display types)
+        // +spec:display-property:e370af - display:none generates no boxes or text sequences
+        LayoutDisplay::None => FormattingContext::None,
+        LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
+        LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
+        LayoutDisplay::TableCaption => FormattingContext::TableCaption,
+        LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
+        // table-column elements are used only for column styling, not for generating boxes
+        LayoutDisplay::TableColumn => FormattingContext::None,
+        // +spec:display-contents:584072 - no special behavior for legend/HTML elements; contents handled normally
+        // display:contents - element generates no box, children are promoted to parent
+        LayoutDisplay::Contents => FormattingContext::Contents,
+        // +spec:display-property:b89b80 - run-in box falls back to block (merging into next block not implemented)
+        // +spec:display-property:ccd4e6 - run-in falls back to block; reparenting not implemented
+        // These less common display types default to block behavior
+        // +spec:display-property:7d77f5 - run-in treated as block (run-in sequencing fixup not yet implemented)
+        // +spec:display-property:0c30c4 - run-in boxes fall back to block (run-in reparenting not implemented, matches browser behavior)
+        // +spec:display-property:2f5c52 - run-in treated as block (full run-in merging not implemented)
+        LayoutDisplay::RunIn | LayoutDisplay::Marker => {
+            FormattingContext::Block {
+                establishes_new_context: true,
+            }
+        }
+    }
+}
+
+/// The logic now correctly identifies all BFC roots.
+fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    // [g147j az-web-lift DIAG] OUTER determine_ entry (0x60BB0+slot): 1=Text early-exit,
+    // 0x10|disc = went through for_display and returned that repr(C,u8) discriminant.
+    // Discriminates "never called during the lifted build" (slot stays 0) vs "called but
+    // the for_display match mis-routes" (here=0x10|x while the g147h inner markers stay 0)
+    // vs "value correct at build, corrupted later" (here says Inline, dispatch reads garbage).
+    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        #[cfg(feature = "web_lift")]
+        unsafe { crate::az_mark(0x60BB0 + (node_id.index() & 7) as u32 * 4, 0xC0DE0001); }
+        return FormattingContext::Inline;
+    }
+    let display_type = get_display_type(styled_dom, node_id);
+    let fc = determine_formatting_context_for_display(styled_dom, node_id, display_type);
+    #[cfg(feature = "web_lift")]
+    unsafe {
+        let disc: u8 = core::ptr::read_volatile((&fc) as *const FormattingContext as *const u8);
+        crate::az_mark(0x60BB0 + (node_id.index() & 7) as u32 * 4, 0xC0DE0010 | disc as u32);
+    }
+    fc
+}

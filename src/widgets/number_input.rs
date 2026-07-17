@@ -1,0 +1,343 @@
+//! Numeric input widget that wraps `TextInput` with numeric validation.
+//!
+//! Exports `NumberInput`, `NumberInputState`, and callback types
+//! (`NumberInputOnValueChangeCallbackType`, `NumberInputOnFocusLostCallbackType`).
+//! Internally delegates to `TextInput` and validates that the entered text
+//! parses as an `f32` within the configured `min`/`max` range.
+
+use std::string::String;
+
+use azul_core::{
+    callbacks::{CoreCallbackData, Update},
+    dom::Dom,
+    refany::RefAny,
+};
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+use azul_css::{
+    dynamic_selector::CssPropertyWithConditionsVec,
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::text_input::{
+        OnTextInputReturn, TextInput, TextInputOnFocusLostCallback,
+        TextInputOnFocusLostCallbackType, TextInputOnTextInputCallback,
+        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallback,
+        TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+    },
+};
+
+/// Callback type invoked when the numeric value changes.
+pub type NumberInputOnValueChangeCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
+impl_widget_callback!(
+    NumberInputOnValueChange,
+    OptionNumberInputOnValueChange,
+    NumberInputOnValueChangeCallback,
+    NumberInputOnValueChangeCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        NumberInputOnValueChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: NUMBER_INPUT_ON_VALUE_CHANGE_INVOKER,
+    invoker_ty:     AzNumberInputOnValueChangeCallbackInvoker,
+    thunk_fn:       az_number_input_on_value_change_callback_thunk,
+    setter_fn:      AzApp_setNumberInputOnValueChangeCallbackInvoker,
+    from_handle_fn: AzNumberInputOnValueChangeCallback_createFromHostHandle,
+    extra_args:     [ state: NumberInputState ],
+}
+
+/// Callback type invoked when the number input loses focus.
+pub type NumberInputOnFocusLostCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
+impl_widget_callback!(
+    NumberInputOnFocusLost,
+    OptionNumberInputOnFocusLost,
+    NumberInputOnFocusLostCallback,
+    NumberInputOnFocusLostCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        NumberInputOnFocusLostCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: NUMBER_INPUT_ON_FOCUS_LOST_INVOKER,
+    invoker_ty:     AzNumberInputOnFocusLostCallbackInvoker,
+    thunk_fn:       az_number_input_on_focus_lost_callback_thunk,
+    setter_fn:      AzApp_setNumberInputOnFocusLostCallbackInvoker,
+    from_handle_fn: AzNumberInputOnFocusLostCallback_createFromHostHandle,
+    extra_args:     [ state: NumberInputState ],
+}
+
+/// A numeric input widget that wraps `TextInput` with `f32` validation.
+#[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
+pub struct NumberInput {
+    pub number_input_state: NumberInputStateWrapper,
+    pub text_input: TextInput,
+    pub style: CssPropertyWithConditionsVec,
+}
+
+/// Wraps `NumberInputState` together with its value-change and focus-lost callbacks.
+#[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
+pub struct NumberInputStateWrapper {
+    pub inner: NumberInputState,
+    pub on_value_change: OptionNumberInputOnValueChange,
+    pub on_focus_lost: OptionNumberInputOnFocusLost,
+}
+
+/// State of a `NumberInput`: the current and previous value, plus allowed range.
+#[derive(Copy, Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct NumberInputState {
+    /// The value before the most recent change.
+    pub previous: f32,
+    /// The current numeric value.
+    pub number: f32,
+    /// Minimum allowed value (inclusive).
+    pub min: f32,
+    /// Maximum allowed value (inclusive).
+    pub max: f32,
+}
+
+impl Default for NumberInputState {
+    fn default() -> Self {
+        Self {
+            previous: 0.0,
+            number: 0.0,
+            min: core::f32::MIN,
+            max: core::f32::MAX,
+        }
+    }
+}
+
+impl NumberInput {
+    /// Creates a new `NumberInput` with the given initial value.
+    #[must_use] pub fn create(input: f32) -> Self {
+        Self {
+            number_input_state: NumberInputStateWrapper {
+                inner: NumberInputState {
+                    number: input,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
+        self.text_input.set_on_text_input(refany, callback);
+    }
+
+    #[must_use]
+    pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
+        mut self,
+        refany: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_text_input(refany, callback);
+        self
+    }
+
+    pub fn set_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
+        self.text_input.set_on_virtual_key_down(refany, callback);
+    }
+
+    #[must_use]
+    pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
+        mut self,
+        refany: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_virtual_key_down(refany, callback);
+        self
+    }
+
+    pub fn set_placeholder_style(&mut self, style: CssPropertyWithConditionsVec) {
+        self.text_input.placeholder_style = style;
+    }
+
+    #[must_use] pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+        self.set_placeholder_style(style);
+        self
+    }
+
+    pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
+        self.text_input.container_style = style;
+    }
+
+    #[must_use] pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+        self.set_container_style(style);
+        self
+    }
+
+    pub fn set_label_style(&mut self, style: CssPropertyWithConditionsVec) {
+        self.text_input.label_style = style;
+    }
+
+    #[must_use] pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+        self.set_label_style(style);
+        self
+    }
+
+    // Function called when the input has been parsed as a number
+    pub fn set_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
+        self.number_input_state.on_value_change = Some(NumberInputOnValueChange {
+            callback: callback.into(),
+            refany,
+        })
+        .into();
+    }
+
+    #[must_use]
+    pub fn with_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
+        mut self,
+        refany: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_value_change(refany, callback);
+        self
+    }
+
+    pub fn set_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
+        self.number_input_state.on_focus_lost = Some(NumberInputOnFocusLost {
+            callback: callback.into(),
+            refany,
+        })
+        .into();
+    }
+
+    #[must_use]
+    pub fn with_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
+        mut self,
+        refany: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_focus_lost(refany, callback);
+        self
+    }
+
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::create(0.0);
+        core::mem::swap(&mut s, self);
+        s
+    }
+
+    #[must_use] pub fn dom(mut self) -> Dom {
+        let number_string = format!("{}", self.number_input_state.inner.number);
+        self.text_input.text_input_state.inner.text = number_string
+            .chars()
+            .map(|s| s as u32)
+            .collect::<Vec<_>>()
+            .into();
+
+        let state = RefAny::new(self.number_input_state);
+
+        let validate: TextInputOnTextInputCallbackType = validate_text_input;
+        self.text_input.set_on_text_input(state.clone(), validate);
+        let focus_lost: TextInputOnFocusLostCallbackType = on_focus_lost;
+        self.text_input.set_on_focus_lost(state, focus_lost);
+        self.text_input.dom()
+    }
+}
+
+extern "C" fn on_focus_lost(
+    mut refany: RefAny,
+    info: CallbackInfo,
+    _state: TextInputState,
+) -> Update {
+    let Some(mut refany) = refany.downcast_mut::<NumberInputStateWrapper>() else {
+        return Update::DoNothing;
+    };
+
+    let number_input = &mut *refany;
+    let onfocuslost = &mut number_input.on_focus_lost;
+    let inner = number_input.inner;
+
+    match onfocuslost.as_mut() {
+        Some(NumberInputOnFocusLost { callback, refany }) => {
+            (callback.cb)(refany.clone(), info, inner)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+extern "C" fn validate_text_input(
+    mut refany: RefAny,
+    info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let Some(mut refany) = refany.downcast_mut::<NumberInputStateWrapper>() else {
+        return OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::Yes,
+        };
+    };
+
+    let validated_input: String = state
+        .text
+        .iter()
+        .filter_map(|c| core::char::from_u32(*c))
+        .map(|c| if c == ',' { '.' } else { c })
+        .collect();
+
+    let Ok(validated_f32) = validated_input.parse::<f32>() else {
+        // do not re-layout the entire screen,
+        // but don't handle the character
+        return OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::No,
+        };
+    };
+
+    let number_input = &mut *refany;
+    let onvaluechange = &mut number_input.on_value_change;
+    let inner = &mut number_input.inner;
+
+    inner.previous = inner.number;
+    let clamped = validated_f32.clamp(inner.min, inner.max);
+    inner.number = clamped;
+    let inner_clone = *inner;
+
+    let update = match onvaluechange.as_mut() {
+        Some(NumberInputOnValueChange { callback, refany }) => {
+            (callback.cb)(refany.clone(), info, inner_clone)
+        }
+        None => Update::DoNothing,
+    };
+
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}

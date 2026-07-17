@@ -1,0 +1,323 @@
+//! Checkbox widget with toggle callback support and default native-like styling.
+//!
+//! Key types: [`CheckBox`], [`CheckBoxState`], [`CheckBoxOnToggle`].
+
+use azul_core::{
+    callbacks::{CoreCallbackData, Update},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    refany::RefAny,
+};
+use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+use azul_css::{
+    props::{
+        basic::{color::ColorU, *},
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+
+use crate::callbacks::{Callback, CallbackInfo};
+
+static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-checkbox-container",
+))];
+static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-checkbox-content",
+))];
+
+/// Callback function type invoked when the checkbox is toggled.
+pub type CheckBoxOnToggleCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, CheckBoxState) -> Update;
+impl_widget_callback!(
+    CheckBoxOnToggle,
+    OptionCheckBoxOnToggle,
+    CheckBoxOnToggleCallback,
+    CheckBoxOnToggleCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        CheckBoxOnToggleCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: CHECK_BOX_ON_TOGGLE_INVOKER,
+    invoker_ty:     AzCheckBoxOnToggleCallbackInvoker,
+    thunk_fn:       az_check_box_on_toggle_callback_thunk,
+    setter_fn:      AzApp_setCheckBoxOnToggleCallbackInvoker,
+    from_handle_fn: AzCheckBoxOnToggleCallback_createFromHostHandle,
+    extra_args:     [ state: CheckBoxState ],
+}
+
+/// A toggleable checkbox widget with customizable styling and toggle callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct CheckBox {
+    pub check_box_state: CheckBoxStateWrapper,
+    /// Style for the checkbox container
+    pub container_style: CssPropertyWithConditionsVec,
+    /// Style for the checkbox content
+    pub content_style: CssPropertyWithConditionsVec,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct CheckBoxStateWrapper {
+    /// Content (image or text) of this `CheckBox`, centered by default
+    pub inner: CheckBoxState,
+    /// Optional: Function to call when the `CheckBox` is toggled
+    pub on_toggle: OptionCheckBoxOnToggle,
+}
+
+/// The checked/unchecked state of a [`CheckBox`].
+#[derive(Copy, Debug, Default, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct CheckBoxState {
+    pub checked: bool,
+}
+
+const BACKGROUND_COLOR: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+}; // white
+const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
+const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
+const COLOR_9B9B9B: ColorU = ColorU {
+    r: 155,
+    g: 155,
+    b: 155,
+    a: 255,
+}; // #9b9b9b
+
+const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(COLOR_9B9B9B)];
+const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(FILL_THEME);
+
+static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        BACKGROUND_COLOR_LIGHT,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(14))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(14))),
+    // padding: 2px
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(2),
+    )),
+    // border: 1px solid #484c52;
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Inset,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Inset,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_9B9B9B,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_9B9B9B,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
+];
+
+static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
+];
+
+impl CheckBox {
+    #[must_use] pub fn create(checked: bool) -> Self {
+        Self {
+            check_box_state: CheckBoxStateWrapper {
+                inner: CheckBoxState { checked },
+                ..Default::default()
+            },
+            container_style: CssPropertyWithConditionsVec::from_const_slice(
+                DEFAULT_CHECKBOX_CONTAINER_STYLE,
+            ),
+            content_style: if checked {
+                CssPropertyWithConditionsVec::from_const_slice(
+                    DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED,
+                )
+            } else {
+                CssPropertyWithConditionsVec::from_const_slice(
+                    DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED,
+                )
+            },
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::create(false);
+        core::mem::swap(&mut s, self);
+        s
+    }
+
+    #[inline]
+    pub fn set_on_toggle<C: Into<CheckBoxOnToggleCallback>>(&mut self, data: RefAny, on_toggle: C) {
+        self.check_box_state.on_toggle = Some(CheckBoxOnToggle {
+            callback: on_toggle.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_on_toggle<C: Into<CheckBoxOnToggleCallback>>(
+        mut self,
+        data: RefAny,
+        on_toggle: C,
+    ) -> Self {
+        self.set_on_toggle(data, on_toggle);
+        self
+    }
+
+    #[inline]
+    #[must_use] pub fn dom(self) -> Dom {
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{Dom, EventFilter, HoverEventFilter},
+        };
+
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
+            .with_css_props(self.container_style)
+            .with_callbacks(
+                vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    callback: CoreCallback {
+                        cb: input::default_on_checkbox_clicked as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                    refany: RefAny::new(self.check_box_state),
+                }]
+                .into(),
+            )
+            .with_tab_index(TabIndex::Auto)
+            .with_children(
+                vec![Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
+                    .with_css_props(self.content_style)]
+                .into(),
+            )
+    }
+}
+
+// handle input events for the checkbox
+mod input {
+
+    use azul_core::{callbacks::Update, refany::RefAny};
+    use azul_css::props::{property::CssProperty, style::effects::StyleOpacity};
+
+    use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
+    use crate::callbacks::CallbackInfo;
+
+    pub(super) extern "C" fn default_on_checkbox_clicked(
+        mut check_box: RefAny,
+        mut info: CallbackInfo,
+    ) -> Update {
+        let Some(mut check_box) = check_box.downcast_mut::<CheckBoxStateWrapper>() else {
+            return Update::DoNothing;
+        };
+
+        let Some(checkbox_content_id) = info.get_first_child(info.get_hit_node()) else {
+            return Update::DoNothing;
+        };
+
+        check_box.inner.checked = !check_box.inner.checked;
+
+        let result = {
+            // rustc doesn't understand the borrowing lifetime here
+            let check_box = &mut *check_box;
+            let ontoggle = &mut check_box.on_toggle;
+            let inner = check_box.inner;
+
+            match ontoggle.as_mut() {
+                Some(CheckBoxOnToggle {
+                    callback,
+                    refany: data,
+                }) => (callback.cb)(data.clone(), info, inner),
+                None => Update::DoNothing,
+            }
+        };
+
+        if check_box.inner.checked {
+            info.set_css_property(
+                checkbox_content_id,
+                CssProperty::const_opacity(StyleOpacity::const_new(100)),
+            );
+        } else {
+            info.set_css_property(
+                checkbox_content_id,
+                CssProperty::const_opacity(StyleOpacity::const_new(0)),
+            );
+        }
+
+        result
+    }
+}
+
+impl From<CheckBox> for Dom {
+    fn from(b: CheckBox) -> Self {
+        b.dom()
+    }
+}

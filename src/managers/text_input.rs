@@ -1,0 +1,247 @@
+//! Text Input Manager
+//!
+//! Centralizes all text editing logic for contenteditable nodes.
+//!
+//! This manager handles text input from multiple sources:
+//!
+//! - Keyboard input (character insertion, backspace, etc.)
+//! - IME composition (multi-character input for Asian languages)
+//! - Accessibility actions (screen readers, voice control)
+//! - Programmatic edits (from callbacks)
+//!
+//! ## Architecture
+//!
+//! The text input system uses a two-phase approach:
+//!
+//! 1. **Record Phase**: When text input occurs, record what changed (`old_text` + `inserted_text`)
+//!
+//!    - Store in `pending_changeset`
+//!    - Do NOT modify any caches yet
+//!    - Return affected nodes so callbacks can be invoked
+//!
+//! 2. **Apply Phase**: After callbacks, if preventDefault was not set:
+//!
+//!    - Compute new text using `text3::edit`
+//!    - Update cursor position
+//!    - Update text cache
+//!    - Mark nodes dirty for re-layout
+//!
+//! This separation allows:
+//!
+//! - User callbacks to inspect the changeset before it's applied
+//! - preventDefault to cancel the edit
+//! - Consistent behavior across keyboard/IME/A11y sources
+
+use azul_core::{
+    dom::DomNodeId,
+    events::{
+        EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+        TextInputEventData,
+    },
+    task::Instant,
+};
+use azul_css::corety::AzString;
+
+/// Information about a pending text edit that hasn't been applied yet
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct PendingTextEdit {
+    /// The node that was edited
+    pub node: DomNodeId,
+    /// The text that was inserted
+    pub inserted_text: AzString,
+    /// The old text before the edit (plain text extracted from `InlineContent`)
+    pub old_text: AzString,
+}
+
+impl PendingTextEdit {
+    /// Preview the resulting text by appending `inserted_text` to `old_text`.
+    ///
+    /// NOTE: Actual cursor-based insertion is handled by `apply_text_changeset()`
+    /// in window.rs via `text3::edit::insert_text()`.
+    #[must_use] pub fn resulting_text(&self) -> AzString {
+        let mut result = self.old_text.as_str().to_string();
+        result.push_str(self.inserted_text.as_str());
+        result.into()
+    }
+}
+#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+/// C-compatible Option type for `PendingTextEdit`
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum OptionPendingTextEdit {
+    None,
+    Some(PendingTextEdit),
+}
+
+impl OptionPendingTextEdit {
+    #[must_use] pub fn into_option(self) -> Option<PendingTextEdit> {
+        match self {
+            Self::None => None,
+            Self::Some(t) => Some(t),
+        }
+    }
+}
+
+impl From<Option<PendingTextEdit>> for OptionPendingTextEdit {
+    fn from(o: Option<PendingTextEdit>) -> Self {
+        o.map_or_else(|| Self::None, Self::Some)
+    }
+}
+
+impl<'a> From<Option<&'a PendingTextEdit>> for OptionPendingTextEdit {
+    fn from(o: Option<&'a PendingTextEdit>) -> Self {
+        o.map_or_else(|| Self::None, |v| Self::Some(v.clone()))
+    }
+}
+
+/// Source of a text input event
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextInputSource {
+    /// Regular keyboard input
+    Keyboard,
+    /// IME composition (multi-character input)
+    Ime,
+    /// Accessibility action from assistive technology
+    Accessibility,
+    /// Programmatic edit from user callback
+    Programmatic,
+}
+
+/// Text Input Manager
+///
+/// Centralizes all text editing logic. This is the single source of truth
+/// for text input state.
+#[derive(Debug)]
+pub struct TextInputManager {
+    /// The pending text changeset that hasn't been applied yet.
+    /// This is set during the "record" phase and cleared after the "apply" phase.
+    pub pending_changeset: Option<PendingTextEdit>,
+    /// Source of the current text input
+    pub input_source: Option<TextInputSource>,
+}
+
+impl TextInputManager {
+    /// Create a new `TextInputManager`
+    #[must_use] pub const fn new() -> Self {
+        Self {
+            pending_changeset: None,
+            input_source: None,
+        }
+    }
+
+    /// Record a text input event (Phase 1)
+    ///
+    /// This ONLY records what text was inserted. It does NOT apply the changes yet.
+    /// The changes are applied later in `apply_changeset()` if preventDefault is not set.
+    ///
+    /// # Arguments
+    ///
+    /// - `node` - The DOM node being edited
+    /// - `inserted_text` - The text being inserted
+    /// - `old_text` - The current text before the edit
+    /// - `source` - Where the input came from (keyboard, IME, A11y, etc.)
+    ///
+    /// Returns the affected node for event generation.
+    pub fn record_input(
+        &mut self,
+        node: DomNodeId,
+        inserted_text: String,
+        old_text: String,
+        source: TextInputSource,
+    ) -> DomNodeId {
+        self.pending_changeset = Some(PendingTextEdit {
+            node,
+            inserted_text: inserted_text.into(),
+            old_text: old_text.into(),
+        });
+
+        self.input_source = Some(source);
+
+        node
+    }
+
+    /// Get the pending changeset (if any)
+    #[must_use] pub const fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
+        self.pending_changeset.as_ref()
+    }
+
+    /// Clear the pending changeset
+    ///
+    /// This is called after applying the changeset or if preventDefault was set.
+    pub fn clear_changeset(&mut self) {
+        self.pending_changeset = None;
+        self.input_source = None;
+    }
+}
+
+impl Default for TextInputManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EventProvider for TextInputManager {
+    /// Get pending text input events.
+    ///
+    /// If there's a pending changeset, returns an Input event for the affected node.
+    /// The event data includes the old text and inserted text so callbacks can
+    /// query the changeset.
+    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        let mut events = Vec::new();
+
+        if let Some(changeset) = &self.pending_changeset {
+            let event_source = match self.input_source {
+                Some(TextInputSource::Keyboard | TextInputSource::Ime) => {
+                    CoreEventSource::User
+                }
+                Some(TextInputSource::Accessibility) => CoreEventSource::User, /* A11y is still */
+                // user input
+                Some(TextInputSource::Programmatic) => CoreEventSource::Programmatic,
+                None => CoreEventSource::User,
+            };
+
+            // Generate Input event (fires on every keystroke).
+            // Carry the edit details on the event itself (inserted/old text) so
+            // callbacks read them straight off the event — like other event
+            // types — without having to query `get_pending_changeset()`. The
+            // edited node is available via `SyntheticEvent.target`.
+            events.push(SyntheticEvent::new(
+                EventType::Input,
+                event_source,
+                changeset.node,
+                timestamp,
+                EventData::TextInput(TextInputEventData {
+                    inserted_text: changeset.inserted_text.as_str().to_string(),
+                    old_text: changeset.old_text.as_str().to_string(),
+                }),
+            ));
+
+            // Note: We don't generate Change events here - those are generated
+            // when focus is lost or Enter is pressed (handled elsewhere)
+        }
+
+        events
+    }
+}
+
+impl crate::managers::NodeIdRemap for TextInputManager {
+    /// Remap the pending (recorded, not-yet-applied) text edit.
+    ///
+    /// If the target node was unmounted between "record" and "apply", the
+    /// changeset is dropped: applying it would insert the text into whichever
+    /// node inherited the index.
+    fn remap_node_ids(&mut self, dom: azul_core::dom::DomId, map: &crate::managers::NodeIdMap) {
+        let Some(ref mut pending) = self.pending_changeset else {
+            return;
+        };
+        match map.resolve_dom_node_id(dom, pending.node) {
+            Some(new_id) => pending.node = new_id,
+            None => {
+                self.pending_changeset = None;
+                self.input_source = None;
+            }
+        }
+    }
+}

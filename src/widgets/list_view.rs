@@ -1,0 +1,1880 @@
+//! Native list view widget with column headers, row selection, and sorting indicators.
+
+use alloc::vec::Vec;
+
+use azul_core::{
+    callbacks::{CoreCallback, CoreCallbackData, Update},
+    dom::{
+        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
+        TabIndex,
+    },
+    geom::{LogicalPosition, LogicalSize},
+    menu::{Menu, OptionMenu},
+    refany::{OptionRefAny, RefAny},
+};
+#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+use azul_css::{
+    corety::OptionUsize,
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_css::css::BoxOrStatic;
+
+use crate::callbacks::{Callback, CallbackInfo};
+
+const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
+const STYLE_BACKGROUND_CONTENT_661302523448178568_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 209,
+        g: 232,
+        b: 255,
+        a: 255,
+    })];
+const STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 252,
+        g: 252,
+        b: 252,
+        a: 255,
+    })];
+const STYLE_BACKGROUND_CONTENT_3010057533077499049_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 229,
+        g: 243,
+        b: 251,
+        a: 255,
+    })];
+const STYLE_BACKGROUND_CONTENT_3839348353894170136_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 249,
+        g: 250,
+        b: 251,
+        a: 255,
+    })];
+const STYLE_BACKGROUND_CONTENT_6112684430356720596_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(
+            LINEAR_COLOR_STOP_10827796861537038040_ITEMS,
+        ),
+    })];
+const STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(
+            LINEAR_COLOR_STOP_513857305091467054_ITEMS,
+        ),
+    })];
+const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 240,
+        g: 240,
+        b: 240,
+        a: 255,
+    })];
+const STYLE_BACKGROUND_CONTENT_11098930083828139815_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 184,
+        g: 224,
+        b: 243,
+        a: 255,
+    })];
+const STYLE_TRANSFORM_6162542744002865382_ITEMS: &[StyleTransform] =
+    &[StyleTransform::Translate(StyleTransformTranslate2D {
+        x: PixelValue::const_px(7),
+        y: PixelValue::const_px(0),
+    })];
+const STYLE_TRANSFORM_16978981723642914576_ITEMS: &[StyleTransform] =
+    &[StyleTransform::Rotate(AngleValue::const_deg(45))];
+const STYLE_TRANSFORM_17732691695785266054_ITEMS: &[StyleTransform] = &[
+    StyleTransform::Rotate(AngleValue::const_deg(315)),
+    StyleTransform::Translate(StyleTransformTranslate2D {
+        x: PixelValue::const_px(0),
+        y: PixelValue::const_px(2),
+    }),
+];
+const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
+    &[StyleFontFamily::System(STRING_16146701490593874959)];
+const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorOrSystem::color(ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        }),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(50),
+        color: ColorOrSystem::color(ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        }),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(51),
+        color: ColorOrSystem::color(ColorU {
+            r: 247,
+            g: 248,
+            b: 250,
+            a: 255,
+        }),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorOrSystem::color(ColorU {
+            r: 243,
+            g: 244,
+            b: 246,
+            a: 255,
+        }),
+    },
+];
+const LINEAR_COLOR_STOP_10827796861537038040_ITEMS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorOrSystem::color(ColorU {
+            r: 247,
+            g: 252,
+            b: 254,
+            a: 255,
+        }),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(50),
+        color: ColorOrSystem::color(ColorU {
+            r: 247,
+            g: 252,
+            b: 254,
+            a: 255,
+        }),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(51),
+        color: ColorOrSystem::color(ColorU {
+            r: 232,
+            g: 246,
+            b: 254,
+            a: 255,
+        }),
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorOrSystem::color(ColorU {
+            r: 206,
+            g: 231,
+            b: 244,
+            a: 255,
+        }),
+    },
+];
+
+const CSS_MATCH_1085706216385961159_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header-arrow-down
+    CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
+        StyleTransformVec::from_const_slice(STYLE_TRANSFORM_6162542744002865382_ITEMS),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
+        LayoutPosition::Absolute,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+        LayoutPaddingRight {
+            inner: PixelValue::const_px(3),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+        LayoutPaddingLeft {
+            inner: PixelValue::const_px(3),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+        LayoutPaddingBottom {
+            inner: PixelValue::const_px(3),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+        LayoutPaddingTop {
+            inner: PixelValue::const_px(3),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::JustifyContent(
+        LayoutJustifyContentValue::Exact(LayoutJustifyContent::Center),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Row,
+    ))),
+];
+const CSS_MATCH_1085706216385961159: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_1085706216385961159_PROPERTIES);
+
+const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header-item:hover
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 154,
+                g: 223,
+                b: 254,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_6112684430356720596_ITEMS,
+        )),
+    )),
+    // .__azul_native-list-header-item:active
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            color: ColorU {
+                r: 206,
+                g: 231,
+                b: 244,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(5),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            color: ColorU {
+                r: 206,
+                g: 231,
+                b: 244,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(5),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            color: ColorU {
+                r: 206,
+                g: 231,
+                b: 244,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(5),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            color: ColorU {
+                r: 206,
+                g: 231,
+                b: 244,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(5),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+    CssPropertyWithConditions::on_active(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 194,
+                g: 205,
+                b: 219,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: ColorU {
+                r: 194,
+                g: 205,
+                b: 219,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 194,
+                g: 205,
+                b: 219,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: ColorU {
+                r: 194,
+                g: 205,
+                b: 219,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_active(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_3839348353894170136_ITEMS,
+        )),
+    )),
+    // .__azul_native-list-header-item
+    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
+        LayoutPosition::Relative,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+        LayoutPaddingLeft {
+            inner: PixelValue::const_px(7),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
+        LayoutMinWidth {
+            inner: PixelValue::const_px(100),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Column,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 243,
+                g: 244,
+                b: 246,
+                a: 255,
+            },
+        }),
+    )),
+];
+const CSS_MATCH_12498280255863106397: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_12498280255863106397_PROPERTIES);
+
+const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-rows-row-cell
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+        LayoutPaddingLeft {
+            inner: PixelValue::const_px(7),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
+        LayoutMinWidth {
+            inner: PixelValue::const_px(100),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
+        StyleFontSize {
+            inner: PixelValue::const_px(11),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
+        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
+    ))),
+];
+const CSS_MATCH_12980082330151137475: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_12980082330151137475_PROPERTIES);
+
+const CSS_MATCH_13758717721055992976_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header-arrow-down-inner
+    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(6)),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
+        StyleTransformVec::from_const_slice(STYLE_TRANSFORM_16978981723642914576_ITEMS),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
+        LayoutOverflow::Hidden,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
+        LayoutOverflow::Hidden,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+        LayoutHeight::Px(PixelValue::const_px(6)),
+    ))),
+];
+const CSS_MATCH_13758717721055992976: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_13758717721055992976_PROPERTIES);
+
+const CSS_MATCH_15295293133676720691_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header-dragwidth-drag
+    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(2)),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
+        LayoutPosition::Absolute,
+    ))),
+];
+const CSS_MATCH_15295293133676720691: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15295293133676720691_PROPERTIES);
+
+const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+        LayoutHeight::Px(PixelValue::const_px(25)),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Row,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS,
+        )),
+    )),
+];
+const CSS_MATCH_15315949193378715186: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15315949193378715186_PROPERTIES);
+
+const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header .__azul_native-list-header-item p
+    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
+        StyleFontSize {
+            inner: PixelValue::const_px(11),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
+        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+        LayoutFlexGrow {
+            inner: FloatValue::const_new(1),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Column,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::TextColor(StyleTextColorValue::Exact(
+        StyleTextColor {
+            inner: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
+        LayoutAlignItems::Center,
+    ))),
+];
+const CSS_MATCH_15673486787900743642: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15673486787900743642_PROPERTIES);
+
+const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header-arrow-down-inner-deco
+    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(12)),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
+        StyleTransformVec::from_const_slice(STYLE_TRANSFORM_17732691695785266054_ITEMS),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+        LayoutHeight::Px(PixelValue::const_px(12)),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            color: ColorU {
+                r: 60,
+                g: 94,
+                b: 114,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(10),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            color: ColorU {
+                r: 60,
+                g: 94,
+                b: 114,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(10),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            color: ColorU {
+                r: 60,
+                g: 94,
+                b: 114,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(10),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+        StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(3),
+            },
+            color: ColorU {
+                r: 60,
+                g: 94,
+                b: 114,
+                a: 255,
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(10),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Inset,
+        },
+    )))),
+];
+const CSS_MATCH_1574792189506859253: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_1574792189506859253_PROPERTIES);
+
+const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native_list-container
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+        LayoutFlexGrow {
+            inner: FloatValue::const_new(1),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS,
+        )),
+    )),
+];
+const CSS_MATCH_17553577885456905601: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17553577885456905601_PROPERTIES);
+
+const CSS_MATCH_2883986488332352590_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // body
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+        LayoutPaddingRight {
+            inner: PixelValue::const_px(5),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+        LayoutPaddingLeft {
+            inner: PixelValue::const_px(5),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+        LayoutPaddingBottom {
+            inner: PixelValue::const_px(5),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+        LayoutPaddingTop {
+            inner: PixelValue::const_px(5),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS,
+        )),
+    )),
+];
+const CSS_MATCH_2883986488332352590: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_2883986488332352590_PROPERTIES);
+
+const CSS_MATCH_4852927511892172364_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-rows
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Column,
+    ))),
+];
+const CSS_MATCH_4852927511892172364: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4852927511892172364_PROPERTIES);
+
+const CSS_MATCH_6002662151290653203_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-header-dragwidth
+    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(0)),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
+        LayoutPosition::Relative,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+        LayoutFlexGrow {
+            inner: FloatValue::const_new(1),
+        },
+    ))),
+];
+const CSS_MATCH_6002662151290653203: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6002662151290653203_PROPERTIES);
+
+const CSS_MATCH_6827198030119836081_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-rows-row.selected
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 102,
+                g: 167,
+                b: 232,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: ColorU {
+                r: 102,
+                g: 167,
+                b: 232,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 102,
+                g: 167,
+                b: 232,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: ColorU {
+                r: 102,
+                g: 167,
+                b: 232,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_661302523448178568_ITEMS,
+        )),
+    )),
+    // .__azul_native-list-rows-row:hover
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_3010057533077499049_ITEMS,
+        )),
+    )),
+    // .__azul_native-list-rows-row
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+        LayoutPaddingRight {
+            inner: PixelValue::const_px(0),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+        LayoutPaddingLeft {
+            inner: PixelValue::const_px(0),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+        LayoutPaddingBottom {
+            inner: PixelValue::const_px(2),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+        LayoutPaddingTop {
+            inner: PixelValue::const_px(2),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+        LayoutFlexGrow {
+            inner: FloatValue::const_new(1),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Row,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+];
+const CSS_MATCH_6827198030119836081: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6827198030119836081_PROPERTIES);
+
+const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // .__azul_native-list-rows-row.focused
+    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 38,
+                g: 160,
+                b: 218,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: ColorU {
+                r: 38,
+                g: 160,
+                b: 218,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 38,
+                g: 160,
+                b: 218,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: ColorU {
+                r: 38,
+                g: 160,
+                b: 218,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_11098930083828139815_ITEMS,
+        )),
+    )),
+    // .__azul_native-list-rows-row:hover
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: ColorU {
+                r: 101,
+                g: 181,
+                b: 220,
+                a: 255,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_3010057533077499049_ITEMS,
+        )),
+    )),
+    // .__azul_native-list-rows-row
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+        LayoutPaddingRight {
+            inner: PixelValue::const_px(0),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+        LayoutPaddingLeft {
+            inner: PixelValue::const_px(0),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+        LayoutPaddingBottom {
+            inner: PixelValue::const_px(2),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+        LayoutPaddingTop {
+            inner: PixelValue::const_px(2),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+        LayoutFlexGrow {
+            inner: FloatValue::const_new(1),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Row,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
+        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
+        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
+        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
+        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+            inner: PixelValue::const_px(1),
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
+        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
+        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
+        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
+        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
+        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
+        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
+        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
+        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+            inner: ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0,
+            },
+        }),
+    )),
+];
+const CSS_MATCH_7894335449545988724: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7894335449545988724_PROPERTIES);
+
+const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul_native-list-rows-row",
+))];
+const ROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605);
+
+const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul_native-list-rows-row-cell",
+))];
+const CELL_CLASS: IdOrClassVec =
+    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699);
+
+const IDS_AND_CLASSES_6012478019077291002: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul_native-list-rows"))];
+const ROW_CONTAINER_CLASS: IdOrClassVec =
+    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6012478019077291002);
+
+const IDS_AND_CLASSES_10742579426112804392: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul_native-list-header"))];
+const HEADER_CONTAINER_CLASS: IdOrClassVec =
+    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10742579426112804392);
+
+const IDS_AND_CLASSES_9205819539370539587: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul_native_list-container",
+))];
+const LIST_VIEW_CONTAINER_CLASS: IdOrClassVec =
+    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9205819539370539587);
+
+const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul_native-list-header-item",
+))];
+const COLUMN_NAME_CLASS: IdOrClassVec =
+    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422);
+
+pub type ListViewOnLazyLoadScrollCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, ListViewState) -> Update;
+impl_widget_callback!(
+    ListViewOnLazyLoadScroll,
+    OptionListViewOnLazyLoadScroll,
+    ListViewOnLazyLoadScrollCallback,
+    ListViewOnLazyLoadScrollCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        ListViewOnLazyLoadScrollCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: LIST_VIEW_ON_LAZY_LOAD_SCROLL_INVOKER,
+    invoker_ty:     AzListViewOnLazyLoadScrollCallbackInvoker,
+    thunk_fn:       az_list_view_on_lazy_load_scroll_callback_thunk,
+    setter_fn:      AzApp_setListViewOnLazyLoadScrollCallbackInvoker,
+    from_handle_fn: AzListViewOnLazyLoadScrollCallback_createFromHostHandle,
+    extra_args:     [ state: ListViewState ],
+}
+
+pub type ListViewOnColumnClickCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, ListViewState, column_clicked: usize) -> Update;
+impl_widget_callback!(
+    ListViewOnColumnClick,
+    OptionListViewOnColumnClick,
+    ListViewOnColumnClickCallback,
+    ListViewOnColumnClickCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        ListViewOnColumnClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: LIST_VIEW_ON_COLUMN_CLICK_INVOKER,
+    invoker_ty:     AzListViewOnColumnClickCallbackInvoker,
+    thunk_fn:       az_list_view_on_column_click_callback_thunk,
+    setter_fn:      AzApp_setListViewOnColumnClickCallbackInvoker,
+    from_handle_fn: AzListViewOnColumnClickCallback_createFromHostHandle,
+    extra_args:     [ state: ListViewState, column_clicked: usize ],
+}
+
+pub type ListViewOnRowClickCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, ListViewState, row_clicked: usize) -> Update;
+impl_widget_callback!(
+    ListViewOnRowClick,
+    OptionListViewOnRowClick,
+    ListViewOnRowClickCallback,
+    ListViewOnRowClickCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        ListViewOnRowClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: LIST_VIEW_ON_ROW_CLICK_INVOKER,
+    invoker_ty:     AzListViewOnRowClickCallbackInvoker,
+    thunk_fn:       az_list_view_on_row_click_callback_thunk,
+    setter_fn:      AzApp_setListViewOnRowClickCallbackInvoker,
+    from_handle_fn: AzListViewOnRowClickCallback_createFromHostHandle,
+    extra_args:     [ state: ListViewState, row_clicked: usize ],
+}
+
+/// State of the `ListView`, but without row data
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ListViewState {
+    /// Copy of the current column names
+    pub columns: StringVec,
+    /// Which column the rows are currently sorted by
+    pub sorted_by: OptionUsize,
+    /// Row count of rows currently loaded in the DOM
+    pub current_row_count: usize,
+    /// Y-offset currently applied to the rows
+    pub scroll_offset: PixelValueNoPercent,
+    /// Current position where the user has scrolled the `ListView` to
+    pub current_scroll_position: LogicalPosition,
+    /// Current height of the row container
+    pub current_content_height: LogicalSize,
+}
+
+/// List view, optionally able to lazy-load data
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ListView {
+    /// Column names
+    pub columns: StringVec,
+    /// Currently rendered rows. Note that the `ListView` does not
+    /// have to render all rows at once, usually you'd only render
+    /// the top 100 rows
+    pub rows: ListViewRowVec,
+    /// Which column is the list view sorted by (default = None)?
+    pub sorted_by: OptionUsize,
+    /// Offset to add to the rows used when layouting row positions
+    /// during lazy-loaded scrolling. Also affects the scroll position
+    pub scroll_offset: PixelValueNoPercent,
+    /// Height of the content, if not all rows are loaded
+    pub content_height: OptionPixelValueNoPercent,
+    /// Context menu for the columns (usually opens a context menu
+    /// to select which columns to show)
+    pub column_context_menu: OptionMenu,
+    /// Indicates that this `ListView` is being lazily loaded, allows
+    /// control over what happens when the user scrolls the `ListView`.
+    pub on_lazy_load_scroll: OptionListViewOnLazyLoadScroll,
+    /// What to do when the user left-clicks the column
+    /// (usually used for storing which column to sort by)
+    pub on_column_click: OptionListViewOnColumnClick,
+    /// What to do when the user left-clicks a row
+    /// (usually used for selecting the row depending on the state)
+    pub on_row_click: OptionListViewOnRowClick,
+}
+
+impl Default for ListView {
+    fn default() -> Self {
+        Self {
+            columns: StringVec::from_const_slice(&[]),
+            rows: ListViewRowVec::from_const_slice(&[]),
+            sorted_by: None.into(),
+            scroll_offset: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            content_height: None.into(),
+            column_context_menu: None.into(),
+            on_lazy_load_scroll: None.into(),
+            on_column_click: None.into(),
+            on_row_click: None.into(),
+        }
+    }
+}
+
+/// Row of the `ListView`
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ListViewRow {
+    /// Each cell is an opaque Dom object
+    pub cells: DomVec,
+    /// Height of the row, if known beforehand
+    pub height: OptionPixelValueNoPercent,
+}
+
+impl_option!(ListViewRow, OptionListViewRow, copy = false, [Debug, Clone]);
+impl_vec!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor, ListViewRowVecDestructorType, ListViewRowVecSlice, OptionListViewRow);
+impl_vec_clone!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor);
+impl_vec_mut!(ListViewRow, ListViewRowVec);
+impl_vec_debug!(ListViewRow, ListViewRowVec);
+
+impl ListView {
+    #[must_use] pub fn create(columns: StringVec) -> Self {
+        Self {
+            columns,
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut m = Self::default();
+        core::mem::swap(&mut m, self);
+        m
+    }
+
+    #[must_use] pub fn with_columns(mut self, columns: StringVec) -> Self {
+        self.set_columns(columns);
+        self
+    }
+
+    pub fn set_columns(&mut self, columns: StringVec) {
+        self.columns = columns;
+    }
+
+    #[must_use] pub fn with_rows(mut self, rows: ListViewRowVec) -> Self {
+        self.set_rows(rows);
+        self
+    }
+
+    pub fn set_rows(&mut self, rows: ListViewRowVec) {
+        self.rows = rows;
+    }
+
+    /// The half-open range `[first, last)` of row indices visible in a
+    /// vertically-scrolled, fixed-row-height list — the windowing core for
+    /// virtualizing a long `ListView` (render only these rows instead of all of
+    /// them, the way the `MapWidget`'s `VirtualView` renders only visible tiles).
+    /// `scroll_y` is pixels scrolled past the top, `viewport_height` the visible
+    /// height; one extra row is included so a row straddling the bottom edge
+    /// still renders. Returns `(0, 0)` for degenerate input (no rows, a
+    /// non-positive/non-finite height, or non-finite scroll), and an empty range
+    /// `(total, total)` once scrolled past the end.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+    #[must_use] pub fn visible_row_range(
+        scroll_y: f32,
+        viewport_height: f32,
+        row_height: f32,
+        total_rows: usize,
+    ) -> (usize, usize) {
+        if total_rows == 0
+            || !row_height.is_finite()
+            || row_height <= 0.0
+            || !viewport_height.is_finite()
+            || viewport_height <= 0.0
+            || !scroll_y.is_finite()
+        {
+            return (0, 0);
+        }
+        let first = (scroll_y.max(0.0) / row_height).floor() as usize;
+        if first >= total_rows {
+            return (total_rows, total_rows);
+        }
+        let visible = (viewport_height / row_height).ceil() as usize + 1;
+        let last = (first + visible).min(total_rows);
+        (first, last)
+    }
+
+    #[must_use] pub const fn with_sorted_by(mut self, sorted_by: OptionUsize) -> Self {
+        self.set_sorted_by(sorted_by);
+        self
+    }
+
+    pub const fn set_sorted_by(&mut self, sorted_by: OptionUsize) {
+        self.sorted_by = sorted_by;
+    }
+
+    #[must_use] pub const fn with_scroll_offset(mut self, scroll_offset: PixelValueNoPercent) -> Self {
+        self.set_scroll_offset(scroll_offset);
+        self
+    }
+
+    pub const fn set_scroll_offset(&mut self, scroll_offset: PixelValueNoPercent) {
+        self.scroll_offset = scroll_offset;
+    }
+
+    #[must_use] pub fn with_content_height(mut self, content_height: PixelValueNoPercent) -> Self {
+        self.set_content_height(content_height);
+        self
+    }
+
+    pub fn set_content_height(&mut self, content_height: PixelValueNoPercent) {
+        self.content_height = Some(content_height).into();
+    }
+
+    #[must_use] pub fn with_column_context_menu(mut self, context_menu: Menu) -> Self {
+        self.set_column_context_menu(context_menu);
+        self
+    }
+
+    pub fn set_column_context_menu(&mut self, column_context_menu: Menu) {
+        self.column_context_menu = Some(column_context_menu).into();
+    }
+
+    #[must_use]
+    pub fn with_on_column_click<C: Into<ListViewOnColumnClickCallback>>(
+        mut self,
+        refany: RefAny,
+        on_column_click: C,
+    ) -> Self {
+        self.set_on_column_click(refany, on_column_click);
+        self
+    }
+
+    pub fn set_on_column_click<C: Into<ListViewOnColumnClickCallback>>(
+        &mut self,
+        refany: RefAny,
+        on_column_click: C,
+    ) {
+        self.on_column_click = Some(ListViewOnColumnClick {
+            refany,
+            callback: on_column_click.into(),
+        })
+        .into();
+    }
+
+    #[must_use]
+    pub fn with_on_row_click<C: Into<ListViewOnRowClickCallback>>(
+        mut self,
+        refany: RefAny,
+        on_row_click: C,
+    ) -> Self {
+        self.set_on_row_click(refany, on_row_click);
+        self
+    }
+
+    pub fn set_on_row_click<C: Into<ListViewOnRowClickCallback>>(
+        &mut self,
+        refany: RefAny,
+        on_row_click: C,
+    ) {
+        self.on_row_click = Some(ListViewOnRowClick {
+            refany,
+            callback: on_row_click.into(),
+        })
+        .into();
+    }
+
+    #[must_use] pub fn dom(self) -> Dom {
+        // Snapshot the state handed to row/column click callbacks. Runtime-only
+        // fields (scroll position / content height) aren't known at build time,
+        // so they default to zero; columns/sorted_by/row-count/scroll-offset are.
+        let state = ListViewState {
+            columns: self.columns.clone(),
+            sorted_by: self.sorted_by,
+            current_row_count: self.rows.as_ref().len(),
+            scroll_offset: self.scroll_offset,
+            current_scroll_position: LogicalPosition::zero(),
+            current_content_height: LogicalSize::zero(),
+        };
+        let on_column_click = self.on_column_click.clone();
+        let on_row_click = self.on_row_click.clone();
+
+        Dom::create_div()
+            .with_css_props(CSS_MATCH_17553577885456905601)
+            .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS)
+            .with_children(DomVec::from_vec(vec![
+                // header
+                Dom::create_div()
+                    .with_css_props(CSS_MATCH_15315949193378715186)
+                    .with_ids_and_classes(HEADER_CONTAINER_CLASS)
+                    .with_children(
+                        self.columns
+                            .iter()
+                            .enumerate()
+                            .map(|(col_index, col)| {
+                                let col_dom = Dom::create_div()
+                                    .with_css_props(CSS_MATCH_12498280255863106397)
+                                    .with_ids_and_classes(COLUMN_NAME_CLASS)
+                                    .with_child({
+                                        Dom::create_text(col.clone())
+                                            .with_css_props(CSS_MATCH_15673486787900743642)
+                                    });
+                                // Wire the click only when the app set a handler.
+                                match &on_column_click {
+                                    OptionListViewOnColumnClick::Some(_) => col_dom.with_callbacks(
+                                        vec![CoreCallbackData {
+                                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                            refany: RefAny::new(ColumnClickData {
+                                                col_index,
+                                                state: state.clone(),
+                                                on_column_click: on_column_click.clone(),
+                                            }),
+                                            callback: CoreCallback {
+                                                cb: on_list_view_column_click as usize,
+                                                ctx: OptionRefAny::None,
+                                            },
+                                        }]
+                                        .into(),
+                                    ),
+                                    OptionListViewOnColumnClick::None => col_dom,
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .into(),
+                    ),
+                // rows
+                Dom::create_div()
+                    .with_css_props(CSS_MATCH_4852927511892172364)
+                    .with_ids_and_classes(ROW_CONTAINER_CLASS)
+                    .with_children(
+                        self.rows
+                            .into_iter()
+                            .enumerate()
+                            .map(|(row_index, row)| {
+                                let row_dom = Dom::create_div()
+                                    .with_css_props(CSS_MATCH_7894335449545988724)
+                                    .with_ids_and_classes(ROW_CLASS)
+                                    .with_tab_index(TabIndex::Auto)
+                                    .with_children(
+                                        row.cells
+                                            .as_ref()
+                                            .iter()
+                                            .map(|cell| {
+                                                Dom::create_div()
+                                                    .with_css_props(CSS_MATCH_12980082330151137475)
+                                                    .with_ids_and_classes(CELL_CLASS)
+                                                    .with_child(cell.clone())
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .into(),
+                                    );
+                                match &on_row_click {
+                                    OptionListViewOnRowClick::Some(_) => row_dom.with_callbacks(
+                                        vec![CoreCallbackData {
+                                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                            refany: RefAny::new(RowClickData {
+                                                row_index,
+                                                state: state.clone(),
+                                                on_row_click: on_row_click.clone(),
+                                            }),
+                                            callback: CoreCallback {
+                                                cb: on_list_view_row_click as usize,
+                                                ctx: OptionRefAny::None,
+                                            },
+                                        }]
+                                        .into(),
+                                    ),
+                                    OptionListViewOnRowClick::None => row_dom,
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .into(),
+                    ),
+            ]))
+    }
+}
+
+/// Per-row data carried to the internal `MouseUp` handler (the row index plus a
+/// snapshot of the list state and the app's `on_row_click` hook).
+struct RowClickData {
+    row_index: usize,
+    state: ListViewState,
+    on_row_click: OptionListViewOnRowClick,
+}
+
+/// Per-column equivalent of [`RowClickData`].
+struct ColumnClickData {
+    col_index: usize,
+    state: ListViewState,
+    on_column_click: OptionListViewOnColumnClick,
+}
+
+/// `MouseUp` on a row → invoke the app's `on_row_click(state, row_index)`.
+extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let Some(data) = refany.downcast_ref::<RowClickData>() else {
+        return Update::DoNothing;
+    };
+    match data.on_row_click.as_ref() {
+        Some(ListViewOnRowClick { refany: user_data, callback }) => {
+            (callback.cb)(user_data.clone(), info, data.state.clone(), data.row_index)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// `MouseUp` on a column header → invoke the app's `on_column_click(state, col_index)`.
+extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let Some(data) = refany.downcast_ref::<ColumnClickData>() else {
+        return Update::DoNothing;
+    };
+    match data.on_column_click.as_ref() {
+        Some(ListViewOnColumnClick { refany: user_data, callback }) => {
+            (callback.cb)(user_data.clone(), info, data.state.clone(), data.col_index)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+#[cfg(test)]
+mod list_view_click_tests {
+    use super::*;
+
+    /// The windowing core for `ListView` virtualization: only the visible rows
+    /// (+1 straddling the bottom) are in range, the range tracks scroll, clamps
+    /// to the row count, and degenerate input yields an empty range.
+    #[test]
+    fn visible_row_range_windows_correctly() {
+        // 100 rows x 20px, 200px viewport → 10 full rows + 1 partial.
+        assert_eq!(ListView::visible_row_range(0.0, 200.0, 20.0, 100), (0, 11));
+        // Scrolled 50px → first row = floor(50/20) = 2.
+        assert_eq!(ListView::visible_row_range(50.0, 200.0, 20.0, 100), (2, 13));
+        // Near the end → clamped to the row count.
+        assert_eq!(ListView::visible_row_range(1900.0, 200.0, 20.0, 100), (95, 100));
+        // Scrolled past the end → empty range at the tail.
+        assert_eq!(ListView::visible_row_range(5000.0, 200.0, 20.0, 100), (100, 100));
+        // Degenerate inputs → empty.
+        assert_eq!(ListView::visible_row_range(0.0, 200.0, 20.0, 0), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, 200.0, 0.0, 100), (0, 0));
+        assert_eq!(ListView::visible_row_range(f32::NAN, 200.0, 20.0, 100), (0, 0));
+    }
+
+    extern "C" fn noop_row(_: RefAny, _: CallbackInfo, _: ListViewState, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    fn empty_row() -> ListViewRow {
+        ListViewRow {
+            cells: DomVec::from_const_slice(&[]),
+            height: None.into(),
+        }
+    }
+
+    /// Rows must carry a click callback exactly when `on_row_click` is set —
+    /// previously `dom()` wired nothing, so the hook was dead.
+    #[test]
+    #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
+    fn rows_get_a_click_callback_only_when_on_row_click_is_set() {
+        let mut lv = ListView::default();
+        lv.rows = ListViewRowVec::from_vec(vec![empty_row(), empty_row()]);
+        let on_row_click: ListViewOnRowClickCallbackType = noop_row;
+        lv.set_on_row_click(RefAny::new(()), on_row_click);
+        let dom = lv.dom();
+        // children = [header, rows]; each row div carries the MouseUp callback.
+        let rows = dom.children.as_ref()[1].children.as_ref();
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            assert_eq!(
+                row.root.callbacks.as_ref().len(),
+                1,
+                "row must carry the click callback when on_row_click is set"
+            );
+        }
+
+        // Without the hook → no callbacks (opt-in, no wasted dispatch).
+        let mut bare = ListView::default();
+        bare.rows = ListViewRowVec::from_vec(vec![empty_row()]);
+        let dom2 = bare.dom();
+        let rows2 = dom2.children.as_ref()[1].children.as_ref();
+        assert_eq!(rows2.len(), 1);
+        assert!(
+            rows2[0].root.callbacks.as_ref().is_empty(),
+            "no callback when on_row_click is unset"
+        );
+    }
+}

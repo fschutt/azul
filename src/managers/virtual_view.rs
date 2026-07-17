@@ -1,0 +1,473 @@
+//! `VirtualView` lifecycle management for layout
+//!
+//! This module provides:
+//! - `VirtualView` re-invocation logic for lazy loading
+//! - Nested DOM ID management
+
+use alloc::collections::BTreeMap;
+
+use azul_core::{
+    callbacks::{EdgeType, VirtualViewCallbackReason},
+    dom::{DomId, NodeId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+};
+
+use crate::managers::scroll_state::ScrollManager;
+
+/// Distance in pixels from edge that triggers edge-scrolled callback
+const EDGE_THRESHOLD: f32 = 200.0;
+
+/// Manages `VirtualView` lifecycle, including re-invocation
+///
+/// Tracks which `VirtualViews` have been invoked, assigns unique DOM IDs to nested
+/// virtual views, and determines when `VirtualViews` need to be re-invoked (e.g., when
+/// the container bounds expand or the user scrolls near an edge).
+#[derive(Debug, Clone, Default)]
+pub struct VirtualViewManager {
+    /// Per-VirtualView state keyed by (parent `DomId`, `NodeId` of virtualized view element)
+    states: BTreeMap<(DomId, NodeId), VirtualViewState>,
+    /// Counter for generating unique nested DOM IDs
+    next_dom_id: usize,
+    /// MWA-C-virtual_view: queue-time callback reasons, consumed by the very
+    /// next `check_reinvoke` for the same view (set by
+    /// `process_virtual_view_updates` right before the invoke). Replaces the
+    /// `force_reinvoke` clear-flag trick that collapsed every delivered
+    /// reason to `InitialRender`.
+    reason_overrides: Vec<((DomId, NodeId), VirtualViewCallbackReason)>,
+}
+
+/// Internal state for a single `VirtualView` instance
+///
+/// Tracks invocation status, content dimensions, and edge triggers
+/// to determine when the `VirtualView` callback needs to be re-invoked.
+#[derive(Debug, Clone)]
+struct VirtualViewState {
+    /// Content size reported by `VirtualView` callback (actual rendered size)
+    virtual_view_scroll_size: Option<LogicalSize>,
+    /// Virtual scroll size for infinite scroll scenarios
+    virtual_view_virtual_scroll_size: Option<LogicalSize>,
+    /// Whether the `VirtualView` has ever been invoked
+    virtual_view_was_invoked: bool,
+    /// Whether invoked for current container expansion
+    invoked_for_current_expansion: bool,
+    /// Whether invoked for current edge scroll event
+    invoked_for_current_edge: bool,
+    /// Which edges have already triggered callbacks
+    last_edge_triggered: EdgeFlags,
+    /// Unique DOM ID assigned to this `VirtualView`'s content
+    nested_dom_id: DomId,
+    /// Last known layout bounds of the `VirtualView` container
+    last_bounds: LogicalRect,
+    /// Scroll offset captured at `InitialRender`. Edge-scroll callbacks only fire
+    /// once the user has scrolled away from this resting position — being at an
+    /// edge from the very start (e.g. the top/left edge at offset 0) is the
+    /// initial position, not a scroll-to-edge event.
+    initial_scroll_offset: LogicalPosition,
+}
+
+/// Flags indicating which scroll edges have been triggered
+///
+/// Used to prevent repeated edge-scroll callbacks for the same edge
+/// until the user scrolls away and back.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(clippy::struct_excessive_bools)] // one independent bool per box edge (top/bottom/left/right)
+struct EdgeFlags {
+    /// Near top edge
+    top: bool,
+    /// Near bottom edge
+    bottom: bool,
+    /// Near left edge
+    left: bool,
+    /// Near right edge
+    right: bool,
+}
+
+impl VirtualViewManager {
+    /// Creates a new `VirtualViewManager` with no tracked `VirtualViews`
+    #[must_use] pub fn new() -> Self {
+        Self {
+            next_dom_id: 1, // 0 is root
+            ..Default::default()
+        }
+    }
+
+    /// Number of tracked `VirtualView` states. Used by `AZ_E2E_TEST` to watch growth.
+    #[must_use] pub fn debug_counts(&self) -> usize {
+        self.states.len()
+    }
+
+    /// MWA-C-virtual_view: stage the reason the next invoke of this view
+    /// should deliver to the user callback (consumed by `check_reinvoke`).
+    pub fn set_reason_override(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        reason: VirtualViewCallbackReason,
+    ) {
+        self.reason_overrides
+            .retain(|((d, n), _)| !(*d == dom_id && *n == node_id));
+        self.reason_overrides.push(((dom_id, node_id), reason));
+    }
+
+    /// Gets or creates a unique nested DOM ID for a `VirtualView`
+    ///
+    /// Returns the existing DOM ID if the `VirtualView` was previously registered,
+    /// otherwise allocates a new unique ID and initializes the `VirtualView` state.
+    pub fn get_or_create_nested_dom_id(&mut self, dom_id: DomId, node_id: NodeId) -> DomId {
+        let key = (dom_id, node_id);
+
+        // Check if already exists
+        if let Some(state) = self.states.get(&key) {
+            return state.nested_dom_id;
+        }
+
+        // Create new nested DOM ID
+        let nested_dom_id = DomId {
+            inner: self.next_dom_id,
+        };
+        self.next_dom_id += 1;
+
+        self.states.insert(key, VirtualViewState::new(nested_dom_id));
+        nested_dom_id
+    }
+
+    /// Gets the nested DOM ID for a `VirtualView` if it exists
+    #[must_use] pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {
+        self.states.get(&(dom_id, node_id)).map(|s| s.nested_dom_id)
+    }
+
+    /// Returns whether the `VirtualView` has ever been invoked
+    #[must_use] pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        self.states
+            .get(&(dom_id, node_id))
+            .is_some_and(|s| s.virtual_view_was_invoked)
+    }
+
+    /// Updates the `VirtualView`'s content size information
+    ///
+    /// Called after the `VirtualView` callback returns to record the actual content
+    /// dimensions. If the new size is larger than previously recorded, clears
+    /// the expansion flag to allow `BoundsExpanded` re-invocation.
+    pub fn update_virtual_view_info(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        scroll_size: LogicalSize,
+        virtual_scroll_size: LogicalSize,
+    ) -> Option<()> {
+        let state = self.states.get_mut(&(dom_id, node_id))?;
+
+        // Reset expansion flag if content grew
+        if let Some(old_size) = state.virtual_view_scroll_size {
+            if scroll_size.width > old_size.width || scroll_size.height > old_size.height {
+                state.invoked_for_current_expansion = false;
+            }
+        }
+        state.virtual_view_scroll_size = Some(scroll_size);
+        state.virtual_view_virtual_scroll_size = Some(virtual_scroll_size);
+
+        Some(())
+    }
+
+    /// Marks a `VirtualView` as invoked for a specific reason
+    ///
+    /// Updates internal state flags based on the callback reason to prevent
+    /// duplicate callbacks for the same trigger condition.
+    pub fn mark_invoked(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        reason: VirtualViewCallbackReason,
+    ) -> Option<()> {
+        let state = self.states.get_mut(&(dom_id, node_id))?;
+
+        state.virtual_view_was_invoked = true;
+        match reason {
+            VirtualViewCallbackReason::BoundsExpanded => state.invoked_for_current_expansion = true,
+            VirtualViewCallbackReason::EdgeScrolled(edge) => {
+                state.invoked_for_current_edge = true;
+                state.last_edge_triggered = edge.into();
+            }
+            _ => {}
+        }
+
+        Some(())
+    }
+
+    /// Reset invocation flags for ALL tracked `VirtualViews`
+    ///
+    /// After `layout_results.clear()`, the child DOMs no longer exist in memory.
+    /// This method ensures `check_reinvoke()` returns `InitialRender` for every
+    /// `VirtualView`, so the callbacks re-run and re-populate `layout_results`.
+    ///
+    /// Called from `layout_and_generate_display_list()` after clearing layout results.
+    pub fn reset_all_invocation_flags(&mut self) {
+        for state in self.states.values_mut() {
+            state.virtual_view_was_invoked = false;
+            state.invoked_for_current_expansion = false;
+            state.invoked_for_current_edge = false;
+            state.last_edge_triggered = EdgeFlags::default();
+        }
+    }
+
+    /// Force a `VirtualView` to be re-invoked on the next layout pass
+    ///
+    /// Clears all invocation flags, causing `check_reinvoke()` to return `InitialRender`.
+    /// Used by `trigger_virtual_view_rerender()` to manually refresh `VirtualView` content.
+    pub fn force_reinvoke(&mut self, dom_id: DomId, node_id: NodeId) -> Option<()> {
+        let state = self.states.get_mut(&(dom_id, node_id))?;
+
+        state.virtual_view_was_invoked = false;
+        state.invoked_for_current_expansion = false;
+        state.invoked_for_current_edge = false;
+
+        Some(())
+    }
+
+    /// `(DomId, NodeId)` of every `VirtualView` registered so far (invoked at
+    /// least once). Used to re-invoke *all* views after a shared-dataset change
+    /// arrives out-of-band (e.g. a background tile-fetch writeback) without
+    /// needing to know which node the data belongs to.
+    #[must_use] pub fn all_view_keys(&self) -> Vec<(DomId, NodeId)> {
+        self.states.keys().copied().collect()
+    }
+
+    /// Checks whether a `VirtualView` needs to be re-invoked and returns the reason
+    ///
+    /// Returns `Some(reason)` if the `VirtualView` callback should be invoked:
+    /// - `InitialRender`: `VirtualView` has never been invoked
+    /// - `BoundsExpanded`: Container grew larger than content
+    /// - `EdgeScrolled`: User scrolled near an edge (for lazy loading)
+    ///
+    /// Returns `None` if no re-invocation is needed.
+    pub fn check_reinvoke(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        scroll_manager: &ScrollManager,
+        layout_bounds: LogicalRect,
+    ) -> Option<VirtualViewCallbackReason> {
+        // MWA-C-virtual_view: a staged reason override wins (set by
+        // process_virtual_view_updates immediately before the invoke). The
+        // old force_reinvoke path cleared was_invoked instead, which
+        // collapsed EVERY queued re-invocation to InitialRender at delivery
+        // time — user callbacks could never see EdgeScrolled/BoundsExpanded/
+        // DomRecreated (the latter had zero producers at all).
+        if let Some(pos) = self
+            .reason_overrides
+            .iter()
+            .position(|((d, n), _)| *d == dom_id && *n == node_id)
+        {
+            let (_, reason) = self.reason_overrides.remove(pos);
+            return Some(reason);
+        }
+
+        let state = self.states.entry((dom_id, node_id)).or_insert_with(|| {
+            let nested_dom_id = DomId {
+                inner: self.next_dom_id,
+            };
+            self.next_dom_id += 1;
+            VirtualViewState::new(nested_dom_id)
+        });
+
+        if !state.virtual_view_was_invoked {
+            // Remember where we started, so edge callbacks fire on scroll-to-edge,
+            // not for the edge we happen to rest on at the initial position.
+            state.initial_scroll_offset = scroll_manager
+                .get_current_offset(dom_id, node_id)
+                .unwrap_or_default();
+            return Some(VirtualViewCallbackReason::InitialRender);
+        }
+
+        // Check for bounds expansion
+        if layout_bounds.size.width > state.last_bounds.size.width
+            || layout_bounds.size.height > state.last_bounds.size.height
+        {
+            state.invoked_for_current_expansion = false;
+        }
+        state.last_bounds = layout_bounds;
+
+        let scroll_offset = scroll_manager
+            .get_current_offset(dom_id, node_id)
+            .unwrap_or_default();
+
+        state.check_reinvoke_condition(scroll_offset, layout_bounds.size)
+    }
+
+    /// Returns debug info for all tracked `VirtualViews`
+    ///
+    /// Each entry contains: (`parent_dom_id`, `parent_node_id`, `nested_dom_id`,
+    /// `scroll_size`, `virtual_scroll_size`, `was_invoked`, `last_bounds`)
+    #[must_use] pub fn get_all_virtual_view_infos(&self) -> Vec<VirtualViewDebugInfo> {
+        self.states
+            .iter()
+            .map(|((dom_id, node_id), state)| VirtualViewDebugInfo {
+                parent_dom_id: dom_id.inner,
+                parent_node_id: node_id.index(),
+                nested_dom_id: state.nested_dom_id.inner,
+                scroll_size_width: state.virtual_view_scroll_size.map(|s| s.width),
+                scroll_size_height: state.virtual_view_scroll_size.map(|s| s.height),
+                virtual_scroll_size_width: state.virtual_view_virtual_scroll_size.map(|s| s.width),
+                virtual_scroll_size_height: state.virtual_view_virtual_scroll_size.map(|s| s.height),
+                was_invoked: state.virtual_view_was_invoked,
+                last_bounds_x: state.last_bounds.origin.x,
+                last_bounds_y: state.last_bounds.origin.y,
+                last_bounds_width: state.last_bounds.size.width,
+                last_bounds_height: state.last_bounds.size.height,
+            })
+            .collect()
+    }
+}
+
+/// Debug info for a single `VirtualView`, returned by `get_all_virtual_view_infos`
+#[derive(Copy, Debug, Clone)]
+pub struct VirtualViewDebugInfo {
+    pub parent_dom_id: usize,
+    pub parent_node_id: usize,
+    pub nested_dom_id: usize,
+    pub scroll_size_width: Option<f32>,
+    pub scroll_size_height: Option<f32>,
+    pub virtual_scroll_size_width: Option<f32>,
+    pub virtual_scroll_size_height: Option<f32>,
+    pub was_invoked: bool,
+    pub last_bounds_x: f32,
+    pub last_bounds_y: f32,
+    pub last_bounds_width: f32,
+    pub last_bounds_height: f32,
+}
+
+impl VirtualViewState {
+    /// Creates a new `VirtualViewState` with the given nested DOM ID
+    fn new(nested_dom_id: DomId) -> Self {
+        Self {
+            virtual_view_scroll_size: None,
+            virtual_view_virtual_scroll_size: None,
+            virtual_view_was_invoked: false,
+            invoked_for_current_expansion: false,
+            invoked_for_current_edge: false,
+            last_edge_triggered: EdgeFlags::default(),
+            nested_dom_id,
+            last_bounds: LogicalRect::zero(),
+            initial_scroll_offset: LogicalPosition::zero(),
+        }
+    }
+
+    /// Determines if the `VirtualView` callback should be re-invoked based on
+    /// scroll position
+    ///
+    /// Checks two conditions:
+    /// 1. Container bounds expanded beyond content size
+    /// 2. User scrolled within `EDGE_THRESHOLD` pixels of an edge (for lazy loading)
+    fn check_reinvoke_condition(
+        &self,
+        current_offset: LogicalPosition,
+        container_size: LogicalSize,
+    ) -> Option<VirtualViewCallbackReason> {
+        // Need scroll_size to determine if we can scroll at all
+        let scroll_size = self.virtual_view_scroll_size?;
+
+        // Check 1: Container grew larger than content - need more content
+        if !self.invoked_for_current_expansion
+            && (container_size.width > scroll_size.width
+                || container_size.height > scroll_size.height)
+        {
+            return Some(VirtualViewCallbackReason::BoundsExpanded);
+        }
+
+        // Check 2: Edge-based lazy loading
+        // Determine if scrolling is possible in each direction
+        let scrollable_width = scroll_size.width > container_size.width;
+        let scrollable_height = scroll_size.height > container_size.height;
+
+        // Calculate which edges the user is currently near
+        let current_edges = EdgeFlags {
+            top: scrollable_height && current_offset.y <= EDGE_THRESHOLD,
+            bottom: scrollable_height
+                && (scroll_size.height - container_size.height - current_offset.y)
+                    <= EDGE_THRESHOLD,
+            left: scrollable_width && current_offset.x <= EDGE_THRESHOLD,
+            right: scrollable_width
+                && (scroll_size.width - container_size.width - current_offset.x) <= EDGE_THRESHOLD,
+        };
+
+        // Only treat an edge as "scrolled to" once the user has actually moved
+        // from the resting position captured at InitialRender — sitting at the
+        // initial top/left edge from the start is not an edge-scroll event.
+        let has_scrolled = current_offset != self.initial_scroll_offset;
+
+        // Trigger edge callback if near an edge that hasn't been triggered yet
+        // Prioritize bottom/right edges (common infinite scroll directions)
+        if has_scrolled && !self.invoked_for_current_edge && current_edges.any() {
+            if current_edges.bottom && !self.last_edge_triggered.bottom {
+                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom));
+            }
+            if current_edges.right && !self.last_edge_triggered.right {
+                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right));
+            }
+            if current_edges.top && !self.last_edge_triggered.top {
+                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top));
+            }
+            if current_edges.left && !self.last_edge_triggered.left {
+                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left));
+            }
+        }
+
+        None
+    }
+}
+
+impl EdgeFlags {
+    /// Returns true if any edge flag is set
+    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    const fn any(&self) -> bool {
+        self.top || self.bottom || self.left || self.right
+    }
+}
+
+impl From<EdgeType> for EdgeFlags {
+    fn from(edge: EdgeType) -> Self {
+        match edge {
+            EdgeType::Top => Self {
+                top: true,
+                ..Default::default()
+            },
+            EdgeType::Bottom => Self {
+                bottom: true,
+                ..Default::default()
+            },
+            EdgeType::Left => Self {
+                left: true,
+                ..Default::default()
+            },
+            EdgeType::Right => Self {
+                right: true,
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl crate::managers::NodeIdRemap for VirtualViewManager {
+    /// Remap the `(DomId, NodeId)` keys of every tracked `VirtualView`.
+    ///
+    /// A `VirtualView` whose host node was unmounted has its state dropped —
+    /// including the `nested_dom_id` binding, which would otherwise resurface
+    /// on whatever node inherited the index (rendering the *wrong* nested DOM
+    /// into it) and leak forever.
+    fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        crate::managers::remap_dom_keys(&mut self.states, dom, map);
+
+        self.reason_overrides.retain_mut(|((d, node_id), _)| {
+            if *d != dom {
+                return true;
+            }
+            match map.resolve(*node_id) {
+                Some(new_id) => {
+                    *node_id = new_id;
+                    true
+                }
+                None => false,
+            }
+        });
+    }
+}
