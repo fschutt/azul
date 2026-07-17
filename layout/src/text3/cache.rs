@@ -10588,7 +10588,7 @@ fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment> {
     if segments.len() <= 1 {
         return segments;
     }
-    segments.sort_by(|a, b| a.start_x.partial_cmp(&b.start_x).unwrap());
+    segments.sort_by(|a, b| a.start_x.partial_cmp(&b.start_x).unwrap_or(Ordering::Equal));
     let mut merged = vec![segments[0]];
     for next_seg in segments.iter().skip(1) {
         let last = merged.last_mut().unwrap();
@@ -13461,11 +13461,10 @@ mod autotest_generated {
     }
 
     #[test]
-    #[should_panic]
-    fn merge_segments_panics_on_a_nan_start_x() {
-        // FINDING: `sort_by(|a, b| a.start_x.partial_cmp(&b.start_x).unwrap())` has no
-        // NaN guard, so any NaN coordinate reaching the segment merger aborts layout.
-        // Every other float comparison in this module is NaN-tolerant; this one is not.
+    fn merge_segments_is_nan_tolerant() {
+        // A NaN start_x used to abort layout via `partial_cmp(...).unwrap()`; the
+        // sort now falls back to Equal (like every other float compare in this
+        // module), so the merge completes without panicking.
         let segs = vec![
             LineSegment {
                 start_x: 0.0,
@@ -13478,7 +13477,8 @@ mod autotest_generated {
                 priority: 0,
             },
         ];
-        let _ = merge_segments(segs);
+        let out = merge_segments(segs);
+        assert!(!out.is_empty(), "NaN input must not abort the merge");
     }
 
     #[test]

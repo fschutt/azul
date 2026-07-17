@@ -147,7 +147,11 @@ pub extern "C" fn scroll_physics_timer_callback(
     let friction_rate = friction_from_deceleration(sp.deceleration_rate);
     let velocity_threshold = sp.min_velocity_threshold;
     let wheel_multiplier = sp.wheel_multiplier;
-    let max_velocity = sp.max_velocity;
+    // Sanitize: `.max(0.0)` turns a NaN or negative max_velocity (a plain repr(C)
+    // field with no validation, reachable from a bad SystemStyle) into 0.0, so the
+    // `velocity.clamp(-max_velocity, max_velocity)` below never hits f32::clamp's
+    // `min > max` panic — which in this extern "C" callback would ABORT the process.
+    let max_velocity = sp.max_velocity.max(0.0);
     let overscroll_elasticity = sp.overscroll_elasticity;
     let max_overscroll_distance = sp.max_overscroll_distance;
     let bounce_back_duration_ms = sp.bounce_back_duration_ms;
@@ -1744,40 +1748,36 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // Known hazard — a NaN or negative `max_velocity` panics inside f32::clamp.
-    //
-    // The `WheelDiscrete` branch does `velocity.clamp(-max_velocity, max_velocity)`
-    // and `ScrollPhysics` is a plain `#[repr(C)]` struct with public fields and no
-    // validation, so a bad `SystemStyle` reaches `f32::clamp` with `min > max`.
-    //
-    // These tests reproduce the exact expression the callback evaluates rather
-    // than calling the callback itself: `scroll_physics_timer_callback` is
-    // `extern "C"`, and a panic unwinding out of a C-ABI function ABORTS the
-    // process instead of unwinding, which would take the whole test binary down.
-    // That abort-on-bad-config is precisely why this is worth pinning.
+    // A NaN or negative `max_velocity` (ScrollPhysics is a plain repr(C) struct
+    // with no validation, so a bad SystemStyle can supply one) used to reach
+    // `velocity.clamp(-max_velocity, max_velocity)` with min > max and panic
+    // inside f32::clamp — which, in the extern "C" `scroll_physics_timer_callback`,
+    // ABORTS the process. The branch now sanitizes with `.max(0.0)`; these tests
+    // pin that the sanitized bound yields a safe clamp.
     // ------------------------------------------------------------------
 
     #[test]
-    #[should_panic(expected = "min > max")]
-    fn known_hazard_nan_max_velocity_panics_the_wheel_clamp() {
+    fn nan_max_velocity_is_sanitized_to_a_safe_clamp() {
         let max_velocity = ScrollPhysics {
             max_velocity: f32::NAN,
             ..ScrollPhysics::default()
         }
-        .max_velocity;
-        // Exactly what the WheelDiscrete branch evaluates:
-        let _clamped = (600.0_f32).clamp(-max_velocity, max_velocity);
+        .max_velocity
+        .max(0.0);
+        assert_eq!(max_velocity, 0.0);
+        assert_eq!((600.0_f32).clamp(-max_velocity, max_velocity), 0.0);
     }
 
     #[test]
-    #[should_panic(expected = "min > max")]
-    fn known_hazard_negative_max_velocity_panics_the_wheel_clamp() {
+    fn negative_max_velocity_is_sanitized_to_a_safe_clamp() {
         let max_velocity = ScrollPhysics {
             max_velocity: -1.0,
             ..ScrollPhysics::default()
         }
-        .max_velocity;
-        let _clamped = (600.0_f32).clamp(-max_velocity, max_velocity);
+        .max_velocity
+        .max(0.0);
+        assert_eq!(max_velocity, 0.0);
+        assert_eq!((600.0_f32).clamp(-max_velocity, max_velocity), 0.0);
     }
 
     #[test]
