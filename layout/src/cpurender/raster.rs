@@ -2242,7 +2242,13 @@ fn render_glyphs_lcd(
         // (scale-then-translate: `TransAffine::multiply` post-concatenates).
         let mut transform = TransAffine::new_scaling(3.0 * path_scale, path_scale);
         transform.multiply(&TransAffine::new_translation(3.0 * f64::from(px), f64::from(py)));
-        ras.add_path_vertices_transformed(cached.path.vertices(), &transform);
+        // ConvTransform over the cached vertices (upstream removed
+        // add_path_vertices_transformed); no clone of the shared PathStorage.
+        let mut src = agg_rust::conv_transform::ConvTransform::new(
+            crate::glyph_cache::SliceVertexSource::new(cached.path.vertices()),
+            transform,
+        );
+        ras.add_path(&mut src, 0);
     }
 
     // Blend via the LCD pixel format. It reports width*3, so the rasterizer's 3×

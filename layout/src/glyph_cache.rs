@@ -9,10 +9,45 @@
 
 use std::collections::HashMap;
 
+use agg_rust::basics::{VertexD, VertexSource, PATH_CMD_STOP};
 use agg_rust::path_storage::PathStorage;
 use agg_rust::rasterizer_cells_aa::CellAa;
 
 use crate::font::parsed::{build_glyph_path, OwnedGlyph, ParsedFont};
+
+/// A `VertexSource` view over an already-built slice of path vertices.
+///
+/// Replaces the upstream-removed `RasterizerScanlineAa::add_path_vertices_transformed`:
+/// wrap this in a `ConvTransform` and feed it to `add_path` to rasterize cached glyph
+/// vertices under a transform WITHOUT cloning the (shared, immutable) `PathStorage`.
+pub(crate) struct SliceVertexSource<'a> {
+    verts: &'a [VertexD],
+    pos: usize,
+}
+
+impl<'a> SliceVertexSource<'a> {
+    pub(crate) fn new(verts: &'a [VertexD]) -> Self {
+        Self { verts, pos: 0 }
+    }
+}
+
+impl VertexSource for SliceVertexSource<'_> {
+    fn rewind(&mut self, _path_id: u32) {
+        self.pos = 0;
+    }
+
+    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
+        match self.verts.get(self.pos) {
+            Some(v) => {
+                self.pos += 1;
+                *x = v.x;
+                *y = v.y;
+                v.cmd
+            }
+            None => PATH_CMD_STOP,
+        }
+    }
+}
 
 /// Cache key for a glyph path.
 /// ppem = 0 means unhinted (font-unit path), ppem > 0 means hinted at that size.
@@ -239,8 +274,13 @@ impl GlyphCache {
                     t
                 };
 
-                let verts = path.vertices();
-                ras.add_path_vertices_transformed(verts, &transform);
+                // Feed the cached glyph vertices through the transform via ConvTransform
+                // (upstream removed add_path_vertices_transformed).
+                let mut src = agg_rust::conv_transform::ConvTransform::new(
+                    SliceVertexSource::new(path.vertices()),
+                    transform,
+                );
+                ras.add_path(&mut src, 0);
                 let cells = ras.outline_cells();
                 if cells.is_empty() { None } else { Some(CachedCells { cells }) }
             });

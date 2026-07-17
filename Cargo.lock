@@ -163,6 +163,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "agg-rust"
+version = "1.0.2"
+source = "git+https://github.com/fschutt/agg-rust?branch=fix%2Fgradient-lut-reaches-endpoint#9cf27ba89983954534c11322664de4b3e10ead85"
+
+[[package]]
 name = "agg-rust-azul"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -864,7 +869,7 @@ name = "azul-layout"
 version = "0.0.10"
 dependencies = [
  "accesskit",
- "agg-rust-azul",
+ "agg-rust",
  "allsorts-azul 0.17.1",
  "azul-core 0.0.9",
  "azul-css 0.0.9",
