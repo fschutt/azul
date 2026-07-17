@@ -560,7 +560,7 @@ mod autotest_generated {
 
     /// Positive control: a real single-face TrueType font (774 glyphs, upem 1000).
     #[cfg(feature = "text_layout")]
-    const KOHO: &[u8] = include_bytes!("../../examples/assets/fonts/KoHo-Light.ttf");
+    const KOHO: &[u8] = include_bytes!("../assets/fonts/test/KoHo-Light.ttf");
 
     #[cfg(feature = "text_layout")]
     fn loaded_source(bytes: Vec<u8>, index: u32) -> azul_core::resources::LoadedFontSource {

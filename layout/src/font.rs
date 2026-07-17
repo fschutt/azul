@@ -2525,7 +2525,7 @@ pub mod parsed {
         /// Positive control: a real, single-face TrueType font.
         /// 14 tables, `glyf` outlines (no CFF), no `vhea`/`vmtx`, upem 1000,
         /// 774 glyphs, GSUB + GPOS present.
-        const KOHO: &[u8] = include_bytes!("../../examples/assets/fonts/KoHo-Light.ttf");
+        const KOHO: &[u8] = include_bytes!("../assets/fonts/test/KoHo-Light.ttf");
 
         fn parse_koho() -> ParsedFont {
             let mut warnings = Vec::new();
