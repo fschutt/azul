@@ -747,7 +747,13 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Link, PT::Display) => Some(&DISPLAY_NONE),
 
         // Special Elements
-        (NT::Br, PT::Display) => Some(&DISPLAY_BLOCK),
+        // <br> is an inline-level element that forces a line break WITHIN the
+        // inline formatting context (HTML §4.5.28). Giving it `display: block`
+        // made `<p>text<br>more</p>` split into three stacked block boxes (an
+        // extra empty <br> box between two anonymous paragraphs), over-advancing
+        // vertically and, inside a table cell, dropping the line after the break.
+        // As inline it is turned into a hard `LineBreak` by the IFC collectors.
+        (NT::Br, PT::Display) => Some(&DISPLAY_INLINE),
         // Images are replaced elements - inline-block so they respect width/height
         (NT::Image(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
 

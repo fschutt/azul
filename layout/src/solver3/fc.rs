@@ -68,7 +68,10 @@ use crate::{
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutDebugMessage, LayoutError, Result,
     },
-    text3::cache::{AvailableSpace as Text3AvailableSpace, TextAlign as Text3TextAlign},
+    text3::cache::{
+        AvailableSpace as Text3AvailableSpace, BreakType, ClearType, InlineBreak,
+        TextAlign as Text3TextAlign,
+    },
 };
 
 /// Default scrollbar width in pixels (CSS `scrollbar-width: auto`).
@@ -6788,6 +6791,18 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 continue;
             }
 
+            // A <br> forces a hard line break inside this IFC (see UA css: <br>
+            // is inline). Without this it would collect as an empty inline span
+            // and never break the line.
+            if matches!(node_data.get_node_type(), NodeType::Br) {
+                content.push(InlineContent::LineBreak(InlineBreak {
+                    break_type: BreakType::Hard,
+                    clear: ClearType::None,
+                    content_index: content.len(),
+                }));
+                continue;
+            }
+
             // Non-text inline child - add as shape for inline-block
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
 
@@ -7207,7 +7222,18 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 }
             }
             current_run_index += 1;
-            
+
+            continue;
+        }
+
+        // A <br> forces a hard line break inside this IFC (see UA css: <br> is
+        // inline). It needs no layout node of its own — just emit the break.
+        if matches!(node_data.get_node_type(), NodeType::Br) {
+            content.push(InlineContent::LineBreak(InlineBreak {
+                break_type: BreakType::Hard,
+                clear: ClearType::None,
+                content_index: content.len(),
+            }));
             continue;
         }
 
@@ -7670,6 +7696,16 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 &Arc::new(span_style.clone()),
             );
             content.extend(text_items);
+            continue;
+        }
+
+        // CASE 1b: <br> inside an inline span forces a hard line break.
+        if matches!(node_data.get_node_type(), NodeType::Br) {
+            content.push(InlineContent::LineBreak(InlineBreak {
+                break_type: BreakType::Hard,
+                clear: ClearType::None,
+                content_index: content.len(),
+            }));
             continue;
         }
 
@@ -8530,8 +8566,6 @@ pub fn split_text_for_whitespace(
     text: &str,
     style: &Arc<StyleProperties>,
 ) -> Vec<InlineContent> {
-    use crate::text3::cache::{BreakType, ClearType, InlineBreak};
-
     // (characters with the Bidi_Control property) as if they were not there"
     // Strip bidi control characters before white-space processing so they don't
     // interfere with collapsing (e.g. a bidi mark between two spaces).
