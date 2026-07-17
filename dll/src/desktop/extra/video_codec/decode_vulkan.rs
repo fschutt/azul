@@ -18,9 +18,10 @@ use azul_core::video::VideoFrame;
 use azul_css::U8Vec;
 use gpu_video::{
     parameters::{
-        ColorRange, ColorSpace, DecoderParameters, VulkanAdapterDescriptor, VulkanDeviceDescriptor,
+        ColorRange, ColorSpace, DecoderParameters, VideoAdapterDescriptor,
+        VideoDeviceDescriptor, VideoInstanceDescriptor,
     },
-    EncodedInputChunk, OutputFrame, RawFrameData, VulkanInstance,
+    EncodedInputChunk, OutputFrame, RawFrameData, VideoInstance,
 };
 
 /// A hardware H.264 decoder backed by Vulkan Video. Feed Annex-B chunks via
@@ -39,14 +40,14 @@ impl VulkanVideoDecoder {
     /// GTX 9xx) expose `VK_KHR_video_decode_h264` but **not** encode, so requiring
     /// both — the descriptor default — would reject them.
     pub fn open_h264() -> Option<Self> {
-        let instance = match VulkanInstance::new() {
+        let instance = match VideoInstance::new(&VideoInstanceDescriptor::default()) {
             Ok(i) => i,
             Err(e) => {
                 eprintln!("[video] Vulkan instance init failed: {e}");
                 return None;
             }
         };
-        let adapter = match instance.create_adapter(&VulkanAdapterDescriptor {
+        let adapter = match instance.create_adapter(&VideoAdapterDescriptor {
             supports_decoding: true,
             supports_encoding: false,
         }) {
@@ -56,10 +57,10 @@ impl VulkanVideoDecoder {
                 return None;
             }
         };
-        // create_device clones the Arc<Instance> into the device, so the returned
-        // Arc<VulkanDevice> (held by BytesDecoder) keeps Vulkan alive on its own —
+        // create_device clones the backend instance Arc into the device, so the
+        // returned VideoDevice (held by BytesDecoder) keeps Vulkan alive on its own —
         // `instance`/`adapter` can drop after this returns.
-        let device = match adapter.create_device(&VulkanDeviceDescriptor::default()) {
+        let device = match adapter.create_device(&VideoDeviceDescriptor::default()) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("[video] Vulkan device create failed: {e}");

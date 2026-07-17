@@ -443,7 +443,10 @@ mod engine {
         // (FontId("F{hash}")) — mirrors printpdf::html::add_xml_to_document.
         for (font_hash, parsed_font) in font_data.into_iter() {
             let font_id = printpdf::FontId(format!("F{}", font_hash.font_hash));
-            let pdf_font = printpdf::font::PdfFont::new(parsed_font);
+            // printpdf 0.11 wraps fonts in its own ParsedFont newtype; from_azul adopts
+            // the cache-built face (which already carries its source bytes for embedding).
+            let pdf_font =
+                printpdf::font::PdfFont::new(printpdf::font::ParsedFont::from_azul(parsed_font));
             doc.resources.fonts.map.insert(font_id, pdf_font);
         }
         // Register the raw images the pre-pass collected, under the SAME
