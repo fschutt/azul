@@ -40,7 +40,7 @@ use azul_css::{
 };
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Language as HyphenationLanguage, Load, Standard};
-use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
+use rust_fontconfig::{FcFontCache, FcPattern, FcStretch, FcWeight, FontId, PatternMatch, UnicodeRange};
 use smallvec::{smallvec, SmallVec};
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
@@ -762,6 +762,76 @@ impl FontContext {
     }
 }
 
+/// One in-memory face registered under a family name, with the style attributes
+/// needed to choose the right face for a CSS `(weight, italic/oblique)` query.
+///
+/// [`FontManager::register_named_font`] registers several faces under the *same*
+/// family name (e.g. `Helvetica` regular, bold, oblique). Keying
+/// [`FontManager::memory_families`] by family alone therefore collapsed them —
+/// the last registration won and `font-weight: bold` silently rendered in the
+/// regular face. Each face now records its own weight/style so resolution can
+/// pick the closest one (see `getters::split_memory_matches`).
+#[derive(Debug, Clone)]
+pub struct MemoryFace {
+    /// The `FontMatch` the resolver emits when this face is chosen.
+    pub font_match: rust_fontconfig::FontMatch,
+    /// OS/2 weight of this face (static fonts). For a variable font this is the
+    /// default-instance weight; `weight_axis` carries the selectable range.
+    pub weight: FcWeight,
+    /// `head`/OS-2 italic bit.
+    pub italic: bool,
+    /// OS/2 oblique bit.
+    pub oblique: bool,
+    /// OS/2 width class.
+    pub stretch: FcStretch,
+    /// For a variable font, the `wght` axis `(min, max)` in user units; `None`
+    /// for a static face. Lets a single VF satisfy any requested weight.
+    pub weight_axis: Option<(f32, f32)>,
+}
+
+/// Style attributes parsed from a font's bytes (OS/2 + `head`), used to index a
+/// registered face in [`FontManager::memory_families`].
+#[derive(Debug, Clone, Copy)]
+struct FaceStyle {
+    weight: FcWeight,
+    italic: bool,
+    oblique: bool,
+    stretch: FcStretch,
+    weight_axis: Option<(f32, f32)>,
+}
+
+impl Default for FaceStyle {
+    fn default() -> Self {
+        Self {
+            weight: FcWeight::Normal,
+            italic: false,
+            oblique: false,
+            stretch: FcStretch::Normal,
+            weight_axis: None,
+        }
+    }
+}
+
+/// Parse a face's weight / italic / oblique / stretch from its bytes via
+/// rust-fontconfig (which reads OS/2 `usWeightClass`/`usWidthClass` and the
+/// `head` italic bit). Falls back to upright Normal when the font can't be
+/// parsed, so registration never fails on a malformed face.
+fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
+    let Some(faces) = rust_fontconfig::FcParseFontBytes(bytes, family) else {
+        return FaceStyle::default();
+    };
+    let Some((pat, _)) = faces.into_iter().next() else {
+        return FaceStyle::default();
+    };
+    FaceStyle {
+        weight: pat.weight,
+        italic: pat.italic == PatternMatch::True,
+        oblique: pat.oblique == PatternMatch::True,
+        stretch: pat.stretch,
+        weight_axis: None,
+    }
+}
+
 #[derive(Debug)]
 pub struct FontManager<T> {
     /// The font-path cache. `FcFontCache` in rust-fontconfig 4.1 is
@@ -812,7 +882,7 @@ pub struct FontManager<T> {
     /// silently fell back to a system font. This index is consulted
     /// FIRST, before the disk probe, so a memory-registered family wins
     /// exactly as CSS says it should.
-    pub memory_families: HashMap<String, rust_fontconfig::FontMatch>,
+    pub memory_families: HashMap<String, Vec<MemoryFace>>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
@@ -859,61 +929,93 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ) -> FontId {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
 
+        // The weight/style come from the font BYTES (OS/2), not the registration
+        // name: registering `Helvetica-Bold.ttf` under either "Helvetica-Bold" or
+        // its internal family "Helvetica" must both yield weight=Bold. A font can
+        // (and Helvetica does) reuse the same family name across faces, so faces
+        // are distinguished by (weight, italic, oblique), never by name alone.
+        let style = parse_face_style(bytes, family);
+
         // IDEMPOTENT: several `FontManager`s (one per window, plus the PDF
-        // writer) share one `FcFontCache`. Registering the same family twice
-        // would mint a second `FontId` for the same bytes, orphan the first
-        // in the cache's metadata table and make the family's id
-        // non-deterministic. Reuse the existing memory font instead.
+        // writer) share one `FcFontCache`. Registering the same face twice would
+        // mint a second `FontId` for the same bytes, orphan the first in the
+        // cache's metadata table and make the id non-deterministic. Reuse an
+        // existing memory font ONLY when family AND (weight, italic, oblique)
+        // match — a bold face must not be deduplicated against the regular one.
         let mut existing: Vec<(FontId, Vec<UnicodeRange>)> = Vec::new();
         self.fc_cache.for_each_pattern(|pattern, id| {
-            let hit = pattern
+            let fam_hit = pattern
                 .family
                 .as_deref()
                 .is_some_and(|f| rust_fontconfig::utils::normalize_family_name(f) == norm);
-            if hit {
+            let style_hit = pattern.weight == style.weight
+                && (pattern.italic == PatternMatch::True) == style.italic
+                && (pattern.oblique == PatternMatch::True) == style.oblique;
+            if fam_hit && style_hit {
                 existing.push((*id, pattern.unicode_ranges.clone()));
             }
         });
-        if let Some((id, ranges)) = existing
+        let id = if let Some((id, ranges)) = existing
             .into_iter()
             .find(|(id, _)| self.fc_cache.is_memory_font(id))
         {
-            self.memory_families.insert(
-                norm,
-                rust_fontconfig::FontMatch {
-                    id,
-                    unicode_ranges: ranges,
-                    fallbacks: Vec::new(),
+            self.index_memory_face(&norm, id, ranges, &style);
+            id
+        } else {
+            let pattern = rust_fontconfig::FcPattern {
+                name: Some(family.to_string()),
+                family: Some(family.to_string()),
+                italic: if style.italic { PatternMatch::True } else { PatternMatch::False },
+                oblique: if style.oblique { PatternMatch::True } else { PatternMatch::False },
+                bold: if style.weight >= FcWeight::Bold { PatternMatch::True } else { PatternMatch::False },
+                weight: style.weight,
+                stretch: style.stretch,
+                unicode_ranges: coverage.clone(),
+                ..Default::default()
+            };
+            let id = FontId::new();
+            self.fc_cache.with_memory_font_with_id(
+                id,
+                pattern,
+                rust_fontconfig::FcFont {
+                    bytes: bytes.to_vec(),
+                    font_index: 0,
+                    id: family.to_string(),
                 },
             );
-            return id;
-        }
-
-        let pattern = rust_fontconfig::FcPattern {
-            name: Some(family.to_string()),
-            family: Some(family.to_string()),
-            unicode_ranges: coverage.clone(),
-            ..Default::default()
+            self.index_memory_face(&norm, id, coverage, &style);
+            id
         };
-        let id = FontId::new();
-        self.fc_cache.with_memory_font_with_id(
-            id,
-            pattern,
-            rust_fontconfig::FcFont {
-                bytes: bytes.to_vec(),
-                font_index: 0,
-                id: family.to_string(),
-            },
-        );
-        self.memory_families.insert(
-            norm,
-            rust_fontconfig::FontMatch {
+        id
+    }
+
+    /// Append (or refresh) a face in [`Self::memory_families`] under `norm`,
+    /// de-duplicating by `FontId` so repeated registrations don't grow the list.
+    fn index_memory_face(
+        &mut self,
+        norm: &str,
+        id: FontId,
+        unicode_ranges: Vec<UnicodeRange>,
+        style: &FaceStyle,
+    ) {
+        let face = MemoryFace {
+            font_match: rust_fontconfig::FontMatch {
                 id,
-                unicode_ranges: coverage,
+                unicode_ranges,
                 fallbacks: Vec::new(),
             },
-        );
-        id
+            weight: style.weight,
+            italic: style.italic,
+            oblique: style.oblique,
+            stretch: style.stretch,
+            weight_axis: style.weight_axis,
+        };
+        let faces = self.memory_families.entry(norm.to_string()).or_default();
+        if let Some(slot) = faces.iter_mut().find(|f| f.font_match.id == id) {
+            *slot = face;
+        } else {
+            faces.push(face);
+        }
     }
 
     /// Register the built-in mock test fonts (see

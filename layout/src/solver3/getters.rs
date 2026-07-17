@@ -3899,22 +3899,76 @@ pub fn prune_chain_to_used_chars(
 /// the registered `Foo Bar`.
 fn split_memory_matches(
     font_families: &[String],
-    memory_families: &HashMap<String, rust_fontconfig::FontMatch>,
+    memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
+    weight: rust_fontconfig::FcWeight,
+    italic: bool,
+    oblique: bool,
 ) -> (Vec<rust_fontconfig::CssFallbackGroup>, Vec<String>) {
     let mut groups = Vec::new();
     let mut disk = Vec::new();
     for family in font_families {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
-        if let Some(m) = memory_families.get(&norm) {
+        if let Some(face) = memory_families
+            .get(&norm)
+            .and_then(|faces| pick_memory_face(faces, weight, italic, oblique))
+        {
             groups.push(rust_fontconfig::CssFallbackGroup {
                 css_name: family.clone(),
-                fonts: vec![m.clone()],
+                fonts: vec![face.font_match.clone()],
             });
         } else {
             disk.push(family.clone());
         }
     }
     (groups, disk)
+}
+
+/// Choose the registered in-memory face that best matches a CSS
+/// `(weight, italic/oblique)` query. Prefers faces whose slant matches the
+/// request, then the nearest weight via [`rust_fontconfig::FcWeight::find_best_match`]
+/// (the CSS weight-fallback order). A variable face whose `wght` axis spans the
+/// requested weight is treated as an exact match.
+///
+/// This is what makes `font-weight: bold` actually select a registered bold
+/// face: several faces (regular, bold, oblique…) share one family name, and this
+/// picks among them instead of taking whichever registered last.
+fn pick_memory_face(
+    faces: &[crate::text3::cache::MemoryFace],
+    weight: rust_fontconfig::FcWeight,
+    italic: bool,
+    oblique: bool,
+) -> Option<&crate::text3::cache::MemoryFace> {
+    if faces.is_empty() {
+        return None;
+    }
+    let want_slanted = italic || oblique;
+    // Prefer faces matching the requested slant; fall back to all faces so a
+    // family with only an upright face still resolves for `font-style: italic`.
+    let slant_pool: Vec<&crate::text3::cache::MemoryFace> = faces
+        .iter()
+        .filter(|f| (f.italic || f.oblique) == want_slanted)
+        .collect();
+    let pool: Vec<&crate::text3::cache::MemoryFace> = if slant_pool.is_empty() {
+        faces.iter().collect()
+    } else {
+        slant_pool
+    };
+    // A variable face whose wght axis covers the request satisfies it exactly.
+    let req = weight as u16 as f32;
+    if let Some(vf) = pool
+        .iter()
+        .copied()
+        .find(|f| f.weight_axis.is_some_and(|(min, max)| req >= min && req <= max))
+    {
+        return Some(vf);
+    }
+    // Otherwise pick the nearest static weight (CSS fallback order).
+    let avail: Vec<rust_fontconfig::FcWeight> = pool.iter().map(|f| f.weight).collect();
+    let best = weight.find_best_match(&avail).unwrap_or(weight);
+    pool.iter()
+        .copied()
+        .find(|f| f.weight == best)
+        .or_else(|| pool.first().copied())
 }
 
 /// Registry-aware variant of [`resolve_font_chains`].
@@ -3937,7 +3991,7 @@ fn split_memory_matches(
     fc_cache: &FcFontCache,
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
     scripts_hint: Option<&[UnicodeRange]>,
-    memory_families: &HashMap<String, rust_fontconfig::FontMatch>,
+    memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
 ) -> ResolvedFontChains {
     let mut chains = HashMap::new();
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -3989,7 +4043,8 @@ fn split_memory_matches(
         // MEMORY FONTS FIRST (see `split_memory_matches`): a family
         // registered by name into the cache's in-memory table wins over
         // anything on disk, exactly as CSS says.
-        let (mem_groups, disk_families) = split_memory_matches(&font_families, memory_families);
+        let (mem_groups, disk_families) =
+            split_memory_matches(&font_families, memory_families, weight, is_italic, is_oblique);
 
         // Registry-aware resolve: scout-on-demand path when available.
         // See `resolve_font_chains_with_registry` doc for rationale.
@@ -4220,7 +4275,7 @@ pub fn resolve_font_chains_fast(
     collected: &CollectedFontStacks,
     registry: &rust_fontconfig::registry::FcFontRegistry,
     codepoints: &std::collections::BTreeSet<char>,
-    memory_families: &HashMap<String, rust_fontconfig::FontMatch>,
+    memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
 ) -> ResolvedFontChains {
     use rust_fontconfig::PatternMatch;
 
@@ -4273,7 +4328,7 @@ pub fn resolve_font_chains_fast(
         // path). Match memory families by name here, in CSS order, and only
         // hand the remaining families to the disk probe.
         let (mut css_fallbacks, disk_families) =
-            split_memory_matches(&font_families, memory_families);
+            split_memory_matches(&font_families, memory_families, weight, is_italic, is_oblique);
 
         let request = vec![(disk_families.clone(), codepoints.clone())];
         let mut chains_out = if disk_families.is_empty() {
