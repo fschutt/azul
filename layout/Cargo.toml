@@ -8,7 +8,7 @@
 [package]
 readme = "../README.md"
 name = "azul-layout"
-version = "0.0.10"
+version = "0.0.11"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Layout solver + font and image loader the Azul GUI framework"

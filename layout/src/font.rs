@@ -164,6 +164,7 @@ pub mod parsed {
     /// `pub(crate)` so `FontManager::evict_unused` reads from the
     /// same clock as `last_used` writes.
     #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn monotonic_now_nanos() -> u64 {
         // Safe: `Instant::elapsed` against the same launch instant is
         // monotonic and never overflows in any realistic process
@@ -173,6 +174,18 @@ pub mod parsed {
         static LAUNCH: OnceLock<Instant> = OnceLock::new();
         let start = LAUNCH.get_or_init(Instant::now);
         start.elapsed().as_nanos() as u64
+    }
+
+    /// On browser wasm `std::time::Instant::now()` panics ("time not
+    /// implemented on this platform") — it took the whole printpdf wasm demo
+    /// down with it on the first shaped glyph: every `last_used` store on a
+    /// font touch aborted the module. LRU eviction only needs *ordering*, not
+    /// wall time, and a shared atomic counter is exactly as monotonic.
+    #[cfg(target_family = "wasm")]
+    pub(crate) fn monotonic_now_nanos() -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static TICK: AtomicU64 = AtomicU64::new(1);
+        TICK.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Glyph-outline decoder state. See the
