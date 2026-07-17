@@ -157,6 +157,56 @@ pub mod parsed {
     /// Cached GPOS table for glyph positioning operations.
     pub type GposCache = Arc<LayoutCacheData<GPOS>>;
 
+    /// The `wght` variation axis `(min, default, max)` in user units, or `None`
+    /// when the font has no variable `wght` axis. Used to expand a variable font
+    /// into per-weight STATIC instances so the ordinary (static) weight-selection
+    /// path can pick the right one — no changes to shaping/decode/PDF needed.
+    pub fn read_wght_axis(bytes: &[u8], index: usize) -> Option<(f32, f32, f32)> {
+        let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
+        let provider = font_file.table_provider(index).ok()?;
+        let fvar_data = provider.read_table_data(tag::FVAR).ok()?;
+        let fvar = ReadScope::new(&fvar_data)
+            .read::<allsorts::tables::variable_fonts::fvar::FvarTable<'_>>()
+            .ok()?;
+        // Bind before returning so the (borrowing) axes() iterator is dropped at
+        // the end of this statement, not after `provider`/`fvar` at block end.
+        let axis = fvar.axes().find(|a| a.axis_tag == tag::WGHT);
+        axis.map(|a| {
+            (
+                f32::from(a.min_value),
+                f32::from(a.default_value),
+                f32::from(a.max_value),
+            )
+        })
+    }
+
+    /// Bake a self-contained STATIC instance of a variable font at `wght` (all
+    /// other axes left at their default). Returns fresh TTF bytes that parse and
+    /// embed exactly like any static font, or `None` if the font is not a
+    /// bakeable variable font.
+    pub fn bake_weight_instance(bytes: &[u8], index: usize, wght: f32) -> Option<Vec<u8>> {
+        use allsorts::tables::Fixed;
+        let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
+        let provider = font_file.table_provider(index).ok()?;
+        let fvar_data = provider.read_table_data(tag::FVAR).ok()?;
+        let fvar = ReadScope::new(&fvar_data)
+            .read::<allsorts::tables::variable_fonts::fvar::FvarTable<'_>>()
+            .ok()?;
+        let user: Vec<Fixed> = fvar
+            .axes()
+            .map(|a| {
+                if a.axis_tag == tag::WGHT {
+                    Fixed::from(wght)
+                } else {
+                    a.default_value
+                }
+            })
+            .collect();
+        allsorts::variations::instance(&provider, &user)
+            .ok()
+            .map(|(baked, _tuple)| baked)
+    }
+
     /// Monotonic-clock nanos since process start. Used to timestamp
     /// `ParsedFont.last_used` for LRU eviction. Cheap (single
     /// `Instant::now`); resolution is plenty fine for "did this

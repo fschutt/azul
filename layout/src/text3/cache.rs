@@ -755,6 +755,7 @@ impl FontContext {
             registry: self.registry.clone(),
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
+            vf_bake_cache: HashMap::new(),
         };
         // Idempotent: reuses the FontIds already in the shared fc_cache.
         fm.register_builtin_mock_fonts();
@@ -883,6 +884,11 @@ pub struct FontManager<T> {
     /// FIRST, before the disk probe, so a memory-registered family wins
     /// exactly as CSS says it should.
     pub memory_families: HashMap<String, Vec<MemoryFace>>,
+    /// Baked static instances of variable fonts, keyed by a hash of the original
+    /// VF bytes. A variable font is expanded into one static face per weight
+    /// bucket (see `register_named_font`); this caches the minted faces so the
+    /// several spelling registrations of the same VF don't re-bake it.
+    vf_bake_cache: HashMap<u64, Vec<(FontId, FaceStyle)>>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
@@ -899,6 +905,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             registry: None,
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
+            vf_bake_cache: HashMap::new(),
         };
         fm.register_builtin_mock_fonts();
         Ok(fm)
@@ -928,6 +935,20 @@ impl<T: ParsedFontTrait> FontManager<T> {
         coverage: Vec<UnicodeRange>,
     ) -> FontId {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
+
+        // Variable fonts: expand into one STATIC instance per weight bucket so the
+        // ordinary static weight-selection path (see `split_memory_matches` /
+        // `pick_memory_face`) picks the right one, with NO changes to shaping,
+        // glyph decode, or PDF embedding — each baked instance is an ordinary
+        // static font. Falls through to the static path below if the font is not a
+        // bakeable variable font (baking failed / no glyf variations).
+        if let Some((min, def, max)) = crate::font::parsed::read_wght_axis(bytes, 0) {
+            if let Some(id) =
+                self.register_variable_instances(&norm, family, bytes, &coverage, min, def, max)
+            {
+                return id;
+            }
+        }
 
         // The weight/style come from the font BYTES (OS/2), not the registration
         // name: registering `Helvetica-Bold.ttf` under either "Helvetica-Bold" or
@@ -1018,6 +1039,101 @@ impl<T: ParsedFontTrait> FontManager<T> {
         }
     }
 
+    /// Expand a variable font (with a `wght` axis over `[min, max]`, default
+    /// `def`) into one baked STATIC instance per standard weight bucket and
+    /// register each as an in-memory face under `norm`. Returns the face nearest
+    /// the fvar default, or `None` if no instance could be baked (caller then
+    /// falls back to registering the raw bytes as a single static face).
+    ///
+    /// Baking is done once per unique VF bytes and cached (`vf_bake_cache`) so the
+    /// several spelling registrations of the same font don't re-bake it.
+    fn register_variable_instances(
+        &mut self,
+        norm: &str,
+        family: &str,
+        bytes: &[u8],
+        coverage: &[UnicodeRange],
+        min: f32,
+        def: f32,
+        max: f32,
+    ) -> Option<FontId> {
+        let base = parse_face_style(bytes, family);
+        let hash = {
+            use core::hash::Hasher;
+            let mut h = DefaultHasher::new();
+            h.write(bytes);
+            h.finish()
+        };
+        let def_bucket = FcWeight::from_u16(def.round().clamp(1.0, 1000.0) as u16);
+
+        // Same VF already baked under another spelling: re-index, don't re-bake.
+        if let Some(cached) = self.vf_bake_cache.get(&hash).cloned() {
+            for (id, style) in &cached {
+                self.index_memory_face(norm, *id, coverage.to_vec(), style);
+            }
+            return cached
+                .iter()
+                .find(|(_, s)| s.weight == def_bucket)
+                .or_else(|| cached.first())
+                .map(|(id, _)| *id);
+        }
+
+        let lo = min.round().clamp(1.0, 1000.0) as u16;
+        let hi = max.round().clamp(1.0, 1000.0) as u16;
+        let mut baked: Vec<(FontId, FaceStyle)> = Vec::new();
+        for w in [100u16, 200, 300, 400, 500, 600, 700, 800, 900] {
+            if w < lo || w > hi {
+                continue;
+            }
+            let Some(inst_bytes) = crate::font::parsed::bake_weight_instance(bytes, 0, f32::from(w))
+            else {
+                continue;
+            };
+            let style = FaceStyle {
+                weight: FcWeight::from_u16(w),
+                italic: base.italic,
+                oblique: base.oblique,
+                stretch: base.stretch,
+                weight_axis: None,
+            };
+            let pattern = rust_fontconfig::FcPattern {
+                name: Some(family.to_string()),
+                family: Some(family.to_string()),
+                italic: if style.italic { PatternMatch::True } else { PatternMatch::False },
+                oblique: if style.oblique { PatternMatch::True } else { PatternMatch::False },
+                bold: if style.weight >= FcWeight::Bold { PatternMatch::True } else { PatternMatch::False },
+                weight: style.weight,
+                stretch: style.stretch,
+                unicode_ranges: coverage.to_vec(),
+                ..Default::default()
+            };
+            let id = FontId::new();
+            self.fc_cache.with_memory_font_with_id(
+                id,
+                pattern,
+                rust_fontconfig::FcFont {
+                    bytes: inst_bytes,
+                    font_index: 0,
+                    id: family.to_string(),
+                },
+            );
+            self.index_memory_face(norm, id, coverage.to_vec(), &style);
+            baked.push((id, style));
+        }
+
+        if baked.is_empty() {
+            return None;
+        }
+        let default_id = baked
+            .iter()
+            .find(|(_, s)| s.weight == def_bucket)
+            .or_else(|| baked.first())
+            .map(|(id, _)| *id)
+            .unwrap();
+        self.vf_bake_cache.insert(hash, baked);
+        Some(default_id)
+    }
+
     /// Register the built-in mock test fonts (see
     /// [`crate::text3::mock_fonts`]). Called from every constructor: the
     /// mock families are only reachable if a stylesheet names them, and
@@ -1067,6 +1183,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             registry: None,
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
+            vf_bake_cache: HashMap::new(),
         };
         fm.register_builtin_mock_fonts();
         Ok(fm)
