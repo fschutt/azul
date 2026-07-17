@@ -6587,6 +6587,77 @@ fn position_table_cells<T: ParsedFontTrait>(
             }
         }
 
+        // +spec:inline-formatting-context:4545e8 - vertical-align on a table cell
+        // centers/bottom-aligns its *content* within the cell box. The block above
+        // only handles cells whose content is direct text (they carry an
+        // `inline_layout_result`). A cell whose content is block-level
+        // (`<td><p>…</p></td>`, `<td><div>…</div></td>`) has none, so its children
+        // stayed top-aligned regardless of `vertical-align`. Shift the cell's
+        // in-flow block children by the same offset so the UA default
+        // `vertical-align: middle` actually centers block content, like browsers.
+        let cell_has_inline = tree
+            .warm(cell_info.node_index)
+            .is_some_and(|w| w.inline_layout_result.is_some());
+        if !cell_has_inline {
+            let vertical_align = cell_dom_node_id
+                .map(|dom_id| {
+                    let node_state =
+                        ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+                    match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
+                        MultiValue::Exact(v) => v,
+                        _ => StyleVerticalAlign::Baseline,
+                    }
+                })
+                .unwrap_or(StyleVerticalAlign::Baseline);
+
+            // Only middle/bottom reposition block content; top and baseline leave it
+            // at the content-box top (the default block position).
+            let factor = match vertical_align {
+                StyleVerticalAlign::Middle => 0.5,
+                StyleVerticalAlign::Bottom => 1.0,
+                _ => 0.0,
+            };
+            if factor > 0.0 {
+                let children: Vec<usize> = tree.children(cell_info.node_index).to_vec();
+                // Natural content height = furthest in-flow child bottom edge,
+                // measured from the cell content-box top (relative_position is
+                // relative to the parent content box).
+                let mut content_height = 0.0f32;
+                let mut inflow: Vec<usize> = Vec::new();
+                for &c in &children {
+                    let dom_id = tree.get(c).and_then(|n| n.dom_node_id);
+                    if matches!(
+                        get_position_type(ctx.styled_dom, dom_id),
+                        LayoutPosition::Absolute | LayoutPosition::Fixed
+                    ) {
+                        continue; // out-of-flow children are unaffected by vertical-align
+                    }
+                    let top = tree
+                        .warm(c)
+                        .and_then(|w| w.relative_position)
+                        .map_or(0.0, |p| p.y);
+                    let h = tree.get(c).and_then(|n| n.used_size).map_or(0.0, |s| s.height);
+                    content_height = content_height.max(top + h);
+                    inflow.push(c);
+                }
+                let content_box_height = height
+                    - cell_box_props.padding.main_start(writing_mode)
+                    - cell_box_props.padding.main_end(writing_mode)
+                    - cell_box_props.border.main_start(writing_mode)
+                    - cell_box_props.border.main_end(writing_mode);
+                let y_offset = (content_box_height - content_height) * factor;
+                if y_offset > 0.01 {
+                    for &c in &inflow {
+                        if let Some(w) = tree.warm_mut(c) {
+                            if let Some(pos) = w.relative_position.as_mut() {
+                                pos.y += y_offset;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Store position relative to table origin
         let position = LogicalPosition::from_main_cross(y, x, writing_mode);
 
