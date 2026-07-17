@@ -3176,7 +3176,7 @@ dependencies = [
 [[package]]
 name = "gpu-video"
 version = "0.4.0"
-source = "git+https://github.com/fschutt/smelter?branch=fix%2Fvulkan-compute-queue-fallback#169a7a2810bec32b2fc16845e4be50c65b6ac49b"
+source = "git+https://github.com/fschutt/smelter?branch=fix%2Fvulkan-compute-queue-fallback#d4930f57d616fd16818811c34f72e212171d1191"
 dependencies = [
  "ash",
  "bytes",
