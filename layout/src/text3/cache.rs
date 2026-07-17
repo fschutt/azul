@@ -1171,6 +1171,20 @@ impl<T: ParsedFontTrait> FontManager<T> {
         result.failed
     }
 
+    /// Replace the backing `FcFontCache` and re-register the built-in memory fonts.
+    ///
+    /// Memory fonts (the mock test fonts, and any `register_named_font` bytes) live
+    /// ONLY inside the cache. A bare `self.fc_cache = new` therefore strands them: their
+    /// `FontId`s stay in `memory_families` but their bytes are gone with the old cache,
+    /// so chain resolution matches them yet loading fails and text silently falls back
+    /// (e.g. `font-family: "Azul Mock Mono"` measuring with the fallback font's metrics).
+    /// Use this whenever the cache is swapped for a fresh snapshot (registry handle,
+    /// rebuilt system cache) instead of assigning the field directly.
+    pub fn replace_fc_cache(&mut self, fc_cache: FcFontCache) {
+        self.fc_cache = fc_cache;
+        self.register_builtin_mock_fonts();
+    }
+
     /// Remove a font from the cache
     ///
     /// Returns the removed font if it was present.

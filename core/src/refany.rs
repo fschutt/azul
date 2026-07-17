@@ -1133,9 +1133,12 @@ impl RefAny {
         let update_fn = inner.update_fn;
         if update_fn != 0 {
             // SAFETY: `update_fn` is non-zero (checked) and, per `set_update_fn`'s
-            // contract, is a valid `extern "C" fn(*const c_void, usize)`.
+            // contract, is a valid `extern "C" fn(*const c_void, usize)`. The
+            // round-trip goes through an int-to-pointer CAST (not a direct
+            // usize->fn transmute): a transmuted integer carries no provenance,
+            // which is UB to call (Miri rejects it); the cast re-acquires it.
             let cb: extern "C" fn(*const c_void, usize) =
-                unsafe { core::mem::transmute(update_fn) };
+                unsafe { core::mem::transmute(update_fn as *const ()) };
             let len = inner._internal_len;
             // AUDIT: the observer is a host-provided `extern "C"` fn. A Rust
             // panic escaping it would unwind across the FFI boundary (UB), so

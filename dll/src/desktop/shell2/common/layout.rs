@@ -232,7 +232,7 @@ pub fn regenerate_layout(
             registry.request_fonts(&font_stacks);
             azul_layout::probe::emit_phase_heap_extra("after_request_fonts", registry.chain_cache_len() as u64);
             // Snapshot the registry into an FcFontCache for use during layout
-            layout_window.font_manager.fc_cache = registry.shared_cache();
+            layout_window.font_manager.replace_fc_cache(registry.shared_cache());
             azul_layout::probe::emit_phase_heap("after_shared_cache");
             log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
         } else {
@@ -241,7 +241,7 @@ pub fn regenerate_layout(
     } else {
         azul_layout::probe::emit_phase_heap("before_fc_clone");
         // Fallback: use the provided fc_cache directly
-        layout_window.font_manager.fc_cache = (**fc_cache).clone();
+        layout_window.font_manager.replace_fc_cache((**fc_cache).clone());
         azul_layout::probe::emit_phase_heap("after_fc_clone");
     }
     azul_layout::probe::emit_phase_heap("after_font_snapshot");

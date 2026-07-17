@@ -1895,7 +1895,7 @@ pub trait PlatformWindow {
 
             CallbackChange::ReloadSystemFonts => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.font_manager.fc_cache = FcFontCache::build().into();
+                    lw.font_manager.replace_fc_cache(FcFontCache::build().into());
                 }
                 ProcessEventResult::DoNothing
             }
@@ -2472,6 +2472,16 @@ pub trait PlatformWindow {
                             }
                             let _ = position; // only append-as-last-child is representable
 
+                            // Re-run the author cascade from the retained stylesheet:
+                            // the node was styled with an EMPTY css above (the author
+                            // rules are unavailable here), so without this it would
+                            // never match rules like `.hot { width: 80px }` — the
+                            // "inserted node never gets the author cascade" bug.
+                            // Grow the retained author-CSS scopes so the just-appended
+                            // node is inside them, then re-cascade so it picks up rules
+                            // like `.hot { width: 80px }`.
+                            sd.extend_author_scopes_for_appended(new_id, *parent_node_id);
+                            sd.restyle_retained();
                             // `append_child` composes the trees but does NOT re-run
                             // inheritance or rebuild the compact cache (see the doc
                             // comment on this very method): the appended node keeps

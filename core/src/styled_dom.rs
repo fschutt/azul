@@ -1079,10 +1079,11 @@ impl StyledDom {
             &html_tree.as_ref(),
         );
 
-        // Drop the CSS object now — selectors/declarations are no longer needed
-        // after restyle has populated css_props. This frees ~500 KiB of stylesheet
-        // data structures (CssRuleBlock, CssPathSelector, CssDeclaration).
-        drop(css);
+        // Retain the author stylesheet on the cache (this used to `drop(css)` to
+        // save ~500 KiB, but that made runtime-inserted nodes unstyleable: the
+        // rules were gone, so nothing could ever re-run the cascade for them —
+        // see e2e/bug-inserted-node-no-author-css.json).
+        css_property_cache.retained_author_css = css;
 
         // Apply UA defaults + compute inherited values so consumers that
         // read `css_property_cache.computed_values` (the web/HTML
@@ -1407,6 +1408,52 @@ impl StyledDom {
     }
 
     /// Re-applies CSS styles to the existing DOM structure.
+    /// Grow retained author-CSS subtree scopes to cover a node just appended under
+    /// `parent`. Mount/`with_css` rules carry a `Root([start, end])` scope
+    /// (`push_front_scope`) that only matches nodes within a node's ORIGINAL subtree
+    /// range, so a node appended afterwards falls outside every scope and
+    /// `restyle_retained` cannot match it. Appending under `parent` (rightmost-spine
+    /// only, so subtrees stay contiguous in the flat arena) grows `parent`'s and its
+    /// ancestors' subtrees; bump the inclusive `end` of every scope that already
+    /// covers `parent` out to the new node.
+    pub fn extend_author_scopes_for_appended(&mut self, new_node: NodeId, parent: NodeId) {
+        use azul_css::css::CssPathSelector;
+        let p = parent.index();
+        let n = new_node.index();
+        let cache = self.css_property_cache.downcast_mut();
+        for rule in cache.retained_author_css.rules.as_mut() {
+            let mut sels = rule.path.selectors.as_ref().to_vec();
+            let mut changed = false;
+            for sel in &mut sels {
+                if let CssPathSelector::Root(range) = sel {
+                    if range.contains(p) && range.end < n {
+                        range.end = n;
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                rule.path.selectors = sels.into();
+            }
+        }
+    }
+
+    /// Re-run the author cascade from the stylesheet retained at creation /
+    /// last `restyle` (`CssPropertyCache::retained_author_css`). Call after a
+    /// structural DOM mutation (e.g. inserting a node) so new nodes receive
+    /// author CSS; a no-op when no author stylesheet was ever attached.
+    pub fn restyle_retained(&mut self) {
+        let css = self
+            .css_property_cache
+            .downcast_mut()
+            .retained_author_css
+            .clone();
+        if css.is_empty() {
+            return;
+        }
+        self.restyle(css);
+    }
+
     pub fn restyle(&mut self, mut css: Css) {
         // NOTE: the tag_ids returned by `cache.restyle` here are generated from
         // the STALE `compact_cache` (display/overflow reads) and are intentionally
@@ -1419,6 +1466,9 @@ impl StyledDom {
             &self.non_leaf_nodes,
             &self.cascade_info.as_container(),
         );
+
+        // Keep the stylesheet for later structural restyles (inserted nodes).
+        self.css_property_cache.downcast_mut().retained_author_css = css;
 
         // Apply UA CSS properties before computing inheritance
         self.css_property_cache
