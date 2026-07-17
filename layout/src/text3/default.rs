@@ -982,7 +982,7 @@ mod autotest_generated {
     use crate::text3::script::Language;
 
     /// Positive control: a real TrueType face that ships with the repo.
-    const KOHO: &[u8] = include_bytes!("../../../examples/assets/fonts/KoHo-Light.ttf");
+    const KOHO: &[u8] = include_bytes!("../../assets/fonts/test/KoHo-Light.ttf");
 
     /// Every `Script` variant, so the exhaustive mapping tables below can never
     /// silently miss one.
@@ -1185,7 +1185,7 @@ mod autotest_generated {
         let loader = PathLoader::new();
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../examples/assets/fonts/KoHo-Light.ttf"
+            "/assets/fonts/test/KoHo-Light.ttf"
         );
         let font_ref = loader
             .load_from_path(Path::new(path), 0)

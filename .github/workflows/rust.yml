@@ -652,7 +652,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p rust9x/build/x86_64-pc-windows-msvc
-          tar -xzf "dist/$RUST9X_ASSET" -C rust9x/build/x86_64-pc-windows-msvc
+          # Skip the rust-source symlinks the asset packs
+          # (stage1/lib/rustlib/{rustc-src,src}/rust point at the build machine's
+          # workspace root — a self-referential loop that fails extraction on
+          # Windows with "Too many levels of symbolic links"). They are only
+          # needed for -Zbuild-std, which this job does not use: the stage1
+          # toolchain already ships prebuilt std for i686-rust9x-windows-msvc.
+          tar -xzf "dist/$RUST9X_ASSET" -C rust9x/build/x86_64-pc-windows-msvc \
+            --exclude='stage1/lib/rustlib/rustc-src/rust' \
+            --exclude='stage1/lib/rustlib/src/rust'
           test -f rust9x/build/x86_64-pc-windows-msvc/stage1/bin/rustc.exe
 
       - name: Link rust9x toolchain
