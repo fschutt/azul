@@ -3883,8 +3883,6 @@ mod autotest_generated {
         }
 
         #[test]
-        #[ignore = "BUG: panics — parse_percentage_value slices at a non-char-boundary on \
-                    non-ASCII numerals (e.g. U+FF15). Un-ignore once length.rs is fixed."]
         fn line_height_rejects_non_ascii_numerals_without_panicking() {
             // `char::is_numeric()` is true for U+FF15 FULLWIDTH DIGIT FIVE, so
             // parse_percentage_value sets split_pos = idx + 1 = 1 and then slices

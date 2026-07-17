@@ -165,23 +165,18 @@ impl FloatValue {
         } else if abs_post < 1000 {
             // 3 digits: 523 → 0.523
             (abs_post, 1000)
-        } else if abs_post < 10000 {
-            // 4+ digits: take first 3 (e.g., 5234 → 523 → 0.523)
-            (abs_post / 10, 1000)
-        } else if abs_post < 100_000 {
-            (abs_post / 100, 1000)
-        } else if abs_post < 1_000_000 {
-            (abs_post / 1000, 1000)
-        } else if abs_post < 10_000_000 {
-            (abs_post / 10000, 1000)
-        } else if abs_post < 100_000_000 {
-            (abs_post / 100_000, 1000)
-        } else if abs_post < 1_000_000_000 {
-            (abs_post / 1_000_000, 1000)
         } else {
-            // For very large values (>= 1 billion), cap at reasonable precision
-            // This ensures compatibility with 32-bit isize on WASM
-            (abs_post / 10_000_000, 1000)
+            // 4+ digits: keep only the first 3 (e.g. 5234 → 523 → 0.523).
+            // A fixed division ladder cannot bound the digit count for
+            // arbitrarily large `post_comma` (an 11-digit value keeps 4 digits,
+            // etc.), letting the "fraction" grow past 1.0 and corrupt the
+            // integer part. Reduce until strictly below 1000 so the result is
+            // always a proper 3-digit fraction.
+            let mut reduced = abs_post;
+            while reduced >= 1000 {
+                reduced /= 10;
+            }
+            (reduced, 1000)
         };
 
         // Calculate fractional part
@@ -364,7 +359,10 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
     let mut found_numeric = false;
     for (idx, ch) in input.char_indices() {
         if ch.is_numeric() || ch == '.' || ch == '-' {
-            split_pos = idx;
+            // Advance past the *whole* char: `is_numeric()` matches multi-byte
+            // Unicode digits (½ U+00BD, ٥ U+0665, ５ U+FF15). Using `idx + 1`
+            // would land inside the codepoint and panic on the slice below.
+            split_pos = idx + ch.len_utf8();
             found_numeric = true;
         }
     }
@@ -374,8 +372,6 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
             crate::props::basic::error::ParseFloatError::from("no numeric value".parse::<f32>().unwrap_err()),
         ));
     }
-
-    split_pos += 1;
 
     let unit = input[split_pos..].trim();
     let mut number = input[..split_pos]
@@ -1421,8 +1417,6 @@ mod autotest_generated {
     // — run them with `cargo test -p azul-css -- --ignored` after fixing.
 
     #[test]
-    #[ignore = "KNOWN BUG: parse_percentage_value panics (byte index is not a char \
-                boundary) on multi-byte `char::is_numeric()` input"]
     fn known_bug_percentage_multibyte_numeric_char_panics() {
         // `char::is_numeric()` is true for Nd/Nl/No — including multi-byte chars
         // like '½' (U+00BD, 2 bytes) and '٥' (U+0665, 2 bytes). The scanner
@@ -1440,8 +1434,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "KNOWN BUG: const_new_fractional does not truncate post_comma \
-                beyond 10 digits, so the fraction escapes [0, 1)"]
     #[cfg(target_pointer_width = "64")]
     fn known_bug_const_new_fractional_huge_post_comma_escapes_the_fraction() {
         // The digit-count ladder's last arm divides by 10_000_000, which only

@@ -130,7 +130,7 @@ impl LayoutRect {
     }
     #[inline]
     #[must_use] pub const fn max_x(&self) -> isize {
-        self.origin.x + self.size.width
+        self.origin.x.saturating_add(self.size.width)
     }
     #[inline]
     #[must_use] pub const fn min_x(&self) -> isize {
@@ -138,7 +138,7 @@ impl LayoutRect {
     }
     #[inline]
     #[must_use] pub const fn max_y(&self) -> isize {
-        self.origin.y + self.size.height
+        self.origin.y.saturating_add(self.size.height)
     }
     #[inline]
     #[must_use] pub const fn min_y(&self) -> isize {
@@ -172,10 +172,10 @@ impl LayoutRect {
     /// on the boundary are excluded (returns `None`).
     #[inline]
     #[must_use] pub const fn hit_test(&self, other: &LayoutPoint) -> Option<LayoutPoint> {
-        let dx_left_edge = other.x - self.min_x();
-        let dx_right_edge = self.max_x() - other.x;
-        let dy_top_edge = other.y - self.min_y();
-        let dy_bottom_edge = self.max_y() - other.y;
+        let dx_left_edge = other.x.saturating_sub(self.min_x());
+        let dx_right_edge = self.max_x().saturating_sub(other.x);
+        let dy_top_edge = other.y.saturating_sub(self.min_y());
+        let dy_bottom_edge = self.max_y().saturating_sub(other.y);
         if dx_left_edge > 0 && dx_right_edge > 0 && dy_top_edge > 0 && dy_bottom_edge > 0 {
             Some(LayoutPoint::new(dx_left_edge, dy_top_edge))
         } else {
@@ -194,16 +194,16 @@ impl LayoutRect {
 
         let mut min_x = first.origin.x;
         let mut min_y = first.origin.y;
-        let mut max_x = first.origin.x + first.size.width;
-        let mut max_y = first.origin.y + first.size.height;
+        let mut max_x = first.origin.x.saturating_add(first.size.width);
+        let mut max_y = first.origin.y.saturating_add(first.size.height);
 
         for Self {
             origin: LayoutPoint { x, y },
             size: LayoutSize { width, height },
         } in iter
         {
-            max_x = max_x.max(x + width);
-            max_y = max_y.max(y + height);
+            max_x = max_x.max(x.saturating_add(width));
+            max_y = max_y.max(y.saturating_add(height));
             min_x = min_x.min(x);
             min_y = min_y.min(y);
         }
@@ -211,8 +211,8 @@ impl LayoutRect {
         OptionLayoutRect::Some(Self {
             origin: LayoutPoint { x: min_x, y: min_y },
             size: LayoutSize {
-                width: max_x - min_x,
-                height: max_y - min_y,
+                width: max_x.saturating_sub(min_x),
+                height: max_y.saturating_sub(min_y),
             },
         })
     }
@@ -234,8 +234,8 @@ impl LayoutRect {
 
         b_x >= a_x
             && b_y >= a_y
-            && b_x + b_width <= a_x + a_width
-            && b_y + b_height <= a_y + a_height
+            && b_x.saturating_add(b_width) <= a_x.saturating_add(a_width)
+            && b_y.saturating_add(b_height) <= a_y.saturating_add(a_height)
     }
 }
 
@@ -565,22 +565,18 @@ mod autotest_generated {
     }
 
     // KNOWN HAZARD (reported, not weakened): `max_x`/`max_y` are a plain `+` on
-    // `isize`, so an out-of-range right/bottom edge panics in debug and wraps in
-    // release instead of saturating. These two tests pin the current behaviour.
-    #[cfg(debug_assertions)]
+    // `isize`, so an out-of-range right/bottom edge now saturates instead of
+    // panicking (debug) / wrapping (release). These two tests pin that.
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn max_x_overflows_instead_of_saturating() {
+    fn max_x_saturates_instead_of_overflowing() {
         let r = core::hint::black_box(rect(isize::MAX, 0, 1, 0));
-        let _ = core::hint::black_box(r.max_x());
+        assert_eq!(r.max_x(), isize::MAX);
     }
 
-    #[cfg(debug_assertions)]
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn max_y_overflows_instead_of_saturating() {
+    fn max_y_saturates_instead_of_overflowing() {
         let r = core::hint::black_box(rect(0, isize::MIN, 0, -1));
-        let _ = core::hint::black_box(r.max_y());
+        assert_eq!(r.max_y(), isize::MIN);
     }
 
     // =================================================== contains ============
@@ -633,12 +629,10 @@ mod autotest_generated {
     }
 
     // KNOWN HAZARD (reported): a rect wide enough that `origin.x + width`
-    // overflows makes `contains` panic — but only once the point clears the left
-    // edge, so it is an input-dependent panic, not a constructor-time one.
-    #[cfg(debug_assertions)]
+    // overflows no longer makes `contains` panic: the saturating `max_x()` clamps
+    // the right edge to isize::MAX, so an interior point is still inside.
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn contains_panics_on_a_rect_whose_right_edge_overflows() {
+    fn contains_does_not_panic_on_a_rect_whose_right_edge_overflows() {
         let r = core::hint::black_box(rect(1, 0, isize::MAX, 10));
         let p = core::hint::black_box(point(5, 5));
         assert!(r.contains(&p));
@@ -723,12 +717,10 @@ mod autotest_generated {
         assert_eq!(isize_to_f32(TWO_POW_40 + 1), isize_to_f32(TWO_POW_40));
     }
 
-    // KNOWN HAZARD (reported): `contains_f32` shares `max_x()` with `contains`,
-    // so it inherits the same overflow panic.
-    #[cfg(debug_assertions)]
+    // `contains_f32` shares the saturating `max_x()` with `contains`, so an
+    // overflowing right edge no longer panics — an interior point is inside.
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn contains_f32_panics_on_a_rect_whose_right_edge_overflows() {
+    fn contains_f32_does_not_panic_on_a_rect_whose_right_edge_overflows() {
         let r = core::hint::black_box(rect(1, 0, isize::MAX, 10));
         assert!(r.contains_f32(core::hint::black_box(5.0), 5.0));
     }
@@ -787,26 +779,21 @@ mod autotest_generated {
         }
     }
 
-    // KNOWN HAZARD (reported): unlike `contains`, `hit_test` computes all four
-    // edge deltas up front with no short-circuit, so a far-away point or an
-    // overflowing right edge panics. Hit-testing is the mouse path — these are
-    // the two most reachable overflows in the file.
-    #[cfg(debug_assertions)]
+    // `hit_test` computes all four edge deltas up front with saturating math, so
+    // a far-away point or an overflowing right edge no longer panics. Hit-testing
+    // is the mouse path — these were the two most reachable overflows in the file.
     #[test]
-    #[should_panic(expected = "attempt to subtract with overflow")]
-    fn hit_test_panics_on_a_point_far_left_of_a_perfectly_ordinary_rect() {
+    fn hit_test_of_a_point_far_left_of_a_perfectly_ordinary_rect_is_none() {
         let r = core::hint::black_box(rect(0, 0, 10, 10));
         let p = core::hint::black_box(point(isize::MIN, 0));
-        let _ = core::hint::black_box(r.hit_test(&p));
+        assert_eq!(r.hit_test(&p), None);
     }
 
-    #[cfg(debug_assertions)]
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn hit_test_panics_on_a_rect_whose_right_edge_overflows() {
+    fn hit_test_of_a_rect_whose_right_edge_overflows_returns_the_interior_offset() {
         let r = core::hint::black_box(rect(1, 0, isize::MAX, 10));
         let p = core::hint::black_box(point(5, 5));
-        let _ = core::hint::black_box(r.hit_test(&p));
+        assert_eq!(r.hit_test(&p), Some(point(4, 5)));
     }
 
     // =================================================== contains_rect =======
@@ -859,11 +846,10 @@ mod autotest_generated {
         assert!(half.contains_rect(&rect(isize::MIN, isize::MIN, 0, 0)));
     }
 
-    // KNOWN HAZARD (reported): `b_x + b_width` and `a_x + a_width` are unchecked.
-    #[cfg(debug_assertions)]
+    // `b_x + b_width` and `a_x + a_width` now saturate, so an overflowing far
+    // edge no longer panics: b saturates to the same isize::MAX edge as a.
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn contains_rect_panics_when_the_inner_rects_far_edge_overflows() {
+    fn contains_rect_does_not_panic_when_the_inner_rects_far_edge_overflows() {
         let a = core::hint::black_box(rect(0, 0, isize::MAX, isize::MAX));
         let b = core::hint::black_box(rect(1, 1, isize::MAX, 1));
         assert!(a.contains_rect(&b));
@@ -974,23 +960,25 @@ mod autotest_generated {
         );
     }
 
-    // KNOWN HAZARD (reported): `union` does three unchecked `isize` operations —
-    // `x + width` per rect and `max - min` for the result extent. A slice whose
-    // bounding box exceeds `isize::MAX` panics in debug / wraps in release.
-    #[cfg(debug_assertions)]
+    // `union` does three `isize` operations — `x + width` per rect and `max - min`
+    // for the result extent — all saturating now, so a bounding box exceeding
+    // isize::MAX clamps the extent instead of panicking (debug) / wrapping (release).
     #[test]
-    #[should_panic(expected = "attempt to subtract with overflow")]
-    fn union_spanning_the_whole_isize_range_overflows_the_extent_subtraction() {
+    fn union_spanning_the_whole_isize_range_saturates_the_extent() {
         let vec = rect_vec(&[rect(isize::MIN, 0, 0, 0), rect(isize::MAX, 0, 0, 0)]);
-        let _ = core::hint::black_box(LayoutRect::union(vec.as_c_slice()));
+        assert_eq!(
+            LayoutRect::union(vec.as_c_slice()),
+            OptionLayoutRect::Some(rect(isize::MIN, 0, isize::MAX, 0))
+        );
     }
 
-    #[cfg(debug_assertions)]
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn union_of_a_rect_whose_far_edge_overflows_panics() {
+    fn union_of_a_rect_whose_far_edge_overflows_saturates() {
         let vec = rect_vec(&[rect(isize::MAX, 0, 1, 0)]);
-        let _ = core::hint::black_box(LayoutRect::union(vec.as_c_slice()));
+        assert_eq!(
+            LayoutRect::union(vec.as_c_slice()),
+            OptionLayoutRect::Some(rect(isize::MAX, 0, 0, 0))
+        );
     }
 
     // =================================================== LayoutSize::round ===

@@ -654,41 +654,20 @@ mod autotest_generated {
         );
     }
 
-    /// KNOWN BUG (`shape::CssShape` and the three property enums): `parse_length`
-    /// accepts `NaN`, so `circle(NaN)` yields a shape holding a NaN f32. The
-    /// property enums `#[derive(PartialEq)]` (raw f32 compare: NaN != NaN) but
-    /// hand-write `Ord` with NaN-as-Equal, and then claim `impl Eq`.
-    ///
-    /// So for a NaN shape: `a == a` is FALSE while `a.cmp(&a)` is `Equal`. That
-    /// breaks Eq's reflexivity contract and Ord's `a == b <=> cmp == Equal`
-    /// contract — a `Vec::contains` will miss a value that a `BTreeMap` finds.
-    ///
-    /// The fix belongs upstream (reject non-finite lengths in `parse_length`, or
-    /// hand-write `PartialEq` to match Ord). WHEN IT LANDS this test fails —
-    /// replace it with `assert!(parse_clip_path("circle(NaN)").is_err())` or with
-    /// a reflexivity assertion, whichever way it was fixed.
+    /// A NaN f32 in a shape used to break the `Eq`/`Ord` contracts: the property
+    /// enums derived `PartialEq` (raw compare, NaN != NaN) while hand-writing
+    /// `Ord`/`Hash` as NaN-Equal (`to_bits`), so `a == a` was false yet `cmp` said
+    /// `Equal`. Fixed: `PartialEq` is now hand-written to match `Ord`, so a
+    /// preserved NaN length stays reflexive and consistent with Hash/Ord.
     #[test]
-    fn known_bug_nan_shape_breaks_eq_ord_consistency() {
-        let a = parse_clip_path("circle(NaN)").expect("NaN currently parses");
-        let b = parse_clip_path("circle(NaN)").expect("NaN currently parses");
-
-        // Hand-written Ord: NaN compares Equal.
+    fn nan_shape_is_reflexive_and_consistent_across_eq_ord_hash() {
+        let a = parse_clip_path("circle(NaN)").expect("NaN is a preserved length");
+        let b = parse_clip_path("circle(NaN)").expect("NaN is a preserved length");
+        assert_eq!(a, a, "Eq must be reflexive for a NaN shape");
+        assert_eq!(a, b);
         assert_eq!(a.cmp(&b), Ordering::Equal);
         assert_eq!(a.partial_cmp(&b), Some(Ordering::Equal));
-        // Manual Hash (via to_bits): NaN hashes equal to itself.
         assert_eq!(hash_of(&a), hash_of(&b));
-
-        // Derived PartialEq: NaN is not equal to itself. Inconsistent with both.
-        assert!(
-            a != b,
-            "NaN shapes are now reflexive under PartialEq — the Eq/Ord \
-             inconsistency is fixed. Update this test."
-        );
-        assert!(
-            (a != a),
-            "`a == a` is now true for a NaN shape — Eq reflexivity is restored. \
-             Update this test."
-        );
     }
 
     /// Contrast with the bug above: `ShapeMargin` / `ShapeImageThreshold` store

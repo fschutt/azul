@@ -888,7 +888,18 @@ pub fn parse_style_object_position(
             }
         }
         2 => {
-            let h = match parts[0] {
+            // <position>: [left|center|right|<len>] || [top|center|bottom|<len>].
+            // The `||` combinator lets two *keywords* appear in either order, so
+            // canonicalize to (horizontal, vertical) first. A length in either
+            // slot forces positional order (first = horizontal, second = vertical).
+            let (a, b) = (parts[0], parts[1]);
+            let both_keywords = matches!(a, "left" | "center" | "right" | "top" | "bottom")
+                && matches!(b, "left" | "center" | "right" | "top" | "bottom");
+            let reversed = both_keywords
+                && (matches!(a, "top" | "bottom") || matches!(b, "left" | "right"));
+            let (h_str, v_str) = if reversed { (b, a) } else { (a, b) };
+
+            let h = match h_str {
                 "left" => BackgroundPositionHorizontal::Left,
                 "center" => BackgroundPositionHorizontal::Center,
                 "right" => BackgroundPositionHorizontal::Right,
@@ -898,7 +909,7 @@ pub fn parse_style_object_position(
                     BackgroundPositionHorizontal::Exact(px)
                 }
             };
-            let v = match parts[1] {
+            let v = match v_str {
                 "top" => BackgroundPositionVertical::Top,
                 "center" => BackgroundPositionVertical::Center,
                 "bottom" => BackgroundPositionVertical::Bottom,
@@ -925,6 +936,23 @@ pub struct AspectRatioValue {
     pub width: u32,
     pub height: u32,
 }
+
+impl AspectRatioValue {
+    /// Format one fixed-point component (`value * 1000`) back to its CSS number,
+    /// dropping the scale and any trailing fractional zeros: 16000 -> "16",
+    /// 1500 -> "1.5". Used by `PrintAsCssValue` so a printed ratio re-parses to
+    /// the same value (integer math, no lossy f32 cast).
+    fn fmt_component(v: u32) -> String {
+        let int = v / 1000;
+        let frac = v % 1000;
+        if frac == 0 {
+            int.to_string()
+        } else {
+            let frac_str = format!("{frac:03}");
+            format!("{int}.{}", frac_str.trim_end_matches('0'))
+        }
+    }
+}
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS aspect-ratio property: preferred aspect ratio for the box.
 /// CSS Box Sizing Level 4 §6 — values: `auto | <ratio>` (initial: `auto`)
@@ -948,7 +976,11 @@ impl PrintAsCssValue for StyleAspectRatio {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::Auto => String::from("auto"),
-            Self::Ratio(r) => format!("{} / {}", r.width, r.height),
+            Self::Ratio(r) => format!(
+                "{} / {}",
+                AspectRatioValue::fmt_component(r.width),
+                AspectRatioValue::fmt_component(r.height)
+            ),
         }
     }
 }
@@ -1002,6 +1034,29 @@ const fn aspect_f32_to_u32(v: f32) -> u32 {
     v as u32
 }
 
+/// Validate two ratio components and encode them into the fixed-point
+/// [`AspectRatioValue`]. The positive-range checks are written as
+/// `!(x > 0.0 && x <= MAX)` so NaN — which is false for every ordered
+/// comparison — is rejected instead of sailing through the guards. A component
+/// whose fixed-point encoding rounds to 0 (magnitude below ~0.0005) is a
+/// degenerate divide-by-zero ratio and is rejected as well.
+#[cfg(feature = "parser")]
+fn ratio_from_components(
+    w: f32,
+    h: f32,
+    input: &str,
+) -> Result<StyleAspectRatio, StyleAspectRatioParseError<'_>> {
+    if !(w > 0.0 && w <= 100_000.0 && h > 0.0 && h <= 100_000.0) {
+        return Err(StyleAspectRatioParseError::InvalidValue(input));
+    }
+    let width = aspect_f32_to_u32((w * 1000.0).round());
+    let height = aspect_f32_to_u32((h * 1000.0).round());
+    if width == 0 || height == 0 {
+        return Err(StyleAspectRatioParseError::InvalidValue(input));
+    }
+    Ok(StyleAspectRatio::Ratio(AspectRatioValue { width, height }))
+}
+
 /// Parse aspect-ratio: "auto", "16 / 9", "1.5", "4/3"
 #[cfg(feature = "parser")]
 /// # Errors
@@ -1020,23 +1075,11 @@ pub fn parse_style_aspect_ratio(
         let h_str = input[slash_pos + 1..].trim();
         let w: f32 = w_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
         let h: f32 = h_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
-        if h <= 0.0 || w <= 0.0 || w > 100_000.0 || h > 100_000.0 {
-            return Err(StyleAspectRatioParseError::InvalidValue(input));
-        }
-        return Ok(StyleAspectRatio::Ratio(AspectRatioValue {
-            width: aspect_f32_to_u32((w * 1000.0).round()),
-            height: aspect_f32_to_u32((h * 1000.0).round()),
-        }));
+        return ratio_from_components(w, h, input);
     }
-    // Try single number (width/1)
+    // A single number is the "<w> / 1" ratio.
     let w: f32 = input.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
-    if w <= 0.0 || w > 100_000.0 {
-        return Err(StyleAspectRatioParseError::InvalidValue(input));
-    }
-    Ok(StyleAspectRatio::Ratio(AspectRatioValue {
-        width: aspect_f32_to_u32((w * 1000.0).round()),
-        height: 1000,
-    }))
+    ratio_from_components(w, 1.0, input)
 }
 
 #[cfg(all(test, feature = "parser"))]
@@ -1963,14 +2006,10 @@ mod autotest_generated {
 
     // ------------------------------------------------------------ known bugs ---
     //
-    // The tests below assert the behaviour these functions *should* have. They
-    // currently fail, so they are #[ignore]d rather than deleted or weakened —
-    // run them with `cargo test -p azul-css -- --ignored` after fixing.
+    // The tests below assert the behaviour these functions must have; they are
+    // regression guards for bugs that have since been fixed.
 
     #[test]
-    #[ignore = "KNOWN BUG (css/src/props/basic/length.rs): parse_percentage_value \
-                panics on multi-byte `char::is_numeric()` input, and \
-                parse_style_opacity inherits it"]
     fn known_bug_opacity_multibyte_numeric_char_panics() {
         // `char::is_numeric()` is true for Nd/Nl/No, including multi-byte chars
         // like '½' (U+00BD) and '٥' (U+0665). `parse_percentage_value` records
@@ -1988,8 +2027,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "KNOWN BUG: NaN bypasses the aspect-ratio range guards and yields \
-                a degenerate 0-width / 0-height ratio"]
     fn known_bug_aspect_ratio_nan_bypasses_the_range_guards() {
         // Every guard in `parse_style_aspect_ratio` is a float comparison
         // (`h <= 0.0 || w <= 0.0 || w > 100_000.0 || h > 100_000.0`), and every
@@ -2007,8 +2044,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "KNOWN BUG: aspect-ratio values below the fixed-point resolution \
-                round down to a 0 component despite the `> 0` guard"]
     fn known_bug_aspect_ratio_tiny_positive_values_round_down_to_zero() {
         // `w > 0.0` passes, but `(w * 1000.0).round()` is 0 for anything below
         // 0.0005 — so a positive ratio silently becomes the degenerate 0 that the
@@ -2025,8 +2060,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "KNOWN BUG: PrintAsCssValue for StyleAspectRatio prints the raw \
-                fixed-point numerator/denominator instead of dividing by 1000"]
     fn known_bug_aspect_ratio_does_not_survive_a_print_reparse_cycle() {
         // `Ratio { width: 16000, height: 9000 }` (i.e. 16/9) prints as
         // "16000 / 9000", so every print/parse cycle multiplies both components
@@ -2039,8 +2072,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "KNOWN BUG: object-position rejects the `top left` keyword order, \
-                which CSS Values 4 §<position> allows"]
     fn known_bug_object_position_rejects_reversed_keyword_pairs() {
         // `<position>` is `[left|center|right] || [top|center|bottom]` — the `||`
         // means either order is valid, so `object-position: top left` is legal

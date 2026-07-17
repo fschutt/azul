@@ -80,7 +80,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 179] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 184] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -299,6 +299,13 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 179] = [
     (CssPropertyType::ListStyleType, "list-style-type"),
     (CssPropertyType::ListStylePosition, "list-style-position"),
     (CssPropertyType::StringSet, "string-set"),
+    // CSS 2.1 table properties (value parsers already exist; these key-map
+    // entries make them reachable from stylesheet text via parser2).
+    (CssPropertyType::TableLayout, "table-layout"),
+    (CssPropertyType::BorderCollapse, "border-collapse"),
+    (CssPropertyType::BorderSpacing, "border-spacing"),
+    (CssPropertyType::CaptionSide, "caption-side"),
+    (CssPropertyType::EmptyCells, "empty-cells"),
 ];
 
 // Type aliases for `CssPropertyValue<T>`
@@ -7827,13 +7834,8 @@ mod autotest_generated {
     /// The five CSS table properties that `CssPropertyType::to_str()` names but
     /// `CSS_PROPERTY_KEY_MAP` never registers, so `from_str` can't find them.
     /// See `bug_table_properties_are_unreachable_from_stylesheet_text`.
-    const KEYS_MISSING_FROM_KEY_MAP: &[CssPropertyType] = &[
-        CssPropertyType::TableLayout,
-        CssPropertyType::BorderCollapse,
-        CssPropertyType::BorderSpacing,
-        CssPropertyType::CaptionSide,
-        CssPropertyType::EmptyCells,
-    ];
+    // Every property type now resolves through CSS_PROPERTY_KEY_MAP.
+    const KEYS_MISSING_FROM_KEY_MAP: &[CssPropertyType] = &[];
 
     // ---- CssKeyMap / get_css_key_map ---------------------------------------
 
@@ -8110,8 +8112,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "RED: 5 table properties are absent from CSS_PROPERTY_KEY_MAP, so they can never \
-                be parsed from stylesheet text. Remove the #[ignore] once they are registered."]
     fn bug_table_properties_are_unreachable_from_stylesheet_text() {
         let map = get_css_key_map();
         for t in KEYS_MISSING_FROM_KEY_MAP {

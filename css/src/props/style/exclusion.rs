@@ -228,10 +228,13 @@ impl StyleHyphenationLanguageParseErrorOwned {
 pub fn parse_style_hyphenation_language(
     input: &str,
 ) -> Result<StyleHyphenationLanguage, StyleHyphenationLanguageParseError> {
-    // Remove quotes if present
+    // Remove surrounding quotes if present. Require len >= 2 so a lone quote
+    // (where starts_with and ends_with match the *same* char) is not stripped to
+    // `&s[1..0]`, which would panic instead of failing validation below.
     let trimmed = input.trim();
-    let unquoted = if (trimmed.starts_with('"') && trimmed.ends_with('"'))
-        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+    let unquoted = if trimmed.len() >= 2
+        && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
     {
         &trimmed[1..trimmed.len() - 1]
     } else {
@@ -1014,7 +1017,6 @@ mod autotest_generated {
     /// `#[ignore]`d only so the suite stays green until the parser is fixed.
     #[cfg(feature = "parser")]
     #[test]
-    #[ignore = "RED: known bug - a lone quote char panics on &s[1..0] instead of returning Err"]
     fn parse_hyphenation_language_lone_quote_must_not_panic() {
         for input in ["\"", "'", " \" ", "\t'\n"] {
             assert!(

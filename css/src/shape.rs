@@ -72,13 +72,20 @@ impl_vec_eq!(ShapePoint, ShapePointVec);
 impl_vec_hash!(ShapePoint, ShapePointVec);
 
 /// A circle shape defined by center point and radius
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct ShapeCircle {
     pub center: ShapePoint,
     pub radius: f32,
 }
 
+// PartialEq is hand-written to match the to_bits Hash and the NaN-Equal Ord, so
+// Eq stays reflexive even when a radius is NaN (a preserved, if unusual, length).
+impl PartialEq for ShapeCircle {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == core::cmp::Ordering::Equal
+    }
+}
 impl Eq for ShapeCircle {}
 impl core::hash::Hash for ShapeCircle {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
@@ -104,7 +111,7 @@ impl Ord for ShapeCircle {
 }
 
 /// An ellipse shape defined by center point and two radii
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct ShapeEllipse {
     pub center: ShapePoint,
@@ -112,6 +119,12 @@ pub struct ShapeEllipse {
     pub radius_y: f32,
 }
 
+// PartialEq hand-written to match the to_bits Hash / NaN-Equal Ord (reflexive Eq).
+impl PartialEq for ShapeEllipse {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == core::cmp::Ordering::Equal
+    }
+}
 impl Eq for ShapeEllipse {}
 impl core::hash::Hash for ShapeEllipse {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
@@ -149,7 +162,7 @@ pub struct ShapePolygon {
 
 /// An inset rectangle with optional border radius
 /// Defined by insets from the reference box edges
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct ShapeInset {
     pub inset_top: f32,
@@ -159,6 +172,12 @@ pub struct ShapeInset {
     pub border_radius: OptionF32,
 }
 
+// PartialEq hand-written to match the to_bits Hash / NaN-Equal Ord (reflexive Eq).
+impl PartialEq for ShapeInset {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == core::cmp::Ordering::Equal
+    }
+}
 impl Eq for ShapeInset {}
 impl core::hash::Hash for ShapeInset {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
@@ -194,7 +213,7 @@ pub struct ShapePath {
 
 /// Represents a CSS shape for shape-inside, shape-outside, and clip-path.
 /// Used for both text layout (shape-inside/outside) and rendering clipping (clip-path).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[repr(C, u8)]
 pub enum CssShape {
     Circle(ShapeCircle),
@@ -204,6 +223,13 @@ pub enum CssShape {
     Path(ShapePath),
 }
 
+// PartialEq hand-written to match the to_bits Hash / NaN-Equal Ord (reflexive Eq
+// through the float-holding variants).
+impl PartialEq for CssShape {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == core::cmp::Ordering::Equal
+    }
+}
 impl Eq for CssShape {}
 
 impl core::hash::Hash for CssShape {
