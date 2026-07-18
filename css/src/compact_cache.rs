@@ -627,25 +627,30 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 #[inline]
 #[must_use] pub const fn style_text_align_from_u8(v: u8) -> StyleTextAlign {
+    // Code 0 must decode to the CSS-initial value so an un-written tier1 field (all
+    // zero) yields `start`, not physical `left` — otherwise direction:rtl never
+    // right-aligns (start→right needs the value to actually be `start`). `left`
+    // therefore takes code 4 (swapped with `start`).
     match v {
-        0 => StyleTextAlign::Left,
+        0 => StyleTextAlign::Start,
         1 => StyleTextAlign::Center,
         2 => StyleTextAlign::Right,
         3 => StyleTextAlign::Justify,
-        4 => StyleTextAlign::Start,
+        4 => StyleTextAlign::Left,
         5 => StyleTextAlign::End,
-        _ => StyleTextAlign::Left,
+        _ => StyleTextAlign::Start,
     }
 }
 
 #[inline]
 #[must_use] pub const fn style_text_align_to_u8(v: StyleTextAlign) -> u8 {
+    // `start` encodes to 0 (the CSS-initial / zero-baseline code); `left` takes 4.
     match v {
-        StyleTextAlign::Left => 0,
+        StyleTextAlign::Start => 0,
         StyleTextAlign::Center => 1,
         StyleTextAlign::Right => 2,
         StyleTextAlign::Justify => 3,
-        StyleTextAlign::Start => 4,
+        StyleTextAlign::Left => 4,
         StyleTextAlign::End => 5,
     }
 }
@@ -2294,7 +2299,7 @@ mod tests {
         assert_eq!(style_font_style_from_u8(0), StyleFontStyle::Normal);
         // text-align initial is `start`; we collapse `start` → `left` on
         // LTR runs at encode time, so the 0 slot decodes to Left.
-        assert_eq!(style_text_align_from_u8(0), StyleTextAlign::Left);
+        assert_eq!(style_text_align_from_u8(0), StyleTextAlign::Start);
         assert_eq!(style_visibility_from_u8(0), StyleVisibility::Visible);
         assert_eq!(style_white_space_from_u8(0), StyleWhiteSpace::Normal);
         assert_eq!(style_direction_from_u8(0), StyleDirection::Ltr);
@@ -2326,7 +2331,7 @@ mod tests {
         assert_eq!(layout_clear_to_u8(LayoutClear::None), 0);
         assert_eq!(style_font_weight_to_u8(StyleFontWeight::Normal), 0);
         assert_eq!(style_font_style_to_u8(StyleFontStyle::Normal), 0);
-        assert_eq!(style_text_align_to_u8(StyleTextAlign::Left), 0);
+        assert_eq!(style_text_align_to_u8(StyleTextAlign::Left), 4);
         assert_eq!(style_visibility_to_u8(StyleVisibility::Visible), 0);
         assert_eq!(style_white_space_to_u8(StyleWhiteSpace::Normal), 0);
         assert_eq!(style_direction_to_u8(StyleDirection::Ltr), 0);
@@ -2548,7 +2553,7 @@ mod tests {
         assert_eq!(decode_clear(t1), LayoutClear::None);
         assert_eq!(decode_font_weight(t1), StyleFontWeight::Normal);
         assert_eq!(decode_font_style(t1), StyleFontStyle::Normal);
-        assert_eq!(decode_text_align(t1), StyleTextAlign::Left);
+        assert_eq!(decode_text_align(t1), StyleTextAlign::Start);
         assert_eq!(decode_visibility(t1), StyleVisibility::Visible);
         assert_eq!(decode_white_space(t1), StyleWhiteSpace::Normal);
         assert_eq!(decode_direction(t1), StyleDirection::Ltr);
@@ -2681,7 +2686,7 @@ mod autotest_generated {
                 clear: LayoutClear::None,
                 font_weight: StyleFontWeight::Normal,
                 font_style: StyleFontStyle::Normal,
-                text_align: StyleTextAlign::Left,
+                text_align: StyleTextAlign::Start,
                 visibility: StyleVisibility::Visible,
                 white_space: StyleWhiteSpace::Normal,
                 direction: StyleDirection::Ltr,
@@ -2863,7 +2868,7 @@ mod autotest_generated {
             StyleFontWeight::Normal,
         );
         assert_u8_fallback("font_style", style_font_style_from_u8, 3, StyleFontStyle::Normal);
-        assert_u8_fallback("text_align", style_text_align_from_u8, 6, StyleTextAlign::Left);
+        assert_u8_fallback("text_align", style_text_align_from_u8, 6, StyleTextAlign::Start);
         assert_u8_fallback(
             "visibility",
             style_visibility_from_u8,
@@ -3296,7 +3301,7 @@ mod autotest_generated {
                 clear: LayoutClear::Both,               // 3  → real variant
                 font_weight: StyleFontWeight::Normal,   // 15 → fallback
                 font_style: StyleFontStyle::Normal,     // 3  → fallback
-                text_align: StyleTextAlign::Left,       // 7  → fallback
+                text_align: StyleTextAlign::Start,      // 7  → fallback
                 visibility: StyleVisibility::Visible,   // 3  → fallback
                 white_space: StyleWhiteSpace::Normal,   // 7  → fallback
                 direction: StyleDirection::Rtl,         // 1  → real variant
@@ -3838,7 +3843,7 @@ mod autotest_generated {
             assert_eq!(c.get_clear(i), LayoutClear::None);
             assert_eq!(c.get_font_weight(i), StyleFontWeight::Normal);
             assert_eq!(c.get_font_style(i), StyleFontStyle::Normal);
-            assert_eq!(c.get_text_align(i), StyleTextAlign::Left);
+            assert_eq!(c.get_text_align(i), StyleTextAlign::Start);
             assert_eq!(c.get_visibility(i), StyleVisibility::Visible);
             assert_eq!(c.get_white_space(i), StyleWhiteSpace::Normal);
             assert_eq!(c.get_direction(i), StyleDirection::Ltr);
