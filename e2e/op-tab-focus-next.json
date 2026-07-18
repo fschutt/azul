@@ -1,0 +1,51 @@
+{
+  "name": "op_tab_focus_next",
+  "expect": "fail",
+  "description": "FOCUS / TAB (forward): three focusable divs (tabindex=0). Pressing Tab with nothing focused runs determine_keyboard_default_action → DefaultAction::FocusNext, which must land focus on the FIRST focusable element (#f1); a second Tab advances to #f2; a third to #f3. Each Tab is a key_down/key_up pair on \"tab\"; get_focus_state returns the focused node and assert_response {type:focus_state} checks the selector it hands back contains the expected id. A no-op key path leaves has_focus=false and every assert_response goes red.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"f2\" tabindex=\"0\" class=\"item\">two</div>",
+        "  <div id=\"f3\" tabindex=\"0\" class=\"item\">three</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".item { width: 120px; height: 30px; background: silver; font-family: \"Azul Mock Mono\"; font-size: 20px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+
+    { "op": "assert_exists", "selector": "#f1" },
+    { "op": "assert_exists", "selector": "#f3" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "type": "focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f2" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f3" }
+  ]
+}

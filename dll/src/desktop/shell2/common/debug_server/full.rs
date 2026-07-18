@@ -3490,6 +3490,12 @@ pub struct E2eTest {
     /// Optional description.
     #[serde(default)]
     pub description: Option<String>,
+    /// Expected-outcome marker for the run.rs verdict tally.
+    /// `Some("fail")` marks a KNOWN-FAILING test: a FAIL becomes XFAIL (does
+    /// not fail the gate) and a PASS becomes XPASS (a failure — "bug fixed,
+    /// remove the marker"). `None` is the normal pass=ok / fail=gate-failure.
+    #[serde(default)]
+    pub expect: Option<String>,
     /// Optional runtime configuration (continue_on_failure, delay, …).
     #[serde(default)]
     pub config: E2eConfig,

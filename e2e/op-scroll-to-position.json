@@ -1,0 +1,47 @@
+{
+  "name": "op_scroll_to_position",
+  "description": "SCROLLING (to absolute position): same 500px content / 100px viewport container. `scroll_node_to` y=200 sets the absolute offset (not a delta). assert_scroll must read exactly (0, 200). A second scroll_node_to y=0 returns it to the top, proving the op is absolute (a delta-based impl would land at 200, not 0).",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"scroller\">",
+        "  <div class=\"row\" id=\"r0\"></div>",
+        "  <div class=\"row\" id=\"r1\"></div>",
+        "  <div class=\"row\" id=\"r2\"></div>",
+        "  <div class=\"row\" id=\"r3\"></div>",
+        "  <div class=\"row\" id=\"r4\"></div>",
+        "  <div class=\"row\" id=\"r5\"></div>",
+        "  <div class=\"row\" id=\"r6\"></div>",
+        "  <div class=\"row\" id=\"r7\"></div>",
+        "  <div class=\"row\" id=\"r8\"></div>",
+        "  <div class=\"row\" id=\"r9\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: teal; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_exists", "selector": "#scroller" },
+
+    { "op": "scroll_node_to", "selector": "#scroller", "x": 0, "y": 200 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 200, "tolerance": 1.0 },
+
+    { "op": "scroll_node_to", "selector": "#scroller", "x": 0, "y": 0 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 0, "tolerance": 1.0 }
+  ]
+}

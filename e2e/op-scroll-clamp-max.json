@@ -1,0 +1,43 @@
+{
+  "name": "op_scroll_clamp_max",
+  "description": "SCROLLING (max clamp): the container shows 500px of content in a 100px viewport, so the maximum scroll-y is 500 - 100 = 400. `scroll_node_to` y=99999 (far past the end) must CLAMP to 400, not store the raw over-scroll value. The debug scroll path pushes CallbackChange::ScrollTo{unclamped:false}, which lands on ScrollStateManager::set_scroll_position → state.clamp(), so the stored offset is bounded to [0, max_scroll]. assert_scroll y=400 proves the clamp actually happened.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"scroller\">",
+        "  <div class=\"row\" id=\"r0\"></div>",
+        "  <div class=\"row\" id=\"r1\"></div>",
+        "  <div class=\"row\" id=\"r2\"></div>",
+        "  <div class=\"row\" id=\"r3\"></div>",
+        "  <div class=\"row\" id=\"r4\"></div>",
+        "  <div class=\"row\" id=\"r5\"></div>",
+        "  <div class=\"row\" id=\"r6\"></div>",
+        "  <div class=\"row\" id=\"r7\"></div>",
+        "  <div class=\"row\" id=\"r8\"></div>",
+        "  <div class=\"row\" id=\"r9\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: purple; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_exists", "selector": "#scroller" },
+
+    { "op": "scroll_node_to", "selector": "#scroller", "x": 0, "y": 99999 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_scroll", "selector": "#scroller", "y": 400, "tolerance": 1.0 }
+  ]
+}

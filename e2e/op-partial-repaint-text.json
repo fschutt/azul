@@ -1,0 +1,42 @@
+{
+  "name": "op_partial_repaint_text",
+  "description": "PARTIAL REPAINT (text change): editing ONE text node must repaint just that node, bounded. The <p> at node 10 uses \"Azul Mock Mono\" (10px/glyph at 20px) so the glyph geometry is deterministic. reset_frame_counters + snapshot_frame baseline; set_node_text changes 'before' → 'AFTER'; get_frame_report feeds the asserts. assert_changed proves the pixels really differ, assert_damage_covers_changes proves the damage set contains every changed pixel, assert_work_bounded caps the work so a one-word edit cannot trigger a full rebuild. DOM mirrors e2e/bug-dom-mutation-no-damage.json so node id 10 is a stable <p>.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box\" id=\"b\"></div>",
+        "  <p id=\"t\">before</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 24px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        "#t    { font-family: \"Azul Mock Mono\"; font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "assert_exists", "selector": "#t" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_text" },
+    { "op": "set_node_text", "node_id": 10, "text": "AFTER" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "get_frame_report" },
+    { "op": "capture_damage_png", "path": "target/e2e/op_partial_repaint_text.png" },
+
+    { "op": "assert_changed", "vs": "before_text", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_text" },
+    { "op": "assert_work_bounded", "max_relayouts": 4, "max_dom_regens": 4 }
+  ]
+}

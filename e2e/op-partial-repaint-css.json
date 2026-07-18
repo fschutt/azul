@@ -1,0 +1,42 @@
+{
+  "name": "op_partial_repaint_css",
+  "description": "PARTIAL REPAINT (css override): changing ONE node's background must produce a BOUNDED, correctly-scoped partial repaint — not a full-frame redraw. reset_frame_counters + snapshot_frame establish the baseline; set_node_css_override recolors node 7 (one .box); get_frame_report then feeds the damage asserts. LIVENESS: assert_changed (damage non-empty AND pixels really differ vs the snapshot). SOUNDNESS: assert_damage_covers_changes (every changed pixel lies inside the reported damage). SCOPE: assert_work_bounded caps relayouts/dom-regens so a color-only change cannot masquerade as a full rebuild. DOM mirrors e2e/bug-dom-mutation-no-damage.json so node id 7 is a stable .box.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box\" id=\"b\"></div>",
+        "  <p id=\"t\">before</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 24px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        "#t    { font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_node_count", "selector": ".box", "expected": 2 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_css" },
+    { "op": "set_node_css_override", "node_id": 7, "property": "background", "value": "red" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "get_frame_report" },
+    { "op": "capture_damage_png", "path": "target/e2e/op_partial_repaint_css.png" },
+
+    { "op": "assert_changed", "vs": "before_css", "min_damage_rects": 1 },
+    { "op": "assert_damage_covers_changes", "vs": "before_css" },
+    { "op": "assert_work_bounded", "max_relayouts": 4, "max_dom_regens": 4 }
+  ]
+}

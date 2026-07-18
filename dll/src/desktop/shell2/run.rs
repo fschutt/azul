@@ -18,9 +18,13 @@
 //!
 //! # E2E Test Runner
 //!
-//! Set `AZ_E2E=<path>` to run E2E tests from a JSON file.
-//! The app starts in headless mode, runs all tests, prints cargo-test-style
-//! output, and exits with code 0 (all pass) or 1 (any failure).
+//! Set `AZ_E2E=<path>` to run E2E tests. `<path>` may be a single JSON file
+//! (one test object or an array) OR a DIRECTORY, in which case every `*.json`
+//! inside it is loaded in sorted order and run as one batch in the single
+//! process/warmup. The app starts in headless mode, runs all tests, prints
+//! cargo-test-style output, and exits with code 0 (all green) or 1 (any gate
+//! failure). A test may carry `"expect": "fail"` to mark a known failure:
+//! its FAIL becomes XFAIL (green) and a PASS becomes XPASS (red).
 //!
 //! ```bash
 //! AZ_E2E=tests.json ./my_app
@@ -67,29 +71,94 @@ fn e2e_test_file() -> Option<String> {
 /// - **Headless mode** (`AZ_BACKEND=headless`) → StubWindow instead of real window
 /// - **Debug server** (`AZ_DEBUG=<port>`) → HTTP API on that port
 /// - **E2E runner** (`AZ_E2E=<file>`) → one event on the queue
+/// Parse one E2E JSON file's contents — accept either a single test object
+/// or an array of them — appending into `out`. Exits the process on a parse
+/// error (a broken test file must be loud, never silently skipped).
 #[cfg(feature = "debug-server")]
-fn setup_e2e_runner(test_file: &str) {
-    // Read the test file — exit immediately on error
-    let tests_json = match std::fs::read_to_string(test_file) {
-        Ok(s) => s,
+fn load_e2e_json(path: &str, contents: &str, out: &mut Vec<debug_server::E2eTest>) {
+    match serde_json::from_str::<Vec<debug_server::E2eTest>>(contents) {
+        Ok(v) => out.extend(v),
+        Err(_) => match serde_json::from_str::<debug_server::E2eTest>(contents) {
+            Ok(t) => out.push(t),
+            Err(e) => {
+                eprintln!("error: invalid E2E JSON in '{}': {}", path, e);
+                std::process::exit(1);
+            }
+        },
+    }
+}
+
+/// Load all tests referenced by `AZ_E2E`. If it points at a DIRECTORY, every
+/// `*.json` inside it is loaded in sorted (deterministic) order and run as one
+/// batch in the single process/warmup; a single FILE keeps its old behavior.
+#[cfg(feature = "debug-server")]
+fn load_e2e_tests(path: &str) -> Vec<debug_server::E2eTest> {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
         Err(e) => {
-            eprintln!("error: cannot read E2E test file '{}': {}", test_file, e);
+            eprintln!("error: cannot stat E2E path '{}': {}", path, e);
             std::process::exit(1);
         }
     };
 
-    // Parse JSON — accept array or single test object
-    let tests: Vec<debug_server::E2eTest> =
-        match serde_json::from_str::<Vec<debug_server::E2eTest>>(&tests_json) {
-            Ok(v) => v,
-            Err(_) => match serde_json::from_str::<debug_server::E2eTest>(&tests_json) {
-                Ok(t) => vec![t],
+    let mut tests = Vec::new();
+
+    if meta.is_dir() {
+        // Glob *.json, sorted by path for a deterministic run order.
+        let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(path) {
+            Ok(rd) => rd
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+                .collect(),
+            Err(e) => {
+                eprintln!("error: cannot read E2E directory '{}': {}", path, e);
+                std::process::exit(1);
+            }
+        };
+        files.sort();
+        if files.is_empty() {
+            eprintln!("error: no *.json E2E files found in directory '{}'", path);
+            std::process::exit(1);
+        }
+        for file in &files {
+            let contents = match std::fs::read_to_string(file) {
+                Ok(s) => s,
                 Err(e) => {
-                    eprintln!("error: invalid E2E JSON in '{}': {}", test_file, e);
+                    eprintln!("error: cannot read E2E test file '{}': {}", file.display(), e);
                     std::process::exit(1);
                 }
-            },
+            };
+            load_e2e_json(&file.display().to_string(), &contents, &mut tests);
+        }
+    } else {
+        let contents = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: cannot read E2E test file '{}': {}", path, e);
+                std::process::exit(1);
+            }
         };
+        load_e2e_json(path, &contents, &mut tests);
+    }
+
+    tests
+}
+
+#[cfg(feature = "debug-server")]
+fn setup_e2e_runner(test_file: &str) {
+    let tests = load_e2e_tests(test_file);
+    if tests.is_empty() {
+        eprintln!("error: no E2E tests to run from '{}'", test_file);
+        std::process::exit(1);
+    }
+
+    // Capture (name → expect) BEFORE the tests are moved into the queue, so the
+    // result-printer thread can apply the XFAIL/XPASS verdict logic. Names are
+    // expected to be unique; a duplicate simply overwrites (last wins).
+    let expect_map: std::collections::HashMap<String, Option<String>> = tests
+        .iter()
+        .map(|t| (t.name.clone(), t.expect.clone()))
+        .collect();
 
     let total = tests.len();
     eprintln!("\nrunning {} test{}", total, if total == 1 { "" } else { "s" });
@@ -124,29 +193,57 @@ fn setup_e2e_runner(test_file: &str) {
                 }
             };
 
-            // cargo-test-style output
+            // Per-test verdict tally with xfail support. A test marked
+            // `"expect": "fail"` inverts the meaning of its raw pass/fail:
+            //   raw FAIL + expect fail → XFAIL (expected; does NOT fail the gate)
+            //   raw PASS + expect fail → XPASS (bug fixed — remove the marker;
+            //                                   this DOES fail the gate)
+            // Only PASS and XFAIL are "green"; FAIL and XPASS are "red".
             eprintln!();
-            let mut passed = 0usize;
-            let mut failed = 0usize;
-            let mut failures = Vec::new();
+            let mut passed = 0usize; // clean PASS (expect None)
+            let mut failed = 0usize; // real FAIL (expect None)
+            let mut xfail = 0usize; // expected failure
+            let mut xpass = 0usize; // unexpected pass = a failure
+            let mut gate_failures = Vec::new(); // things that fail the gate (FAIL + XPASS)
 
             for result in &results {
-                if result.status == "pass" {
-                    eprintln!("test {} ... \x1b[32mok\x1b[0m ({} ms)", result.name, result.duration_ms);
-                    passed += 1;
-                } else {
-                    eprintln!("test {} ... \x1b[31mFAILED\x1b[0m ({} ms)", result.name, result.duration_ms);
-                    failed += 1;
-                    failures.push(result);
+                let expects_fail = expect_map
+                    .get(&result.name)
+                    .and_then(|e| e.as_deref())
+                    == Some("fail");
+                let raw_pass = result.status == "pass";
+
+                match (raw_pass, expects_fail) {
+                    (true, false) => {
+                        eprintln!("test {} ... \x1b[32mPASS\x1b[0m ({} ms)", result.name, result.duration_ms);
+                        passed += 1;
+                    }
+                    (false, false) => {
+                        eprintln!("test {} ... \x1b[31mFAIL\x1b[0m ({} ms)", result.name, result.duration_ms);
+                        failed += 1;
+                        gate_failures.push((result, "FAIL"));
+                    }
+                    (false, true) => {
+                        eprintln!("test {} ... \x1b[33mXFAIL\x1b[0m ({} ms) (expected failure)", result.name, result.duration_ms);
+                        xfail += 1;
+                    }
+                    (true, true) => {
+                        eprintln!("test {} ... \x1b[31mXPASS\x1b[0m ({} ms) (unexpectedly passed — remove the \"expect\":\"fail\" marker)", result.name, result.duration_ms);
+                        xpass += 1;
+                        gate_failures.push((result, "XPASS"));
+                    }
                 }
             }
 
             eprintln!();
 
-            if !failures.is_empty() {
+            if !gate_failures.is_empty() {
                 eprintln!("failures:\n");
-                for f in &failures {
-                    eprintln!("---- {} ----", f.name);
+                for (f, verdict) in &gate_failures {
+                    eprintln!("---- {} ({}) ----", f.name, verdict);
+                    if *verdict == "XPASS" {
+                        eprintln!("  test passed but is marked \"expect\":\"fail\" — the bug it guards is fixed; remove the marker");
+                    }
                     for step in &f.steps {
                         if step.status == "fail" {
                             eprintln!(
@@ -160,19 +257,20 @@ fn setup_e2e_runner(test_file: &str) {
                     eprintln!();
                 }
                 eprintln!("failures:");
-                for f in &failures {
-                    eprintln!("    {}", f.name);
+                for (f, verdict) in &gate_failures {
+                    eprintln!("    {} ({})", f.name, verdict);
                 }
                 eprintln!();
             }
 
-            let word = if failed > 0 { "\x1b[31mFAILED\x1b[0m" } else { "\x1b[32mok\x1b[0m" };
+            let gate_failed = failed + xpass > 0;
+            let word = if gate_failed { "\x1b[31mFAILED\x1b[0m" } else { "\x1b[32mok\x1b[0m" };
             eprintln!(
-                "test result: {}. {} passed; {} failed; 0 ignored; 0 measured; 0 filtered out\n",
-                word, passed, failed
+                "test result: {}. {} passed; {} failed; {} xfailed; {} xpassed; 0 ignored; 0 measured; 0 filtered out\n",
+                word, passed, failed, xfail, xpass
             );
 
-            std::process::exit(if failed > 0 { 1 } else { 0 });
+            std::process::exit(if gate_failed { 1 } else { 0 });
         })
         .expect("failed to spawn e2e-result-printer thread");
 }

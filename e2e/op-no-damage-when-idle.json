@@ -1,0 +1,39 @@
+{
+  "name": "op_no_damage_when_idle",
+  "description": "PARTIAL REPAINT (the NULL case — no change ⇒ no damage): a frame with NO mutation must report NO paint damage, otherwise the window re-renders forever and burns CPU. After the mount settles, reset_frame_counters + snapshot_frame, then only advance the clock (tick_ms) and wait — no DOM/CSS/scroll/focus change at all. assert_idle_stable requires paint AND present damage to have drained to none. This is the counterpart to the partial-repaint tests: they prove a real change DOES damage, this proves a non-change does NOT.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <p id=\"t\">idle</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-size: 24px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        "#t    { font-size: 20px; color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+    { "op": "assert_exists", "selector": "#root" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "idle_before" },
+    { "op": "tick_ms", "ms": 16 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+
+    { "op": "assert_idle_stable", "vs": "idle_before" },
+    { "op": "assert_work_bounded", "max_relayouts": 1, "max_dom_regens": 1 }
+  ]
+}

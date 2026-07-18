@@ -1,0 +1,47 @@
+{
+  "name": "op_tab_shift_back",
+  "expect": "fail",
+  "description": "FOCUS / TAB (backward): Shift+Tab must move focus to the PREVIOUS element. Two forward Tabs land on #f2, then Shift+Tab (key_down \"tab\" with modifiers.shift) runs determine_keyboard_default_action → DefaultAction::FocusPrevious and focus must return to #f1. This proves the shift modifier reaches the default-action layer and reverses tab order (not just re-triggers FocusNext).",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"f2\" tabindex=\"0\" class=\"item\">two</div>",
+        "  <div id=\"f3\" tabindex=\"0\" class=\"item\">three</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".item { width: 120px; height: 30px; background: silver; font-family: \"Azul Mock Mono\"; font-size: 20px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+
+    { "op": "assert_exists", "selector": "#f2" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 100 },
+    { "op": "key_down", "key": "tab" },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f2" },
+
+    { "op": "key_down", "key": "tab", "modifiers": { "shift": true } },
+    { "op": "key_up", "key": "tab", "modifiers": { "shift": true } },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "type": "focus_state" },
+    { "op": "assert_response", "contains": "f1" }
+  ]
+}

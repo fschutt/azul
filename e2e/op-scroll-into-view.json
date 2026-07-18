@@ -1,0 +1,45 @@
+{
+  "name": "op_scroll_into_view",
+  "description": "SCROLLING (bring child into view): a later child (#r3, top edge at y=150 inside the content) starts below the 100px viewport. `scroll_into_view` with block:\"start\" must scroll the container so #r3 aligns to the top of the viewport — i.e. offset y=150 (in range, not clamped). Then assert_exists proves the child is present and assert_scroll proves the container actually moved to reveal it.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"scroller\">",
+        "  <div class=\"row\" id=\"r0\"></div>",
+        "  <div class=\"row\" id=\"r1\"></div>",
+        "  <div class=\"row\" id=\"r2\"></div>",
+        "  <div class=\"row\" id=\"r3\"></div>",
+        "  <div class=\"row\" id=\"r4\"></div>",
+        "  <div class=\"row\" id=\"r5\"></div>",
+        "  <div class=\"row\" id=\"r6\"></div>",
+        "  <div class=\"row\" id=\"r7\"></div>",
+        "  <div class=\"row\" id=\"r8\"></div>",
+        "  <div class=\"row\" id=\"r9\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_exists", "selector": "#scroller" },
+    { "op": "assert_scroll", "selector": "#scroller", "y": 0, "tolerance": 1.0 },
+
+    { "op": "scroll_into_view", "selector": "#r3", "block": "start" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_exists", "selector": "#r3" },
+    { "op": "assert_scroll", "selector": "#scroller", "y": 150, "tolerance": 1.0 }
+  ]
+}
