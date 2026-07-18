@@ -501,6 +501,20 @@ impl MultiValue<LayoutOverflow> {
         )
     }
 
+    /// True iff `overflow` is EXPLICITLY set to a value that establishes a block
+    /// formatting context (CSS 2.2 §9.4.1: `hidden`/`scroll`/`auto`). `visible`,
+    /// `clip`, and the unset/initial/inherit sentinel do NOT — the initial value
+    /// is `visible`, so an unset overflow must not establish a BFC. Using
+    /// `!is_visible_or_clip()` for this was wrong: the "not set" `MultiValue::Auto`
+    /// sentinel is not visible/clip, so every plain block spuriously got a BFC on
+    /// the slow cascade path (the fast path returns `Exact(Visible)` and did not).
+    #[must_use] pub const fn establishes_bfc(&self) -> bool {
+        matches!(
+            self,
+            Self::Exact(LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto)
+        )
+    }
+
     // +spec:overflow:833078 - visible/clip compute to auto/hidden if other axis is scrollable
     /// Resolves the computed value per CSS Overflow 3 § 3.1:
     /// visible/clip values compute to auto/hidden (respectively)
@@ -6382,6 +6396,14 @@ mod autotest_generated {
                 matches!(o, LayoutOverflow::Visible | LayoutOverflow::Clip),
                 "is_visible_or_clip ({o:?})"
             );
+            assert_eq!(
+                v.establishes_bfc(),
+                matches!(
+                    o,
+                    LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto
+                ),
+                "establishes_bfc ({o:?})"
+            );
         }
     }
 
@@ -6404,6 +6426,8 @@ mod autotest_generated {
             assert!(!v.is_scroll_explicit(), "{v:?}");
             assert!(!v.is_clip(), "{v:?}");
             assert!(!v.is_visible_or_clip(), "{v:?}");
+            // The unset/initial/inherit sentinel is `visible` (initial) => no BFC.
+            assert!(!v.establishes_bfc(), "{v:?}");
         }
     }
 

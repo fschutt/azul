@@ -2803,13 +2803,14 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     }
 
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
+        // Only an EXPLICIT overflow of hidden/scroll/auto establishes a BFC. The
+        // initial value is `visible` (no BFC), so an unset overflow — which the
+        // slow cascade path returns as the `MultiValue::Auto` "not set" sentinel —
+        // must NOT trigger one (`!is_visible_or_clip()` wrongly did, since the
+        // sentinel is neither visible nor clip).
         let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.styled_node_state);
-        if !overflow_x.is_visible_or_clip() {
-            return true;
-        }
-
         let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.styled_node_state);
-        if !overflow_y.is_visible_or_clip() {
+        if overflow_x.establishes_bfc() || overflow_y.establishes_bfc() {
             return true;
         }
 
