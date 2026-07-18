@@ -5505,39 +5505,59 @@ fn apply_xml_node_attributes(
     // Table cell span attributes (`colspan` / `rowspan`).
     apply_cell_span_attributes(node, xml_node);
 
-    // Handle inline style attribute
-    if let Some(style) = xml_node.attributes.get_key("style") {
+    // HTML `dir` attribute → the `direction` CSS property (dir="rtl"/"ltr"). Without
+    // this, dir="rtl" (the common way to set RTL in HTML) had no effect. Appended
+    // BEFORE the inline `style` below so author style still wins on equal specificity.
+    let dir_prop = xml_node.attributes.get_key("dir").and_then(|d| {
+        let v = d.as_str().trim();
+        if v.eq_ignore_ascii_case("rtl") {
+            Some(azul_css::props::style::StyleDirection::Rtl)
+        } else if v.eq_ignore_ascii_case("ltr") {
+            Some(azul_css::props::style::StyleDirection::Ltr)
+        } else {
+            None
+        }
+    });
+
+    // Handle inline style attribute (and the mapped `dir` attribute above)
+    let style_attr = xml_node.attributes.get_key("style");
+    if style_attr.is_some() || dir_prop.is_some() {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
         let css_key_map = azul_css::props::property::get_css_key_map();
-        let mut attributes = Vec::new();
-        for s in style.as_str().split(';') {
-            let mut s = s.split(':');
-            let Some(key) = s.next() else {
-                continue;
-            };
-            let Some(value) = s.next() else {
-                continue;
-            };
-            // Called for its side effect (writes parsed props into `attributes`);
-            // the returned value is intentionally discarded.
-            drop(azul_css::parser2::parse_css_declaration(
-                key.trim(),
-                value.trim(),
-                azul_css::parser2::ErrorLocationRange::default(),
-                &css_key_map,
-                &mut Vec::new(),
-                &mut attributes,
+        let mut props: Vec<CssPropertyWithConditions> = Vec::new();
+        if let Some(dir) = dir_prop {
+            props.push(CssPropertyWithConditions::simple(
+                azul_css::props::property::CssProperty::Direction(
+                    azul_css::css::CssPropertyValue::Exact(dir),
+                ),
             ));
         }
-        let props = attributes
-            .into_iter()
-            .filter_map(|s| {
-                use azul_css::dynamic_selector::CssPropertyWithConditions;
-                match s {
-                    CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                    CssDeclaration::Dynamic(_) => None,
-                }
-            })
-            .collect::<Vec<_>>();
+        if let Some(style) = style_attr {
+            let mut attributes = Vec::new();
+            for s in style.as_str().split(';') {
+                let mut s = s.split(':');
+                let Some(key) = s.next() else {
+                    continue;
+                };
+                let Some(value) = s.next() else {
+                    continue;
+                };
+                // Called for its side effect (writes parsed props into `attributes`);
+                // the returned value is intentionally discarded.
+                drop(azul_css::parser2::parse_css_declaration(
+                    key.trim(),
+                    value.trim(),
+                    azul_css::parser2::ErrorLocationRange::default(),
+                    &css_key_map,
+                    &mut Vec::new(),
+                    &mut attributes,
+                ));
+            }
+            props.extend(attributes.into_iter().filter_map(|s| match s {
+                CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
+                CssDeclaration::Dynamic(_) => None,
+            }));
+        }
         if !props.is_empty() {
             node.set_css_props(props.into());
         }
