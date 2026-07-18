@@ -6960,6 +6960,15 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 continue;
             }
 
+            // +spec:positioning:17239f - abspos elements are taken out of flow and must
+            // not contribute their content to this IFC (laid out independently).
+            if matches!(
+                get_position_type(ctx.styled_dom, Some(dom_id)),
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) {
+                continue;
+            }
+
             // Non-text inline child - add as shape for inline-block
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
 
@@ -7420,6 +7429,20 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         // At this point we have a non-text DOM child with a layout node
         let dom_id = child_node.dom_node_id.unwrap();
 
+        // +spec:positioning:17239f - abspos elements are taken out of flow
+        // An out-of-flow child (position:absolute/fixed) is removed from normal flow
+        // entirely: neither its box nor its (recursively) flattened text may participate
+        // in this containing block's inline formatting context. It is laid out
+        // independently by `process_out_of_flow_children`; contributing its content here
+        // would double-render it at the static position. (Same predicate as
+        // process_out_of_flow_children.)
+        if matches!(
+            get_position_type(ctx.styled_dom, Some(dom_id)),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) {
+            continue;
+        }
+
         let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
         if display != LayoutDisplay::Inline {
             // This is an atomic inline-level box (e.g., inline-block, image).
@@ -7863,6 +7886,16 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 clear: ClearType::None,
                 content_index: content.len(),
             }));
+            continue;
+        }
+
+        // +spec:positioning:17239f - abspos elements are taken out of flow: an
+        // out-of-flow descendant of an in-flow inline span must not contribute its
+        // content to the enclosing IFC (it is laid out independently).
+        if matches!(
+            get_position_type(ctx.styled_dom, Some(child_dom_id)),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) {
             continue;
         }
 
