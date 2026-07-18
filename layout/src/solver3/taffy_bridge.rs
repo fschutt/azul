@@ -711,6 +711,23 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             y: azul_overflow_to_taffy(overflow_y),
         };
 
+        // Forward CSS aspect-ratio to taffy so flex/grid items honor it (and taffy's
+        // transferred min-size suggestion works). AspectRatioValue stores width and
+        // height ×1000, so the preferred ratio is simply width/height.
+        #[allow(clippy::cast_precision_loss)] // small integer aspect-ratio components (e.g. 2000/1000)
+        {
+            taffy_style.aspect_ratio = match crate::solver3::getters::get_aspect_ratio_property(
+                styled_dom, id, node_state,
+            ) {
+                MultiValue::Exact(azul_css::props::style::effects::StyleAspectRatio::Ratio(ar))
+                    if ar.height != 0 =>
+                {
+                    Some(ar.width as f32 / ar.height as f32)
+                }
+                _ => None,
+            };
+        }
+
         // Min/Max Size
         // min-size:auto enables Taffy's auto minimum size algorithm which computes the
         // content size suggestion (min-content in main axis) and transferred size suggestion
