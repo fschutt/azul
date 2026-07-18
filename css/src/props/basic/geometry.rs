@@ -219,6 +219,10 @@ impl LayoutRect {
 
     /// Returns true if `b` is fully contained inside `self`.
     #[inline]
+    // clippy reads the symmetric containment test (`b.right <= a.right` /
+    // `b.bottom <= a.bottom`) as a copy-paste slip and suggests `a_x + b_width`,
+    // which would be the actual bug — the operands are intentional.
+    #[allow(clippy::suspicious_operation_groupings)]
     #[must_use] pub const fn contains_rect(&self, b: &Self) -> bool {
         let a = self;
 

@@ -157,10 +157,13 @@ pub mod parsed {
     /// Cached GPOS table for glyph positioning operations.
     pub type GposCache = Arc<LayoutCacheData<GPOS>>;
 
-    /// The `wght` variation axis `(min, default, max)` in user units, or `None`
-    /// when the font has no variable `wght` axis. Used to expand a variable font
-    /// into per-weight STATIC instances so the ordinary (static) weight-selection
-    /// path can pick the right one — no changes to shaping/decode/PDF needed.
+    /// The `wght` variation axis `(min, default, max)` in user units.
+    ///
+    /// `None` when the font has no variable `wght` axis. Used to expand a
+    /// variable font into per-weight STATIC instances so the ordinary (static)
+    /// weight-selection path can pick the right one — no changes to
+    /// shaping/decode/PDF needed.
+    #[must_use]
     pub fn read_wght_axis(bytes: &[u8], index: usize) -> Option<(f32, f32, f32)> {
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
@@ -180,10 +183,12 @@ pub mod parsed {
         })
     }
 
-    /// Bake a self-contained STATIC instance of a variable font at `wght` (all
-    /// other axes left at their default). Returns fresh TTF bytes that parse and
-    /// embed exactly like any static font, or `None` if the font is not a
-    /// bakeable variable font.
+    /// Bake a self-contained STATIC instance of a variable font at `wght`.
+    ///
+    /// All other axes are left at their default. Returns fresh TTF bytes that
+    /// parse and embed exactly like any static font, or `None` if the font is
+    /// not a bakeable variable font.
+    #[must_use]
     pub fn bake_weight_instance(bytes: &[u8], index: usize, wght: f32) -> Option<Vec<u8>> {
         use allsorts::tables::Fixed;
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;

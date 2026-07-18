@@ -647,11 +647,11 @@ impl DragContext {
 
         // Calculate the scrollable range
         let scrollable_range = drag.content_length_px - drag.viewport_length_px;
-        // `!(x > 0.0)` (not `x <= 0.0`) so a NaN scrollable_range — from a NaN, or
-        // inf-minus-inf, content/viewport length — is caught here and never
-        // reaches the `clamp(0.0, scrollable_range)` below, whose f32::clamp would
-        // panic (it asserts min <= max, and every NaN comparison is false).
-        if !(scrollable_range > 0.0) || drag.track_length_px <= 0.0 {
+        // The explicit `is_nan()` (equivalent to the old `!(x > 0.0)`) catches a NaN
+        // scrollable_range — from a NaN, or inf-minus-inf, content/viewport length —
+        // so it never reaches the `clamp(0.0, scrollable_range)` below, whose
+        // f32::clamp would panic (it asserts min <= max, and NaN fails every compare).
+        if scrollable_range <= 0.0 || scrollable_range.is_nan() || drag.track_length_px <= 0.0 {
             return Some(drag.start_scroll_offset);
         }
 

@@ -3900,7 +3900,7 @@ pub fn prune_chain_to_used_chars(
 fn split_memory_matches(
     font_families: &[String],
     memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
-    weight: rust_fontconfig::FcWeight,
+    weight: FcWeight,
     italic: bool,
     oblique: bool,
 ) -> (Vec<rust_fontconfig::CssFallbackGroup>, Vec<String>) {
@@ -3934,7 +3934,7 @@ fn split_memory_matches(
 /// picks among them instead of taking whichever registered last.
 fn pick_memory_face(
     faces: &[crate::text3::cache::MemoryFace],
-    weight: rust_fontconfig::FcWeight,
+    weight: FcWeight,
     italic: bool,
     oblique: bool,
 ) -> Option<&crate::text3::cache::MemoryFace> {
@@ -3954,7 +3954,7 @@ fn pick_memory_face(
         slant_pool
     };
     // A variable face whose wght axis covers the request satisfies it exactly.
-    let req = weight as u16 as f32;
+    let req = f32::from(weight as u16);
     if let Some(vf) = pool
         .iter()
         .copied()
@@ -3963,7 +3963,7 @@ fn pick_memory_face(
         return Some(vf);
     }
     // Otherwise pick the nearest static weight (CSS fallback order).
-    let avail: Vec<rust_fontconfig::FcWeight> = pool.iter().map(|f| f.weight).collect();
+    let avail: Vec<FcWeight> = pool.iter().map(|f| f.weight).collect();
     let best = weight.find_best_match(&avail).unwrap_or(weight);
     pool.iter()
         .copied()

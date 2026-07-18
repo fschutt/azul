@@ -6599,16 +6599,14 @@ fn position_table_cells<T: ParsedFontTrait>(
             .warm(cell_info.node_index)
             .is_some_and(|w| w.inline_layout_result.is_some());
         if !cell_has_inline {
-            let vertical_align = cell_dom_node_id
-                .map(|dom_id| {
-                    let node_state =
-                        ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-                    match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
-                        MultiValue::Exact(v) => v,
-                        _ => StyleVerticalAlign::Baseline,
-                    }
-                })
-                .unwrap_or(StyleVerticalAlign::Baseline);
+            let vertical_align = cell_dom_node_id.map_or(StyleVerticalAlign::Baseline, |dom_id| {
+                let node_state =
+                    ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+                match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
+                    MultiValue::Exact(v) => v,
+                    _ => StyleVerticalAlign::Baseline,
+                }
+            });
 
             // Only middle/bottom reposition block content; top and baseline leave it
             // at the content-box top (the default block position).

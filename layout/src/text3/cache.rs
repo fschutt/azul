@@ -1047,6 +1047,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// Baking is done once per unique VF bytes and cached (`vf_bake_cache`) so the
     /// several spelling registrations of the same font don't re-bake it.
+    // Weight axis values are clamped to [1, 1000] and rounded before the cast, so
+    // the f32 -> u16 conversion is bounded and sign-safe.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn register_variable_instances(
         &mut self,
         norm: &str,

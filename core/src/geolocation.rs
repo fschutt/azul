@@ -119,10 +119,10 @@ impl Default for GeolocationProbeConfig {
 /// Canonical bit pattern for hashing / total-ordering / equality of an f32 config
 /// field: -0.0 and +0.0 collapse to the same value (they compare numerically
 /// equal), and every NaN maps to one canonical NaN (so a NaN is equal to — and
-/// hashes like — itself). Used by PartialEq, Ord and Hash so all three agree.
-fn canon_bits(f: f32) -> u32 {
+/// hashes like — itself). Used by `PartialEq`, `Ord` and `Hash` so all three agree.
+const fn canon_bits(f: f32) -> u32 {
     let bits = f.to_bits();
-    if bits & 0x7FFF_FFFF == 0 {
+    if bits.trailing_zeros() >= 31 {
         0 // +0.0 and -0.0 collapse to +0.0
     } else if f.is_nan() {
         f32::NAN.to_bits() // all NaN payloads -> one canonical NaN
