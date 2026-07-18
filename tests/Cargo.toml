@@ -14,6 +14,6 @@ publish = false
 
 [dependencies]
 azul-layout = { version = "0.0.11", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "font_loading", "cpurender"]}
-azul-core = { version = "0.0.9", path = "../core", default-features = false, features = ["std"]}
-azul-css = { version = "0.0.9", path = "../css", default-features = false, features = ["parser"]}
+azul-core = { version = "0.0.10", path = "../core", default-features = false, features = ["std"]}
+azul-css = { version = "0.0.10", path = "../css", default-features = false, features = ["parser"]}
 azul-dll = { version = "0.0.8", path = "../dll", default-features = false }
