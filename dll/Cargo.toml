@@ -2,6 +2,8 @@
 readme = "../README.md"
 name = "azul-dll"
 version = "0.0.8"
+# Lean published package: ship src only, not the test/bench/example/fuzz harnesses.
+exclude = ["tests", "benches", "examples", "fuzz"]
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "C-API of Azul GUI"

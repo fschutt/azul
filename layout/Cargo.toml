@@ -25,8 +25,14 @@ edition = "2021"
 # `src/text3/mock_fonts.rs`, which is a `pub mod` and so had its fonts vendored into
 # `layout/assets/` instead.) The `publish_safety` CI job enforces this.
 exclude = [
-    "tests/loaded_font_introspection.rs",
-    "tests/web_flexbox_simple_ref.rs",
+    "tests",
+    "benches",
+    "examples",
+    "fuzz",
+    # KoHo-Light.ttf is an 86 KiB test-only positive-control TTF, referenced only from
+    # #[cfg(test)] code — keep it in the repo for tests but don't ship it. The two ~5 KiB
+    # mock fonts (azul-mock-mono/wide) stay: they're include_bytes!'d into the library.
+    "assets/fonts/test/KoHo-Light.ttf",
 ]
 resolver = "2"
 autoexamples = true
