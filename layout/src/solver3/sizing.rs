@@ -1815,6 +1815,29 @@ pub fn calculate_used_size_for_node(
         (resolved_width, resolved_height)
     };
 
+    // +spec:aspect-ratio:0 - CSS Sizing 4: a non-replaced box with `aspect-ratio` and
+    // exactly one auto axis derives the auto axis from the definite one via the ratio.
+    // The ratio is applied to the content box here (box-sizing:border-box, which would
+    // fold in padding+border, is not yet handled). Replaced elements use their intrinsic
+    // ratio in the block above.
+    #[allow(clippy::cast_precision_loss)] // small integer aspect-ratio components (e.g. 2000/1000)
+    let (resolved_width, resolved_height) = if is_replaced {
+        (resolved_width, resolved_height)
+    } else if let MultiValue::Exact(azul_css::props::style::effects::StyleAspectRatio::Ratio(ar)) =
+        crate::solver3::getters::get_aspect_ratio_property(styled_dom, id, node_state)
+    {
+        let ratio = if ar.height == 0 { 0.0 } else { ar.width as f32 / ar.height as f32 };
+        if ratio > 0.0 && height_is_auto && !width_is_auto {
+            (resolved_width, resolved_width / ratio)
+        } else if ratio > 0.0 && width_is_auto && !height_is_auto {
+            (resolved_height * ratio, resolved_height)
+        } else {
+            (resolved_width, resolved_height)
+        }
+    } else {
+        (resolved_width, resolved_height)
+    };
+
     // +spec:min-max-sizing:58869e - sizing properties width/height/min-width/min-height/max-width/max-height applied here
     // +spec:min-max-sizing:2e2414 - max-width/max-height specify maximum box dimensions, applied here
     // +spec:min-max-sizing:73f51a - tentative width clamped by max-width then min-width per §10.4
