@@ -5502,6 +5502,9 @@ fn apply_xml_node_attributes(
         }
     }
 
+    // Table cell span attributes (`colspan` / `rowspan`).
+    apply_cell_span_attributes(node, xml_node);
+
     // Handle inline style attribute
     if let Some(style) = xml_node.attributes.get_key("style") {
         let css_key_map = azul_css::props::property::get_css_key_map();
@@ -5681,6 +5684,34 @@ fn apply_xml_node_attributes(
         if let Some(mp) = clip {
             node.set_svg_data(crate::dom::SvgNodeData::Path(mp));
         }
+    }
+}
+
+/// Parse the HTML `colspan` / `rowspan` presentational attributes into
+/// `AttributeType`s on the node. The table layout reads them back via
+/// `get_cell_spans`. Without this the XML→DOM conversion dropped them and every
+/// cell defaulted to span 1, so `<th colspan="2">` only covered one column.
+/// Parsed unconditionally — non-cell elements simply don't carry these attributes.
+fn apply_cell_span_attributes(node: &mut crate::dom::NodeData, xml_node: &XmlNode) {
+    let mut spans = Vec::new();
+    if let Some(n) = xml_node
+        .attributes
+        .get_key("colspan")
+        .and_then(|v| v.as_str().trim().parse::<i32>().ok())
+    {
+        spans.push(crate::dom::AttributeType::ColSpan(n));
+    }
+    if let Some(n) = xml_node
+        .attributes
+        .get_key("rowspan")
+        .and_then(|v| v.as_str().trim().parse::<i32>().ok())
+    {
+        spans.push(crate::dom::AttributeType::RowSpan(n));
+    }
+    if !spans.is_empty() {
+        let mut v = node.attributes().clone().into_library_owned_vec();
+        v.extend(spans);
+        node.set_attributes(v.into());
     }
 }
 
