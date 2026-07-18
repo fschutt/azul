@@ -429,6 +429,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     min_content_height: 150.0,
                     max_content_height: 150.0,
                     preferred_height: None, // Will be determined by CSS or flex-grow
+                    preferred_aspect_ratio: None,
                 });
             }
             
@@ -478,6 +479,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     min_content_height: height,
                     max_content_height: height,
                     preferred_height: pref_h,
+                    preferred_aspect_ratio: None,
                 });
             }
         }
@@ -754,6 +756,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
                 max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
                 preferred_height: None,
+                preferred_aspect_ratio: None,
             });
         };
 
@@ -777,6 +780,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             min_content_height: max_content_height,
             max_content_height,
             preferred_height: None,
+            preferred_aspect_ratio: None,
         })
     }
 
@@ -888,6 +892,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             min_content_height: min_height,
             max_content_height: max_height,
             preferred_height: None,
+            preferred_aspect_ratio: None,
         })
     }
 
@@ -973,6 +978,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 min_content_height: max_cross_min,
                 max_content_height: max_cross_max,
                 preferred_height: None,
+                preferred_aspect_ratio: None,
             })
         } else {
             Ok(IntrinsicSizes {
@@ -982,6 +988,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 min_content_height: min_main,
                 max_content_height: max_main,
                 preferred_height: None,
+                preferred_aspect_ratio: None,
             })
         }
     }
@@ -1069,6 +1076,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             max_content_height: total_height,
             preferred_width: None,
             preferred_height: None,
+            preferred_aspect_ratio: None,
         }
     }
 }
@@ -2308,6 +2316,7 @@ mod autotest_generated {
             min_content_height: min_h,
             max_content_height: max_h,
             preferred_height: None,
+            preferred_aspect_ratio: None,
         }
     }
 

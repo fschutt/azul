@@ -605,6 +605,35 @@ pub struct IntrinsicSizes {
     pub max_content_height: f32,
     /// The height specified by CSS properties, if any.
     pub preferred_height: Option<f32>,
+    // +spec:intrinsic-sizing:af39b6 - natural (intrinsic) aspect ratio of a replaced element
+    // +spec:height-calculation:e9ec84 - replaced-element natural width/height/ratio
+    /// The element's natural aspect ratio (inline / block), if it has one — e.g. a
+    /// replaced element with intrinsic dimensions. `None` for non-replaced content.
+    pub preferred_aspect_ratio: Option<f32>,
+}
+
+impl IntrinsicSizes {
+    // +spec:intrinsic-sizing:127a10 - fit-content = clamp(min-content, stretch-fit, max-content)
+    // +spec:intrinsic-sizing:21f2cb - stretch-fit size drawn from available (containing-block) space
+    /// CSS Sizing §2.1 fit-content **inline** size:
+    /// `clamp(min-content, stretch-fit, max-content)`, where the stretch-fit size is the
+    /// `available_inline_size` (the space the containing block offers in the inline axis).
+    /// Equal to `max(min_content, min(stretch_fit, max_content))`.
+    #[must_use]
+    pub const fn fit_content_width(&self, available_inline_size: f32) -> f32 {
+        available_inline_size
+            .min(self.max_content_width)
+            .max(self.min_content_width)
+    }
+
+    /// CSS Sizing §2.1 fit-content **block** size:
+    /// `clamp(min-content, stretch-fit, max-content)` in the block axis.
+    #[must_use]
+    pub const fn fit_content_height(&self, available_block_size: f32) -> f32 {
+        available_block_size
+            .min(self.max_content_height)
+            .max(self.min_content_height)
+    }
 }
 
 // ============================================================================
@@ -1879,5 +1908,30 @@ mod autotest_generated {
             StyleTextOrientation::Mixed,
         );
         assert_eq!(WritingModeContext::default(), built);
+    }
+
+    #[test]
+    fn fit_content_clamps_stretch_fit_between_min_and_max_content() {
+        let is = IntrinsicSizes {
+            min_content_width: 30.0,
+            max_content_width: 100.0,
+            min_content_height: 10.0,
+            max_content_height: 40.0,
+            ..Default::default()
+        };
+        // stretch-fit within [min, max] → returned as-is.
+        assert!((is.fit_content_width(60.0) - 60.0).abs() < f32::EPSILON);
+        assert!((is.fit_content_height(25.0) - 25.0).abs() < f32::EPSILON);
+        // stretch-fit above max-content → clamped to max-content.
+        assert!((is.fit_content_width(500.0) - 100.0).abs() < f32::EPSILON);
+        assert!((is.fit_content_height(500.0) - 40.0).abs() < f32::EPSILON);
+        // stretch-fit below min-content → clamped up to min-content (min wins over max).
+        assert!((is.fit_content_width(0.0) - 30.0).abs() < f32::EPSILON);
+        assert!((is.fit_content_height(0.0) - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn intrinsic_sizes_default_has_no_preferred_aspect_ratio() {
+        assert_eq!(IntrinsicSizes::default().preferred_aspect_ratio, None);
     }
 }
