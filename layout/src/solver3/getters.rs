@@ -2576,8 +2576,17 @@ get_css_property!(
         // +spec:line-height:b41ee3 - percentage vertical-align: raise/lower by % of line-height, 0% = baseline
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
+            // Line-height uses the parser convention (see `get_line_height_value` /
+            // the LineHeight::Px path): a NEGATIVE normalized value is an absolute
+            // px length, a positive one is a unitless multiple of font-size. The
+            // old `normalized() * font_size` scaled (and sign-flipped) absolute
+            // line-heights — e.g. `line-height: 30px` + `vertical-align: 50%` gave
+            // -240px instead of +15px.
             let line_height = get_line_height_value(styled_dom, dom_id, node_state)
-                .map_or(font_size * 1.2, |lh| lh.inner.normalized() * font_size);
+                .map_or(font_size * 1.2, |lh| {
+                    let n = lh.inner.normalized();
+                    if n < 0.0 { -n } else { n * font_size }
+                });
             crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
         }
         // §10.8.1: <length> is absolute offset from baseline
