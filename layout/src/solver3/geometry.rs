@@ -113,6 +113,78 @@ impl EdgeSizes {
     #[must_use] pub fn cross_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.cross_start(wm) + self.cross_end(wm)
     }
+
+    // +spec:block-formatting-context:a49f9e - line-over/line-under are line-relative
+    //   block-axis edges: top/bottom in horizontal-tb, right/left in vertical modes.
+    // +spec:inline-formatting-context:c6b91e - line-relative "over"/"under" mapped to
+    //   physical edges via writing mode.
+    // +spec:writing-modes:1c5155 - line-relative mappings for over/under.
+    /// Returns the line-over edge (line-relative block-axis start).
+    ///
+    /// Per CSS Writing Modes L4 §6.3, the line-over side is `top` in
+    /// `horizontal-tb` and `right` in both vertical writing modes. Unlike
+    /// [`Self::main_start`] (a physical block-axis accessor), this is the
+    /// *line-relative* over side and coincides with `main_start` only in
+    /// `horizontal-tb`.
+    #[must_use] pub const fn line_over(&self, wm: LayoutWritingMode) -> f32 {
+        match wm {
+            LayoutWritingMode::HorizontalTb => self.top,
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.right,
+        }
+    }
+
+    /// Returns the line-under edge (line-relative block-axis end).
+    ///
+    /// Per CSS Writing Modes L4 §6.3, the line-under side is `bottom` in
+    /// `horizontal-tb` and `left` in both vertical writing modes.
+    #[must_use] pub const fn line_under(&self, wm: LayoutWritingMode) -> f32 {
+        match wm {
+            LayoutWritingMode::HorizontalTb => self.bottom,
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.left,
+        }
+    }
+
+    /// Returns the sum of the line-over and line-under edges.
+    #[must_use] pub fn line_over_under_sum(&self, wm: LayoutWritingMode) -> f32 {
+        self.line_over(wm) + self.line_under(wm)
+    }
+
+    // +spec:writing-modes:829cd7 - inline-start/end depend on writing-mode AND direction.
+    // +spec:writing-modes:c0ae9c - flow-relative inline mappings derive from
+    //   writing-mode + direction (RTL's inline-start = line-right).
+    // +spec:writing-modes:14e6f0 - inline-start/end depend on direction as well as wm.
+    /// Returns the flow-relative inline-start edge.
+    ///
+    /// The inline-start side is `line-left` (see [`Self::cross_start`]) when the
+    /// inline base direction is LTR, and `line-right` (see [`Self::cross_end`])
+    /// when it is RTL. This is the direction-aware counterpart that
+    /// `cross_start`/`cross_end` (which are direction-blind line-left/line-right)
+    /// cannot express on their own.
+    #[must_use] pub const fn inline_start(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
+        match dir {
+            StyleDirection::Ltr => self.cross_start(wm),
+            StyleDirection::Rtl => self.cross_end(wm),
+        }
+    }
+
+    /// Returns the flow-relative inline-end edge.
+    ///
+    /// The inline-end side is `line-right` when the inline base direction is
+    /// LTR, and `line-left` when it is RTL.
+    #[must_use] pub const fn inline_end(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
+        match dir {
+            StyleDirection::Ltr => self.cross_end(wm),
+            StyleDirection::Rtl => self.cross_start(wm),
+        }
+    }
+
+    /// Returns the sum of the inline-start and inline-end edges.
+    ///
+    /// Direction-independent (start + end covers the whole inline axis), but
+    /// takes `dir` for call-site symmetry with the individual accessors.
+    #[must_use] pub fn inline_sum(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
+        self.inline_start(wm, dir) + self.inline_end(wm, dir)
+    }
 }
 
 // ============================================================================
@@ -768,6 +840,76 @@ mod autotest_generated {
             assert_eq!(e.cross_start(wm), 1.0, "cross-start = top");
             assert_eq!(e.cross_end(wm), 4.0, "cross-end = bottom");
         }
+    }
+
+    // +spec:block-formatting-context:a49f9e - line-over/line-under accessors.
+    #[test]
+    fn edge_sizes_line_over_under_is_line_relative_not_physical() {
+        let e = edges(1.0, 2.0, 4.0, 8.0); // top, right, bottom, left
+
+        // horizontal-tb: over = top, under = bottom (coincides with main_start/end).
+        let h = LayoutWritingMode::HorizontalTb;
+        assert_eq!(e.line_over(h), 1.0, "line-over = top in horizontal-tb");
+        assert_eq!(e.line_under(h), 4.0, "line-under = bottom in horizontal-tb");
+        assert_eq!(e.line_over(h), e.main_start(h), "over == main-start only in horizontal-tb");
+
+        // vertical modes: over = right, under = left (CSS Writing Modes L4 §6.3).
+        // Crucially this differs from main_start/main_end (left/right), proving the
+        // line-relative accessor is not just an alias of the physical block axis.
+        for wm in [LayoutWritingMode::VerticalRl, LayoutWritingMode::VerticalLr] {
+            assert_eq!(e.line_over(wm), 2.0, "line-over = right in vertical modes");
+            assert_eq!(e.line_under(wm), 8.0, "line-under = left in vertical modes");
+            assert_ne!(e.line_over(wm), e.main_start(wm), "over != main-start in vertical modes");
+        }
+
+        // Sum picks the line-relative pair, independent of writing mode orientation.
+        assert_eq!(e.line_over_under_sum(h), 5.0);
+        assert_eq!(e.line_over_under_sum(LayoutWritingMode::VerticalRl), 10.0);
+    }
+
+    // +spec:writing-modes:829cd7 / c0ae9c - direction-aware inline-start/end accessors.
+    #[test]
+    fn edge_sizes_inline_start_end_depend_on_direction() {
+        let e = edges(1.0, 2.0, 4.0, 8.0); // top, right, bottom, left
+
+        for wm in ALL_WM {
+            // LTR: inline-start = line-left = cross_start; inline-end = line-right = cross_end.
+            assert_eq!(
+                e.inline_start(wm, StyleDirection::Ltr),
+                e.cross_start(wm),
+                "LTR inline-start = cross-start (line-left)"
+            );
+            assert_eq!(
+                e.inline_end(wm, StyleDirection::Ltr),
+                e.cross_end(wm),
+                "LTR inline-end = cross-end (line-right)"
+            );
+
+            // RTL: the two ends swap — inline-start moves to line-right.
+            assert_eq!(
+                e.inline_start(wm, StyleDirection::Rtl),
+                e.cross_end(wm),
+                "RTL inline-start = cross-end (line-right)"
+            );
+            assert_eq!(
+                e.inline_end(wm, StyleDirection::Rtl),
+                e.cross_start(wm),
+                "RTL inline-end = cross-start (line-left)"
+            );
+
+            // The sum covers the whole inline axis regardless of direction.
+            assert_eq!(
+                e.inline_sum(wm, StyleDirection::Ltr),
+                e.inline_sum(wm, StyleDirection::Rtl),
+                "inline-sum is direction-independent"
+            );
+            assert_eq!(e.inline_sum(wm, StyleDirection::Ltr), e.cross_sum(wm));
+        }
+
+        // Concrete horizontal-tb values: LTR start=left(8), RTL start=right(2).
+        let h = LayoutWritingMode::HorizontalTb;
+        assert_eq!(e.inline_start(h, StyleDirection::Ltr), 8.0);
+        assert_eq!(e.inline_start(h, StyleDirection::Rtl), 2.0);
     }
 
     #[test]
