@@ -60,11 +60,16 @@ impl CompositorMode {
 /// `AZ_COMPOSITOR` env vars with a single `AZ_BACKEND` variable.
 ///
 /// ```text
-/// AZ_BACKEND=auto      (default) Try GPU, fall back to CPU on failure
+/// AZ_BACKEND=cpu       (default) CPU rendering in a native window (no GL context)
 /// AZ_BACKEND=gpu       Force GPU rendering, fail if unavailable
-/// AZ_BACKEND=cpu       CPU rendering in a native window (no GL context)
+/// AZ_BACKEND=auto      Try GPU, fall back to CPU on failure
 /// AZ_BACKEND=headless  CPU rendering without any window (for E2E tests)
 /// ```
+///
+/// The desktop shells default to **CPU** rendering on macOS, Windows and Linux
+/// so that on-screen output matches the software-rendered headless e2e tests.
+/// GPU/webrender is still fully supported: opt in with `AZ_BACKEND=gpu` (force)
+/// or `AZ_BACKEND=auto` (try GPU, fall back to CPU).
 ///
 /// `AZ_BACKEND` fully replaces those older variables; they are no longer read.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -72,11 +77,12 @@ impl CompositorMode {
 #[allow(missing_copy_implementations)] // `Web(WebConfig)` carries non-Copy fields
 pub enum AzBackend {
     /// Try GPU, fall back to CPU on GL init failure or blacklisted GPU.
-    #[default]
     Auto,
     /// Force GPU rendering (OpenGL / Metal / D3D). Fails if unavailable.
     Gpu,
     /// CPU rendering inside a native window (no GL context).
+    /// This is the desktop default (see [`AzBackend::resolve`]).
+    #[default]
     Cpu,
     /// CPU rendering with no native window (headless / E2E testing).
     /// Implies `Cpu` for the compositor and `HeadlessWindow` for the
@@ -139,12 +145,18 @@ impl AzBackend {
             match hw {
                 azul_core::window::HwAcceleration::Disabled => return AzBackend::Cpu,
                 azul_core::window::HwAcceleration::Enabled => return AzBackend::Gpu,
-                azul_core::window::HwAcceleration::DontCare => {} // fall through to Auto
+                azul_core::window::HwAcceleration::DontCare => {} // fall through to default
             }
         }
 
-        // 3. Default
-        AzBackend::Auto
+        // 3. Default: CPU (software) rendering on all desktop platforms.
+        //
+        // The desktop shells now default to the same CpuBackend the headless
+        // e2e tests use, so "what the e2e tests render == what a user sees on
+        // screen". GPU/webrender is still fully supported and re-selectable via
+        // `AZ_BACKEND=gpu` (force GPU) or `AZ_BACKEND=auto` (try GPU, fall back
+        // to CPU) — or programmatically via `HwAcceleration::Enabled`.
+        AzBackend::Cpu
     }
 
 }

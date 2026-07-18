@@ -3,6 +3,26 @@
 //! This module provides the cross-platform run() function that starts
 //! the application and event loop for each platform.
 //!
+//! # Rendering Backend
+//!
+//! The desktop shells default to **CPU** (software) rendering on macOS, Windows
+//! and Linux. The same `CpuBackend` used by the headless e2e tests rasterizes
+//! the display list, and each shell blits the framebuffer to its native window
+//! (macOS: `CPUView`/`drawRect:`, Windows: `StretchDIBits`, X11: `XPutImage`,
+//! Wayland: `wl_shm`). This keeps on-screen output identical to what the e2e
+//! tests render.
+//!
+//! GPU/webrender is still fully supported and re-selectable at runtime:
+//!
+//! ```bash
+//! AZ_BACKEND=gpu   ./my_app   # force GPU (OpenGL/webrender), fail if unavailable
+//! AZ_BACKEND=auto  ./my_app   # try GPU, fall back to CPU on failure
+//! AZ_BACKEND=cpu   ./my_app   # explicit CPU (the default)
+//! ```
+//!
+//! Programmatically, `HwAcceleration::Enabled` selects GPU and
+//! `HwAcceleration::Disabled` selects CPU; `DontCare` uses the CPU default.
+//!
 //! # Headless Mode
 //!
 //! Set `AZ_BACKEND=headless` to run without a display server. The application

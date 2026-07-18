@@ -21,7 +21,7 @@
 //!
 //! # Environment Variables
 //!
-//! - `AZ_BACKEND` - Rendering backend: "auto" (default), "gpu", "cpu", "headless"
+//! - `AZ_BACKEND` - Rendering backend: "cpu" (default), "gpu", "auto", "headless"
 
 pub mod common;
 

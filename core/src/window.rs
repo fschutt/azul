@@ -130,10 +130,10 @@ impl Default for RendererOptions {
         Self {
             vsync: Vsync::Enabled,
             srgb: Srgb::Disabled,
-            // DontCare resolves to AzBackend::Auto: try GPU first, fall back
-            // to CPU rendering on GL failure / blacklisted driver. Disabled
-            // here silently forced EVERY app that didn't set renderer options
-            // into CPU rendering on all platforms (the GL probe never ran).
+            // DontCare defers the choice to AZ_BACKEND / the desktop default,
+            // which is now CPU (software) rendering on all platforms — matching
+            // what the headless e2e tests render. GPU is re-selectable via
+            // AZ_BACKEND=gpu / AZ_BACKEND=auto or HwAcceleration::Enabled.
             hw_accel: HwAcceleration::DontCare,
         }
     }
