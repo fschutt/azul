@@ -710,8 +710,8 @@ mod autotest_generated {
     /// `PartialOrd` must agree with `Ord`, and — for the ordinary (finite,
     /// non-negative) configs a user actually writes — `==`, `cmp == Equal` and
     /// equal hashes must all coincide. This is the Eq/Ord/Hash contract holding
-    /// on the reachable domain; see the two `#[ignore]`d tests below for the
-    /// corners where it does not.
+    /// on the reachable domain; the two regression tests below pin the -0.0/+0.0
+    /// and NaN corners where a naive derived `PartialEq` would break it.
     #[test]
     fn probe_config_eq_ord_hash_agree_on_ordinary_configs() {
         let configs = [
@@ -776,10 +776,12 @@ mod autotest_generated {
     // ---------------------------------------------------------------
 
     /// `impl Eq` + `impl Hash` promise: `a == b` implies `hash(a) == hash(b)`
-    /// and `a.cmp(&b) == Equal`. Derived `PartialEq` compares `max_accuracy_m`
-    /// numerically, so `-0.0 == 0.0`, while `Hash`/`Ord` compare `to_bits`,
-    /// where they differ. A `HashMap`/`BTreeMap` keyed on a `NodeType` carrying
-    /// this config can therefore fail to find an entry that compares equal.
+    /// and `a.cmp(&b) == Equal`. A derived `PartialEq` would compare
+    /// `max_accuracy_m` numerically (`-0.0 == 0.0`) while `Hash`/`Ord` compared
+    /// raw `to_bits` (where they differ), so a `HashMap`/`BTreeMap` keyed on a
+    /// `NodeType` carrying this config could fail to find an entry that compares
+    /// equal. The hand-written `PartialEq`/`Ord`/`Hash` all route through
+    /// `canon_bits`, keeping them consistent — this pins that.
     #[test]
     fn probe_config_eq_implies_equal_hash_and_ordering() {
         let pos = cfg(false, false, 0.0, 0);
@@ -790,10 +792,11 @@ mod autotest_generated {
         assert_eq!(pos.cmp(&neg), Ordering::Equal, "Eq/Ord contract");
     }
 
-    /// `impl Eq for GeolocationProbeConfig {}` asserts reflexivity, but the
-    /// derived `PartialEq` compares `max_accuracy_m` with float `==`, so a
-    /// config with a NaN accuracy is not equal to itself — while `Ord` (via
-    /// `to_bits`) reports `Equal` for the very same pair.
+    /// `impl Eq for GeolocationProbeConfig {}` asserts reflexivity. A derived
+    /// `PartialEq` comparing `max_accuracy_m` with float `==` would make a
+    /// config with a NaN accuracy unequal to itself — while `Ord` (via
+    /// `canon_bits`) reports `Equal` for the very same pair. The hand-written
+    /// `PartialEq` uses `canon_bits` too, so both agree; this pins it.
     #[test]
     #[allow(clippy::eq_op)]
     fn probe_config_eq_is_reflexive_with_nan() {

@@ -1080,6 +1080,22 @@ fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
 /// clone: correct on native, and harmless on web (a mis-dispatched discriminant 0 is
 /// `CaretColor`, a `Copy` value with no heap pointer to deref). On native this function
 /// is byte-for-byte equivalent to `p.clone()`.
+/// Inheritable properties whose value must be inherited as the parent's already
+/// *resolved* value, NOT propagated as a raw declaration through `cascaded_props`.
+///
+/// `font-size` is the case: a relative parent value (`1.5em`) propagated raw
+/// would be re-resolved against the already-resolved parent at every descendant
+/// (multiplicative error: 30px -> 45px -> 67.5px down a chain), and a parent
+/// whose own `cascaded` font-size is the *grandparent's* absolute value would
+/// skip the parent's own size entirely. Both consuming paths already inherit
+/// font-size correctly from the parent's resolved value — `inherit_from_parent`
+/// for `computed_values`, and the parent's resolved compact slot in
+/// `build_compact_cache_with_inheritance` — so font-size must not ride the raw
+/// propagation at all.
+fn is_resolved_parent_inherited(prop_type: CssPropertyType) -> bool {
+    prop_type == CssPropertyType::FontSize
+}
+
 fn clone_inheritable_property(
     p: &CssProperty,
 ) -> CssProperty {
@@ -1297,7 +1313,7 @@ impl CssPropertyCache {
                         }
                     })
                     .map(|(prop, _)| prop)
-                    .filter(|prop| prop.get_type().is_inheritable())
+                    .filter(|prop| prop.get_type().is_inheritable() && !is_resolved_parent_inherited(prop.get_type()))
                     .map(|p| (p.get_type(), clone_inheritable_property(p)))
                     .collect();
 
@@ -1307,7 +1323,7 @@ impl CssPropertyCache {
                 } else {
                     self.css_props.get_slice(parent_id.index())
                         .iter()
-                        .filter(|p| p.state == state && p.prop_type.is_inheritable())
+                        .filter(|p| p.state == state && p.prop_type.is_inheritable() && !is_resolved_parent_inherited(p.prop_type))
                         .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect()
                 };
@@ -1316,7 +1332,7 @@ impl CssPropertyCache {
                 let parent_inheritable_cascaded: Vec<(CssPropertyType, CssProperty)> =
                     self.cascaded_props.get_slice(parent_id.index())
                         .iter()
-                        .filter(|p| p.state == state && p.prop_type.is_inheritable())
+                        .filter(|p| p.state == state && p.prop_type.is_inheritable() && !is_resolved_parent_inherited(p.prop_type))
                         .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect();
 

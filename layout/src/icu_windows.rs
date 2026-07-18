@@ -1072,16 +1072,17 @@ mod autotest_generated {
         assert!(!out.as_str().is_empty());
     }
 
-    // `decimal_string` negates `decimal_places` (`0..(-decimal_places as usize)`),
-    // which overflows for i16::MIN. Debug-only: with overflow checks off this
-    // instead wraps to a ~1.8e19 iteration count that pushes '0' until the process
-    // is OOM-killed, so the test must not exist in release/coverage builds.
+    // `decimal_string` used to negate `decimal_places` (`0..(-decimal_places as
+    // usize)`), which overflowed for i16::MIN (`-i16::MIN` is unrepresentable in
+    // i16). It now counts the trailing zeros via `unsigned_abs` in a wider type,
+    // so the full i16 range is safe: `format_decimal(5, i16::MIN)` yields "5"
+    // followed by 32768 zeros rather than panicking / OOM-looping.
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "overflow")]
-    fn format_decimal_at_i16_min_places_overflows() {
+    fn format_decimal_at_i16_min_places_is_safe() {
         let mut l = IcuLocalizer::new("en-US");
-        let _s = l.format_decimal(5, i16::MIN);
+        let s = l.format_decimal(5, i16::MIN);
+        assert!(s.as_str().starts_with('5'));
+        assert_eq!(s.as_str().len(), 1 + 32768);
     }
 
     // ─── plural rules ─────────────────────────────────────────────────────────

@@ -1585,6 +1585,19 @@ mod audit_tests {
 
     static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+    // The tests below share the single `DROP_COUNT` static: each resets it to 0
+    // and then asserts an exact drop count. Under the default multi-threaded
+    // test runner they would otherwise interleave and corrupt each other's
+    // counts (a real, if test-only, isolation bug). Every `DROP_COUNT`-using
+    // test takes this lock first to serialize; it is poison-tolerant so one
+    // failing test does not cascade `.unwrap()` panics into the rest.
+    static DROP_COUNT_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn serialize_drop_count() -> std::sync::MutexGuard<'static, ()> {
+        DROP_COUNT_SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     struct DropCounter(#[allow(dead_code)] u32);
     impl Drop for DropCounter {
         fn drop(&mut self) {
@@ -1643,6 +1656,7 @@ mod audit_tests {
     // once (old value on replace, new value on final drop) and must not leak.
     #[test]
     fn replace_contents_drops_exactly_once() {
+        let _serial = serialize_drop_count();
         DROP_COUNT.store(0, Ordering::SeqCst);
         {
             let mut a = RefAny::new(DropCounter(1));
@@ -1681,6 +1695,7 @@ mod audit_tests {
     // custom destructor). A non-Copy heap type checks the destructor runs.
     #[test]
     fn miri_new_downcast_drop_roundtrip() {
+        let _serial = serialize_drop_count();
         DROP_COUNT.store(0, Ordering::SeqCst);
         {
             let mut a = RefAny::new(DropCounter(9));
@@ -1709,6 +1724,7 @@ mod audit_tests {
     // must survive while any clone lives and be freed exactly once at the end.
     #[test]
     fn miri_clone_refcount_increment_decrement() {
+        let _serial = serialize_drop_count();
         DROP_COUNT.store(0, Ordering::SeqCst);
         {
             let a = RefAny::new(DropCounter(1));
@@ -1791,6 +1807,7 @@ mod audit_tests {
     // clone, run its destructor once, and reject downcasts (null ptr path).
     #[test]
     fn miri_zst_roundtrip_and_destructor() {
+        let _serial = serialize_drop_count();
         DROP_COUNT.store(0, Ordering::SeqCst);
         struct ZstDrop;
         impl Drop for ZstDrop {
@@ -1813,6 +1830,7 @@ mod audit_tests {
     // once at final drop, with no leak/double-free of either heap block.
     #[test]
     fn miri_replace_contents_alloc_paths() {
+        let _serial = serialize_drop_count();
         DROP_COUNT.store(0, Ordering::SeqCst);
         {
             let mut a = RefAny::new(DropCounter(1));

@@ -455,13 +455,20 @@ impl MultiCursorState {
                             end: new_end,
                         });
                     }
-                    // If either side of the merge was the primary, the merged
-                    // selection inherits primary status.
-                    if last.id == primary || sel.id == primary {
-                        new_primary = sel.id;
-                    }
+                    // If either side of the merge — or the accumulator that has
+                    // already absorbed the primary earlier in the chain — was the
+                    // primary, the merged selection inherits primary status.
+                    // `last.id == new_primary` carries the primary across a 3+-link
+                    // chain: without it, `new_primary` would keep pointing at an
+                    // intermediate id that the next merge overwrites, and
+                    // `ensure_primary_valid` would then adopt an unrelated tail.
+                    let inherits_primary =
+                        last.id == primary || sel.id == primary || last.id == new_primary;
                     // Keep the newer ID (the one being merged in)
                     last.id = sel.id;
+                    if inherits_primary {
+                        new_primary = sel.id;
+                    }
                     continue;
                 }
             }
@@ -1640,7 +1647,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "known bug: 3+-link merge chain loses the primary; see report"]
     fn merge_overlapping_primary_should_follow_its_merge_chain() {
         // Same setup as above. `merge_overlapping` records `new_primary = sel.id`
         // when the chain's head is the primary, but the head's id is then

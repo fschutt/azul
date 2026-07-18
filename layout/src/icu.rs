@@ -150,7 +150,11 @@ pub(crate) fn decimal_string(integer_part: i64, decimal_places: i16) -> alloc::s
 
     if decimal_places <= 0 {
         let mut s = integer_part.to_string();
-        for _ in 0..(-decimal_places as usize) {
+        // `-decimal_places` overflows i16 for `decimal_places == i16::MIN`
+        // (`-i16::MIN` is not representable). Compute the zero count via
+        // `unsigned_abs` in a wider type so the full i16 range is safe.
+        let zeros = i32::from(decimal_places).unsigned_abs() as usize;
+        for _ in 0..zeros {
             s.push('0');
         }
         return s;
@@ -2813,8 +2817,6 @@ mod autotest_generated {
 
         #[test]
         fn decimal_string_huge_decimal_places_do_not_panic() {
-            // NOTE: i16::MIN is deliberately not tested — `-decimal_places` overflows
-            // i16 there (debug panic). See the report; that is a genuine bug.
             let s = decimal_string(1, i16::MAX);
             assert!(s.starts_with("0."));
             assert_eq!(s.len(), 2 + i16::MAX as usize);
@@ -2822,6 +2824,12 @@ mod autotest_generated {
             let s = decimal_string(1, i16::MIN + 1);
             assert!(s.starts_with('1'));
             assert_eq!(s.len(), 1 + (i16::MAX as usize));
+
+            // i16::MIN: `-decimal_places` used to overflow i16; the zero count is
+            // now taken via `unsigned_abs` in a wider type. |i16::MIN| = 32768.
+            let s = decimal_string(1, i16::MIN);
+            assert!(s.starts_with('1'));
+            assert_eq!(s.len(), 1 + 32768);
         }
 
         #[test]

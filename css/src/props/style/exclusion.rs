@@ -1004,17 +1004,17 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // RED: genuine bug, kept as an ignored failing test (see report).
+    // Regression: a lone quote must fail validation, not panic.
     // ---------------------------------------------------------------------
 
-    /// A lone quote character panics instead of returning `Err`.
+    /// A lone quote character must return `Err`, not panic.
     ///
-    /// `parse_style_hyphenation_language("\"")` sees a string that both starts
-    /// and ends with `"`, so it slices `&trimmed[1..trimmed.len() - 1]` ==
-    /// `&s[1..0]` and the `str` index panics with "slice index starts at 1 but
-    /// ends at 0". Any CSS input of `-azul-hyphenation-language: ";` reaches
-    /// this. The assertion below is what the parser *should* do; it is
-    /// `#[ignore]`d only so the suite stays green until the parser is fixed.
+    /// `parse_style_hyphenation_language("\"")` used to see a string that both
+    /// starts and ends with `"`, slice `&trimmed[1..trimmed.len() - 1]` ==
+    /// `&s[1..0]`, and panic with "slice index starts at 1 but ends at 0". Any
+    /// CSS input of `-azul-hyphenation-language: ";` reached it. The `len() >= 2`
+    /// guard now keeps a single-quote input intact so it fails BCP-47
+    /// validation cleanly.
     #[cfg(feature = "parser")]
     #[test]
     fn parse_hyphenation_language_lone_quote_must_not_panic() {

@@ -1395,9 +1395,17 @@ impl RendererResources {
         styled_node_state: &StyledNodeState,
         dpi_scale: f32,
     ) -> Option<FontInstanceKey> {
-        // Convert font size to StyleFontSize
+        // Convert font size to StyleFontSize.
+        //
+        // `font_size_px as isize` saturates +inf / f32::MAX to isize::MAX (and
+        // -inf / -f32::MAX to isize::MIN). `const_px` then multiplies by 1000
+        // (FP_PRECISION_MULTIPLIER) inside `FloatValue::const_new`, which would
+        // overflow. Clamp to the range that survives that multiply so an absurd
+        // size misses cleanly instead of panicking.
+        let font_size_isize =
+            (font_size_px as isize).clamp(isize::MIN / 1000, isize::MAX / 1000);
         let font_size = StyleFontSize {
-            inner: azul_css::props::basic::PixelValue::const_px(font_size_px as isize),
+            inner: azul_css::props::basic::PixelValue::const_px(font_size_isize),
         };
 
         // Convert to application units
@@ -1786,6 +1794,12 @@ impl RawImage {
                     continue;
                 }
                 let idx = ((y * w + x) as usize) * 4;
+                // `width`/`height` are public and may exceed the actual buffer;
+                // trust the buffer, not the claimed dimensions, so a mismatch
+                // skips the pixel instead of indexing out of bounds.
+                if idx + 4 > buf.len() {
+                    continue;
+                }
                 let (ri, gi, bi, ai) = if bgr {
                     (idx + 2, idx + 1, idx, idx + 3)
                 } else {
@@ -1810,6 +1824,12 @@ impl RawImage {
         let dx = x1 - x0;
         let dy = y1 - y0;
         let len = dx.hypot(dy);
+        // A non-finite length (infinite / NaN endpoint) would make `n` saturate
+        // to i32::MAX and the `for i in 0..=n` loop run ~2.1 billion times. Bail
+        // rather than spin: an infinite segment has no finite dabs to stamp.
+        if !len.is_finite() {
+            return;
+        }
         let step = (brush.radius * brush.spacing.max(0.01)).max(0.5);
         let n = (len / step).floor() as i32;
         if n <= 0 {
@@ -4936,8 +4956,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "BUG: font_size_px = inf/f32::MAX overflows `isize * 1000` inside \
-                PixelValue::const_px -> panics instead of saturating"]
     fn bug_get_font_instance_key_for_text_overflow_panics_on_infinite_font_size() {
         // `font_size_px as isize` saturates to isize::MAX for +inf / f32::MAX,
         // and FloatValue::const_new then computes `isize::MAX * 1000`, which
@@ -5492,9 +5510,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "BUG: an infinite stroke length makes n = i32::MAX -> ~2.1 billion \
-                paint_dot calls (effectively an infinite loop). DO NOT un-ignore \
-                without a length/step guard in paint_stroke."]
     fn bug_paint_stroke_with_infinite_endpoint_loops_2_billion_times() {
         // `len` is +inf, `step` is finite, so `n = (inf / step).floor() as i32`
         // saturates to i32::MAX and the `for i in 0..=n` loop runs 2^31 times.
@@ -5504,8 +5519,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "BUG: paint_dot trusts self.width/height over the pixel buffer -> \
-                index-out-of-bounds panic when they disagree"]
     fn bug_paint_dot_indexes_out_of_bounds_when_dims_exceed_the_buffer() {
         // RawImage's fields are all public, so a caller can hand paint_dot a
         // 100x100 image backed by 4 bytes. paint_dot computes the index from

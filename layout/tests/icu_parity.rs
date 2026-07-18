@@ -314,16 +314,20 @@ fn plurals() {
     }
 }
 
-// ─── Reference re-capture helper (ignored) ──────────────────────────────────
+// ─── Reference matrix dump ───────────────────────────────────────────────────
 //
-// Run under the ICU4X backend to re-dump the whole matrix as `{:?}` debug
-// strings (so non-ASCII separators are visible) when CLDR data updates:
+// Builds the whole 64-cell matrix as `{:?}` debug strings (so non-ASCII
+// separators are visible). Used both as the input to the regression test below
+// and — printed via `--nocapture` — to re-dump the ICU4X reference when CLDR
+// data updates:
 //
 //   cargo test -p azul-layout --test icu_parity --no-default-features \
-//       --features icu -- --ignored --nocapture capture_reference
-#[test]
-#[ignore = "diagnostic dump; run manually to re-capture the ICU4X reference"]
-fn capture_reference() {
+//       --features icu -- --nocapture reference_matrix_is_complete_and_deterministic
+//
+// This is a plain helper `fn`, NOT a `#[test]`, so there is no ignored test.
+fn capture_reference() -> String {
+    use core::fmt::Write;
+
     let h = handle();
     let d = fixed_date();
     let t = fixed_time();
@@ -331,22 +335,59 @@ fn capture_reference() {
     let list = ["a", "b", "c"];
     let backend = if IS_ICU4X { "icu4x" } else if IS_MACOS { "macos" } else { "windows" };
 
+    let mut out = String::new();
     for loc in LOCALES {
-        println!("CAP[{backend}]\t{loc}\tint_1234567\t{:?}", h.format_integer(loc, 1234567).as_str());
-        println!("CAP[{backend}]\t{loc}\tint_neg1000000\t{:?}", h.format_integer(loc, -1000000).as_str());
-        println!("CAP[{backend}]\t{loc}\tdec_1234_5\t{:?}", h.format_decimal(loc, 12345, 1).as_str());
-        println!("CAP[{backend}]\t{loc}\tdec_0_5\t{:?}", h.format_decimal(loc, 5, 1).as_str());
-        println!("CAP[{backend}]\t{loc}\tdate_short\t{:?}", ok(h.format_date(loc, d, FormatLength::Short)));
-        println!("CAP[{backend}]\t{loc}\tdate_medium\t{:?}", ok(h.format_date(loc, d, FormatLength::Medium)));
-        println!("CAP[{backend}]\t{loc}\tdate_long\t{:?}", ok(h.format_date(loc, d, FormatLength::Long)));
-        println!("CAP[{backend}]\t{loc}\ttime_nosec\t{:?}", ok(h.format_time(loc, t, false)));
-        println!("CAP[{backend}]\t{loc}\ttime_sec\t{:?}", ok(h.format_time(loc, t, true)));
-        println!("CAP[{backend}]\t{loc}\tdatetime_medium\t{:?}", ok(h.format_datetime(loc, dt, FormatLength::Medium)));
-        println!("CAP[{backend}]\t{loc}\tlist_and\t{:?}", h.format_list_strings(loc, &list, ListType::And).as_str());
-        println!("CAP[{backend}]\t{loc}\tlist_or\t{:?}", h.format_list_strings(loc, &list, ListType::Or).as_str());
-        println!("CAP[{backend}]\t{loc}\tlist_unit\t{:?}", h.format_list_strings(loc, &list, ListType::Unit).as_str());
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tint_1234567\t{:?}", h.format_integer(loc, 1234567).as_str());
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tint_neg1000000\t{:?}", h.format_integer(loc, -1000000).as_str());
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdec_1234_5\t{:?}", h.format_decimal(loc, 12345, 1).as_str());
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdec_0_5\t{:?}", h.format_decimal(loc, 5, 1).as_str());
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdate_short\t{:?}", ok(h.format_date(loc, d, FormatLength::Short)));
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdate_medium\t{:?}", ok(h.format_date(loc, d, FormatLength::Medium)));
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdate_long\t{:?}", ok(h.format_date(loc, d, FormatLength::Long)));
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\ttime_nosec\t{:?}", ok(h.format_time(loc, t, false)));
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\ttime_sec\t{:?}", ok(h.format_time(loc, t, true)));
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdatetime_medium\t{:?}", ok(h.format_datetime(loc, dt, FormatLength::Medium)));
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tlist_and\t{:?}", h.format_list_strings(loc, &list, ListType::And).as_str());
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tlist_or\t{:?}", h.format_list_strings(loc, &list, ListType::Or).as_str());
+        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tlist_unit\t{:?}", h.format_list_strings(loc, &list, ListType::Unit).as_str());
         for n in [1_i64, 2, 5, 0] {
-            println!("CAP[{backend}]\t{loc}\tplural_{n}\t{:?}", h.get_plural_category(loc, n));
+            let _ = writeln!(out, "CAP[{backend}]\t{loc}\tplural_{n}\t{:?}", h.get_plural_category(loc, n));
         }
+    }
+    out
+}
+
+/// Un-ignored regression test over the re-capture dump: the public formatting
+/// API must cover the full 4-locale × 17-field matrix (68 cells), each cell
+/// must be non-empty, and the whole dump must be deterministic across calls (no
+/// hidden per-call state / locale-cache order dependence). The per-cell VALUES
+/// are pinned against the ICU4X reference by the `test_*` functions above; this
+/// pins completeness + determinism so `capture_reference` can never silently
+/// drop or reorder cells.
+#[test]
+fn reference_matrix_is_complete_and_deterministic() {
+    let dump = capture_reference();
+    // Determinism: a second capture must be byte-for-byte identical.
+    assert_eq!(dump, capture_reference(), "capture_reference is not deterministic");
+
+    // Print for manual re-capture under `--nocapture`.
+    println!("{dump}");
+
+    let cap_lines: Vec<&str> = dump.lines().filter(|l| l.starts_with("CAP[")).collect();
+    // Per locale: 13 scalar fields (2 integer, 2 decimal, 3 date, 2 time,
+    // 1 datetime, 3 list) + 4 plural cells = 17. 4 locales × 17 = 68.
+    const CELLS_PER_LOCALE: usize = 17;
+    assert_eq!(
+        cap_lines.len(),
+        LOCALES.len() * CELLS_PER_LOCALE,
+        "every locale must emit a full row of matrix cells"
+    );
+
+    for line in cap_lines {
+        // Every cell is `PREFIX\tloc\tfield\t<debug value>`; the value is a
+        // `{:?}` of a string / enum and must never be empty or a bare `""`.
+        let value = line.rsplit('\t').next().unwrap_or("");
+        assert!(!value.is_empty(), "empty cell in: {line}");
+        assert_ne!(value, "\"\"", "blank formatted output in: {line}");
     }
 }

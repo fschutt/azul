@@ -2333,23 +2333,14 @@ mod autotest_generated {
         assert!(new_u.is_char_boundary(r));
     }
 
-    // KNOWN BUG (reported, not fixed here — this module may only touch tests).
-    //
-    // `reconcile_cursor_position` underflows when the caller passes a cursor
-    // byte offset PAST the end of `old_text`:
-    //
-    //     diff.rs:1163  let offset_from_end = old_text.len() - old_cursor_byte;
-    //
-    // Reaching it needs: old != new, both non-empty, cursor > common_prefix and
-    // cursor >= old_suffix_start. With ("abc", "abd", usize::MAX) the guard at
-    // :1145 does not fire (MAX > prefix 2), old_suffix_start is 3, and
-    // `3 - usize::MAX` panics with "attempt to subtract with overflow" in debug
-    // (silently wraps in release, then `snap()` clamps the garbage — so release
-    // hides it). Every other exit from this function is clamped via `snap()`;
-    // this one is not. Fix: `old_text.len().saturating_sub(old_cursor_byte)`.
-    //
-    // Kept as an #[ignore]d executable repro asserting the CORRECT behavior, so
-    // it does not fail the suite but flips to green once the fix lands.
+    // Regression test for a former underflow: `reconcile_cursor_position` used
+    // to compute `old_text.len() - old_cursor_byte` unchecked, which panicked
+    // (debug) / wrapped (release) when the caller passed a cursor byte offset
+    // PAST the end of `old_text`. Reaching it needs: old != new, both non-empty,
+    // cursor > common_prefix and cursor >= old_suffix_start — e.g.
+    // ("abc", "abd", usize::MAX). The fix uses `saturating_sub` so an
+    // out-of-range cursor clamps to the end of the new text like every other
+    // path here.
     #[test]
     fn autotest_cursor_out_of_range_cursor_must_saturate_not_underflow() {
         // Expected: clamp to the end of the new text, exactly like every other path.

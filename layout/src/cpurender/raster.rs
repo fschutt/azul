@@ -103,8 +103,14 @@ fn build_gradient_lut_radial(
         return lut;
     }
     for stop in stops_slice {
-        // Conic stops use angle — normalize to 0..1 fraction of full circle
-        let offset = f64::from((stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0));
+        // Conic stops use angle — normalize to 0..1 fraction of full circle.
+        // Use the RAW degrees (not `to_degrees()`, which wraps 360 -> 0): a
+        // final 360deg stop is a meaningful, distinct offset of 1.0. Without
+        // this, `conic-gradient(a, b)` (normalized to 0deg/360deg) collapses
+        // both stops onto offset 0.0, `build_lut()` dedups them to one stop,
+        // bails (`len < 2`), and the gradient paints nothing. The clamp keeps
+        // any out-of-range raw angle inside [0, 1].
+        let offset = f64::from((stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0));
         let c = resolve_color(&stop.color, system_colors);
         lut.add_color(
             offset,
@@ -4690,16 +4696,14 @@ mod autotest_generated {
         assert_ne!(before, p.data(), "a 2-stop conic gradient must paint");
     }
 
-    /// RED (`#[ignore]`d so the suite stays green): the CSS parser normalizes
-    /// `conic-gradient(red, blue)` to stops at **0deg and 360deg**
-    /// (`get_normalized_radial_stops`, `default_end = 360.0`).
-    /// `build_gradient_lut_radial` maps each stop through `AngleValue::to_degrees()`,
-    /// which wraps 360 -> 0, so BOTH stops land on offset 0.0, agg's `build_lut()`
-    /// dedups them to a single stop, bails out (`len < 2`), and the LUT stays fully
-    /// transparent — the gradient paints NOTHING. Fix: use `to_degrees_raw()` (or
-    /// special-case a final 360deg stop) so the last stop lands on offset 1.0.
+    /// Regression: the CSS parser normalizes `conic-gradient(red, blue)` to
+    /// stops at **0deg and 360deg** (`get_normalized_radial_stops`,
+    /// `default_end = 360.0`). `build_gradient_lut_radial` used to map each stop
+    /// through `AngleValue::to_degrees()`, which wraps 360 -> 0, so both stops
+    /// landed on offset 0.0, `build_lut()` deduped them to a single stop, bailed
+    /// (`len < 2`), and the LUT stayed fully transparent — the gradient painted
+    /// NOTHING. It now uses `to_degrees_raw()`, so the last stop lands on 1.0.
     #[test]
-    #[ignore = "RED: known bug — a full-circle conic gradient (the common 2-stop case) paints nothing"]
     fn conic_gradient_full_circle_stops_paint_the_rect() {
         let gradient = ConicGradient {
             stops: rad_stops(&[(0.0, BLACK), (360.0, WHITE)]),

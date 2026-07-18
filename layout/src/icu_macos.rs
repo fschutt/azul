@@ -296,12 +296,23 @@ unsafe fn gregorian() -> Option<Retained<NSCalendar>> {
     NSCalendar::calendarWithIdentifier(NSCalendarIdentifierGregorian)
 }
 
+/// Clamp an out-of-range date component to `i32` range before handing it to
+/// `NSDateComponents`. Every value reachable through the public API (u8 date
+/// fields plus an i32 year) already fits, so this only tames synthetic isize
+/// extremes, which can otherwise overflow Cocoa's internal date arithmetic and
+/// raise an Objective-C exception — that would abort the whole process rather
+/// than fail cleanly. Clamped extremes just make `dateFromComponents` return
+/// `None`, which callers already handle.
+fn clamp_component(v: isize) -> isize {
+    v.clamp(i32::MIN as isize, i32::MAX as isize)
+}
+
 unsafe fn make_ns_date(year: i32, month: isize, day: isize) -> Option<Retained<NSDate>> {
     let cal = gregorian()?;
     let c = NSDateComponents::new();
     c.setYear(year as isize);
-    c.setMonth(month);
-    c.setDay(day);
+    c.setMonth(clamp_component(month));
+    c.setDay(clamp_component(day));
     cal.dateFromComponents(&c)
 }
 
@@ -313,9 +324,9 @@ unsafe fn make_ns_time(hour: isize, minute: isize, second: isize) -> Option<Reta
     c.setYear(2000);
     c.setMonth(1);
     c.setDay(1);
-    c.setHour(hour);
-    c.setMinute(minute);
-    c.setSecond(second);
+    c.setHour(clamp_component(hour));
+    c.setMinute(clamp_component(minute));
+    c.setSecond(clamp_component(second));
     cal.dateFromComponents(&c)
 }
 
@@ -330,11 +341,11 @@ unsafe fn make_ns_datetime(
     let cal = gregorian()?;
     let c = NSDateComponents::new();
     c.setYear(year as isize);
-    c.setMonth(month);
-    c.setDay(day);
-    c.setHour(hour);
-    c.setMinute(minute);
-    c.setSecond(second);
+    c.setMonth(clamp_component(month));
+    c.setDay(clamp_component(day));
+    c.setHour(clamp_component(hour));
+    c.setMinute(clamp_component(minute));
+    c.setSecond(clamp_component(second));
     cal.dateFromComponents(&c)
 }
 
@@ -760,16 +771,17 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "KNOWN BUG: decimal_places = i16::MIN overflows in decimal_string(); \
-                debug-panics on `-decimal_places`, and in release wraps to a ~1.8e19 \
-                push('0') loop that exhausts memory. Un-ignore once icu.rs guards it."]
     fn format_decimal_at_i16_min_places_must_not_overflow() {
-        // Reachable straight from the public API. `decimal_string` does
+        // Reachable straight from the public API. `decimal_string` used to do
         // `for _ in 0..(-decimal_places as usize)`, and `-i16::MIN` is not
-        // representable in i16.
+        // representable in i16; it now counts the zeros via `unsigned_abs` in a
+        // wider type, so the full i16 range is safe.
         let mut loc = en();
         let out = loc.format_decimal(1, i16::MIN);
         assert!(!out.as_str().is_empty());
+        // 1 followed by 32768 zeros (|i16::MIN| = 32768).
+        assert!(out.as_str().starts_with('1'));
+        assert_eq!(out.as_str().len(), 1 + 32768);
     }
 
     // ── numeric: get_plural_category ────────────────────────────────────────
@@ -1275,10 +1287,6 @@ mod autotest_generated {
     }
 
     #[test]
-    #[ignore = "Torture case: isize::MIN/MAX components are NOT reachable through the \
-                public API (IcuDate/IcuTime use u8 + i32), and an out-of-range \
-                NSDateComponents value can raise an ObjC exception, which aborts the \
-                whole test binary rather than failing one test. Run deliberately."]
     fn make_ns_date_at_isize_extremes_does_not_panic() {
         unsafe {
             let _ = make_ns_date(i32::MAX, isize::MAX, isize::MAX);

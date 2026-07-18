@@ -1410,11 +1410,11 @@ mod autotest_generated {
         }
     }
 
-    // ------------------------------------------------------------ known bugs ---
+    // ---------------------------------------------------- former known bugs ---
     //
-    // The two tests below assert the behaviour these functions *should* have.
-    // They currently fail, so they are #[ignore]d rather than deleted or weakened
-    // — run them with `cargo test -p azul-css -- --ignored` after fixing.
+    // The two regression tests below pin behaviour these functions used to get
+    // wrong (a multi-byte-digit slice panic and a fraction escaping [0, 1)).
+    // Both are now fixed and asserted un-ignored.
 
     #[test]
     fn known_bug_percentage_multibyte_numeric_char_panics() {
