@@ -114,6 +114,21 @@ impl LayoutDisplay {
                 | Self::InlineGrid
         )
     }
+
+    /// Returns true for an ATOMIC inline-level box (CSS Display 3 §2.2 / §5.1):
+    /// `inline-block`, `inline-flex`, `inline-table`, `inline-grid`. These are
+    /// inline-level but establish their own independent formatting context and
+    /// participate in their parent's IFC as a single opaque unit — unlike a
+    /// (non-atomic) inline box (`Inline`), whose content flows directly into the
+    /// IFC. `is_inline_level` covers both; this predicate is the distinction
+    /// between them (which the enum has variants for but previously had no way to
+    /// query).
+    #[must_use] pub const fn is_atomic_inline(&self) -> bool {
+        matches!(
+            self,
+            Self::InlineBlock | Self::InlineFlex | Self::InlineTable | Self::InlineGrid
+        )
+    }
 }
 
 // +spec:display-property:cabaec - serialization uses short display keywords per CSSOM precedence rules
@@ -584,6 +599,28 @@ mod autotest_generated {
         assert!(!LayoutDisplay::Grid.is_inline_level());
         assert!(!LayoutDisplay::Table.is_inline_level());
         assert!(!LayoutDisplay::FlowRoot.is_inline_level());
+    }
+
+    #[test]
+    fn is_atomic_inline_matches_an_exact_variant_set() {
+        // Atomic inline-level boxes = inline-level minus the (non-atomic) `Inline`
+        // box. Every atomic-inline is inline-level; `Inline` is inline-level but
+        // NOT atomic.
+        const EXPECTED: [LayoutDisplay; 4] = [
+            LayoutDisplay::InlineBlock,
+            LayoutDisplay::InlineFlex,
+            LayoutDisplay::InlineTable,
+            LayoutDisplay::InlineGrid,
+        ];
+        for d in ALL_DISPLAY {
+            assert_eq!(d.is_atomic_inline(), EXPECTED.contains(&d), "is_atomic_inline({d:?})");
+            // An atomic inline is always inline-level.
+            if d.is_atomic_inline() {
+                assert!(d.is_inline_level(), "atomic-inline must be inline-level ({d:?})");
+            }
+        }
+        assert!(!LayoutDisplay::Inline.is_atomic_inline());
+        assert!(LayoutDisplay::Inline.is_inline_level());
     }
 
     // -----------------------------------------------------------------
