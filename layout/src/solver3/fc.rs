@@ -709,6 +709,22 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     let taffy_output =
         taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
 
+    // Adopt taffy's computed container border-box as this node's used_size. This is
+    // the height/width taffy actually laid the tracks/lines into. The auto-height
+    // path (cache.rs apply_content_based_height) otherwise derives the container
+    // height from taffy's `content_size`, but for a GRID that field measures each
+    // item relative to its OWN grid area (≈ the item's own height, blind to which
+    // row it sits in), so a multi-row grid collapsed to a single row's height
+    // (a 2×2 grid reported 16px instead of 42px). `taffy_output.size` is the correct
+    // row/line sum + gaps. Flex's `output.size` already equals the correct container
+    // size, so this is a no-op there. The root syncs its own used_size above.
+    if !is_root {
+        let container_bb = translate_taffy_size_back(taffy_output.size);
+        if let Some(node_mut) = tree.get_mut(node_index) {
+            node_mut.used_size = Some(container_bb);
+        }
+    }
+
     // Collect child positions from the tree (Taffy stores results directly on nodes).
     let mut output = LayoutOutput::default();
     // Use content_size for overflow detection, not container size.
