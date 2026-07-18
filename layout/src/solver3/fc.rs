@@ -3146,6 +3146,30 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
         return true;
     }
 
+    // +spec:block-formatting-context:f15b87 - a flex/grid ITEM establishes an
+    // independent formatting context for its contents (CSS Flexbox 1 § 3, CSS Grid 1
+    // § 6). Its children's margins are therefore contained and must NOT collapse
+    // through it — without this, the last child's margin-bottom escapes and the item
+    // (e.g. the invoice `.head`'s inner div) reports a cross size short by that margin,
+    // so the whole flex container is under-tall. Detect it from the parent's display.
+    {
+        let hierarchy = ctx.styled_dom.node_hierarchy.as_container();
+        if let Some(parent_dom_id) = hierarchy[dom_id].parent_id() {
+            let parent_display = get_display_property(ctx.styled_dom, Some(parent_dom_id));
+            if matches!(
+                parent_display,
+                MultiValue::Exact(
+                    LayoutDisplay::Flex
+                        | LayoutDisplay::InlineFlex
+                        | LayoutDisplay::Grid
+                        | LayoutDisplay::InlineGrid
+                )
+            ) {
+                return true;
+            }
+        }
+    }
+
     // +spec:block-formatting-context:33e6cd - block container with different writing-mode than parent establishes independent BFC
     // CSS Writing Modes 4 § 3.2: if a block container has a different writing-mode
     // than its parent, its inner display type computes to flow-root (i.e., it establishes BFC).
