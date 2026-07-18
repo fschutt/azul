@@ -100,6 +100,7 @@ use azul_css::{
             StyleTextCombineUprightValue, StyleUnicodeBidiValue,
             StyleTextBoxTrimValue, StyleTextBoxEdgeValue,
             StyleDominantBaselineValue, StyleAlignmentBaselineValue, StyleBaselineSourceValue,
+            StyleLineFitEdgeValue,
             StyleInitialLetterAlignValue, StyleInitialLetterWrapValue,
             StyleScrollbarGutterValue, StyleOverflowClipMarginValue, StyleClipRectValue,
             StyleTextDecorationValue, StyleTextIndentValue,
@@ -191,6 +192,7 @@ macro_rules! match_property_value {
             CssProperty::DominantBaseline($value) => $expr,
             CssProperty::AlignmentBaseline($value) => $expr,
             CssProperty::BaselineSource($value) => $expr,
+            CssProperty::LineFitEdge($value) => $expr,
             CssProperty::InitialLetterAlign($value) => $expr,
             CssProperty::InitialLetterWrap($value) => $expr,
             CssProperty::ScrollbarGutter($value) => $expr,
@@ -1651,6 +1653,9 @@ impl CssPropertyCache {
         if let Some(p) = self.get_baseline_source(node_data, node_id, node_state) {
             let _ = write!(s,"baseline-source: {};", p.get_css_value_fmt());
         }
+        if let Some(p) = self.get_line_fit_edge(node_data, node_id, node_state) {
+            let _ = write!(s,"line-fit-edge: {};", p.get_css_value_fmt());
+        }
         if let Some(p) = self.get_initial_letter_align(node_data, node_id, node_state) {
             let _ = write!(s,"initial-letter-align: {};", p.get_css_value_fmt());
         }
@@ -2454,6 +2459,8 @@ impl CssPropertyCache {
     impl_get_prop!(get_alignment_baseline, StyleAlignmentBaselineValue, AlignmentBaseline, as_alignment_baseline);
 
     impl_get_prop!(get_baseline_source, StyleBaselineSourceValue, BaselineSource, as_baseline_source);
+
+    impl_get_prop!(get_line_fit_edge, StyleLineFitEdgeValue, LineFitEdge, as_line_fit_edge);
 
     impl_get_prop!(get_initial_letter_align, StyleInitialLetterAlignValue, InitialLetterAlign, as_initial_letter_align);
 

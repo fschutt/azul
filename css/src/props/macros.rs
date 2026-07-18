@@ -535,6 +535,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::DominantBaseline => CssProperty::DominantBaseline(CssPropertyValue::$content_type),
             CssPropertyType::AlignmentBaseline => CssProperty::AlignmentBaseline(CssPropertyValue::$content_type),
             CssPropertyType::BaselineSource => CssProperty::BaselineSource(CssPropertyValue::$content_type),
+            CssPropertyType::LineFitEdge => CssProperty::LineFitEdge(CssPropertyValue::$content_type),
             CssPropertyType::InitialLetterAlign => CssProperty::InitialLetterAlign(CssPropertyValue::$content_type),
             CssPropertyType::InitialLetterWrap => CssProperty::InitialLetterWrap(CssPropertyValue::$content_type),
             CssPropertyType::ScrollbarGutter => CssProperty::ScrollbarGutter(CssPropertyValue::$content_type),

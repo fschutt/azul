@@ -3100,6 +3100,110 @@ pub fn parse_style_baseline_source(input: &str) -> Result<StyleBaselineSource, S
     }
 }
 
+// -- StyleLineFitEdge --
+
+// +spec:line-height:cc03df - line-fit-edge selects the over/under metrics that size a line box; initial `leading` uses the line-height leading model
+// +spec:box-model:0e75c1 - with line-fit-edge:leading (initial), margin/border/padding do not contribute to inline layout bounds
+/// Represents the `line-fit-edge` CSS property.
+///
+/// Selects which font metrics determine the over/under edges used when fitting an
+/// inline box into its line box (CSS Inline Layout Module Level 3 §5). `Auto` on
+/// `text-box-edge` defers to this value.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+#[derive(Default)]
+pub enum StyleLineFitEdge {
+    /// `leading` (initial): size the line box using the line-height leading model.
+    #[default]
+    Leading,
+    /// `text`: use the text-over / text-under baselines.
+    Text,
+    /// `cap`: use the cap-height baseline for the over edge.
+    Cap,
+    /// `ex`: use the x-height baseline for the over edge.
+    Ex,
+    /// `ideographic`: use the ideographic-em baseline.
+    Ideographic,
+    /// `ideographic-ink`: use the ideographic-ink baseline.
+    IdeographicInk,
+    /// `alphabetic`: use the alphabetic baseline for the under edge.
+    Alphabetic,
+}
+impl_option!(
+    StyleLineFitEdge,
+    OptionStyleLineFitEdge,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleLineFitEdge {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Leading => "leading",
+            Self::Text => "text",
+            Self::Cap => "cap",
+            Self::Ex => "ex",
+            Self::Ideographic => "ideographic",
+            Self::IdeographicInk => "ideographic-ink",
+            Self::Alphabetic => "alphabetic",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq, Eq)]
+pub enum StyleLineFitEdgeParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleLineFitEdgeParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleLineFitEdgeParseError<'a>, {
+    InvalidValue(e) => format!("Invalid line-fit-edge value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleLineFitEdgeParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum StyleLineFitEdgeParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl StyleLineFitEdgeParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleLineFitEdgeParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleLineFitEdgeParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleLineFitEdgeParseErrorOwned {
+    #[must_use] pub fn to_shared(&self) -> StyleLineFitEdgeParseError<'_> {
+        match self {
+            Self::InvalidValue(e) => StyleLineFitEdgeParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `line-fit-edge` value.
+pub fn parse_style_line_fit_edge(input: &str) -> Result<StyleLineFitEdge, StyleLineFitEdgeParseError<'_>> {
+    match input.trim() {
+        "leading" => Ok(StyleLineFitEdge::Leading),
+        "text" => Ok(StyleLineFitEdge::Text),
+        "cap" => Ok(StyleLineFitEdge::Cap),
+        "ex" => Ok(StyleLineFitEdge::Ex),
+        "ideographic" => Ok(StyleLineFitEdge::Ideographic),
+        "ideographic-ink" => Ok(StyleLineFitEdge::IdeographicInk),
+        "alphabetic" => Ok(StyleLineFitEdge::Alphabetic),
+        other => Err(StyleLineFitEdgeParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
 // -- StyleInitialLetterAlign --
 
 /// Represents the `initial-letter-align` CSS property.
@@ -3643,6 +3747,14 @@ mod autotest_generated {
                 parse_style_baseline_source,
                 [Bs::Auto, Bs::First, Bs::Last]
             );
+            type Lfe = StyleLineFitEdge;
+            assert_keyword_round_trip!(
+                parse_style_line_fit_edge,
+                [
+                    Lfe::Leading, Lfe::Text, Lfe::Cap, Lfe::Ex, Lfe::Ideographic,
+                    Lfe::IdeographicInk, Lfe::Alphabetic
+                ]
+            );
             type Ila = StyleInitialLetterAlign;
             assert_keyword_round_trip!(
                 parse_style_initial_letter_align,
@@ -4051,6 +4163,7 @@ mod autotest_generated {
             assert_error_round_trip!(parse_style_dominant_baseline, "", "bogus");
             assert_error_round_trip!(parse_style_alignment_baseline, "", "bogus");
             assert_error_round_trip!(parse_style_baseline_source, "", "bogus");
+            assert_error_round_trip!(parse_style_line_fit_edge, "", "bogus");
             assert_error_round_trip!(parse_style_initial_letter_align, "", "bogus");
             assert_error_round_trip!(parse_style_initial_letter_wrap, "", "bogus");
         }
