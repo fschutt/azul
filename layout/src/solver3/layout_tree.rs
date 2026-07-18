@@ -343,6 +343,16 @@ impl CachedInlineLayout {
     /// The second condition preserves float-aware layouts, which are more "correct" than
     /// non-float layouts and shouldn't be overwritten.
     #[must_use] pub fn is_valid_for(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
+        // A cached layout with NO floats must not be reused when the new request DOES
+        // have floats: the line boxes have to re-wrap around the float exclusions.
+        // Without this, the two-pass IFC path (no-float sizing pass, then float-aware
+        // re-layout) reuses the pass-1 no-float line breaks and text ignores the float
+        // entirely (#19). Mirrors should_replace_with()'s gain-float branch so the two
+        // stay consistent.
+        if new_has_floats && !self.has_floats {
+            return false;
+        }
+
         // If we have a float-aware layout and the new request doesn't have floats,
         // keep the float-aware layout (it's more accurate)
         if self.has_floats && !new_has_floats {
@@ -3422,10 +3432,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn is_valid_for_ignores_the_float_flag_entirely() {
-        // Both branches of `is_valid_for` end in `width_constraint_matches`, so
-        // `new_has_floats` cannot change the answer. Locking that in: if the float
-        // branch ever grows a different body, this test says so.
+    fn is_valid_for_rejects_a_no_float_cache_when_the_request_gains_floats() {
+        // A cached layout with no floats must be invalidated once the new request
+        // carries floats, so the text re-wraps around them (#19); every other float
+        // combination reduces to width_constraint_matches. This mirrors
+        // should_replace_with()'s gain-float branch (they must stay consistent).
         let widths = [
             AvailableSpace::Definite(0.0),
             AvailableSpace::Definite(100.0),
@@ -3436,9 +3447,19 @@ mod autotest_generated {
             for cached_w in widths {
                 let c = cached(cached_w, cached_floats);
                 for new_w in widths {
-                    let expected = c.width_constraint_matches(new_w);
-                    assert_eq!(c.is_valid_for(new_w, false), expected);
-                    assert_eq!(c.is_valid_for(new_w, true), expected);
+                    let width_ok = c.width_constraint_matches(new_w);
+                    // No-float request: pure width match (a float-aware cache is
+                    // still kept for a no-float request, gated on width).
+                    assert_eq!(c.is_valid_for(new_w, false), width_ok);
+                    // Float request: a no-float cache is always rejected so the text
+                    // re-wraps; a float-aware cache stays gated on width.
+                    let expected_with_floats = if cached_floats { width_ok } else { false };
+                    assert_eq!(c.is_valid_for(new_w, true), expected_with_floats);
+                    // is_valid_for and should_replace_with must stay opposites on the
+                    // gain-float axis.
+                    if !cached_floats {
+                        assert!(c.should_replace_with(new_w, true));
+                    }
                 }
             }
         }
