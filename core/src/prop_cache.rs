@@ -3539,24 +3539,26 @@ impl CssPropertyCache {
         }
     }
 
-    /// Check if a cascaded property should be applied
+    /// Check if a cascaded property should be applied.
+    ///
+    /// A cascaded (UA / author-selector) value applies unless the node has
+    /// already set its OWN value (`origin == Own`), which wins per the cascade.
+    /// An `Inherited` placeholder must NOT block it — including a relative
+    /// `font-size`: an earlier version skipped a cascaded relative font-size when
+    /// an inherited value existed, which silently dropped `<h1>`'s UA
+    /// `font-size: 2em` (and every heading), leaving headings at their parent's
+    /// size. That was wrong: `resolve_font_size_property` resolves the `em`
+    /// against the *parent's* font-size, not the inherited value, so there is no
+    /// double-scaling — the cascaded relative size must apply and overwrite the
+    /// inherited entry.
     fn should_apply_cascaded(
         computed: &[(CssPropertyType, CssPropertyWithOrigin)],
         prop_type: CssPropertyType,
-        prop: &CssProperty,
+        _prop: &CssProperty,
     ) -> bool {
-        // Skip relative font-size if we already have inherited resolved value
-        if prop_type == CssPropertyType::FontSize {
-            if let Ok(idx) = computed.binary_search_by_key(&prop_type, |(k, _)| *k) {
-                if computed[idx].1.origin == CssPropertyOrigin::Inherited
-                    && Self::has_relative_font_size_unit(prop)
-                {
-                    return false;
-                }
-            }
-        }
-
-        computed.binary_search_by_key(&prop_type, |(k, _)| *k).map_or(true, |idx| computed[idx].1.origin == CssPropertyOrigin::Inherited)
+        computed
+            .binary_search_by_key(&prop_type, |(k, _)| *k)
+            .map_or(true, |idx| computed[idx].1.origin == CssPropertyOrigin::Inherited)
     }
 
     /// Process a single property: resolve and store
@@ -5030,10 +5032,12 @@ mod autotest_generated {
             &width_px(1.0)
         ));
 
-        // ...except for a *relative* font-size, which would re-scale an already
-        // resolved inherited px value a second time.
+        // A cascaded (UA/author) font-size — relative OR absolute — overrides an
+        // inherited value: it is the node's own declared size (e.g. <h1>'s UA
+        // `font-size: 2em`), and `resolve_font_size_property` resolves the `em`
+        // against the parent's size, so there is no double-scaling.
         let inherited_fs = inherited(font_size(PixelValue::px(20.0)));
-        assert!(!CssPropertyCache::should_apply_cascaded(
+        assert!(CssPropertyCache::should_apply_cascaded(
             &inherited_fs,
             CssPropertyType::FontSize,
             &font_size(PixelValue::em(2.0))
