@@ -1,6 +1,5 @@
 {
   "name": "op_tab_focus_next",
-  "expect": "fail",
   "description": "FOCUS / TAB (forward): three focusable divs (tabindex=0). Pressing Tab with nothing focused runs determine_keyboard_default_action → DefaultAction::FocusNext, which must land focus on the FIRST focusable element (#f1); a second Tab advances to #f2; a third to #f3. Each Tab is a key_down/key_up pair on \"tab\"; get_focus_state returns the focused node and assert_response {type:focus_state} checks the selector it hands back contains the expected id. A no-op key path leaves has_focus=false and every assert_response goes red.",
   "setup": {
     "window_width": 400,

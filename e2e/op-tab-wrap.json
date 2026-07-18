@@ -1,6 +1,5 @@
 {
   "name": "op_tab_wrap",
-  "expect": "fail",
   "description": "FOCUS / TAB (wrap-around): with focus on the LAST focusable element (#f3), one more Tab must wrap back to the FIRST (#f1). azul's tab-order step is `(pos + 1) % len` (focus_cursor.rs step_focus), i.e. wrap-around, not clamp-at-end. Three Tabs walk f1→f2→f3, the fourth wraps to f1.",
   "setup": {
     "window_width": 400,

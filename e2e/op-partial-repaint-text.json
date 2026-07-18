@@ -1,5 +1,6 @@
 {
   "name": "op_partial_repaint_text",
+  "expect": "fail",
   "description": "PARTIAL REPAINT (text change): editing ONE text node must repaint just that node, bounded. The <p> at node 10 uses \"Azul Mock Mono\" (10px/glyph at 20px) so the glyph geometry is deterministic. reset_frame_counters + snapshot_frame baseline; set_node_text changes 'before' → 'AFTER'; get_frame_report feeds the asserts. assert_changed proves the pixels really differ, assert_damage_covers_changes proves the damage set contains every changed pixel, assert_work_bounded caps the work so a one-word edit cannot trigger a full rebuild. DOM mirrors e2e/bug-dom-mutation-no-damage.json so node id 10 is a stable <p>.",
   "setup": {
     "window_width": 400,

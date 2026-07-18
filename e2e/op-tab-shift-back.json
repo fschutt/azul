@@ -1,6 +1,5 @@
 {
   "name": "op_tab_shift_back",
-  "expect": "fail",
   "description": "FOCUS / TAB (backward): Shift+Tab must move focus to the PREVIOUS element. Two forward Tabs land on #f2, then Shift+Tab (key_down \"tab\" with modifiers.shift) runs determine_keyboard_default_action → DefaultAction::FocusPrevious and focus must return to #f1. This proves the shift modifier reaches the default-action layer and reverses tab order (not just re-triggers FocusNext).",
   "setup": {
     "window_width": 400,
