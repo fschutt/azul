@@ -3812,6 +3812,12 @@ pub struct StyleProperties {
     pub font_variant_numeric: FontVariantNumeric,
     pub font_variant_ligatures: FontVariantLigatures,
     pub font_variant_east_asian: FontVariantEastAsian,
+
+    /// The element's own `vertical-align` (baseline / sub / super / length / percentage).
+    /// Read per shaped cluster by `get_item_vertical_align` so an inline `<span>` shifts
+    /// its text relative to the line baseline. `Baseline` (the default) leaves the cluster
+    /// on the line's default alignment.
+    pub vertical_align: VerticalAlign,
 }
 
 impl Default for StyleProperties {
@@ -3840,6 +3846,7 @@ impl Default for StyleProperties {
             font_variant_numeric: FontVariantNumeric::default(),
             font_variant_ligatures: FontVariantLigatures::default(),
             font_variant_east_asian: FontVariantEastAsian::default(),
+            vertical_align: VerticalAlign::Baseline,
         }
     }
 }
@@ -3855,6 +3862,7 @@ impl Hash for StyleProperties {
         self.writing_mode.hash(state);
         self.text_orientation.hash(state);
         self.text_combine_upright.hash(state);
+        self.vertical_align.hash(state);
         self.letter_spacing.hash(state);
         self.word_spacing.hash(state);
 
@@ -8251,12 +8259,20 @@ fn apply_text_orientation(
 /// For `Object` items (inline-blocks, images), this returns the alignment stored
 /// in the original `InlineContent`. For text clusters and other items, returns `None`
 /// to indicate the global `constraints.vertical_align` should be used.
-const fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
+fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
     match item {
         ShapedItem::Object { content, .. } => match content {
             InlineContent::Image(img) => Some(img.alignment),
             InlineContent::Shape(shape) => Some(shape.alignment),
             _ => None,
+        },
+        // A text cluster carries its span's vertical-align on its style. A non-baseline
+        // value (sub / super / length / percentage on an inline <span>) overrides the
+        // line's default alignment so the cluster is shifted; baseline yields None so the
+        // cluster keeps the line/IFC default.
+        ShapedItem::Cluster(c) => match c.style.vertical_align {
+            VerticalAlign::Baseline => None,
+            va => Some(va),
         },
         _ => None,
     }

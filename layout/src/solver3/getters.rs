@@ -3019,6 +3019,11 @@ pub fn get_style_properties(
         text_decoration,
         tab_size,
         text_transform,
+        // Per-run vertical-align so a `<span style="vertical-align:super/sub">` shifts
+        // its text clusters (get_item_vertical_align reads this). Without it every text
+        // cluster fell back to the IFC root's alignment (baseline), so sub/super/length
+        // vertical-align on inline spans had no effect.
+        vertical_align: get_vertical_align_for_node(styled_dom, dom_id),
         // These still use defaults - could be extended in future:
         // font_features, font_variations, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
