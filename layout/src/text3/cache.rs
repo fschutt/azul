@@ -8676,6 +8676,58 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         )));
     }
 
+    // +spec:multi-column - column-fill:balance (the initial/default value): content is
+    // balanced so the columns are as short and as equal in height as possible. The column loop
+    // below only advances to the next column once a column reaches `available_height` — but a
+    // block on a page is handed the whole page height as available space, which the short
+    // content never reaches, so every line lands in column 0 (a single visual column). Fix:
+    // measure the total line count up front (a cheap dry run of the line breaker over a CLONED
+    // cursor at the column width) and give each column an equal share of lines; the balanced
+    // budget (content_lines / N) is far below the page-height threshold so it takes precedence.
+    // Gated on num_columns>1 with no shape boundaries and non-intrinsic sizing — exactly the
+    // otherwise-broken case — so single-column and shaped/intrinsic layouts are untouched
+    // (zero blast radius). column-fill:auto (fill-then-advance) is rare and not modelled here.
+    let balanced_lines_per_column: Option<usize> = if num_columns > 1
+        && fragment_constraints.shape_boundaries.is_empty()
+        && !is_min_content
+        && !is_max_content
+    {
+        let mut probe = cursor.clone();
+        let mut probe_col_constraints = fragment_constraints.clone();
+        probe_col_constraints.available_width = AvailableSpace::Definite(column_width);
+        let probe_line_height = fragment_constraints.resolved_line_height();
+        // A line consumes at least one shaped item, so the item count bounds the loop.
+        let iter_cap = probe.items.len().saturating_mul(4).max(64);
+        let mut total_lines = 0usize;
+        let mut probe_y = 0.0_f32;
+        let mut probe_guard = 0usize;
+        while !probe.is_done() && probe_guard < iter_cap {
+            probe_guard += 1;
+            let lc = get_line_constraints(probe_y, probe_line_height, &probe_col_constraints, &mut None);
+            if lc.segments.is_empty() {
+                break;
+            }
+            let (probe_line, _) = break_one_line(
+                &mut probe,
+                &lc,
+                false,
+                hyphenator.as_ref(),
+                fonts,
+                fragment_constraints.line_break,
+                fragment_constraints.white_space_mode,
+                fragment_constraints.overflow_wrap,
+            );
+            if probe_line.is_empty() {
+                break;
+            }
+            total_lines += 1;
+            probe_y += probe_line_height;
+        }
+        (total_lines > 0).then(|| total_lines.div_ceil(num_columns as usize).max(1))
+    } else {
+        None
+    };
+
     'column_loop: while current_column < num_columns {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -8719,6 +8771,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
             if let Some(clamp) = fragment_constraints.line_clamp {
                 if line_index >= clamp.get() {
+                    break;
+                }
+            }
+
+            // +spec:multi-column - column-fill:balance: cap this column at its balanced share of
+            // lines so content distributes across columns. The LAST column takes whatever remains
+            // (so integer rounding of the per-column budget never drops content).
+            if let Some(budget) = balanced_lines_per_column {
+                if current_column + 1 < num_columns && line_index >= budget {
                     break;
                 }
             }
@@ -11162,7 +11223,9 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
 
 // A cursor to manage the state of the line breaking process.
 // This allows us to handle items that are partially consumed by hyphenation.
-#[derive(Debug)]
+// `Clone` is used to take a cheap snapshot for the multi-column balancing dry run
+// (measuring total line count without consuming the real cursor).
+#[derive(Debug, Clone)]
 pub struct BreakCursor<'a> {
     /// A reference to the complete list of shaped items.
     pub items: &'a [ShapedItem],
