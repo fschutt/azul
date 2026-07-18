@@ -737,6 +737,14 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
 
 ## HOW TO TURN THE ONE-LINER INTO A TIMELINE
 1. `mount` the DOM the line describes (invent plausible, minimal HTML+CSS for it).
+   FONTS: for any text, use only the built-in mock fonts — `Azul Mock Mono`
+   (0.5em advance) or `Azul Mock Wide` (1.0em advance). They are registered
+   automatically, always resolve, and need no @font-face. If a case needs N
+   DISTINCT families, invent N distinct names but ALWAYS end the stack with a mock
+   font, e.g. `font-family: MyFakeFamilyA, "Azul Mock Mono";`. NEVER name a real
+   system font (Arial, Helvetica, Times, Courier, Verdana): on the CI box they match
+   nothing and collapse onto one shared FontId, which makes font-identity and
+   leak/font assertions vacuously green.
 2. `wait_frame`, then `wait {{"ms": 100}}` to let the first frame settle.
 3. `reset_frame_counters`, then `snapshot_frame {{"as": "before"}}` and, if you will
    assert resource counts, `snapshot_resources {{"as": "baseline"}}`.
