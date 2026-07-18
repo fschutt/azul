@@ -30,6 +30,12 @@ use std::collections::{BTreeMap, HashMap};
 
 use fakefont::{simple_test_font, FAKE_FAMILY};
 
+/// Deterministic built-in mock font, auto-registered by `FontManager::new`.
+/// Every glyph (space included) advances exactly 0.5 em = 10px at font-size 20,
+/// and line-height:normal = (800+200)/1000 em = 20px. Using it makes every
+/// intrinsic width exact arithmetic instead of a non-deterministic fallback.
+const MONO: &str = "Azul Mock Mono";
+
 const EPS: f32 = 0.05;
 
 fn assert_px(actual: f32, expected: f32) {
@@ -206,35 +212,36 @@ fn div_60px_wraps_two_words_into_two_line_boxes() {
 }
 
 #[test]
-fn inline_block_shrinks_to_max_content_101px() {
-    // CSS Sizing §4: a shrink-to-fit inline-block sizes to max-content = 101px
-    // ("aaaa"48 + space 5 + "aaaa"48).
+fn inline_block_shrinks_to_max_content_90px() {
+    // CSS Sizing §4: a shrink-to-fit inline-block sizes to max-content = 90px in
+    // Azul Mock Mono ("aaaa" 40 + space 10 + "aaaa" 40).
     let html = format!(
         "<html><head><style>\
-            .ib {{ display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+            .ib {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
          </style></head><body><span class=\"ib\">aaaa aaaa</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
-        any_max_content(&cache, 101.0),
-        "expected max-content 101px; intrinsics = {:?}",
+        any_max_content(&cache, 90.0),
+        "expected max-content 90px; intrinsics = {:?}",
         intrinsics(&cache)
     );
 }
 
 #[test]
-fn flex_item_min_content_is_widest_word_48px() {
-    // CSS Sizing §4: flex min-content = widest unbreakable unit = "aaaa" = 48px.
+fn flex_item_min_content_is_widest_word_40px() {
+    // CSS Sizing §4: flex min-content = widest unbreakable unit = "aaaa" = 40px
+    // in Azul Mock Mono (4 * 10px).
     let html = format!(
         "<html><head><style>\
-            .row {{ display: flex; flex-direction: row; font-size: 20px; font-family: {FAKE_FAMILY}; }}\
+            .row {{ display: flex; flex-direction: row; font-size: 20px; font-family: '{MONO}'; }}\
             .row * {{ margin: 0; padding: 0; }}\
          </style></head><body><div class=\"row\"><div>aaaa aaaa</div></div></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
-        any_min_content(&cache, 48.0),
-        "expected min-content 48px (widest word); intrinsics = {:?}",
+        any_min_content(&cache, 40.0),
+        "expected min-content 40px (widest word); intrinsics = {:?}",
         intrinsics(&cache)
     );
 }
@@ -320,21 +327,21 @@ fn text_indent_shifts_first_line_only() {
 fn white_space_pre_preserves_spaces_and_newline_without_wrapping() {
     // CSS Text §3: white-space:pre preserves the double space and the newline and
     // does NOT wrap, so the max-content of "aa  aa\naa" is the widest PRESERVED line
-    // "aa  aa" = 58px (NOT the 82px sum across the forced LF break). Use a
+    // "aa  aa" = 60px (NOT the 80px sum across the forced LF break). Use a
     // shrink-to-fit (inline-block, auto width) container: a definite-width block
     // never needs its content's intrinsic size, so max-content would not be computed
     // at all (correct lazy sizing) — inline-block forces the measurement.
     // pins spec: pre keeps collapsible spaces; max-content = widest line between LFs.
     let html = format!(
         "<html><head><style>\
-            .p {{ white-space: pre; display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+            .p {{ white-space: pre; display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
          </style></head><body><div class=\"p\">aa  aa\naa</div></body></html>"
     );
     let cache = run_layout(&html);
-    // max-content of a pre block = widest preserved line = "aa  aa" = 58px.
+    // max-content of a pre block = widest preserved line = "aa  aa" = 60px.
     assert!(
-        any_max_content(&cache, 58.0),
-        "pre must preserve the double space (58px line); intrinsics = {:?}",
+        any_max_content(&cache, 60.0),
+        "pre must preserve the double space (60px line); intrinsics = {:?}",
         intrinsics(&cache)
     );
 }
@@ -344,36 +351,38 @@ fn double_space_collapses_to_one_gap() {
     // CSS Text L3 §4.1.1: in white-space:normal a sequence of collapsible spaces
     // collapses to a single space. This "Phase I" white-space processing runs in
     // the DOM layer (fc.rs::split_text_for_whitespace), BEFORE the text3 pipeline,
-    // so "aa  aa" measures the same max-content as "aa aa" = 48 + 5 + 48 = 53px.
+    // so "aa  aa" measures the same max-content as "aa aa" = 20 + 10 + 20 = 50px
+    // in Azul Mock Mono.
     // (The raw text3 pipeline operates on already-collapsed runs and does NOT
     // re-collapse — see shaping::raw_pipeline_preserves_internal_double_space.)
     let html = format!(
         "<html><head><style>\
-            .b {{ display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+            .b {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
          </style></head><body><span class=\"b\">aa  aa</span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
-        any_max_content(&cache, 53.0),
-        "collapsible double space must collapse to one 5px gap (53px); intrinsics = {:?}",
+        any_max_content(&cache, 50.0),
+        "collapsible double space must collapse to one 10px gap (50px); intrinsics = {:?}",
         intrinsics(&cache)
     );
 }
 
 #[test]
-fn nested_span_split_keeps_total_width_48px() {
+fn nested_span_split_keeps_total_width_40px() {
     // CSS Text: a run split across a <span> boundary still measures as one word;
-    // "aa" + <span>"aa"</span> coalesces to 48px max-content (no phantom break).
+    // "aa" + <span>"aa"</span> coalesces to 40px max-content (no phantom break)
+    // in Azul Mock Mono (4 * 10px).
     let html = format!(
         "<html><head><style>\
-            .b {{ display: inline-block; font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-            .b span {{ font-size: 20px; font-family: {FAKE_FAMILY}; }}\
+            .b {{ display: inline-block; font-size: 20px; font-family: '{MONO}'; margin: 0; padding: 0; }}\
+            .b span {{ font-size: 20px; font-family: '{MONO}'; }}\
          </style></head><body><span class=\"b\">aa<span>aa</span></span></body></html>"
     );
     let cache = run_layout(&html);
     assert!(
-        any_max_content(&cache, 48.0),
-        "span-split 'aaaa' must stay 48px; intrinsics = {:?}",
+        any_max_content(&cache, 40.0),
+        "span-split 'aaaa' must stay 40px; intrinsics = {:?}",
         intrinsics(&cache)
     );
 }

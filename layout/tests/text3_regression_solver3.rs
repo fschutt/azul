@@ -25,6 +25,19 @@ use std::collections::{BTreeMap, HashMap};
 
 use fakefont::{simple_fallback_font, simple_test_font, FAKE_FALLBACK_FAMILY, FAKE_FAMILY};
 
+/// Deterministic built-in mock font (auto-registered by `FontManager::new`):
+/// every glyph, space included, advances 0.5 em = 10px @ font-size 20;
+/// line-height:normal = 20px. Monospace, so spacing/fallback maths are exact.
+const MONO: &str = "Azul Mock Mono";
+
+/// On-disk proportional stress font (`tests/fonts/azul-mock-prop.ttf`),
+/// registered by [`run_layout`]. Advances @ font-size 20: 'i'/'l'/'.'/',' =
+/// 200u = 4px, 'M'/'W'/'m'/'w' = 900u = 18px, space = 250u = 5px, every other
+/// printable ASCII = 500u = 10px. Its case pairs 'I'(10px)/'i'(4px) differ, so
+/// a text-transform actually changes the measured width (a monospace mock could
+/// not detect the transform at all).
+const PROP: &str = "Azul Mock Prop";
+
 const EPS: f32 = 0.05;
 
 /// An `FcFontCache` with the primary fake font (under `FakeTest` + generic
@@ -50,9 +63,35 @@ fn fake_font_cache() -> FcFontCache {
     fc_cache
 }
 
+/// Absolute path to `layout/tests/fonts/<name>`.
+fn font_path(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fonts")).join(name)
+}
+
 fn run_layout(html: &str) -> Solver3LayoutCache {
     let styled_dom = Dom::from_xml_string(html);
     let mut font_manager = FontManager::new(fake_font_cache()).expect("font manager");
+    // Register the on-disk proportional stress font so text-transform tests can
+    // assert a REAL width change (its case pairs differ in advance).
+    let prop_bytes = std::fs::read(font_path("azul-mock-prop.ttf"))
+        .unwrap_or_else(|e| panic!("read azul-mock-prop.ttf: {e}"));
+    font_manager.register_named_font(
+        PROP,
+        &prop_bytes,
+        vec![rust_fontconfig::UnicodeRange { start: 0x20, end: 0x7E }],
+    );
+    // Register the disjoint fallback face with EXPLICIT Greek coverage so the
+    // font-chain resolver can find it for a codepoint the primary lacks. (The
+    // bare `with_memory_fonts` entry in `fake_font_cache` carries no coverage
+    // ranges, so it is not a reliable fallback candidate on its own.)
+    font_manager.register_named_font(
+        FAKE_FALLBACK_FAMILY,
+        &simple_fallback_font(),
+        vec![
+            rust_fontconfig::UnicodeRange { start: 0x0023, end: 0x0023 }, // '#'
+            rust_fontconfig::UnicodeRange { start: 0x03B1, end: 0x03B4 }, // α..δ
+        ],
+    );
 
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
@@ -146,15 +185,18 @@ fn text_transform_uppercase_widens_to_56() {
 }
 
 #[test]
-fn text_transform_lowercase_narrows_to_48() {
-    // CSS Text §2.1: text-transform:lowercase maps "AAAA" (56px) to "aaaa" (48px).
+fn text_transform_lowercase_narrows_to_16() {
+    // CSS Text §2.1: text-transform:lowercase maps "IIII" to "iiii" BEFORE shaping.
+    // In Azul Mock Prop, 'I' advances 500u (10px) but 'i' advances 200u (4px), so
+    // the transform NARROWS the run from 40px to 4 * 4 = 16px. (A monospace mock
+    // could not reveal the transform, since 'I' and 'i' would share a width.)
     let html = format!(
         "<html><head><style>.t {{ display: inline-block; text-transform: lowercase; \
-            font-size: 20px; font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
-         </style></head><body><span class=\"t\">AAAA</span></body></html>"
+            font-size: 20px; font-family: '{PROP}'; margin: 0; padding: 0; }}\
+         </style></head><body><span class=\"t\">IIII</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 48.0), "lowercase 'aaaa' = 48px; intrinsics = {:?}", intrinsics(&cache));
+    assert!(any_max_content(&cache, 16.0), "lowercase 'iiii' = 16px; intrinsics = {:?}", intrinsics(&cache));
 }
 
 #[test]
@@ -197,27 +239,27 @@ fn br_forces_second_line_box() {
 #[test]
 fn word_spacing_widens_max_content() {
     // CSS Text §8: word-spacing:3px adds 3px at the inter-word space, so "aa aa"
-    // (53px) measures 56px at max-content.
+    // (50px in Azul Mock Mono: 20 + 10 + 20) measures 53px at max-content.
     let html = format!(
         "<html><head><style>.b {{ display: inline-block; word-spacing: 3px; font-size: 20px; \
-            font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+            font-family: '{MONO}'; margin: 0; padding: 0; }}\
          </style></head><body><span class=\"b\">aa aa</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 56.0), "word-spacing 3px => 56px; intrinsics = {:?}", intrinsics(&cache));
+    assert!(any_max_content(&cache, 53.0), "word-spacing 3px => 53px; intrinsics = {:?}", intrinsics(&cache));
 }
 
 #[test]
 fn letter_spacing_widens_max_content_after_every_cluster() {
     // CSS Text §8: letter-spacing:2px adds after every cluster of "aaaa" (4 clusters):
-    // 48 + 4*2 = 56px at max-content.
+    // 40 (Azul Mock Mono, 4*10px) + 4*2 = 48px at max-content.
     let html = format!(
         "<html><head><style>.b {{ display: inline-block; letter-spacing: 2px; font-size: 20px; \
-            font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+            font-family: '{MONO}'; margin: 0; padding: 0; }}\
          </style></head><body><span class=\"b\">aaaa</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 56.0), "letter-spacing 2px * 4 clusters => 56px; intrinsics = {:?}", intrinsics(&cache));
+    assert!(any_max_content(&cache, 48.0), "letter-spacing 2px * 4 clusters => 48px; intrinsics = {:?}", intrinsics(&cache));
 }
 
 #[test]
@@ -249,13 +291,17 @@ fn two_block_divs_stack_to_double_height() {
 #[test]
 fn font_fallback_covers_uncovered_codepoint() {
     // CSS Fonts §5: a codepoint absent from the primary face (Greek 'α' is not in
-    // FakeTest) is resolved through the font chain to FakeFallback (16px), so "aα"
-    // measures 12 + 16 = 28px — NOT 12 + 10 (a .notdef box) = 22px.
+    // Azul Mock Mono, which covers ASCII only) is resolved through the CSS
+    // font-family stack to the next face that covers it — FakeFallback (α = 800u
+    // = 16px). So "aα" measures 10 ('a' in Mock Mono) + 16 (α in FakeFallback) =
+    // 26px — NOT 10 + 10 (a .notdef box) = 20px. Both faces are deterministic
+    // (a registered mock + a disjoint in-memory font), and the 16px α width is
+    // reachable from no other font, so it is unmistakably from the fallback.
     let html = format!(
         "<html><head><style>.b {{ display: inline-block; font-size: 20px; \
-            font-family: {FAKE_FAMILY}; margin: 0; padding: 0; }}\
+            font-family: '{MONO}', '{FAKE_FALLBACK_FAMILY}'; margin: 0; padding: 0; }}\
          </style></head><body><span class=\"b\">a\u{03B1}</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 28.0), "fallback 'α' (16px) => 28px total; intrinsics = {:?}", intrinsics(&cache));
+    assert!(any_max_content(&cache, 26.0), "fallback 'α' (16px) => 26px total; intrinsics = {:?}", intrinsics(&cache));
 }
