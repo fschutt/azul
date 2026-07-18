@@ -8740,6 +8740,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut line_index = 0;
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
         let mut is_after_forced_break = false;
+        // +spec:writing-modes:6e22a7 - vertical-rl advances columns (lines) right-to-left.
+        // The positioner lays every line out at an increasing block-axis (x) offset from 0,
+        // i.e. left-to-right. For vertical-rl we record each line's block band here so we can
+        // mirror the block axis once the column's total extent is known (see after the loop).
+        let column_item_start = positioned_items.len();
+        let mut line_bands: Vec<(usize, f32, f32)> = Vec::new();
 
         // [g147 az-web-lift] Hard total-iteration cap on the line-build loop. On the remill lift,
         // `cursor.is_done()` (or the empty-segment failsafe) mis-lifts for the NESTED IFC (content.len
@@ -8977,9 +8983,30 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             }
 
             // +spec:display-property:6c4978 - line-height on block container establishes minimum line box height
-            line_top_y += line_height.max(fragment_constraints.resolved_line_height());
+            let band_height = line_height.max(fragment_constraints.resolved_line_height());
+            line_bands.push((line_index, line_top_y, band_height));
+            line_top_y += band_height;
             line_index += 1;
             positioned_items.extend(line_pos_items);
+        }
+
+        // +spec:writing-modes:6e22a7 - vertical-rl column order: mirror the block axis so the
+        // FIRST line becomes the RIGHTMOST column and successive lines advance leftward. Each
+        // line occupies the block band [t, t + h]; after mirroring within the column's total
+        // block extent `block_extent` the band moves to [block_extent - t - h, block_extent - t],
+        // which is x += block_extent - 2t - h for every item on that line. The inline (y) axis
+        // and within-column glyph stacking are untouched. vertical-lr keeps left-to-right order.
+        if fragment_constraints.writing_mode == Some(WritingMode::VerticalRl) {
+            let block_extent = line_top_y;
+            for item in &mut positioned_items[column_item_start..] {
+                if let Some(&(_, t, h)) =
+                    line_bands.iter().find(|(li, _, _)| *li == item.line_index)
+                {
+                    // delta = block_extent - 2t - h (written without a `2.0 * t`
+                    // product so the flops lint stays quiet).
+                    item.position.x += block_extent - t - t - h;
+                }
+            }
         }
         current_column += 1;
     }

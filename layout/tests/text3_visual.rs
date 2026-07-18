@@ -213,7 +213,44 @@ fn vertical_rl() {
 </style></head><body>\
   <div id=\"v\"><span class=\"a\">\u{4E00}\u{4E01}\u{4E02}</span><span class=\"b\">\u{4E03}\u{4E04}\u{4E05}</span></div>\
 </body></html>";
-    render_to_png("vertical_rl", html, &fm, 120.0, 340.0);
+    let path = render_to_png("vertical_rl", html, &fm, 120.0, 340.0);
+
+    // Numeric regression guard for the block-axis column order (CSS Writing
+    // Modes §3.1): in vertical-rl, successive columns advance RIGHT-to-LEFT, so
+    // the FIRST (red) span must be the RIGHTMOST column and the second (blue)
+    // span sits to its left. Decode the rendered PNG and compare the horizontal
+    // centroid of the red vs blue glyph boxes: red must be to the RIGHT of blue.
+    // (Before the fix in text3/cache.rs perform_fragment_layout, columns advanced
+    // left-to-right and red landed on the LEFT — this assertion catches a regress.)
+    let png = std::fs::read(&path).expect("read vertical_rl.png");
+    let pm = azul_layout::cpurender::AzulPixmap::decode_png(&png).expect("decode vertical_rl.png");
+    let (w, h) = (pm.width() as usize, pm.height() as usize);
+    let data = pm.data();
+    let (mut red_sum, mut red_n, mut blue_sum, mut blue_n) = (0.0f64, 0u64, 0.0f64, 0u64);
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            let (r, g, b) = (data[i], data[i + 1], data[i + 2]);
+            if r > 150 && g < 110 && b < 110 {
+                red_sum += x as f64;
+                red_n += 1;
+            } else if b > 150 && r < 110 {
+                blue_sum += x as f64;
+                blue_n += 1;
+            }
+        }
+    }
+    assert!(
+        red_n > 0 && blue_n > 0,
+        "vertical_rl: expected both red and blue glyph pixels (red_n={red_n}, blue_n={blue_n})"
+    );
+    let red_cx = red_sum / red_n as f64;
+    let blue_cx = blue_sum / blue_n as f64;
+    assert!(
+        red_cx > blue_cx,
+        "vertical-rl column order: first (red) span must be the RIGHTMOST column — \
+         red centroid x={red_cx:.1} should be > blue centroid x={blue_cx:.1}"
+    );
 }
 
 /// 6. Ligatures: "office affix" style string with ffi/fi. Top row uses the
