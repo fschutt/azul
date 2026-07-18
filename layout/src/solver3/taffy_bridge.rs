@@ -1705,6 +1705,30 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             available_width_type,
         };
 
+        // A prior Taffy measurement pass (e.g. the min-content pass Taffy runs to
+        // find a flex item's intrinsic width) stores its result in `node.used_size`
+        // at the end of this function. layout_bfc then reads `used_size` as the
+        // children's containing-block width. When the subsequent definite-width
+        // cross-sizing pass re-enters here, that STALE min-content width (not this
+        // pass's `known_dimensions.width`) drives child wrapping — so a flex item
+        // with long text wraps at min-content and reports an over-tall cross size,
+        // over-sizing the container (invoice `.head` measured 125px for ~45px of
+        // content). Reset `used_size` to the border-box dims Taffy fixed for THIS
+        // measure. When width is unknown (an intrinsic pass), clear it so layout_bfc
+        // falls back to `constraints.available_size` (INFINITY → true intrinsic).
+        if let Some(n) = self.tree.get_mut(node_idx) {
+            n.used_size = inputs.known_dimensions.width.map(|w| LogicalSize {
+                width: w,
+                height: inputs.known_dimensions.height.unwrap_or_else(|| {
+                    if available_height.is_finite() {
+                        available_height + node_padding_height + node_border_height
+                    } else {
+                        0.0
+                    }
+                }),
+            });
+        }
+
         // Use a temporary float cache for this subtree
         let mut float_cache = HashMap::new();
 
