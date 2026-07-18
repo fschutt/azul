@@ -390,6 +390,7 @@ impl CodegenBackend for RustBackend {
         ),
         CssPathPseudoSelector::Dragging => "CssPathPseudoSelector::Dragging".to_string(),
         CssPathPseudoSelector::DragOver => "CssPathPseudoSelector::DragOver".to_string(),
+        CssPathPseudoSelector::Root => "CssPathPseudoSelector::Root".to_string(),
     }
 }
 

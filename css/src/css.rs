@@ -1766,6 +1766,9 @@ pub enum CssPathPseudoSelector {
     Dragging,
     /// `:drag-over` - a dragged element is over this drop target
     DragOver,
+    /// `:root` - matches the document root element (equivalent to `html`,
+    /// but with pseudo-class specificity). Structural (non-interactive).
+    Root,
 }
 
 /// Selector for the `:nth-child()` CSS pseudo-class.
@@ -1800,7 +1803,7 @@ impl fmt::Display for CssNthChildSelector {
 
 impl fmt::Display for CssPathPseudoSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::CssPathPseudoSelector::{First, Last, NthChild, Hover, Active, Focus, Lang, Backdrop, Dragging, DragOver};
+        use self::CssPathPseudoSelector::{First, Last, NthChild, Hover, Active, Focus, Lang, Backdrop, Dragging, DragOver, Root};
         match &self {
             First => write!(f, "first"),
             Last => write!(f, "last"),
@@ -1812,6 +1815,7 @@ impl fmt::Display for CssPathPseudoSelector {
             Backdrop => write!(f, "backdrop"),
             Dragging => write!(f, "dragging"),
             DragOver => write!(f, "drag-over"),
+            Root => write!(f, "root"),
         }
     }
 }

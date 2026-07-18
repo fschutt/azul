@@ -452,6 +452,7 @@ pub fn pseudo_selector_from_str<'a>(
         "focus" => Ok(CssPathPseudoSelector::Focus),
         "dragging" => Ok(CssPathPseudoSelector::Dragging),
         "drag-over" => Ok(CssPathPseudoSelector::DragOver),
+        "root" => Ok(CssPathPseudoSelector::Root),
         "nth-child" => {
             let value = value.ok_or(CssPseudoSelectorParseError::EmptyNthChild)?;
             let parsed = parse_nth_child_selector(value)?;
@@ -2003,6 +2004,10 @@ mod autotest_generated {
         assert_eq!(
             pseudo_selector_from_str("drag-over", None),
             Ok(CssPathPseudoSelector::DragOver)
+        );
+        assert_eq!(
+            pseudo_selector_from_str("root", None),
+            Ok(CssPathPseudoSelector::Root)
         );
     }
 

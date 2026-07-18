@@ -475,6 +475,10 @@ fn match_single_selector(
         Type(t) => node_data.get_node_type().get_path() == *t,
         Class(c) => node_data.has_class(c.as_str()),
         Id(id) => node_data.has_id(id.as_str()),
+        // `:root` matches the document root element (NodeId::ZERO, the topmost
+        // element). Handled here rather than in `match_pseudo_selector` because it
+        // needs `node_id`. Equivalent to `html` but with pseudo-class specificity.
+        PseudoSelector(CssPathPseudoSelector::Root) => node_id.index() == 0,
         PseudoSelector(p) => {
             match_pseudo_selector(p, html_node, expected_path_ending, is_last_content_group)
         }
@@ -576,6 +580,9 @@ fn match_pseudo_selector(
             // If not specifically looking for :lang, it doesn't match structurally
             false
         }
+        // `:root` is matched in `match_single_selector` (it needs `node_id`), so it
+        // never reaches here — return false defensively.
+        CssPathPseudoSelector::Root => false,
     }
 }
 
