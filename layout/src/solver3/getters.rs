@@ -34,7 +34,8 @@ use azul_css::{
         style::{
             border_radius::StyleBorderRadius,
             lists::{StyleListStylePosition, StyleListStyleType},
-            StyleAlignmentBaseline, StyleDirection, StyleDominantBaseline, StyleInitialLetterAlign,
+            StyleAlignmentBaseline, StyleBaselineSource, StyleDirection, StyleDominantBaseline,
+            StyleInitialLetterAlign,
             StyleInitialLetterWrap, StyleTextAlign, StyleTextBoxEdge, StyleTextBoxTrim,
             StyleUnicodeBidi, StyleUserSelect, StyleVerticalAlign, StyleVisibility,
             StyleWhiteSpace,
@@ -1109,6 +1110,15 @@ impl ExtractPropertyValue<StyleAlignmentBaseline> for CssProperty {
     }
 }
 
+impl ExtractPropertyValue<StyleBaselineSource> for CssProperty {
+    fn extract(&self) -> Option<StyleBaselineSource> {
+        match self {
+            Self::BaselineSource(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<StyleInitialLetterAlign> for CssProperty {
     fn extract(&self) -> Option<StyleInitialLetterAlign> {
         match self {
@@ -1376,6 +1386,13 @@ get_css_property!(
     get_alignment_baseline,
     StyleAlignmentBaseline,
     CssPropertyType::AlignmentBaseline
+);
+
+get_css_property!(
+    get_baseline_source_property,
+    get_baseline_source,
+    StyleBaselineSource,
+    CssPropertyType::BaselineSource
 );
 
 get_css_property!(

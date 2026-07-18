@@ -742,6 +742,7 @@ impl_enum_fmt!(StyleTextBoxTrim, None, TrimStart, TrimEnd, TrimBoth);
 impl_enum_fmt!(StyleTextBoxEdge, Auto, TextEdge, CapHeight, ExHeight);
 impl_enum_fmt!(StyleDominantBaseline, Auto, TextBottom, Alphabetic, Ideographic, Middle, Central, Mathematical, Hanging, TextTop);
 impl_enum_fmt!(StyleAlignmentBaseline, Baseline, TextBottom, Alphabetic, Ideographic, Middle, Central, Mathematical, TextTop);
+impl_enum_fmt!(StyleBaselineSource, Auto, First, Last);
 impl_enum_fmt!(StyleInitialLetterAlign, Auto, Alphabetic, Hanging, Ideographic);
 impl_enum_fmt!(StyleInitialLetterWrap, None, First, All, Grid);
 impl_enum_fmt!(StyleScrollbarGutter, Auto, Stable, StableBothEdges);

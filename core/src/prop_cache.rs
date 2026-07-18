@@ -99,7 +99,7 @@ use azul_css::{
             StyleTextAlignValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleUnicodeBidiValue,
             StyleTextBoxTrimValue, StyleTextBoxEdgeValue,
-            StyleDominantBaselineValue, StyleAlignmentBaselineValue,
+            StyleDominantBaselineValue, StyleAlignmentBaselineValue, StyleBaselineSourceValue,
             StyleInitialLetterAlignValue, StyleInitialLetterWrapValue,
             StyleScrollbarGutterValue, StyleOverflowClipMarginValue, StyleClipRectValue,
             StyleTextDecorationValue, StyleTextIndentValue,
@@ -190,6 +190,7 @@ macro_rules! match_property_value {
             CssProperty::TextBoxEdge($value) => $expr,
             CssProperty::DominantBaseline($value) => $expr,
             CssProperty::AlignmentBaseline($value) => $expr,
+            CssProperty::BaselineSource($value) => $expr,
             CssProperty::InitialLetterAlign($value) => $expr,
             CssProperty::InitialLetterWrap($value) => $expr,
             CssProperty::ScrollbarGutter($value) => $expr,
@@ -1647,6 +1648,9 @@ impl CssPropertyCache {
         if let Some(p) = self.get_alignment_baseline(node_data, node_id, node_state) {
             let _ = write!(s,"alignment-baseline: {};", p.get_css_value_fmt());
         }
+        if let Some(p) = self.get_baseline_source(node_data, node_id, node_state) {
+            let _ = write!(s,"baseline-source: {};", p.get_css_value_fmt());
+        }
         if let Some(p) = self.get_initial_letter_align(node_data, node_id, node_state) {
             let _ = write!(s,"initial-letter-align: {};", p.get_css_value_fmt());
         }
@@ -2448,6 +2452,8 @@ impl CssPropertyCache {
     impl_get_prop!(get_dominant_baseline, StyleDominantBaselineValue, DominantBaseline, as_dominant_baseline);
 
     impl_get_prop!(get_alignment_baseline, StyleAlignmentBaselineValue, AlignmentBaseline, as_alignment_baseline);
+
+    impl_get_prop!(get_baseline_source, StyleBaselineSourceValue, BaselineSource, as_baseline_source);
 
     impl_get_prop!(get_initial_letter_align, StyleInitialLetterAlignValue, InitialLetterAlign, as_initial_letter_align);
 

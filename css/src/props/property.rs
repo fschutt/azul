@@ -80,7 +80,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 185] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 186] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -122,6 +122,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 185] = [
     (CssPropertyType::TextBoxEdge, "text-box-edge"),
     (CssPropertyType::DominantBaseline, "dominant-baseline"),
     (CssPropertyType::AlignmentBaseline, "alignment-baseline"),
+    // +spec:inline-block:939f05 - baseline-source longhand (auto | first | last)
+    (CssPropertyType::BaselineSource, "baseline-source"),
     (CssPropertyType::InitialLetterAlign, "initial-letter-align"),
     (CssPropertyType::InitialLetterWrap, "initial-letter-wrap"),
     (CssPropertyType::ScrollbarGutter, "scrollbar-gutter"),
@@ -339,6 +341,7 @@ pub type StyleTextBoxTrimValue = CssPropertyValue<StyleTextBoxTrim>;
 pub type StyleTextBoxEdgeValue = CssPropertyValue<StyleTextBoxEdge>;
 pub type StyleDominantBaselineValue = CssPropertyValue<StyleDominantBaseline>;
 pub type StyleAlignmentBaselineValue = CssPropertyValue<StyleAlignmentBaseline>;
+pub type StyleBaselineSourceValue = CssPropertyValue<StyleBaselineSource>;
 pub type StyleInitialLetterAlignValue = CssPropertyValue<StyleInitialLetterAlign>;
 pub type StyleInitialLetterWrapValue = CssPropertyValue<StyleInitialLetterWrap>;
 pub type StyleScrollbarGutterValue = CssPropertyValue<StyleScrollbarGutter>;
@@ -617,6 +620,7 @@ pub enum CssProperty {
     TextBoxEdge(StyleTextBoxEdgeValue),
     DominantBaseline(StyleDominantBaselineValue),
     AlignmentBaseline(StyleAlignmentBaselineValue),
+    BaselineSource(StyleBaselineSourceValue),
     InitialLetterAlign(StyleInitialLetterAlignValue),
     InitialLetterWrap(StyleInitialLetterWrapValue),
     ScrollbarGutter(StyleScrollbarGutterValue),
@@ -870,6 +874,7 @@ pub enum CssPropertyType {
     TextBoxEdge,
     DominantBaseline,
     AlignmentBaseline,
+    BaselineSource,
     InitialLetterAlign,
     InitialLetterWrap,
     ScrollbarGutter,
@@ -1059,6 +1064,7 @@ impl CssPropertyType {
         Self::TextBoxEdge,
         Self::DominantBaseline,
         Self::AlignmentBaseline,
+        Self::BaselineSource,
         Self::InitialLetterAlign,
         Self::InitialLetterWrap,
         Self::ScrollbarGutter,
@@ -1287,6 +1293,7 @@ impl CssPropertyType {
             Self::TextBoxEdge => "text-box-edge",
             Self::DominantBaseline => "dominant-baseline",
             Self::AlignmentBaseline => "alignment-baseline",
+            Self::BaselineSource => "baseline-source",
             Self::InitialLetterAlign => "initial-letter-align",
             Self::InitialLetterWrap => "initial-letter-wrap",
             Self::ScrollbarGutter => "scrollbar-gutter",
@@ -1614,7 +1621,7 @@ impl CssPropertyType {
     /// (has inline formatting context membership). When true, font/text
     /// property changes trigger IFC-only relayout instead of being ignored.
     #[must_use] pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
-        use CssPropertyType::{TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
+        use CssPropertyType::{TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
         match self {
             // Pure paint — never triggers relayout
             TextColor
@@ -1675,8 +1682,8 @@ impl CssPropertyType {
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
-            | TextBoxEdge | DominantBaseline | AlignmentBaseline | InitialLetterAlign
-            | InitialLetterWrap => {
+            | TextBoxEdge | DominantBaseline | AlignmentBaseline | BaselineSource
+            | InitialLetterAlign | InitialLetterWrap => {
                 if node_is_ifc_member {
                     RelayoutScope::IfcOnly
                 } else {
@@ -1758,6 +1765,7 @@ pub enum CssParsingError<'a> {
     TextBoxEdge(StyleTextBoxEdgeParseError<'a>),
     DominantBaseline(StyleDominantBaselineParseError<'a>),
     AlignmentBaseline(StyleAlignmentBaselineParseError<'a>),
+    BaselineSource(StyleBaselineSourceParseError<'a>),
     InitialLetterAlign(StyleInitialLetterAlignParseError<'a>),
     InitialLetterWrap(StyleInitialLetterWrapParseError<'a>),
     ScrollbarGutter(StyleScrollbarGutterParseError<'a>),
@@ -1929,6 +1937,7 @@ pub enum CssParsingErrorOwned {
     TextBoxEdge(StyleTextBoxEdgeParseErrorOwned),
     DominantBaseline(StyleDominantBaselineParseErrorOwned),
     AlignmentBaseline(StyleAlignmentBaselineParseErrorOwned),
+    BaselineSource(StyleBaselineSourceParseErrorOwned),
     InitialLetterAlign(StyleInitialLetterAlignParseErrorOwned),
     InitialLetterWrap(StyleInitialLetterWrapParseErrorOwned),
     ScrollbarGutter(StyleScrollbarGutterParseErrorOwned),
@@ -2134,6 +2143,7 @@ impl_display! { CssParsingError<'a>, {
     TextBoxEdge(e) => format!("Invalid text-box-edge: {}", e),
     DominantBaseline(e) => format!("Invalid dominant-baseline: {}", e),
     AlignmentBaseline(e) => format!("Invalid alignment-baseline: {}", e),
+    BaselineSource(e) => format!("Invalid baseline-source: {}", e),
     InitialLetterAlign(e) => format!("Invalid initial-letter-align: {}", e),
     InitialLetterWrap(e) => format!("Invalid initial-letter-wrap: {}", e),
     ScrollbarGutter(e) => format!("Invalid scrollbar-gutter: {}", e),
@@ -2226,6 +2236,10 @@ impl_from!(
 impl_from!(
     StyleAlignmentBaselineParseError<'a>,
     CssParsingError::AlignmentBaseline
+);
+impl_from!(
+    StyleBaselineSourceParseError<'a>,
+    CssParsingError::BaselineSource
 );
 impl_from!(
     StyleInitialLetterAlignParseError<'a>,
@@ -2676,6 +2690,9 @@ impl CssParsingError<'_> {
             CssParsingError::AlignmentBaseline(e) => {
                 CssParsingErrorOwned::AlignmentBaseline(e.to_contained())
             }
+            CssParsingError::BaselineSource(e) => {
+                CssParsingErrorOwned::BaselineSource(e.to_contained())
+            }
             CssParsingError::InitialLetterAlign(e) => {
                 CssParsingErrorOwned::InitialLetterAlign(e.to_contained())
             }
@@ -2918,6 +2935,9 @@ impl CssParsingErrorOwned {
             Self::AlignmentBaseline(e) => {
                 CssParsingError::AlignmentBaseline(e.to_shared())
             }
+            Self::BaselineSource(e) => {
+                CssParsingError::BaselineSource(e.to_shared())
+            }
             Self::InitialLetterAlign(e) => {
                 CssParsingError::InitialLetterAlign(e.to_shared())
             }
@@ -3085,6 +3105,7 @@ pub fn parse_css_property(
             CssPropertyType::TextBoxEdge => parse_style_text_box_edge(value)?.into(),
             CssPropertyType::DominantBaseline => parse_style_dominant_baseline(value)?.into(),
             CssPropertyType::AlignmentBaseline => parse_style_alignment_baseline(value)?.into(),
+            CssPropertyType::BaselineSource => parse_style_baseline_source(value)?.into(),
             CssPropertyType::InitialLetterAlign => parse_style_initial_letter_align(value)?.into(),
             CssPropertyType::InitialLetterWrap => parse_style_initial_letter_wrap(value)?.into(),
             CssPropertyType::ScrollbarGutter => parse_style_scrollbar_gutter(value)?.into(),
@@ -4269,6 +4290,7 @@ impl_from_css_prop!(StyleTextBoxTrim, CssProperty::TextBoxTrim);
 impl_from_css_prop!(StyleTextBoxEdge, CssProperty::TextBoxEdge);
 impl_from_css_prop!(StyleDominantBaseline, CssProperty::DominantBaseline);
 impl_from_css_prop!(StyleAlignmentBaseline, CssProperty::AlignmentBaseline);
+impl_from_css_prop!(StyleBaselineSource, CssProperty::BaselineSource);
 impl_from_css_prop!(StyleInitialLetterAlign, CssProperty::InitialLetterAlign);
 impl_from_css_prop!(StyleInitialLetterWrap, CssProperty::InitialLetterWrap);
 impl_from_css_prop!(StyleScrollbarGutter, CssProperty::ScrollbarGutter);
@@ -4440,6 +4462,7 @@ impl CssProperty {
             Self::TextBoxEdge(v) => v.get_css_value_fmt(),
             Self::DominantBaseline(v) => v.get_css_value_fmt(),
             Self::AlignmentBaseline(v) => v.get_css_value_fmt(),
+            Self::BaselineSource(v) => v.get_css_value_fmt(),
             Self::InitialLetterAlign(v) => v.get_css_value_fmt(),
             Self::InitialLetterWrap(v) => v.get_css_value_fmt(),
             Self::ScrollbarGutter(v) => v.get_css_value_fmt(),
@@ -4917,6 +4940,7 @@ impl CssProperty {
             Self::TextBoxEdge(_) => CssPropertyType::TextBoxEdge,
             Self::DominantBaseline(_) => CssPropertyType::DominantBaseline,
             Self::AlignmentBaseline(_) => CssPropertyType::AlignmentBaseline,
+            Self::BaselineSource(_) => CssPropertyType::BaselineSource,
             Self::InitialLetterAlign(_) => CssPropertyType::InitialLetterAlign,
             Self::InitialLetterWrap(_) => CssPropertyType::InitialLetterWrap,
             Self::ScrollbarGutter(_) => CssPropertyType::ScrollbarGutter,
@@ -5803,6 +5827,12 @@ impl CssProperty {
             _ => None,
         }
     }
+    #[must_use] pub const fn as_baseline_source(&self) -> Option<&StyleBaselineSourceValue> {
+        match self {
+            Self::BaselineSource(f) => Some(f),
+            _ => None,
+        }
+    }
     #[must_use] pub const fn as_initial_letter_align(&self) -> Option<&StyleInitialLetterAlignValue> {
         match self {
             Self::InitialLetterAlign(f) => Some(f),
@@ -6562,7 +6592,7 @@ impl CssProperty {
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn is_initial(&self) -> bool {
-        use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
+        use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
         match self {
             CaretColor(c) => c.is_initial(),
             CaretWidth(c) => c.is_initial(),
@@ -6586,6 +6616,7 @@ impl CssProperty {
             TextBoxEdge(c) => c.is_initial(),
             DominantBaseline(c) => c.is_initial(),
             AlignmentBaseline(c) => c.is_initial(),
+            BaselineSource(c) => c.is_initial(),
             InitialLetterAlign(c) => c.is_initial(),
             InitialLetterWrap(c) => c.is_initial(),
             ScrollbarGutter(c) => c.is_initial(),
@@ -7172,6 +7203,10 @@ impl CssProperty {
         CssProperty::AlignmentBaseline(p) => format!(
             "CssProperty::AlignmentBaseline({})",
             print_css_property_value(p, tabs, "StyleAlignmentBaseline")
+        ),
+        CssProperty::BaselineSource(p) => format!(
+            "CssProperty::BaselineSource({})",
+            print_css_property_value(p, tabs, "StyleBaselineSource")
         ),
         CssProperty::InitialLetterAlign(p) => format!(
             "CssProperty::InitialLetterAlign({})",

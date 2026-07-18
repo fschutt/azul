@@ -3014,6 +3014,92 @@ pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBasel
     }
 }
 
+// -- StyleBaselineSource --
+
+// +spec:inline-block:939f05 - baseline-source longhand: auto | first | last (auto = last baseline for inline-block / IFC roots, first baseline otherwise)
+/// Represents the `baseline-source` CSS property.
+///
+/// Selects which of the box's baselines is used as its baseline in the parent's
+/// baseline alignment (CSS Inline Layout Module Level 3 §5.2).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+#[derive(Default)]
+pub enum StyleBaselineSource {
+    /// `auto`: last baseline for inline-block / IFC roots, first baseline otherwise.
+    #[default]
+    Auto,
+    /// `first`: use the first baseline set.
+    First,
+    /// `last`: use the last baseline set.
+    Last,
+}
+impl_option!(
+    StyleBaselineSource,
+    OptionStyleBaselineSource,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleBaselineSource {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Auto => "auto",
+            Self::First => "first",
+            Self::Last => "last",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq, Eq)]
+pub enum StyleBaselineSourceParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleBaselineSourceParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleBaselineSourceParseError<'a>, {
+    InvalidValue(e) => format!("Invalid baseline-source value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleBaselineSourceParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum StyleBaselineSourceParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl StyleBaselineSourceParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> StyleBaselineSourceParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleBaselineSourceParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleBaselineSourceParseErrorOwned {
+    #[must_use] pub fn to_shared(&self) -> StyleBaselineSourceParseError<'_> {
+        match self {
+            Self::InvalidValue(e) => StyleBaselineSourceParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `baseline-source` value.
+pub fn parse_style_baseline_source(input: &str) -> Result<StyleBaselineSource, StyleBaselineSourceParseError<'_>> {
+    match input.trim() {
+        "auto" => Ok(StyleBaselineSource::Auto),
+        "first" => Ok(StyleBaselineSource::First),
+        "last" => Ok(StyleBaselineSource::Last),
+        other => Err(StyleBaselineSourceParseError::InvalidValue(InvalidValueErr(other))),
+    }
+}
+
 // -- StyleInitialLetterAlign --
 
 /// Represents the `initial-letter-align` CSS property.
@@ -3552,6 +3638,11 @@ mod autotest_generated {
                     AB::Central, AB::Mathematical, AB::TextTop
                 ]
             );
+            type Bs = StyleBaselineSource;
+            assert_keyword_round_trip!(
+                parse_style_baseline_source,
+                [Bs::Auto, Bs::First, Bs::Last]
+            );
             type Ila = StyleInitialLetterAlign;
             assert_keyword_round_trip!(
                 parse_style_initial_letter_align,
@@ -3959,6 +4050,7 @@ mod autotest_generated {
             assert_error_round_trip!(parse_style_text_box_edge, "", "edge");
             assert_error_round_trip!(parse_style_dominant_baseline, "", "bogus");
             assert_error_round_trip!(parse_style_alignment_baseline, "", "bogus");
+            assert_error_round_trip!(parse_style_baseline_source, "", "bogus");
             assert_error_round_trip!(parse_style_initial_letter_align, "", "bogus");
             assert_error_round_trip!(parse_style_initial_letter_wrap, "", "bogus");
         }
