@@ -1445,6 +1445,13 @@ get_css_property!(
     CssPropertyType::ObjectFit
 );
 
+get_css_property!(
+    get_text_overflow_property,
+    get_text_overflow,
+    StyleTextOverflow,
+    CssPropertyType::TextOverflow
+);
+
 // +spec:writing-modes:257296 - text-orientation getter for vertical typesetting (upright/sideways)
 //
 // Hand-rolled (not macro-generated) to attach a negative fast-path: most
@@ -5102,6 +5109,7 @@ use azul_css::props::style::effects::StyleAspectRatio;
 use azul_css::props::style::effects::StyleCursor;
 use azul_css::props::style::effects::StyleObjectFit;
 use azul_css::props::style::effects::StyleObjectPosition;
+use azul_css::props::layout::overflow::StyleTextOverflow;
 use azul_css::props::style::effects::StyleTextOrientation;
 use azul_css::props::style::text::StyleHyphens;
 use azul_css::props::style::text::StyleLineBreak;
@@ -5167,6 +5175,15 @@ impl ExtractPropertyValue<StyleObjectFit> for CssProperty {
     fn extract(&self) -> Option<StyleObjectFit> {
         match self {
             Self::ObjectFit(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleTextOverflow> for CssProperty {
+    fn extract(&self) -> Option<StyleTextOverflow> {
+        match self {
+            Self::TextOverflow(CssPropertyValue::Exact(v)) => Some(*v),
             _ => None,
         }
     }

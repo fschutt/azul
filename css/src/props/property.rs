@@ -80,7 +80,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 184] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 185] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -102,6 +102,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 184] = [
     (CssPropertyType::OverflowWrap, "overflow-wrap"),
     (CssPropertyType::OverflowWrap, "word-wrap"), // +spec:line-breaking:45074d - word-wrap is legacy name alias for overflow-wrap
     (CssPropertyType::LineBreak, "line-break"),
+    (CssPropertyType::TextOverflow, "text-overflow"),
     (CssPropertyType::ObjectFit, "object-fit"),
     (CssPropertyType::ObjectPosition, "object-position"),
     (CssPropertyType::AspectRatio, "aspect-ratio"),
@@ -380,6 +381,7 @@ pub type StyleHyphensValue = CssPropertyValue<StyleHyphens>;
 pub type StyleWordBreakValue = CssPropertyValue<StyleWordBreak>;
 pub type StyleOverflowWrapValue = CssPropertyValue<StyleOverflowWrap>;
 pub type StyleLineBreakValue = CssPropertyValue<StyleLineBreak>;
+pub type StyleTextOverflowValue = CssPropertyValue<StyleTextOverflow>;
 pub type StyleObjectFitValue = CssPropertyValue<StyleObjectFit>;
 pub type StyleObjectPositionValue = CssPropertyValue<StyleObjectPosition>;
 pub type StyleAspectRatioValue = CssPropertyValue<StyleAspectRatio>;
@@ -630,6 +632,7 @@ pub enum CssProperty {
     WordBreak(StyleWordBreakValue),
     OverflowWrap(StyleOverflowWrapValue),
     LineBreak(StyleLineBreakValue),
+    TextOverflow(StyleTextOverflowValue),
     ObjectFit(StyleObjectFitValue),
     ObjectPosition(StyleObjectPositionValue),
     AspectRatio(StyleAspectRatioValue),
@@ -882,6 +885,7 @@ pub enum CssPropertyType {
     WordBreak,
     OverflowWrap,
     LineBreak,
+    TextOverflow,
     ObjectFit,
     ObjectPosition,
     AspectRatio,
@@ -1070,6 +1074,7 @@ impl CssPropertyType {
         Self::WordBreak,
         Self::OverflowWrap,
         Self::LineBreak,
+        Self::TextOverflow,
         Self::ObjectFit,
         Self::ObjectPosition,
         Self::AspectRatio,
@@ -1397,6 +1402,7 @@ impl CssPropertyType {
             Self::WordBreak => "word-break",
             Self::OverflowWrap => "overflow-wrap",
             Self::LineBreak => "line-break",
+            Self::TextOverflow => "text-overflow",
             Self::ObjectFit => "object-fit",
             Self::ObjectPosition => "object-position",
             Self::AspectRatio => "aspect-ratio",
@@ -1608,7 +1614,7 @@ impl CssPropertyType {
     /// (has inline formatting context membership). When true, font/text
     /// property changes trigger IFC-only relayout instead of being ignored.
     #[must_use] pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
-        use CssPropertyType::{TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
+        use CssPropertyType::{TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
         match self {
             // Pure paint — never triggers relayout
             TextColor
@@ -1656,6 +1662,7 @@ impl CssPropertyType {
             | CaretColor
             | CaretAnimationDuration
             | CaretWidth
+            | TextOverflow
             | ObjectFit
             | ObjectPosition
             | Clip => RelayoutScope::None,
@@ -1766,6 +1773,7 @@ pub enum CssParsingError<'a> {
     WordBreak(StyleWordBreakParseError<'a>),
     OverflowWrap(StyleOverflowWrapParseError<'a>),
     LineBreak(StyleLineBreakParseError<'a>),
+    TextOverflow(StyleTextOverflowParseError<'a>),
     ObjectFit(StyleObjectFitParseError<'a>),
     ObjectPosition(StyleObjectPositionParseError<'a>),
     AspectRatio(StyleAspectRatioParseError<'a>),
@@ -1936,6 +1944,7 @@ pub enum CssParsingErrorOwned {
     WordBreak(StyleWordBreakParseErrorOwned),
     OverflowWrap(StyleOverflowWrapParseErrorOwned),
     LineBreak(StyleLineBreakParseErrorOwned),
+    TextOverflow(StyleTextOverflowParseErrorOwned),
     ObjectFit(StyleObjectFitParseErrorOwned),
     ObjectPosition(StyleObjectPositionParseErrorOwned),
     AspectRatio(StyleAspectRatioParseErrorOwned),
@@ -2140,6 +2149,7 @@ impl_display! { CssParsingError<'a>, {
     WordBreak(e) => format!("Invalid word-break: {}", e),
     OverflowWrap(e) => format!("Invalid overflow-wrap: {}", e),
     LineBreak(e) => format!("Invalid line-break: {}", e),
+    TextOverflow(e) => format!("Invalid text-overflow: {}", e),
     ObjectFit(e) => format!("Invalid object-fit: {}", e),
     ObjectPosition(e) => format!("Invalid object-position: {}", e),
     AspectRatio(e) => format!("Invalid aspect-ratio: {}", e),
@@ -2404,6 +2414,7 @@ impl_from!(
     CssParsingError::OverflowWrap
 );
 impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
+impl_from!(StyleTextOverflowParseError<'a>, CssParsingError::TextOverflow);
 impl_from!(StyleObjectFitParseError<'a>, CssParsingError::ObjectFit);
 impl_from!(
     StyleObjectPositionParseError<'a>,
@@ -2694,6 +2705,7 @@ impl CssParsingError<'_> {
                 CssParsingErrorOwned::OverflowWrap(e.to_contained())
             }
             CssParsingError::LineBreak(e) => CssParsingErrorOwned::LineBreak(e.to_contained()),
+            CssParsingError::TextOverflow(e) => CssParsingErrorOwned::TextOverflow(e.to_contained()),
             CssParsingError::ObjectFit(e) => CssParsingErrorOwned::ObjectFit(e.to_contained()),
             CssParsingError::ObjectPosition(e) => {
                 CssParsingErrorOwned::ObjectPosition(e.to_contained())
@@ -2933,6 +2945,7 @@ impl CssParsingErrorOwned {
             Self::WordBreak(e) => CssParsingError::WordBreak(e.to_shared()),
             Self::OverflowWrap(e) => CssParsingError::OverflowWrap(e.to_shared()),
             Self::LineBreak(e) => CssParsingError::LineBreak(e.to_shared()),
+            Self::TextOverflow(e) => CssParsingError::TextOverflow(e.to_shared()),
             Self::ObjectFit(e) => CssParsingError::ObjectFit(e.to_shared()),
             Self::ObjectPosition(e) => {
                 CssParsingError::ObjectPosition(e.to_shared())
@@ -3087,6 +3100,7 @@ pub fn parse_css_property(
             CssPropertyType::WordBreak => parse_style_word_break(value)?.into(),
             CssPropertyType::OverflowWrap => parse_style_overflow_wrap(value)?.into(),
             CssPropertyType::LineBreak => parse_style_line_break(value)?.into(),
+            CssPropertyType::TextOverflow => parse_style_text_overflow(value)?.into(),
             CssPropertyType::ObjectFit => parse_style_object_fit(value)?.into(),
             CssPropertyType::ObjectPosition => parse_style_object_position(value)?.into(),
             CssPropertyType::AspectRatio => parse_style_aspect_ratio(value)?.into(),
@@ -4352,6 +4366,7 @@ impl_from_css_prop!(StyleHyphens, CssProperty::Hyphens);
 impl_from_css_prop!(StyleWordBreak, CssProperty::WordBreak);
 impl_from_css_prop!(StyleOverflowWrap, CssProperty::OverflowWrap);
 impl_from_css_prop!(StyleLineBreak, CssProperty::LineBreak);
+impl_from_css_prop!(StyleTextOverflow, CssProperty::TextOverflow);
 impl_from_css_prop!(StyleObjectFit, CssProperty::ObjectFit);
 impl_from_css_prop!(StyleObjectPosition, CssProperty::ObjectPosition);
 impl_from_css_prop!(StyleAspectRatio, CssProperty::AspectRatio);
@@ -4539,6 +4554,7 @@ impl CssProperty {
             Self::WordBreak(v) => v.get_css_value_fmt(),
             Self::OverflowWrap(v) => v.get_css_value_fmt(),
             Self::LineBreak(v) => v.get_css_value_fmt(),
+            Self::TextOverflow(v) => v.get_css_value_fmt(),
             Self::ObjectFit(v) => v.get_css_value_fmt(),
             Self::ObjectPosition(v) => v.get_css_value_fmt(),
             Self::AspectRatio(v) => v.get_css_value_fmt(),
@@ -5016,6 +5032,7 @@ impl CssProperty {
             Self::WordBreak(_) => CssPropertyType::WordBreak,
             Self::OverflowWrap(_) => CssPropertyType::OverflowWrap,
             Self::LineBreak(_) => CssPropertyType::LineBreak,
+            Self::TextOverflow(_) => CssPropertyType::TextOverflow,
             Self::ObjectFit(_) => CssPropertyType::ObjectFit,
             Self::ObjectPosition(_) => CssPropertyType::ObjectPosition,
             Self::AspectRatio(_) => CssPropertyType::AspectRatio,
@@ -6241,6 +6258,12 @@ impl CssProperty {
             _ => None,
         }
     }
+    #[must_use] pub const fn as_text_overflow(&self) -> Option<&StyleTextOverflowValue> {
+        match self {
+            Self::TextOverflow(f) => Some(f),
+            _ => None,
+        }
+    }
     #[must_use] pub const fn as_object_position(&self) -> Option<&StyleObjectPositionValue> {
         match self {
             Self::ObjectPosition(f) => Some(f),
@@ -6539,7 +6562,7 @@ impl CssProperty {
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn is_initial(&self) -> bool {
-        use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
+        use self::CssProperty::{CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
         match self {
             CaretColor(c) => c.is_initial(),
             CaretWidth(c) => c.is_initial(),
@@ -6681,6 +6704,7 @@ impl CssProperty {
             WordBreak(c) => c.is_initial(),
             OverflowWrap(c) => c.is_initial(),
             LineBreak(c) => c.is_initial(),
+            TextOverflow(c) => c.is_initial(),
             ObjectFit(c) => c.is_initial(),
             ObjectPosition(c) => c.is_initial(),
             AspectRatio(c) => c.is_initial(),
@@ -7528,6 +7552,10 @@ impl CssProperty {
         CssProperty::LineBreak(p) => format!(
             "CssProperty::LineBreak({})",
             print_css_property_value(p, tabs, "StyleLineBreak")
+        ),
+        CssProperty::TextOverflow(p) => format!(
+            "CssProperty::TextOverflow({})",
+            print_css_property_value(p, tabs, "StyleTextOverflow")
         ),
         CssProperty::ObjectFit(p) => format!(
             "CssProperty::ObjectFit({})",
@@ -8531,6 +8559,19 @@ mod autotest_generated {
         let display =
             parse_css_property(CssPropertyType::Display, "flex").expect("flex is valid display");
         assert_eq!(display.get_type(), CssPropertyType::Display);
+
+        // text-overflow: full dispatch through parse_css_property -> typed CssProperty,
+        // correct type mapping, and canonical serialization.
+        let text_overflow = parse_css_property(CssPropertyType::TextOverflow, "ellipsis")
+            .expect("ellipsis is valid text-overflow");
+        assert_eq!(text_overflow.get_type(), CssPropertyType::TextOverflow);
+        assert_eq!(
+            text_overflow,
+            CssProperty::TextOverflow(CssPropertyValue::Exact(StyleTextOverflow::Ellipsis))
+        );
+        assert_eq!(text_overflow.value(), "ellipsis");
+        assert_eq!(text_overflow.format_css(), "text-overflow: ellipsis;");
+        assert!(parse_css_property(CssPropertyType::TextOverflow, "bogus").is_err());
     }
 
     #[test]

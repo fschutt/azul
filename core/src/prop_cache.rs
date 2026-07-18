@@ -92,7 +92,7 @@ use azul_css::{
             StyleHyphenationLanguageValue, StyleHyphensValue, StyleInitialLetterValue,
             StyleLetterSpacingValue, StyleLineBreakValue, StyleLineClampValue, StyleLineHeightValue,
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
-            StyleAspectRatioValue, StyleObjectFitValue, StyleObjectPositionValue,
+            StyleAspectRatioValue, StyleObjectFitValue, StyleObjectPositionValue, StyleTextOverflowValue,
             StyleOpacityValue, StylePerspectiveOriginValue,
             StyleScrollbarColorValue, StyleOverflowWrapValue, StyleTabSizeValue,
             StyleTextAlignLastValue, StyleTextOrientationValue, StyleTextTransformValue,
@@ -2428,6 +2428,8 @@ impl CssPropertyCache {
     impl_get_prop!(get_text_transform, StyleTextTransformValue, TextTransform, as_text_transform);
 
     impl_get_prop!(get_object_fit, StyleObjectFitValue, ObjectFit, as_object_fit);
+
+    impl_get_prop!(get_text_overflow, StyleTextOverflowValue, TextOverflow, as_text_overflow);
 
     impl_get_prop!(get_text_orientation, StyleTextOrientationValue, TextOrientation, as_text_orientation);
 

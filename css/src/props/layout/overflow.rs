@@ -264,6 +264,95 @@ pub fn parse_style_scrollbar_gutter(
     }
 }
 
+// -- StyleTextOverflow --
+// +spec:overflow:647a7b - text-overflow property defined in CSS Overflow 3
+
+/// Represents the `text-overflow` CSS property.
+///
+/// Determines how inline content that is clipped (because the block container
+/// has `overflow` other than `visible`) is signaled to the user at the end of
+/// the line box.
+///
+/// CSS Overflow Module Level 3 §5: <https://www.w3.org/TR/css-overflow-3/#text-overflow>
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleTextOverflow {
+    /// Clip the inline content at the edge of its line box. This is the initial value.
+    #[default]
+    Clip,
+    /// Render an ellipsis (`…`, U+2026) to represent clipped inline content.
+    Ellipsis,
+}
+
+impl PrintAsCssValue for StyleTextOverflow {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Clip => "clip",
+            Self::Ellipsis => "ellipsis",
+        })
+    }
+}
+
+// -- Parser for StyleTextOverflow
+
+/// Error returned when parsing a `text-overflow` property fails.
+#[derive(Clone, PartialEq, Eq)]
+pub enum StyleTextOverflowParseError<'a> {
+    /// The provided value is not a valid `text-overflow` keyword.
+    InvalidValue(&'a str),
+}
+
+impl_debug_as_display!(StyleTextOverflowParseError<'a>);
+impl_display! { StyleTextOverflowParseError<'a>, {
+    InvalidValue(val) => format!(
+        "Invalid text-overflow value: \"{}\". Expected 'clip' or 'ellipsis'.", val
+    ),
+}}
+
+/// An owned version of `StyleTextOverflowParseError`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum StyleTextOverflowParseErrorOwned {
+    InvalidValue(AzString),
+}
+
+impl StyleTextOverflowParseError<'_> {
+    /// Converts the borrowed error into an owned error.
+    #[must_use] pub fn to_contained(&self) -> StyleTextOverflowParseErrorOwned {
+        match self {
+            StyleTextOverflowParseError::InvalidValue(s) => {
+                StyleTextOverflowParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
+        }
+    }
+}
+
+impl StyleTextOverflowParseErrorOwned {
+    /// Converts the owned error back into a borrowed error.
+    #[must_use] pub fn to_shared(&self) -> StyleTextOverflowParseError<'_> {
+        match self {
+            Self::InvalidValue(s) => {
+                StyleTextOverflowParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `StyleTextOverflow` from a string slice.
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `text-overflow` value.
+pub fn parse_style_text_overflow(
+    input: &str,
+) -> Result<StyleTextOverflow, StyleTextOverflowParseError<'_>> {
+    match input.trim() {
+        "clip" => Ok(StyleTextOverflow::Clip),
+        "ellipsis" => Ok(StyleTextOverflow::Ellipsis),
+        other => Err(StyleTextOverflowParseError::InvalidValue(other)),
+    }
+}
+
 // -- VisualBox --
 
 // +spec:overflow:f6955f - box edge origin for overflow-clip-margin
@@ -604,6 +693,49 @@ mod tests {
             LayoutOverflow::Scroll
         );
         assert_eq!(parse_layout_overflow("auto").unwrap(), LayoutOverflow::Auto);
+    }
+
+    #[test]
+    fn test_parse_style_text_overflow_valid() {
+        assert_eq!(
+            parse_style_text_overflow("clip").unwrap(),
+            StyleTextOverflow::Clip
+        );
+        assert_eq!(
+            parse_style_text_overflow("ellipsis").unwrap(),
+            StyleTextOverflow::Ellipsis
+        );
+        // whitespace is tolerated
+        assert_eq!(
+            parse_style_text_overflow("  ellipsis  ").unwrap(),
+            StyleTextOverflow::Ellipsis
+        );
+        // initial value is `clip`
+        assert_eq!(StyleTextOverflow::default(), StyleTextOverflow::Clip);
+    }
+
+    #[test]
+    fn test_parse_style_text_overflow_invalid() {
+        assert!(parse_style_text_overflow("none").is_err());
+        assert!(parse_style_text_overflow("").is_err());
+        assert!(parse_style_text_overflow("fade").is_err());
+        // error message names the property and quotes the value
+        let msg = format!(
+            "{}",
+            StyleTextOverflowParseError::InvalidValue("fade")
+        );
+        assert!(msg.contains("text-overflow") && msg.contains("fade"), "{msg}");
+        // owned <-> shared round-trips
+        let e = parse_style_text_overflow("fade").unwrap_err();
+        assert_eq!(e.to_contained().to_shared(), e);
+    }
+
+    #[test]
+    fn test_style_text_overflow_print_round_trip() {
+        for v in [StyleTextOverflow::Clip, StyleTextOverflow::Ellipsis] {
+            let printed = v.print_as_css_value();
+            assert_eq!(parse_style_text_overflow(&printed).unwrap(), v);
+        }
     }
 
     #[test]

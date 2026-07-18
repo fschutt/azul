@@ -562,6 +562,7 @@ impl_enum_fmt!(StyleWordBreak, Normal, BreakAll, KeepAll, BreakWord);
 impl_enum_fmt!(StyleOverflowWrap, Normal, Anywhere, BreakWord);
 impl_enum_fmt!(StyleLineBreak, Auto, Loose, Normal, Strict, Anywhere);
 impl_enum_fmt!(StyleObjectFit, Fill, Contain, Cover, None, ScaleDown);
+impl_enum_fmt!(StyleTextOverflow, Clip, Ellipsis);
 
 impl FormatAsRustCode for StyleObjectPosition {
     fn format_as_rust_code(&self, _tabs: usize) -> String {

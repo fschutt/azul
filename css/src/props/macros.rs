@@ -440,6 +440,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::WordBreak => CssProperty::WordBreak(CssPropertyValue::$content_type),
             CssPropertyType::OverflowWrap => CssProperty::OverflowWrap(CssPropertyValue::$content_type),
             CssPropertyType::LineBreak => CssProperty::LineBreak(CssPropertyValue::$content_type),
+            CssPropertyType::TextOverflow => CssProperty::TextOverflow(CssPropertyValue::$content_type),
             CssPropertyType::ObjectFit => CssProperty::ObjectFit(CssPropertyValue::$content_type),
             CssPropertyType::ObjectPosition => CssProperty::ObjectPosition(CssPropertyValue::$content_type),
             CssPropertyType::AspectRatio => CssProperty::AspectRatio(CssPropertyValue::$content_type),
