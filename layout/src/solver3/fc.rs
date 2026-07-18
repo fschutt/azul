@@ -2375,8 +2375,22 @@ fn layout_bfc<T: ParsedFontTrait>(
     // and extending to include floats whose bottom margin edge exceeds content edge
     // +spec:positioning:f94d22 - 10.6.3: block-level non-replaced auto height = distance from top content edge to last in-flow child bottom margin edge (or zero)
     // CSS 2.2 §8.3.1: escaped margins (both top and bottom) don't contribute to parent height
-    let mut content_box_height = main_pen - total_escaped_top_margin
-        - escaped_bottom_margin.unwrap_or(0.0);
+    let mut content_box_height = if is_root_node {
+        // Root: the escaped margins were re-added to `main_pen` just above (there is no
+        // grandparent to receive them); subtract them back out so the root's content box
+        // still excludes them. Net effect is the pre-escape span.
+        main_pen - total_escaped_top_margin - escaped_bottom_margin.unwrap_or(0.0)
+    } else {
+        // Non-root: the first in-flow child was positioned at main_pen == 0 (its top
+        // margin escaped, NOT added to the pen) and an escaped bottom margin was never
+        // advanced into the pen either. So `main_pen` already spans the first child's
+        // border-top to the last child's border-bottom — exactly the content-box height
+        // (CSS 2.2 §8.3.1). The escaped margins live in the PARENT's coordinate space and
+        // reach it via `escaped_top_margin` / `escaped_bottom_margin`. Subtracting them
+        // from THIS box's height double-removes them and collapses it (#20: a <div> around
+        // a single <p> came out 0px tall, pulling the following sibling up by a line).
+        main_pen
+    };
 
     // +spec:block-formatting-context:f73d3e - BFC root grows to fully contain its floats; floats from outside cannot protrude in
     // whose bottom margin edge exceeds bottom content edge; only floats participating
