@@ -306,14 +306,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             .ok_or(LayoutError::InvalidTree)?
             .dom_node_id;
 
-        // Out-of-flow elements do not contribute to their parent's intrinsic size.
-        let position = get_position_type(self.ctx.styled_dom, dom_node_id);
-        if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
-            if let Some(n) = tree.warm_mut(node_index) {
-                n.intrinsic_sizes = Some(IntrinsicSizes::default());
-            }
-            return Ok(IntrinsicSizes::default());
-        }
+        // Out-of-flow (absolute/fixed) elements must NOT contribute to their
+        // parent's intrinsic size — but they still need their OWN intrinsic size
+        // computed, because an abs-pos box with `width:auto` is sized shrink-to-fit
+        // (§10.3.7), which reads this node's max-content width. So we compute and
+        // store the real intrinsic size below, then return zero to the caller so
+        // the parent ignores it. (Previously this early-returned zero AND stored
+        // zero on the node, collapsing every auto-width abs-pos box to width 0.)
+        let is_out_of_flow = matches!(
+            get_position_type(self.ctx.styled_dom, dom_node_id),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        );
 
         // Copy child indices before recursive calls (which need &mut tree).
         // Stack buffer for the common case (≤32 children); heap only for huge nodes.
@@ -391,7 +394,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             n.intrinsic_sizes = Some(intrinsic);
         }
 
-        Ok(intrinsic)
+        // An out-of-flow box's own intrinsic size is stored above (for its
+        // shrink-to-fit auto width), but it does not contribute to its parent's
+        // intrinsic size — return zero to the caller.
+        if is_out_of_flow {
+            Ok(IntrinsicSizes::default())
+        } else {
+            Ok(intrinsic)
+        }
     }
 
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
