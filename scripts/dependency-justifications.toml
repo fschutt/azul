@@ -286,7 +286,9 @@ nokhwa-bindings-windows = "Windows (Media Foundation) camera backend for nokhwa.
 
 # === Gamepad / sensors (gilrs) ===
 gilrs = "Cross-platform gamepad/controller input."
+gilrs-azul = "azul fork of gilrs (gamepad input) — depends on gilrs-core-azul so the libudev dlopen redirect flows through for cross-compilation; otherwise identical to upstream gilrs."
 gilrs-core = "Platform-specific gamepad backend for gilrs."
+gilrs-core-azul = "azul fork of gilrs-core — redirects libudev-sys -> libudev-sys-azul (runtime dlopen) so gilrs cross-compiles to Linux hosts without libudev."
 
 # === Maps demo (vector tiles / projections) ===
 geo-types = "Geometry primitives (points/polygons) for the maps widget/demo."
@@ -570,6 +572,7 @@ errno = "Cross-platform errno access for syscall error handling."
 gethostname = "Reads the OS hostname (used by zbus/D-Bus addressing on Linux)."
 signal-hook-registry = "Shared signal-handler registry (Linux signal handling)."
 libudev-sys = "libudev FFI (azul fork, dlopen) for device enumeration (gilrs, Linux)."
+libudev-sys-azul = "libudev FFI (azul fork, dlopen at runtime; published as libudev-sys-azul) for device enumeration (gilrs-core-azul, Linux)."
 x11rb = "Pure-Rust X11 protocol client (Linux windowing)."
 x11rb-protocol = "X11 protocol type definitions for x11rb."
 x11-clipboard = "X11 clipboard integration (Linux)."
@@ -632,6 +635,7 @@ find-msvc-tools = "Locates the MSVC toolchain in build scripts (Windows, cc)."
 
 # === Video: hardware H.264 decode (Vulkan Video) + MP4 demux (video-native, x86_64) ===
 gpu-video = "Vulkan Video (VK_KHR_video_decode_h264/h265) hardware decoder — azul's native VideoDecoder backend (video_codec/decode_vulkan.rs). Vendored+patched under third_party/gpu-video."
+gpu-video-azul = "Vulkan Video (VK_KHR_video_decode_h264/h265) hardware decoder — azul fork of smelter's gpu-video (PR #2109, NVIDIA Maxwell compute-queue fallback), azul's native VideoDecoder backend (Linux/Windows)."
 ash = "Vulkan API bindings — gpu-video's Vulkan Video decode session/queues."
 vk-mem = "Vulkan Memory Allocator (VMA) wrapper — gpu-video's GPU memory allocator for decode images/buffers."
 derivative = "derive-macro helper (custom Default/Debug impls) used by gpu-video."
