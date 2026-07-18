@@ -582,11 +582,16 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     }
 
     // ---- 3. ops the E2E step loop handles itself (not DebugEvent variants) --
-    let extra: Vec<String> = ["commit_undo_snapshot", "undo_app_state", "redo_app_state"]
-        .into_iter()
-        .filter(|o| src.contains(&format!("\"{o}\"")))
-        .map(str::to_string)
-        .collect();
+    // `assert_response` is dispatched inside the step loop (it reads the previous
+    // step's response payload), not as a DebugEvent arm — so the schema scanner
+    // never sees it. Without it here, any GENERATED test using the get_* / query
+    // family (which pairs a query op with `assert_response`) fails validation.
+    let extra: Vec<String> =
+        ["commit_undo_snapshot", "undo_app_state", "redo_app_state", "assert_response"]
+            .into_iter()
+            .filter(|o| src.contains(&format!("\"{o}\"")))
+            .map(str::to_string)
+            .collect();
 
     Ok(Schema {
         ops,
