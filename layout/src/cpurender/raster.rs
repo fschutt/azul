@@ -3217,6 +3217,18 @@ pub fn render_component_preview(
     )
     .map_err(|e| format!("Failed to create preview font manager: {e:?}"))?;
 
+    // Carry over families registered by name via `register_named_font` (mock /
+    // in-memory / on-disk stress fonts). `from_arc_shared` starts with an empty
+    // `memory_families` and only re-adds the built-in mocks, so without this the
+    // legacy (no-registry) chain resolver can't match those families and their
+    // text silently renders in a fallback font.
+    for (family, faces) in &font_manager.memory_families {
+        preview_font_manager
+            .memory_families
+            .entry(family.clone())
+            .or_insert_with(|| faces.clone());
+    }
+
     // --- Font resolution ---
     {
         use crate::solver3::getters::collect_and_resolve_font_chains_with_registration;
