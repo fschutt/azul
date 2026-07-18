@@ -62,12 +62,6 @@ fn build_flexbox_simple_dom() -> Dom {
 }
 
 #[test]
-#[ignore = "BUG: a flex container's definite border-box height is ignored when \
-            content is taller: .container has height:100px + box-sizing:border-box \
-            + border:5px, so its border-box height MUST be exactly 100px, but the \
-            engine sizes it to its (stretched) content instead — items end up 100px \
-            tall, so container = 100 content + 2*5 border = 110px. Expected rect[1] \
-            height 100, engine gives 110."]
 fn web_flexbox_simple_reference() {
     // ---- mirror the real render path (render_initial_page) exactly ----
     // Use `create_from_dom`, NOT `create(dom, Css::empty())`: the latter is the
@@ -161,9 +155,13 @@ fn web_flexbox_simple_reference() {
     // ---- exact reference geometry (also the JSON the gate asserts against). ----
     assert_eq!(rects[0], (0, 0, 800, 600), "body border-box fills 800x600 at origin");
     assert_eq!(rects[1], (20, 20, 760, 100), "container: width:100% of 760 content, height:100, at padding origin");
-    assert_eq!(rects[2], (25, 25, 128, 100), "item1 flex-grow:1");
-    assert_eq!(rects[3], (153, 25, 250, 100), "item2 flex-grow:2");
-    assert_eq!(rects[4], (403, 25, 372, 100), "item3 flex-grow:3");
+    // Container border-box height 100 + border:5px => content-box height 90.
+    // align-items:stretch stretches the height-auto items to the line's cross
+    // size (the container content-box, 90), so each item is 90px tall — matching
+    // Chrome (verified: i1:25,25,128,90 i2:153,25,250,90 i3:403,25,372,90).
+    assert_eq!(rects[2], (25, 25, 128, 90), "item1 flex-grow:1");
+    assert_eq!(rects[3], (153, 25, 250, 90), "item2 flex-grow:2");
+    assert_eq!(rects[4], (403, 25, 372, 90), "item3 flex-grow:3");
     assert_eq!((128 - 6, 250 - 6, 372 - 6), (122, 244, 366), "extra width splits 1:2:3");
     assert_eq!(25 + 128 + 250 + 372, 775, "items fill container content width (750)");
 }

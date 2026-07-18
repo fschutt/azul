@@ -50,7 +50,7 @@ use crate::{
     solver3::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{
-            get_css_border_bottom_width, get_css_border_top_width,
+            get_css_border_bottom_width, get_css_border_top_width, get_css_box_sizing,
             get_css_height, get_css_padding_bottom, get_css_padding_top,
             get_css_width, get_direction_property, get_unicode_bidi_property,
             get_display_property, get_element_font_size, get_float, get_clear,
@@ -754,6 +754,52 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 }
 
 /// Resolves explicit CSS width to pixel value for Taffy layout.
+/// Axis selector for `border_box_to_content`.
+#[derive(Clone, Copy)]
+enum Axis {
+    Width,
+    Height,
+}
+
+/// Convert a resolved explicit CSS dimension to the CONTENT-box value the
+/// `known_dimensions` pipeline expects.
+///
+/// The flex/grid `known_dimensions` code resolves the explicit CSS dimension and
+/// then unconditionally re-adds border+padding to reach taffy's border-box (see
+/// `adjusted_width`/`adjusted_height`). That is correct only when the resolved
+/// value is a content-box measurement. For `box-sizing:border-box`, an ABSOLUTE
+/// length (px/em/calc) IS already the border-box size, so re-adding border+padding
+/// double-counts it (a `height:100px; border:5px` container came out 110px instead
+/// of 100). Subtract the axis border+padding here so the caller's re-add restores
+/// the intended border-box. Percentages already resolve against the content-box
+/// available size, so they are left unchanged.
+fn border_box_to_content<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+    id: NodeId,
+    node_state: &StyledNodeState,
+    resolved: f32,
+    is_percentage: bool,
+    axis: Axis,
+) -> f32 {
+    if is_percentage {
+        return resolved;
+    }
+    let is_border_box = matches!(
+        get_css_box_sizing(ctx.styled_dom, id, node_state),
+        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+    );
+    if !is_border_box {
+        return resolved;
+    }
+    let bp = node.box_props.unpack();
+    let adjustment = match axis {
+        Axis::Width => bp.border.left + bp.border.right + bp.padding.left + bp.padding.right,
+        Axis::Height => bp.border.top + bp.border.bottom + bp.padding.top + bp.padding.bottom,
+    };
+    (resolved - adjustment).max(0.0)
+}
+
 fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
@@ -781,7 +827,10 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                         get_element_font_size(ctx.styled_dom, id, node_state),
                         get_root_font_size(ctx.styled_dom, node_state),
                     );
-                    (Some(pixels), true)
+                    let content_px = border_box_to_content(
+                        ctx, node, id, node_state, pixels, px.metric == SizeMetric::Percent, Axis::Width,
+                    );
+                    (Some(content_px), true)
                 }
                 LayoutWidth::Calc(items) => {
                     let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
@@ -790,7 +839,10 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                         items, em_size: em, rem_size: DEFAULT_FONT_SIZE,
                     };
                     let px = super::calc::evaluate_calc(&calc_ctx, constraints.available_size.width);
-                    (Some(px), true)
+                    let content_px = border_box_to_content(
+                        ctx, node, id, node_state, px, false, Axis::Width,
+                    );
+                    (Some(content_px), true)
                 }
             }
         })
@@ -824,7 +876,15 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                         get_element_font_size(ctx.styled_dom, id, node_state),
                         get_root_font_size(ctx.styled_dom, node_state),
                     );
-                    (Some(pixels), true)
+                    // box-sizing:border-box + an ABSOLUTE length is a border-box
+                    // value; the caller re-adds border+padding to reach the
+                    // taffy border-box, so convert to content-box here to avoid
+                    // double-counting. (Percentages already resolve against the
+                    // content-box available size, so leave those alone.)
+                    let content_px = border_box_to_content(
+                        ctx, node, id, node_state, pixels, px.metric == SizeMetric::Percent, Axis::Height,
+                    );
+                    (Some(content_px), true)
                 }
                 LayoutHeight::Calc(items) => {
                     let node_state = &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state;
@@ -833,7 +893,10 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                         items, em_size: em, rem_size: DEFAULT_FONT_SIZE,
                     };
                     let px = super::calc::evaluate_calc(&calc_ctx, constraints.available_size.height);
-                    (Some(px), true)
+                    let content_px = border_box_to_content(
+                        ctx, node, id, node_state, px, false, Axis::Height,
+                    );
+                    (Some(content_px), true)
                 }
             }
         })
@@ -2254,7 +2317,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         );
 
         if !parent_has_bottom_blocker && !last_has_bottom_blocker && has_content {
-            // Last child's bottom margin can escape
+            // Last child's bottom margin can escape and collapse with the parent's
+            // own bottom margin, propagating to the grandparent (CSS 2.2 § 8.3.1).
             let collapsed_bottom = collapse_margins(parent_margin_bottom, last_margin_bottom);
             escaped_bottom_margin = Some(collapsed_bottom);
             debug_info!(
@@ -2264,6 +2328,25 @@ fn layout_bfc<T: ParsedFontTrait>(
                 collapsed_bottom
             );
             // Don't add last_margin_bottom to pen (it escaped)
+        } else if !parent_has_bottom_blocker && has_content {
+            // Last child has its OWN bottom border/padding (a blocker), but THIS
+            // parent has none: the child's bottom margin sits adjacent to the
+            // parent's bottom content edge, so per CSS 2.2 § 8.3.1 it escapes the
+            // parent's content box rather than being part of its height. This is the
+            // bottom-margin mirror of the top-margin escape handled above (where a
+            // padded first child still escapes its top margin through a padless
+            // parent). Do NOT add it to main_pen — counting it here double-counted
+            // the margin into a non-root parent's height (nested-container came out
+            // 180px instead of 130px). The parent's own bottom margin still flows to
+            // the grandparent through the normal `last_margin_bottom` path, so the
+            // grandparent's trap is unchanged.
+            debug_info!(
+                ctx,
+                "[layout_bfc] Bottom margin of blocked last child ESCAPES content box for node \
+                 {}: last_margin_bottom={} (not added to height)",
+                node_index,
+                last_margin_bottom
+            );
         } else {
             // Can't escape: add to pen
             main_pen += last_margin_bottom;
