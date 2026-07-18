@@ -811,6 +811,12 @@ fn apply_ua_css_to_compact(
         // Text properties
         PT2::TextColor, PT2::LineHeight, PT2::LetterSpacing, PT2::WordSpacing,
         PT2::TextDecoration, PT2::Cursor, PT2::ListStyleType,
+        // Counters: the UA sheet resets `list-item` on <ol>/<ul> so each list
+        // restarts numbering. Without these here the has_counter fast-path bit
+        // stays unset for list containers, compute_counters skips the reset, and
+        // the list-item counter runs globally (a <ul> then <ol> numbered 1,2 then
+        // 3,4 instead of restarting at 1).
+        PT2::CounterReset, PT2::CounterIncrement,
     ];
     for pt in UA_PROPERTY_TYPES {
         if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *pt) {
