@@ -4190,6 +4190,11 @@ struct TableLayoutContext {
     hidden_empty_rows: std::collections::HashSet<usize>,
     /// Layout tree indices for each row (row index → layout node index)
     row_node_indices: Vec<usize>,
+    /// Per-column rowspan occupancy: for column `c`, the number of upcoming rows
+    /// (including the current one during processing) still covered by a cell that
+    /// began in an earlier row with rowspan > 1. Decremented after each row.
+    /// Used so a later row's cells skip columns already taken by a spanning cell.
+    col_occupied: Vec<usize>,
 }
 
 impl TableLayoutContext {
@@ -4208,6 +4213,7 @@ impl TableLayoutContext {
             collapsed_columns: std::collections::HashSet::new(),
             hidden_empty_rows: std::collections::HashSet::new(),
             row_node_indices: Vec::new(),
+            col_occupied: Vec::new(),
         }
     }
 }
@@ -5303,6 +5309,17 @@ fn analyze_table_row<T: ParsedFontTrait>(
                     .dom_node_id
                     .map_or((1, 1), |dom_id| get_cell_spans(ctx.styled_dom, dom_id));
 
+                // Skip columns still occupied by a rowspan cell from an earlier row,
+                // so this cell lands in the next free grid slot (CSS 2.2 §17.5 cell
+                // placement). Without this, a cell under a rowspan overlapped it.
+                while table_ctx
+                    .col_occupied
+                    .get(col_index)
+                    .is_some_and(|&n| n > 0)
+                {
+                    col_index += 1;
+                }
+
                 let cell_info = TableCellInfo {
                     node_index: cell_idx,
                     column: col_index,
@@ -5323,9 +5340,26 @@ fn analyze_table_row<T: ParsedFontTrait>(
                     });
                 }
 
+                // Reserve this cell's columns for the rows it spans downward. Store
+                // the full rowspan; the end-of-row decrement below turns it into the
+                // count of REMAINING rows for subsequent rows to skip.
+                if rowspan > 1 {
+                    if table_ctx.col_occupied.len() < max_col {
+                        table_ctx.col_occupied.resize(max_col, 0);
+                    }
+                    for occ in &mut table_ctx.col_occupied[col_index..max_col] {
+                        *occ = rowspan;
+                    }
+                }
+
                 col_index += colspan;
             }
         }
+    }
+
+    // End of row: one row of every pending rowspan has now been consumed.
+    for occ in &mut table_ctx.col_occupied {
+        *occ = occ.saturating_sub(1);
     }
 
     Ok(())
