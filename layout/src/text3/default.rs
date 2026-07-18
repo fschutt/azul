@@ -981,8 +981,8 @@ mod autotest_generated {
     use super::*;
     use crate::text3::script::Language;
 
-    /// Positive control: a real TrueType face that ships with the repo.
-    const KOHO: &[u8] = include_bytes!("../../assets/fonts/test/KoHo-Light.ttf");
+    /// Positive control: the built-in `Azul Mock Mono` TrueType face.
+    const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
 
     /// Every `Script` variant, so the exhaustive mapping tables below can never
     /// silently miss one.
@@ -1014,14 +1014,14 @@ mod autotest_generated {
     ];
 
     /// Eager parse (`LocaGlyfState::Loaded`).
-    fn koho() -> ParsedFont {
+    fn mock() -> ParsedFont {
         let mut warnings = Vec::new();
-        ParsedFont::from_bytes(KOHO, 0, &mut warnings).expect("KoHo-Light.ttf must parse")
+        ParsedFont::from_bytes(MOCK_MONO, 0, &mut warnings).expect("Azul Mock Mono must parse")
     }
 
     /// Lazy parse (`LocaGlyfState::Deferred`) — the production path.
-    fn koho_deferred() -> ParsedFont {
-        let bytes = Arc::new(FontBytes::Owned(Arc::from(KOHO.to_vec())));
+    fn mock_deferred() -> ParsedFont {
+        let bytes = Arc::new(FontBytes::Owned(Arc::from(MOCK_MONO.to_vec())));
         let mut warnings = Vec::new();
         ParsedFont::from_bytes_shared(bytes, 0, &mut warnings)
             .expect("from_bytes_shared must parse the positive control")
@@ -1097,11 +1097,11 @@ mod autotest_generated {
         // a 4-byte "sfnt-ish" header with nothing behind it
         assert!(font_ref_from_bytes(&[0x00, 0x01, 0x00, 0x00], 0, false).is_none());
         // truncated real font: header only, then a torso
-        assert!(font_ref_from_bytes(&KOHO[..12], 0, false).is_none());
-        assert!(font_ref_from_bytes(&KOHO[..64], 0, false).is_none());
+        assert!(font_ref_from_bytes(&MOCK_MONO[..12], 0, false).is_none());
+        assert!(font_ref_from_bytes(&MOCK_MONO[..64], 0, false).is_none());
         // leading junk in front of an otherwise valid font must not parse
         let mut prefixed = vec![0xABu8; 32];
-        prefixed.extend_from_slice(KOHO);
+        prefixed.extend_from_slice(MOCK_MONO);
         assert!(font_ref_from_bytes(&prefixed, 0, false).is_none());
     }
 
@@ -1117,9 +1117,10 @@ mod autotest_generated {
 
     #[test]
     fn font_ref_from_bytes_valid_minimal_positive_control() {
-        let font_ref = font_ref_from_bytes(KOHO, 0, false).expect("KoHo must parse into a FontRef");
+        let font_ref =
+            font_ref_from_bytes(MOCK_MONO, 0, false).expect("Azul Mock Mono must parse into a FontRef");
         assert!(font_ref.num_glyphs() > 0, "a real font has glyphs");
-        assert_eq!(font_ref.get_hash(), koho().get_hash());
+        assert_eq!(font_ref.get_hash(), mock().get_hash());
         assert!(font_ref.has_glyph('a' as u32));
     }
 
@@ -1128,8 +1129,8 @@ mod autotest_generated {
         // NOTE: `parse_outlines` is accepted but never forwarded to
         // `ParsedFont::from_bytes` — both settings must therefore produce
         // an identical face. This pins the current (no-op) behaviour.
-        let with = font_ref_from_bytes(KOHO, 0, true).expect("parse with outlines");
-        let without = font_ref_from_bytes(KOHO, 0, false).expect("parse without outlines");
+        let with = font_ref_from_bytes(MOCK_MONO, 0, true).expect("parse with outlines");
+        let without = font_ref_from_bytes(MOCK_MONO, 0, false).expect("parse without outlines");
         assert_eq!(with.get_hash(), without.get_hash());
         assert_eq!(with.num_glyphs(), without.num_glyphs());
         assert_eq!(with.get_space_width(), without.get_space_width());
@@ -1140,7 +1141,7 @@ mod autotest_generated {
         // Out-of-range collection indices must resolve to Some/None, never an
         // out-of-bounds index panic.
         for index in [0usize, 1, 255, usize::MAX / 2, usize::MAX] {
-            let _ = font_ref_from_bytes(KOHO, index, false);
+            let _ = font_ref_from_bytes(MOCK_MONO, index, false);
             let _ = font_ref_from_bytes(b"", index, false);
         }
     }
@@ -1185,12 +1186,12 @@ mod autotest_generated {
         let loader = PathLoader::new();
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/fonts/test/KoHo-Light.ttf"
+            "/assets/fonts/test/azul-mock-mono.ttf"
         );
         let font_ref = loader
             .load_from_path(Path::new(path), 0)
             .expect("the positive control must load from disk");
-        assert_eq!(font_ref.num_glyphs(), koho().num_glyphs());
+        assert_eq!(font_ref.num_glyphs(), mock().num_glyphs());
 
         // 0 / MAX face index: either resolves or errors, but never panics
         for index in [0usize, 1, usize::MAX] {
@@ -1205,7 +1206,7 @@ mod autotest_generated {
             Vec::new(),
             b"   \t\n".to_vec(),
             vec![0xFF, 0xFE, 0x00],
-            KOHO[..32].to_vec(),
+            MOCK_MONO[..32].to_vec(),
             vec![0u8; 1_000_000],
         ];
         for bytes in cases {
@@ -1220,11 +1221,11 @@ mod autotest_generated {
     #[test]
     fn load_font_shared_matches_the_eager_parse_and_tolerates_extreme_indices() {
         let loader = PathLoader::new();
-        let shared = Arc::new(FontBytes::Owned(Arc::from(KOHO.to_vec())));
+        let shared = Arc::new(FontBytes::Owned(Arc::from(MOCK_MONO.to_vec())));
         let font_ref = loader
             .load_font_shared(Arc::clone(&shared), 0)
             .expect("the positive control must parse");
-        let eager = koho();
+        let eager = mock();
         assert_eq!(font_ref.num_glyphs(), eager.num_glyphs());
         assert_eq!(font_ref.get_hash(), eager.get_hash());
 
@@ -1259,8 +1260,8 @@ mod autotest_generated {
         let manager: FontManager<FontRef> =
             FontManager::new(FcFontCache::default()).expect("an empty FontManager must build");
 
-        let deferred = crate::parsed_font_to_font_ref(koho_deferred());
-        let eager = crate::parsed_font_to_font_ref(koho());
+        let deferred = crate::parsed_font_to_font_ref(mock_deferred());
+        let eager = crate::parsed_font_to_font_ref(mock());
         {
             let mut fonts = manager.parsed_fonts.lock().unwrap();
             fonts.insert(FontId::new(), deferred.clone());
@@ -1295,7 +1296,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_empty_input_yields_no_glyphs() {
-        let font = koho();
+        let font = mock();
         let glyphs = shape(&font, "").expect("empty text is not an error");
         assert!(glyphs.is_empty());
 
@@ -1310,7 +1311,7 @@ mod autotest_generated {
         .expect("empty text is not an error");
         assert!(via_public.is_empty());
 
-        let font_ref = crate::parsed_font_to_font_ref(koho());
+        let font_ref = crate::parsed_font_to_font_ref(mock());
         let via_ref = font_ref
             .shape_text(
                 "",
@@ -1325,7 +1326,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_valid_minimal_input_maps_bytes_one_to_one() {
-        let font = koho();
+        let font = mock();
         let glyphs = shape(&font, "abc").expect("plain ASCII must shape");
         assert_eq!(glyphs.len(), 3);
         assert_spans_are_sane(&glyphs, "abc");
@@ -1344,7 +1345,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_whitespace_only_input_is_shaped_not_trimmed() {
-        let font = koho();
+        let font = mock();
         let text = " \t\n\r ";
         let glyphs = shape(&font, text).expect("whitespace must shape");
         assert!(!glyphs.is_empty(), "whitespace is not silently dropped");
@@ -1356,7 +1357,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_unicode_and_missing_glyphs_keep_multibyte_spans_intact() {
-        let font = koho();
+        let font = mock();
         // emoji (almost certainly absent from a text face), combining marks, RTL,
         // CJK and an unassigned plane-15 codepoint
         for text in [
@@ -1388,7 +1389,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_extremely_long_input_terminates() {
-        let font = koho();
+        let font = mock();
         let text = "a".repeat(10_000);
         let glyphs = shape(&font, &text).expect("a long run must shape");
         assert_eq!(glyphs.len(), 10_000);
@@ -1399,7 +1400,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_deeply_nested_brackets_does_not_stack_overflow() {
-        let font = koho();
+        let font = mock();
         let text = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
         let glyphs = shape(&font, &text).expect("nested brackets are just characters");
         assert_eq!(glyphs.len(), 20_000);
@@ -1408,7 +1409,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_boundary_numeric_text_is_shaped_verbatim() {
-        let font = koho();
+        let font = mock();
         let text = "0 -0 9223372036854775807 -9223372036854775808 NaN inf 1e309 0.0000001";
         let glyphs = shape(&font, text).expect("numeric-looking text is still text");
         assert_spans_are_sane(&glyphs, text);
@@ -1420,7 +1421,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_nan_and_infinite_font_sizes_do_not_panic() {
-        let font = koho();
+        let font = mock();
         // ppem is `font_size.round().max(1.0) as u16` — an unchecked float->int
         // cast. NaN/inf must saturate, not trap.
         for size in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
@@ -1465,7 +1466,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_zero_and_tiny_font_sizes_produce_zero_or_finite_advances() {
-        let font = koho();
+        let font = mock();
         for (size, expect_zero) in [(0.0f32, true), (-0.0f32, true), (f32::MIN_POSITIVE, false)] {
             let glyphs = shape_text_internal(
                 &font,
@@ -1489,7 +1490,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_negative_font_size_mirrors_the_advance_sign() {
-        let font = koho();
+        let font = mock();
         let positive = shape_text_internal(
             &font,
             "a",
@@ -1520,7 +1521,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_garbage_font_features_are_skipped_not_fatal() {
-        let font = koho();
+        let font = mock();
         let style = StyleProperties {
             font_features: vec![
                 String::new(),
@@ -1549,7 +1550,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_direction_drives_the_bidi_level() {
-        let font = koho();
+        let font = mock();
         for (direction, expected) in [(BidiDirection::Ltr, 0u8), (BidiDirection::Rtl, 1u8)] {
             let glyphs = shape_text_internal(
                 &font,
@@ -1570,7 +1571,7 @@ mod autotest_generated {
 
     #[test]
     fn shape_text_every_script_and_language_pairing_is_shapeable() {
-        let font = koho();
+        let font = mock();
         // A script tag that the font has no coverage for must degrade to
         // .notdef glyphs, never to an Err or a panic.
         for script in ALL_SCRIPTS {
@@ -1594,8 +1595,8 @@ mod autotest_generated {
     fn shape_text_public_internal_and_font_ref_paths_agree() {
         // Round-trip / consistency: the three entry points are documented as
         // sharing one implementation, so they must produce identical glyphs.
-        let font = koho();
-        let font_ref = crate::parsed_font_to_font_ref(koho());
+        let font = mock();
+        let font_ref = crate::parsed_font_to_font_ref(mock());
         let text = "Wafer fi\u{0301}x \u{1F600}";
         let style = style_at(13.5);
 
@@ -1665,16 +1666,16 @@ mod autotest_generated {
 
     #[test]
     fn get_hash_is_stable_and_shared_with_the_font_ref_view() {
-        let a = koho();
-        let b = koho();
+        let a = mock();
+        let b = mock();
         assert_eq!(a.get_hash(), b.get_hash(), "parsing is deterministic");
         assert_eq!(a.get_hash(), a.hash, "the getter reads the cached field");
 
-        let font_ref = crate::parsed_font_to_font_ref(koho());
+        let font_ref = crate::parsed_font_to_font_ref(mock());
         assert_eq!(font_ref.get_hash(), a.get_hash());
 
         // the lazy constructor must not change identity
-        assert_eq!(koho_deferred().get_hash(), a.get_hash());
+        assert_eq!(mock_deferred().get_hash(), a.get_hash());
     }
 
     // -----------------------------------------------------------------
@@ -1683,7 +1684,7 @@ mod autotest_generated {
 
     #[test]
     fn get_glyph_size_out_of_range_glyph_ids_are_none() {
-        let font = koho();
+        let font = mock();
         assert!(font.get_glyph_size(u16::MAX, 16.0).is_none());
         assert!(font.get_glyph_size(font.num_glyphs, 16.0).is_none());
         // an in-range gid still decodes (positive control)
@@ -1694,7 +1695,7 @@ mod autotest_generated {
 
     #[test]
     fn get_glyph_size_zero_negative_and_non_finite_font_sizes() {
-        let font = koho();
+        let font = mock();
         let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
 
         let zero = font.get_glyph_size(gid, 0.0).expect("gid decodes");
@@ -1725,7 +1726,7 @@ mod autotest_generated {
     #[test]
     fn get_glyph_size_zero_units_per_em_uses_the_constant_fallback_scale() {
         assert_eq!(FALLBACK_SCALE, 0.01);
-        let mut font = koho();
+        let mut font = mock();
         let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
         font.font_metrics.units_per_em = 0; // corrupt/broken font
 
@@ -1744,7 +1745,7 @@ mod autotest_generated {
 
     #[test]
     fn get_hyphen_glyph_and_advance_follows_the_cmap_and_scales_linearly() {
-        let font = koho();
+        let font = mock();
         let expected_gid = font
             .lookup_glyph_index('-' as u32)
             .expect("the positive control has a hyphen");
@@ -1764,7 +1765,7 @@ mod autotest_generated {
 
     #[test]
     fn get_kashida_glyph_and_advance_presence_matches_the_cmap() {
-        let font = koho();
+        let font = mock();
         // U+0640 ARABIC TATWEEL: present or not, the two views must agree.
         let has_tatweel = font.has_glyph(0x0640);
         let result = font.get_kashida_glyph_and_advance(16.0);
@@ -1783,7 +1784,7 @@ mod autotest_generated {
 
     #[test]
     fn hyphen_and_kashida_survive_nan_inf_and_extreme_font_sizes() {
-        let font = koho();
+        let font = mock();
         let hyphen_gid = font
             .lookup_glyph_index('-' as u32)
             .expect("the positive control has a hyphen");
@@ -1816,7 +1817,7 @@ mod autotest_generated {
 
     #[test]
     fn hyphen_and_kashida_return_none_when_units_per_em_is_zero() {
-        let mut font = koho();
+        let mut font = mock();
         font.font_metrics.units_per_em = 0;
         // A zero upem would divide by zero: both getters must bail out instead.
         assert!(font.get_hyphen_glyph_and_advance(16.0).is_none());
@@ -2205,8 +2206,8 @@ mod autotest_generated {
 
     #[test]
     fn font_ref_trait_getters_delegate_to_the_inner_parsed_font() {
-        let parsed = koho();
-        let font_ref = crate::parsed_font_to_font_ref(koho());
+        let parsed = mock();
+        let font_ref = crate::parsed_font_to_font_ref(mock());
 
         assert_eq!(font_ref.num_glyphs(), parsed.num_glyphs);
         assert_eq!(font_ref.get_space_width(), parsed.get_space_width());

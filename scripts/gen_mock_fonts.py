@@ -30,7 +30,15 @@ No third-party deps on purpose (the repo cannot assume fonttools).
 import os
 import struct
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts", "test")
+_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+# The canonical copy lives in the repo-root asset tree; `layout/assets/...` is a
+# vendored copy so the *published* azul-layout crate ships the fonts inside its
+# own crate root (include_bytes! cannot reach outside it). Write both so they
+# never drift.
+OUT_DIRS = [
+    os.path.join(_ROOT, "assets", "fonts", "test"),
+    os.path.join(_ROOT, "layout", "assets", "fonts", "test"),
+]
 
 
 def _pad4(b: bytes) -> bytes:
@@ -176,7 +184,26 @@ def build_font(family, upem, advance, ascent, descent, codepoints, box):
     os2 += struct.pack(">hhhHHH", ascent // 2, int(ascent * 0.9), 0, 0, 0, 2)  # sxHeight..usMaxContext
     post = struct.pack(">IIhhIIIII", 0x00030000, 0, 0, 0, 1, 0, 0, 0, 0)
 
+    # ---- minimal OpenType Layout tables ----
+    # These carry NO shaping behaviour (empty script/feature/lookup lists); they
+    # exist only so the mock font can stand in as a positive control for code
+    # that inspects GSUB/GPOS/GDEF presence — real fonts ship them and our tests
+    # assert we extract their bytes. They do not touch glyf/hmtx/cmap, so every
+    # advance-width metric the other tests rely on is unchanged.
+    #
+    # GSUB/GPOS share the same header (v1.0 + three offsets) followed by three
+    # empty lists: ScriptList(count=0), FeatureList(count=0), LookupList(count=0).
+    _empty_layout = struct.pack(">HHHHH", 1, 0, 10, 12, 14) + struct.pack(">HHH", 0, 0, 0)
+    gsub = _empty_layout
+    gpos = _empty_layout
+    # GDEF v1.0 with all four subtable offsets NULL (no glyph-class def, attach
+    # list, ligature-caret list, or mark-attach class def).
+    gdef = struct.pack(">HHHHHH", 1, 0, 0, 0, 0, 0)
+
     tables = {
+        b"GDEF": gdef,
+        b"GPOS": gpos,
+        b"GSUB": gsub,
         b"OS/2": os2,
         b"cmap": cmap,
         b"glyf": glyf,
@@ -224,10 +251,12 @@ FONTS = [
 ]
 
 if __name__ == "__main__":
-    os.makedirs(OUT_DIR, exist_ok=True)
     for family, upem, advance, ascent, descent, cps, box in FONTS:
         data = build_font(family, upem, advance, ascent, descent, cps, box)
-        path = os.path.join(OUT_DIR, family.lower().replace(" ", "-") + ".ttf")
-        with open(path, "wb") as f:
-            f.write(data)
-        print(f"wrote {path} ({len(data)} bytes, advance={advance}/{upem} em)")
+        fname = family.lower().replace(" ", "-") + ".ttf"
+        for out_dir in OUT_DIRS:
+            os.makedirs(out_dir, exist_ok=True)
+            path = os.path.join(out_dir, fname)
+            with open(path, "wb") as f:
+                f.write(data)
+            print(f"wrote {path} ({len(data)} bytes, advance={advance}/{upem} em)")

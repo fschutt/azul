@@ -558,9 +558,9 @@ mod autotest_generated {
     // Shared font fixtures (text_layout only)
     // ---------------------------------------------------------------
 
-    /// Positive control: a real single-face TrueType font (774 glyphs, upem 1000).
+    /// Positive control: the built-in `Azul Mock Mono` font (96 glyphs, upem 1000).
     #[cfg(feature = "text_layout")]
-    const KOHO: &[u8] = include_bytes!("../assets/fonts/test/KoHo-Light.ttf");
+    const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
 
     #[cfg(feature = "text_layout")]
     fn loaded_source(bytes: Vec<u8>, index: u32) -> azul_core::resources::LoadedFontSource {
@@ -572,9 +572,9 @@ mod autotest_generated {
     }
 
     #[cfg(feature = "text_layout")]
-    fn parse_koho() -> ParsedFont {
-        ParsedFont::from_bytes(KOHO, 0, &mut Vec::new())
-            .expect("KoHo-Light.ttf must parse (positive control)")
+    fn parse_mock() -> ParsedFont {
+        ParsedFont::from_bytes(MOCK_MONO, 0, &mut Vec::new())
+            .expect("Azul Mock Mono must parse (positive control)")
     }
 
     // ---------------------------------------------------------------
@@ -593,16 +593,16 @@ mod autotest_generated {
             ("garbage", (0u8..=255).cycle().take(4096).collect()),
             ("invalid_utf8", vec![0xFF, 0xFE, 0x00]),
             ("sfnt_magic_only", vec![0x00, 0x01, 0x00, 0x00]),
-            ("header_only", KOHO[..12].to_vec()),
-            ("truncated_font", KOHO[..64].to_vec()),
-            ("half_a_font", KOHO[..KOHO.len() / 2].to_vec()),
+            ("header_only", MOCK_MONO[..12].to_vec()),
+            ("truncated_font", MOCK_MONO[..64].to_vec()),
+            ("half_a_font", MOCK_MONO[..MOCK_MONO.len() / 2].to_vec()),
             ("unicode_emoji", "\u{1F600}\u{1F600}".repeat(1_000).into_bytes()),
             ("combining_marks", "e\u{0301}".repeat(10_000).into_bytes()),
             ("nested_brackets", vec![b'['; 10_000]),
             ("boundary_numbers", b"0 -0 9223372036854775807 NaN inf -inf 1e309".to_vec()),
             ("leading_junk_then_font", {
                 let mut v = b"garbage".to_vec();
-                v.extend_from_slice(KOHO);
+                v.extend_from_slice(MOCK_MONO);
                 v
             }),
         ];
@@ -633,11 +633,11 @@ mod autotest_generated {
     #[cfg(feature = "text_layout")]
     #[test]
     fn parse_font_fn_parses_the_positive_control() {
-        let font_ref = parse_font_fn(loaded_source(KOHO.to_vec(), 0))
+        let font_ref = parse_font_fn(loaded_source(MOCK_MONO.to_vec(), 0))
             .expect("the positive control must parse");
         let parsed = font_ref_to_parsed_font(&font_ref);
 
-        assert_eq!(parsed.num_glyphs(), 774);
+        assert_eq!(parsed.num_glyphs(), 96);
         assert_eq!(parsed.num_glyphs(), parsed.maxp_table.num_glyphs);
         assert_eq!(parsed.font_metrics.units_per_em, 1000);
         assert!(parsed.font_metrics.ascent > 0.0);
@@ -648,7 +648,7 @@ mod autotest_generated {
         assert_eq!(parsed.font_type, FontType::TrueType);
         assert_eq!(parsed.original_index, 0);
         assert!(parsed.cmap_subtable.is_some());
-        assert_eq!(parsed.hash, parse_koho().hash);
+        assert_eq!(parsed.hash, parse_mock().hash);
     }
 
     /// `load_outlines` is not consulted by `parse_font_fn` (only `data` + `index`
@@ -658,12 +658,12 @@ mod autotest_generated {
     #[test]
     fn parse_font_fn_ignores_the_load_outlines_flag() {
         let with = azul_core::resources::LoadedFontSource {
-            data: azul_css::U8Vec::from_vec(KOHO.to_vec()),
+            data: azul_css::U8Vec::from_vec(MOCK_MONO.to_vec()),
             index: 0,
             load_outlines: true,
         };
         let without = azul_core::resources::LoadedFontSource {
-            data: azul_css::U8Vec::from_vec(KOHO.to_vec()),
+            data: azul_css::U8Vec::from_vec(MOCK_MONO.to_vec()),
             index: 0,
             load_outlines: false,
         };
@@ -681,9 +681,9 @@ mod autotest_generated {
     #[cfg(feature = "text_layout")]
     #[test]
     fn parse_font_fn_with_an_out_of_range_index_is_deterministic() {
-        let baseline = parse_koho();
+        let baseline = parse_mock();
         for index in [1u32, 2, 0x7FFF_FFFF, u32::MAX - 1, u32::MAX] {
-            if let Some(font_ref) = parse_font_fn(loaded_source(KOHO.to_vec(), index)) {
+            if let Some(font_ref) = parse_font_fn(loaded_source(MOCK_MONO.to_vec(), index)) {
                 let parsed = font_ref_to_parsed_font(&font_ref);
                 assert_eq!(
                     parsed.num_glyphs(),
@@ -705,7 +705,7 @@ mod autotest_generated {
             assert!(parse_font_fn(loaded_source(vec![0xFF; 3], u32::MAX)).is_none());
         }
         // …and a good parse still works afterwards.
-        assert!(parse_font_fn(loaded_source(KOHO.to_vec(), 0)).is_some());
+        assert!(parse_font_fn(loaded_source(MOCK_MONO.to_vec(), 0)).is_some());
     }
 
     /// Every successful parse mints a *fresh* identity, even for byte-identical
@@ -714,8 +714,8 @@ mod autotest_generated {
     #[cfg(feature = "text_layout")]
     #[test]
     fn parse_font_fn_mints_a_fresh_identity_per_call() {
-        let a = parse_font_fn(loaded_source(KOHO.to_vec(), 0)).expect("parses");
-        let b = parse_font_fn(loaded_source(KOHO.to_vec(), 0)).expect("parses");
+        let a = parse_font_fn(loaded_source(MOCK_MONO.to_vec(), 0)).expect("parses");
+        let b = parse_font_fn(loaded_source(MOCK_MONO.to_vec(), 0)).expect("parses");
         assert_ne!(a, b, "two parses of the same bytes are two distinct handles");
         assert_ne!(a.id, b.id);
         assert!(b > a, "ids are monotonically assigned");
@@ -735,7 +735,7 @@ mod autotest_generated {
     #[cfg(feature = "text_layout")]
     #[test]
     fn parsed_font_font_ref_round_trip_preserves_the_face() {
-        let original = parse_koho();
+        let original = parse_mock();
         let expected_hash = original.hash;
         let expected_glyphs = original.num_glyphs();
         let expected_metrics = original.pdf_font_metrics;
@@ -763,7 +763,7 @@ mod autotest_generated {
     fn parsed_font_to_font_ref_handle_invariants() {
         use core::sync::atomic::Ordering as AtomicOrdering;
 
-        let font_ref = parsed_font_to_font_ref(parse_koho());
+        let font_ref = parsed_font_to_font_ref(parse_mock());
         assert!(!font_ref.parsed.is_null());
         assert!(!font_ref.copies.is_null());
         assert!(font_ref.run_destructor);
@@ -779,7 +779,7 @@ mod autotest_generated {
     fn font_ref_to_parsed_font_is_a_stable_reborrow() {
         use core::ffi::c_void;
 
-        let font_ref = parsed_font_to_font_ref(parse_koho());
+        let font_ref = parsed_font_to_font_ref(parse_mock());
         let first: *const ParsedFont = font_ref_to_parsed_font(&font_ref);
         let second: *const ParsedFont = font_ref_to_parsed_font(&font_ref);
         assert!(core::ptr::eq(first, second), "reborrow must be stable");
@@ -794,7 +794,7 @@ mod autotest_generated {
     fn cloning_a_font_ref_shares_the_face_and_the_drop_is_refcounted() {
         use core::sync::atomic::Ordering as AtomicOrdering;
 
-        let original = parsed_font_to_font_ref(parse_koho());
+        let original = parsed_font_to_font_ref(parse_mock());
         let expected_hash = font_ref_to_parsed_font(&original).hash;
 
         let clone = original.clone();
@@ -810,7 +810,7 @@ mod autotest_generated {
             expected_hash,
             "the face must survive its clone being dropped"
         );
-        assert_eq!(font_ref_to_parsed_font(&original).num_glyphs(), 774);
+        assert_eq!(font_ref_to_parsed_font(&original).num_glyphs(), 96);
     }
 
     /// Hammer the refcount: 1_000 clone/drop cycles (plus a batch held live at once)
@@ -821,7 +821,7 @@ mod autotest_generated {
     fn font_ref_clone_drop_cycles_do_not_double_free() {
         use core::sync::atomic::Ordering as AtomicOrdering;
 
-        let original = parsed_font_to_font_ref(parse_koho());
+        let original = parsed_font_to_font_ref(parse_mock());
         let expected_hash = font_ref_to_parsed_font(&original).hash;
 
         for _ in 0..1_000 {
@@ -846,8 +846,8 @@ mod autotest_generated {
     fn font_ref_identity_is_per_handle_not_per_content() {
         use std::collections::{BTreeSet, HashSet};
 
-        let a = parsed_font_to_font_ref(parse_koho());
-        let b = parsed_font_to_font_ref(parse_koho());
+        let a = parsed_font_to_font_ref(parse_mock());
+        let b = parsed_font_to_font_ref(parse_mock());
         assert_ne!(a, b);
         assert!(a < b, "ids are monotonically assigned, so a precedes b");
         assert_eq!(
@@ -871,9 +871,9 @@ mod autotest_generated {
     #[cfg(feature = "text_layout")]
     #[test]
     fn many_font_refs_do_not_alias_each_other() {
-        let refs: Vec<_> = (0..16).map(|_| parsed_font_to_font_ref(parse_koho())).collect();
+        let refs: Vec<_> = (0..16).map(|_| parsed_font_to_font_ref(parse_mock())).collect();
         for (i, a) in refs.iter().enumerate() {
-            assert_eq!(font_ref_to_parsed_font(a).num_glyphs(), 774);
+            assert_eq!(font_ref_to_parsed_font(a).num_glyphs(), 96);
             for b in refs.iter().skip(i + 1) {
                 assert!(
                     !core::ptr::eq(a.parsed, b.parsed),

@@ -2577,19 +2577,19 @@ pub mod parsed {
 
         use super::*;
 
-        /// Positive control: a real, single-face TrueType font.
-        /// 14 tables, `glyf` outlines (no CFF), no `vhea`/`vmtx`, upem 1000,
-        /// 774 glyphs, GSUB + GPOS present.
-        const KOHO: &[u8] = include_bytes!("../assets/fonts/test/KoHo-Light.ttf");
+        /// Positive control: the built-in `Azul Mock Mono` TrueType font.
+        /// 13 tables, `glyf` outlines (no CFF), no `vhea`/`vmtx`, upem 1000,
+        /// 96 glyphs, GSUB + GPOS + GDEF present (empty lists, presence-only).
+        const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
 
-        fn parse_koho() -> ParsedFont {
+        fn parse_mock() -> ParsedFont {
             let mut warnings = Vec::new();
-            ParsedFont::from_bytes(KOHO, 0, &mut warnings)
-                .expect("KoHo-Light.ttf must parse (positive control)")
+            ParsedFont::from_bytes(MOCK_MONO, 0, &mut warnings)
+                .expect("Azul Mock Mono must parse (positive control)")
         }
 
-        fn koho_shared() -> ParsedFont {
-            let bytes = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(KOHO.to_vec())));
+        fn mock_shared() -> ParsedFont {
+            let bytes = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(MOCK_MONO.to_vec())));
             let mut warnings = Vec::new();
             ParsedFont::from_bytes_shared(bytes, 0, &mut warnings)
                 .expect("from_bytes_shared must parse the positive control")
@@ -2766,12 +2766,12 @@ pub mod parsed {
 
         #[test]
         fn manual_table_provider_reads_a_real_font() {
-            let p = ManualTableProvider::new(KOHO, 0).expect("a real TTF must produce a provider");
+            let p = ManualTableProvider::new(MOCK_MONO, 0).expect("a real TTF must produce a provider");
             assert_eq!(p.sfnt_version(), 0x0001_0000);
-            assert_eq!(p.num, 14);
+            assert_eq!(p.num, 13);
             assert!(p.has_table(tag::HEAD));
             assert!(p.has_table(tag::GLYF) && p.has_table(tag::LOCA));
-            assert!(!p.has_table(tag::CFF)); // KoHo is TrueType, not OpenType-PostScript
+            assert!(!p.has_table(tag::CFF)); // Azul Mock Mono is TrueType, not OpenType-PostScript
 
             let head = p.table_data(tag::HEAD).unwrap().expect("head must be present");
             // head.magicNumber sits at offset 12 and is fixed by the spec
@@ -2779,7 +2779,7 @@ pub mod parsed {
 
             let tags = p.table_tags().unwrap();
             assert_eq!(tags[0], 0x0000_FADE); // diagnostic sentinel
-            assert_eq!(tags.len(), 15); // sentinel + 14 records
+            assert_eq!(tags.len(), 14); // sentinel + 13 records
             assert!(tags.contains(&tag::GLYF));
         }
 
@@ -3086,9 +3086,9 @@ pub mod parsed {
                 ("whitespace_only", b"   \t\n".to_vec()),
                 ("garbage", (0u8..=255).cycle().take(4096).collect()),
                 ("invalid_utf8", vec![0xFF, 0xFE, 0x00]),
-                ("header_only", KOHO[..12].to_vec()),
-                ("truncated_font", KOHO[..64].to_vec()),
-                ("half_a_font", KOHO[..KOHO.len() / 2].to_vec()),
+                ("header_only", MOCK_MONO[..12].to_vec()),
+                ("truncated_font", MOCK_MONO[..64].to_vec()),
+                ("half_a_font", MOCK_MONO[..MOCK_MONO.len() / 2].to_vec()),
                 ("one_megabyte_of_nuls", vec![0u8; 1_000_000]),
                 ("ttcf_junk", {
                     let mut v = b"ttcf".to_vec();
@@ -3122,8 +3122,8 @@ pub mod parsed {
 
         #[test]
         fn from_bytes_parses_the_positive_control() {
-            let font = parse_koho();
-            assert_eq!(font.num_glyphs(), 774);
+            let font = parse_mock();
+            assert_eq!(font.num_glyphs(), 96);
             assert_eq!(font.num_glyphs(), font.maxp_table.num_glyphs);
             assert_eq!(font.font_metrics.units_per_em, 1000);
             assert!(font.font_metrics.ascent > 0.0);
@@ -3134,18 +3134,18 @@ pub mod parsed {
             assert!(font.cmap_subtable.is_some());
             assert!(font.gsub_bytes.is_some() && font.gpos_bytes.is_some());
             assert!(font.hmtx_range.1 > 0, "hmtx must be located in the source");
-            assert_eq!(font.vmtx_range, (0, 0), "KoHo has no vertical metrics");
+            assert_eq!(font.vmtx_range, (0, 0), "Azul Mock Mono has no vertical metrics");
             assert!(!font.is_variable_font);
         }
 
         #[test]
         fn from_bytes_with_an_out_of_range_font_index_is_deterministic() {
-            let baseline = parse_koho();
+            let baseline = parse_mock();
             let mut warnings = Vec::new();
-            // KoHo is a single face, not a .ttc: the manual provider ignores the index
+            // Azul Mock Mono is a single face, not a .ttc: the manual provider ignores the index
             // rather than rejecting it. What must NOT happen is a panic or a
             // `12 + font_index * 4` overflow.
-            if let Some(font) = ParsedFont::from_bytes(KOHO, usize::MAX, &mut warnings) {
+            if let Some(font) = ParsedFont::from_bytes(MOCK_MONO, usize::MAX, &mut warnings) {
                 assert_eq!(font.num_glyphs(), baseline.num_glyphs());
                 assert_eq!(font.original_index, usize::MAX);
                 assert_ne!(font.hash, baseline.hash, "font_index feeds the identity hash");
@@ -3155,11 +3155,11 @@ pub mod parsed {
         #[test]
         fn from_bytes_internal_deferred_flag_skips_the_eager_loca_glyf_load() {
             let mut warnings = Vec::new();
-            let eager = ParsedFont::from_bytes_internal(KOHO, 0, &mut warnings, false)
+            let eager = ParsedFont::from_bytes_internal(MOCK_MONO, 0, &mut warnings, false)
                 .expect("eager parse");
             assert!(matches!(eager.loca_glyf, LocaGlyfState::Loaded(Some(_))));
 
-            let deferred = ParsedFont::from_bytes_internal(KOHO, 0, &mut warnings, true)
+            let deferred = ParsedFont::from_bytes_internal(MOCK_MONO, 0, &mut warnings, true)
                 .expect("deferred parse");
             // deferring leaves the slot empty for from_bytes_shared to overwrite
             assert!(matches!(deferred.loca_glyf, LocaGlyfState::Loaded(None)));
@@ -3173,7 +3173,7 @@ pub mod parsed {
 
         #[test]
         fn lookup_glyph_index_handles_codepoint_extremes() {
-            let font = parse_koho();
+            let font = parse_mock();
             assert!(font.lookup_glyph_index('A' as u32).is_some());
 
             // 0, the last valid scalar value, and values beyond the Unicode range must
@@ -3194,8 +3194,8 @@ pub mod parsed {
 
         #[test]
         fn get_horizontal_advance_saturates_out_of_range_gids() {
-            let font = parse_koho();
-            let gid_a = font.lookup_glyph_index('A' as u32).expect("'A' is in KoHo");
+            let font = parse_mock();
+            let gid_a = font.lookup_glyph_index('A' as u32).expect("'A' is in Azul Mock Mono");
             assert!(font.get_horizontal_advance(gid_a) > 0);
 
             // out-of-range gid: allsorts short-circuits to 0 rather than erroring
@@ -3206,7 +3206,7 @@ pub mod parsed {
 
         #[test]
         fn get_glyph_width_internal_matches_hmtx_and_never_panics() {
-            let font = parse_koho();
+            let font = parse_mock();
             let gid_a = font.lookup_glyph_index('A' as u32).unwrap();
             assert_eq!(
                 font.get_glyph_width_internal(gid_a),
@@ -3219,10 +3219,10 @@ pub mod parsed {
 
         #[test]
         fn space_width_is_cached_at_parse_time() {
-            let font = parse_koho();
+            let font = parse_mock();
             let space_gid = font
                 .lookup_glyph_index(' ' as u32)
-                .expect("KoHo has a space glyph");
+                .expect("Azul Mock Mono has a space glyph");
             let live = usize::from(font.get_horizontal_advance(space_gid));
             assert!(live > 0, "the live hmtx advance for space must be non-zero");
 
@@ -3241,7 +3241,7 @@ pub mod parsed {
 
         #[test]
         fn get_hinted_advance_px_rejects_degenerate_inputs() {
-            let font = parse_koho();
+            let font = parse_mock();
             let gid = font.lookup_glyph_index('A' as u32).unwrap();
 
             // ppem 0 would divide by zero when computing the scale
@@ -3270,7 +3270,7 @@ pub mod parsed {
 
         #[test]
         fn get_or_decode_glyph_bounds_and_cache_identity() {
-            let font = parse_koho();
+            let font = parse_mock();
             assert!(font.num_glyphs() > 1);
 
             // gid >= num_glyphs is refused before any decode is attempted
@@ -3288,7 +3288,7 @@ pub mod parsed {
 
         #[test]
         fn get_or_decode_glyph_stamps_the_lru_clock() {
-            let font = parse_koho();
+            let font = parse_mock();
             assert_eq!(font.last_used_nanos(), 0, "an untouched face reports 0");
             let _ = font.get_or_decode_glyph(0);
             let t = font.last_used_nanos();
@@ -3299,7 +3299,7 @@ pub mod parsed {
 
         #[test]
         fn prime_glyph_cache_decodes_every_glyph_and_is_idempotent() {
-            let mut font = parse_koho();
+            let mut font = parse_mock();
             // the lazy cache starts empty (the space stub is skipped while the source
             // bytes are still unattached)
             assert!(font.glyph_cache_snapshot().is_empty());
@@ -3325,7 +3325,7 @@ pub mod parsed {
 
         #[test]
         fn decode_glyph_inner_seeds_the_bbox_from_the_advance() {
-            let font = parse_koho();
+            let font = parse_mock();
             let gid_a = font.lookup_glyph_index('A' as u32).unwrap();
             let g = font.decode_glyph_inner(gid_a);
             assert_eq!(g.horz_advance, font.get_horizontal_advance(gid_a));
@@ -3346,7 +3346,7 @@ pub mod parsed {
 
         #[test]
         fn get_glyph_bbox_size_bounds() {
-            let font = parse_koho();
+            let font = parse_mock();
             let gid_a = font.lookup_glyph_index('A' as u32).unwrap();
             let (w, h) = font.get_glyph_bbox_size(gid_a).expect("'A' has a bbox");
             assert!(w > 0 && h > 0);
@@ -3358,8 +3358,8 @@ pub mod parsed {
 
         #[test]
         fn get_vertical_metrics_without_vmtx_is_none() {
-            let font = parse_koho();
-            // KoHo has neither vhea nor vmtx
+            let font = parse_mock();
+            // Azul Mock Mono has neither vhea nor vmtx
             assert!(font.get_vertical_metrics(0).is_none());
             assert!(font.get_vertical_metrics(u16::MAX).is_none());
 
@@ -3376,7 +3376,7 @@ pub mod parsed {
 
         #[test]
         fn from_bytes_shared_defers_loca_glyf_and_can_evict() {
-            let font = koho_shared();
+            let font = mock_shared();
             assert!(matches!(font.loca_glyf, LocaGlyfState::Deferred { .. }));
             assert!(font.source_bytes_for_subset().is_some());
 
@@ -3396,7 +3396,7 @@ pub mod parsed {
 
         #[test]
         fn eager_faces_are_not_evictable() {
-            let font = parse_koho();
+            let font = parse_mock();
             assert!(matches!(font.loca_glyf, LocaGlyfState::Loaded(Some(_))));
             let _ = font.get_or_decode_glyph(0);
             // Loaded faces have no retained source bytes to re-parse from
@@ -3406,8 +3406,8 @@ pub mod parsed {
 
         #[test]
         fn eager_and_deferred_paths_decode_identical_glyphs() {
-            let eager = parse_koho();
-            let lazy = koho_shared();
+            let eager = parse_mock();
+            let lazy = mock_shared();
             assert_eq!(eager.num_glyphs(), lazy.num_glyphs());
             assert_eq!(eager.hash, lazy.hash); // same bytes + index -> same identity
             assert_eq!(eager, lazy); // PartialEq is hash-based
@@ -3426,15 +3426,15 @@ pub mod parsed {
 
         #[test]
         fn with_source_bytes_shares_the_arc() {
-            let font = parse_koho();
+            let font = parse_mock();
             // from_bytes retains an owned copy, so subsetting works without an
             // explicit with_source_bytes call
             let auto = font
                 .source_bytes_for_subset()
                 .expect("from_bytes retains the source bytes");
-            assert_eq!(auto.as_slice(), KOHO);
+            assert_eq!(auto.as_slice(), MOCK_MONO);
 
-            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(KOHO.to_vec())));
+            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(MOCK_MONO.to_vec())));
             let font = font.with_source_bytes(Arc::clone(&arc));
             let got = font.source_bytes_for_subset().unwrap();
             assert!(Arc::ptr_eq(&got, &arc), "attached bytes are shared, not copied");
@@ -3442,7 +3442,7 @@ pub mod parsed {
 
         #[test]
         fn clone_shares_the_glyph_cache_and_drops_hinting() {
-            let font = parse_koho();
+            let font = parse_mock();
             let g = font.get_or_decode_glyph(0).unwrap();
             let clone = font.clone();
             assert_eq!(clone, font);
@@ -3458,9 +3458,9 @@ pub mod parsed {
 
         #[test]
         fn gsub_and_gpos_are_memoised() {
-            let font = parse_koho();
-            assert!(font.gsub_bytes.is_some(), "KoHo ships a GSUB table");
-            assert!(font.gpos_bytes.is_some(), "KoHo ships a GPOS table");
+            let font = parse_mock();
+            assert!(font.gsub_bytes.is_some(), "Azul Mock Mono ships a GSUB table");
+            assert!(font.gpos_bytes.is_some(), "Azul Mock Mono ships a GPOS table");
 
             match (font.gsub(), font.gsub()) {
                 (Some(a), Some(b)) => assert!(Arc::ptr_eq(a, b), "gsub() must be memoised"),
@@ -3480,7 +3480,7 @@ pub mod parsed {
 
         #[test]
         fn to_bytes_round_trips_through_from_bytes() {
-            let font = parse_koho();
+            let font = parse_mock();
             let rebuilt = font
                 .to_bytes(None)
                 .expect("from_bytes retains source bytes, so to_bytes must succeed");
@@ -3509,8 +3509,8 @@ pub mod parsed {
 
         #[test]
         fn to_bytes_with_an_absent_tag_errors_instead_of_panicking() {
-            let font = parse_koho();
-            // KoHo has no CFF table: asking for it must surface an Err string
+            let font = parse_mock();
+            // Azul Mock Mono has no CFF table: asking for it must surface an Err string
             assert!(font.to_bytes(Some(&[tag::CFF])).is_err());
             // an empty tag list still reads head+maxp internally: it must return, not panic
             drop(font.to_bytes(Some(&[])));
@@ -3520,7 +3520,7 @@ pub mod parsed {
 
         #[test]
         fn subset_maps_glyph_ids_and_produces_a_parseable_font() {
-            let font = parse_koho();
+            let font = parse_mock();
             let gid_a = font.lookup_glyph_index('A' as u32).unwrap();
             let gid_b = font.lookup_glyph_index('B' as u32).unwrap();
             let (bytes, mapping) = font
@@ -3547,7 +3547,7 @@ pub mod parsed {
 
         #[test]
         fn subset_edge_inputs_do_not_panic() {
-            let font = parse_koho();
+            let font = parse_mock();
             // an empty glyph list may be accepted or rejected; it must not panic
             if let Ok((_, mapping)) = font.subset(&[], CmapTarget::Unrestricted) {
                 assert!(mapping.is_empty());
@@ -3678,7 +3678,7 @@ pub mod parsed {
 
         #[test]
         fn real_font_metrics_have_a_non_negative_descent() {
-            let font = parse_koho();
+            let font = parse_mock();
             let m = font.get_font_metrics();
             assert!(m.descent >= 0.0, "get_font_metrics flips the descent sign");
             assert_eq!(m.descent, font.font_metrics.descent.abs());
