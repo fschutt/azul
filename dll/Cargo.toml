@@ -166,7 +166,7 @@ printpdf = { version = "0.11.2", default-features = false, features = ["html", "
 tfd = { version = "0.1.0", default-features = false, optional = true }
 # Gamepad input (P6 feature 6) — desktop backend (Win/Linux/macOS). Mobile
 # uses GCController / InputDevice instead, so gilrs is desktop-only.
-gilrs = { version = "0.11", optional = true }
+gilrs = { package = "gilrs-azul", version = "0.11", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
@@ -192,7 +192,7 @@ libloading = "0.8"
 # use the raw Vulkan BytesDecoder path (decode -> NV12 -> CPU RGBA convert), which
 # also gives the "headless VK decode, copy back to CPU" CPU-mode fallback.
 [target.'cfg(all(target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))'.dependencies]
-gpu-video = { version = "0.4.0", default-features = false, optional = true }
+gpu-video = { package = "gpu-video-azul", version = "0.4.0", default-features = false, optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
 objc = { version = "0.2", optional = true }

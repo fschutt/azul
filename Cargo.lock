@@ -678,10 +678,10 @@ dependencies = [
  "geo-types",
  "geojson",
  "getrandom 0.2.17",
- "gilrs",
+ "gilrs-azul",
  "gl-context-loader",
  "goblin",
- "gpu-video",
+ "gpu-video-azul",
  "iced-x86",
  "jni 0.21.1",
  "libc",
@@ -3079,28 +3079,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "gilrs"
+name = "gilrs-azul"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "902fb00d3f6398e635be22e5c837b303c501835cca7ac11a47bba138f7aafdd8"
+checksum = "bd9e034983882b288d6fbea3c8b0f10fc409acc4a2944841a469c6bb203e18fc"
 dependencies = [
  "fnv",
- "gilrs-core",
+ "gilrs-core-azul",
  "log",
  "uuid",
  "vec_map",
 ]
 
 [[package]]
-name = "gilrs-core"
+name = "gilrs-core-azul"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc7f0ce6237abcc0523f2a5502b1e3fe5802daaae47ac14e166fe49551301ea9"
+checksum = "7b400c60c9a81e38ce41bd8d0638f3f15dc87c6f2a42ee9a923b1a864261e1b6"
 dependencies = [
  "inotify",
  "js-sys",
  "libc",
- "libudev-sys",
+ "libudev-sys-azul",
  "log",
  "nix",
  "objc2-core-foundation",
@@ -3174,9 +3174,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "gpu-video"
+name = "gpu-video-azul"
 version = "0.4.0"
-source = "git+https://github.com/fschutt/smelter?branch=fix%2Fvulkan-compute-queue-fallback#d4930f57d616fd16818811c34f72e212171d1191"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f13e77f27834256364c1a8db514ae0056f6eca8c8ff9df2ad1c11ecf76fe8165"
 dependencies = [
  "ash",
  "bytes",
@@ -4272,9 +4273,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "libudev-sys"
+name = "libudev-sys-azul"
 version = "0.1.4"
-source = "git+https://github.com/fschutt/libudev-azul?tag=0.1.4#46d08336a248760228ce94ff3f2517824a7dbd8e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ca945089fc83befd75f1f4fe3d9a68a504c796858b96389e5c4b3831ffa9d09"
 dependencies = [
  "libc",
  "libloading",
@@ -7945,18 +7947,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.8"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d46a5a140e6f7afeccd8eae97eff335163939eac8b929834875168b29b3d267"
+checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.8"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf85cb06032201fa7c6f829d7db5a7e5aa45bcc0655327713065f6f0576731bf"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]

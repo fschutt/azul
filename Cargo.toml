@@ -35,25 +35,15 @@ glean = "60.5.0"
 gleam = "0.15.1"
 
 [patch.crates-io]
-# Fork of libudev-sys that dlopen's libudev at runtime (libloading) instead of
-# link-binding it at build time, so gilrs (-> gilrs-core -> libudev-sys)
-# cross-compiles to hosts without libudev (e.g. `--target x86_64-unknown-linux-gnu`
-# from macOS). gilrs itself is unmodified. The git repo's manifest keeps the
-# upstream name `libudev-sys` so this [patch] substitutes the transitive dep
-# (cargo matches a patch by crate name); the same tree is published to crates.io
-# as the `libudev-azul` package (https://crates.io/crates/libudev-azul) for
-# discoverability. tag 0.1.4 pins the exact tree.
-libudev-sys = { git = "https://github.com/fschutt/libudev-azul", tag = "0.1.4" }
-# gpu-video (dll declares 0.4.0): patch to the PR branch that adds the NVIDIA
-# Maxwell / GTX-9xx async-compute-queue fallback — use any compute-capable queue
-# when the device exposes no dedicated one, and give it its own VkQueue rather than
-# sharing wgpu's. PR software-mansion/smelter#2109
-# (fschutt/smelter, branch fix/vulkan-compute-queue-fallback). `cargo publish`
-# strips [patch], so a release resolves crates.io gpu-video 0.4.0 (which merely
-# rejects those older cards on the OPTIONAL Vulkan-Video decode path); swap this for
-# the published version once the PR lands. (Replaces the former vendored copy under
-# third_party/gpu-video, now deleted.)
-gpu-video = { git = "https://github.com/fschutt/smelter", branch = "fix/vulkan-compute-queue-fallback" }
+# NOTE: the former `libudev-sys` and `gpu-video` git patches are GONE — they are
+# now real published crates that dll/ depends on directly by a `package =` rename
+# (cargo `[patch]` cannot rename a crate; a git patch also trips the "no [patch]
+# on published deps" release gate). See dll/Cargo.toml:
+#   * gilrs        -> package "gilrs-azul"     (-> gilrs-core-azul -> libudev-sys-azul),
+#     the dlopen-libudev chain so gilrs cross-compiles to hosts without libudev.
+#   * gpu-video    -> package "gpu-video-azul", the smelter PR #2109 fork (NVIDIA
+#     Maxwell async-compute-queue fallback), published standalone.
+# Swap both back to upstream crates.io once smelter#2109 ships in a release.
 #
 # Single azul-layout across the tree: point printpdf's azul-* deps (azul-css
 # 0.0.8 / azul-core 0.0.8 / azul-layout 0.0.9) at OUR local workspace crates so
