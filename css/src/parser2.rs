@@ -1727,6 +1727,31 @@ fn new_from_str_inner<'a>(
     (stylesheet, warnings)
 }
 
+/// Resolves a parsed `var(--name)` reference (a `CssDeclaration::Dynamic`) against the
+/// document-wide custom-property map, producing a concrete `Static` declaration.
+///
+/// If the referenced custom property is defined, its raw value is parsed as the referenced
+/// property's type (taken from the `var()`'s parsed fallback). Otherwise — undefined `var()`
+/// or an unparseable value — the fallback (`default_value`) is used, matching the CSS
+/// behaviour of an invalid/guaranteed-invalid substitution falling back to the declared
+/// default. Non-`Dynamic` declarations pass through unchanged.
+fn resolve_var_reference(
+    decl: CssDeclaration,
+    custom_props: &BTreeMap<String, String>,
+) -> CssDeclaration {
+    let CssDeclaration::Dynamic(dyn_prop) = decl else {
+        return decl;
+    };
+    // `dynamic_id` is stored without the leading `--`; trim defensively either way.
+    let name = dyn_prop.dynamic_id.as_str().trim_start_matches("--");
+    if let Some(raw) = custom_props.get(name) {
+        if let Ok(parsed) = parse_css_property(dyn_prop.default_value.get_type(), raw) {
+            return CssDeclaration::Static(parsed);
+        }
+    }
+    CssDeclaration::Static(dyn_prop.default_value)
+}
+
 fn css_blocks_to_stylesheet<'a>(
     css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
     css_string: &'a str,
@@ -1735,17 +1760,41 @@ fn css_blocks_to_stylesheet<'a>(
     let mut warnings = Vec::new();
     let mut parsed_css_blocks = Vec::new();
 
+    // CSS custom properties (`--name: value`) + `var()` references. The parser already turns
+    // `prop: var(--name, fallback)` into a `CssDeclaration::Dynamic`, but nothing consumed it
+    // and `--name` definitions were dropped as unknown keys. Resolve them here at parse time:
+    // collect every `--name` definition document-wide, then substitute each var() reference
+    // with the referenced value (parsed as the target property's type) or its fallback. This
+    // is a pragmatic subset of the full cascade — it covers the common `:root { --x: ... }`
+    // pattern; element-scoped custom properties (redefined per subtree) are not modelled, which
+    // would require cascade-level storage. Keys are stored without the leading `--`.
+    let mut custom_props: BTreeMap<String, String> = BTreeMap::new();
+    for block in &css_blocks {
+        for (key, (value, _)) in &block.declarations {
+            if let Some(name) = key.strip_prefix("--") {
+                custom_props.insert(name.to_string(), value.trim().to_string());
+            }
+        }
+    }
+
     for unparsed_css_block in css_blocks {
         let mut declarations = Vec::<CssDeclaration>::new();
 
         for (unparsed_css_key, (unparsed_css_value, location)) in &unparsed_css_block.declarations {
+            // Custom-property DEFINITIONS were collected above; they emit no declaration
+            // themselves (and must not warn as unknown keys).
+            if unparsed_css_key.starts_with("--") {
+                continue;
+            }
             match parse_declaration_resilient(
                 unparsed_css_key,
                 unparsed_css_value,
                 *location,
                 &css_key_map,
             ) {
-                Ok(decls) => declarations.extend(decls),
+                Ok(decls) => {
+                    declarations.extend(decls.into_iter().map(|d| resolve_var_reference(d, &custom_props)));
+                }
                 Err(e) => {
                     warnings.push(CssParseWarnMsg {
                         warning: CssParseWarnMsgInner::SkippedDeclaration {
@@ -3588,6 +3637,33 @@ mod autotest_generated {
         // The unknown key is skipped but the valid declaration survives.
         assert_eq!(css.rules.as_slice()[0].declarations.len(), 1);
         assert!(!warnings.is_empty(), "the unknown key should have warned");
+    }
+
+    #[test]
+    fn var_reference_resolves_against_a_root_custom_property() {
+        let (css, _) = new_from_str(":root{--boxw:150px} .v{width:var(--boxw)}");
+        // The `--boxw` DEFINITION emits no declaration; the `var(--boxw)` REFERENCE is
+        // resolved to a concrete Static value, so exactly one declaration survives overall.
+        let decls: Vec<_> = css
+            .rules
+            .as_slice()
+            .iter()
+            .flat_map(|r| r.declarations.as_slice().iter())
+            .collect();
+        assert_eq!(decls.len(), 1, "custom-prop def emits nothing, var() resolves: {decls:?}");
+        // The resolved declaration is identical to a direct `width:150px`.
+        let (direct, _) = new_from_str(".v{width:150px}");
+        assert_eq!(decls[0], &direct.rules.as_slice()[0].declarations.as_slice()[0]);
+    }
+
+    #[test]
+    fn undefined_var_reference_falls_back_to_its_default() {
+        let (css, _) = new_from_str(".v{width:var(--nope, 42px)}");
+        let (direct, _) = new_from_str(".v{width:42px}");
+        assert_eq!(
+            css.rules.as_slice()[0].declarations.as_slice()[0],
+            direct.rules.as_slice()[0].declarations.as_slice()[0],
+        );
     }
 
     /// `new_from_str` documents "Never panics" -- hold it to that.
