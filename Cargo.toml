@@ -52,12 +52,10 @@ gleam = "0.15.1"
 azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
-# printpdf: crates.io 0.11.2 requires azul-layout ^0.0.10, which the workspace's
-# 0.0.11 cannot substitute (0.0.x versions are semver-incompatible), so the
-# registry crate would drag in a SECOND azul-layout. Patch to the branch that
-# bumps the dep to ^0.0.11; swap back to a plain crates.io version once
-# azul-layout 0.0.11 and a matching printpdf release are published.
-printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-layout-0.0.11" }
+# printpdf now comes from crates.io (0.11.3 — requires azul-css/core 0.0.10 +
+# azul-layout 0.0.11, all published). The azul-* path patches above redirect
+# printpdf's azul deps to this one workspace copy, so there is a single
+# azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.11.3.)
 # rust-fontconfig: use crates.io 4.4.4 (the vendored copy was a labelled REVERT;
 # its only functional delta was a web_lift-only hashbrown workaround). Deps
 # bumped to 4.4.4 in core/ + layout/.
