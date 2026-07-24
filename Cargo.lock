@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "azul-core"
-version = "0.0.10"
+version = "0.0.12"
 dependencies = [
  "azul-css",
  "gl-context-loader",
@@ -641,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "azul-css"
-version = "0.0.10"
+version = "0.0.12"
 dependencies = [
  "azul-simplecss",
  "libm",
@@ -801,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "azul-layout"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "accesskit",
  "agg-rust-azul",
@@ -5906,9 +5906,9 @@ dependencies = [
 
 [[package]]
 name = "printpdf"
-version = "0.11.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a379adaffd3cd62de1bbbee11ae8f15a7fffcd595a6c58964fcc2e1f98ce9979"
+checksum = "786c149ceafdafb45fedb7538a796bc8f6caebe5bf455160d82fddd6f40380e7"
 dependencies = [
  "allsorts-azul",
  "azul-core",
@@ -6402,9 +6402,9 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "4.4.6"
+version = "4.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46a39dfc5fbaf543edf23ebb3c2abd421d4c84be233510e22fb2c74dc25a7bef"
+checksum = "a83df0c47410e28febe95e19096298103a4188aa29d2083219e207d24b357ec3"
 dependencies = [
  "allsorts-azul",
  "bincode 1.3.3",
