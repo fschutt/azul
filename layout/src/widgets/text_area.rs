@@ -792,3 +792,2027 @@ impl From<TextArea> for Dom {
         t.dom()
     }
 }
+
+#[cfg(test)]
+mod autotest_generated {
+    use std::{
+        collections::{BTreeMap, HashMap},
+        sync::{Arc, Mutex},
+    };
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, FocusEventFilter, NodeId, NodeType},
+        geom::{LogicalRect, OptionLogicalPosition},
+        gl::OptionGlContextPtr,
+        hit_test::ScrollPosition,
+        refany::OptionRefAny,
+        resources::RendererResources,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::{MonitorVec, RawWindowHandle},
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    #[cfg(feature = "icu")]
+    use crate::icu::IcuLocalizerHandle;
+    use crate::{
+        callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        managers::text_input::PendingTextEdit,
+        solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        window::{DomLayoutResult, LayoutWindow},
+        window_state::FullWindowState,
+    };
+
+    // ==================================================================
+    // Sample data
+    // ==================================================================
+
+    /// Strings the buffer must round-trip verbatim through `set_text` ->
+    /// `get_text`. Every entry is a valid Rust `str`, so none of them can be
+    /// lost to the `char::from_u32` filter in `get_text` — anything that does
+    /// not come back is real damage, not an encoding limit.
+    const ROUND_TRIP: [&str; 22] = [
+        "",
+        " ",
+        "a",
+        "hello",
+        "\n",
+        "\n\n\n",
+        "a\nb",
+        "a\r\nb",           // CRLF: *both* units have to survive
+        "trailing\n",
+        "\nleading",
+        "\t\ttabbed",
+        "\0",               // NUL is a perfectly good `char`
+        "line1\nline2\nline3",
+        "ünïcödé",
+        "e\u{301}",         // combining acute: 2 chars, 1 grapheme
+        "😀",               // astral plane: 1 char, 4 bytes
+        "👩‍👩‍👧‍👦",     // ZWJ family: 7 chars, 25 bytes
+        "🇩🇪",              // regional-indicator pair
+        "مرحبا",            // RTL
+        "日本語",
+        "a\u{200b}b",       // zero-width space wedged between two letters
+        "\u{10FFFF}",       // the largest scalar value there is
+    ];
+
+    /// `u32` values that are *not* Unicode scalar values. The buffer is a
+    /// `U32Vec`, not a `String`, so it can hold them — `get_text` has to drop
+    /// them rather than panic.
+    const NON_SCALAR: [u32; 6] = [
+        0xD800,      // lone high surrogate
+        0xDBFF,
+        0xDC00,      // lone low surrogate
+        0xDFFF,
+        0x0011_0000, // one past the last scalar value
+        u32::MAX,
+    ];
+
+    // ==================================================================
+    // Fixtures
+    // ==================================================================
+
+    /// A state buffer built from a `&str` exactly the way `set_text` builds it.
+    fn buffer(text: &str) -> U32Vec {
+        text.chars().map(|c| c as u32).collect::<Vec<_>>().into()
+    }
+
+    /// A `TextAreaStateWrapper` with no user hooks, holding `text`.
+    fn wrapper(text: &str) -> TextAreaStateWrapper {
+        TextAreaStateWrapper {
+            inner: TextAreaState {
+                text: buffer(text),
+                ..TextAreaState::default()
+            },
+            ..TextAreaStateWrapper::default()
+        }
+    }
+
+    /// The state currently stored behind a `TextAreaStateWrapper` payload.
+    fn read(state: &RefAny) -> TextAreaState {
+        let mut handle = state.clone();
+        let w = handle
+            .downcast_ref::<TextAreaStateWrapper>()
+            .expect("the payload must still be a TextAreaStateWrapper");
+        w.inner.clone()
+    }
+
+    /// Mutates the shared state behind a payload (the borrow is released before
+    /// this returns, so a handler may be invoked right afterwards).
+    fn poke(state: &RefAny, f: impl FnOnce(&mut TextAreaStateWrapper)) {
+        let mut handle = state.clone();
+        let mut w = handle
+            .downcast_mut::<TextAreaStateWrapper>()
+            .expect("the payload must still be a TextAreaStateWrapper");
+        f(&mut *w);
+    }
+
+    /// `n` properties lifted off the default container style — an easy way to
+    /// mint pairwise-distinct style vectors without hard-coding CSS.
+    fn style(n: usize) -> CssPropertyWithConditionsVec {
+        let all: Vec<CssPropertyWithConditions> =
+            TextArea::default().container_style.as_ref().to_vec();
+        assert!(n <= all.len(), "not enough default properties to slice");
+        CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
+    }
+
+    /// The text of a `NodeType::Text` node (`None` for any other node type).
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.root.get_node_type() {
+            NodeType::Text(s) => Some(s.as_ref().as_str()),
+            _ => None,
+        }
+    }
+
+    // ---- recording hooks -------------------------------------------------
+    //
+    // NOTE: each hook below has a deliberately *different* body. Identical
+    // function bodies can be folded onto a single symbol by the linker, and
+    // these callbacks are compared by function-pointer identity.
+
+    /// Records every `TextAreaState` an `on_text_input` / `on_virtual_key_down`
+    /// hook is handed, and answers with a fixed verdict.
+    struct EditLog {
+        seen: Vec<TextAreaState>,
+        ret: OnTextInputReturn,
+    }
+
+    /// Records every `TextAreaState` an `on_focus_lost` hook is handed.
+    struct FocusLog {
+        seen: Vec<TextAreaState>,
+        ret: Update,
+    }
+
+    extern "C" fn record_text_input(
+        mut data: RefAny,
+        _: CallbackInfo,
+        state: TextAreaState,
+    ) -> OnTextInputReturn {
+        let Some(mut log) = data.downcast_mut::<EditLog>() else {
+            return OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            };
+        };
+        log.seen.push(state);
+        log.ret
+    }
+
+    extern "C" fn record_virtual_key(
+        mut data: RefAny,
+        _: CallbackInfo,
+        state: TextAreaState,
+    ) -> OnTextInputReturn {
+        match data.downcast_mut::<EditLog>() {
+            Some(mut log) => {
+                log.seen.push(state.clone());
+                log.ret
+            }
+            None => OnTextInputReturn {
+                update: Update::RefreshDom,
+                valid: TextInputValid::Yes,
+            },
+        }
+    }
+
+    extern "C" fn record_focus_lost(
+        mut data: RefAny,
+        _: CallbackInfo,
+        state: TextAreaState,
+    ) -> Update {
+        let mut update = Update::DoNothing;
+        if let Some(mut log) = data.downcast_mut::<FocusLog>() {
+            log.seen.push(state);
+            update = log.ret;
+        }
+        update
+    }
+
+    fn edit_log(ret: OnTextInputReturn) -> RefAny {
+        RefAny::new(EditLog {
+            seen: Vec::new(),
+            ret,
+        })
+    }
+
+    fn focus_log(ret: Update) -> RefAny {
+        RefAny::new(FocusLog {
+            seen: Vec::new(),
+            ret,
+        })
+    }
+
+    fn edits_seen(log: &RefAny) -> Vec<TextAreaState> {
+        let mut handle = log.clone();
+        let l = handle
+            .downcast_ref::<EditLog>()
+            .expect("the payload must still be an EditLog");
+        l.seen.clone()
+    }
+
+    fn focus_seen(log: &RefAny) -> Vec<TextAreaState> {
+        let mut handle = log.clone();
+        let l = handle
+            .downcast_ref::<FocusLog>()
+            .expect("the payload must still be a FocusLog");
+        l.seen.clone()
+    }
+
+    const ACCEPT: OnTextInputReturn = OnTextInputReturn {
+        update: Update::RefreshDom,
+        valid: TextInputValid::Yes,
+    };
+    const REJECT: OnTextInputReturn = OnTextInputReturn {
+        update: Update::RefreshDomAllWindows,
+        valid: TextInputValid::No,
+    };
+
+    // ==================================================================
+    // CallbackInfo harness
+    // ==================================================================
+
+    /// Flattened node indices of a `TextArea::dom()`.
+    #[derive(Copy, Clone, Debug)]
+    struct Nodes {
+        container: usize,
+        placeholder: usize,
+        label: usize,
+        cursor: usize,
+    }
+
+    /// Which node the event hit.
+    #[derive(Copy, Clone, Debug)]
+    enum Hit {
+        /// `NodeHierarchyItemId::NONE` — no node was hit at all.
+        Nothing,
+        Container,
+        Placeholder,
+        /// A leaf: it has no children, so every handler must bail out.
+        Cursor,
+    }
+
+    /// Flattened indices of every node carrying `class`, in tree order.
+    fn nodes_with_class(styled: &StyledDom, class: &str) -> Vec<usize> {
+        styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, nd)| nd.has_class(class))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// A styled, but never laid out, `TextArea::dom()` — the handlers only walk
+    /// `styled_dom.node_hierarchy`, so no real layout (and no font) is needed.
+    /// The DOM here is a pure *navigation skeleton*: the state a handler edits
+    /// is always the `RefAny` passed to it, never this DOM's own dataset.
+    fn skeleton() -> (StyledDom, Nodes) {
+        let styled = StyledDom::create_from_dom(TextArea::create().dom());
+
+        fn one(styled: &StyledDom, class: &str) -> usize {
+            let found = nodes_with_class(styled, class);
+            assert_eq!(found.len(), 1, "expected exactly one `{class}` node");
+            found[0]
+        }
+
+        let nodes = Nodes {
+            container: one(&styled, "__azul-native-text-area-container"),
+            placeholder: one(&styled, "__azul-native-text-area-placeholder"),
+            label: one(&styled, "__azul-native-text-area-label"),
+            cursor: one(&styled, "__azul-native-text-area-cursor"),
+        };
+        (styled, nodes)
+    }
+
+    fn dom_node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    /// A `DomLayoutResult` with an empty layout tree and no display list.
+    fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+        DomLayoutResult {
+            styled_dom,
+            layout_tree: LayoutTree {
+                nodes: Vec::new(),
+                warm: Vec::new(),
+                cold: Vec::new(),
+                root: 0,
+                dom_to_layout: BTreeMap::new(),
+                children_arena: Vec::new(),
+                children_offsets: Vec::new(),
+                subtree_needs_intrinsic: Vec::new(),
+            },
+            calculated_positions: Vec::new(),
+            viewport: LogicalRect::zero(),
+            display_list: DisplayList::default(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+        }
+    }
+
+    /// Everything the handlers read out of the window.
+    struct Env {
+        /// `false` installs a `LayoutWindow` with no layout result at all — the
+        /// "callback fired before the first layout" case.
+        with_dom: bool,
+        changeset: Option<PendingTextEdit>,
+        keycode: Option<VirtualKeyCode>,
+        hit: Hit,
+    }
+
+    impl Default for Env {
+        fn default() -> Self {
+            Self {
+                with_dom: true,
+                changeset: None,
+                keycode: None,
+                hit: Hit::Container,
+            }
+        }
+    }
+
+    impl Env {
+        fn typed(text: &str) -> Self {
+            Self {
+                changeset: Some(PendingTextEdit {
+                    node: dom_node(0),
+                    inserted_text: AzString::from(text),
+                    old_text: AzString::from(""),
+                }),
+                ..Self::default()
+            }
+        }
+
+        fn key(code: VirtualKeyCode) -> Self {
+            Self {
+                keycode: Some(code),
+                ..Self::default()
+            }
+        }
+
+        fn hitting(mut self, hit: Hit) -> Self {
+            self.hit = hit;
+            self
+        }
+    }
+
+    /// Invokes `call` against a `LayoutWindow` built from `env`. Returns the
+    /// handler's value, every recorded `CallbackChange`, and the node indices.
+    fn run<R>(
+        env: Env,
+        data: &RefAny,
+        call: impl FnOnce(RefAny, CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>, Nodes) {
+        let (styled, nodes) = skeleton();
+
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        if env.with_dom {
+            layout_window
+                .layout_results
+                .insert(DomId::ROOT_ID, layout_result(styled));
+        }
+        layout_window.text_input_manager.pending_changeset = env.changeset;
+
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let mut current_window_state = FullWindowState::default();
+        current_window_state.keyboard_state.current_virtual_keycode = env.keycode.into();
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(azul_css::system::SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
+        };
+
+        let hit = match env.hit {
+            Hit::Nothing => DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::NONE,
+            },
+            Hit::Container => dom_node(nodes.container),
+            Hit::Placeholder => dom_node(nodes.placeholder),
+            Hit::Cursor => dom_node(nodes.cursor),
+        };
+
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        let info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            hit,
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+
+        let out = call(data.clone(), info);
+        let recorded = core::mem::take(&mut *changes.lock().expect("change log poisoned"));
+        (out, recorded, nodes)
+    }
+
+    /// Every opacity write in the change log, as `(node index, normalized opacity)`.
+    fn opacity_writes(changes: &[CallbackChange]) -> Vec<(usize, f32)> {
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::ChangeNodeCssProperties {
+                node_id, properties, ..
+            } = change
+            {
+                for p in properties.as_ref() {
+                    if let CssProperty::Opacity(v) = p {
+                        if let Some(o) = v.get_property() {
+                            out.push((node_id.index(), o.inner.normalized()));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Every text write in the change log, as `(node index, new text)`.
+    fn text_writes(changes: &[CallbackChange]) -> Vec<(usize, String)> {
+        changes
+            .iter()
+            .filter_map(|change| match change {
+                CallbackChange::ChangeNodeText { node_id, text } => Some((
+                    node_id
+                        .node
+                        .into_crate_internal()
+                        .expect("a text write always targets a real node")
+                        .index(),
+                    text.as_str().to_string(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // ==================================================================
+    // TextAreaState::get_text
+    // ==================================================================
+
+    #[test]
+    fn get_text_on_a_default_state_is_empty() {
+        let state = TextAreaState::default();
+        assert_eq!(state.get_text(), "");
+        assert!(state.text.is_empty());
+        assert_eq!(state.cursor_pos, 0);
+        assert_eq!(state.max_len, 1000);
+        assert!(state.placeholder.is_none());
+    }
+
+    #[test]
+    fn get_text_round_trips_every_sample_string() {
+        for s in ROUND_TRIP {
+            let area = TextArea::create().with_text(AzString::from(s));
+            assert_eq!(
+                area.text_area_state.inner.get_text(),
+                s,
+                "set_text -> get_text must be lossless for {s:?}"
+            );
+            assert_eq!(
+                area.text_area_state.inner.text.len(),
+                s.chars().count(),
+                "the buffer counts chars, not bytes, for {s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn get_text_drops_code_units_that_are_not_scalar_values() {
+        // A `U32Vec` is not a `String`: it can hold surrogates and out-of-range
+        // values. `get_text` must silently drop them, never panic.
+        for unit in NON_SCALAR {
+            let state = TextAreaState {
+                text: vec![unit].into(),
+                ..TextAreaState::default()
+            };
+            assert_eq!(
+                state.get_text(),
+                "",
+                "0x{unit:X} is not a scalar value and must not reach the string"
+            );
+            assert_eq!(state.text.len(), 1, "the raw buffer keeps the unit");
+        }
+    }
+
+    #[test]
+    fn get_text_keeps_the_scalars_around_dropped_units() {
+        let mut units = vec!['a' as u32];
+        units.extend(NON_SCALAR);
+        units.push('b' as u32);
+        let state = TextAreaState {
+            text: units.into(),
+            ..TextAreaState::default()
+        };
+
+        assert_eq!(state.get_text(), "ab", "only the non-scalars may be dropped");
+        assert_eq!(state.text.len(), NON_SCALAR.len() + 2);
+    }
+
+    #[test]
+    fn get_text_accepts_the_boundary_scalars() {
+        // The exact edges of the two legal ranges: 0, the last code point below
+        // the surrogate block, the first above it, and the very last scalar.
+        let units = vec![0x0000, 0xD7FF, 0xE000, 0x0010_FFFF];
+        let state = TextAreaState {
+            text: units.clone().into(),
+            ..TextAreaState::default()
+        };
+        assert_eq!(
+            state.get_text().chars().count(),
+            units.len(),
+            "every boundary scalar must survive"
+        );
+    }
+
+    #[test]
+    fn get_text_handles_a_very_large_buffer() {
+        let big: String = core::iter::repeat("line 😀 ünicode\n").take(20_000).collect();
+        let area = TextArea::create().with_text(AzString::from(big.as_str()));
+
+        assert_eq!(area.text_area_state.inner.text.len(), big.chars().count());
+        assert_eq!(area.text_area_state.inner.get_text(), big);
+    }
+
+    // ==================================================================
+    // TextArea::create
+    // ==================================================================
+
+    #[test]
+    fn create_equals_default() {
+        assert_eq!(TextArea::create(), TextArea::default());
+    }
+
+    #[test]
+    fn create_starts_empty_with_no_hooks() {
+        let area = TextArea::create();
+        let s = &area.text_area_state;
+
+        assert!(s.inner.text.is_empty());
+        assert!(s.inner.placeholder.is_none());
+        assert_eq!(s.inner.max_len, 1000);
+        assert_eq!(s.inner.cursor_pos, 0);
+        assert!(s.on_text_input.is_none());
+        assert!(s.on_virtual_key_down.is_none());
+        assert!(s.on_focus_lost.is_none());
+        assert!(s.update_text_area_before_calling_focus_lost_fn);
+    }
+
+    #[test]
+    fn create_ships_all_three_style_vectors_non_empty() {
+        let area = TextArea::create();
+        assert!(!area.container_style.as_ref().is_empty());
+        assert!(!area.label_style.as_ref().is_empty());
+        assert!(!area.placeholder_style.as_ref().is_empty());
+    }
+
+    #[test]
+    fn create_is_repeatable_and_unshared() {
+        // Two areas must be equal but must not alias: editing one may not be
+        // visible in the other.
+        let mut a = TextArea::create();
+        let b = TextArea::create();
+        a.set_text(AzString::from("mutated"));
+
+        assert_ne!(a, b);
+        assert_eq!(b.text_area_state.inner.get_text(), "");
+    }
+
+    // ==================================================================
+    // TextArea::set_text / with_text
+    // ==================================================================
+
+    #[test]
+    fn set_text_preserves_newlines() {
+        let mut area = TextArea::create();
+        area.set_text(AzString::from("a\nb\n\nc\n"));
+
+        assert_eq!(area.text_area_state.inner.get_text(), "a\nb\n\nc\n");
+        assert_eq!(
+            area.text_area_state
+                .inner
+                .text
+                .iter()
+                .filter(|c| **c == '\n' as u32)
+                .count(),
+            4,
+            "all four newlines have to be stored"
+        );
+    }
+
+    #[test]
+    fn set_text_replaces_rather_than_appends() {
+        let mut area = TextArea::create();
+        area.set_text(AzString::from("first"));
+        area.set_text(AzString::from("second"));
+
+        assert_eq!(area.text_area_state.inner.get_text(), "second");
+        assert_eq!(area.text_area_state.inner.text.len(), 6);
+    }
+
+    #[test]
+    fn set_text_with_an_empty_string_clears_the_buffer() {
+        let mut area = TextArea::create().with_text(AzString::from("something"));
+        area.set_text(AzString::from(""));
+
+        assert!(area.text_area_state.inner.text.is_empty());
+        assert_eq!(area.text_area_state.inner.get_text(), "");
+    }
+
+    #[test]
+    fn with_text_is_exactly_set_text() {
+        for s in ROUND_TRIP {
+            let mut a = TextArea::create();
+            a.set_text(AzString::from(s));
+            let b = TextArea::create().with_text(AzString::from(s));
+            assert_eq!(a, b, "the builder and the setter must agree for {s:?}");
+        }
+    }
+
+    #[test]
+    fn set_text_ignores_max_len() {
+        // `max_len` is stored but never enforced anywhere in this widget.
+        // Pinning that here so a future limit check is a deliberate change and
+        // not a silent behaviour flip.
+        let mut area = TextArea::create();
+        area.text_area_state.inner.max_len = 3;
+        area.set_text(AzString::from("far past the limit"));
+
+        assert_eq!(area.text_area_state.inner.text.len(), 18);
+        assert_eq!(area.text_area_state.inner.max_len, 3);
+    }
+
+    #[test]
+    fn set_text_leaves_a_stale_cursor_behind() {
+        // `set_text` does not touch `cursor_pos`, so shrinking the text can
+        // leave the cursor pointing past the end. `dom()` is what repairs it.
+        let mut area = TextArea::create().with_text(AzString::from("0123456789"));
+        area.text_area_state.inner.cursor_pos = 10;
+        area.set_text(AzString::from(""));
+
+        assert_eq!(
+            area.text_area_state.inner.cursor_pos, 10,
+            "the setter deliberately leaves the cursor alone"
+        );
+        assert!(area.text_area_state.inner.text.is_empty());
+
+        let dom = area.dom();
+        let mut dataset = dom
+            .root
+            .get_dataset()
+            .cloned()
+            .expect("dom() must attach the state");
+        let w = dataset
+            .downcast_ref::<TextAreaStateWrapper>()
+            .expect("the dataset must be a TextAreaStateWrapper");
+        assert_eq!(w.inner.cursor_pos, 0, "dom() must repair the stale cursor");
+    }
+
+    #[test]
+    fn set_text_does_not_disturb_the_other_fields() {
+        let area = TextArea::create()
+            .with_placeholder(AzString::from("type here"))
+            .with_container_style(style(3))
+            .with_text(AzString::from("body"));
+
+        assert_eq!(
+            area.text_area_state.inner.placeholder.as_ref().map(AzString::as_str),
+            Some("type here")
+        );
+        assert_eq!(area.container_style.len(), 3);
+        assert_eq!(area.text_area_state.inner.get_text(), "body");
+    }
+
+    // ==================================================================
+    // TextArea::set_placeholder / with_placeholder
+    // ==================================================================
+
+    #[test]
+    fn placeholder_round_trips_every_sample_string() {
+        for s in ROUND_TRIP {
+            let area = TextArea::create().with_placeholder(AzString::from(s));
+            assert_eq!(
+                area.text_area_state.inner.placeholder.as_ref().map(AzString::as_str),
+                Some(s)
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_placeholder_is_some_not_none() {
+        // `Some("")` and `None` are different states: only the former means
+        // "the user explicitly asked for no placeholder text".
+        let area = TextArea::create().with_placeholder(AzString::from(""));
+        assert!(area.text_area_state.inner.placeholder.is_some());
+        assert_eq!(
+            area.text_area_state.inner.placeholder.as_ref().map(AzString::as_str),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn set_placeholder_overwrites_the_previous_one() {
+        let mut area = TextArea::create();
+        area.set_placeholder(AzString::from("one"));
+        area.set_placeholder(AzString::from("two"));
+
+        assert_eq!(
+            area.text_area_state.inner.placeholder.as_ref().map(AzString::as_str),
+            Some("two")
+        );
+    }
+
+    #[test]
+    fn with_placeholder_is_exactly_set_placeholder() {
+        let mut a = TextArea::create();
+        a.set_placeholder(AzString::from("hint"));
+        let b = TextArea::create().with_placeholder(AzString::from("hint"));
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn set_placeholder_does_not_touch_the_text() {
+        let area = TextArea::create()
+            .with_text(AzString::from("body\ntext"))
+            .with_placeholder(AzString::from("hint"));
+
+        assert_eq!(area.text_area_state.inner.get_text(), "body\ntext");
+        assert_eq!(area.text_area_state.inner.cursor_pos, 0);
+    }
+
+    // ==================================================================
+    // TextArea::set_on_* / with_on_*
+    // ==================================================================
+
+    #[test]
+    fn each_hook_setter_touches_only_its_own_slot() {
+        let text_in = TextArea::create()
+            .with_on_text_input(RefAny::new(1u32), record_text_input as TextAreaOnTextInputCallbackType);
+        assert!(text_in.text_area_state.on_text_input.is_some());
+        assert!(text_in.text_area_state.on_virtual_key_down.is_none());
+        assert!(text_in.text_area_state.on_focus_lost.is_none());
+
+        let key_down = TextArea::create().with_on_virtual_key_down(
+            RefAny::new(2u32),
+            record_virtual_key as TextAreaOnVirtualKeyDownCallbackType,
+        );
+        assert!(key_down.text_area_state.on_text_input.is_none());
+        assert!(key_down.text_area_state.on_virtual_key_down.is_some());
+        assert!(key_down.text_area_state.on_focus_lost.is_none());
+
+        let focus = TextArea::create()
+            .with_on_focus_lost(RefAny::new(3u32), record_focus_lost as TextAreaOnFocusLostCallbackType);
+        assert!(focus.text_area_state.on_text_input.is_none());
+        assert!(focus.text_area_state.on_virtual_key_down.is_none());
+        assert!(focus.text_area_state.on_focus_lost.is_some());
+    }
+
+    #[test]
+    fn hook_setters_keep_the_user_payload_reachable() {
+        let payload = RefAny::new(0xDEAD_BEEF_u32);
+        let area = TextArea::create()
+            .with_on_text_input(payload.clone(), record_text_input as TextAreaOnTextInputCallbackType);
+
+        let mut stored = area
+            .text_area_state
+            .on_text_input
+            .as_ref()
+            .expect("the hook must be stored")
+            .refany
+            .clone();
+        assert_eq!(
+            *stored.downcast_ref::<u32>().expect("payload type must survive"),
+            0xDEAD_BEEF_u32
+        );
+    }
+
+    #[test]
+    fn setting_a_hook_twice_replaces_it_and_keeps_the_old_payload_alive() {
+        let first = RefAny::new(11u32);
+        let second = RefAny::new(22u32);
+        let mut area = TextArea::create();
+        area.set_on_text_input(first.clone(), record_text_input as TextAreaOnTextInputCallbackType);
+        area.set_on_text_input(second, record_text_input as TextAreaOnTextInputCallbackType);
+
+        let mut stored = area
+            .text_area_state
+            .on_text_input
+            .as_ref()
+            .expect("the hook must be stored")
+            .refany
+            .clone();
+        assert_eq!(*stored.downcast_ref::<u32>().expect("payload"), 22);
+
+        // The replaced handle must not have been freed out from under us.
+        let mut first = first;
+        assert_eq!(*first.downcast_ref::<u32>().expect("payload"), 11);
+    }
+
+    #[test]
+    fn with_on_hooks_are_exactly_their_setters() {
+        let payload = RefAny::new(7u32);
+
+        let mut a = TextArea::create();
+        a.set_on_focus_lost(payload.clone(), record_focus_lost as TextAreaOnFocusLostCallbackType);
+        let b = TextArea::create()
+            .with_on_focus_lost(payload, record_focus_lost as TextAreaOnFocusLostCallbackType);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn all_three_hooks_can_coexist() {
+        let area = TextArea::create()
+            .with_on_text_input(RefAny::new(1u32), record_text_input as TextAreaOnTextInputCallbackType)
+            .with_on_virtual_key_down(
+                RefAny::new(2u32),
+                record_virtual_key as TextAreaOnVirtualKeyDownCallbackType,
+            )
+            .with_on_focus_lost(RefAny::new(3u32), record_focus_lost as TextAreaOnFocusLostCallbackType)
+            .with_text(AzString::from("still here"));
+
+        assert!(area.text_area_state.on_text_input.is_some());
+        assert!(area.text_area_state.on_virtual_key_down.is_some());
+        assert!(area.text_area_state.on_focus_lost.is_some());
+        assert_eq!(area.text_area_state.inner.get_text(), "still here");
+    }
+
+    #[test]
+    fn hook_setters_leave_a_zero_sized_payload_usable() {
+        // A `RefAny` over a ZST is the degenerate case for the refcount /
+        // destructor plumbing.
+        struct Zst;
+        let area = TextArea::create()
+            .with_on_text_input(RefAny::new(Zst), record_text_input as TextAreaOnTextInputCallbackType);
+
+        let mut stored = area
+            .text_area_state
+            .on_text_input
+            .as_ref()
+            .expect("the hook must be stored")
+            .refany
+            .clone();
+        assert!(stored.downcast_ref::<Zst>().is_some());
+        assert!(stored.downcast_ref::<u32>().is_none(), "the type tag must still discriminate");
+    }
+
+    // ==================================================================
+    // TextArea::set_container_style / with_container_style
+    // ==================================================================
+
+    #[test]
+    fn set_container_style_replaces_the_whole_vector() {
+        let mut area = TextArea::create();
+        let before = area.container_style.len();
+        area.set_container_style(style(2));
+
+        assert_eq!(area.container_style.len(), 2);
+        assert_ne!(before, 2, "the fixture has to actually change something");
+    }
+
+    #[test]
+    fn an_empty_container_style_is_accepted() {
+        let area = TextArea::create()
+            .with_container_style(CssPropertyWithConditionsVec::from_vec(Vec::new()));
+        assert!(area.container_style.as_ref().is_empty());
+
+        // ...and still produces a DOM.
+        let dom = area.dom();
+        assert_eq!(dom.children.as_ref().len(), 2);
+    }
+
+    #[test]
+    fn container_style_does_not_leak_into_the_other_style_slots() {
+        let default_label = TextArea::create().label_style;
+        let default_placeholder = TextArea::create().placeholder_style;
+        let area = TextArea::create().with_container_style(style(1));
+
+        assert_eq!(area.label_style, default_label);
+        assert_eq!(area.placeholder_style, default_placeholder);
+    }
+
+    // ==================================================================
+    // TextArea::swap_with_default
+    // ==================================================================
+
+    #[test]
+    fn swap_with_default_hands_back_the_old_value_and_resets_self() {
+        let mut area = TextArea::create()
+            .with_text(AzString::from("keep\nme"))
+            .with_placeholder(AzString::from("hint"));
+
+        let old = area.swap_with_default();
+
+        assert_eq!(old.text_area_state.inner.get_text(), "keep\nme");
+        assert_eq!(
+            old.text_area_state.inner.placeholder.as_ref().map(AzString::as_str),
+            Some("hint")
+        );
+        assert_eq!(area, TextArea::default(), "self must be a fresh default");
+    }
+
+    #[test]
+    fn swap_with_default_twice_yields_a_default_the_second_time() {
+        let mut area = TextArea::create().with_text(AzString::from("x"));
+        let first = area.swap_with_default();
+        let second = area.swap_with_default();
+
+        assert_eq!(first.text_area_state.inner.get_text(), "x");
+        assert_eq!(second, TextArea::default());
+        assert_eq!(area, TextArea::default());
+    }
+
+    #[test]
+    fn swap_with_default_carries_the_hooks_out_with_it() {
+        let payload = RefAny::new(99u32);
+        let mut area = TextArea::create()
+            .with_on_focus_lost(payload, record_focus_lost as TextAreaOnFocusLostCallbackType);
+
+        let old = area.swap_with_default();
+
+        assert!(old.text_area_state.on_focus_lost.is_some());
+        assert!(area.text_area_state.on_focus_lost.is_none());
+
+        let mut stored = old
+            .text_area_state
+            .on_focus_lost
+            .as_ref()
+            .expect("hook")
+            .refany
+            .clone();
+        assert_eq!(*stored.downcast_ref::<u32>().expect("payload"), 99);
+    }
+
+    // ==================================================================
+    // TextArea::dom
+    // ==================================================================
+
+    #[test]
+    fn dom_has_the_shape_the_handlers_navigate() {
+        let dom = TextArea::create().dom();
+        let children = dom.children.as_ref();
+
+        assert_eq!(children.len(), 2, "a text area is exactly [placeholder, label]");
+        assert!(dom.root.has_class("__azul-native-text-area-container"));
+        assert!(children[0].root.has_class("__azul-native-text-area-placeholder"));
+        assert!(children[1].root.has_class("__azul-native-text-area-label"));
+
+        let label_children = children[1].children.as_ref();
+        assert_eq!(label_children.len(), 1, "the label owns exactly the cursor");
+        assert!(label_children[0].root.has_class("__azul-native-text-area-cursor"));
+        assert!(
+            label_children[0].children.as_ref().is_empty(),
+            "the cursor is a leaf"
+        );
+    }
+
+    #[test]
+    fn dom_renders_the_text_into_the_label_and_the_placeholder_into_its_own_node() {
+        let dom = TextArea::create()
+            .with_text(AzString::from("body\nlines"))
+            .with_placeholder(AzString::from("hint"))
+            .dom();
+        let children = dom.children.as_ref();
+
+        assert_eq!(text_of(&children[0]), Some("hint"));
+        assert_eq!(text_of(&children[1]), Some("body\nlines"));
+    }
+
+    #[test]
+    fn dom_renders_an_empty_placeholder_node_when_none_was_set() {
+        // The node must still exist: every handler navigates *through* it to
+        // reach the label.
+        let dom = TextArea::create().with_text(AzString::from("x")).dom();
+        assert_eq!(text_of(&dom.children.as_ref()[0]), Some(""));
+    }
+
+    #[test]
+    fn dom_round_trips_every_sample_string_into_the_label() {
+        for s in ROUND_TRIP {
+            let dom = TextArea::create().with_text(AzString::from(s)).dom();
+            assert_eq!(
+                text_of(&dom.children.as_ref()[1]),
+                Some(s),
+                "the label must render {s:?} verbatim"
+            );
+        }
+    }
+
+    #[test]
+    fn dom_drops_non_scalar_units_from_the_label() {
+        let mut area = TextArea::create().with_text(AzString::from("ab"));
+        let mut units = area.text_area_state.inner.text.clone().into_library_owned_vec();
+        units.extend(NON_SCALAR);
+        area.text_area_state.inner.text = units.into();
+
+        let dom = area.dom();
+        assert_eq!(
+            text_of(&dom.children.as_ref()[1]),
+            Some("ab"),
+            "the rendered label may only contain real scalars"
+        );
+    }
+
+    #[test]
+    fn dom_snaps_the_cursor_to_the_end_of_the_buffer() {
+        for (text, expected) in [("", 0), ("abc", 3), ("😀😀", 2), ("a\nb", 3)] {
+            let mut area = TextArea::create().with_text(AzString::from(text));
+            area.text_area_state.inner.cursor_pos = usize::MAX;
+
+            let dom = area.dom();
+            let mut dataset = dom.root.get_dataset().cloned().expect("dataset");
+            let w = dataset
+                .downcast_ref::<TextAreaStateWrapper>()
+                .expect("the dataset must be a TextAreaStateWrapper");
+            assert_eq!(
+                w.inner.cursor_pos, expected,
+                "dom() must clamp the cursor to the buffer for {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dom_wires_up_all_four_focus_callbacks() {
+        let dom = TextArea::create().dom();
+        let callbacks = dom.root.get_callbacks();
+        assert_eq!(callbacks.len(), 4);
+
+        let expected = [
+            (
+                EventFilter::Focus(FocusEventFilter::FocusReceived),
+                default_on_focus_received as usize,
+            ),
+            (
+                EventFilter::Focus(FocusEventFilter::FocusLost),
+                default_on_focus_lost as usize,
+            ),
+            (
+                EventFilter::Focus(FocusEventFilter::TextInput),
+                default_on_text_input as usize,
+            ),
+            (
+                EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                default_on_virtual_key_down as usize,
+            ),
+        ];
+
+        for (cd, (event, cb)) in callbacks.as_ref().iter().zip(expected) {
+            assert_eq!(cd.event, event);
+            assert_eq!(cd.callback.cb, cb, "wrong handler wired to {event:?}");
+        }
+    }
+
+    #[test]
+    fn dom_shares_one_state_handle_between_the_dataset_and_every_callback() {
+        let dom = TextArea::create().with_text(AzString::from("seed")).dom();
+        let dataset = dom.root.get_dataset().cloned().expect("dataset");
+        poke(&dataset, |w| w.inner.max_len = 7);
+
+        for cd in dom.root.get_callbacks().as_ref() {
+            let mut handle = cd.refany.clone();
+            let w = handle
+                .downcast_ref::<TextAreaStateWrapper>()
+                .expect("every callback must carry the state wrapper");
+            assert_eq!(
+                w.inner.max_len, 7,
+                "every callback must see the *same* state object as the dataset"
+            );
+        }
+    }
+
+    #[test]
+    fn dom_survives_a_very_large_buffer() {
+        let big: String = core::iter::repeat("wide 😀 line\n").take(20_000).collect();
+        let dom = TextArea::create().with_text(AzString::from(big.as_str())).dom();
+        assert_eq!(text_of(&dom.children.as_ref()[1]), Some(big.as_str()));
+    }
+
+    #[test]
+    fn styled_dom_navigation_matches_what_the_handlers_assume() {
+        // The three handlers all walk container -> first child (placeholder)
+        // -> next sibling (label) -> first child (cursor). If that walk ever
+        // stops matching the DOM, every one of them silently no-ops.
+        let (styled, nodes) = skeleton();
+        let hierarchy = styled.node_hierarchy.as_container();
+
+        let placeholder = hierarchy[NodeId::new(nodes.container)]
+            .first_child_id(NodeId::new(nodes.container))
+            .expect("the container must have a first child");
+        assert_eq!(placeholder.index(), nodes.placeholder);
+
+        let label = hierarchy[placeholder]
+            .next_sibling_id()
+            .expect("the placeholder must have a next sibling");
+        assert_eq!(label.index(), nodes.label);
+
+        let cursor = hierarchy[label]
+            .first_child_id(label)
+            .expect("the label must have a first child");
+        assert_eq!(cursor.index(), nodes.cursor);
+    }
+
+    // ==================================================================
+    // default_on_focus_received
+    // ==================================================================
+
+    #[test]
+    fn focus_received_ignores_a_foreign_payload() {
+        let data = RefAny::new(0u8);
+        let (update, changes, _) = run(Env::default(), &data, |r, ci| default_on_focus_received(r, ci));
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "a foreign payload must not touch the DOM");
+    }
+
+    #[test]
+    fn focus_received_bails_out_without_a_hit_node() {
+        let data = RefAny::new(wrapper(""));
+        poke(&data, |w| w.inner.cursor_pos = 42);
+
+        let (update, changes, _) = run(
+            Env::default().hitting(Hit::Nothing),
+            &data,
+            |r, ci| default_on_focus_received(r, ci),
+        );
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert_eq!(
+            read(&data).cursor_pos,
+            42,
+            "the early return happens *before* the cursor is repaired"
+        );
+    }
+
+    #[test]
+    fn focus_received_bails_out_on_a_childless_hit_node() {
+        let data = RefAny::new(wrapper("text"));
+        let (update, changes, _) = run(
+            Env::default().hitting(Hit::Cursor),
+            &data,
+            |r, ci| default_on_focus_received(r, ci),
+        );
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn focus_received_hides_the_placeholder_only_while_the_buffer_is_empty() {
+        let empty = RefAny::new(wrapper(""));
+        let (update, changes, nodes) = run(Env::default(), &empty, |r, ci| default_on_focus_received(r, ci));
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(
+            opacity_writes(&changes),
+            vec![(nodes.placeholder, 0.0)],
+            "an empty area hides its placeholder on focus"
+        );
+
+        let filled = RefAny::new(wrapper("typed"));
+        let (update, changes, _) = run(Env::default(), &filled, |r, ci| default_on_focus_received(r, ci));
+        assert_eq!(update, Update::DoNothing);
+        assert!(
+            changes.is_empty(),
+            "a non-empty area has nothing to hide — the placeholder is already gone"
+        );
+    }
+
+    #[test]
+    fn focus_received_repairs_a_stale_cursor() {
+        for (text, expected) in [("", 0usize), ("abc", 3), ("😀 x", 3)] {
+            let data = RefAny::new(wrapper(text));
+            poke(&data, |w| w.inner.cursor_pos = usize::MAX);
+
+            let (_, _, _) = run(Env::default(), &data, |r, ci| default_on_focus_received(r, ci));
+            assert_eq!(
+                read(&data).cursor_pos,
+                expected,
+                "focus must snap the cursor to the end for {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn focus_received_does_not_edit_the_buffer() {
+        let data = RefAny::new(wrapper("untouched\ntext"));
+        let (_, _, _) = run(Env::default(), &data, |r, ci| default_on_focus_received(r, ci));
+        assert_eq!(read(&data).get_text(), "untouched\ntext");
+    }
+
+    // ==================================================================
+    // default_on_focus_lost
+    // ==================================================================
+
+    #[test]
+    fn focus_lost_ignores_a_foreign_payload() {
+        let data = RefAny::new("not a text area".to_string());
+        let (update, changes, _) = run(Env::default(), &data, |r, ci| default_on_focus_lost(r, ci));
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn focus_lost_shows_the_placeholder_only_while_the_buffer_is_empty() {
+        let empty = RefAny::new(wrapper(""));
+        let (update, changes, nodes) = run(Env::default(), &empty, |r, ci| default_on_focus_lost(r, ci));
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(opacity_writes(&changes), vec![(nodes.placeholder, 1.0)]);
+
+        let filled = RefAny::new(wrapper("typed"));
+        let (update, changes, _) = run(Env::default(), &filled, |r, ci| default_on_focus_lost(r, ci));
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn focus_lost_forwards_the_state_to_the_user_hook() {
+        let log = focus_log(Update::RefreshDomAllWindows);
+        let mut state = wrapper("saved\ntext");
+        state.on_focus_lost = Some(TextAreaOnFocusLost {
+            callback: (record_focus_lost as TextAreaOnFocusLostCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (update, _, _) = run(Env::default(), &data, |r, ci| default_on_focus_lost(r, ci));
+
+        assert_eq!(
+            update,
+            Update::RefreshDomAllWindows,
+            "the hook's Update must be propagated verbatim"
+        );
+        let seen = focus_seen(&log);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].get_text(), "saved\ntext");
+    }
+
+    #[test]
+    fn focus_lost_skips_the_user_hook_when_the_dom_has_no_children() {
+        // The DOM walk happens *before* the hook is dispatched, so a text area
+        // whose node has no children never notifies its owner. Pinned as the
+        // current contract, not endorsed as ideal.
+        let log = focus_log(Update::RefreshDom);
+        let mut state = wrapper("x");
+        state.on_focus_lost = Some(TextAreaOnFocusLost {
+            callback: (record_focus_lost as TextAreaOnFocusLostCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (update, changes, _) = run(
+            Env::default().hitting(Hit::Cursor),
+            &data,
+            |r, ci| default_on_focus_lost(r, ci),
+        );
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert!(focus_seen(&log).is_empty(), "the hook must not have run");
+    }
+
+    #[test]
+    fn focus_lost_hands_the_hook_a_snapshot_it_cannot_write_back_through() {
+        // The hook receives a *clone* of the inner state; mutating it (which the
+        // signature allows, it is by value) must not reach the widget.
+        let log = focus_log(Update::DoNothing);
+        let mut state = wrapper("original");
+        state.on_focus_lost = Some(TextAreaOnFocusLost {
+            callback: (record_focus_lost as TextAreaOnFocusLostCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (_, _, _) = run(Env::default(), &data, |r, ci| default_on_focus_lost(r, ci));
+
+        let mut seen = focus_seen(&log);
+        assert_eq!(seen.len(), 1);
+        seen[0].text = buffer("clobbered");
+        assert_eq!(read(&data).get_text(), "original");
+    }
+
+    #[test]
+    fn focus_lost_without_a_hook_reports_do_nothing() {
+        let data = RefAny::new(wrapper("text"));
+        let (update, _, _) = run(Env::default(), &data, |r, ci| default_on_focus_lost(r, ci));
+        assert_eq!(update, Update::DoNothing);
+    }
+
+    #[test]
+    fn focus_lost_does_not_move_the_cursor() {
+        let data = RefAny::new(wrapper("abcdef"));
+        poke(&data, |w| w.inner.cursor_pos = 2);
+
+        let (_, _, _) = run(Env::default(), &data, |r, ci| default_on_focus_lost(r, ci));
+
+        assert_eq!(
+            read(&data).cursor_pos,
+            2,
+            "only focus-received re-snaps the cursor"
+        );
+    }
+
+    // ==================================================================
+    // default_on_text_input / default_on_text_input_inner
+    // ==================================================================
+
+    #[test]
+    fn text_input_without_a_changeset_does_nothing() {
+        let data = RefAny::new(wrapper("abc"));
+        let (out, changes, _) = run(Env::default(), &data, default_on_text_input_inner);
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).get_text(), "abc");
+    }
+
+    #[test]
+    fn text_input_with_an_empty_insertion_does_nothing() {
+        let data = RefAny::new(wrapper("abc"));
+        let (out, changes, _) = run(Env::typed(""), &data, default_on_text_input_inner);
+
+        assert_eq!(out, None, "an empty insertion is not an edit");
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).get_text(), "abc");
+    }
+
+    #[test]
+    fn text_input_ignores_a_foreign_payload() {
+        let data = RefAny::new(1234u64);
+        let (out, changes, _) = run(Env::typed("x"), &data, default_on_text_input_inner);
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn text_input_bails_out_on_a_childless_hit_node() {
+        let data = RefAny::new(wrapper("abc"));
+        let (out, changes, _) = run(
+            Env::typed("x").hitting(Hit::Cursor),
+            &data,
+            default_on_text_input_inner,
+        );
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).get_text(), "abc", "no DOM, no edit");
+    }
+
+    #[test]
+    fn text_input_bails_out_when_the_hit_node_has_no_sibling_chain() {
+        // Hitting the placeholder: it has no children at all, so the walk stops
+        // at the very first step.
+        let data = RefAny::new(wrapper("abc"));
+        let (out, changes, _) = run(
+            Env::typed("x").hitting(Hit::Placeholder),
+            &data,
+            default_on_text_input_inner,
+        );
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).get_text(), "abc");
+    }
+
+    #[test]
+    fn text_input_appends_and_repaints() {
+        let data = RefAny::new(wrapper("ab"));
+        let (out, changes, nodes) = run(Env::typed("cd"), &data, default_on_text_input_inner);
+
+        assert_eq!(out, Some(Update::DoNothing), "no hook means no refresh");
+        assert_eq!(read(&data).get_text(), "abcd");
+        assert_eq!(
+            opacity_writes(&changes),
+            vec![(nodes.placeholder, 0.0)],
+            "typing hides the placeholder"
+        );
+        assert_eq!(
+            text_writes(&changes),
+            vec![(nodes.label, "abcd".to_string())],
+            "the label is rewritten with the *whole* buffer, not the delta"
+        );
+    }
+
+    #[test]
+    fn text_input_preserves_embedded_newlines() {
+        let data = RefAny::new(wrapper("first"));
+        let (out, changes, nodes) = run(Env::typed("\nsecond\n"), &data, default_on_text_input_inner);
+
+        assert_eq!(out, Some(Update::DoNothing));
+        assert_eq!(read(&data).get_text(), "first\nsecond\n");
+        assert_eq!(
+            text_writes(&changes),
+            vec![(nodes.label, "first\nsecond\n".to_string())]
+        );
+    }
+
+    #[test]
+    fn text_input_stores_pasted_unicode_by_char() {
+        for s in ROUND_TRIP {
+            if s.is_empty() {
+                continue; // an empty insertion is a documented no-op
+            }
+            let data = RefAny::new(wrapper(""));
+            let (out, _, _) = run(Env::typed(s), &data, default_on_text_input_inner);
+
+            assert_eq!(out, Some(Update::DoNothing), "insertion of {s:?}");
+            let state = read(&data);
+            assert_eq!(state.get_text(), s, "insertion of {s:?} must be lossless");
+            assert_eq!(state.text.len(), s.chars().count());
+        }
+    }
+
+    #[test]
+    fn text_input_advances_the_cursor_by_bytes_not_chars() {
+        // KNOWN QUIRK: the buffer grows by `chars`, but `cursor_pos` is advanced
+        // by `inserted_text.len()`, which is a *byte* count. For any non-ASCII
+        // insertion the cursor therefore ends up past the end of the buffer.
+        // `dom()` and `default_on_focus_received` both re-snap it, which is why
+        // this is survivable — pinned here so the divergence is visible.
+        let data = RefAny::new(wrapper(""));
+        let (_, _, _) = run(Env::typed("😀"), &data, default_on_text_input_inner);
+
+        let state = read(&data);
+        assert_eq!(state.text.len(), 1, "one char went into the buffer");
+        assert_eq!(state.cursor_pos, 4, "but the cursor moved by four bytes");
+        assert!(
+            state.cursor_pos > state.text.len(),
+            "the cursor is left past the end of the buffer"
+        );
+
+        // ASCII is the case where the two counts happen to agree.
+        let ascii = RefAny::new(wrapper(""));
+        let (_, _, _) = run(Env::typed("abcd"), &ascii, default_on_text_input_inner);
+        let ascii_state = read(&ascii);
+        assert_eq!(ascii_state.cursor_pos, ascii_state.text.len());
+    }
+
+    #[test]
+    fn text_input_does_not_enforce_max_len() {
+        // KNOWN GAP: `max_len` is never consulted by the edit path. Typing past
+        // it is accepted silently.
+        let data = RefAny::new(wrapper("ab"));
+        poke(&data, |w| w.inner.max_len = 2);
+
+        let (out, _, _) = run(Env::typed("cdefgh"), &data, default_on_text_input_inner);
+
+        assert_eq!(out, Some(Update::DoNothing));
+        assert_eq!(read(&data).get_text(), "abcdefgh");
+        assert_eq!(read(&data).max_len, 2, "the limit is stored, just not applied");
+    }
+
+    #[test]
+    fn text_input_shows_the_hook_the_would_be_text_before_committing() {
+        let log = edit_log(ACCEPT);
+        let mut state = wrapper("old");
+        state.on_text_input = Some(TextAreaOnTextInput {
+            callback: (record_text_input as TextAreaOnTextInputCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (out, _, _) = run(Env::typed("+new"), &data, default_on_text_input_inner);
+
+        assert_eq!(out, Some(Update::RefreshDom), "the hook's Update wins");
+        let seen = edits_seen(&log);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0].get_text(),
+            "old+new",
+            "the hook is shown the text as it *would* be after the edit"
+        );
+        assert_eq!(read(&data).get_text(), "old+new");
+    }
+
+    #[test]
+    fn text_input_rejected_by_the_hook_changes_nothing() {
+        let log = edit_log(REJECT);
+        let mut state = wrapper("locked");
+        state.on_text_input = Some(TextAreaOnTextInput {
+            callback: (record_text_input as TextAreaOnTextInputCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (out, changes, _) = run(Env::typed("nope"), &data, default_on_text_input_inner);
+
+        assert_eq!(
+            out,
+            Some(Update::RefreshDomAllWindows),
+            "a rejected edit still returns the hook's Update"
+        );
+        assert!(changes.is_empty(), "a rejected edit must not repaint");
+        let state = read(&data);
+        assert_eq!(state.get_text(), "locked");
+        assert_eq!(state.cursor_pos, 0, "and must not move the cursor");
+        assert_eq!(edits_seen(&log).len(), 1, "the hook still ran exactly once");
+    }
+
+    #[test]
+    fn text_input_accumulates_across_edits() {
+        let data = RefAny::new(wrapper(""));
+        for chunk in ["a", "b\n", "c"] {
+            let (out, _, _) = run(Env::typed(chunk), &data, default_on_text_input_inner);
+            assert_eq!(out, Some(Update::DoNothing));
+        }
+
+        let state = read(&data);
+        assert_eq!(state.get_text(), "ab\nc");
+        assert_eq!(state.cursor_pos, 4);
+    }
+
+    #[test]
+    fn text_input_writes_the_filtered_text_not_the_raw_buffer() {
+        // Non-scalar units already in the buffer survive the edit but never
+        // reach the label, so the rendered string is shorter than the buffer.
+        let data = RefAny::new(wrapper("a"));
+        poke(&data, |w| {
+            let mut units = w.inner.text.clone().into_library_owned_vec();
+            units.extend(NON_SCALAR);
+            w.inner.text = units.into();
+        });
+
+        let (out, changes, nodes) = run(Env::typed("b"), &data, default_on_text_input_inner);
+
+        assert_eq!(out, Some(Update::DoNothing));
+        assert_eq!(
+            text_writes(&changes),
+            vec![(nodes.label, "ab".to_string())],
+            "only the scalars are rendered"
+        );
+        assert_eq!(
+            read(&data).text.len(),
+            NON_SCALAR.len() + 2,
+            "the raw buffer keeps everything"
+        );
+    }
+
+    #[test]
+    fn text_input_extern_wrapper_maps_none_onto_do_nothing() {
+        let data = RefAny::new(wrapper("abc"));
+        let (update, changes, _) = run(Env::default(), &data, |r, ci| default_on_text_input(r, ci));
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn text_input_survives_a_very_large_insertion() {
+        let big: String = core::iter::repeat("chunk 😀\n").take(10_000).collect();
+        let data = RefAny::new(wrapper(""));
+
+        let (out, changes, nodes) = run(Env::typed(&big), &data, default_on_text_input_inner);
+
+        assert_eq!(out, Some(Update::DoNothing));
+        assert_eq!(read(&data).text.len(), big.chars().count());
+        assert_eq!(text_writes(&changes), vec![(nodes.label, big)]);
+    }
+
+    // ==================================================================
+    // default_on_virtual_key_down / default_on_virtual_key_down_inner
+    // ==================================================================
+
+    #[test]
+    fn virtual_key_down_without_a_keycode_does_nothing() {
+        let data = RefAny::new(wrapper("abc"));
+        let (out, changes, _) = run(Env::default(), &data, default_on_virtual_key_down_inner);
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).get_text(), "abc");
+    }
+
+    #[test]
+    fn virtual_key_down_ignores_a_foreign_payload() {
+        let data = RefAny::new(0i64);
+        let (out, changes, _) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn virtual_key_down_bails_out_on_a_childless_hit_node() {
+        let log = edit_log(ACCEPT);
+        let mut state = wrapper("abc");
+        state.on_virtual_key_down = Some(TextAreaOnVirtualKeyDown {
+            callback: (record_virtual_key as TextAreaOnVirtualKeyDownCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (out, changes, _) = run(
+            Env::key(VirtualKeyCode::Back).hitting(Hit::Cursor),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).get_text(), "abc");
+        assert!(
+            edits_seen(&log).is_empty(),
+            "the DOM walk precedes the hook, so it never ran"
+        );
+    }
+
+    #[test]
+    fn backspace_on_an_empty_buffer_does_not_underflow() {
+        let data = RefAny::new(wrapper(""));
+        let (out, changes, nodes) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(out, Some(Update::DoNothing));
+        let state = read(&data);
+        assert!(state.text.is_empty());
+        assert_eq!(state.cursor_pos, 0, "saturating_sub must hold the floor");
+        // It still repaints: an empty buffer re-shows the placeholder.
+        assert_eq!(text_writes(&changes), vec![(nodes.label, String::new())]);
+        assert_eq!(opacity_writes(&changes), vec![(nodes.placeholder, 1.0)]);
+    }
+
+    #[test]
+    fn backspace_removes_exactly_one_char() {
+        for (before, after) in [
+            ("abc", "ab"),
+            ("a", ""),
+            ("a\n", "a"),
+            ("😀😀", "😀"),        // astral chars are one buffer slot each
+            ("e\u{301}", "e"),     // a combining mark is its own char
+            ("日本語", "日本"),
+        ] {
+            let data = RefAny::new(wrapper(before));
+            let (out, changes, nodes) = run(
+                Env::key(VirtualKeyCode::Back),
+                &data,
+                default_on_virtual_key_down_inner,
+            );
+
+            assert_eq!(out, Some(Update::DoNothing));
+            let state = read(&data);
+            assert_eq!(state.get_text(), after, "backspace on {before:?}");
+            assert_eq!(state.text.len(), after.chars().count());
+            assert_eq!(text_writes(&changes), vec![(nodes.label, after.to_string())]);
+        }
+    }
+
+    #[test]
+    fn backspace_re_shows_the_placeholder_only_once_the_buffer_empties() {
+        let data = RefAny::new(wrapper("ab"));
+
+        let (_, changes, _) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+        assert!(
+            opacity_writes(&changes).is_empty(),
+            "still one char left — the placeholder stays hidden"
+        );
+
+        let (_, changes, nodes) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+        assert_eq!(opacity_writes(&changes), vec![(nodes.placeholder, 1.0)]);
+    }
+
+    #[test]
+    fn backspace_clamps_the_cursor_instead_of_wrapping() {
+        let data = RefAny::new(wrapper("abc"));
+        poke(&data, |w| w.inner.cursor_pos = 0);
+
+        let (_, _, _) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(
+            read(&data).cursor_pos,
+            0,
+            "0 - 1 must saturate, never wrap to usize::MAX"
+        );
+    }
+
+    #[test]
+    fn backspace_pops_a_non_scalar_unit_too() {
+        let data = RefAny::new(wrapper("ab"));
+        poke(&data, |w| {
+            let mut units = w.inner.text.clone().into_library_owned_vec();
+            units.push(0xD800); // a lone surrogate, invisible to get_text
+            w.inner.text = units.into();
+        });
+
+        let (_, changes, nodes) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        let state = read(&data);
+        assert_eq!(state.text.len(), 2, "the surrogate was the unit popped");
+        assert_eq!(state.get_text(), "ab");
+        assert_eq!(text_writes(&changes), vec![(nodes.label, "ab".to_string())]);
+    }
+
+    #[test]
+    fn return_inserts_a_newline() {
+        let data = RefAny::new(wrapper("line"));
+        let (out, changes, nodes) = run(
+            Env::key(VirtualKeyCode::Return),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(out, Some(Update::DoNothing));
+        let state = read(&data);
+        assert_eq!(state.get_text(), "line\n");
+        assert_eq!(state.cursor_pos, 1, "cursor_pos started at 0 and moved by one");
+        assert_eq!(text_writes(&changes), vec![(nodes.label, "line\n".to_string())]);
+        assert_eq!(
+            opacity_writes(&changes),
+            vec![(nodes.placeholder, 0.0)],
+            "the buffer is non-empty, so the placeholder must be hidden"
+        );
+    }
+
+    #[test]
+    fn numpad_enter_behaves_exactly_like_return() {
+        let via_return = RefAny::new(wrapper("x"));
+        let (a_out, a_changes, _) = run(
+            Env::key(VirtualKeyCode::Return),
+            &via_return,
+            default_on_virtual_key_down_inner,
+        );
+
+        let via_numpad = RefAny::new(wrapper("x"));
+        let (b_out, b_changes, _) = run(
+            Env::key(VirtualKeyCode::NumpadEnter),
+            &via_numpad,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(a_out, b_out);
+        assert_eq!(read(&via_return), read(&via_numpad));
+        assert_eq!(text_writes(&a_changes), text_writes(&b_changes));
+        assert_eq!(opacity_writes(&a_changes), opacity_writes(&b_changes));
+    }
+
+    #[test]
+    fn repeated_returns_accumulate_blank_lines() {
+        let data = RefAny::new(wrapper(""));
+        for _ in 0..5 {
+            let (out, _, _) = run(
+                Env::key(VirtualKeyCode::Return),
+                &data,
+                default_on_virtual_key_down_inner,
+            );
+            assert_eq!(out, Some(Update::DoNothing));
+        }
+
+        let state = read(&data);
+        assert_eq!(state.get_text(), "\n\n\n\n\n");
+        assert_eq!(state.cursor_pos, 5);
+    }
+
+    #[test]
+    fn a_plain_character_key_is_left_to_the_text_input_path() {
+        // Printable keys arrive through `default_on_text_input`; the key handler
+        // must not double-insert them.
+        for key in [
+            VirtualKeyCode::A,
+            VirtualKeyCode::Space,
+            VirtualKeyCode::Tab,
+            VirtualKeyCode::Escape,
+            VirtualKeyCode::Left,
+        ] {
+            let data = RefAny::new(wrapper("abc"));
+            let (out, changes, _) = run(Env::key(key), &data, default_on_virtual_key_down_inner);
+
+            assert_eq!(out, Some(Update::DoNothing), "{key:?}");
+            assert!(changes.is_empty(), "{key:?} must not repaint");
+            assert_eq!(read(&data).get_text(), "abc", "{key:?} must not edit");
+        }
+    }
+
+    #[test]
+    fn the_hook_runs_even_for_keys_that_do_not_edit() {
+        let log = edit_log(ACCEPT);
+        let mut state = wrapper("abc");
+        state.on_virtual_key_down = Some(TextAreaOnVirtualKeyDown {
+            callback: (record_virtual_key as TextAreaOnVirtualKeyDownCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (out, changes, _) = run(
+            Env::key(VirtualKeyCode::F1),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(out, Some(Update::RefreshDom), "the hook's Update is returned");
+        assert!(changes.is_empty());
+        let seen = edits_seen(&log);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].get_text(), "abc", "the hook sees the pre-edit state");
+    }
+
+    #[test]
+    fn a_rejecting_hook_suppresses_the_built_in_editing() {
+        for key in [VirtualKeyCode::Back, VirtualKeyCode::Return] {
+            let log = edit_log(REJECT);
+            let mut state = wrapper("frozen");
+            state.on_virtual_key_down = Some(TextAreaOnVirtualKeyDown {
+                callback: (record_virtual_key as TextAreaOnVirtualKeyDownCallbackType).into(),
+                refany: log.clone(),
+            })
+            .into();
+            let data = RefAny::new(state);
+
+            let (out, changes, _) = run(Env::key(key), &data, default_on_virtual_key_down_inner);
+
+            assert_eq!(out, Some(Update::RefreshDomAllWindows), "{key:?}");
+            assert!(changes.is_empty(), "{key:?} must not repaint");
+            assert_eq!(read(&data).get_text(), "frozen", "{key:?} must not edit");
+            assert_eq!(edits_seen(&log).len(), 1);
+        }
+    }
+
+    #[test]
+    fn an_accepting_hook_lets_the_edit_through_and_still_sets_the_update() {
+        let log = edit_log(ACCEPT);
+        let mut state = wrapper("ab");
+        state.on_virtual_key_down = Some(TextAreaOnVirtualKeyDown {
+            callback: (record_virtual_key as TextAreaOnVirtualKeyDownCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (out, changes, nodes) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+
+        assert_eq!(out, Some(Update::RefreshDom));
+        assert_eq!(read(&data).get_text(), "a");
+        assert_eq!(text_writes(&changes), vec![(nodes.label, "a".to_string())]);
+    }
+
+    #[test]
+    fn virtual_key_down_extern_wrapper_maps_none_onto_do_nothing() {
+        let data = RefAny::new(wrapper("abc"));
+        let (update, changes, _) = run(Env::default(), &data, |r, ci| default_on_virtual_key_down(r, ci));
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn typing_then_editing_keeps_buffer_and_label_in_agreement() {
+        // One end-to-end pass over the three edit paths: paste, newline,
+        // backspace. The rendered label must equal `get_text()` at every step.
+        let data = RefAny::new(wrapper(""));
+
+        let (_, changes, nodes) = run(Env::typed("hello"), &data, default_on_text_input_inner);
+        assert_eq!(text_writes(&changes), vec![(nodes.label, "hello".to_string())]);
+
+        let (_, changes, nodes) = run(
+            Env::key(VirtualKeyCode::Return),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+        assert_eq!(text_writes(&changes), vec![(nodes.label, "hello\n".to_string())]);
+
+        let (_, changes, nodes) = run(Env::typed("world"), &data, default_on_text_input_inner);
+        assert_eq!(
+            text_writes(&changes),
+            vec![(nodes.label, "hello\nworld".to_string())]
+        );
+
+        let (_, changes, nodes) = run(
+            Env::key(VirtualKeyCode::Back),
+            &data,
+            default_on_virtual_key_down_inner,
+        );
+        assert_eq!(
+            text_writes(&changes),
+            vec![(nodes.label, "hello\nworl".to_string())]
+        );
+
+        assert_eq!(read(&data).get_text(), "hello\nworl");
+    }
+
+    // ==================================================================
+    // Every handler, fired before the first layout
+    // ==================================================================
+
+    /// An `Env` whose `LayoutWindow` holds no layout result at all — the state a
+    /// callback sees if it is dispatched before the DOM has ever been laid out.
+    fn before_first_layout() -> Env {
+        Env {
+            with_dom: false,
+            ..Env::default()
+        }
+    }
+
+    #[test]
+    fn focus_received_is_inert_before_the_first_layout() {
+        let data = RefAny::new(wrapper(""));
+        poke(&data, |w| w.inner.cursor_pos = 5);
+
+        let (update, changes, _) = run(before_first_layout(), &data, |r, ci| default_on_focus_received(r, ci));
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).cursor_pos, 5, "the cursor is not repaired either");
+    }
+
+    #[test]
+    fn focus_lost_is_inert_before_the_first_layout() {
+        let log = focus_log(Update::RefreshDom);
+        let mut state = wrapper("");
+        state.on_focus_lost = Some(TextAreaOnFocusLost {
+            callback: (record_focus_lost as TextAreaOnFocusLostCallbackType).into(),
+            refany: log.clone(),
+        })
+        .into();
+        let data = RefAny::new(state);
+
+        let (update, changes, _) = run(before_first_layout(), &data, |r, ci| default_on_focus_lost(r, ci));
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert!(focus_seen(&log).is_empty());
+    }
+
+    #[test]
+    fn text_input_is_inert_before_the_first_layout() {
+        let data = RefAny::new(wrapper("abc"));
+        let env = Env {
+            with_dom: false,
+            ..Env::typed("xyz")
+        };
+
+        let (out, changes, _) = run(env, &data, default_on_text_input_inner);
+
+        assert_eq!(out, None);
+        assert!(changes.is_empty());
+        assert_eq!(read(&data).get_text(), "abc", "no DOM to walk, no edit");
+    }
+
+    #[test]
+    fn virtual_key_down_is_inert_before_the_first_layout() {
+        for key in [VirtualKeyCode::Back, VirtualKeyCode::Return] {
+            let data = RefAny::new(wrapper("abc"));
+            let env = Env {
+                with_dom: false,
+                ..Env::key(key)
+            };
+
+            let (out, changes, _) = run(env, &data, default_on_virtual_key_down_inner);
+
+            assert_eq!(out, None, "{key:?}");
+            assert!(changes.is_empty(), "{key:?}");
+            assert_eq!(read(&data).get_text(), "abc", "{key:?}");
+        }
+    }
+}

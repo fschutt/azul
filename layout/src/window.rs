@@ -8257,3 +8257,1863 @@ fn remap_scrollbar_hit_id(
         other => other,
     })
 }
+
+/// Adversarial unit tests generated for `layout/src/window.rs`.
+///
+/// Inline (rather than in `tests/`) so the private helpers — `duration_to_millis`,
+/// `remap_scrollbar_hit_id`, `calculate_*_scroll_delta`,
+/// `LayoutWindow::calculate_scrollbar_opacity`, `FrameReport::merge_into` — are
+/// reachable. Every test here is deterministic: no wall-clock reads, no font
+/// loading, no solver passes.
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::unreadable_literal)]
+mod autotest_generated {
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // Shared helpers
+    // ------------------------------------------------------------------
+
+    fn pos(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition::new(x, y)
+    }
+
+    fn size(w: f32, h: f32) -> LogicalSize {
+        LogicalSize::new(w, h)
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(pos(x, y), size(w, h))
+    }
+
+    fn tick(n: u64) -> Instant {
+        Instant::Tick(azul_core::task::SystemTick { tick_counter: n })
+    }
+
+    fn tick_dur(n: u64) -> Duration {
+        Duration::Tick(SystemTickDiff { tick_diff: n })
+    }
+
+    fn sys_dur_ms(ms: u64) -> Duration {
+        Duration::System(SystemTimeDiff::from_millis(ms))
+    }
+
+    fn fresh_window() -> LayoutWindow {
+        LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new must succeed")
+    }
+
+    /// A `DomLayoutResult` carrying a real `StyledDom` but an *empty* layout
+    /// tree / display list — enough for every hierarchy + scan getter, and it
+    /// needs no fonts and no solver pass.
+    fn bare_layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+        DomLayoutResult {
+            styled_dom,
+            layout_tree: LayoutTree {
+                nodes: Vec::new(),
+                warm: Vec::new(),
+                cold: Vec::new(),
+                root: 0,
+                dom_to_layout: BTreeMap::new(),
+                children_arena: Vec::new(),
+                children_offsets: Vec::new(),
+                subtree_needs_intrinsic: Vec::new(),
+            },
+            calculated_positions: Vec::new(),
+            viewport: LogicalRect::zero(),
+            display_list: DisplayList::default(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+        }
+    }
+
+    /// `body` + three sibling `div`s => 4 nodes, pre-order, body first.
+    fn fixture_dom() -> StyledDom {
+        StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div()),
+        )
+    }
+
+    fn window_with_fixture() -> LayoutWindow {
+        let mut w = fresh_window();
+        w.layout_results
+            .insert(DomId::ROOT_ID, bare_layout_result(fixture_dom()));
+        w
+    }
+
+    fn dnid(index: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(index))),
+        }
+    }
+
+    /// Every "this id cannot possibly resolve" shape we want the getters to
+    /// survive: the encoded `None`, a plausible-but-stale index, and the
+    /// largest id the 1-based encoding can even represent.
+    fn hostile_node_ids() -> Vec<NodeHierarchyItemId> {
+        vec![
+            NodeHierarchyItemId::NONE,
+            NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(999_999))),
+            // NOT `from_crate_internal(Some(NodeId::new(usize::MAX)))` — that
+            // overflows the 1-based encode (`inner + 1`) and panics in debug.
+            NodeHierarchyItemId::from_raw(usize::MAX),
+        ]
+    }
+
+    // ==================================================================
+    // new_document_id / new_id_namespace  (unique-id generators)
+    // ==================================================================
+
+    #[test]
+    fn new_document_id_is_strictly_monotonic_and_carries_a_fresh_namespace() {
+        let a = new_document_id();
+        let b = new_document_id();
+        assert_ne!(a, b, "two DocumentIds must never be equal");
+        assert!(b.id > a.id, "the counter is fetch_add, so it must increase");
+        assert_ne!(
+            a.namespace_id, b.namespace_id,
+            "each DocumentId burns a fresh IdNamespace"
+        );
+    }
+
+    #[test]
+    fn new_id_namespace_is_strictly_monotonic() {
+        let a = new_id_namespace();
+        let b = new_id_namespace();
+        let c = new_id_namespace();
+        assert!(a.0 < b.0 && b.0 < c.0);
+    }
+
+    // ==================================================================
+    // FrameDamage — predicates + getters
+    // ==================================================================
+
+    #[test]
+    fn frame_damage_default_is_none() {
+        assert_eq!(FrameDamage::default(), FrameDamage::None);
+        assert!(FrameDamage::default().is_none());
+        assert!(!FrameDamage::default().is_full());
+    }
+
+    #[test]
+    fn frame_damage_is_none_and_is_full_are_mutually_exclusive() {
+        let cases = [
+            FrameDamage::None,
+            FrameDamage::Full,
+            FrameDamage::Rects(Vec::new()),
+            FrameDamage::Rects(vec![rect(0.0, 0.0, 1.0, 1.0)]),
+        ];
+        for d in &cases {
+            assert!(
+                !(d.is_none() && d.is_full()),
+                "no variant may be both none and full: {d:?}"
+            );
+        }
+        assert!(FrameDamage::None.is_none());
+        assert!(!FrameDamage::None.is_full());
+        assert!(FrameDamage::Full.is_full());
+        assert!(!FrameDamage::Full.is_none());
+        // An EMPTY rect list is deliberately not `is_none()` — it is still an
+        // incremental repaint, just one with nothing in it.
+        assert!(!FrameDamage::Rects(Vec::new()).is_none());
+        assert!(!FrameDamage::Rects(Vec::new()).is_full());
+    }
+
+    #[test]
+    fn frame_damage_rect_count_matches_documented_table() {
+        assert_eq!(FrameDamage::None.rect_count(), 0);
+        assert_eq!(FrameDamage::Full.rect_count(), 1);
+        assert_eq!(FrameDamage::Rects(Vec::new()).rect_count(), 0);
+        assert_eq!(
+            FrameDamage::Rects(vec![rect(0.0, 0.0, 1.0, 1.0); 3]).rect_count(),
+            3
+        );
+        // A huge list must not overflow / mis-count.
+        assert_eq!(
+            FrameDamage::Rects(vec![LogicalRect::zero(); 4096]).rect_count(),
+            4096
+        );
+    }
+
+    #[test]
+    fn frame_damage_rects_is_some_only_for_the_rects_variant() {
+        assert!(FrameDamage::None.rects().is_none());
+        assert!(FrameDamage::Full.rects().is_none());
+        let empty: &[LogicalRect] = &[];
+        assert_eq!(FrameDamage::Rects(Vec::new()).rects(), Some(empty));
+        let r = rect(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(FrameDamage::Rects(vec![r]).rects(), Some(&[r][..]));
+        // `rects()` and `rect_count()` must never disagree.
+        for d in [
+            FrameDamage::None,
+            FrameDamage::Full,
+            FrameDamage::Rects(Vec::new()),
+            FrameDamage::Rects(vec![r, r]),
+        ] {
+            if let Some(slice) = d.rects() {
+                assert_eq!(slice.len(), d.rect_count());
+            }
+        }
+    }
+
+    // ==================================================================
+    // FrameDamage::area — numeric edges
+    // ==================================================================
+
+    #[test]
+    fn frame_damage_area_none_is_always_exactly_zero() {
+        for window_area in [0.0, 1.0, -1.0, f32::MAX, f32::MIN, f32::INFINITY] {
+            let a = FrameDamage::None.area(window_area);
+            assert_eq!(a, 0.0, "None must swallow window_area={window_area}");
+        }
+        // Even a NaN window area must not leak out of the `None` arm.
+        let a = FrameDamage::None.area(f32::NAN);
+        assert!(!a.is_nan() && a == 0.0);
+    }
+
+    #[test]
+    fn frame_damage_area_full_passes_window_area_through_verbatim() {
+        assert_eq!(FrameDamage::Full.area(0.0), 0.0);
+        assert_eq!(FrameDamage::Full.area(1920.0 * 1080.0), 2_073_600.0);
+        // Documented as "the full window_area passed in" — including garbage.
+        assert_eq!(FrameDamage::Full.area(-5.0), -5.0);
+        assert_eq!(FrameDamage::Full.area(f32::INFINITY), f32::INFINITY);
+        assert!(FrameDamage::Full.area(f32::NAN).is_nan());
+    }
+
+    #[test]
+    fn frame_damage_area_of_rects_ignores_window_area_and_sums_products() {
+        assert_eq!(FrameDamage::Rects(Vec::new()).area(999.0), 0.0);
+        let d = FrameDamage::Rects(vec![rect(0.0, 0.0, 10.0, 10.0), rect(50.0, 50.0, 2.0, 3.0)]);
+        assert_eq!(d.area(1.0), 106.0);
+        assert_eq!(d.area(f32::MAX), 106.0, "window_area is unused for Rects");
+    }
+
+    #[test]
+    fn frame_damage_area_of_degenerate_rects_is_defined_not_panicking() {
+        // Zero-size rect contributes nothing.
+        assert_eq!(FrameDamage::Rects(vec![rect(5.0, 5.0, 0.0, 0.0)]).area(1.0), 0.0);
+        // Negative extents produce a negative "area" rather than being clamped
+        // — pinned so a future clamp is a deliberate change, not a silent one.
+        assert_eq!(
+            FrameDamage::Rects(vec![rect(0.0, 0.0, -10.0, 10.0)]).area(1.0),
+            -100.0
+        );
+        // Overflow saturates to +inf (f32 semantics), it does not panic.
+        let huge = FrameDamage::Rects(vec![rect(0.0, 0.0, f32::MAX, f32::MAX)]);
+        assert!(huge.area(1.0).is_infinite() && huge.area(1.0) > 0.0);
+        // NaN propagates instead of poisoning the process.
+        assert!(FrameDamage::Rects(vec![rect(0.0, 0.0, f32::NAN, 1.0)])
+            .area(1.0)
+            .is_nan());
+    }
+
+    // ==================================================================
+    // FrameDamage::to_present_rects_physical — the presenter contract
+    // ==================================================================
+
+    #[test]
+    fn present_rects_zero_sized_buffer_is_always_none_even_when_forced() {
+        for d in [
+            FrameDamage::None,
+            FrameDamage::Full,
+            FrameDamage::Rects(vec![rect(0.0, 0.0, 10.0, 10.0)]),
+        ] {
+            assert_eq!(d.to_present_rects_physical(1.0, 0, 100, false), None);
+            assert_eq!(d.to_present_rects_physical(1.0, 100, 0, false), None);
+            assert_eq!(d.to_present_rects_physical(1.0, 0, 0, true), None);
+            // The zero-size guard runs BEFORE force_full.
+            assert_eq!(d.to_present_rects_physical(1.0, 0, 480, true), None);
+        }
+    }
+
+    #[test]
+    fn present_rects_force_full_overrides_every_variant() {
+        for d in [
+            FrameDamage::None,
+            FrameDamage::Full,
+            FrameDamage::Rects(Vec::new()),
+            FrameDamage::Rects(vec![rect(1.0, 1.0, 2.0, 2.0)]),
+        ] {
+            assert_eq!(
+                d.to_present_rects_physical(2.0, 640, 480, true),
+                Some(vec![(0, 0, 640, 480)]),
+                "force_full must present the whole buffer for {d:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn present_rects_variant_defaults() {
+        assert_eq!(
+            FrameDamage::None.to_present_rects_physical(1.0, 800, 600, false),
+            None,
+            "None => present nothing"
+        );
+        assert_eq!(
+            FrameDamage::Full.to_present_rects_physical(1.0, 800, 600, false),
+            Some(vec![(0, 0, 800, 600)])
+        );
+        assert_eq!(
+            FrameDamage::Rects(Vec::new()).to_present_rects_physical(1.0, 800, 600, false),
+            None,
+            "an empty rect list is nothing to present"
+        );
+    }
+
+    #[test]
+    fn present_rects_round_outward_so_fractional_edges_are_covered() {
+        // floor(origin) / ceil(far edge): a 1px rect starting at x=0.5 must
+        // cover 2 physical columns, not 1 (truncation would leave a stale seam).
+        let d = FrameDamage::Rects(vec![rect(0.5, 0.25, 1.0, 1.5)]);
+        assert_eq!(
+            d.to_present_rects_physical(1.0, 100, 100, false),
+            Some(vec![(0, 0, 2, 2)])
+        );
+    }
+
+    #[test]
+    fn present_rects_apply_the_dpi_factor() {
+        let d = FrameDamage::Rects(vec![rect(1.0, 1.0, 3.0, 3.0)]);
+        assert_eq!(
+            d.to_present_rects_physical(2.0, 100, 100, false),
+            Some(vec![(2, 2, 6, 6)])
+        );
+    }
+
+    #[test]
+    fn present_rects_clamp_to_the_buffer_instead_of_wrapping() {
+        // Far off to the negative side: clamps to the buffer origin.
+        let d = FrameDamage::Rects(vec![rect(-50.0, -50.0, 100.0, 100.0)]);
+        assert_eq!(
+            d.to_present_rects_physical(1.0, 10, 10, false),
+            Some(vec![(0, 0, 10, 10)])
+        );
+        // Entirely past the far edge: degenerate after clamping, so dropped.
+        let d = FrameDamage::Rects(vec![rect(1000.0, 1000.0, 10.0, 10.0)]);
+        assert_eq!(d.to_present_rects_physical(1.0, 100, 100, false), None);
+        // f32::MAX coordinates saturate on the `as i64` cast (no wraparound).
+        let d = FrameDamage::Rects(vec![rect(f32::MAX, f32::MAX, 10.0, 10.0)]);
+        assert_eq!(d.to_present_rects_physical(1.0, 100, 100, false), None);
+    }
+
+    #[test]
+    fn present_rects_drop_degenerate_and_inverted_rects() {
+        // Zero extent.
+        assert_eq!(
+            FrameDamage::Rects(vec![rect(5.0, 5.0, 0.0, 0.0)])
+                .to_present_rects_physical(1.0, 100, 100, false),
+            None
+        );
+        // Negative extent (x1 < x0).
+        assert_eq!(
+            FrameDamage::Rects(vec![rect(50.0, 50.0, -10.0, -10.0)])
+                .to_present_rects_physical(1.0, 100, 100, false),
+            None
+        );
+        // A good rect next to a degenerate one keeps only the good one.
+        let d = FrameDamage::Rects(vec![rect(5.0, 5.0, 0.0, 0.0), rect(0.0, 0.0, 4.0, 4.0)]);
+        assert_eq!(
+            d.to_present_rects_physical(1.0, 100, 100, false),
+            Some(vec![(0, 0, 4, 4)])
+        );
+    }
+
+    #[test]
+    fn present_rects_collapse_past_sixteen_rects() {
+        let one = |i: u32| rect(i as f32, 0.0, 1.0, 1.0);
+        // Exactly the cap: kept individually.
+        let sixteen = FrameDamage::Rects((0..16).map(one).collect());
+        let got = sixteen
+            .to_present_rects_physical(1.0, 100, 100, false)
+            .expect("16 in-bounds rects must present");
+        assert_eq!(got.len(), 16);
+        assert_eq!(got[0], (0, 0, 1, 1));
+        assert_eq!(got[15], (15, 0, 1, 1));
+        // One over the cap: bounded cost, one full-buffer rect.
+        let seventeen = FrameDamage::Rects((0..17).map(one).collect());
+        assert_eq!(
+            seventeen.to_present_rects_physical(1.0, 100, 100, false),
+            Some(vec![(0, 0, 100, 100)])
+        );
+        // Way over the cap: still exactly one rect, no O(n) blowup.
+        let many = FrameDamage::Rects((0..4096).map(|i| one(i % 100)).collect());
+        assert_eq!(
+            many.to_present_rects_physical(1.0, 100, 100, false),
+            Some(vec![(0, 0, 100, 100)])
+        );
+    }
+
+    #[test]
+    fn present_rects_survive_nan_and_infinite_dpi() {
+        let d = FrameDamage::Rects(vec![rect(10.0, 10.0, 20.0, 20.0)]);
+        // NaN scales every edge to NaN; `NaN as i64` == 0, so the rect collapses
+        // and is dropped -> nothing to present (rather than a bogus rect).
+        assert_eq!(d.to_present_rects_physical(f32::NAN, 100, 100, false), None);
+        // Zero and negative scales likewise collapse.
+        assert_eq!(d.to_present_rects_physical(0.0, 100, 100, false), None);
+        assert_eq!(d.to_present_rects_physical(-1.0, 100, 100, false), None);
+        assert_eq!(
+            d.to_present_rects_physical(f32::NEG_INFINITY, 100, 100, false),
+            None
+        );
+        // +inf saturates the far edge to the buffer bound rather than wrapping.
+        let at_origin = FrameDamage::Rects(vec![rect(0.0, 0.0, 10.0, 10.0)]);
+        assert_eq!(
+            at_origin.to_present_rects_physical(f32::INFINITY, 100, 100, false),
+            Some(vec![(0, 0, 100, 100)])
+        );
+        assert_eq!(
+            at_origin.to_present_rects_physical(f32::MAX, 100, 100, false),
+            Some(vec![(0, 0, 100, 100)])
+        );
+    }
+
+    #[test]
+    fn present_rects_never_escape_the_buffer_for_any_input() {
+        let buf_w = 137_u32;
+        let buf_h = 71_u32;
+        let damages = [
+            FrameDamage::Full,
+            FrameDamage::Rects(vec![rect(-1e9, -1e9, 2e9, 2e9)]),
+            FrameDamage::Rects(vec![rect(0.0, 0.0, f32::INFINITY, f32::INFINITY)]),
+            FrameDamage::Rects(vec![rect(f32::NAN, 0.0, 10.0, 10.0)]),
+            FrameDamage::Rects(vec![rect(136.9, 70.9, 0.2, 0.2)]),
+            FrameDamage::Rects(vec![rect(0.0, 0.0, 1.0, 1.0); 40]),
+        ];
+        let dpis = [0.0_f32, 0.5, 1.0, 2.0, 3.5, 1e9, f32::NAN, f32::INFINITY, -2.0];
+        for d in &damages {
+            for dpi in dpis {
+                for force in [false, true] {
+                    if let Some(rects) = d.to_present_rects_physical(dpi, buf_w, buf_h, force) {
+                        assert!(!rects.is_empty(), "Some(..) must never be empty: {d:?}");
+                        for (x, y, w, h) in rects {
+                            assert!(w > 0 && h > 0, "present rects must be non-degenerate");
+                            assert!(
+                                x.checked_add(w).is_some_and(|far| far <= buf_w),
+                                "rect escapes buffer width: {x}+{w} > {buf_w} ({d:?}, dpi={dpi})"
+                            );
+                            assert!(
+                                y.checked_add(h).is_some_and(|far| far <= buf_h),
+                                "rect escapes buffer height: {y}+{h} > {buf_h} ({d:?}, dpi={dpi})"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================================================================
+    // FrameReport
+    // ==================================================================
+
+    /// `FRAME_REPORT_RESET_GENERATION` is process-global, so the tests that
+    /// touch it must not run concurrently with each other.
+    static FRAME_REPORT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn frame_report_lock() -> std::sync::MutexGuard<'static, ()> {
+        FRAME_REPORT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A report already in sync with the global generation, so `sync_generation`
+    /// inside `record_frame` is a no-op for the test.
+    fn synced_report() -> FrameReport {
+        let mut r = FrameReport::default();
+        r.reset_generation = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64;
+        r
+    }
+
+    #[test]
+    fn frame_report_default_is_all_zero() {
+        let r = FrameReport::default();
+        assert_eq!(r.frame_index, 0);
+        assert_eq!(r.frames_since_reset, 0);
+        assert_eq!(r.relayout_iterations, 0);
+        assert_eq!(r.dom_regenerations, 0);
+        assert_eq!(r.reset_generation, 0);
+        assert_eq!(r.terminal_result, 0);
+        assert!(!r.hit_depth_cap);
+        assert_eq!(r.paint_damage, FrameDamage::None);
+        assert_eq!(r.present_damage, FrameDamage::None);
+        assert_eq!(r.accumulated_paint_damage, FrameDamage::None);
+        assert_eq!(r.accumulated_present_damage, FrameDamage::None);
+    }
+
+    #[test]
+    fn frame_report_merge_into_full_dominates_and_none_is_neutral() {
+        let a = rect(0.0, 0.0, 1.0, 1.0);
+        let b = rect(9.0, 9.0, 2.0, 2.0);
+
+        // None is the identity on the right.
+        for start in [
+            FrameDamage::None,
+            FrameDamage::Full,
+            FrameDamage::Rects(vec![a]),
+        ] {
+            let mut acc = start.clone();
+            FrameReport::merge_into(&mut acc, &FrameDamage::None);
+            assert_eq!(acc, start, "merging None must not change the accumulator");
+        }
+
+        // Full absorbs everything on the right...
+        for next in [
+            FrameDamage::None,
+            FrameDamage::Full,
+            FrameDamage::Rects(vec![a]),
+        ] {
+            let mut acc = FrameDamage::Full;
+            FrameReport::merge_into(&mut acc, &next);
+            assert_eq!(acc, FrameDamage::Full, "Full is absorbing");
+        }
+        // ...and on the left.
+        for start in [FrameDamage::None, FrameDamage::Rects(vec![a])] {
+            let mut acc = start;
+            FrameReport::merge_into(&mut acc, &FrameDamage::Full);
+            assert_eq!(acc, FrameDamage::Full);
+        }
+
+        // None + Rects adopts the rects (by clone, not by aliasing).
+        let mut acc = FrameDamage::None;
+        FrameReport::merge_into(&mut acc, &FrameDamage::Rects(vec![a]));
+        assert_eq!(acc, FrameDamage::Rects(vec![a]));
+
+        // Rects + Rects concatenates (no dedup, no union).
+        FrameReport::merge_into(&mut acc, &FrameDamage::Rects(vec![b, a]));
+        assert_eq!(acc, FrameDamage::Rects(vec![a, b, a]));
+    }
+
+    #[test]
+    fn frame_report_merge_into_keeps_empty_rects_distinct_from_none() {
+        // Merging two empty rect lists stays `Rects([])`, which reports
+        // `rect_count() == 0` but is NOT `is_none()`.
+        let mut acc = FrameDamage::Rects(Vec::new());
+        FrameReport::merge_into(&mut acc, &FrameDamage::Rects(Vec::new()));
+        assert_eq!(acc, FrameDamage::Rects(Vec::new()));
+        assert_eq!(acc.rect_count(), 0);
+        assert!(!acc.is_none());
+        // But `None` + `Rects([])` also lands on `Rects([])`.
+        let mut acc = FrameDamage::None;
+        FrameReport::merge_into(&mut acc, &FrameDamage::Rects(Vec::new()));
+        assert_eq!(acc, FrameDamage::Rects(Vec::new()));
+    }
+
+    #[test]
+    fn frame_report_record_frame_keeps_last_frame_and_accumulated_damage_apart() {
+        let _guard = frame_report_lock();
+        let a = rect(0.0, 0.0, 4.0, 4.0);
+        let mut r = synced_report();
+
+        r.record_frame(FrameDamage::Rects(vec![a]), FrameDamage::Full);
+        assert_eq!(r.frame_index, 1);
+        assert_eq!(r.frames_since_reset, 1);
+        assert_eq!(r.paint_damage, FrameDamage::Rects(vec![a]));
+        assert_eq!(r.present_damage, FrameDamage::Full);
+        assert_eq!(r.accumulated_paint_damage, FrameDamage::Rects(vec![a]));
+        assert_eq!(r.accumulated_present_damage, FrameDamage::Full);
+
+        // An idle frame clobbers the last-frame damage but must NOT erase the
+        // accumulated damage — that is the whole point of the sticky counters.
+        r.record_frame(FrameDamage::None, FrameDamage::None);
+        assert_eq!(r.frame_index, 2);
+        assert_eq!(r.frames_since_reset, 2);
+        assert_eq!(r.paint_damage, FrameDamage::None);
+        assert_eq!(r.present_damage, FrameDamage::None);
+        assert_eq!(r.accumulated_paint_damage, FrameDamage::Rects(vec![a]));
+        assert_eq!(r.accumulated_present_damage, FrameDamage::Full);
+    }
+
+    #[test]
+    fn frame_report_accumulated_rects_grow_without_dedup() {
+        let _guard = frame_report_lock();
+        let a = rect(0.0, 0.0, 1.0, 1.0);
+        let mut r = synced_report();
+        for _ in 0..5 {
+            r.record_frame(FrameDamage::Rects(vec![a]), FrameDamage::None);
+        }
+        // Five identical rects accumulate to five entries: the merge is a
+        // concatenation, so a long-running window grows this list unboundedly
+        // until someone calls the reset. Pinned deliberately.
+        assert_eq!(r.accumulated_paint_damage.rect_count(), 5);
+        assert_eq!(r.frames_since_reset, 5);
+    }
+
+    #[test]
+    fn frame_report_counters_saturate_and_wrap_as_documented() {
+        let _guard = frame_report_lock();
+        let mut r = synced_report();
+        r.frames_since_reset = u32::MAX;
+        r.frame_index = u64::MAX;
+
+        r.record_frame(FrameDamage::None, FrameDamage::None);
+
+        // `saturating_add` on the frame counter...
+        assert_eq!(r.frames_since_reset, u32::MAX);
+        // ...but `wrapping_add` on the monotonic index (no debug-overflow panic).
+        assert_eq!(r.frame_index, 0);
+    }
+
+    #[test]
+    fn frame_report_reset_counters_clears_only_the_sticky_fields() {
+        let mut r = FrameReport::default();
+        r.frame_index = 42;
+        r.terminal_result = 7;
+        r.paint_damage = FrameDamage::Full;
+        r.present_damage = FrameDamage::Full;
+        r.relayout_iterations = 9;
+        r.dom_regenerations = 4;
+        r.hit_depth_cap = true;
+        r.frames_since_reset = 11;
+        r.accumulated_paint_damage = FrameDamage::Full;
+        r.accumulated_present_damage = FrameDamage::Rects(vec![rect(0.0, 0.0, 1.0, 1.0)]);
+
+        r.reset_counters();
+
+        assert_eq!(r.relayout_iterations, 0);
+        assert_eq!(r.dom_regenerations, 0);
+        assert!(!r.hit_depth_cap);
+        assert_eq!(r.frames_since_reset, 0);
+        assert_eq!(r.accumulated_paint_damage, FrameDamage::None);
+        assert_eq!(r.accumulated_present_damage, FrameDamage::None);
+        // Explicitly NOT reset:
+        assert_eq!(r.frame_index, 42);
+        assert_eq!(r.terminal_result, 7);
+        assert_eq!(r.paint_damage, FrameDamage::Full);
+        assert_eq!(r.present_damage, FrameDamage::Full);
+
+        // Idempotent.
+        r.reset_counters();
+        assert_eq!(r.frames_since_reset, 0);
+    }
+
+    #[test]
+    fn frame_report_sync_generation_resets_once_per_request() {
+        let _guard = frame_report_lock();
+        let mut r = synced_report();
+        r.relayout_iterations = 7;
+        r.dom_regenerations = 3;
+        r.hit_depth_cap = true;
+        r.frames_since_reset = 5;
+        r.accumulated_paint_damage = FrameDamage::Full;
+        r.frame_index = 42;
+        r.paint_damage = FrameDamage::Full;
+
+        // No request pending -> no-op.
+        r.sync_generation();
+        assert_eq!(r.relayout_iterations, 7);
+        assert_eq!(r.accumulated_paint_damage, FrameDamage::Full);
+
+        request_frame_report_reset();
+        r.sync_generation();
+        assert_eq!(r.relayout_iterations, 0);
+        assert_eq!(r.dom_regenerations, 0);
+        assert!(!r.hit_depth_cap);
+        assert_eq!(r.frames_since_reset, 0);
+        assert_eq!(r.accumulated_paint_damage, FrameDamage::None);
+        assert_eq!(r.accumulated_present_damage, FrameDamage::None);
+        // The reset must not disturb the last-frame record or the index.
+        assert_eq!(r.frame_index, 42);
+        assert_eq!(r.paint_damage, FrameDamage::Full);
+        assert_eq!(
+            r.reset_generation,
+            FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64
+        );
+
+        // A second sync without a new request must NOT re-zero.
+        r.relayout_iterations = 3;
+        r.sync_generation();
+        assert_eq!(r.relayout_iterations, 3, "sync must fire once per request");
+    }
+
+    #[test]
+    fn request_frame_report_reset_is_monotonic_and_never_panics() {
+        let _guard = frame_report_lock();
+        let before = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst);
+        request_frame_report_reset();
+        request_frame_report_reset();
+        let after = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst);
+        assert_eq!(after, before + 2);
+    }
+
+    // ==================================================================
+    // duration_to_millis / default_duration_*
+    // ==================================================================
+
+    #[test]
+    fn duration_to_millis_system_boundaries() {
+        assert_eq!(duration_to_millis(sys_dur_ms(0)), 0);
+        assert_eq!(duration_to_millis(sys_dur_ms(1)), 1);
+        assert_eq!(duration_to_millis(sys_dur_ms(999)), 999);
+        assert_eq!(duration_to_millis(sys_dur_ms(1_000)), 1_000);
+        assert_eq!(duration_to_millis(sys_dur_ms(1_500)), 1_500);
+        // Sub-millisecond durations truncate toward zero.
+        assert_eq!(
+            duration_to_millis(Duration::System(SystemTimeDiff {
+                secs: 0,
+                nanos: 999_999
+            })),
+            0
+        );
+        assert_eq!(
+            duration_to_millis(Duration::System(SystemTimeDiff {
+                secs: 0,
+                nanos: 1_000_000
+            })),
+            1
+        );
+    }
+
+    #[test]
+    fn duration_to_millis_at_the_top_of_the_u64_range() {
+        // `from_millis(u64::MAX)` normalises to secs/nanos and must round-trip
+        // back to exactly u64::MAX millis (no truncation, no panic).
+        assert_eq!(duration_to_millis(sys_dur_ms(u64::MAX)), u64::MAX);
+        // The largest *normalised* SystemTimeDiff must not panic either — the
+        // std `Duration::new` carry only overflows for nanos >= 1e9.
+        let max_normalised = Duration::System(SystemTimeDiff {
+            secs: u64::MAX,
+            nanos: 999_999_999,
+        });
+        let ms = duration_to_millis(max_normalised);
+        assert_eq!(ms, duration_to_millis(max_normalised), "deterministic");
+        // as_millis() is u128 (u64::MAX*1000 + 999); the `as u64` narrowing
+        // wraps back onto u64::MAX exactly. Pinned so a future widening/clamp
+        // is a deliberate change.
+        assert_eq!(ms, u64::MAX);
+    }
+
+    #[test]
+    fn duration_to_millis_tick_boundaries() {
+        assert_eq!(duration_to_millis(tick_dur(0)), 0);
+        assert_eq!(duration_to_millis(tick_dur(1)), 1);
+        assert_eq!(duration_to_millis(tick_dur(u64::MAX)), u64::MAX);
+    }
+
+    #[test]
+    fn default_durations_are_the_advertised_500ms_and_200ms() {
+        assert_eq!(default_duration_500ms(), sys_dur_ms(500));
+        assert_eq!(default_duration_200ms(), sys_dur_ms(200));
+        assert_eq!(duration_to_millis(default_duration_500ms()), 500);
+        assert_eq!(duration_to_millis(default_duration_200ms()), 200);
+        assert_ne!(default_duration_500ms(), default_duration_200ms());
+        assert!(default_duration_500ms().greater_than(&default_duration_200ms()));
+    }
+
+    // ==================================================================
+    // calculate_edge_distance
+    // ==================================================================
+
+    #[test]
+    fn edge_distance_for_a_rect_fully_inside_its_container() {
+        let d = calculate_edge_distance(rect(10.0, 10.0, 20.0, 20.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d.left, 10.0);
+        assert_eq!(d.right, 70.0);
+        assert_eq!(d.top, 10.0);
+        assert_eq!(d.bottom, 70.0);
+    }
+
+    #[test]
+    fn edge_distance_clamps_negative_overhang_to_zero() {
+        // Rect hangs off the top-left.
+        let d = calculate_edge_distance(rect(-50.0, -50.0, 10.0, 10.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d.left, 0.0);
+        assert_eq!(d.top, 0.0);
+        assert_eq!(d.right, 140.0);
+        assert_eq!(d.bottom, 140.0);
+        // Rect dwarfs the container.
+        let d = calculate_edge_distance(rect(0.0, 0.0, 1000.0, 1000.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d.left, 0.0);
+        assert_eq!(d.top, 0.0);
+        assert_eq!(d.right, 0.0);
+        assert_eq!(d.bottom, 0.0);
+    }
+
+    #[test]
+    fn edge_distance_never_returns_nan_or_a_negative_number() {
+        let hostile = [
+            (rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN), rect(0.0, 0.0, 100.0, 100.0)),
+            (rect(0.0, 0.0, 10.0, 10.0), rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN)),
+            (
+                rect(f32::INFINITY, f32::INFINITY, 1.0, 1.0),
+                rect(0.0, 0.0, 100.0, 100.0),
+            ),
+            (
+                rect(0.0, 0.0, f32::INFINITY, f32::INFINITY),
+                rect(0.0, 0.0, f32::INFINITY, f32::INFINITY),
+            ),
+            (LogicalRect::zero(), LogicalRect::zero()),
+            (
+                rect(f32::MIN, f32::MIN, f32::MAX, f32::MAX),
+                rect(f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+            ),
+        ];
+        for (r, c) in hostile {
+            let d = calculate_edge_distance(r, c);
+            for (name, v) in [
+                ("left", d.left),
+                ("right", d.right),
+                ("top", d.top),
+                ("bottom", d.bottom),
+            ] {
+                assert!(!v.is_nan(), "{name} is NaN for rect={r:?} container={c:?}");
+                assert!(v >= 0.0, "{name} is negative ({v}) for rect={r:?}");
+            }
+        }
+        // Specifically: NaN in => 0.0 out (f32::max ignores NaN).
+        let d = calculate_edge_distance(
+            rect(f32::NAN, f32::NAN, 1.0, 1.0),
+            rect(0.0, 0.0, 100.0, 100.0),
+        );
+        assert_eq!(d.left, 0.0);
+        assert_eq!(d.top, 0.0);
+    }
+
+    // ==================================================================
+    // calculate_instant_scroll_delta
+    // ==================================================================
+
+    #[test]
+    fn instant_scroll_delta_is_zero_when_bounds_sit_comfortably_inside() {
+        let d = calculate_instant_scroll_delta(rect(20.0, 20.0, 10.0, 10.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d, pos(0.0, 0.0));
+    }
+
+    #[test]
+    fn instant_scroll_delta_pushes_by_the_five_px_padding() {
+        // Flush against the near edge -> scroll back by PADDING.
+        let d = calculate_instant_scroll_delta(rect(0.0, 0.0, 10.0, 10.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d, pos(-5.0, -5.0));
+        // Partially inside the near padding band.
+        let d = calculate_instant_scroll_delta(rect(3.0, 3.0, 1.0, 1.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d, pos(-2.0, -2.0));
+        // Past the far edge -> scroll forward past it, plus PADDING.
+        let d = calculate_instant_scroll_delta(rect(95.0, 95.0, 10.0, 10.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d, pos(10.0, 10.0));
+    }
+
+    #[test]
+    fn instant_scroll_delta_near_edge_branch_wins_for_an_oversized_rect() {
+        // The rect overflows BOTH edges; only the near-edge branch may fire
+        // (they are `if / else if`), so the delta is the near-edge one.
+        let d = calculate_instant_scroll_delta(rect(0.0, 0.0, 500.0, 500.0), rect(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(d, pos(-5.0, -5.0));
+    }
+
+    #[test]
+    fn instant_scroll_delta_with_nan_bounds_is_zero_not_nan() {
+        let d = calculate_instant_scroll_delta(
+            rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+            rect(0.0, 0.0, 100.0, 100.0),
+        );
+        assert!(!d.x.is_nan() && !d.y.is_nan(), "NaN must not leak into the scroll delta");
+        assert_eq!(d, pos(0.0, 0.0));
+    }
+
+    #[test]
+    fn instant_scroll_delta_saturates_instead_of_panicking_on_huge_bounds() {
+        let d = calculate_instant_scroll_delta(
+            rect(f32::MAX, f32::MAX, f32::MAX, f32::MAX),
+            rect(0.0, 0.0, 100.0, 100.0),
+        );
+        assert!(d.x.is_infinite() && d.x > 0.0);
+        assert!(d.y.is_infinite() && d.y > 0.0);
+        // A zero-size viewport still yields a finite, deterministic nudge.
+        let d = calculate_instant_scroll_delta(LogicalRect::zero(), LogicalRect::zero());
+        assert_eq!(d, pos(-5.0, -5.0));
+    }
+
+    // ==================================================================
+    // calculate_accelerated_scroll_delta
+    // ==================================================================
+
+    fn edges(left: f32, right: f32, top: f32, bottom: f32) -> EdgeDistance {
+        EdgeDistance {
+            left,
+            right,
+            top,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn accelerated_scroll_delta_dead_zone_produces_no_movement() {
+        assert_eq!(
+            calculate_accelerated_scroll_delta(edges(0.0, 0.0, 0.0, 0.0)),
+            pos(0.0, 0.0)
+        );
+        // Anything strictly inside the 20px dead zone.
+        assert_eq!(
+            calculate_accelerated_scroll_delta(edges(19.999, 1000.0, 19.999, 1000.0)),
+            pos(0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn accelerated_scroll_delta_zone_boundaries_are_exact() {
+        // The comparisons are `<`, so each boundary value belongs to the NEXT
+        // (faster) zone.
+        let cases = [
+            (19.999_f32, 0.0_f32),
+            (20.0, -2.0),
+            (49.999, -2.0),
+            (50.0, -4.0),
+            (99.999, -4.0),
+            (100.0, -8.0),
+            (199.999, -8.0),
+            (200.0, -16.0),
+            (1e9, -16.0),
+        ];
+        for (dist, expected_x) in cases {
+            let d = calculate_accelerated_scroll_delta(edges(dist, f32::MAX, dist, f32::MAX));
+            assert_eq!(d.x, expected_x, "left={dist}");
+            assert_eq!(d.y, expected_x, "top={dist}");
+        }
+    }
+
+    #[test]
+    fn accelerated_scroll_delta_picks_the_nearer_edge_and_signs_it() {
+        // Nearer to the left/top -> negative (scroll back).
+        let d = calculate_accelerated_scroll_delta(edges(30.0, 1000.0, 30.0, 1000.0));
+        assert_eq!(d, pos(-2.0, -2.0));
+        // Nearer to the right/bottom -> positive (scroll forward).
+        let d = calculate_accelerated_scroll_delta(edges(1000.0, 60.0, 1000.0, 60.0));
+        assert_eq!(d, pos(4.0, 4.0));
+        // Ties go to the far edge (`<` is false), i.e. positive.
+        let d = calculate_accelerated_scroll_delta(edges(60.0, 60.0, 60.0, 60.0));
+        assert_eq!(d, pos(4.0, 4.0));
+    }
+
+    #[test]
+    fn accelerated_scroll_delta_treats_negative_distances_as_dead_zone() {
+        let d = calculate_accelerated_scroll_delta(edges(-100.0, 1000.0, -100.0, 1000.0));
+        assert_eq!(d.x, 0.0);
+        assert_eq!(d.y, 0.0);
+    }
+
+    #[test]
+    fn accelerated_scroll_delta_with_nan_distances_falls_into_the_fastest_zone() {
+        // Every `dist < ZONE` comparison is false for NaN, so the chain falls
+        // through to VERY_FAST_SPEED. Pinned: NaN edge distances scroll at the
+        // maximum rate instead of not scrolling.
+        let d = calculate_accelerated_scroll_delta(edges(f32::NAN, f32::NAN, f32::NAN, f32::NAN));
+        assert_eq!(d, pos(16.0, 16.0));
+        assert!(!d.x.is_nan() && !d.y.is_nan());
+    }
+
+    #[test]
+    fn accelerated_scroll_delta_speed_is_always_bounded() {
+        let vals = [
+            0.0_f32,
+            -1.0,
+            19.9,
+            20.0,
+            50.0,
+            100.0,
+            200.0,
+            f32::MAX,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ];
+        for l in vals {
+            for r in vals {
+                let d = calculate_accelerated_scroll_delta(edges(l, r, l, r));
+                assert!(d.x.abs() <= 16.0, "|x| out of range for ({l}, {r}): {}", d.x);
+                assert!(d.y.abs() <= 16.0, "|y| out of range for ({l}, {r}): {}", d.y);
+                assert!(!d.x.is_nan() && !d.y.is_nan());
+            }
+        }
+    }
+
+    // ==================================================================
+    // LayoutWindow::calculate_scrollbar_opacity
+    // ==================================================================
+
+    fn opacity(last: Option<Instant>, now: Instant, delay: Duration, dur: Duration) -> f32 {
+        LayoutWindow::calculate_scrollbar_opacity(last, now, delay, dur)
+    }
+
+    #[test]
+    fn scrollbar_opacity_without_activity_is_fully_transparent() {
+        assert_eq!(
+            opacity(None, tick(1_000), tick_dur(500), tick_dur(200)),
+            0.0
+        );
+    }
+
+    #[test]
+    fn scrollbar_opacity_stays_opaque_through_the_delay_window() {
+        for elapsed in [0_u64, 1, 250, 499, 500] {
+            let v = opacity(
+                Some(tick(0)),
+                tick(elapsed),
+                tick_dur(500),
+                tick_dur(200),
+            );
+            assert_eq!(v, 1.0, "must stay opaque at elapsed={elapsed}");
+        }
+    }
+
+    #[test]
+    fn scrollbar_opacity_fades_linearly_then_pins_at_zero() {
+        // Halfway through the 200-tick fade that starts after 500 ticks.
+        let v = opacity(Some(tick(0)), tick(600), tick_dur(500), tick_dur(200));
+        assert!((v - 0.5).abs() < 1e-4, "expected ~0.5, got {v}");
+        // End of the fade.
+        let v = opacity(Some(tick(0)), tick(700), tick_dur(500), tick_dur(200));
+        assert!(v.abs() < 1e-4, "expected ~0.0, got {v}");
+        // Long past the fade.
+        assert_eq!(
+            opacity(Some(tick(0)), tick(1_000_000), tick_dur(500), tick_dur(200)),
+            0.0
+        );
+    }
+
+    #[test]
+    fn scrollbar_opacity_handles_a_clock_that_went_backwards() {
+        // `duration_since` saturates to zero, so a "negative" elapsed time is
+        // treated as "just now" -> fully opaque, not NaN and not 0.
+        let v = opacity(Some(tick(500)), tick(0), tick_dur(500), tick_dur(200));
+        assert_eq!(v, 1.0);
+    }
+
+    #[test]
+    fn scrollbar_opacity_survives_zero_length_delay_and_fade() {
+        // Both of these divide by zero somewhere inside; the result must still
+        // be a defined value in [0, 1].
+        for (delay, dur) in [
+            (tick_dur(0), tick_dur(200)),
+            (tick_dur(500), tick_dur(0)),
+            (tick_dur(0), tick_dur(0)),
+        ] {
+            for now in [tick(0), tick(1), tick(500), tick(u64::MAX)] {
+                let v = opacity(Some(tick(0)), now, delay, dur);
+                assert!(!v.is_nan(), "NaN opacity for delay={delay:?} dur={dur:?}");
+                assert!((0.0..=1.0).contains(&v), "opacity {v} out of range");
+            }
+        }
+    }
+
+    #[test]
+    fn scrollbar_opacity_with_mismatched_clock_kinds_stays_opaque() {
+        // Tick instants + System durations: every `div` across kinds yields
+        // 0.0, so the function reports "still inside the delay" -> 1.0.
+        let v = opacity(
+            Some(tick(0)),
+            tick(600),
+            sys_dur_ms(500),
+            sys_dur_ms(200),
+        );
+        assert_eq!(v, 1.0);
+    }
+
+    #[test]
+    fn scrollbar_opacity_is_always_a_valid_alpha() {
+        let times = [0_u64, 1, 499, 500, 501, 700, 10_000, u64::MAX];
+        let durs = [
+            tick_dur(0),
+            tick_dur(1),
+            tick_dur(200),
+            tick_dur(500),
+            tick_dur(u64::MAX),
+        ];
+        for now in times {
+            for delay in durs {
+                for dur in durs {
+                    let v = opacity(Some(tick(0)), tick(now), delay, dur);
+                    assert!(!v.is_nan(), "NaN at now={now} delay={delay:?} dur={dur:?}");
+                    assert!(
+                        (0.0..=1.0).contains(&v),
+                        "opacity {v} out of range at now={now} delay={delay:?} dur={dur:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // ==================================================================
+    // remap_scrollbar_hit_id
+    // ==================================================================
+
+    #[test]
+    fn remap_scrollbar_hit_id_rewrites_every_variant_of_the_target_dom() {
+        let dom = DomId { inner: 3 };
+        let map = crate::managers::NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(9))]);
+        let ctors: [fn(DomId, NodeId) -> ScrollbarHitId; 4] = [
+            ScrollbarHitId::VerticalTrack,
+            ScrollbarHitId::VerticalThumb,
+            ScrollbarHitId::HorizontalTrack,
+            ScrollbarHitId::HorizontalThumb,
+        ];
+        for ctor in ctors {
+            assert_eq!(
+                remap_scrollbar_hit_id(ctor(dom, NodeId::new(5)), dom, &map),
+                Some(ctor(dom, NodeId::new(9)))
+            );
+        }
+    }
+
+    #[test]
+    fn remap_scrollbar_hit_id_drops_state_for_unmounted_nodes() {
+        let dom = DomId { inner: 3 };
+        let map = crate::managers::NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(9))]);
+        // Node 7 survived nothing -> the drag must END, not retarget.
+        assert_eq!(
+            remap_scrollbar_hit_id(ScrollbarHitId::VerticalThumb(dom, NodeId::new(7)), dom, &map),
+            None
+        );
+        // An empty map unmounts everything.
+        let empty = crate::managers::NodeIdMap::from_pairs(Vec::<(NodeId, NodeId)>::new());
+        assert_eq!(
+            remap_scrollbar_hit_id(ScrollbarHitId::VerticalThumb(dom, NodeId::new(5)), dom, &empty),
+            None
+        );
+        // An absurd node id is a lookup miss, not a panic.
+        assert_eq!(
+            remap_scrollbar_hit_id(
+                ScrollbarHitId::HorizontalTrack(dom, NodeId::new(usize::MAX)),
+                dom,
+                &map
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn remap_scrollbar_hit_id_passes_other_doms_through_untouched() {
+        let dom = DomId { inner: 3 };
+        let other = DomId { inner: 4 };
+        let map = crate::managers::NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(9))]);
+        // Same node id, different DOM: this reconciliation says nothing about it.
+        let id = ScrollbarHitId::VerticalThumb(other, NodeId::new(5));
+        assert_eq!(remap_scrollbar_hit_id(id, dom, &map), Some(id));
+        let id = ScrollbarHitId::HorizontalThumb(other, NodeId::new(usize::MAX));
+        assert_eq!(remap_scrollbar_hit_id(id, dom, &map), Some(id));
+    }
+
+    // ==================================================================
+    // LayoutResult::new
+    // ==================================================================
+
+    #[test]
+    fn layout_result_new_stores_its_arguments_verbatim() {
+        let lr = LayoutResult::new(DisplayList::default(), Vec::new());
+        assert!(lr.warnings.is_empty());
+        assert!(lr.display_list.items.is_empty());
+
+        let lr = LayoutResult::new(
+            DisplayList::default(),
+            vec![String::new(), "a".repeat(10_000), "☃/🇺🇳/\u{202e}".to_string()],
+        );
+        assert_eq!(lr.warnings.len(), 3);
+        assert_eq!(lr.warnings[1].len(), 10_000);
+        // ☃ / 🇺 🇳 / U+202E == 6 scalar values (the flag is two regional indicators).
+        assert_eq!(lr.warnings[2].chars().count(), 6);
+    }
+
+    // ==================================================================
+    // LayoutWindow constructors
+    // ==================================================================
+
+    #[test]
+    fn layout_window_new_starts_completely_empty() {
+        let w = fresh_window();
+        assert_eq!(w.get_timer_ids().len(), 0);
+        assert_eq!(w.get_thread_ids().len(), 0);
+        assert_eq!(w.get_dom_ids().len(), 0);
+        assert!(w.layout_results.is_empty());
+        assert!(w.timers.is_empty());
+        assert!(w.threads.is_empty());
+        assert_eq!(w.frame_report, FrameReport::default());
+        assert!(w.layout_cache.tree.is_none());
+        assert!(w.layout_cache.calculated_positions.is_empty());
+        assert!(w.layout_cache.viewport.is_none());
+        assert!(w.currently_dragging_thumb.is_none());
+        assert!(w.scan_used_fonts().is_empty());
+        assert!(w.scan_used_images(&ImageCache::default()).is_empty());
+        assert!(!w.skip_gpu_sync);
+    }
+
+    #[test]
+    fn layout_window_constructors_hand_out_unique_document_and_namespace_ids() {
+        let a = fresh_window();
+        let b = fresh_window();
+        assert_ne!(a.document_id, b.document_id);
+        assert_ne!(a.id_namespace, b.id_namespace);
+        assert_ne!(a.document_id.namespace_id, a.id_namespace);
+    }
+
+    #[test]
+    fn layout_window_new_with_shared_fonts_accepts_an_empty_shared_map() {
+        let shared: Arc<std::sync::Mutex<HashMap<rust_fontconfig::FontId, FontRef>>> =
+            Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let a = LayoutWindow::new_with_shared_fonts(FcFontCache::default(), Arc::clone(&shared))
+            .expect("shared-font constructor must succeed on an empty map");
+        let b = LayoutWindow::new_with_shared_fonts(FcFontCache::default(), shared)
+            .expect("shared-font constructor must succeed twice");
+        assert!(a.layout_results.is_empty());
+        assert!(b.layout_results.is_empty());
+        assert_ne!(a.id_namespace, b.id_namespace);
+    }
+
+    #[cfg(feature = "pdf")]
+    #[test]
+    fn layout_window_new_paged_accepts_degenerate_page_sizes() {
+        for page in [
+            LogicalSize::zero(),
+            size(-1.0, -1.0),
+            size(f32::MAX, f32::MAX),
+            size(f32::NAN, f32::NAN),
+            size(f32::INFINITY, f32::INFINITY),
+        ] {
+            let w = LayoutWindow::new_paged(FcFontCache::default(), page)
+                .expect("new_paged must not fail on a degenerate page size");
+            assert!(w.layout_results.is_empty());
+        }
+    }
+
+    // ==================================================================
+    // Node query getters
+    // ==================================================================
+
+    #[test]
+    fn node_getters_return_none_on_an_empty_window_for_every_hostile_id() {
+        let w = fresh_window();
+        for dom in [DomId::ROOT_ID, DomId { inner: 0 }, DomId { inner: usize::MAX }] {
+            for node in hostile_node_ids() {
+                let id = DomNodeId { dom, node };
+                assert!(w.get_node_size(id).is_none(), "size {id:?}");
+                assert!(w.get_node_position(id).is_none(), "position {id:?}");
+                assert!(w.get_node_hit_test_bounds(id).is_none(), "bounds {id:?}");
+                assert!(w.get_parent(id).is_none(), "parent {id:?}");
+                assert!(w.get_first_child(id).is_none(), "first_child {id:?}");
+                assert!(w.get_last_child(id).is_none(), "last_child {id:?}");
+                assert!(w.get_next_sibling(id).is_none(), "next_sibling {id:?}");
+                assert!(w.get_previous_sibling(id).is_none(), "prev_sibling {id:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn node_getters_survive_hostile_ids_against_a_real_styled_dom() {
+        let w = window_with_fixture();
+        // `layout_results` IS populated now, so these ids reach the hierarchy
+        // lookup rather than short-circuiting on a missing DOM.
+        for node in hostile_node_ids() {
+            let id = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node,
+            };
+            assert!(w.get_parent(id).is_none(), "parent {id:?}");
+            assert!(w.get_first_child(id).is_none(), "first_child {id:?}");
+            assert!(w.get_last_child(id).is_none(), "last_child {id:?}");
+            assert!(w.get_next_sibling(id).is_none(), "next_sibling {id:?}");
+            assert!(w.get_previous_sibling(id).is_none(), "prev_sibling {id:?}");
+            assert!(w.get_node_size(id).is_none(), "size {id:?}");
+            assert!(w.get_node_position(id).is_none(), "position {id:?}");
+            assert!(w.get_node_hit_test_bounds(id).is_none(), "bounds {id:?}");
+        }
+        // A valid node id but the wrong DOM must also miss.
+        let wrong_dom = DomNodeId {
+            dom: DomId { inner: 77 },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+        };
+        assert!(wrong_dom.node.into_crate_internal().is_some());
+        assert!(w.get_parent(wrong_dom).is_none());
+        assert!(w.get_first_child(wrong_dom).is_none());
+    }
+
+    #[test]
+    fn hierarchy_getters_agree_with_each_other_on_a_real_dom() {
+        let w = window_with_fixture();
+        let root = dnid(0);
+        assert_eq!(
+            w.get_layout_result(&DomId::ROOT_ID)
+                .expect("fixture must be registered")
+                .styled_dom
+                .node_hierarchy
+                .len(),
+            4,
+            "fixture is body + 3 divs"
+        );
+
+        // The root has no parent, but does have children.
+        assert!(w.get_parent(root).is_none());
+        let first = w.get_first_child(root).expect("root must have a first child");
+        let last = w.get_last_child(root).expect("root must have a last child");
+        assert_ne!(first, last);
+        assert_eq!(w.get_parent(first), Some(root));
+        assert_eq!(w.get_parent(last), Some(root));
+
+        // Walking forward from `first` reaches `last` in exactly 2 hops.
+        let mid = w.get_next_sibling(first).expect("second child");
+        assert_eq!(w.get_next_sibling(mid), Some(last));
+        assert_eq!(w.get_next_sibling(last), None, "last child has no successor");
+
+        // ...and the reverse walk is symmetric.
+        assert_eq!(w.get_previous_sibling(last), Some(mid));
+        assert_eq!(w.get_previous_sibling(mid), Some(first));
+        assert_eq!(w.get_previous_sibling(first), None);
+
+        // Leaves have no children.
+        for leaf in [first, mid, last] {
+            assert!(w.get_first_child(leaf).is_none(), "{leaf:?} must be a leaf");
+            assert!(w.get_last_child(leaf).is_none(), "{leaf:?} must be a leaf");
+        }
+    }
+
+    #[test]
+    fn geometry_getters_return_none_without_a_layout_pass() {
+        // The fixture has a real StyledDom but an EMPTY layout tree / display
+        // list: geometry must be reported as absent, never as a zero rect.
+        let w = window_with_fixture();
+        for i in 0..4 {
+            let id = dnid(i);
+            assert!(w.get_node_size(id).is_none(), "size for node {i}");
+            assert!(w.get_node_position(id).is_none(), "position for node {i}");
+            assert!(w.get_node_hit_test_bounds(id).is_none(), "bounds for node {i}");
+        }
+    }
+
+    #[test]
+    fn scan_used_resources_is_empty_for_an_empty_display_list() {
+        let w = window_with_fixture();
+        assert!(w.scan_used_fonts().is_empty());
+        assert!(w.scan_used_images(&ImageCache::default()).is_empty());
+        // Several DOMs, still nothing referenced.
+        let mut w = w;
+        w.layout_results
+            .insert(DomId { inner: 1 }, bare_layout_result(fixture_dom()));
+        w.layout_results
+            .insert(DomId { inner: 2 }, bare_layout_result(fixture_dom()));
+        assert_eq!(w.get_dom_ids().len(), 3);
+        assert!(w.scan_used_fonts().is_empty());
+        assert!(w.scan_used_images(&ImageCache::default()).is_empty());
+    }
+
+    // ==================================================================
+    // Text-structure predicates
+    // ==================================================================
+
+    #[test]
+    fn node_has_text_content_sees_direct_and_child_text() {
+        let plain = fixture_dom();
+        for i in 0..4 {
+            assert!(
+                !LayoutWindow::node_has_text_content(&plain, NodeId::new(i)),
+                "node {i} of a text-free DOM must not report text"
+            );
+        }
+
+        // body > text("hello") => 2 nodes.
+        let with_text =
+            StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text("hello")));
+        assert_eq!(with_text.node_hierarchy.len(), 2);
+        assert!(
+            LayoutWindow::node_has_text_content(&with_text, NodeId::new(0)),
+            "the parent of a text node has text content"
+        );
+        assert!(
+            LayoutWindow::node_has_text_content(&with_text, NodeId::new(1)),
+            "a text node is itself text content"
+        );
+
+        // Empty and astral-plane text still count as text nodes.
+        for s in ["", "🇺🇳👩‍👩‍👧‍👦", "\u{202e}\u{0}"] {
+            let d = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text(s)));
+            assert!(LayoutWindow::node_has_text_content(&d, NodeId::new(1)), "{s:?}");
+            assert!(LayoutWindow::node_has_text_content(&d, NodeId::new(0)), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn is_text_selectable_honours_user_select_none() {
+        let dom = StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div().with_css("user-select: none;")),
+        );
+        assert_eq!(dom.node_hierarchy.len(), 3);
+        assert!(
+            LayoutWindow::is_text_selectable(&dom, NodeId::new(1)),
+            "default is selectable"
+        );
+        assert!(
+            !LayoutWindow::is_text_selectable(&dom, NodeId::new(2)),
+            "user-select: none must opt out"
+        );
+    }
+
+    #[test]
+    fn contenteditable_lookups_are_false_for_an_unknown_dom() {
+        let w = window_with_fixture();
+        let missing = DomId { inner: 999 };
+        // The DOM lookup short-circuits BEFORE the (unguarded) node indexing,
+        // so even an absurd node id is safe here.
+        assert!(!w.is_node_contenteditable_internal(missing, NodeId::new(usize::MAX)));
+        assert!(!w.is_node_contenteditable_inherited_internal(missing, NodeId::new(usize::MAX)));
+        // A known DOM with plain divs: nothing is editable.
+        for i in 0..4 {
+            assert!(!w.is_node_contenteditable_internal(DomId::ROOT_ID, NodeId::new(i)));
+        }
+    }
+
+    #[test]
+    fn contenteditable_is_detected_and_inherited() {
+        let mut w = fresh_window();
+        let dom = StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_div().with_contenteditable(true).with_child(Dom::create_div())),
+        );
+        assert_eq!(dom.node_hierarchy.len(), 3);
+        w.layout_results
+            .insert(DomId::ROOT_ID, bare_layout_result(dom));
+
+        assert!(!w.is_node_contenteditable_internal(DomId::ROOT_ID, NodeId::new(0)));
+        assert!(w.is_node_contenteditable_internal(DomId::ROOT_ID, NodeId::new(1)));
+        // The nested child is NOT directly editable...
+        assert!(!w.is_node_contenteditable_internal(DomId::ROOT_ID, NodeId::new(2)));
+        // ...but it inherits editability from its ancestor.
+        assert!(w.is_node_contenteditable_inherited_internal(DomId::ROOT_ID, NodeId::new(2)));
+    }
+
+    // ==================================================================
+    // Timers
+    // ==================================================================
+
+    extern "C" fn time_tick_0() -> Instant {
+        Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
+    }
+
+    extern "C" fn time_tick_1000() -> Instant {
+        Instant::Tick(azul_core::task::SystemTick { tick_counter: 1_000 })
+    }
+
+    extern "C" fn time_tick_max() -> Instant {
+        Instant::Tick(azul_core::task::SystemTick {
+            tick_counter: u64::MAX,
+        })
+    }
+
+    extern "C" fn time_system_now() -> Instant {
+        Instant::now()
+    }
+
+    #[test]
+    fn timer_add_get_remove_round_trips_and_overwrites_by_id() {
+        let mut w = fresh_window();
+        let id = TimerId { id: 1 };
+        assert!(w.get_timer(&id).is_none());
+        assert!(w.remove_timer(&id).is_none(), "removing an absent timer is None");
+
+        w.add_timer(id, Timer::default());
+        assert!(w.get_timer(&id).is_some());
+        assert!(w.get_timer_mut(&id).is_some());
+        assert_eq!(w.get_timer_ids().len(), 1);
+
+        // Re-adding the same id replaces rather than duplicates.
+        w.add_timer(id, Timer::default());
+        assert_eq!(w.get_timer_ids().len(), 1);
+
+        assert!(w.remove_timer(&id).is_some());
+        assert!(w.get_timer(&id).is_none());
+        assert_eq!(w.get_timer_ids().len(), 0);
+        // Double remove is a clean None, not a panic.
+        assert!(w.remove_timer(&id).is_none());
+    }
+
+    #[test]
+    fn timer_ids_survive_extreme_id_values() {
+        let mut w = fresh_window();
+        let lo = TimerId { id: 0 };
+        let hi = TimerId { id: usize::MAX };
+        w.add_timer(lo, Timer::default());
+        w.add_timer(hi, Timer::default());
+        assert_eq!(w.get_timer_ids().len(), 2);
+        assert!(w.get_timer(&lo).is_some());
+        assert!(w.get_timer(&hi).is_some());
+        assert!(w.remove_timer(&hi).is_some());
+        assert_eq!(w.get_timer_ids().len(), 1);
+    }
+
+    #[test]
+    fn tick_timers_reports_every_registered_timer_regardless_of_the_clock() {
+        let mut w = fresh_window();
+        assert!(w.tick_timers(tick(0)).is_empty(), "no timers => nothing ready");
+
+        for i in 0..3 {
+            w.add_timer(TimerId { id: i }, Timer::default());
+        }
+        // Pinned as CURRENT behaviour: `tick_timers` ignores `current_time` and
+        // returns every registered id; readiness is decided by the caller.
+        for now in [tick(0), tick(u64::MAX), Instant::now()] {
+            let ready = w.tick_timers(now);
+            assert_eq!(ready.len(), 3);
+        }
+    }
+
+    #[test]
+    fn time_until_next_timer_ms_is_none_without_timers() {
+        let w = fresh_window();
+        let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_0 };
+        assert_eq!(
+            w.time_until_next_timer_ms(&cb),
+            None,
+            "no timers => the caller may block indefinitely"
+        );
+    }
+
+    #[test]
+    fn time_until_next_timer_ms_reports_zero_for_an_overdue_timer() {
+        let mut w = fresh_window();
+        // `Timer::default()` is created at tick 0 with no delay/interval, so
+        // its next run is tick 0 — already due at any clock value.
+        w.add_timer(TimerId { id: 1 }, Timer::default());
+        let clocks: [azul_core::task::GetSystemTimeCallbackType; 3] =
+            [time_tick_0, time_tick_1000, time_tick_max];
+        for cb in clocks {
+            let cb = azul_core::task::GetSystemTimeCallback { cb };
+            assert_eq!(w.time_until_next_timer_ms(&cb), Some(0));
+        }
+    }
+
+    #[test]
+    fn time_until_next_timer_ms_takes_the_minimum_across_timers() {
+        let mut w = fresh_window();
+        w.add_timer(
+            TimerId { id: 1 },
+            Timer::default().with_interval(tick_dur(5_000)),
+        );
+        w.add_timer(
+            TimerId { id: 2 },
+            Timer::default().with_interval(tick_dur(2_000)),
+        );
+        w.add_timer(
+            TimerId { id: 3 },
+            Timer::default().with_interval(tick_dur(9_000)),
+        );
+        let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_0 };
+        assert_eq!(w.time_until_next_timer_ms(&cb), Some(2_000));
+
+        // At tick 1000 the 2000-tick timer is 1000 ticks away.
+        let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_1000 };
+        assert_eq!(w.time_until_next_timer_ms(&cb), Some(1_000));
+
+        // Far past every deadline: overdue => 0.
+        let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_max };
+        assert_eq!(w.time_until_next_timer_ms(&cb), Some(0));
+    }
+
+    #[test]
+    fn time_until_next_timer_ms_does_not_overflow_on_a_max_interval() {
+        let mut w = fresh_window();
+        w.add_timer(
+            TimerId { id: 1 },
+            Timer::default().with_interval(tick_dur(u64::MAX)),
+        );
+        let cb = azul_core::task::GetSystemTimeCallback { cb: time_tick_0 };
+        assert_eq!(w.time_until_next_timer_ms(&cb), Some(u64::MAX));
+    }
+
+    #[test]
+    fn time_until_next_timer_ms_saturates_across_mismatched_clock_kinds() {
+        let mut w = fresh_window();
+        // Tick-based timer, System-based clock: the comparison and the span are
+        // both undefined, and both saturate rather than panic.
+        w.add_timer(
+            TimerId { id: 1 },
+            Timer::default().with_interval(tick_dur(5_000)),
+        );
+        let cb = azul_core::task::GetSystemTimeCallback {
+            cb: time_system_now,
+        };
+        assert_eq!(w.time_until_next_timer_ms(&cb), Some(0));
+    }
+
+    #[test]
+    fn create_tooltip_delay_timer_encodes_the_hover_time_as_a_one_shot_delay() {
+        let w = fresh_window();
+        for ms in [0_u32, 1, 500, u32::MAX] {
+            let t = w.create_tooltip_delay_timer(ms);
+            assert_eq!(
+                t.delay,
+                azul_core::task::OptionDuration::Some(sys_dur_ms(u64::from(ms))),
+                "hover_time_ms={ms}"
+            );
+            assert_eq!(
+                t.interval,
+                azul_core::task::OptionDuration::None,
+                "the tooltip timer is one-shot"
+            );
+            assert_eq!(t.timeout, azul_core::task::OptionDuration::None);
+            assert_eq!(t.run_count, 0);
+            assert!(matches!(t.last_run, azul_core::task::OptionInstant::None));
+            // u32::MAX ms must survive the widening to u64 millis intact.
+            match &t.delay {
+                azul_core::task::OptionDuration::Some(d) => {
+                    assert_eq!(duration_to_millis(*d), u64::from(ms));
+                }
+                azul_core::task::OptionDuration::None => panic!("delay must be set"),
+            }
+        }
+    }
+
+    #[test]
+    fn create_cursor_blink_timer_is_a_repeating_530ms_timer() {
+        let w = fresh_window();
+        let t = w.create_cursor_blink_timer(&FullWindowState::default());
+        assert_eq!(
+            t.delay,
+            azul_core::task::OptionDuration::None,
+            "the blink timer starts immediately"
+        );
+        assert_eq!(t.timeout, azul_core::task::OptionDuration::None);
+        assert_eq!(t.run_count, 0);
+        match &t.interval {
+            azul_core::task::OptionDuration::Some(d) => assert_eq!(
+                duration_to_millis(*d),
+                crate::managers::text_edit::CURSOR_BLINK_INTERVAL_MS
+            ),
+            azul_core::task::OptionDuration::None => panic!("interval must be set"),
+        }
+    }
+
+    // ==================================================================
+    // Threads
+    // ==================================================================
+
+    #[test]
+    fn thread_getters_are_none_on_an_empty_window() {
+        let mut w = fresh_window();
+        let id = ThreadId::unique();
+        assert_eq!(w.get_thread_ids().len(), 0);
+        assert!(w.get_thread(&id).is_none());
+        assert!(w.get_thread_mut(&id).is_none());
+        assert!(w.remove_thread(&id).is_none());
+        // A second, distinct id is equally absent.
+        assert!(w.get_thread(&ThreadId::unique()).is_none());
+        assert_eq!(w.get_thread_ids().len(), 0);
+    }
+
+    // ==================================================================
+    // Scroll state
+    // ==================================================================
+
+    #[test]
+    fn get_scroll_position_is_none_before_anything_is_set() {
+        let w = fresh_window();
+        assert_eq!(w.get_scroll_position(DomId::ROOT_ID, NodeId::new(0)), None);
+        assert_eq!(
+            w.get_scroll_position(DomId { inner: usize::MAX }, NodeId::new(usize::MAX)),
+            None
+        );
+    }
+
+    #[test]
+    fn set_then_get_scroll_position_round_trips_inside_the_scrollable_range() {
+        let mut w = fresh_window();
+        let node = NodeId::new(4);
+        let scroll = ScrollPosition {
+            parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+            children_rect: rect(0.0, 0.0, 200.0, 200.0),
+        };
+        w.set_scroll_position(DomId::ROOT_ID, node, scroll);
+        assert_eq!(w.get_scroll_position(DomId::ROOT_ID, node), Some(scroll));
+
+        // An offset inside [0, content - container] survives verbatim.
+        let scrolled = ScrollPosition {
+            parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+            children_rect: rect(50.0, 25.0, 200.0, 200.0),
+        };
+        w.set_scroll_position(DomId::ROOT_ID, node, scrolled);
+        assert_eq!(w.get_scroll_position(DomId::ROOT_ID, node), Some(scrolled));
+
+        // Neighbouring keys stay untouched.
+        assert_eq!(w.get_scroll_position(DomId::ROOT_ID, NodeId::new(5)), None);
+        assert_eq!(w.get_scroll_position(DomId { inner: 1 }, node), None);
+    }
+
+    #[test]
+    fn set_scroll_position_clamps_out_of_range_and_nan_offsets() {
+        let mut w = fresh_window();
+        let node = NodeId::new(0);
+        let container = rect(0.0, 0.0, 100.0, 100.0);
+        // max scroll is (200 - 100) = 100 on each axis.
+        for (requested, expected) in [
+            (pos(99_999.0, 99_999.0), pos(100.0, 100.0)),
+            (pos(-500.0, -500.0), pos(0.0, 0.0)),
+            (pos(f32::INFINITY, f32::NEG_INFINITY), pos(100.0, 0.0)),
+            (pos(f32::NAN, f32::NAN), pos(0.0, 0.0)),
+        ] {
+            w.set_scroll_position(
+                DomId::ROOT_ID,
+                node,
+                ScrollPosition {
+                    parent_rect: container,
+                    children_rect: LogicalRect::new(requested, size(200.0, 200.0)),
+                },
+            );
+            let got = w
+                .get_scroll_position(DomId::ROOT_ID, node)
+                .expect("state was just written");
+            assert!(
+                !got.children_rect.origin.x.is_nan() && !got.children_rect.origin.y.is_nan(),
+                "clamped scroll offset must never be NaN (requested {requested:?})"
+            );
+            assert_eq!(
+                got.children_rect.origin, expected,
+                "requested {requested:?} must clamp to {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn set_scroll_position_on_a_non_scrollable_node_pins_to_the_origin() {
+        let mut w = fresh_window();
+        let node = NodeId::new(0);
+        // Content smaller than the container => max scroll is 0 on both axes.
+        w.set_scroll_position(
+            DomId::ROOT_ID,
+            node,
+            ScrollPosition {
+                parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+                children_rect: rect(40.0, 40.0, 10.0, 10.0),
+            },
+        );
+        let got = w.get_scroll_position(DomId::ROOT_ID, node).expect("written");
+        assert_eq!(got.children_rect.origin, pos(0.0, 0.0));
+    }
+
+    #[test]
+    fn get_nested_scroll_states_always_contains_the_requested_dom_key() {
+        let w = fresh_window();
+        // Pinned: the DOM key is inserted unconditionally, so an empty result is
+        // `{dom: {}}` rather than `{}` — callers must not treat "key present"
+        // as "this DOM scrolls".
+        let nested = w.get_nested_scroll_states(DomId::ROOT_ID);
+        assert_eq!(nested.len(), 1);
+        assert!(nested[&DomId::ROOT_ID].is_empty());
+
+        let mut w = w;
+        let node = NodeId::new(2);
+        w.set_scroll_position(
+            DomId::ROOT_ID,
+            node,
+            ScrollPosition {
+                parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+                children_rect: rect(0.0, 0.0, 200.0, 200.0),
+            },
+        );
+        let nested = w.get_nested_scroll_states(DomId::ROOT_ID);
+        let inner = &nested[&DomId::ROOT_ID];
+        assert_eq!(inner.len(), 1);
+        assert!(inner.contains_key(&NodeHierarchyItemId::from_crate_internal(Some(node))));
+        // A different DOM sees none of it.
+        assert!(w.get_nested_scroll_states(DomId { inner: 9 })[&DomId { inner: 9 }].is_empty());
+    }
+
+    // ==================================================================
+    // Selection (documented no-ops)
+    // ==================================================================
+
+    #[test]
+    fn selection_accessors_are_the_documented_no_ops() {
+        let mut w = fresh_window();
+        let state = SelectionState {
+            selections: Vec::<Selection>::new().into(),
+            node_id: DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+            },
+        };
+        assert!(w.get_selection(DomId::ROOT_ID).is_none());
+        w.set_selection(DomId::ROOT_ID, state.clone());
+        // `set_selection` is a no-op and `get_selection` is `const fn -> None`.
+        assert!(w.get_selection(DomId::ROOT_ID).is_none());
+        assert!(w.get_selection(DomId { inner: usize::MAX }).is_none());
+        w.set_selection(DomId { inner: 42 }, state);
+        assert!(w.get_selection(DomId { inner: 42 }).is_none());
+    }
+
+    // ==================================================================
+    // clear_caches
+    // ==================================================================
+
+    #[test]
+    fn clear_caches_drops_every_layout_result_and_is_idempotent() {
+        let mut w = window_with_fixture();
+        w.layout_results
+            .insert(DomId { inner: 1 }, bare_layout_result(fixture_dom()));
+        w.set_scroll_position(
+            DomId::ROOT_ID,
+            NodeId::new(0),
+            ScrollPosition {
+                parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+                children_rect: rect(0.0, 0.0, 200.0, 200.0),
+            },
+        );
+        assert_eq!(w.get_dom_ids().len(), 2);
+        assert!(w.get_scroll_position(DomId::ROOT_ID, NodeId::new(0)).is_some());
+
+        w.clear_caches();
+
+        assert_eq!(w.get_dom_ids().len(), 0);
+        assert!(w.layout_results.is_empty());
+        assert!(w.layout_cache.tree.is_none());
+        assert!(w.layout_cache.calculated_positions.is_empty());
+        assert!(w.layout_cache.viewport.is_none());
+        assert!(w.layout_cache.cached_display_list.is_none());
+        assert_eq!(w.layout_cache.prev_dom_ptr, 0);
+        assert!(
+            w.get_scroll_position(DomId::ROOT_ID, NodeId::new(0)).is_none(),
+            "clear_caches replaces the ScrollManager"
+        );
+
+        // Idempotent, and safe on a never-used window.
+        w.clear_caches();
+        assert_eq!(w.get_dom_ids().len(), 0);
+        fresh_window().clear_caches();
+    }
+
+    // ==================================================================
+    // GPU cache / layout result accessors
+    // ==================================================================
+
+    #[test]
+    fn gpu_cache_accessors_are_keyed_per_dom_and_created_on_demand() {
+        let mut w = fresh_window();
+        let a = DomId { inner: 0 };
+        let b = DomId { inner: usize::MAX };
+        assert!(w.get_gpu_cache(&a).is_none());
+        assert!(w.get_gpu_cache_mut(&a).is_none());
+
+        assert!(w.get_or_create_gpu_cache(a).transform_keys.is_empty());
+        assert!(w.get_gpu_cache(&a).is_some());
+        assert!(w.get_gpu_cache(&b).is_none(), "creation must not leak across DOMs");
+
+        // Re-creating returns the same (still empty) cache, not a second one.
+        assert!(w.get_or_create_gpu_cache(a).transform_keys.is_empty());
+        assert!(w.get_or_create_gpu_cache(b).transform_keys.is_empty());
+        assert!(w.get_gpu_cache(&b).is_some());
+    }
+
+    #[test]
+    fn layout_result_accessors_track_get_dom_ids() {
+        let mut w = fresh_window();
+        assert!(w.get_layout_result(&DomId::ROOT_ID).is_none());
+        assert!(w.get_layout_result_mut(&DomId::ROOT_ID).is_none());
+        assert_eq!(w.get_dom_ids().len(), 0);
+
+        w.layout_results
+            .insert(DomId::ROOT_ID, bare_layout_result(fixture_dom()));
+        assert!(w.get_layout_result(&DomId::ROOT_ID).is_some());
+        assert!(w.get_layout_result_mut(&DomId::ROOT_ID).is_some());
+        assert_eq!(w.get_dom_ids().len(), 1);
+        assert!(w.get_layout_result(&DomId { inner: 1 }).is_none());
+    }
+}

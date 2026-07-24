@@ -3616,3 +3616,2719 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
 
     result
 }
+
+#[cfg(all(test, feature = "std"))]
+#[allow(clippy::float_cmp, clippy::too_many_lines)]
+mod autotest_generated {
+    use std::{
+        collections::{BTreeMap, HashMap},
+        sync::{Arc, Mutex},
+    };
+
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        geom::{LogicalRect, OptionLogicalPosition},
+        gl::OptionGlContextPtr,
+        hit_test::ScrollPosition,
+        resources::RendererResources,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::{MonitorVec, RawWindowHandle},
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    #[cfg(feature = "icu")]
+    use crate::icu::IcuLocalizerHandle;
+    use crate::{
+        callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        window::{DomLayoutResult, LayoutWindow},
+        window_state::FullWindowState,
+    };
+
+    // ------------------------------------------------------------------
+    // Fixtures
+    // ------------------------------------------------------------------
+
+    /// Two node types that are deliberately *type-incompatible*: `TYPE_A` speaks
+    /// `IO_INT` on both ends, `TYPE_B` speaks `IO_FLOAT`. Every "mime type mismatch"
+    /// assertion below is A-to-B; every legal connection is A-to-A.
+    const TYPE_A: NodeTypeId = NodeTypeId { inner: 1 };
+    const TYPE_B: NodeTypeId = NodeTypeId { inner: 2 };
+    /// A node type id that is *never* registered in `node_types`.
+    const TYPE_UNREGISTERED: NodeTypeId = NodeTypeId { inner: 99 };
+
+    const IO_INT: InputOutputTypeId = InputOutputTypeId { inner: 10 };
+    const IO_FLOAT: InputOutputTypeId = InputOutputTypeId { inner: 20 };
+    /// An I/O type id that has no entry in `input_output_types` (so no color).
+    const IO_COLORLESS: InputOutputTypeId = InputOutputTypeId { inner: 77 };
+
+    const N1: NodeGraphNodeId = NodeGraphNodeId { inner: 1 };
+    const N2: NodeGraphNodeId = NodeGraphNodeId { inner: 2 };
+    const N3: NodeGraphNodeId = NodeGraphNodeId { inner: 3 };
+    const N4: NodeGraphNodeId = NodeGraphNodeId { inner: 4 };
+    /// A node id that is never in the graph.
+    const MISSING: NodeGraphNodeId = NodeGraphNodeId { inner: 999 };
+
+    /// The four geometry constants `get_rect` is built from, restated here so that a
+    /// silent change to any of them fails the geometry tests loudly instead of
+    /// silently re-deriving the "expected" value from the same source.
+    const EXPECT_NODE_WIDTH: f32 = 250.0;
+    const EXPECT_V_OFFSET: f32 = 71.0;
+    const EXPECT_PORT_PITCH: f32 = 25.0; // DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT
+    const EXPECT_DOT_HEIGHT: f32 = 15.0;
+
+    fn io_types() -> InputOutputTypeIdInfoMapVec {
+        vec![
+            InputOutputTypeIdInfoMap {
+                io_type_id: IO_INT,
+                io_info: InputOutputInfo {
+                    data_type: AzString::from_const_str("int"),
+                    color: ColorU {
+                        r: 1,
+                        g: 2,
+                        b: 3,
+                        a: 255,
+                    },
+                },
+            },
+            InputOutputTypeIdInfoMap {
+                io_type_id: IO_FLOAT,
+                io_info: InputOutputInfo {
+                    data_type: AzString::from_const_str("float"),
+                    color: ColorU {
+                        r: 4,
+                        g: 5,
+                        b: 6,
+                        a: 255,
+                    },
+                },
+            },
+        ]
+        .into()
+    }
+
+    fn node_types() -> NodeTypeIdInfoMapVec {
+        vec![
+            NodeTypeIdInfoMap {
+                node_type_id: TYPE_A,
+                node_type_info: NodeTypeInfo {
+                    is_root: true,
+                    node_type_name: AzString::from_const_str("A"),
+                    inputs: vec![IO_INT].into(),
+                    outputs: vec![IO_INT].into(),
+                },
+            },
+            NodeTypeIdInfoMap {
+                node_type_id: TYPE_B,
+                node_type_info: NodeTypeInfo {
+                    is_root: false,
+                    node_type_name: AzString::from_const_str("B"),
+                    inputs: vec![IO_FLOAT].into(),
+                    outputs: vec![IO_FLOAT].into(),
+                },
+            },
+        ]
+        .into()
+    }
+
+    fn mk_node(node_type: NodeTypeId, x: f32, y: f32) -> Node {
+        Node {
+            node_type,
+            position: NodeGraphNodePosition { x, y },
+            fields: NodeTypeFieldVec::new(),
+            connect_in: InputConnectionVec::new(),
+            connect_out: OutputConnectionVec::new(),
+        }
+    }
+
+    /// Four nodes: `N1`, `N3`, `N4` are `TYPE_A` (int), `N2` is `TYPE_B` (float).
+    /// So `N1 -> N3`, `N1 -> N4` and `N3 -> N4` are legal connections and anything
+    /// touching `N2` is a mime-type mismatch.
+    fn graph() -> NodeGraph {
+        NodeGraph {
+            node_types: node_types(),
+            input_output_types: io_types(),
+            nodes: vec![
+                NodeIdNodeMap {
+                    node_id: N1,
+                    node: mk_node(TYPE_A, 0.0, 0.0),
+                },
+                NodeIdNodeMap {
+                    node_id: N2,
+                    node: mk_node(TYPE_B, 400.0, 100.0),
+                },
+                NodeIdNodeMap {
+                    node_id: N3,
+                    node: mk_node(TYPE_A, 800.0, 50.0),
+                },
+                NodeIdNodeMap {
+                    node_id: N4,
+                    node: mk_node(TYPE_A, -100.0, 200.0),
+                },
+            ]
+            .into(),
+            ..NodeGraph::default()
+        }
+    }
+
+    /// `(input_index, [(output_node_id, output_index)])` for every input port of `id`.
+    fn inputs_of(g: &NodeGraph, id: NodeGraphNodeId) -> Vec<(usize, Vec<(u64, usize)>)> {
+        g.nodes
+            .iter()
+            .find(|n| n.node_id == id)
+            .map_or_else(Vec::new, |n| {
+                n.node
+                    .connect_in
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.input_index,
+                            c.connects_to
+                                .iter()
+                                .map(|o| (o.node_id.inner, o.output_index))
+                                .collect(),
+                        )
+                    })
+                    .collect()
+            })
+    }
+
+    /// `(output_index, [(input_node_id, input_index)])` for every output port of `id`.
+    fn outputs_of(g: &NodeGraph, id: NodeGraphNodeId) -> Vec<(usize, Vec<(u64, usize)>)> {
+        g.nodes
+            .iter()
+            .find(|n| n.node_id == id)
+            .map_or_else(Vec::new, |n| {
+                n.node
+                    .connect_out
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.output_index,
+                            c.connects_to
+                                .iter()
+                                .map(|i| (i.node_id.inner, i.input_index))
+                                .collect(),
+                        )
+                    })
+                    .collect()
+            })
+    }
+
+    /// The full wiring of the graph, as a comparable value — the "encoding" that the
+    /// connect/disconnect round-trip tests compare before and after.
+    type Wiring = Vec<(u64, Vec<(usize, Vec<(u64, usize)>)>, Vec<(usize, Vec<(u64, usize)>)>)>;
+    fn wiring(g: &NodeGraph) -> Wiring {
+        g.nodes
+            .iter()
+            .map(|n| {
+                (
+                    n.node_id.inner,
+                    inputs_of(g, n.node_id),
+                    outputs_of(g, n.node_id),
+                )
+            })
+            .collect()
+    }
+
+    /// Pushes an output connection *without* going through `connect_input_output`, so
+    /// that structurally-impossible graphs (dangling target, out-of-range port, port
+    /// with no registered color) can be handed to the renderers.
+    fn force_out_connection(
+        mut g: NodeGraph,
+        from: NodeGraphNodeId,
+        out_idx: usize,
+        to: NodeGraphNodeId,
+        in_idx: usize,
+    ) -> NodeGraph {
+        if let Some(n) = g.nodes.as_mut().iter_mut().find(|n| n.node_id == from) {
+            n.node.connect_out.push(OutputConnection {
+                output_index: out_idx,
+                connects_to: vec![InputNodeAndIndex {
+                    node_id: to,
+                    input_index: in_idx,
+                }]
+                .into(),
+            });
+        }
+        g
+    }
+
+    fn count_nodes(dom: &Dom) -> usize {
+        1 + dom.children.iter().map(count_nodes).sum::<usize>()
+    }
+
+    /// A `RefAny<NodeGraphLocalDataset>` wrapping a snapshot of `g` — the payload every
+    /// node-graph callback expects to find at the end of its `backref` chain.
+    fn graph_dataset(g: &NodeGraph) -> RefAny {
+        RefAny::new(NodeGraphLocalDataset {
+            node_graph: g.clone(),
+            last_input_or_output_clicked: None,
+            active_node_being_dragged: None,
+            node_connection_marker: RefAny::new(NodeConnectionMarkerDataset {}),
+            callbacks: g.callbacks.clone(),
+        })
+    }
+
+    /// Reads the graph back out of a `NodeGraphLocalDataset` handle.
+    fn dataset_graph(handle: &RefAny) -> NodeGraph {
+        let mut handle = handle.clone();
+        let d = handle
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("not a NodeGraphLocalDataset");
+        d.node_graph.clone()
+    }
+
+    /// `InputOrOutput` is not `PartialEq`, so flatten it into something that is.
+    fn io_kind(io: InputOrOutput) -> (bool, usize) {
+        match io {
+            InputOrOutput::Input(i) => (true, i),
+            InputOrOutput::Output(o) => (false, o),
+        }
+    }
+
+    fn pending_click(handle: &RefAny) -> Option<(u64, (bool, usize))> {
+        let mut handle = handle.clone();
+        let d = handle
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("not a NodeGraphLocalDataset");
+        d.last_input_or_output_clicked
+            .map(|(id, io)| (id.inner, io_kind(io)))
+    }
+
+    // ------------------------------------------------------------------
+    // Callback harness (mirrors the one in check_box.rs / color_input.rs)
+    // ------------------------------------------------------------------
+
+    /// A `DomNodeId` whose node component is `None` — "no concrete node was hit".
+    fn hit_none() -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::NONE,
+        }
+    }
+
+    fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+        DomLayoutResult {
+            styled_dom,
+            layout_tree: LayoutTree {
+                nodes: Vec::new(),
+                warm: Vec::new(),
+                cold: Vec::new(),
+                root: 0,
+                dom_to_layout: BTreeMap::new(),
+                children_arena: Vec::new(),
+                children_offsets: Vec::new(),
+                subtree_needs_intrinsic: Vec::new(),
+            },
+            calculated_positions: Vec::new(),
+            viewport: LogicalRect::zero(),
+            display_list: DisplayList::default(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+        }
+    }
+
+    /// Runs `f` with a `CallbackInfo` whose window holds `styled_dom` as the root DOM.
+    /// `previous_window_state` is deliberately `None`, which is what makes
+    /// `get_previous_mouse_state()` return `None` in the drag tests.
+    fn with_info<R>(
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        layout_window
+            .layout_results
+            .insert(DomId::ROOT_ID, layout_result(styled_dom));
+
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let current_window_state = FullWindowState::default();
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(azul_css::system::SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
+        };
+
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let mut info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            hit,
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+
+        let r = f(&mut info);
+        let pushed = info.take_changes();
+        (r, pushed)
+    }
+
+    /// Shorthand for "deliver one event to `cb` with an otherwise-empty window".
+    fn fire(cb: impl FnOnce(CallbackInfo) -> Update) -> Update {
+        with_info(StyledDom::default(), hit_none(), |info| cb(*info)).0
+    }
+
+    // ------------------------------------------------------------------
+    // User-callback recorder
+    // ------------------------------------------------------------------
+
+    /// Everything the widget's user-facing callbacks were handed, in call order.
+    #[derive(Debug, Default)]
+    struct Log {
+        removed: Vec<u64>,
+        added: Vec<(u64, u64, f32, f32)>,
+        connected: Vec<(u64, usize, u64, usize)>,
+        input_disconnected: Vec<(u64, usize)>,
+        output_disconnected: Vec<(u64, usize)>,
+        /// `(node_id, field_idx, node_type)` of every `on_node_field_edited` call.
+        edited: Vec<(u64, usize, u64)>,
+        text_values: Vec<String>,
+        number_values: Vec<f32>,
+        bool_values: Vec<bool>,
+        color_values: Vec<(u8, u8, u8, u8)>,
+        file_values: Vec<Option<String>>,
+    }
+
+    fn log_of(handle: &RefAny, f: impl FnOnce(&Log)) {
+        let mut handle = handle.clone();
+        let l = handle.downcast_ref::<Log>().expect("not a Log");
+        f(&l);
+    }
+
+    extern "C" fn rec_removed(
+        mut refany: RefAny,
+        _info: CallbackInfo,
+        node_id: NodeGraphNodeId,
+    ) -> Update {
+        if let Some(mut l) = refany.downcast_mut::<Log>() {
+            l.removed.push(node_id.inner);
+        }
+        Update::RefreshDom
+    }
+
+    extern "C" fn rec_added(
+        mut refany: RefAny,
+        _info: CallbackInfo,
+        new_node_type: NodeTypeId,
+        new_node_id: NodeGraphNodeId,
+        new_node_position: NodeGraphNodePosition,
+    ) -> Update {
+        if let Some(mut l) = refany.downcast_mut::<Log>() {
+            l.added.push((
+                new_node_type.inner,
+                new_node_id.inner,
+                new_node_position.x,
+                new_node_position.y,
+            ));
+        }
+        Update::RefreshDomAllWindows
+    }
+
+    extern "C" fn rec_connected(
+        mut refany: RefAny,
+        _info: CallbackInfo,
+        input: NodeGraphNodeId,
+        input_index: usize,
+        output: NodeGraphNodeId,
+        output_index: usize,
+    ) -> Update {
+        if let Some(mut l) = refany.downcast_mut::<Log>() {
+            l.connected
+                .push((input.inner, input_index, output.inner, output_index));
+        }
+        Update::RefreshDom
+    }
+
+    extern "C" fn rec_input_disconnected(
+        mut refany: RefAny,
+        _info: CallbackInfo,
+        input: NodeGraphNodeId,
+        input_index: usize,
+    ) -> Update {
+        if let Some(mut l) = refany.downcast_mut::<Log>() {
+            l.input_disconnected.push((input.inner, input_index));
+        }
+        Update::RefreshDom
+    }
+
+    extern "C" fn rec_output_disconnected(
+        mut refany: RefAny,
+        _info: CallbackInfo,
+        output: NodeGraphNodeId,
+        output_index: usize,
+    ) -> Update {
+        if let Some(mut l) = refany.downcast_mut::<Log>() {
+            l.output_disconnected.push((output.inner, output_index));
+        }
+        Update::RefreshDomAllWindows
+    }
+
+    extern "C" fn rec_field_edited(
+        mut refany: RefAny,
+        _info: CallbackInfo,
+        node_id: NodeGraphNodeId,
+        field_id: usize,
+        node_type: NodeTypeId,
+        new_value: NodeTypeFieldValue,
+    ) -> Update {
+        if let Some(mut l) = refany.downcast_mut::<Log>() {
+            l.edited.push((node_id.inner, field_id, node_type.inner));
+            match new_value {
+                NodeTypeFieldValue::TextInput(s) => l.text_values.push(s.as_str().to_string()),
+                NodeTypeFieldValue::NumberInput(n) => l.number_values.push(n),
+                NodeTypeFieldValue::CheckBox(b) => l.bool_values.push(b),
+                NodeTypeFieldValue::ColorInput(c) => l.color_values.push((c.r, c.g, c.b, c.a)),
+                NodeTypeFieldValue::FileInput(p) => l
+                    .file_values
+                    .push(p.as_ref().map(|s| s.as_str().to_string())),
+            }
+        }
+        Update::RefreshDom
+    }
+
+    /// A graph whose callbacks all funnel into one freshly-created `Log`.
+    fn graph_with_log() -> (NodeGraph, RefAny) {
+        let log = RefAny::new(Log::default());
+        let mut g = graph();
+        g.callbacks = NodeGraphCallbacks {
+            on_node_removed: OptionOnNodeRemoved::Some(OnNodeRemoved {
+                refany: log.clone(),
+                callback: OnNodeRemovedCallback {
+                    cb: rec_removed,
+                    ctx: OptionRefAny::None,
+                },
+            }),
+            on_node_added: OptionOnNodeAdded::Some(OnNodeAdded {
+                refany: log.clone(),
+                callback: OnNodeAddedCallback {
+                    cb: rec_added,
+                    ctx: OptionRefAny::None,
+                },
+            }),
+            on_node_connected: OptionOnNodeConnected::Some(OnNodeConnected {
+                refany: log.clone(),
+                callback: OnNodeConnectedCallback {
+                    cb: rec_connected,
+                    ctx: OptionRefAny::None,
+                },
+            }),
+            on_node_input_disconnected: OptionOnNodeInputDisconnected::Some(
+                OnNodeInputDisconnected {
+                    refany: log.clone(),
+                    callback: OnNodeInputDisconnectedCallback {
+                        cb: rec_input_disconnected,
+                        ctx: OptionRefAny::None,
+                    },
+                },
+            ),
+            on_node_output_disconnected: OptionOnNodeOutputDisconnected::Some(
+                OnNodeOutputDisconnected {
+                    refany: log.clone(),
+                    callback: OnNodeOutputDisconnectedCallback {
+                        cb: rec_output_disconnected,
+                        ctx: OptionRefAny::None,
+                    },
+                },
+            ),
+            on_node_field_edited: OptionOnNodeFieldEdited::Some(OnNodeFieldEdited {
+                refany: log.clone(),
+                callback: OnNodeFieldEditedCallback {
+                    cb: rec_field_edited,
+                    ctx: OptionRefAny::None,
+                },
+            }),
+            ..NodeGraphCallbacks::default()
+        };
+        (g, log)
+    }
+
+    // ==================================================================
+    // 1. NodeGraph::generate_unique_node_id
+    // ==================================================================
+
+    #[test]
+    fn generate_unique_node_id_on_an_empty_graph_is_one_not_zero() {
+        // `0` is a perfectly valid node id, so the generator must not hand it out for
+        // the first node either — `max().unwrap_or(0) + 1`.
+        assert_eq!(NodeGraph::default().generate_unique_node_id().inner, 1);
+    }
+
+    #[test]
+    fn generate_unique_node_id_returns_max_plus_one_and_ignores_gaps_and_order() {
+        // Ids are deliberately unsorted and non-contiguous: the generator must take the
+        // maximum, not the last element and not the length.
+        let mut g = NodeGraph::default();
+        g.nodes = vec![
+            NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: 7 },
+                node: mk_node(TYPE_A, 0.0, 0.0),
+            },
+            NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: 0 },
+                node: mk_node(TYPE_A, 0.0, 0.0),
+            },
+            NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: 3 },
+                node: mk_node(TYPE_A, 0.0, 0.0),
+            },
+        ]
+        .into();
+        assert_eq!(g.generate_unique_node_id().inner, 8);
+    }
+
+    #[test]
+    fn generate_unique_node_id_tolerates_duplicate_ids_in_the_graph() {
+        let mut g = NodeGraph::default();
+        g.nodes = vec![
+            NodeIdNodeMap {
+                node_id: N2,
+                node: mk_node(TYPE_A, 0.0, 0.0),
+            },
+            NodeIdNodeMap {
+                node_id: N2,
+                node: mk_node(TYPE_A, 0.0, 0.0),
+            },
+        ]
+        .into();
+        assert_eq!(g.generate_unique_node_id().inner, 3);
+    }
+
+    #[test]
+    fn generate_unique_node_id_saturates_instead_of_overflowing_at_u64_max() {
+        // `saturating_add(1)` means the id at the top of the range is NOT unique: it
+        // collides with the existing node. That is a real (if unreachable in practice)
+        // limitation — what matters here is that it saturates rather than wrapping to
+        // 0 or panicking in a debug build.
+        let mut g = NodeGraph::default();
+        g.nodes = vec![NodeIdNodeMap {
+            node_id: NodeGraphNodeId { inner: u64::MAX },
+            node: mk_node(TYPE_A, 0.0, 0.0),
+        }]
+        .into();
+        let id = g.generate_unique_node_id();
+        assert_eq!(id.inner, u64::MAX);
+        assert!(
+            g.nodes.iter().any(|n| n.node_id == id),
+            "at u64::MAX the generated id collides — documented saturation, not wraparound",
+        );
+
+        // ...and one below the top still behaves normally.
+        g.nodes = vec![NodeIdNodeMap {
+            node_id: NodeGraphNodeId {
+                inner: u64::MAX - 1,
+            },
+            node: mk_node(TYPE_A, 0.0, 0.0),
+        }]
+        .into();
+        assert_eq!(g.generate_unique_node_id().inner, u64::MAX);
+    }
+
+    #[test]
+    fn generate_unique_node_id_is_pure_and_repeats_until_the_node_is_inserted() {
+        let g = graph();
+        let first = g.generate_unique_node_id();
+        assert_eq!(first, g.generate_unique_node_id());
+        assert_eq!(first.inner, 5); // max(1,2,3,4) + 1
+    }
+
+    // ==================================================================
+    // 2. NodeGraphError: Display / Debug
+    // ==================================================================
+
+    const ALL_ERRORS: [NodeGraphError; 4] = [
+        NodeGraphError::NodeMimeTypeMismatch,
+        NodeGraphError::NodeInvalidIndex,
+        NodeGraphError::NodeInvalidNode,
+        NodeGraphError::NoRootNode,
+    ];
+
+    #[test]
+    fn node_graph_error_display_is_non_empty_ascii_and_single_line() {
+        for e in ALL_ERRORS {
+            let s = format!("{e}");
+            assert!(!s.is_empty(), "{e:?} formatted to the empty string");
+            assert!(!s.contains('\n'), "{e:?} formatted to a multi-line string");
+            assert!(s.is_ascii(), "{e:?} formatted to non-ascii: {s}");
+        }
+    }
+
+    #[test]
+    fn node_graph_error_display_distinguishes_every_variant() {
+        // A copy-pasted match arm that returns the same message for two variants would
+        // make the error useless in a log; this is the assertion that catches it.
+        let mut seen: Vec<String> = ALL_ERRORS.iter().map(|e| format!("{e}")).collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), ALL_ERRORS.len());
+    }
+
+    #[test]
+    fn node_graph_error_display_survives_width_precision_and_fill_specifiers() {
+        // `write!` inside a Display impl ignores the outer format spec, but the spec
+        // must not make the impl panic or truncate to nothing.
+        for e in ALL_ERRORS {
+            assert!(!format!("{e:>80}").is_empty());
+            assert!(!format!("{e:*^3}").is_empty());
+            assert!(!format!("{e:.1}").is_empty());
+            assert!(!format!("{e:?}").is_empty());
+        }
+    }
+
+    #[test]
+    fn node_graph_error_debug_and_display_are_both_usable_and_differ_in_style() {
+        // Debug is the derived variant name; Display is prose. They should not be the
+        // same string, otherwise one of the two impls is missing.
+        for e in ALL_ERRORS {
+            assert_ne!(format!("{e:?}"), format!("{e}"));
+        }
+    }
+
+    // ==================================================================
+    // 3. NodeGraph::swap_with_default
+    // ==================================================================
+
+    /// Everything about a `NodeGraph` that is cheaply comparable.
+    fn summary(g: &NodeGraph) -> (usize, usize, usize, bool, f32, f32, f32, String) {
+        (
+            g.node_types.len(),
+            g.input_output_types.len(),
+            g.nodes.len(),
+            g.allow_multiple_root_nodes,
+            g.offset.x,
+            g.offset.y,
+            g.scale_factor,
+            g.add_node_str.as_str().to_string(),
+        )
+    }
+
+    fn distinctive() -> NodeGraph {
+        NodeGraph {
+            allow_multiple_root_nodes: true,
+            offset: LogicalPosition { x: -3.5, y: 12.25 },
+            scale_factor: 2.5,
+            add_node_str: AzString::from_const_str("Ajouter un nœud"),
+            ..graph()
+        }
+    }
+
+    #[test]
+    fn swap_with_default_hands_back_the_old_value_and_leaves_a_default_behind() {
+        let mut g = distinctive();
+        let expected = summary(&g);
+
+        let taken = g.swap_with_default();
+
+        assert_eq!(summary(&taken), expected);
+        assert_eq!(summary(&g), summary(&NodeGraph::default()));
+    }
+
+    #[test]
+    fn swap_with_default_round_trips_a_graph_through_two_owners() {
+        // encode == decode: moving a graph out and back must not lose a single field.
+        let mut a = distinctive();
+        let expected = summary(&a);
+
+        let mut b = a.swap_with_default(); // a := default, b := original
+        let c = b.swap_with_default(); // b := default, c := original again
+
+        assert_eq!(summary(&c), expected);
+        assert_eq!(summary(&b), summary(&NodeGraph::default()));
+        assert_eq!(summary(&a), summary(&NodeGraph::default()));
+    }
+
+    #[test]
+    fn swap_with_default_on_an_already_default_graph_is_a_no_op() {
+        let mut g = NodeGraph::default();
+        let taken = g.swap_with_default();
+        assert_eq!(summary(&taken), summary(&NodeGraph::default()));
+        assert_eq!(summary(&g), summary(&NodeGraph::default()));
+    }
+
+    #[test]
+    fn swap_with_default_preserves_non_finite_offsets_and_scale_verbatim() {
+        // The swap is a `mem::swap`, so NaN/inf must survive bit-for-bit rather than
+        // being normalised away.
+        let mut g = NodeGraph {
+            offset: LogicalPosition {
+                x: f32::INFINITY,
+                y: f32::NEG_INFINITY,
+            },
+            scale_factor: f32::NAN,
+            ..NodeGraph::default()
+        };
+        let taken = g.swap_with_default();
+        assert!(taken.offset.x.is_infinite() && taken.offset.x.is_sign_positive());
+        assert!(taken.offset.y.is_infinite() && taken.offset.y.is_sign_negative());
+        assert!(taken.scale_factor.is_nan());
+        assert_eq!(g.scale_factor, 1.0);
+    }
+
+    #[test]
+    fn swap_with_default_moves_the_connections_not_just_the_node_list() {
+        let mut g = graph();
+        g.connect_input_output(N3, 0, N1, 0).expect("legal A->A wire");
+        let before = wiring(&g);
+
+        let taken = g.swap_with_default();
+
+        assert_eq!(wiring(&taken), before);
+        assert!(g.nodes.is_empty());
+    }
+
+    // ==================================================================
+    // 4. NodeGraph::verify_nodetype_match
+    // ==================================================================
+
+    #[test]
+    fn verify_nodetype_match_accepts_matching_types_at_index_zero() {
+        let g = graph();
+        assert_eq!(g.verify_nodetype_match(N1, 0, N3, 0), Ok(()));
+    }
+
+    #[test]
+    fn verify_nodetype_match_rejects_a_type_mismatch() {
+        let g = graph();
+        // N1 emits `int`, N2 consumes `float`.
+        assert_eq!(
+            g.verify_nodetype_match(N1, 0, N2, 0),
+            Err(NodeGraphError::NodeMimeTypeMismatch)
+        );
+    }
+
+    #[test]
+    fn verify_nodetype_match_reports_a_missing_node_on_either_side() {
+        let g = graph();
+        assert_eq!(
+            g.verify_nodetype_match(MISSING, 0, N3, 0),
+            Err(NodeGraphError::NodeInvalidNode)
+        );
+        assert_eq!(
+            g.verify_nodetype_match(N1, 0, MISSING, 0),
+            Err(NodeGraphError::NodeInvalidNode)
+        );
+    }
+
+    #[test]
+    fn verify_nodetype_match_reports_a_node_whose_type_is_not_registered() {
+        let mut g = graph();
+        g.nodes.push(NodeIdNodeMap {
+            node_id: NodeGraphNodeId { inner: 50 },
+            node: mk_node(TYPE_UNREGISTERED, 0.0, 0.0),
+        });
+        assert_eq!(
+            g.verify_nodetype_match(NodeGraphNodeId { inner: 50 }, 0, N3, 0),
+            Err(NodeGraphError::NodeInvalidNode)
+        );
+        assert_eq!(
+            g.verify_nodetype_match(N1, 0, NodeGraphNodeId { inner: 50 }, 0),
+            Err(NodeGraphError::NodeInvalidNode)
+        );
+    }
+
+    #[test]
+    fn verify_nodetype_match_rejects_out_of_range_port_indices() {
+        let g = graph();
+        // Both node types declare exactly one input and one output, so index 1 is the
+        // first out-of-range index.
+        assert_eq!(
+            g.verify_nodetype_match(N1, 1, N3, 0),
+            Err(NodeGraphError::NodeInvalidIndex)
+        );
+        assert_eq!(
+            g.verify_nodetype_match(N1, 0, N3, 1),
+            Err(NodeGraphError::NodeInvalidIndex)
+        );
+    }
+
+    #[test]
+    fn verify_nodetype_match_does_not_panic_at_usize_max_indices() {
+        // `Vec::get(usize::MAX)` must be the thing that fails, not an unchecked index.
+        let g = graph();
+        assert_eq!(
+            g.verify_nodetype_match(N1, usize::MAX, N3, 0),
+            Err(NodeGraphError::NodeInvalidIndex)
+        );
+        assert_eq!(
+            g.verify_nodetype_match(N1, 0, N3, usize::MAX),
+            Err(NodeGraphError::NodeInvalidIndex)
+        );
+        assert_eq!(
+            g.verify_nodetype_match(N1, usize::MAX, N3, usize::MAX),
+            Err(NodeGraphError::NodeInvalidIndex)
+        );
+    }
+
+    #[test]
+    fn verify_nodetype_match_checks_nodes_before_indices() {
+        // Ordering matters for the error a user sees: a missing node is reported even
+        // when the index is also nonsense.
+        let g = graph();
+        assert_eq!(
+            g.verify_nodetype_match(MISSING, usize::MAX, N3, usize::MAX),
+            Err(NodeGraphError::NodeInvalidNode)
+        );
+    }
+
+    #[test]
+    fn verify_nodetype_match_allows_a_node_to_be_wired_to_itself() {
+        // Documented behaviour: there is no self-loop / cycle check at this layer.
+        let g = graph();
+        assert_eq!(g.verify_nodetype_match(N1, 0, N1, 0), Ok(()));
+    }
+
+    #[test]
+    fn verify_nodetype_match_does_not_mutate_the_graph() {
+        let g = graph();
+        let before = wiring(&g);
+        let _ = g.verify_nodetype_match(N1, 0, N3, 0);
+        let _ = g.verify_nodetype_match(MISSING, usize::MAX, N2, 9);
+        assert_eq!(wiring(&g), before);
+    }
+
+    // ==================================================================
+    // 5. NodeGraph::connect_input_output
+    // ==================================================================
+
+    #[test]
+    fn connect_input_output_wires_both_directions_at_index_zero() {
+        let mut g = graph();
+        assert_eq!(g.connect_input_output(N3, 0, N1, 0), Ok(()));
+
+        assert_eq!(inputs_of(&g, N3), vec![(0, vec![(N1.inner, 0)])]);
+        assert_eq!(outputs_of(&g, N1), vec![(0, vec![(N3.inner, 0)])]);
+        // ...and nothing else moved.
+        assert!(outputs_of(&g, N3).is_empty());
+        assert!(inputs_of(&g, N1).is_empty());
+    }
+
+    #[test]
+    fn connect_input_output_rejects_a_mime_type_mismatch_without_mutating() {
+        let mut g = graph();
+        let before = wiring(&g);
+        assert_eq!(
+            g.connect_input_output(N2, 0, N1, 0),
+            Err(NodeGraphError::NodeMimeTypeMismatch)
+        );
+        assert_eq!(wiring(&g), before, "a rejected connect must be atomic");
+    }
+
+    #[test]
+    fn connect_input_output_rejects_missing_nodes_without_mutating() {
+        for (input, output) in [(MISSING, N1), (N3, MISSING), (MISSING, MISSING)] {
+            let mut g = graph();
+            let before = wiring(&g);
+            assert_eq!(
+                g.connect_input_output(input, 0, output, 0),
+                Err(NodeGraphError::NodeInvalidNode)
+            );
+            assert_eq!(wiring(&g), before);
+        }
+    }
+
+    #[test]
+    fn connect_input_output_rejects_out_of_range_and_usize_max_indices() {
+        for (in_idx, out_idx) in [
+            (1_usize, 0_usize),
+            (0, 1),
+            (usize::MAX, 0),
+            (0, usize::MAX),
+            (usize::MAX, usize::MAX),
+        ] {
+            let mut g = graph();
+            let before = wiring(&g);
+            assert_eq!(
+                g.connect_input_output(N3, in_idx, N1, out_idx),
+                Err(NodeGraphError::NodeInvalidIndex),
+                "in={in_idx} out={out_idx}",
+            );
+            assert_eq!(wiring(&g), before);
+        }
+    }
+
+    #[test]
+    fn connect_input_output_appends_to_an_existing_port_rather_than_replacing_it() {
+        // Two different sources feeding the same input port must both be recorded.
+        let mut g = graph();
+        g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
+        g.connect_input_output(N4, 0, N3, 0).expect("N3 -> N4");
+
+        assert_eq!(
+            inputs_of(&g, N4),
+            vec![(0, vec![(N1.inner, 0), (N3.inner, 0)])],
+            "the second wire must not overwrite the first",
+        );
+        assert_eq!(outputs_of(&g, N1), vec![(0, vec![(N4.inner, 0)])]);
+        assert_eq!(outputs_of(&g, N3), vec![(0, vec![(N4.inner, 0)])]);
+    }
+
+    #[test]
+    fn connect_input_output_records_a_duplicate_wire_twice() {
+        // Documented behaviour: there is no de-duplication, so connecting the same two
+        // ports twice yields two identical entries on both sides.
+        let mut g = graph();
+        g.connect_input_output(N3, 0, N1, 0).expect("first");
+        g.connect_input_output(N3, 0, N1, 0).expect("second");
+
+        assert_eq!(inputs_of(&g, N3), vec![(0, vec![(N1.inner, 0), (N1.inner, 0)])]);
+        assert_eq!(outputs_of(&g, N1), vec![(0, vec![(N3.inner, 0), (N3.inner, 0)])]);
+    }
+
+    #[test]
+    fn connect_input_output_permits_a_self_loop() {
+        // No cycle detection at this layer — the node ends up wired to itself.
+        let mut g = graph();
+        assert_eq!(g.connect_input_output(N1, 0, N1, 0), Ok(()));
+        assert_eq!(inputs_of(&g, N1), vec![(0, vec![(N1.inner, 0)])]);
+        assert_eq!(outputs_of(&g, N1), vec![(0, vec![(N1.inner, 0)])]);
+    }
+
+    // ==================================================================
+    // 6. NodeGraph::disconnect_input
+    // ==================================================================
+
+    #[test]
+    fn disconnect_input_round_trips_a_single_connection() {
+        // encode == decode: connect then disconnect restores the exact wiring.
+        let mut g = graph();
+        let before = wiring(&g);
+
+        g.connect_input_output(N3, 0, N1, 0).expect("connect");
+        assert_ne!(wiring(&g), before);
+
+        assert_eq!(g.disconnect_input(N3, 0), Ok(()));
+        assert_eq!(wiring(&g), before);
+    }
+
+    #[test]
+    fn disconnect_input_reports_a_missing_node() {
+        let mut g = graph();
+        assert_eq!(
+            g.disconnect_input(MISSING, 0),
+            Err(NodeGraphError::NodeInvalidNode)
+        );
+    }
+
+    #[test]
+    fn disconnect_input_on_an_unconnected_port_is_ok_and_changes_nothing() {
+        let mut g = graph();
+        let before = wiring(&g);
+        assert_eq!(g.disconnect_input(N3, 0), Ok(()));
+        assert_eq!(wiring(&g), before);
+    }
+
+    #[test]
+    fn disconnect_input_at_usize_max_is_ok_rather_than_invalid_index() {
+        // Documented behaviour: an index that is not present short-circuits to `Ok(())`
+        // *before* any range validation, so even `usize::MAX` is accepted silently.
+        let mut g = graph();
+        let before = wiring(&g);
+        assert_eq!(g.disconnect_input(N3, usize::MAX), Ok(()));
+        assert_eq!(wiring(&g), before);
+    }
+
+    #[test]
+    fn disconnect_input_clears_every_source_feeding_that_port() {
+        let mut g = graph();
+        let before = wiring(&g);
+        g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
+        g.connect_input_output(N4, 0, N3, 0).expect("N3 -> N4");
+
+        assert_eq!(g.disconnect_input(N4, 0), Ok(()));
+        assert_eq!(
+            wiring(&g),
+            before,
+            "both upstream ports must be released, not just the first",
+        );
+    }
+
+    #[test]
+    fn disconnect_input_orphans_a_sibling_sharing_the_same_output_port() {
+        // BUG (characterised, not endorsed): `disconnect_input` removes the *whole*
+        // `OutputConnection` entry of the upstream port instead of removing just the
+        // one `InputNodeAndIndex` that pointed back. When two inputs are fed by the
+        // same output, disconnecting one of them silently drops the other's
+        // forward edge while leaving its backward edge in place — the two halves of
+        // the graph disagree afterwards.
+        let mut g = graph();
+        g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+        g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
+        assert_eq!(
+            outputs_of(&g, N1),
+            vec![(0, vec![(N3.inner, 0), (N4.inner, 0)])]
+        );
+
+        assert_eq!(g.disconnect_input(N3, 0), Ok(()));
+
+        assert!(inputs_of(&g, N3).is_empty(), "the requested edge is gone");
+        assert_eq!(
+            inputs_of(&g, N4),
+            vec![(0, vec![(N1.inner, 0)])],
+            "N4 still believes it is connected to N1",
+        );
+        assert!(
+            outputs_of(&g, N1).is_empty(),
+            "...but N1 no longer lists N4 — the collateral damage this test pins down",
+        );
+    }
+
+    // ==================================================================
+    // 7. NodeGraph::disconnect_output
+    // ==================================================================
+
+    #[test]
+    fn disconnect_output_round_trips_a_single_connection() {
+        let mut g = graph();
+        let before = wiring(&g);
+
+        g.connect_input_output(N3, 0, N1, 0).expect("connect");
+        assert_eq!(g.disconnect_output(N1, 0), Ok(()));
+
+        assert_eq!(wiring(&g), before);
+    }
+
+    #[test]
+    fn disconnect_output_reports_a_missing_node() {
+        let mut g = graph();
+        assert_eq!(
+            g.disconnect_output(MISSING, 0),
+            Err(NodeGraphError::NodeInvalidNode)
+        );
+    }
+
+    #[test]
+    fn disconnect_output_on_an_unconnected_port_is_ok_and_changes_nothing() {
+        let mut g = graph();
+        let before = wiring(&g);
+        assert_eq!(g.disconnect_output(N1, 0), Ok(()));
+        assert_eq!(wiring(&g), before);
+    }
+
+    #[test]
+    fn disconnect_output_at_usize_max_is_ok_rather_than_invalid_index() {
+        let mut g = graph();
+        let before = wiring(&g);
+        assert_eq!(g.disconnect_output(N1, usize::MAX), Ok(()));
+        assert_eq!(wiring(&g), before);
+    }
+
+    #[test]
+    fn disconnect_output_releases_every_downstream_input_it_fed() {
+        // The mirror image of `disconnect_input_orphans_a_sibling...`: here the fan-out
+        // case *is* handled correctly, because the loop walks the cloned target list.
+        let mut g = graph();
+        let before = wiring(&g);
+        g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+        g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
+
+        assert_eq!(g.disconnect_output(N1, 0), Ok(()));
+        assert_eq!(wiring(&g), before, "no dangling back-reference may survive");
+    }
+
+    #[test]
+    fn disconnect_output_of_a_self_loop_leaves_no_residue() {
+        let mut g = graph();
+        let before = wiring(&g);
+        g.connect_input_output(N1, 0, N1, 0).expect("self loop");
+        assert_eq!(g.disconnect_output(N1, 0), Ok(()));
+        assert_eq!(wiring(&g), before);
+    }
+
+    // ==================================================================
+    // 8. get_rect
+    // ==================================================================
+
+    fn connection(out: NodeGraphNodeId, out_idx: usize, inn: NodeGraphNodeId, in_idx: usize)
+        -> ConnectionLocalDataset {
+        ConnectionLocalDataset {
+            out_node_id: out,
+            out_idx,
+            in_node_id: inn,
+            in_idx,
+            // Deliberately wrong: `get_rect` must recompute both flags from geometry.
+            swap_vert: true,
+            swap_horz: true,
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn get_rect_returns_none_for_a_dangling_endpoint() {
+        let g = graph();
+        assert!(get_rect(&g, connection(MISSING, 0, N3, 0)).is_none());
+        assert!(get_rect(&g, connection(N1, 0, MISSING, 0)).is_none());
+        assert!(get_rect(&g, connection(MISSING, 0, MISSING, 0)).is_none());
+    }
+
+    #[test]
+    fn get_rect_computes_the_bounding_box_of_the_two_ports() {
+        // N1 sits at (0, 0), N3 at (800, 50); both use port 0.
+        let g = graph();
+        let (rect, swap_vert, swap_horz) =
+            get_rect(&g, connection(N1, 0, N3, 0)).expect("both nodes exist");
+
+        let x_out = 0.0 + EXPECT_NODE_WIDTH;
+        let y_out = 0.0 + EXPECT_V_OFFSET;
+        let x_in = 800.0;
+        let y_in = 50.0 + EXPECT_V_OFFSET;
+
+        assert_eq!(rect.origin.x, x_out.min(x_in));
+        assert_eq!(rect.origin.y, y_out.min(y_in));
+        assert_eq!(rect.size.width, (x_in - x_out).abs());
+        assert_eq!(rect.size.height, (y_in - y_out).abs() + EXPECT_DOT_HEIGHT);
+        assert!(swap_vert, "the input port sits below the output port");
+        assert!(!swap_horz, "the input node is to the right of the output");
+    }
+
+    #[test]
+    fn get_rect_recomputes_the_swap_flags_and_ignores_the_ones_it_was_handed() {
+        // The fixture passes `swap_vert: true, swap_horz: true` every time; here both
+        // must come back `false`, proving the incoming values are not echoed.
+        let g = graph();
+        // N3 (800, 50) -> N1 (0, 0): input is left of, and above, the output.
+        let (_, swap_vert, swap_horz) = get_rect(&g, connection(N3, 0, N1, 0)).expect("exists");
+        assert!(!swap_vert);
+        assert!(swap_horz);
+    }
+
+    #[test]
+    fn get_rect_height_is_never_below_the_connection_dot() {
+        // Two nodes at the same height give a zero-height span; the dot height is the
+        // floor that keeps the rect drawable.
+        let mut g = graph();
+        g.nodes.as_mut()[2].node.position = NodeGraphNodePosition { x: 800.0, y: 0.0 };
+        let (rect, _, _) = get_rect(&g, connection(N1, 0, N3, 0)).expect("exists");
+        assert_eq!(rect.size.height, EXPECT_DOT_HEIGHT);
+    }
+
+    #[test]
+    fn get_rect_port_index_shifts_the_endpoint_by_a_fixed_pitch() {
+        // N1's output port (y = 71) is the topmost point of the rect; moving N3's input
+        // down by three port pitches must therefore grow the height by exactly three
+        // pitches and leave the origin where it was.
+        let g = graph();
+        let (base, _, _) = get_rect(&g, connection(N1, 0, N3, 0)).expect("exists");
+        let (shifted, _, _) = get_rect(&g, connection(N1, 0, N3, 3)).expect("exists");
+
+        assert_eq!(shifted.origin.y, base.origin.y);
+        assert_eq!(
+            shifted.size.height - base.size.height,
+            3.0 * EXPECT_PORT_PITCH,
+        );
+    }
+
+    #[test]
+    fn get_rect_stays_finite_at_usize_max_port_indices() {
+        // `usize::MAX as f32` is ~1.8e19 — large, but multiplying by the 25px pitch
+        // still lands well inside f32 range, so nothing may become inf or NaN.
+        let g = graph();
+        let (rect, _, _) = get_rect(&g, connection(N1, usize::MAX, N3, usize::MAX))
+            .expect("both nodes exist");
+        assert!(rect.origin.y.is_finite(), "y = {}", rect.origin.y);
+        assert!(rect.size.height.is_finite(), "h = {}", rect.size.height);
+        assert!(rect.size.width.is_finite());
+        assert!(rect.size.height >= EXPECT_DOT_HEIGHT);
+    }
+
+    #[test]
+    fn get_rect_with_a_nan_position_yields_nan_extent_but_a_finite_origin() {
+        // `f32::min` returns the non-NaN operand, so the origin survives even though
+        // the extent does not. Neither may panic.
+        let mut g = graph();
+        g.nodes.as_mut()[2].node.position = NodeGraphNodePosition {
+            x: f32::NAN,
+            y: f32::NAN,
+        };
+        let (rect, swap_vert, swap_horz) = get_rect(&g, connection(N1, 0, N3, 0)).expect("exists");
+
+        assert!(rect.size.width.is_nan());
+        assert!(rect.size.height.is_nan());
+        assert_eq!(rect.origin.x, EXPECT_NODE_WIDTH);
+        assert_eq!(rect.origin.y, EXPECT_V_OFFSET);
+        // NaN compares false against everything, so both flags fall to `false`.
+        assert!(!swap_vert);
+        assert!(!swap_horz);
+    }
+
+    #[test]
+    fn get_rect_with_infinite_positions_does_not_panic() {
+        let mut g = graph();
+        g.nodes.as_mut()[2].node.position = NodeGraphNodePosition {
+            x: f32::INFINITY,
+            y: f32::NEG_INFINITY,
+        };
+        let (rect, swap_vert, swap_horz) = get_rect(&g, connection(N1, 0, N3, 0)).expect("exists");
+        assert!(rect.size.width.is_infinite());
+        assert!(rect.size.height.is_infinite());
+        assert!(!swap_vert, "-inf is not above the output port");
+        assert!(!swap_horz, "+inf is not left of the output port");
+
+        // Both endpoints infinite in the same direction => inf - inf => NaN extent.
+        g.nodes.as_mut()[0].node.position = NodeGraphNodePosition {
+            x: f32::INFINITY,
+            y: f32::NEG_INFINITY,
+        };
+        let (rect, _, _) = get_rect(&g, connection(N1, 0, N3, 0)).expect("exists");
+        assert!(rect.size.width.is_nan());
+    }
+
+    #[test]
+    fn get_rect_is_a_pure_query() {
+        let g = graph();
+        let before = wiring(&g);
+        let _ = get_rect(&g, connection(N1, usize::MAX, N3, 0));
+        assert_eq!(wiring(&g), before);
+    }
+
+    // ==================================================================
+    // 9. render_node
+    // ==================================================================
+
+    fn node_dataset(g: &NodeGraph, id: NodeGraphNodeId) -> NodeLocalDataset {
+        NodeLocalDataset {
+            node_id: id,
+            backref: graph_dataset(g),
+        }
+    }
+
+    fn render_one(g: &NodeGraph, id: NodeGraphNodeId, offset: (f32, f32), scale: f32) -> Dom {
+        let n = g
+            .nodes
+            .iter()
+            .find(|n| n.node_id == id)
+            .expect("node in fixture");
+        let ty = g
+            .node_types
+            .iter()
+            .find(|t| t.node_type_id == n.node.node_type)
+            .expect("type in fixture");
+        render_node(
+            &n.node,
+            offset,
+            &ty.node_type_info,
+            node_dataset(g, id),
+            scale,
+        )
+    }
+
+    #[test]
+    fn render_node_produces_a_single_wrapper_child_carrying_the_dataset() {
+        let g = graph();
+        let dom = render_one(&g, N1, (0.0, 0.0), 1.0);
+        assert_eq!(dom.children.len(), 1);
+        let inner = &dom.children.as_slice()[0];
+        let mut ds = inner
+            .root
+            .get_dataset()
+            .cloned()
+            .expect("the node body must carry its NodeLocalDataset");
+        assert!(ds.downcast_ref::<NodeLocalDataset>().is_some());
+    }
+
+    #[test]
+    fn render_node_survives_every_pathological_scale_factor() {
+        // `scale_factor == 1.0` picks a shorter transform list; every other value takes
+        // the scale branch, where the f32 is pushed through `PercentageValue::new`.
+        let g = graph();
+        let baseline = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
+        for scale in [
+            0.0,
+            -0.0,
+            -1.0,
+            1e-30,
+            f32::MAX,
+            f32::MIN,
+            f32::EPSILON,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ] {
+            let dom = render_one(&g, N1, (0.0, 0.0), scale);
+            assert_eq!(
+                count_nodes(&dom),
+                baseline,
+                "scale {scale} changed the node structure",
+            );
+        }
+    }
+
+    #[test]
+    fn render_node_survives_every_pathological_graph_offset() {
+        let g = graph();
+        let baseline = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
+        for offset in [
+            (f32::NAN, f32::NAN),
+            (f32::INFINITY, f32::NEG_INFINITY),
+            (f32::MAX, f32::MIN),
+            (-1e30, 1e30),
+        ] {
+            assert_eq!(count_nodes(&render_one(&g, N1, offset, 1.0)), baseline);
+        }
+    }
+
+    #[test]
+    fn render_node_survives_a_node_positioned_at_nan_and_infinity() {
+        let mut g = graph();
+        g.nodes.as_mut()[0].node.position = NodeGraphNodePosition {
+            x: f32::NAN,
+            y: f32::INFINITY,
+        };
+        let dom = render_one(&g, N1, (0.0, 0.0), 1.0);
+        assert!(count_nodes(&dom) > 1);
+    }
+
+    #[test]
+    fn render_node_drops_all_ports_when_the_backref_is_not_a_node_graph_dataset() {
+        // Both port lists are built by downcasting through `backref`; a foreign payload
+        // must degrade to "no ports" rather than panicking.
+        let g = graph();
+        let n = g.nodes.iter().find(|n| n.node_id == N1).expect("fixture");
+        let ty = g
+            .node_types
+            .iter()
+            .find(|t| t.node_type_id == TYPE_A)
+            .expect("fixture");
+
+        let broken = render_node(
+            &n.node,
+            (0.0, 0.0),
+            &ty.node_type_info,
+            NodeLocalDataset {
+                node_id: N1,
+                backref: RefAny::new(0xDEAD_BEEF_u32),
+            },
+            1.0,
+        );
+        let intact = render_one(&g, N1, (0.0, 0.0), 1.0);
+
+        assert!(count_nodes(&broken) > 1, "the node body still renders");
+        assert!(
+            count_nodes(&broken) < count_nodes(&intact),
+            "a broken backref must cost the ports: {} vs {}",
+            count_nodes(&broken),
+            count_nodes(&intact),
+        );
+    }
+
+    #[test]
+    fn render_node_drops_ports_whose_io_type_has_no_registered_info() {
+        let mut g = graph();
+        // Point TYPE_A's single input at an I/O id that has no `InputOutputInfo`.
+        g.node_types.as_mut()[0].node_type_info.inputs = vec![IO_COLORLESS].into();
+        let stripped = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
+        let intact = count_nodes(&render_one(&graph(), N1, (0.0, 0.0), 1.0));
+        assert!(stripped < intact, "{stripped} vs {intact}");
+    }
+
+    #[test]
+    fn render_node_renders_all_five_field_widget_kinds() {
+        let mut g = graph();
+        g.nodes.as_mut()[0].node.fields = vec![
+            NodeTypeField {
+                key: AzString::from_const_str("text"),
+                value: NodeTypeFieldValue::TextInput(AzString::from_const_str("hello")),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("number"),
+                value: NodeTypeFieldValue::NumberInput(1.5),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("check"),
+                value: NodeTypeFieldValue::CheckBox(true),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("color"),
+                value: NodeTypeFieldValue::ColorInput(ColorU {
+                    r: 9,
+                    g: 8,
+                    b: 7,
+                    a: 6,
+                }),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("file"),
+                value: NodeTypeFieldValue::FileInput(OptionString::None),
+            },
+        ]
+        .into();
+
+        let with_fields = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
+        let without = count_nodes(&render_one(&graph(), N1, (0.0, 0.0), 1.0));
+        assert!(with_fields > without, "{with_fields} vs {without}");
+    }
+
+    #[test]
+    fn render_node_field_count_is_monotonic() {
+        let base = count_nodes(&render_one(&graph(), N1, (0.0, 0.0), 1.0));
+        let mut previous = base;
+        for count in 1..=4_usize {
+            let mut g = graph();
+            g.nodes.as_mut()[0].node.fields = (0..count)
+                .map(|_| NodeTypeField {
+                    key: AzString::from_const_str("f"),
+                    value: NodeTypeFieldValue::CheckBox(false),
+                })
+                .collect::<Vec<_>>()
+                .into();
+            let now = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
+            assert!(now > previous, "{count} fields: {now} !> {previous}");
+            previous = now;
+        }
+    }
+
+    #[test]
+    fn render_node_accepts_pathological_field_values() {
+        // Empty / emoji / RTL / zero-width labels, NaN and infinite numbers, a fully
+        // transparent color and a unicode file path.
+        let mut g = graph();
+        g.nodes.as_mut()[0].node.fields = vec![
+            NodeTypeField {
+                key: AzString::from_const_str(""),
+                value: NodeTypeFieldValue::TextInput(AzString::from_const_str("")),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("🎉\u{200b}اختبار"),
+                value: NodeTypeFieldValue::TextInput(AzString::from_const_str("𝕬\u{0301}\u{feff}")),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("nan"),
+                value: NodeTypeFieldValue::NumberInput(f32::NAN),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("inf"),
+                value: NodeTypeFieldValue::NumberInput(f32::NEG_INFINITY),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("max"),
+                value: NodeTypeFieldValue::NumberInput(f32::MAX),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("clear"),
+                value: NodeTypeFieldValue::ColorInput(ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                }),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("path"),
+                value: NodeTypeFieldValue::FileInput(OptionString::Some(
+                    AzString::from_const_str("/tmp/日本語/🎉.txt"),
+                )),
+            },
+        ]
+        .into();
+
+        assert!(count_nodes(&render_one(&g, N1, (f32::NAN, f32::NAN), f32::NAN)) > 1);
+    }
+
+    // ==================================================================
+    // 10. render_connections
+    // ==================================================================
+
+    fn marker() -> RefAny {
+        RefAny::new(NodeConnectionMarkerDataset {})
+    }
+
+    #[test]
+    fn render_connections_of_an_unwired_graph_has_no_children() {
+        let dom = render_connections(&graph(), marker());
+        assert_eq!(dom.children.len(), 0);
+        assert!(
+            dom.root.get_dataset().is_some(),
+            "the container must keep the marker dataset that drag-handling looks up",
+        );
+    }
+
+    #[test]
+    fn render_connections_emits_exactly_one_child_per_wire() {
+        let mut g = graph();
+        g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+
+        g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
+        assert_eq!(render_connections(&g, marker()).children.len(), 2);
+
+        g.connect_input_output(N4, 0, N3, 0).expect("N3 -> N4");
+        assert_eq!(render_connections(&g, marker()).children.len(), 3);
+    }
+
+    #[test]
+    fn render_connections_skips_a_wire_to_a_node_that_no_longer_exists() {
+        // `get_rect` returns `None`; the renderer must drop the wire, not unwrap it.
+        let g = force_out_connection(graph(), N1, 0, MISSING, 0);
+        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+    }
+
+    #[test]
+    fn render_connections_skips_an_out_of_range_output_port() {
+        for out_idx in [1_usize, 99, usize::MAX] {
+            let g = force_out_connection(graph(), N1, out_idx, N3, 0);
+            assert_eq!(
+                render_connections(&g, marker()).children.len(),
+                0,
+                "output index {out_idx} must be skipped",
+            );
+        }
+    }
+
+    #[test]
+    fn render_connections_skips_a_node_whose_type_is_not_registered() {
+        let mut g = graph();
+        g.nodes.push(NodeIdNodeMap {
+            node_id: NodeGraphNodeId { inner: 50 },
+            node: mk_node(TYPE_UNREGISTERED, 0.0, 0.0),
+        });
+        let g = force_out_connection(g, NodeGraphNodeId { inner: 50 }, 0, N3, 0);
+        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+    }
+
+    #[test]
+    fn render_connections_skips_a_port_whose_io_type_has_no_color() {
+        let mut g = graph();
+        g.node_types.as_mut()[0].node_type_info.outputs = vec![IO_COLORLESS].into();
+        let g = force_out_connection(g, N1, 0, N3, 0);
+        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+    }
+
+    #[test]
+    fn render_connections_survives_nan_positions_and_scale() {
+        let mut g = graph();
+        g.scale_factor = f32::NAN;
+        g.offset = LogicalPosition {
+            x: f32::INFINITY,
+            y: f32::NAN,
+        };
+        g.nodes.as_mut()[0].node.position = NodeGraphNodePosition {
+            x: f32::NAN,
+            y: f32::NAN,
+        };
+        g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+    }
+
+    #[test]
+    fn render_connections_renders_a_self_loop() {
+        let mut g = graph();
+        g.connect_input_output(N1, 0, N1, 0).expect("self loop");
+        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+    }
+
+    // ==================================================================
+    // 11. draw_connection
+    // ==================================================================
+
+    #[test]
+    fn draw_connection_returns_a_fixed_100x100_null_image() {
+        // The real curve rendering is stubbed out pending `RenderImageCallbackInfo`;
+        // until then the size is a constant and must not depend on the payload.
+        let img = draw_connection(RefAny::new(connection(N1, 0, N3, 0)), ());
+        assert_eq!(img.get_size().width, 100.0);
+        assert_eq!(img.get_size().height, 100.0);
+    }
+
+    #[test]
+    fn draw_connection_ignores_a_payload_of_the_wrong_type() {
+        for payload in [
+            RefAny::new(NodeConnectionMarkerDataset {}),
+            RefAny::new(0_u8),
+            RefAny::new(String::new()),
+        ] {
+            let img = draw_connection(payload, ());
+            assert_eq!(img.get_size().width, 100.0);
+        }
+    }
+
+    #[test]
+    fn draw_connection_does_not_consume_or_corrupt_its_payload() {
+        let cld = RefAny::new(connection(N1, 2, N3, 5));
+        let _ = draw_connection(cld.clone(), ());
+        let _ = draw_connection(cld.clone(), ());
+
+        let mut probe = cld.clone();
+        let read_back = probe
+            .downcast_ref::<ConnectionLocalDataset>()
+            .expect("payload must still be downcastable after the callback ran");
+        assert_eq!(read_back.out_idx, 2);
+        assert_eq!(read_back.in_idx, 5);
+    }
+
+    #[test]
+    fn draw_connection_returns_distinct_image_handles_per_call() {
+        let cld = RefAny::new(connection(N1, 0, N3, 0));
+        let a = draw_connection(cld.clone(), ());
+        let b = draw_connection(cld.clone(), ());
+        assert_ne!(a, b, "each call must mint a fresh ImageRef id");
+    }
+
+    // ==================================================================
+    // 12. NodeGraph::dom
+    // ==================================================================
+
+    #[test]
+    fn dom_of_a_default_graph_has_the_expected_skeleton() {
+        let dom = NodeGraph::default().dom();
+
+        assert!(
+            dom.root.get_context_menu().is_some(),
+            "the 'add node' context menu is the only way to create nodes",
+        );
+        assert!(dom.root.get_dataset().is_some());
+        assert_eq!(dom.children.len(), 1, "wrapper holds exactly the .nodegraph");
+
+        let nodegraph = &dom.children.as_slice()[0];
+        assert_eq!(
+            nodegraph.children.len(),
+            2,
+            "connections container + nodes container",
+        );
+    }
+
+    #[test]
+    fn dom_root_dataset_round_trips_back_to_a_node_graph_local_dataset() {
+        let dom = graph().dom();
+        let mut ds = dom.root.get_dataset().cloned().expect("root dataset");
+        let inner = ds
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("root dataset must be the NodeGraphLocalDataset");
+        assert_eq!(inner.node_graph.nodes.len(), 4);
+        assert!(inner.last_input_or_output_clicked.is_none());
+        assert!(inner.active_node_being_dragged.is_none());
+    }
+
+    #[test]
+    fn dom_renders_one_child_per_node_and_silently_drops_unregistered_types() {
+        let mut g = graph();
+        g.nodes.push(NodeIdNodeMap {
+            node_id: NodeGraphNodeId { inner: 50 },
+            node: mk_node(TYPE_UNREGISTERED, 0.0, 0.0),
+        });
+
+        let dom = g.dom();
+        let nodes_container = &dom.children.as_slice()[0].children.as_slice()[1];
+        assert_eq!(
+            nodes_container.children.len(),
+            4,
+            "the 5th node has no registered type and must be filtered out",
+        );
+    }
+
+    #[test]
+    fn dom_context_menu_lists_one_submenu_entry_per_node_type() {
+        let g = graph();
+        let dom = g.dom();
+        let menu = dom.root.get_context_menu().expect("context menu").clone();
+        assert_eq!(menu.items.len(), 1, "one top-level 'add node' entry");
+        match &menu.items.as_slice()[0] {
+            MenuItem::String(s) => assert_eq!(s.children.len(), 2, "TYPE_A and TYPE_B"),
+            other => panic!("expected a string menu item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dom_context_menu_is_present_even_with_no_node_types_at_all() {
+        let mut g = graph();
+        g.node_types = NodeTypeIdInfoMapVec::new();
+        let dom = g.dom();
+        let menu = dom.root.get_context_menu().expect("context menu").clone();
+        assert_eq!(menu.items.len(), 1);
+        match &menu.items.as_slice()[0] {
+            MenuItem::String(s) => assert_eq!(s.children.len(), 0),
+            other => panic!("expected a string menu item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dom_survives_pathological_scale_offset_and_positions() {
+        for (scale, ox, oy) in [
+            (f32::NAN, f32::NAN, f32::NAN),
+            (0.0, 0.0, 0.0),
+            (-1.0, -1e30, 1e30),
+            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY),
+            (f32::MAX, f32::MAX, f32::MIN),
+        ] {
+            let mut g = graph();
+            g.scale_factor = scale;
+            g.offset = LogicalPosition { x: ox, y: oy };
+            g.nodes.as_mut()[0].node.position = NodeGraphNodePosition {
+                x: f32::NAN,
+                y: f32::INFINITY,
+            };
+            g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+            let dom = g.dom();
+            assert_eq!(dom.children.len(), 1, "scale {scale}");
+        }
+    }
+
+    #[test]
+    fn dom_of_a_wired_graph_renders_the_connection_container_children() {
+        let mut g = graph();
+        g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+        let dom = g.dom();
+        let connections = &dom.children.as_slice()[0].children.as_slice()[0];
+        assert_eq!(connections.children.len(), 1);
+    }
+
+    #[test]
+    fn dom_can_be_converted_into_a_styled_dom() {
+        // `StyledDom::create_from_dom` re-derives the child counters; a mismatch there
+        // would panic while building the compact arena.
+        let mut g = graph();
+        g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+        g.nodes.as_mut()[0].node.fields = vec![NodeTypeField {
+            key: AzString::from_const_str("k"),
+            value: NodeTypeFieldValue::NumberInput(f32::NAN),
+        }]
+        .into();
+        let styled = StyledDom::create_from_dom(g.dom());
+        assert!(styled.node_data.len() > 1);
+    }
+
+    // ==================================================================
+    // 13. nodegraph_set_active_node / nodegraph_unset_active_node
+    // ==================================================================
+
+    #[test]
+    fn set_active_node_records_the_node_and_unset_clears_it() {
+        let g = graph();
+        let gd = graph_dataset(&g);
+        let nd = RefAny::new(NodeLocalDataset {
+            node_id: N2,
+            backref: gd.clone(),
+        });
+
+        assert_eq!(
+            fire(|info| nodegraph_set_active_node(nd.clone(), info)),
+            Update::DoNothing,
+        );
+        {
+            let mut probe = gd.clone();
+            let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
+            assert_eq!(
+                d.active_node_being_dragged.as_ref().map(|(id, _)| *id),
+                Some(N2),
+            );
+        }
+
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(gd.clone(), info)),
+            Update::DoNothing,
+        );
+        {
+            let mut probe = gd.clone();
+            let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
+            assert!(d.active_node_being_dragged.is_none());
+        }
+    }
+
+    #[test]
+    fn set_active_node_ignores_a_payload_of_the_wrong_type() {
+        assert_eq!(
+            fire(|info| nodegraph_set_active_node(RefAny::new(1_u64), info)),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn set_active_node_ignores_a_node_dataset_with_a_broken_backref() {
+        // The outer downcast succeeds, the inner one does not — no state may change and
+        // nothing may panic.
+        let nd = RefAny::new(NodeLocalDataset {
+            node_id: N2,
+            backref: RefAny::new(0_u8),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_set_active_node(nd.clone(), info)),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn unset_active_node_is_idempotent_and_ignores_wrong_payloads() {
+        let g = graph();
+        let gd = graph_dataset(&g);
+        for _ in 0..3 {
+            assert_eq!(
+                fire(|info| nodegraph_unset_active_node(gd.clone(), info)),
+                Update::DoNothing,
+            );
+        }
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(RefAny::new(0_i8), info)),
+            Update::DoNothing,
+        );
+    }
+
+    // ==================================================================
+    // 14. nodegraph_duplicate_node / nodegraph_delete_node
+    // ==================================================================
+
+    #[test]
+    fn duplicate_node_is_a_documented_no_op_for_valid_and_invalid_payloads() {
+        let g = graph();
+        let nd = RefAny::new(NodeLocalDataset {
+            node_id: N1,
+            backref: graph_dataset(&g),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_duplicate_node(nd.clone(), info)),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_duplicate_node(RefAny::new(0_u16), info)),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn delete_node_forwards_the_node_id_to_on_node_removed() {
+        let (g, log) = graph_with_log();
+        let nd = RefAny::new(NodeLocalDataset {
+            node_id: N3,
+            backref: graph_dataset(&g),
+        });
+
+        assert_eq!(
+            fire(|info| nodegraph_delete_node(nd.clone(), info)),
+            Update::RefreshDom,
+            "the user callback's Update must be propagated verbatim",
+        );
+        log_of(&log, |l| assert_eq!(l.removed, vec![N3.inner]));
+    }
+
+    #[test]
+    fn delete_node_without_a_user_callback_does_nothing() {
+        let g = graph();
+        let nd = RefAny::new(NodeLocalDataset {
+            node_id: N3,
+            backref: graph_dataset(&g),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_delete_node(nd.clone(), info)),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn delete_node_reports_a_node_id_that_is_not_even_in_the_graph() {
+        // Documented behaviour: the handler does not validate the id, it just forwards
+        // it — removal is entirely the user callback's job.
+        let (g, log) = graph_with_log();
+        let nd = RefAny::new(NodeLocalDataset {
+            node_id: MISSING,
+            backref: graph_dataset(&g),
+        });
+        let _ = fire(|info| nodegraph_delete_node(nd.clone(), info));
+        log_of(&log, |l| assert_eq!(l.removed, vec![MISSING.inner]));
+    }
+
+    #[test]
+    fn delete_node_ignores_broken_payloads() {
+        assert_eq!(
+            fire(|info| nodegraph_delete_node(RefAny::new(0_u32), info)),
+            Update::DoNothing,
+        );
+        let nd = RefAny::new(NodeLocalDataset {
+            node_id: N1,
+            backref: RefAny::new(0_u8),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_delete_node(nd.clone(), info)),
+            Update::DoNothing,
+        );
+    }
+
+    // ==================================================================
+    // 15. nodegraph_drag_graph_or_nodes
+    // ==================================================================
+
+    #[test]
+    fn drag_without_a_previous_window_state_does_nothing() {
+        // The harness leaves `previous_window_state` as `None`, which is exactly the
+        // very-first-event case: no delta can be computed, so nothing may move.
+        let (g, _log) = graph_with_log();
+        let gd = graph_dataset(&g);
+        let before = wiring(&dataset_graph(&gd));
+
+        assert_eq!(
+            fire(|info| nodegraph_drag_graph_or_nodes(gd.clone(), info)),
+            Update::DoNothing,
+        );
+        assert_eq!(wiring(&dataset_graph(&gd)), before);
+        let after = dataset_graph(&gd);
+        assert_eq!(after.offset.x, 0.0);
+        assert_eq!(after.offset.y, 0.0);
+    }
+
+    #[test]
+    fn drag_ignores_a_payload_of_the_wrong_type() {
+        assert_eq!(
+            fire(|info| nodegraph_drag_graph_or_nodes(RefAny::new(0_u64), info)),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn drag_does_not_dereference_the_active_node_before_checking_the_mouse() {
+        // An "active node" that is not in the graph would be an unwrap hazard if the
+        // mouse-state guard were ever reordered after the lookup.
+        let g = graph();
+        let gd = graph_dataset(&g);
+        {
+            let mut probe = gd.clone();
+            let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+            d.active_node_being_dragged = Some((MISSING, RefAny::new(0_u8)));
+        }
+        assert_eq!(
+            fire(|info| nodegraph_drag_graph_or_nodes(gd.clone(), info)),
+            Update::DoNothing,
+        );
+    }
+
+    // ==================================================================
+    // 16. nodegraph_input_output_connect / _disconnect
+    // ==================================================================
+
+    fn io_dataset(gd: &RefAny, node_id: NodeGraphNodeId, io: InputOrOutput) -> RefAny {
+        RefAny::new(NodeInputOutputLocalDataset {
+            io_id: io,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id,
+                backref: gd.clone(),
+            }),
+        })
+    }
+
+    #[test]
+    fn connect_click_one_only_arms_the_pending_port() {
+        let g = graph();
+        let gd = graph_dataset(&g);
+        let first = io_dataset(&gd, N1, InputOrOutput::Output(0));
+
+        assert_eq!(
+            fire(|info| nodegraph_input_output_connect(first.clone(), info)),
+            Update::DoNothing,
+        );
+        assert_eq!(pending_click(&gd), Some((N1.inner, (false, 0))));
+        assert_eq!(
+            wiring(&dataset_graph(&gd)),
+            wiring(&graph()),
+            "arming a port must not wire anything yet",
+        );
+    }
+
+    #[test]
+    fn connect_output_then_input_wires_the_graph_inside_the_dataset() {
+        let (g, log) = graph_with_log();
+        let gd = graph_dataset(&g);
+        let out = io_dataset(&gd, N1, InputOrOutput::Output(0));
+        let inn = io_dataset(&gd, N3, InputOrOutput::Input(0));
+
+        let _ = fire(|info| nodegraph_input_output_connect(out.clone(), info));
+        assert_eq!(
+            fire(|info| nodegraph_input_output_connect(inn.clone(), info)),
+            Update::RefreshDom,
+        );
+
+        let wired = dataset_graph(&gd);
+        assert_eq!(inputs_of(&wired, N3), vec![(0, vec![(N1.inner, 0)])]);
+        assert_eq!(outputs_of(&wired, N1), vec![(0, vec![(N3.inner, 0)])]);
+        log_of(&log, |l| {
+            assert_eq!(l.connected, vec![(N3.inner, 0, N1.inner, 0)]);
+        });
+        assert_eq!(
+            pending_click(&gd),
+            None,
+            "a completed connection must disarm the pending port",
+        );
+    }
+
+    #[test]
+    fn connect_input_then_output_wires_the_same_edge_in_the_same_direction() {
+        // Clicking input-first and output-first must produce identical graphs — the
+        // handler swaps the roles itself.
+        let (g, _log) = graph_with_log();
+
+        let gd_a = graph_dataset(&g);
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd_a, N1, InputOrOutput::Output(0)), info)
+        });
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd_a, N3, InputOrOutput::Input(0)), info)
+        });
+
+        let gd_b = graph_dataset(&g);
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd_b, N3, InputOrOutput::Input(0)), info)
+        });
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd_b, N1, InputOrOutput::Output(0)), info)
+        });
+
+        assert_eq!(wiring(&dataset_graph(&gd_a)), wiring(&dataset_graph(&gd_b)));
+    }
+
+    #[test]
+    fn connect_output_to_output_disarms_instead_of_wiring() {
+        let (g, log) = graph_with_log();
+        let gd = graph_dataset(&g);
+
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd, N1, InputOrOutput::Output(0)), info)
+        });
+        assert_eq!(
+            fire(|info| {
+                nodegraph_input_output_connect(io_dataset(&gd, N3, InputOrOutput::Output(0)), info)
+            }),
+            Update::DoNothing,
+        );
+
+        assert_eq!(pending_click(&gd), None);
+        assert_eq!(wiring(&dataset_graph(&gd)), wiring(&graph()));
+        log_of(&log, |l| assert!(l.connected.is_empty()));
+    }
+
+    #[test]
+    fn connect_input_to_input_disarms_instead_of_wiring() {
+        let (g, _log) = graph_with_log();
+        let gd = graph_dataset(&g);
+
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd, N1, InputOrOutput::Input(0)), info)
+        });
+        assert_eq!(
+            fire(|info| {
+                nodegraph_input_output_connect(io_dataset(&gd, N3, InputOrOutput::Input(0)), info)
+            }),
+            Update::DoNothing,
+        );
+        assert_eq!(pending_click(&gd), None);
+        assert_eq!(wiring(&dataset_graph(&gd)), wiring(&graph()));
+    }
+
+    #[test]
+    fn connect_across_incompatible_types_disarms_and_leaves_the_graph_alone() {
+        let (g, log) = graph_with_log();
+        let gd = graph_dataset(&g);
+
+        // N1 emits `int`, N2 consumes `float`.
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd, N1, InputOrOutput::Output(0)), info)
+        });
+        assert_eq!(
+            fire(|info| {
+                nodegraph_input_output_connect(io_dataset(&gd, N2, InputOrOutput::Input(0)), info)
+            }),
+            Update::DoNothing,
+        );
+
+        assert_eq!(pending_click(&gd), None);
+        assert_eq!(wiring(&dataset_graph(&gd)), wiring(&graph()));
+        log_of(&log, |l| assert!(l.connected.is_empty()));
+    }
+
+    #[test]
+    fn connect_with_an_out_of_range_port_index_is_rejected() {
+        let (g, _log) = graph_with_log();
+        let gd = graph_dataset(&g);
+
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(
+                io_dataset(&gd, N1, InputOrOutput::Output(usize::MAX)),
+                info,
+            )
+        });
+        assert_eq!(
+            fire(|info| {
+                nodegraph_input_output_connect(io_dataset(&gd, N3, InputOrOutput::Input(0)), info)
+            }),
+            Update::DoNothing,
+        );
+        assert_eq!(wiring(&dataset_graph(&gd)), wiring(&graph()));
+    }
+
+    #[test]
+    fn connect_leaves_the_pending_port_armed_when_no_user_callback_is_installed() {
+        // BUG (characterised): `last_input_or_output_clicked` is only cleared inside the
+        // `Some(OnNodeConnected)` arm. A graph with no `on_node_connected` callback
+        // therefore keeps the *first* click armed after a successful wire, so the next
+        // port click re-uses the stale port and wires the wrong edge.
+        let g = graph(); // no callbacks
+        let gd = graph_dataset(&g);
+
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd, N1, InputOrOutput::Output(0)), info)
+        });
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd, N3, InputOrOutput::Input(0)), info)
+        });
+
+        let wired = dataset_graph(&gd);
+        assert_eq!(inputs_of(&wired, N3), vec![(0, vec![(N1.inner, 0)])]);
+        assert_eq!(
+            pending_click(&gd),
+            Some((N1.inner, (false, 0))),
+            "N1's output stays armed after the wire was already made",
+        );
+
+        // ...and the very next input click silently wires a second edge from it.
+        let _ = fire(|info| {
+            nodegraph_input_output_connect(io_dataset(&gd, N4, InputOrOutput::Input(0)), info)
+        });
+        assert_eq!(
+            inputs_of(&dataset_graph(&gd), N4),
+            vec![(0, vec![(N1.inner, 0)])],
+            "the stale port produced an edge the user never armed",
+        );
+    }
+
+    #[test]
+    fn connect_ignores_broken_payloads_at_every_level_of_the_backref_chain() {
+        assert_eq!(
+            fire(|info| nodegraph_input_output_connect(RefAny::new(0_u32), info)),
+            Update::DoNothing,
+        );
+        let bad_mid = RefAny::new(NodeInputOutputLocalDataset {
+            io_id: InputOrOutput::Input(0),
+            backref: RefAny::new(0_u8),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_input_output_connect(bad_mid.clone(), info)),
+            Update::DoNothing,
+        );
+        let bad_tail = RefAny::new(NodeInputOutputLocalDataset {
+            io_id: InputOrOutput::Input(0),
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: RefAny::new(0_u16),
+            }),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_input_output_connect(bad_tail.clone(), info)),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn disconnect_notifies_the_input_or_the_output_callback_but_never_both() {
+        let (g, log) = graph_with_log();
+        let gd = graph_dataset(&g);
+
+        assert_eq!(
+            fire(|info| {
+                nodegraph_input_output_disconnect(io_dataset(&gd, N3, InputOrOutput::Input(4)), info)
+            }),
+            Update::RefreshDom,
+        );
+        log_of(&log, |l| {
+            assert_eq!(l.input_disconnected, vec![(N3.inner, 4)]);
+            assert!(l.output_disconnected.is_empty());
+        });
+
+        assert_eq!(
+            fire(|info| {
+                nodegraph_input_output_disconnect(
+                    io_dataset(&gd, N1, InputOrOutput::Output(7)),
+                    info,
+                )
+            }),
+            Update::RefreshDomAllWindows,
+        );
+        log_of(&log, |l| {
+            assert_eq!(l.input_disconnected, vec![(N3.inner, 4)]);
+            assert_eq!(l.output_disconnected, vec![(N1.inner, 7)]);
+        });
+    }
+
+    #[test]
+    fn disconnect_notifies_but_does_not_actually_unwire_the_graph() {
+        // BUG (characterised): the handler calls neither `disconnect_input` nor
+        // `disconnect_output`, so the middle-click gesture fires the user callback while
+        // the widget's own copy of the graph keeps the edge. Unless the user callback
+        // rebuilds the graph, the connection stays on screen.
+        let (mut g, _log) = graph_with_log();
+        g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
+        let gd = graph_dataset(&g);
+        let before = wiring(&dataset_graph(&gd));
+
+        let _ = fire(|info| {
+            nodegraph_input_output_disconnect(io_dataset(&gd, N3, InputOrOutput::Input(0)), info)
+        });
+
+        assert_eq!(
+            wiring(&dataset_graph(&gd)),
+            before,
+            "the model is untouched by the disconnect gesture",
+        );
+    }
+
+    #[test]
+    fn disconnect_without_user_callbacks_does_nothing() {
+        let g = graph();
+        let gd = graph_dataset(&g);
+        assert_eq!(
+            fire(|info| {
+                nodegraph_input_output_disconnect(io_dataset(&gd, N1, InputOrOutput::Input(0)), info)
+            }),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_input_output_disconnect(RefAny::new(0_u32), info)),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn disconnect_forwards_usize_max_port_indices_unclamped() {
+        let (g, log) = graph_with_log();
+        let gd = graph_dataset(&g);
+        let _ = fire(|info| {
+            nodegraph_input_output_disconnect(
+                io_dataset(&gd, N1, InputOrOutput::Output(usize::MAX)),
+                info,
+            )
+        });
+        log_of(&log, |l| {
+            assert_eq!(l.output_disconnected, vec![(N1.inner, usize::MAX)]);
+        });
+    }
+
+    // ==================================================================
+    // 17. nodegraph_context_menu_click
+    // ==================================================================
+
+    #[test]
+    fn context_menu_click_does_nothing_when_the_graph_is_not_in_the_dom() {
+        // `get_node_id_of_root_dataset` finds nothing in an empty window, so the handler
+        // must bail out before touching the (still valid) backref.
+        let (g, log) = graph_with_log();
+        let cm = RefAny::new(ContextMenuEntryLocalDataset {
+            node_type: TYPE_A,
+            backref: graph_dataset(&g),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_context_menu_click(cm.clone(), info)),
+            Update::DoNothing,
+        );
+        log_of(&log, |l| assert!(l.added.is_empty()));
+    }
+
+    #[test]
+    fn context_menu_click_reports_a_fresh_node_id_at_the_cursor() {
+        let (g, log) = graph_with_log();
+        let dom = g.dom();
+        let gd = dom.root.get_dataset().cloned().expect("root dataset");
+        let styled = StyledDom::create_from_dom(dom);
+
+        let cm = RefAny::new(ContextMenuEntryLocalDataset {
+            node_type: TYPE_B,
+            backref: gd,
+        });
+
+        let (update, _) = with_info(styled, hit_none(), |info| {
+            nodegraph_context_menu_click(cm.clone(), *info)
+        });
+
+        assert_eq!(update, Update::RefreshDomAllWindows);
+        log_of(&log, |l| {
+            // Cursor is `Uninitialized` and there is no layout, so both the cursor and
+            // the wrapper offset are (0, 0) — the position must be exactly zero, not NaN.
+            assert_eq!(l.added, vec![(TYPE_B.inner, 5, 0.0, 0.0)]);
+        });
+    }
+
+    #[test]
+    fn context_menu_click_position_degrades_to_nan_at_a_zero_scale_factor() {
+        // `1.0 / scale_factor` is `inf` at zero; `0 * inf` is NaN. This pins down what
+        // the widget actually hands the user callback in that case.
+        let (mut g, log) = graph_with_log();
+        g.scale_factor = 0.0;
+        let dom = g.dom();
+        let gd = dom.root.get_dataset().cloned().expect("root dataset");
+        let styled = StyledDom::create_from_dom(dom);
+
+        let cm = RefAny::new(ContextMenuEntryLocalDataset {
+            node_type: TYPE_A,
+            backref: gd,
+        });
+        let (_, _) = with_info(styled, hit_none(), |info| {
+            nodegraph_context_menu_click(cm.clone(), *info)
+        });
+
+        log_of(&log, |l| {
+            assert_eq!(l.added.len(), 1);
+            let (_, id, x, y) = l.added[0];
+            assert_eq!(id, 5, "the id must still be generated normally");
+            assert!(x.is_nan() && y.is_nan(), "0 * inf == NaN, got ({x}, {y})");
+        });
+    }
+
+    #[test]
+    fn context_menu_click_ignores_a_payload_of_the_wrong_type() {
+        assert_eq!(
+            fire(|info| nodegraph_context_menu_click(RefAny::new(0_u32), info)),
+            Update::DoNothing,
+        );
+    }
+
+    // ==================================================================
+    // 18. field-edit callbacks
+    // ==================================================================
+
+    #[test]
+    fn textinput_focus_lost_forwards_the_decoded_text() {
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 2,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N2,
+                backref: graph_dataset(&g),
+            }),
+        });
+
+        // 'H', a lone surrogate (never a valid char), then U+1F389 — `get_text` drops
+        // the surrogate, so the callback must see exactly "H🎉".
+        let state = TextInputState {
+            text: vec![0x48_u32, 0xD800, 0x1F389].into(),
+            ..TextInputState::default()
+        };
+
+        assert_eq!(
+            fire(|info| nodegraph_on_textinput_focus_lost(fd.clone(), info, state.clone())),
+            Update::RefreshDom,
+        );
+        log_of(&log, |l| {
+            assert_eq!(l.edited, vec![(N2.inner, 2, TYPE_B.inner)]);
+            assert_eq!(l.text_values, vec!["H\u{1F389}".to_string()]);
+        });
+    }
+
+    #[test]
+    fn textinput_focus_lost_handles_an_empty_and_an_out_of_range_scalar() {
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 0,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: graph_dataset(&g),
+            }),
+        });
+
+        for (raw, expected) in [
+            (vec![], ""),
+            (vec![0x11_0000_u32, 0xFFFF_FFFF], ""), // both above the Unicode range
+            (vec![0x0041, 0x0301], "A\u{0301}"),    // combining mark survives
+        ] {
+            let state = TextInputState {
+                text: raw.into(),
+                ..TextInputState::default()
+            };
+            let _ = fire(|info| nodegraph_on_textinput_focus_lost(fd.clone(), info, state.clone()));
+            log_of(&log, |l| {
+                assert_eq!(l.text_values.last().map(String::as_str), Some(expected));
+            });
+        }
+    }
+
+    #[test]
+    fn numberinput_focus_lost_forwards_nan_and_infinities_verbatim() {
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 1,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: graph_dataset(&g),
+            }),
+        });
+
+        for n in [
+            0.0_f32,
+            -0.0,
+            f32::MAX,
+            f32::MIN,
+            f32::MIN_POSITIVE,
+            f32::EPSILON,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ] {
+            let state = NumberInputState {
+                number: n,
+                ..NumberInputState::default()
+            };
+            assert_eq!(
+                fire(|info| nodegraph_on_numberinput_focus_lost(fd.clone(), info, state)),
+                Update::RefreshDom,
+            );
+        }
+
+        log_of(&log, |l| {
+            assert_eq!(l.number_values.len(), 9);
+            assert_eq!(l.number_values[0], 0.0);
+            assert_eq!(l.number_values[2], f32::MAX);
+            assert!(l.number_values[6].is_infinite());
+            assert!(l.number_values[8].is_nan(), "NaN must not be normalised");
+            assert!(l.edited.iter().all(|e| *e == (N1.inner, 1, TYPE_A.inner)));
+        });
+    }
+
+    #[test]
+    fn checkbox_change_forwards_both_states() {
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 0,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: graph_dataset(&g),
+            }),
+        });
+        for checked in [true, false, true] {
+            let _ = fire(|info| {
+                nodegraph_on_checkbox_value_changed(fd.clone(), info, CheckBoxState { checked })
+            });
+        }
+        log_of(&log, |l| assert_eq!(l.bool_values, vec![true, false, true]));
+    }
+
+    #[test]
+    fn colorinput_change_forwards_every_channel_including_alpha_extremes() {
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 3,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: graph_dataset(&g),
+            }),
+        });
+        // {1,2,3,4} catches a channel swap that greys would hide; 0 and 255 alpha are
+        // the two extremes.
+        for c in [
+            ColorU { r: 1, g: 2, b: 3, a: 4 },
+            ColorU { r: 0, g: 0, b: 0, a: 0 },
+            ColorU { r: 255, g: 255, b: 255, a: 255 },
+        ] {
+            let _ = fire(|info| {
+                nodegraph_on_colorinput_value_changed(fd.clone(), info, ColorInputState { color: c })
+            });
+        }
+        log_of(&log, |l| {
+            assert_eq!(
+                l.color_values,
+                vec![(1, 2, 3, 4), (0, 0, 0, 0), (255, 255, 255, 255)],
+            );
+        });
+    }
+
+    #[test]
+    fn fileinput_click_forwards_both_a_missing_and_a_unicode_path() {
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 4,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: graph_dataset(&g),
+            }),
+        });
+
+        let _ = fire(|info| {
+            nodegraph_on_fileinput_button_clicked(
+                fd.clone(),
+                info,
+                FileInputState {
+                    path: OptionString::None,
+                },
+            )
+        });
+        let _ = fire(|info| {
+            nodegraph_on_fileinput_button_clicked(
+                fd.clone(),
+                info,
+                FileInputState {
+                    path: OptionString::Some(AzString::from_const_str("/tmp/日本語/🎉.txt")),
+                },
+            )
+        });
+
+        log_of(&log, |l| {
+            assert_eq!(
+                l.file_values,
+                vec![None, Some("/tmp/日本語/🎉.txt".to_string())],
+            );
+        });
+    }
+
+    #[test]
+    fn field_callbacks_bail_out_when_the_node_is_not_in_the_graph() {
+        // Every one of the five handlers looks the node type up first; a stale
+        // `node_id` must return `DoNothing` instead of unwrapping.
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 0,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: MISSING,
+                backref: graph_dataset(&g),
+            }),
+        });
+
+        assert_eq!(
+            fire(|info| nodegraph_on_textinput_focus_lost(
+                fd.clone(),
+                info,
+                TextInputState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_numberinput_focus_lost(
+                fd.clone(),
+                info,
+                NumberInputState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_checkbox_value_changed(
+                fd.clone(),
+                info,
+                CheckBoxState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_colorinput_value_changed(
+                fd.clone(),
+                info,
+                ColorInputState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_fileinput_button_clicked(
+                fd.clone(),
+                info,
+                FileInputState::default()
+            )),
+            Update::DoNothing,
+        );
+
+        log_of(&log, |l| assert!(l.edited.is_empty()));
+    }
+
+    #[test]
+    fn field_callbacks_bail_out_on_a_payload_of_the_wrong_type() {
+        assert_eq!(
+            fire(|info| nodegraph_on_textinput_focus_lost(
+                RefAny::new(0_u32),
+                info,
+                TextInputState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_numberinput_focus_lost(
+                RefAny::new(0_u32),
+                info,
+                NumberInputState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_checkbox_value_changed(
+                RefAny::new(0_u32),
+                info,
+                CheckBoxState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_colorinput_value_changed(
+                RefAny::new(0_u32),
+                info,
+                ColorInputState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_fileinput_button_clicked(
+                RefAny::new(0_u32),
+                info,
+                FileInputState::default()
+            )),
+            Update::DoNothing,
+        );
+    }
+
+    #[test]
+    fn field_callbacks_forward_a_usize_max_field_index_unclamped() {
+        // The field index is an opaque token as far as the widget is concerned — it is
+        // never used to index anything here, so even `usize::MAX` must pass through.
+        let (g, log) = graph_with_log();
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: usize::MAX,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: graph_dataset(&g),
+            }),
+        });
+        let _ = fire(|info| {
+            nodegraph_on_checkbox_value_changed(fd.clone(), info, CheckBoxState { checked: true })
+        });
+        log_of(&log, |l| {
+            assert_eq!(l.edited, vec![(N1.inner, usize::MAX, TYPE_A.inner)]);
+        });
+    }
+
+    #[test]
+    fn field_callbacks_without_a_user_callback_do_nothing() {
+        let g = graph(); // no callbacks installed
+        let fd = RefAny::new(NodeFieldLocalDataset {
+            field_idx: 0,
+            backref: RefAny::new(NodeLocalDataset {
+                node_id: N1,
+                backref: graph_dataset(&g),
+            }),
+        });
+        assert_eq!(
+            fire(|info| nodegraph_on_checkbox_value_changed(
+                fd.clone(),
+                info,
+                CheckBoxState::default()
+            )),
+            Update::DoNothing,
+        );
+        assert_eq!(
+            fire(|info| nodegraph_on_fileinput_button_clicked(
+                fd.clone(),
+                info,
+                FileInputState::default()
+            )),
+            Update::DoNothing,
+        );
+    }
+}

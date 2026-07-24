@@ -1878,3 +1878,704 @@ mod list_view_click_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // exact float compares are deliberate here (saturation / identity checks)
+mod autotest_generated {
+    use azul_core::{
+        dom::NodeType,
+        menu::{MenuItem, MenuItemVec},
+    };
+
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    fn cols(names: &[&str]) -> StringVec {
+        StringVec::from_vec(names.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    }
+
+    /// A row with `n` text cells (`n == 0` is allowed and deliberately used).
+    fn row_with(n: usize) -> ListViewRow {
+        ListViewRow {
+            cells: DomVec::from_vec(
+                (0..n)
+                    .map(|i| Dom::create_text(format!("c{i}")))
+                    .collect::<Vec<_>>(),
+            ),
+            height: None.into(),
+        }
+    }
+
+    fn px(v: f32) -> PixelValueNoPercent {
+        PixelValueNoPercent {
+            inner: PixelValue::px(v),
+        }
+    }
+
+    extern "C" fn noop_row_cb(_: RefAny, _: CallbackInfo, _: ListViewState, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    extern "C" fn noop_col_cb(_: RefAny, _: CallbackInfo, _: ListViewState, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    /// The `[header, rows]` container pair every `ListView` DOM is built from.
+    fn header_and_rows(dom: &Dom) -> (&Dom, &Dom) {
+        let ch = dom.children.as_ref();
+        assert_eq!(ch.len(), 2, "list view DOM = [header, rows]");
+        (&ch[0], &ch[1])
+    }
+
+    fn text_of(dom: &Dom) -> &str {
+        match &dom.root.node_type {
+            NodeType::Text(s) => s.as_ref().as_str(),
+            _ => panic!("expected a text node"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // `visible_row_range` — numeric core (zero / negative / NaN / limits)
+    // ------------------------------------------------------------------
+
+    /// Every degenerate input documented as "empty" really returns `(0, 0)`,
+    /// including `-0.0` (which must count as non-positive, not as a valid height).
+    #[test]
+    fn visible_row_range_zero_and_degenerate_inputs_are_empty() {
+        assert_eq!(ListView::visible_row_range(0.0, 100.0, 10.0, 0), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, 100.0, 0.0, 5), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, 100.0, -0.0, 5), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, 100.0, -10.0, 5), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, 0.0, 10.0, 5), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, -0.0, 10.0, 5), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, -100.0, 10.0, 5), (0, 0));
+        assert_eq!(ListView::visible_row_range(0.0, 0.0, 0.0, 0), (0, 0));
+    }
+
+    /// A negative scroll offset (rubber-band / over-scroll) must clamp to the
+    /// top window rather than wrapping through the `as usize` cast.
+    #[test]
+    fn visible_row_range_negative_scroll_clamps_to_the_top_window() {
+        let top = ListView::visible_row_range(0.0, 200.0, 20.0, 100);
+        assert_eq!(top, (0, 11), "10 full rows + 1 straddling the bottom edge");
+        for s in [-0.0_f32, -1.0, -0.5, -1e9, -f32::MAX, -f32::MIN_POSITIVE] {
+            assert_eq!(
+                ListView::visible_row_range(s, 200.0, 20.0, 100),
+                top,
+                "negative scroll {s} must clamp to the top window"
+            );
+        }
+    }
+
+    /// NaN / ±inf in any float argument yields the documented empty range — no
+    /// panic, no garbage index out of the float→int cast.
+    #[test]
+    fn visible_row_range_nan_and_infinite_inputs_are_empty() {
+        for b in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(
+                ListView::visible_row_range(b, 200.0, 20.0, 100),
+                (0, 0),
+                "scroll_y = {b}"
+            );
+            assert_eq!(
+                ListView::visible_row_range(0.0, b, 20.0, 100),
+                (0, 0),
+                "viewport_height = {b}"
+            );
+            assert_eq!(
+                ListView::visible_row_range(0.0, 200.0, b, 100),
+                (0, 0),
+                "row_height = {b}"
+            );
+        }
+        // All-NaN with the largest possible row count is still empty.
+        assert_eq!(
+            ListView::visible_row_range(f32::NAN, f32::NAN, f32::NAN, usize::MAX),
+            (0, 0)
+        );
+    }
+
+    /// Scrolling past the end returns the empty tail range, and a `scroll_y`
+    /// large enough to saturate the `as usize` cast takes the same path.
+    #[test]
+    fn visible_row_range_past_the_end_is_an_empty_tail_range() {
+        // 10 rows x 20px = 200px of content; scrolling exactly to the end.
+        assert_eq!(
+            ListView::visible_row_range(200.0, 100.0, 20.0, 10),
+            (10, 10)
+        );
+        assert_eq!(
+            ListView::visible_row_range(1e9, 200.0, 20.0, 100),
+            (100, 100)
+        );
+        // f32::MAX / 20 overflows usize; the saturating cast keeps it >= total.
+        assert_eq!(
+            ListView::visible_row_range(f32::MAX, 200.0, 20.0, 100),
+            (100, 100)
+        );
+        // ... one float ULP before the end is still a live window.
+        let (first, last) = ListView::visible_row_range(199.0, 100.0, 20.0, 10);
+        assert!(first < last, "just before the end the range is non-empty");
+        assert_eq!(last, 10, "and clamps to the row count");
+    }
+
+    /// A huge `total_rows` must not make the window huge — only the viewport
+    /// decides how many rows are returned.
+    #[test]
+    fn visible_row_range_window_size_is_bounded_by_the_viewport_not_the_row_count() {
+        for total in [1_usize, 2, 1000, u32::MAX as usize, usize::MAX] {
+            let (first, last) = ListView::visible_row_range(0.0, 200.0, 20.0, total);
+            assert_eq!(first, 0);
+            assert_eq!(
+                last,
+                11.min(total),
+                "window stays viewport-sized for total_rows = {total}"
+            );
+        }
+    }
+
+    /// Property: whatever the inputs, the returned window is well-ordered,
+    /// clamped to the row count, and actually covers the visible strip.
+    #[test]
+    fn visible_row_range_window_always_covers_the_viewport() {
+        let total = 1000_usize;
+        for &h in &[1.0_f32, 7.5, 20.0, 33.3] {
+            for &vp in &[1.0_f32, 17.0, 200.0, 999.0] {
+                for &s in &[0.0_f32, 0.1, 19.0, 123.456, 5000.0] {
+                    let (first, last) = ListView::visible_row_range(s, vp, h, total);
+                    assert!(first <= last, "well-ordered range for ({s}, {vp}, {h})");
+                    assert!(last <= total, "range clamps to the row count");
+                    if first == last {
+                        continue; // empty tail range: nothing to cover
+                    }
+                    let top = first as f32 * h;
+                    let bottom = last as f32 * h;
+                    assert!(top <= s, "window starts at or above scroll {s} (top {top})");
+                    let needed = (s + vp).min(total as f32 * h);
+                    assert!(
+                        bottom >= needed,
+                        "window bottom {bottom} must reach {needed} for ({s}, {vp}, {h})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// KNOWN BUG — pinned deliberately, do NOT weaken to make it pass.
+    ///
+    /// `visible_row_range` computes `(viewport_height / row_height).ceil() as
+    /// usize + 1` and then `first + visible`. The float→int cast *saturates* to
+    /// `usize::MAX`, so the `+ 1` (and the later addition) overflow and panic
+    /// under the default dev/test `overflow-checks`. Both inputs below are
+    /// finite, positive and pass every existing guard. Expected safe behaviour
+    /// is to saturate and clamp to `total_rows`, as the doc comment promises.
+    #[test]
+    fn visible_row_range_does_not_overflow_on_extreme_but_finite_input() {
+        // Sub-pixel row height (degenerate zoom): 1000 / 1e-30 = 1e33, which
+        // saturates the cast to usize::MAX -> `+ 1` overflows.
+        assert_eq!(ListView::visible_row_range(0.0, 1000.0, 1e-30, 10), (0, 10));
+
+        // `first + visible` overflows even when neither term alone saturates:
+        // ~1e19 + ~1e19 > usize::MAX (~1.84e19).
+        let (first, last) = ListView::visible_row_range(1.0e19, 1.0e19, 1.0, usize::MAX);
+        assert!(first > 0, "a huge scroll lands deep in the list");
+        assert_eq!(last, usize::MAX, "the window must clamp to the row count");
+    }
+
+    // ------------------------------------------------------------------
+    // Constructors / setters — round-trip + invariants
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn create_sets_columns_and_leaves_everything_else_default() {
+        let lv = ListView::create(cols(&["a", "b", "c"]));
+        assert_eq!(lv.columns.len(), 3);
+        assert_eq!(lv.columns.as_ref()[1].as_str(), "b");
+        assert!(lv.rows.is_empty());
+        assert!(lv.sorted_by.is_none());
+        assert!(lv.content_height.is_none());
+        assert!(lv.column_context_menu.is_none());
+        assert!(lv.on_lazy_load_scroll.is_none());
+        assert!(lv.on_column_click.is_none());
+        assert!(lv.on_row_click.is_none());
+        assert_eq!(lv.scroll_offset, PixelValueNoPercent::zero());
+
+        // An empty column list is accepted, not rejected or defaulted.
+        let empty = ListView::create(StringVec::from_const_slice(&[]));
+        assert!(empty.columns.is_empty());
+    }
+
+    #[test]
+    fn with_and_set_columns_replace_rather_than_append() {
+        let b = cols(&["x", "y"]);
+        let lv = ListView::default()
+            .with_columns(cols(&["one"]))
+            .with_columns(b.clone());
+        assert_eq!(lv.columns, b, "the last write wins");
+
+        let mut m = ListView::default();
+        m.set_columns(b.clone());
+        assert_eq!(m.columns, b);
+        m.set_columns(StringVec::from_const_slice(&[]));
+        assert!(m.columns.is_empty(), "columns can be cleared again");
+    }
+
+    /// Column names are opaque payload: empty strings, interior NULs, astral /
+    /// ZWJ / RTL / combining sequences and very long strings must survive the
+    /// builder *and* the DOM build byte-for-byte.
+    #[test]
+    fn columns_round_trip_unicode_and_pathological_strings() {
+        let names: Vec<String> = vec![
+            String::new(),
+            "\u{0}".to_string(),
+            "🦀👨‍👩‍👧‍👦".to_string(),
+            "مرحبا بالعالم".to_string(),
+            "e\u{301}\u{301}\u{301}".to_string(),
+            "\u{feff}leading BOM".to_string(),
+            "line\nbreak\ttab".to_string(),
+            "x".repeat(10_000),
+        ];
+        let sv = StringVec::from_vec(
+            names
+                .iter()
+                .map(|s| AzString::from(s.clone()))
+                .collect::<Vec<_>>(),
+        );
+        let lv = ListView::default().with_columns(sv);
+        assert_eq!(lv.columns.len(), names.len());
+        for (got, want) in lv.columns.iter().zip(names.iter()) {
+            assert_eq!(got.as_str(), want.as_str(), "column name must round-trip");
+        }
+
+        let dom = lv.dom();
+        let (header, _) = header_and_rows(&dom);
+        let hdr = header.children.as_ref();
+        assert_eq!(hdr.len(), names.len());
+        for (col, want) in hdr.iter().zip(names.iter()) {
+            let text = col.children.as_ref();
+            assert_eq!(text.len(), 1, "each header cell holds one text node");
+            assert_eq!(text_of(&text[0]), want.as_str());
+        }
+    }
+
+    #[test]
+    fn with_and_set_rows_round_trip_including_empty_and_ragged_rows() {
+        let lv = ListView::default().with_rows(ListViewRowVec::from_vec(vec![
+            row_with(0),
+            row_with(1),
+            row_with(5),
+        ]));
+        assert_eq!(lv.rows.len(), 3);
+        assert_eq!(lv.rows.as_ref()[0].cells.len(), 0);
+        assert_eq!(lv.rows.as_ref()[2].cells.len(), 5);
+
+        let mut m = ListView::default().with_rows(ListViewRowVec::from_vec(vec![row_with(2)]));
+        m.set_rows(ListViewRowVec::from_const_slice(&[]));
+        assert!(m.rows.is_empty(), "rows can be cleared again");
+    }
+
+    /// `sorted_by` is a raw column index with no validation — an out-of-range
+    /// value is stored verbatim and must not break the DOM build.
+    #[test]
+    fn sorted_by_is_stored_verbatim_even_when_out_of_range() {
+        for v in [None, Some(0_usize), Some(2), Some(usize::MAX)] {
+            let lv = ListView::create(cols(&["a", "b"])).with_sorted_by(v.into());
+            assert_eq!(
+                lv.sorted_by.as_ref().copied(),
+                v,
+                "sorted_by is not validated against the column count"
+            );
+            let dom = lv.dom();
+            let (header, _) = header_and_rows(&dom);
+            assert_eq!(header.children.as_ref().len(), 2);
+        }
+
+        let mut m = ListView::default();
+        m.set_sorted_by(Some(7_usize).into());
+        assert_eq!(m.sorted_by.as_ref().copied(), Some(7));
+        m.set_sorted_by(None.into());
+        assert!(m.sorted_by.is_none(), "sorted_by can be reset to None");
+    }
+
+    /// The fixed-point `PixelValue` encoding saturates (NaN -> 0, ±inf -> the
+    /// isize limits) instead of trapping, and the setter stores the value bit
+    /// for bit.
+    #[test]
+    fn scroll_offset_round_trips_extreme_and_non_finite_values() {
+        for v in [
+            0.0_f32,
+            -0.0,
+            1.0,
+            -1.0,
+            0.001,
+            -12345.678,
+            f32::MAX,
+            f32::MIN,
+            f32::MIN_POSITIVE,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ] {
+            let p = px(v);
+            let lv = ListView::default().with_scroll_offset(p);
+            assert_eq!(lv.scroll_offset, p, "scroll_offset stored verbatim ({v})");
+            let got = lv.scroll_offset.inner.number.get();
+            assert!(
+                got.is_finite(),
+                "encoded offset stays finite for {v} (got {got})"
+            );
+        }
+
+        assert_eq!(px(f32::NAN).inner.number.get(), 0.0, "NaN saturates to 0");
+        assert!(px(f32::INFINITY).inner.number.get() > 0.0);
+        assert!(px(f32::NEG_INFINITY).inner.number.get() < 0.0);
+
+        let mut m = ListView::default();
+        m.set_scroll_offset(px(5.0));
+        m.set_scroll_offset(px(-5.0));
+        assert_eq!(m.scroll_offset, px(-5.0), "the last write wins");
+    }
+
+    /// `PixelValueNoPercent` does not actually reject a `%` metric — the setter
+    /// takes whatever it is handed. Pinned so a future validation change is a
+    /// deliberate decision, not a silent one.
+    #[test]
+    fn scroll_offset_accepts_a_percent_metric_despite_the_type_name() {
+        let percent = PixelValueNoPercent {
+            inner: PixelValue::percent(50.0),
+        };
+        let lv = ListView::default().with_scroll_offset(percent);
+        assert_eq!(lv.scroll_offset, percent);
+        assert_eq!(lv.scroll_offset.inner.metric, SizeMetric::Percent);
+    }
+
+    #[test]
+    fn content_height_wraps_in_some_and_has_no_clearing_setter() {
+        let mut m = ListView::default();
+        assert!(m.content_height.is_none(), "unset by default");
+        for v in [0.0_f32, -1.0, f32::MAX, f32::NAN, f32::NEG_INFINITY] {
+            let p = px(v);
+            m.set_content_height(p);
+            assert_eq!(m.content_height.as_ref(), Some(&p), "stores {v} verbatim");
+            assert!(m
+                .content_height
+                .as_ref()
+                .expect("just set")
+                .inner
+                .number
+                .get()
+                .is_finite());
+        }
+        assert!(
+            m.content_height.is_some(),
+            "Some() is sticky — no unset API"
+        );
+
+        let lv = ListView::default().with_content_height(px(42.0));
+        assert_eq!(lv.content_height.as_ref(), Some(&px(42.0)));
+    }
+
+    #[test]
+    fn column_context_menu_is_stored_and_replaced() {
+        let mut m = ListView::default();
+        assert!(m.column_context_menu.is_none());
+
+        let empty_menu = Menu::create(MenuItemVec::from_const_slice(&[]));
+        m.set_column_context_menu(empty_menu.clone());
+        assert_eq!(
+            m.column_context_menu.as_ref(),
+            Some(&empty_menu),
+            "an empty menu is accepted, not silently dropped"
+        );
+
+        let full = Menu::create(MenuItemVec::from_vec(vec![MenuItem::Separator; 256]));
+        m.set_column_context_menu(full.clone());
+        assert_eq!(
+            m.column_context_menu.as_ref(),
+            Some(&full),
+            "last write wins"
+        );
+        assert!(
+            m.column_context_menu.is_some(),
+            "there is no way to unset it"
+        );
+
+        let lv = ListView::default().with_column_context_menu(full.clone());
+        assert_eq!(lv.column_context_menu.as_ref(), Some(&full));
+        // The menu is metadata only — it must not alter the DOM shape.
+        let dom = lv.dom();
+        let (header, rows) = header_and_rows(&dom);
+        assert!(header.children.as_ref().is_empty());
+        assert!(rows.children.as_ref().is_empty());
+    }
+
+    #[test]
+    fn click_hook_setters_replace_rather_than_accumulate() {
+        let rcb: ListViewOnRowClickCallbackType = noop_row_cb;
+        let ccb: ListViewOnColumnClickCallbackType = noop_col_cb;
+
+        let mut m = ListView::default();
+        assert!(m.on_row_click.is_none());
+        assert!(m.on_column_click.is_none());
+        m.set_on_row_click(RefAny::new(1_u32), rcb);
+        m.set_on_row_click(RefAny::new(2_u32), rcb);
+        assert!(m.on_row_click.is_some());
+        let mut payload = m.on_row_click.as_ref().expect("just set").refany.clone();
+        assert_eq!(
+            *payload.downcast_ref::<u32>().expect("u32 payload"),
+            2,
+            "the second registration replaces the first"
+        );
+
+        let lv = ListView::default()
+            .with_on_row_click(RefAny::new(()), rcb)
+            .with_on_column_click(RefAny::new(()), ccb);
+        assert!(lv.on_row_click.is_some());
+        assert!(lv.on_column_click.is_some());
+        assert!(
+            lv.on_lazy_load_scroll.is_none(),
+            "unrelated hooks stay unset"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // `swap_with_default`
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn swap_with_default_moves_state_out_and_leaves_a_pristine_default() {
+        let rcb: ListViewOnRowClickCallbackType = noop_row_cb;
+        let mut lv = ListView::create(cols(&["a", "b"]))
+            .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
+            .with_sorted_by(Some(1_usize).into())
+            .with_scroll_offset(px(9.0))
+            .with_content_height(px(1000.0))
+            .with_column_context_menu(Menu::create(MenuItemVec::from_const_slice(&[])))
+            .with_on_row_click(RefAny::new(()), rcb);
+
+        let taken = lv.swap_with_default();
+        assert_eq!(taken.columns.len(), 2);
+        assert_eq!(taken.rows.len(), 1);
+        assert_eq!(taken.sorted_by.as_ref().copied(), Some(1));
+        assert_eq!(taken.scroll_offset, px(9.0));
+        assert!(taken.content_height.is_some());
+        assert!(taken.column_context_menu.is_some());
+        assert!(taken.on_row_click.is_some());
+
+        assert!(lv.columns.is_empty());
+        assert!(lv.rows.is_empty());
+        assert!(lv.sorted_by.is_none());
+        assert_eq!(lv.scroll_offset, PixelValueNoPercent::zero());
+        assert!(lv.content_height.is_none());
+        assert!(lv.column_context_menu.is_none());
+        assert!(lv.on_row_click.is_none());
+        assert!(lv.on_column_click.is_none());
+        assert!(lv.on_lazy_load_scroll.is_none());
+
+        // Repeated swaps of an already-default value are a no-op, not a
+        // double-free of the moved-out heap buffers.
+        let again = lv.swap_with_default();
+        assert!(again.columns.is_empty() && again.rows.is_empty());
+        let third = lv.swap_with_default();
+        assert!(third.columns.is_empty() && third.rows.is_empty());
+        drop(taken);
+    }
+
+    // ------------------------------------------------------------------
+    // `dom()` — shape + callback wiring
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn dom_shape_matches_the_column_and_row_counts() {
+        let empty = ListView::default().dom();
+        let (h, r) = header_and_rows(&empty);
+        assert!(h.children.as_ref().is_empty());
+        assert!(r.children.as_ref().is_empty());
+
+        // Columns without rows and rows without columns are both legal.
+        let no_rows = ListView::create(cols(&["a", "b"])).dom();
+        let (h, r) = header_and_rows(&no_rows);
+        assert_eq!(h.children.as_ref().len(), 2);
+        assert!(r.children.as_ref().is_empty());
+
+        let no_cols = ListView::default()
+            .with_rows(ListViewRowVec::from_vec(vec![row_with(3)]))
+            .dom();
+        let (h, r) = header_and_rows(&no_cols);
+        assert!(h.children.as_ref().is_empty());
+        assert_eq!(r.children.as_ref().len(), 1);
+        assert_eq!(
+            r.children.as_ref()[0].children.as_ref().len(),
+            3,
+            "cells are rendered even with no matching column headers"
+        );
+
+        // Ragged rows keep their own cell counts (no padding to the column count).
+        let ragged = ListView::create(cols(&["a", "b", "c"]))
+            .with_rows(ListViewRowVec::from_vec(vec![
+                row_with(0),
+                row_with(1),
+                row_with(3),
+                row_with(7),
+            ]))
+            .dom();
+        let (h, r) = header_and_rows(&ragged);
+        assert_eq!(h.children.as_ref().len(), 3);
+        let rows = r.children.as_ref();
+        assert_eq!(rows.len(), 4);
+        for (row, want) in rows.iter().zip([0_usize, 1, 3, 7]) {
+            assert_eq!(row.children.as_ref().len(), want);
+            for cell in row.children.as_ref() {
+                assert_eq!(cell.children.as_ref().len(), 1, "one child per cell");
+            }
+        }
+    }
+
+    /// The wired-in `MouseUp` handler must receive the *right* index and a
+    /// faithful snapshot of the list state — this exercises the exact
+    /// `downcast_ref` path `on_list_view_{row,column}_click` take.
+    #[test]
+    fn dom_wires_click_payloads_with_the_right_index_and_state_snapshot() {
+        let rcb: ListViewOnRowClickCallbackType = noop_row_cb;
+        let ccb: ListViewOnColumnClickCallbackType = noop_col_cb;
+        let lv = ListView::create(cols(&["c0", "c1"]))
+            .with_rows(ListViewRowVec::from_vec(vec![
+                row_with(2),
+                row_with(2),
+                row_with(2),
+            ]))
+            .with_sorted_by(Some(1_usize).into())
+            .with_scroll_offset(px(-17.5))
+            .with_on_row_click(RefAny::new(()), rcb)
+            .with_on_column_click(RefAny::new(()), ccb);
+
+        let dom = lv.dom();
+        let (header, rows) = header_and_rows(&dom);
+
+        for (i, col) in header.children.as_ref().iter().enumerate() {
+            let cbs = col.root.callbacks.as_ref();
+            assert_eq!(cbs.len(), 1);
+            assert!(matches!(
+                cbs[0].event,
+                EventFilter::Hover(HoverEventFilter::MouseUp)
+            ));
+            assert_eq!(cbs[0].callback.cb, on_list_view_column_click as usize);
+            let mut any = cbs[0].refany.clone();
+            let data = any
+                .downcast_ref::<ColumnClickData>()
+                .expect("ColumnClickData payload");
+            assert_eq!(data.col_index, i, "each header carries its own index");
+            assert_eq!(data.state.current_row_count, 3);
+            assert_eq!(data.state.columns.len(), 2);
+            assert_eq!(data.state.sorted_by.as_ref().copied(), Some(1));
+            assert_eq!(data.state.scroll_offset, px(-17.5));
+            assert!(data.on_column_click.is_some());
+        }
+
+        for (i, row) in rows.children.as_ref().iter().enumerate() {
+            let cbs = row.root.callbacks.as_ref();
+            assert_eq!(cbs.len(), 1);
+            assert!(matches!(
+                cbs[0].event,
+                EventFilter::Hover(HoverEventFilter::MouseUp)
+            ));
+            assert_eq!(cbs[0].callback.cb, on_list_view_row_click as usize);
+            let mut any = cbs[0].refany.clone();
+            let data = any
+                .downcast_ref::<RowClickData>()
+                .expect("RowClickData payload");
+            assert_eq!(data.row_index, i, "each row carries its own index");
+            assert_eq!(data.state.current_row_count, 3);
+            assert!(data.on_row_click.is_some());
+        }
+    }
+
+    /// Row and column hooks are wired independently — setting one must not
+    /// attach a dispatcher to the other.
+    #[test]
+    fn click_callbacks_are_wired_per_hook_and_only_when_set() {
+        let rcb: ListViewOnRowClickCallbackType = noop_row_cb;
+        let ccb: ListViewOnColumnClickCallbackType = noop_col_cb;
+
+        let bare = ListView::create(cols(&["a", "b"])).dom();
+        let (h, _) = header_and_rows(&bare);
+        for col in h.children.as_ref() {
+            assert!(
+                col.root.callbacks.as_ref().is_empty(),
+                "no hook, no dispatch"
+            );
+        }
+
+        let row_only = ListView::create(cols(&["a"]))
+            .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
+            .with_on_row_click(RefAny::new(()), rcb)
+            .dom();
+        let (h, r) = header_and_rows(&row_only);
+        assert!(h.children.as_ref()[0].root.callbacks.as_ref().is_empty());
+        assert_eq!(r.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
+
+        let col_only = ListView::create(cols(&["a"]))
+            .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
+            .with_on_column_click(RefAny::new(()), ccb)
+            .dom();
+        let (h, r) = header_and_rows(&col_only);
+        assert_eq!(h.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
+        assert!(r.children.as_ref()[0].root.callbacks.as_ref().is_empty());
+    }
+
+    /// A wrong-typed payload must make the internal handlers bail out rather
+    /// than reinterpreting foreign memory. `CallbackInfo` cannot be built here
+    /// without the full `LayoutWindow` harness, so this pins the guard that
+    /// runs *before* any `CallbackInfo` use: the `downcast_ref` type check.
+    #[test]
+    fn click_handler_payload_downcast_rejects_foreign_types() {
+        let mut wrong = RefAny::new(0_u64);
+        assert!(
+            wrong.downcast_ref::<RowClickData>().is_none(),
+            "handler must not accept a foreign payload type"
+        );
+        assert!(wrong.downcast_ref::<ColumnClickData>().is_none());
+
+        // ... and a RowClickData payload is not mistaken for a ColumnClickData.
+        let mut row_payload = RefAny::new(RowClickData {
+            row_index: 0,
+            state: ListViewState {
+                columns: StringVec::from_const_slice(&[]),
+                sorted_by: None.into(),
+                current_row_count: 0,
+                scroll_offset: PixelValueNoPercent::zero(),
+                current_scroll_position: LogicalPosition::zero(),
+                current_content_height: LogicalSize::zero(),
+            },
+            on_row_click: None.into(),
+        });
+        assert!(row_payload.downcast_ref::<ColumnClickData>().is_none());
+        assert!(row_payload.downcast_ref::<RowClickData>().is_some());
+    }
+
+    #[test]
+    fn dom_survives_a_large_column_and_row_count() {
+        const N_COLS: usize = 64;
+        const N_ROWS: usize = 64;
+        let rcb: ListViewOnRowClickCallbackType = noop_row_cb;
+        let names = (0..N_COLS)
+            .map(|i| AzString::from(format!("col{i}")))
+            .collect::<Vec<_>>();
+        let rows = (0..N_ROWS).map(|_| row_with(N_COLS)).collect::<Vec<_>>();
+        let dom = ListView::create(StringVec::from_vec(names))
+            .with_rows(ListViewRowVec::from_vec(rows))
+            .with_on_row_click(RefAny::new(()), rcb)
+            .dom();
+
+        let (h, r) = header_and_rows(&dom);
+        assert_eq!(h.children.as_ref().len(), N_COLS);
+        assert_eq!(r.children.as_ref().len(), N_ROWS);
+        for row in r.children.as_ref() {
+            assert_eq!(row.children.as_ref().len(), N_COLS);
+            assert_eq!(row.root.callbacks.as_ref().len(), 1);
+        }
+    }
+}

@@ -1139,3 +1139,1813 @@ extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo
 
     Update::DoNothing
 }
+
+#[cfg(all(test, feature = "std"))]
+#[allow(clippy::too_many_lines, clippy::float_cmp)]
+mod autotest_generated {
+    use std::{
+        collections::{BTreeMap, HashMap},
+        sync::{Arc, Mutex},
+    };
+
+    use azul_core::{
+        dom::{
+            DomId, DomNodeId, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass, NodeId,
+            TabIndex,
+        },
+        geom::{LogicalRect, OptionLogicalPosition},
+        gl::OptionGlContextPtr,
+        hit_test::ScrollPosition,
+        refany::OptionRefAny,
+        resources::RendererResources,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::{MonitorVec, RawWindowHandle},
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    #[cfg(feature = "icu")]
+    use crate::icu::IcuLocalizerHandle;
+    use crate::{
+        callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        managers::text_input::PendingTextEdit,
+        solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        window::{DomLayoutResult, LayoutWindow},
+        window_state::FullWindowState,
+    };
+
+    // ==================================================================
+    // Sample data
+    // ==================================================================
+
+    /// Strings the buffer has to survive a `set_text` -> `get_text` round-trip on.
+    /// Deliberately loaded with cases where "length" is ambiguous: the buffer counts
+    /// *scalars*, `str::len()` counts *bytes*, and a human counts *graphemes* — three
+    /// numbers that only agree for pure ASCII.
+    const HOSTILE: [&str; 20] = [
+        "",
+        " ",
+        "a",
+        "hello world",
+        "\0",           // a lone NUL is a perfectly good scalar
+        "a\0b",         // ... and it survives in the middle of a string, too
+        "\u{7f}",       // largest 1-byte scalar
+        "\u{80}",       // smallest 2-byte scalar
+        "\u{7ff}",      // largest 2-byte scalar
+        "\u{800}",      // smallest 3-byte scalar
+        "\u{ffff}",     // largest 3-byte scalar (and a non-character)
+        "\u{10000}",    // smallest 4-byte scalar
+        "\u{10ffff}",   // the largest scalar that exists at all
+        "é",
+        "e\u{301}",     // e + COMBINING ACUTE: 2 scalars, 1 grapheme
+        "👨‍👩‍👧‍👦", // ZWJ family: 7 scalars, 1 grapheme, 25 bytes
+        "日本語",
+        "مرحبا",        // RTL
+        "\u{200b}",     // zero-width space: invisible, but still one scalar
+        "\r\n\t",
+    ];
+
+    /// `u32` code units that are **not** Unicode scalars, so `char::from_u32` rejects
+    /// every one of them. The buffer is a `U32Vec`, so nothing stops them from being
+    /// in there — `get_text` is the only thing standing between them and a `String`.
+    const NON_SCALAR_UNITS: [u32; 6] = [
+        0xD800,      // leading surrogate
+        0xDC00,      // trailing surrogate
+        0xDFFF,      // last surrogate
+        0x0011_0000, // one past the last scalar
+        0xFFFF_FFFE,
+        u32::MAX,
+    ];
+
+    // ==================================================================
+    // Widget fixtures
+    // ==================================================================
+
+    /// A `TextInput` whose buffer holds *raw* code units — the only way to build a
+    /// state that `set_text` could never produce (it goes through `char`).
+    fn input_with_units(units: &[u32]) -> TextInput {
+        let mut input = TextInput::create();
+        input.text_input_state.inner.text = units.to_vec().into();
+        input
+    }
+
+    /// Renders `input` and hands back both the flattened DOM *and* the very `RefAny`
+    /// the widget registered on its own handlers. Driving the handlers with these two
+    /// is the real wiring: nothing is rebuilt by hand, so a mismatch between what
+    /// `dom()` stores and what the handlers expect cannot hide behind the fixture.
+    fn rendered(input: TextInput) -> (StyledDom, RefAny) {
+        let dom = input.dom();
+        let state = dom.root.callbacks.as_ref()[0].refany.clone();
+        (StyledDom::create_from_dom(dom), state)
+    }
+
+    /// The `TextInputState` currently sitting behind a widget-state payload.
+    fn state_of(state: &RefAny) -> TextInputState {
+        let mut state = state.clone();
+        let wrapper = state
+            .downcast_ref::<TextInputStateWrapper>()
+            .expect("the widget state must still be a TextInputStateWrapper");
+        wrapper.inner.clone()
+    }
+
+    /// Reaches into the live widget state — used to plant a cursor position that
+    /// `dom()` would otherwise have already normalised away.
+    fn poke(state: &RefAny, f: impl FnOnce(&mut TextInputStateWrapper)) {
+        let mut state = state.clone();
+        let mut wrapper = state
+            .downcast_mut::<TextInputStateWrapper>()
+            .expect("the widget state must still be a TextInputStateWrapper");
+        f(&mut wrapper);
+    }
+
+    // ==================================================================
+    // Recording hooks
+    // ==================================================================
+
+    /// A user payload that records every state it is handed and answers with a
+    /// canned verdict. It arrives as the `refany` argument — a *shared* clone of
+    /// what the test still holds — so the test reads back exactly what the widget
+    /// passed, with no global state involved.
+    struct Recorder {
+        seen: Vec<TextInputState>,
+        update: Update,
+        valid: TextInputValid,
+    }
+
+    fn recorder(update: Update, valid: TextInputValid) -> RefAny {
+        RefAny::new(Recorder {
+            seen: Vec::new(),
+            update,
+            valid,
+        })
+    }
+
+    fn recorded(probe: &RefAny) -> Vec<TextInputState> {
+        let mut probe = probe.clone();
+        let log = probe
+            .downcast_ref::<Recorder>()
+            .expect("the user payload must still be a Recorder");
+        log.seen.clone()
+    }
+
+    extern "C" fn record_text_input(
+        mut data: RefAny,
+        _: CallbackInfo,
+        state: TextInputState,
+    ) -> OnTextInputReturn {
+        let Some(mut log) = data.downcast_mut::<Recorder>() else {
+            return OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            };
+        };
+        log.seen.push(state);
+        OnTextInputReturn {
+            update: log.update,
+            valid: log.valid,
+        }
+    }
+
+    // Deliberately *not* the same body as `record_text_input`: two hooks with
+    // byte-identical bodies can be folded onto a single symbol by the linker, and
+    // the two slots have to stay distinguishable by function pointer.
+    extern "C" fn record_virtual_key(
+        mut data: RefAny,
+        _: CallbackInfo,
+        state: TextInputState,
+    ) -> OnTextInputReturn {
+        match data.downcast_mut::<Recorder>() {
+            Some(mut log) => {
+                let answer = OnTextInputReturn {
+                    update: log.update,
+                    valid: log.valid,
+                };
+                log.seen.push(state);
+                answer
+            }
+            None => OnTextInputReturn {
+                update: Update::RefreshDom,
+                valid: TextInputValid::No,
+            },
+        }
+    }
+
+    extern "C" fn record_focus_lost(
+        mut data: RefAny,
+        _: CallbackInfo,
+        state: TextInputState,
+    ) -> Update {
+        data.downcast_mut::<Recorder>().map_or(Update::RefreshDom, |mut log| {
+            log.seen.push(state);
+            log.update
+        })
+    }
+
+    /// A `Callback`-shaped (2-argument) function — the shape FFI bindings hand in,
+    /// which the `From<Callback>` arm *transmutes* into the 3-argument widget slot.
+    /// Never invoked; only its address is ever compared.
+    extern "C" fn generic_shaped(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    // ==================================================================
+    // CallbackInfo harness
+    // ==================================================================
+
+    /// The container is always the flattened root of `TextInput::dom()`.
+    const CONTAINER: usize = 0;
+
+    fn dom_node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    /// A `DomNodeId` whose node component is `None` — the "nothing concrete was hit"
+    /// case. `CallbackInfo::set_css_property` *panics* on such an id, so every
+    /// handler has to bail out before it ever gets there.
+    fn node_none() -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::NONE,
+        }
+    }
+
+    fn inner_id(node: DomNodeId) -> NodeId {
+        node.node
+            .into_crate_internal()
+            .expect("expected a concrete node id")
+    }
+
+    /// A `DomLayoutResult` carrying only a `styled_dom`: the text-input handlers
+    /// reach only `get_hit_node` / `get_first_child` / `get_next_sibling`, all of
+    /// which read the node hierarchy alone — no real layout (and no font) needed.
+    fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+        DomLayoutResult {
+            styled_dom,
+            layout_tree: LayoutTree {
+                nodes: Vec::new(),
+                warm: Vec::new(),
+                cold: Vec::new(),
+                root: 0,
+                dom_to_layout: BTreeMap::new(),
+                children_arena: Vec::new(),
+                children_offsets: Vec::new(),
+                subtree_needs_intrinsic: Vec::new(),
+            },
+            calculated_positions: Vec::new(),
+            viewport: LogicalRect::zero(),
+            display_list: DisplayList::default(),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+        }
+    }
+
+    /// Everything a default handler can read out of the window.
+    struct Env {
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        keycode: Option<VirtualKeyCode>,
+        changeset: Option<PendingTextEdit>,
+    }
+
+    impl Env {
+        fn new(styled_dom: StyledDom) -> Self {
+            Self {
+                styled_dom,
+                hit: dom_node(CONTAINER),
+                keycode: None,
+                changeset: None,
+            }
+        }
+
+        fn hit(mut self, hit: DomNodeId) -> Self {
+            self.hit = hit;
+            self
+        }
+
+        fn key(mut self, keycode: VirtualKeyCode) -> Self {
+            self.keycode = Some(keycode);
+            self
+        }
+
+        fn insert(mut self, text: &str) -> Self {
+            self.changeset = Some(PendingTextEdit {
+                node: dom_node(CONTAINER),
+                inserted_text: text.into(),
+                old_text: AzString::from(""),
+            });
+            self
+        }
+    }
+
+    /// The three child nodes of the container, resolved through the *same* API the
+    /// handlers use — so no test has to hard-code a flattened index.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    struct Nodes {
+        placeholder: Option<DomNodeId>,
+        label: Option<DomNodeId>,
+        cursor: Option<DomNodeId>,
+    }
+
+    /// Runs `f` with a real `CallbackInfo` over a window holding `env.styled_dom` as
+    /// the root DOM. Returns `f`'s value, every change the handler pushed onto the
+    /// transaction log, and the resolved child node ids.
+    fn run<R>(env: Env, f: impl FnOnce(CallbackInfo) -> R) -> (R, Vec<CallbackChange>, Nodes) {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        layout_window
+            .layout_results
+            .insert(DomId::ROOT_ID, layout_result(env.styled_dom));
+        layout_window.text_input_manager.pending_changeset = env.changeset;
+        let layout_window = layout_window;
+
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let mut current_window_state = FullWindowState::default();
+        current_window_state.keyboard_state.current_virtual_keycode = env.keycode.into();
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(azul_css::system::SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
+        };
+
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let probe = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            dom_node(CONTAINER),
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+        let placeholder = probe.get_first_child(dom_node(CONTAINER));
+        let label = placeholder.and_then(|p| probe.get_next_sibling(p));
+        let cursor = label.and_then(|l| probe.get_first_child(l));
+        let nodes = Nodes {
+            placeholder,
+            label,
+            cursor,
+        };
+
+        let info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            env.hit,
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+
+        let r = f(info);
+        let pushed = info.take_changes();
+        (r, pushed, nodes)
+    }
+
+    /// Every `(node, opacity)` pair pushed onto the transaction log, in push order.
+    fn pushed_opacities(changes: &[CallbackChange]) -> Vec<(NodeId, f32)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeCssProperties {
+                    node_id, properties, ..
+                } => {
+                    let o = properties.as_ref().iter().find_map(|p| match p {
+                        CssProperty::Opacity(o) => o.get_property().map(|o| o.inner.normalized()),
+                        _ => None,
+                    })?;
+                    Some((*node_id, o))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Every `(node, text)` repaint pushed onto the transaction log, in push order.
+    fn pushed_texts(changes: &[CallbackChange]) -> Vec<(DomNodeId, String)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeText { node_id, text } => {
+                    Some((*node_id, text.as_str().to_string()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    // ==================================================================
+    // DOM probes
+    // ==================================================================
+
+    /// Flattened child indices of `TextInput::dom()`.
+    const PLACEHOLDER_CHILD: usize = 0;
+    const LABEL_CHILD: usize = 1;
+
+    fn classes(node: &Dom) -> Vec<String> {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn text_of(node: &Dom) -> String {
+        node.root
+            .get_node_type()
+            .format()
+            .expect("expected a text node")
+    }
+
+    fn dataset_state(dom: &Dom) -> TextInputState {
+        let mut dataset = dom
+            .root
+            .get_dataset()
+            .cloned()
+            .expect("TextInput::dom must attach its state as the container's dataset");
+        let wrapper = dataset
+            .downcast_ref::<TextInputStateWrapper>()
+            .expect("the dataset must be a TextInputStateWrapper");
+        wrapper.inner.clone()
+    }
+
+    /// `n` properties lifted off the default container style — an easy way to mint
+    /// pairwise-distinct style vectors without hard-coding any CSS.
+    fn style(n: usize) -> CssPropertyWithConditionsVec {
+        let all: Vec<CssPropertyWithConditions> =
+            TextInput::default().container_style.as_ref().to_vec();
+        assert!(n <= all.len(), "not enough default properties to slice");
+        CssPropertyWithConditionsVec::from_vec(all.into_iter().take(n).collect())
+    }
+
+    // ==================================================================
+    // TextInputState::get_text
+    // ==================================================================
+
+    #[test]
+    fn get_text_on_a_default_state_is_the_empty_string() {
+        let state = TextInputState::default();
+        assert_eq!(state.get_text(), "");
+        assert!(state.text.is_empty());
+        assert_eq!(state.cursor_pos, 0);
+        assert!(state.placeholder.is_none());
+        assert!(state.selection.is_none());
+    }
+
+    #[test]
+    fn get_text_round_trips_every_hostile_string() {
+        // The buffer stores one `u32` per scalar, so the round-trip must be exact for
+        // anything `chars()` can produce — combining marks, ZWJ sequences, embedded
+        // NULs and the very last scalar included.
+        for s in HOSTILE {
+            let input = TextInput::create().with_text(s.into());
+            assert_eq!(
+                input.text_input_state.inner.get_text(),
+                s,
+                "the buffer did not round-trip {s:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn get_text_silently_drops_code_units_that_are_not_unicode_scalars() {
+        // `get_text` is a `filter_map(char::from_u32)`: junk in the buffer is skipped,
+        // not escaped and not panicked on. Pin that, because "skip" is the difference
+        // between a lossy read and a crash on FFI-provided buffers.
+        for unit in NON_SCALAR_UNITS {
+            let state = TextInputState {
+                text: vec![u32::from('A'), unit, u32::from('B')].into(),
+                ..TextInputState::default()
+            };
+            assert_eq!(
+                state.get_text(),
+                "AB",
+                "code unit {unit:#x} was not dropped from the rendered text",
+            );
+            assert_eq!(
+                state.text.len(),
+                3,
+                "get_text must not mutate the buffer it reads",
+            );
+        }
+    }
+
+    #[test]
+    fn get_text_on_a_buffer_of_nothing_but_junk_is_empty_and_does_not_panic() {
+        let state = TextInputState {
+            text: NON_SCALAR_UNITS.to_vec().into(),
+            ..TextInputState::default()
+        };
+        assert_eq!(state.get_text(), "");
+        assert_eq!(state.text.len(), NON_SCALAR_UNITS.len());
+    }
+
+    #[test]
+    fn get_text_never_yields_more_chars_than_the_buffer_holds() {
+        // The one invariant that holds for *any* buffer contents: filtering can only
+        // ever shrink. A `get_text` that grew would mean the buffer and the rendered
+        // label disagree about how far the cursor can travel.
+        let mut units: Vec<u32> = Vec::new();
+        for (i, unit) in NON_SCALAR_UNITS.iter().enumerate() {
+            units.push(u32::from('x'));
+            units.push(*unit);
+            units.push(0x1F600 + i as u32);
+        }
+        let state = TextInputState {
+            text: units.clone().into(),
+            ..TextInputState::default()
+        };
+        let rendered = state.get_text();
+        assert!(
+            rendered.chars().count() <= state.text.len(),
+            "get_text produced {} chars from a {}-unit buffer",
+            rendered.chars().count(),
+            state.text.len(),
+        );
+        assert_eq!(rendered.chars().count(), units.len() - NON_SCALAR_UNITS.len());
+    }
+
+    #[test]
+    fn get_text_is_pure() {
+        let state = TextInputState {
+            text: vec![u32::from('a'), 0xD800, u32::from('b')].into(),
+            ..TextInputState::default()
+        };
+        let before = state.clone();
+        assert_eq!(state.get_text(), state.get_text());
+        assert_eq!(state, before, "get_text mutated the state it was given");
+    }
+
+    #[test]
+    fn get_text_on_a_very_large_buffer_does_not_panic() {
+        let n = 50_000;
+        let state = TextInputState {
+            text: core::iter::repeat(u32::from('ß')).take(n).collect::<Vec<_>>().into(),
+            ..TextInputState::default()
+        };
+        let text = state.get_text();
+        assert_eq!(text.chars().count(), n);
+        // 'ß' is two bytes: byte length and scalar count are *not* the same number.
+        assert_eq!(text.len(), n * 2);
+    }
+
+    // ==================================================================
+    // TextInput::set_text / with_text
+    // ==================================================================
+
+    #[test]
+    fn with_text_is_exactly_set_text() {
+        for s in HOSTILE {
+            let mut a = TextInput::create();
+            a.set_text(s.into());
+            let b = TextInput::create().with_text(s.into());
+            assert_eq!(a, b, "with_text and set_text disagree on {s:?}");
+        }
+    }
+
+    #[test]
+    fn set_text_stores_one_code_unit_per_scalar_not_per_byte() {
+        // The classic off-by-UTF-8 bug: storing `s.len()` units for a string whose
+        // scalar count is smaller. Every non-ASCII entry in the table has a byte
+        // length strictly greater than its scalar count.
+        for s in HOSTILE {
+            let input = TextInput::create().with_text(s.into());
+            assert_eq!(
+                input.text_input_state.inner.text.len(),
+                s.chars().count(),
+                "the buffer length for {s:?} is not the scalar count",
+            );
+        }
+
+        let family = "👨‍👩‍👧‍👦";
+        let input = TextInput::create().with_text(family.into());
+        assert_eq!(input.text_input_state.inner.text.len(), 7);
+        assert_eq!(family.len(), 25, "the ZWJ family is 25 bytes, not 7");
+    }
+
+    #[test]
+    fn set_text_stores_the_scalar_values_verbatim() {
+        let input = TextInput::create().with_text("aé\u{10ffff}".into());
+        assert_eq!(
+            input.text_input_state.inner.text.as_slice(),
+            &[0x61, 0xE9, 0x0010_FFFF],
+        );
+    }
+
+    #[test]
+    fn set_text_replaces_rather_than_appends() {
+        let mut input = TextInput::create();
+        input.set_text("first".into());
+        input.set_text("second".into());
+        assert_eq!(input.text_input_state.inner.get_text(), "second");
+        assert_eq!(input.text_input_state.inner.text.len(), 6);
+    }
+
+    #[test]
+    fn set_text_with_an_empty_string_clears_the_buffer() {
+        let mut input = TextInput::create().with_text("something".into());
+        input.set_text("".into());
+        assert!(input.text_input_state.inner.text.is_empty());
+        assert_eq!(input.text_input_state.inner.get_text(), "");
+        assert_eq!(input, TextInput::create(), "clearing did not restore a fresh widget");
+    }
+
+    #[test]
+    fn set_text_does_not_enforce_max_len() {
+        // KNOWN GAP: `max_len` defaults to 50 and is never read anywhere in this
+        // module — not by `set_text`, not by the text-input handler. A 200-char
+        // assignment is stored whole. Pinned so that adding enforcement later shows
+        // up as a deliberate change rather than a silent one.
+        let long: String = core::iter::repeat('x').take(200).collect();
+        let input = TextInput::create().with_text(long.clone().into());
+        assert_eq!(input.text_input_state.inner.max_len, 50);
+        assert_eq!(input.text_input_state.inner.text.len(), 200);
+        assert_eq!(input.text_input_state.inner.get_text(), long);
+    }
+
+    #[test]
+    fn set_text_leaves_the_cursor_where_it_was() {
+        // `set_text` writes the buffer and nothing else: the cursor is only
+        // reconciled by `dom()` / the focus handler. A widget built with text but
+        // never rendered therefore reports a cursor of 0 over a non-empty buffer.
+        let input = TextInput::create().with_text("hello".into());
+        assert_eq!(input.text_input_state.inner.cursor_pos, 0);
+        assert_eq!(input.text_input_state.inner.text.len(), 5);
+    }
+
+    #[test]
+    fn set_text_touches_nothing_but_the_buffer() {
+        let mut input = TextInput::create()
+            .with_placeholder("type here".into())
+            .with_placeholder_style(style(3));
+        let before = input.clone();
+        input.set_text("abc".into());
+
+        assert_eq!(
+            input.text_input_state.inner.placeholder.as_ref().map(|s| s.as_str().to_string()),
+            Some("type here".to_string()),
+        );
+        assert_eq!(input.placeholder_style, before.placeholder_style);
+        assert_eq!(input.container_style, before.container_style);
+        assert_eq!(input.label_style, before.label_style);
+        assert_eq!(input.text_input_state.inner.max_len, before.text_input_state.inner.max_len);
+        assert!(input.text_input_state.inner.selection.is_none());
+    }
+
+    #[test]
+    fn with_text_on_a_very_large_string_does_not_panic() {
+        let n = 50_000;
+        let long: String = core::iter::repeat('a').take(n).collect();
+        let input = TextInput::create().with_text(long.into());
+        assert_eq!(input.text_input_state.inner.text.len(), n);
+    }
+
+    #[test]
+    fn set_text_is_idempotent() {
+        for s in HOSTILE {
+            let mut input = TextInput::create();
+            input.set_text(s.into());
+            let once = input.clone();
+            input.set_text(s.into());
+            assert_eq!(input, once, "re-assigning {s:?} changed the widget");
+        }
+    }
+
+    // ==================================================================
+    // TextInput::set_placeholder / with_placeholder
+    // ==================================================================
+
+    #[test]
+    fn placeholder_is_absent_on_a_fresh_widget() {
+        assert!(TextInput::create().text_input_state.inner.placeholder.is_none());
+    }
+
+    #[test]
+    fn with_placeholder_is_exactly_set_placeholder_and_stores_the_string_verbatim() {
+        for s in HOSTILE {
+            let mut a = TextInput::create();
+            a.set_placeholder(s.into());
+            let b = TextInput::create().with_placeholder(s.into());
+            assert_eq!(a, b, "with_placeholder and set_placeholder disagree on {s:?}");
+
+            assert_eq!(
+                a.text_input_state.inner.placeholder.as_ref().map(|p| p.as_str()),
+                Some(s),
+                "the placeholder {s:?} was not stored byte-for-byte",
+            );
+        }
+    }
+
+    #[test]
+    fn set_placeholder_overwrites_a_previous_placeholder_and_never_clears_it() {
+        let mut input = TextInput::create();
+        input.set_placeholder("first".into());
+        input.set_placeholder("".into());
+        // An empty placeholder is still *a* placeholder, not the absence of one.
+        assert_eq!(
+            input.text_input_state.inner.placeholder.as_ref().map(|p| p.as_str()),
+            Some(""),
+        );
+    }
+
+    #[test]
+    fn set_placeholder_does_not_touch_the_text_buffer() {
+        let mut input = TextInput::create().with_text("abc".into());
+        input.set_placeholder("hint".into());
+        assert_eq!(input.text_input_state.inner.get_text(), "abc");
+    }
+
+    // ==================================================================
+    // Style setters
+    // ==================================================================
+
+    #[test]
+    fn each_style_setter_writes_exactly_one_slot() {
+        let marker = style(1);
+
+        let mut a = TextInput::create();
+        a.set_placeholder_style(marker.clone());
+        assert_eq!(a.placeholder_style, marker);
+        assert_eq!(a.container_style, TextInput::create().container_style);
+        assert_eq!(a.label_style, TextInput::create().label_style);
+
+        let mut b = TextInput::create();
+        b.set_container_style(marker.clone());
+        assert_eq!(b.container_style, marker);
+        assert_eq!(b.placeholder_style, TextInput::create().placeholder_style);
+        assert_eq!(b.label_style, TextInput::create().label_style);
+
+        let mut c = TextInput::create();
+        c.set_label_style(marker.clone());
+        assert_eq!(c.label_style, marker);
+        assert_eq!(c.placeholder_style, TextInput::create().placeholder_style);
+        assert_eq!(c.container_style, TextInput::create().container_style);
+    }
+
+    #[test]
+    fn the_with_style_builders_are_exactly_their_setters() {
+        let s = style(2);
+
+        let mut a = TextInput::create();
+        a.set_placeholder_style(s.clone());
+        assert_eq!(a, TextInput::create().with_placeholder_style(s.clone()));
+
+        let mut b = TextInput::create();
+        b.set_container_style(s.clone());
+        assert_eq!(b, TextInput::create().with_container_style(s.clone()));
+
+        let mut c = TextInput::create();
+        c.set_label_style(s.clone());
+        assert_eq!(c, TextInput::create().with_label_style(s));
+    }
+
+    #[test]
+    fn style_setters_accept_an_empty_vector_and_survive_rendering() {
+        let empty = CssPropertyWithConditionsVec::from_vec(Vec::new());
+        let input = TextInput::create()
+            .with_placeholder_style(empty.clone())
+            .with_container_style(empty.clone())
+            .with_label_style(empty.clone());
+        assert!(input.container_style.is_empty());
+
+        // Stripping every declared property must not stop the widget from rendering.
+        let dom = input.dom();
+        assert_eq!(dom.children.as_ref().len(), 2);
+    }
+
+    #[test]
+    fn style_setters_overwrite_rather_than_merge() {
+        let mut input = TextInput::create();
+        input.set_container_style(style(4));
+        input.set_container_style(style(1));
+        assert_eq!(input.container_style.len(), 1);
+    }
+
+    // ==================================================================
+    // Callback setters
+    // ==================================================================
+
+    #[test]
+    fn set_on_text_input_stores_the_fn_pointer_and_the_payload_verbatim() {
+        let mut input = TextInput::create();
+        input.set_on_text_input(
+            RefAny::new(0xDEAD_BEEF_u32),
+            record_text_input as TextInputOnTextInputCallbackType,
+        );
+
+        let slot = input
+            .text_input_state
+            .on_text_input
+            .as_ref()
+            .expect("set_on_text_input stored nothing");
+        assert_eq!(
+            slot.callback.cb as *const () as usize,
+            record_text_input as TextInputOnTextInputCallbackType as *const () as usize,
+            "the fn pointer was mangled on the way in",
+        );
+
+        let mut payload = slot.refany.clone();
+        assert_eq!(
+            *payload.downcast_ref::<u32>().expect("the payload changed type"),
+            0xDEAD_BEEF,
+        );
+        assert!(
+            payload.downcast_ref::<u64>().is_none(),
+            "the payload must not be readable as a differently-typed value",
+        );
+    }
+
+    #[test]
+    fn set_on_virtual_key_down_and_set_on_focus_lost_store_their_own_slots() {
+        let mut input = TextInput::create();
+        input.set_on_virtual_key_down(
+            RefAny::new(1_u8),
+            record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+        );
+        input.set_on_focus_lost(
+            RefAny::new(2_u8),
+            record_focus_lost as TextInputOnFocusLostCallbackType,
+        );
+
+        assert!(
+            input.text_input_state.on_text_input.as_ref().is_none(),
+            "the text-input slot was filled in by an unrelated setter",
+        );
+        assert_eq!(
+            input
+                .text_input_state
+                .on_virtual_key_down
+                .as_ref()
+                .expect("the virtual-key slot is empty")
+                .callback
+                .cb as *const () as usize,
+            record_virtual_key as TextInputOnVirtualKeyDownCallbackType as *const () as usize,
+        );
+        assert_eq!(
+            input
+                .text_input_state
+                .on_focus_lost
+                .as_ref()
+                .expect("the focus-lost slot is empty")
+                .callback
+                .cb as *const () as usize,
+            record_focus_lost as TextInputOnFocusLostCallbackType as *const () as usize,
+        );
+    }
+
+    #[test]
+    fn the_with_callback_builders_are_exactly_their_setters() {
+        let payload = RefAny::new(7_u16);
+
+        let mut a = TextInput::create();
+        a.set_on_text_input(payload.clone(), record_text_input as TextInputOnTextInputCallbackType);
+        assert_eq!(
+            a,
+            TextInput::create().with_on_text_input(
+                payload.clone(),
+                record_text_input as TextInputOnTextInputCallbackType,
+            ),
+        );
+
+        let mut b = TextInput::create();
+        b.set_on_virtual_key_down(
+            payload.clone(),
+            record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+        );
+        assert_eq!(
+            b,
+            TextInput::create().with_on_virtual_key_down(
+                payload.clone(),
+                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+            ),
+        );
+
+        let mut c = TextInput::create();
+        c.set_on_focus_lost(payload.clone(), record_focus_lost as TextInputOnFocusLostCallbackType);
+        assert_eq!(
+            c,
+            TextInput::create()
+                .with_on_focus_lost(payload, record_focus_lost as TextInputOnFocusLostCallbackType),
+        );
+    }
+
+    #[test]
+    fn setting_a_callback_twice_replaces_it_rather_than_stacking() {
+        let mut input = TextInput::create();
+        input.set_on_text_input(
+            RefAny::new(1_u8),
+            record_text_input as TextInputOnTextInputCallbackType,
+        );
+        input.set_on_text_input(
+            RefAny::new(2_u8),
+            record_virtual_key as TextInputOnTextInputCallbackType,
+        );
+
+        let slot = input.text_input_state.on_text_input.as_ref().expect("slot is empty");
+        assert_eq!(
+            slot.callback.cb as *const () as usize,
+            record_virtual_key as TextInputOnTextInputCallbackType as *const () as usize,
+            "the second assignment did not win",
+        );
+        let mut payload = slot.refany.clone();
+        assert_eq!(*payload.downcast_ref::<u8>().expect("wrong payload type"), 2);
+    }
+
+    #[test]
+    fn a_generic_two_argument_callback_is_accepted_through_the_ffi_conversion() {
+        // FFI bindings hand in a `Callback` (2 args) which the `From<Callback>` arm
+        // transmutes into the 3-argument widget slot. It must survive being stored
+        // and read back — only the *address* is meaningful, so that is all we check.
+        let generic = Callback {
+            cb: generic_shaped,
+            ctx: OptionRefAny::None,
+        };
+        let input = TextInput::create().with_on_text_input(RefAny::new(0_u8), generic);
+        assert_eq!(
+            input
+                .text_input_state
+                .on_text_input
+                .as_ref()
+                .expect("the transmuted callback was dropped")
+                .callback
+                .cb as *const () as usize,
+            generic_shaped as *const () as usize,
+        );
+    }
+
+    // ==================================================================
+    // TextInput::create / swap_with_default
+    // ==================================================================
+
+    #[test]
+    fn create_is_default_and_is_pure() {
+        assert_eq!(TextInput::create(), TextInput::default());
+        assert_eq!(TextInput::create(), TextInput::create());
+    }
+
+    #[test]
+    fn create_starts_empty_with_no_hooks_and_no_running_animation() {
+        let input = TextInput::create();
+        assert!(input.text_input_state.inner.text.is_empty());
+        assert!(input.text_input_state.inner.placeholder.is_none());
+        assert!(input.text_input_state.inner.selection.is_none());
+        assert_eq!(input.text_input_state.inner.cursor_pos, 0);
+        assert_eq!(input.text_input_state.inner.max_len, 50);
+        assert!(input.text_input_state.on_text_input.as_ref().is_none());
+        assert!(input.text_input_state.on_virtual_key_down.as_ref().is_none());
+        assert!(input.text_input_state.on_focus_lost.as_ref().is_none());
+        assert!(input.text_input_state.cursor_animation.is_none());
+        assert!(input.text_input_state.update_text_input_before_calling_focus_lost_fn);
+        assert!(input.text_input_state.update_text_input_before_calling_vk_down_fn);
+        assert!(!input.container_style.is_empty());
+    }
+
+    #[test]
+    fn swap_with_default_returns_the_old_widget_and_leaves_a_fresh_one_behind() {
+        let mut input = TextInput::create()
+            .with_text("typed".into())
+            .with_placeholder("hint".into());
+        let old = input.swap_with_default();
+
+        assert_eq!(old.text_input_state.inner.get_text(), "typed");
+        assert_eq!(input, TextInput::create(), "what was left behind is not a fresh widget");
+    }
+
+    #[test]
+    fn swapping_twice_round_trips_the_original_widget() {
+        let mut a = TextInput::create().with_text("abc".into());
+        let mut b = a.swap_with_default(); // a = default, b = "abc"
+        let c = b.swap_with_default(); // b = default, c = "abc"
+
+        assert_eq!(c, TextInput::create().with_text("abc".into()));
+        assert_eq!(a, TextInput::create());
+        assert_eq!(b, TextInput::create());
+    }
+
+    #[test]
+    fn swap_with_default_moves_the_hooks_out_rather_than_copying_them() {
+        let probe = recorder(Update::DoNothing, TextInputValid::Yes);
+        let mut input = TextInput::create().with_on_text_input(
+            probe.clone(),
+            record_text_input as TextInputOnTextInputCallbackType,
+        );
+
+        let old = input.swap_with_default();
+
+        assert!(
+            old.text_input_state.on_text_input.as_ref().is_some(),
+            "the hook vanished during the swap",
+        );
+        // A duplicated hook would fire twice, and a duplicated RefAny would
+        // double-free its payload.
+        assert!(
+            input.text_input_state.on_text_input.as_ref().is_none(),
+            "the hook was copied instead of moved",
+        );
+        // The payload is still alive and still typed after the move (a double-freed
+        // RefAny would not survive the downcast inside `recorded`).
+        assert!(recorded(&probe).is_empty(), "the hook fired during a swap");
+    }
+
+    // ==================================================================
+    // TextInput::dom
+    // ==================================================================
+
+    #[test]
+    fn dom_builds_a_container_with_a_placeholder_and_a_label_carrying_a_cursor() {
+        let dom = TextInput::create().dom();
+
+        assert_eq!(classes(&dom), vec!["__azul-native-text-input-container"]);
+        assert_eq!(dom.children.as_ref().len(), 2);
+
+        let placeholder = &dom.children.as_ref()[PLACEHOLDER_CHILD];
+        let label = &dom.children.as_ref()[LABEL_CHILD];
+        assert_eq!(classes(placeholder), vec!["__azul-native-text-input-placeholder"]);
+        assert_eq!(classes(label), vec!["__azul-native-text-input-label"]);
+
+        assert!(
+            placeholder.children.as_ref().is_empty(),
+            "the placeholder must be a leaf: the handlers reach the label through its sibling",
+        );
+        assert_eq!(label.children.as_ref().len(), 1);
+        assert_eq!(
+            classes(&label.children.as_ref()[0]),
+            vec!["__azul-native-text-input-cursor"],
+        );
+    }
+
+    #[test]
+    fn dom_marks_the_container_as_keyboard_focusable() {
+        // Without a tab index the widget can never receive the focus events that all
+        // four of its editing handlers are filtered on.
+        assert_eq!(TextInput::create().dom().root.get_tab_index(), Some(TabIndex::Auto));
+    }
+
+    #[test]
+    fn dom_registers_exactly_the_five_default_handlers_over_one_shared_state() {
+        let dom = TextInput::create().dom();
+        let callbacks = dom.root.callbacks.as_ref();
+
+        let events: Vec<EventFilter> = callbacks.iter().map(|c| c.event).collect();
+        assert_eq!(
+            events,
+            vec![
+                EventFilter::Focus(FocusEventFilter::FocusReceived),
+                EventFilter::Focus(FocusEventFilter::FocusLost),
+                EventFilter::Focus(FocusEventFilter::TextInput),
+                EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                EventFilter::Hover(HoverEventFilter::MouseOver),
+            ],
+        );
+
+        let targets: Vec<usize> = callbacks.iter().map(|c| c.callback.cb).collect();
+        assert_eq!(
+            targets,
+            vec![
+                default_on_focus_received as usize,
+                default_on_focus_lost as usize,
+                default_on_text_input as usize,
+                default_on_virtual_key_down as usize,
+                default_on_mouse_hover as usize,
+            ],
+            "the handlers are wired to the wrong events",
+        );
+
+        // All five handlers plus the dataset must share ONE state; separate copies
+        // would let the focus handler and the text handler drift apart.
+        for c in callbacks {
+            assert_eq!(c.refany, callbacks[0].refany, "a handler got its own state copy");
+        }
+        assert_eq!(
+            dom.root.get_dataset().expect("no dataset attached"),
+            &callbacks[0].refany,
+        );
+    }
+
+    #[test]
+    fn dom_renders_the_buffer_into_the_label_and_the_placeholder_into_its_own_node() {
+        let dom = TextInput::create()
+            .with_text("typed".into())
+            .with_placeholder("hint".into())
+            .dom();
+
+        assert_eq!(text_of(&dom.children.as_ref()[PLACEHOLDER_CHILD]), "hint");
+        assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]), "typed");
+    }
+
+    #[test]
+    fn dom_without_a_placeholder_still_renders_an_empty_placeholder_node() {
+        // The handlers navigate `container -> first child -> next sibling`; dropping
+        // the placeholder node when unset would make the label unreachable.
+        let dom = TextInput::create().with_text("typed".into()).dom();
+        assert_eq!(dom.children.as_ref().len(), 2);
+        assert_eq!(text_of(&dom.children.as_ref()[PLACEHOLDER_CHILD]), "");
+    }
+
+    #[test]
+    fn dom_passes_hostile_text_and_placeholder_through_unchanged() {
+        for s in HOSTILE {
+            let dom = TextInput::create()
+                .with_text(s.into())
+                .with_placeholder(s.into())
+                .dom();
+            assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]), s, "label mangled {s:?}");
+            assert_eq!(
+                text_of(&dom.children.as_ref()[PLACEHOLDER_CHILD]),
+                s,
+                "placeholder mangled {s:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn dom_syncs_the_cursor_to_the_end_of_the_buffer() {
+        for s in HOSTILE {
+            let dom = TextInput::create().with_text(s.into()).dom();
+            assert_eq!(
+                dataset_state(&dom).cursor_pos,
+                s.chars().count(),
+                "the cursor was not parked at the end of {s:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn dom_measures_the_cursor_in_code_units_which_can_outrun_the_rendered_text() {
+        // KNOWN GAP: `dom()` sets `cursor_pos = text.len()` (code units), while the
+        // label only renders the units that are valid scalars. A buffer holding junk
+        // therefore ends up with a cursor past the end of what is on screen.
+        let dom = input_with_units(&[u32::from('a'), 0xD800, u32::from('b')]).dom();
+        assert_eq!(dataset_state(&dom).cursor_pos, 3);
+        assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]), "ab");
+    }
+
+    #[test]
+    fn dom_on_a_very_large_buffer_does_not_panic() {
+        let n = 50_000;
+        let long: String = core::iter::repeat('x').take(n).collect();
+        let dom = TextInput::create().with_text(long.into()).dom();
+        assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]).len(), n);
+        assert_eq!(dataset_state(&dom).cursor_pos, n);
+    }
+
+    #[test]
+    fn dom_keeps_the_configured_styles_on_the_nodes_they_were_set_for() {
+        let placeholder_style = style(1);
+        let label_style = style(2);
+        let container_style = style(3);
+        let dom = TextInput::create()
+            .with_placeholder_style(placeholder_style.clone())
+            .with_label_style(label_style.clone())
+            .with_container_style(container_style.clone())
+            .dom();
+
+        let inline = |node: &Dom| -> Vec<CssProperty> {
+            node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+        };
+        let declared = |v: &CssPropertyWithConditionsVec| -> Vec<CssProperty> {
+            v.as_ref().iter().map(|p| p.property.clone()).collect()
+        };
+
+        assert_eq!(inline(&dom), declared(&container_style));
+        assert_eq!(
+            inline(&dom.children.as_ref()[PLACEHOLDER_CHILD]),
+            declared(&placeholder_style),
+        );
+        assert_eq!(inline(&dom.children.as_ref()[LABEL_CHILD]), declared(&label_style));
+    }
+
+    #[test]
+    fn the_rendered_tree_flattens_to_three_distinct_reachable_children() {
+        let (styled_dom, _) = rendered(TextInput::create());
+        let ((), _, nodes) = run(Env::new(styled_dom), |_| ());
+
+        let placeholder = nodes.placeholder.expect("the container has no first child");
+        let label = nodes.label.expect("the placeholder has no next sibling");
+        let cursor = nodes.cursor.expect("the label has no first child");
+
+        assert_ne!(placeholder, label);
+        assert_ne!(label, cursor);
+        assert_ne!(placeholder, cursor);
+        assert_ne!(placeholder, dom_node(CONTAINER));
+    }
+
+    // ==================================================================
+    // default_on_focus_received
+    // ==================================================================
+
+    #[test]
+    fn focus_received_with_a_foreign_payload_is_an_inert_no_op() {
+        let (styled_dom, _) = rendered(TextInput::create());
+        let foreign = RefAny::new(0xDEAD_BEEF_u32);
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
+            default_on_focus_received(foreign.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "a foreign payload still produced {changes:?}");
+    }
+
+    #[test]
+    fn focus_received_on_a_node_with_no_children_bails_out_before_touching_css() {
+        // `set_css_property` panics on a `None` node id, and the widget only has a
+        // placeholder to hide if the hit node actually has children. Both escapes have
+        // to happen before the css write.
+        let (styled_dom, state) = rendered(TextInput::create());
+        let (update, changes, nodes) = run(Env::new(styled_dom).hit(node_none()), |info| {
+            default_on_focus_received(state.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert!(nodes.placeholder.is_some(), "the fixture itself is malformed");
+    }
+
+    #[test]
+    fn focus_received_on_the_cursor_leaf_is_a_no_op() {
+        // The cursor is the one node in the tree with no children of its own.
+        let (probe_dom, _) = rendered(TextInput::create());
+        let (_, _, nodes) = run(Env::new(probe_dom), |_| ());
+        let cursor = nodes.cursor.expect("no cursor node");
+
+        let (styled_dom, state) = rendered(TextInput::create());
+        let (update, changes, _) = run(Env::new(styled_dom).hit(cursor), |info| {
+            default_on_focus_received(state.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "a childless hit node still pushed {changes:?}");
+    }
+
+    #[test]
+    fn focus_received_hides_the_placeholder_only_while_the_buffer_is_empty() {
+        let (styled_dom, state) = rendered(TextInput::create());
+        let (update, changes, nodes) = run(Env::new(styled_dom), |info| {
+            default_on_focus_received(state.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(
+            pushed_opacities(&changes),
+            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
+            "focusing an empty input did not hide its placeholder",
+        );
+
+        let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
+            default_on_focus_received(state.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(
+            changes.is_empty(),
+            "focusing a non-empty input touched the placeholder anyway: {changes:?}",
+        );
+    }
+
+    #[test]
+    fn focus_received_reparks_the_cursor_at_the_end_of_the_buffer() {
+        let (styled_dom, state) = rendered(TextInput::create().with_text("hello".into()));
+        // Plant a cursor that is both stale and out of range.
+        poke(&state, |w| w.inner.cursor_pos = usize::MAX);
+
+        let (_, _, _) = run(Env::new(styled_dom), |info| {
+            default_on_focus_received(state.clone(), info)
+        });
+        assert_eq!(state_of(&state).cursor_pos, 5);
+    }
+
+    // ==================================================================
+    // default_on_focus_lost
+    // ==================================================================
+
+    #[test]
+    fn focus_lost_shows_the_placeholder_only_while_the_buffer_is_empty() {
+        let (styled_dom, state) = rendered(TextInput::create());
+        let (update, changes, nodes) =
+            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(
+            pushed_opacities(&changes),
+            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 1.0)],
+            "blurring an empty input did not bring its placeholder back",
+        );
+
+        let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
+        let (_, changes, _) =
+            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+        assert!(
+            changes.is_empty(),
+            "blurring a non-empty input revealed the placeholder over the text: {changes:?}",
+        );
+    }
+
+    #[test]
+    fn focus_lost_hands_the_hook_the_live_state_and_returns_its_verdict() {
+        let probe = recorder(Update::RefreshDomAllWindows, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create()
+                .with_text("typed".into())
+                .with_on_focus_lost(probe.clone(), record_focus_lost as TextInputOnFocusLostCallbackType),
+        );
+
+        let (update, _, _) =
+            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+
+        assert_eq!(update, Update::RefreshDomAllWindows, "the hook's Update was swallowed");
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1, "the hook fired {} times, expected once", seen.len());
+        assert_eq!(seen[0].get_text(), "typed");
+        assert_eq!(seen[0].cursor_pos, 5, "the hook saw a cursor that dom() should have synced");
+    }
+
+    #[test]
+    fn focus_lost_without_a_hook_reports_no_work_to_do() {
+        let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
+        let (update, _, _) =
+            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+        assert_eq!(update, Update::DoNothing);
+    }
+
+    #[test]
+    fn focus_lost_on_a_none_hit_node_skips_the_hook_entirely() {
+        // The early return sits *above* the hook dispatch, so a blur that cannot find
+        // its placeholder never reaches user code. Worth pinning: a user hook that
+        // commits a form would otherwise fire on a malformed hit.
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(TextInput::create().with_on_focus_lost(
+            probe.clone(),
+            record_focus_lost as TextInputOnFocusLostCallbackType,
+        ));
+
+        let (update, changes, _) = run(Env::new(styled_dom).hit(node_none()), |info| {
+            default_on_focus_lost(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert!(recorded(&probe).is_empty(), "the hook fired on a hit node that does not exist");
+    }
+
+    #[test]
+    fn focus_lost_with_a_foreign_payload_is_an_inert_no_op() {
+        let (styled_dom, _) = rendered(TextInput::create());
+        let foreign = RefAny::new("not a text input".to_string());
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
+            default_on_focus_lost(foreign.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+
+    // ==================================================================
+    // default_on_text_input
+    // ==================================================================
+
+    #[test]
+    fn text_input_without_a_pending_changeset_does_nothing() {
+        let (styled_dom, state) = rendered(TextInput::create());
+        let (update, changes, _) =
+            run(Env::new(styled_dom), |info| default_on_text_input(state.clone(), info));
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert_eq!(state_of(&state).get_text(), "");
+    }
+
+    #[test]
+    fn text_input_with_an_empty_insertion_does_nothing() {
+        let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
+        let (update, changes, _) = run(Env::new(styled_dom).insert(""), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "an empty insertion still repainted: {changes:?}");
+        assert_eq!(state_of(&state).get_text(), "abc");
+        assert_eq!(state_of(&state).cursor_pos, 3);
+    }
+
+    #[test]
+    fn text_input_appends_the_insertion_hides_the_placeholder_and_repaints_the_label() {
+        let (styled_dom, state) = rendered(TextInput::create().with_placeholder("hint".into()));
+        let (update, changes, nodes) = run(Env::new(styled_dom).insert("hi"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::DoNothing, "no hook is installed, so nothing needs redrawing");
+        assert_eq!(state_of(&state).get_text(), "hi");
+        assert_eq!(state_of(&state).cursor_pos, 2);
+
+        assert_eq!(
+            pushed_opacities(&changes),
+            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
+        );
+        assert_eq!(
+            pushed_texts(&changes),
+            vec![(nodes.label.expect("no label"), "hi".to_string())],
+            "the label was not repainted with the new buffer",
+        );
+    }
+
+    #[test]
+    fn text_input_appends_to_an_existing_buffer_rather_than_replacing_it() {
+        let (styled_dom, state) = rendered(TextInput::create().with_text("ab".into()));
+        let (_, changes, nodes) = run(Env::new(styled_dom).insert("cd"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(state_of(&state).get_text(), "abcd");
+        assert_eq!(
+            pushed_texts(&changes),
+            vec![(nodes.label.expect("no label"), "abcd".to_string())],
+        );
+    }
+
+    #[test]
+    fn text_input_hands_the_hook_a_preview_that_already_contains_the_insertion() {
+        // The hook is a *validator*: it has to see the would-be result, not the state
+        // before the edit, or it can never reject an edit for what it produces.
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create()
+                .with_text("ab".into())
+                .with_on_text_input(probe.clone(), record_text_input as TextInputOnTextInputCallbackType),
+        );
+
+        let (update, _, _) = run(Env::new(styled_dom).insert("c"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::RefreshDom, "the hook's Update was swallowed");
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].get_text(), "abc", "the hook was shown the pre-edit buffer");
+        assert_eq!(seen[0].cursor_pos, 3);
+    }
+
+    #[test]
+    fn text_input_rejected_by_the_hook_leaves_the_buffer_and_the_screen_untouched() {
+        let probe = recorder(Update::RefreshDomAllWindows, TextInputValid::No);
+        let (styled_dom, state) = rendered(
+            TextInput::create()
+                .with_text("ab".into())
+                .with_placeholder("hint".into())
+                .with_on_text_input(probe.clone(), record_text_input as TextInputOnTextInputCallbackType),
+        );
+
+        let (update, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::RefreshDomAllWindows, "a rejected edit still reports its Update");
+        assert_eq!(state_of(&state).get_text(), "ab", "a rejected edit was applied anyway");
+        assert_eq!(state_of(&state).cursor_pos, 2, "a rejected edit still moved the cursor");
+        assert!(
+            changes.is_empty(),
+            "a rejected edit still repainted the widget: {changes:?}",
+        );
+    }
+
+    #[test]
+    fn text_input_advances_the_cursor_by_utf8_byte_length_not_by_scalar_count() {
+        // KNOWN GAP: the cursor is advanced by `inserted_text.len()` — the *byte*
+        // length of the insertion — while the buffer grows by one unit per scalar.
+        // For anything outside ASCII the two disagree, and the cursor ends up past
+        // the end of the buffer it indexes into.
+        let (styled_dom, state) = rendered(TextInput::create());
+        let (_, _, _) = run(Env::new(styled_dom).insert("é"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+
+        let after = state_of(&state);
+        assert_eq!(after.get_text(), "é");
+        assert_eq!(after.text.len(), 1, "the buffer holds one scalar");
+        assert_eq!(after.cursor_pos, 2, "but the cursor moved by the two UTF-8 bytes");
+        assert!(
+            after.cursor_pos > after.text.len(),
+            "the cursor is expected to overshoot here; see the KNOWN GAP above",
+        );
+    }
+
+    #[test]
+    fn text_input_saturates_the_cursor_instead_of_overflowing_it() {
+        let (styled_dom, state) = rendered(TextInput::create());
+        poke(&state, |w| w.inner.cursor_pos = usize::MAX);
+
+        let (update, _, _) = run(Env::new(styled_dom).insert("abc"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(
+            state_of(&state).cursor_pos,
+            usize::MAX,
+            "the cursor wrapped around instead of saturating",
+        );
+        assert_eq!(state_of(&state).get_text(), "abc");
+    }
+
+    #[test]
+    fn text_input_accepts_astral_combining_and_multi_scalar_insertions() {
+        for s in ["\u{10ffff}", "e\u{301}", "👨‍👩‍👧‍👦", "日本語", "\0"] {
+            let (styled_dom, state) = rendered(TextInput::create());
+            let (_, changes, nodes) = run(Env::new(styled_dom).insert(s), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), s, "the buffer mangled {s:?}");
+            assert_eq!(state_of(&state).text.len(), s.chars().count());
+            assert_eq!(
+                pushed_texts(&changes),
+                vec![(nodes.label.expect("no label"), s.to_string())],
+            );
+        }
+    }
+
+    #[test]
+    fn text_input_on_a_wrong_shaped_subtree_changes_nothing() {
+        // Hitting the label means `first child -> next sibling` walks off the end of
+        // the tree. The handler has to give up *before* mutating the buffer, or the
+        // model and the screen would silently diverge.
+        let (probe_dom, _) = rendered(TextInput::create());
+        let (_, _, nodes) = run(Env::new(probe_dom), |_| ());
+        let label = nodes.label.expect("no label");
+
+        let (styled_dom, state) = rendered(TextInput::create().with_text("ab".into()));
+        let (result, changes, _) = run(Env::new(styled_dom).hit(label).insert("c"), |info| {
+            default_on_text_input_inner(state.clone(), info)
+        });
+
+        assert_eq!(result, None, "the handler claimed to have handled a malformed tree");
+        assert!(changes.is_empty());
+        assert_eq!(state_of(&state).get_text(), "ab", "the buffer changed anyway");
+    }
+
+    #[test]
+    fn text_input_on_a_none_hit_node_changes_nothing() {
+        let (styled_dom, state) = rendered(TextInput::create().with_text("ab".into()));
+        let (update, changes, _) = run(Env::new(styled_dom).hit(node_none()).insert("c"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert_eq!(state_of(&state).get_text(), "ab");
+    }
+
+    #[test]
+    fn text_input_with_a_foreign_payload_is_an_inert_no_op() {
+        let (styled_dom, _) = rendered(TextInput::create());
+        let foreign = RefAny::new(0_u8);
+        let (result, changes, _) = run(Env::new(styled_dom).insert("a"), |info| {
+            default_on_text_input_inner(foreign.clone(), info)
+        });
+        assert_eq!(result, None);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn text_input_ignores_max_len() {
+        // KNOWN GAP (same root cause as `set_text_does_not_enforce_max_len`): typing
+        // past `max_len` is accepted, one changeset at a time.
+        let (styled_dom, state) = rendered(TextInput::create());
+        let filler: String = core::iter::repeat('x').take(80).collect();
+        let (_, _, _) = run(Env::new(styled_dom).insert(&filler), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        let after = state_of(&state);
+        assert_eq!(after.max_len, 50);
+        assert_eq!(after.text.len(), 80);
+    }
+
+    // ==================================================================
+    // default_on_virtual_key_down
+    // ==================================================================
+
+    #[test]
+    fn virtual_key_down_without_a_pressed_key_does_nothing() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create().with_text("ab".into()).with_on_virtual_key_down(
+                probe.clone(),
+                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+            ),
+        );
+
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
+            default_on_virtual_key_down(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert!(recorded(&probe).is_empty(), "the hook fired without a key being down");
+        assert_eq!(state_of(&state).get_text(), "ab");
+    }
+
+    #[test]
+    fn backspace_pops_one_code_unit_and_walks_the_cursor_back() {
+        let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
+        let (update, changes, nodes) =
+            run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+                default_on_virtual_key_down(state.clone(), info)
+            });
+
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(state_of(&state).get_text(), "ab");
+        assert_eq!(state_of(&state).cursor_pos, 2);
+        assert_eq!(
+            pushed_texts(&changes),
+            vec![(nodes.label.expect("no label"), "ab".to_string())],
+        );
+        assert!(pushed_opacities(&changes).is_empty(), "backspace must not touch the placeholder");
+    }
+
+    #[test]
+    fn backspace_on_an_empty_buffer_saturates_at_zero_instead_of_underflowing() {
+        let (styled_dom, state) = rendered(TextInput::create());
+        let (update, changes, nodes) =
+            run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+                default_on_virtual_key_down(state.clone(), info)
+            });
+
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(state_of(&state).cursor_pos, 0, "the cursor underflowed past zero");
+        assert!(state_of(&state).text.is_empty());
+        // The repaint is still pushed — with the (unchanged) empty text.
+        assert_eq!(
+            pushed_texts(&changes),
+            vec![(nodes.label.expect("no label"), String::new())],
+        );
+    }
+
+    #[test]
+    fn backspace_deletes_one_scalar_not_one_grapheme() {
+        // "e" + COMBINING ACUTE renders as a single glyph but is two scalars, so one
+        // backspace leaves a bare "e" behind rather than clearing the cell.
+        let (styled_dom, state) = rendered(TextInput::create().with_text("e\u{301}".into()));
+        let (_, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+            default_on_virtual_key_down(state.clone(), info)
+        });
+        assert_eq!(state_of(&state).get_text(), "e");
+        assert_eq!(state_of(&state).cursor_pos, 1);
+    }
+
+    #[test]
+    fn backspace_deletes_a_whole_astral_scalar_at_once() {
+        // The buffer is UTF-32, so a 4-byte scalar is one unit: no half-a-character
+        // can survive the pop.
+        let (styled_dom, state) = rendered(TextInput::create().with_text("a\u{10ffff}".into()));
+        let (_, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+            default_on_virtual_key_down(state.clone(), info)
+        });
+        assert_eq!(state_of(&state).get_text(), "a");
+        assert_eq!(state_of(&state).text.as_slice(), &[0x61]);
+    }
+
+    #[test]
+    fn a_non_backspace_key_still_reaches_the_hook_but_leaves_the_buffer_alone() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create().with_text("ab".into()).with_on_virtual_key_down(
+                probe.clone(),
+                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+            ),
+        );
+
+        let (update, changes, _) = run(Env::new(styled_dom).key(VirtualKeyCode::A), |info| {
+            default_on_virtual_key_down(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::RefreshDom);
+        assert!(changes.is_empty(), "a plain key press repainted the label: {changes:?}");
+        assert_eq!(state_of(&state).get_text(), "ab");
+        assert_eq!(recorded(&probe).len(), 1, "the hook must see every key, not just backspace");
+    }
+
+    #[test]
+    fn a_rejecting_hook_suppresses_the_deletion_but_keeps_its_update() {
+        let probe = recorder(Update::RefreshDomAllWindows, TextInputValid::No);
+        let (styled_dom, state) = rendered(
+            TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
+                probe.clone(),
+                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+            ),
+        );
+
+        let (update, changes, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+            default_on_virtual_key_down(state.clone(), info)
+        });
+
+        assert_eq!(update, Update::RefreshDomAllWindows);
+        assert!(changes.is_empty(), "a vetoed backspace still repainted: {changes:?}");
+        assert_eq!(state_of(&state).get_text(), "abc", "a vetoed backspace deleted anyway");
+        assert_eq!(state_of(&state).cursor_pos, 3);
+    }
+
+    #[test]
+    fn the_virtual_key_hook_is_shown_the_state_from_before_the_deletion() {
+        // The hook runs first so that it can veto; that means it necessarily sees the
+        // pre-delete buffer. Pinned because "which side of the edit does the hook
+        // see" is exactly the thing a refactor gets wrong.
+        let probe = recorder(Update::DoNothing, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
+                probe.clone(),
+                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+            ),
+        );
+
+        let (_, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+            default_on_virtual_key_down(state.clone(), info)
+        });
+
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].get_text(), "abc");
+        assert_eq!(seen[0].cursor_pos, 3);
+        assert_eq!(state_of(&state).get_text(), "ab", "... and the deletion still happened");
+    }
+
+    #[test]
+    fn virtual_key_down_on_a_none_hit_node_skips_the_hook_entirely() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
+                probe.clone(),
+                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+            ),
+        );
+
+        let (result, changes, _) = run(
+            Env::new(styled_dom).hit(node_none()).key(VirtualKeyCode::Back),
+            |info| default_on_virtual_key_down_inner(state.clone(), info),
+        );
+
+        assert_eq!(result, None);
+        assert!(changes.is_empty());
+        assert!(recorded(&probe).is_empty(), "the hook fired on a hit node that does not exist");
+        assert_eq!(state_of(&state).get_text(), "abc");
+    }
+
+    #[test]
+    fn virtual_key_down_with_a_foreign_payload_is_an_inert_no_op() {
+        let (styled_dom, _) = rendered(TextInput::create());
+        let foreign = RefAny::new(vec![1_u32, 2, 3]);
+        let (update, changes, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+            default_on_virtual_key_down(foreign.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn repeated_backspaces_drain_the_buffer_and_then_stop() {
+        // Six backspaces over a three-scalar buffer: the last three must be harmless.
+        let (_, state) = rendered(TextInput::create().with_text("abc".into()));
+        for i in 0..6 {
+            // The tree shape does not depend on what the buffer holds, so a fresh
+            // container is enough to navigate; the live state is `state`.
+            let (styled_dom, _) = rendered(TextInput::create());
+            let (update, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+                default_on_virtual_key_down(state.clone(), info)
+            });
+            assert_eq!(update, Update::DoNothing, "backspace #{i} reported work to do");
+        }
+        let after = state_of(&state);
+        assert!(after.text.is_empty());
+        assert_eq!(after.cursor_pos, 0);
+    }
+
+    // ==================================================================
+    // default_on_mouse_hover
+    // ==================================================================
+
+    #[test]
+    fn mouse_hover_is_inert_for_every_payload_and_every_hit_node() {
+        let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
+        let (update, changes, _) =
+            run(Env::new(styled_dom), |info| default_on_mouse_hover(state.clone(), info));
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+        assert_eq!(state_of(&state).get_text(), "abc", "hovering edited the buffer");
+
+        let (styled_dom, _) = rendered(TextInput::create());
+        let foreign = RefAny::new(0_u8);
+        let (update, changes, _) = run(Env::new(styled_dom).hit(node_none()), |info| {
+            default_on_mouse_hover(foreign.clone(), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty());
+    }
+}

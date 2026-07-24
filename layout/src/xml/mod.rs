@@ -1199,3 +1199,1450 @@ impl DomXmlExt for Dom {
         dom_xml.parsed_dom
     }
 }
+
+// ============================================================================
+// Adversarial unit tests (autotest). Inline so the private helpers
+// (`decode_xml_entities*`, `parse_xml_to_fast_dom_with_css`, `peak_rss_bytes`,
+// `translate_*`) are reachable.
+// ============================================================================
+
+#[cfg(test)]
+mod autotest_generated {
+    use azul_core::dom::{FastDom, NodeData, NodeType, TabIndex};
+
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // helpers
+    // ------------------------------------------------------------------
+
+    /// Element children of an `XmlNodeChild` slice (skips text nodes).
+    #[cfg(feature = "xml")]
+    fn elements(children: &[XmlNodeChild]) -> Vec<&XmlNode> {
+        children
+            .iter()
+            .filter_map(XmlNodeChild::as_element)
+            .collect()
+    }
+
+    /// Text children of an `XmlNodeChild` slice (skips element nodes).
+    #[cfg(feature = "xml")]
+    fn texts(children: &[XmlNodeChild]) -> Vec<&str> {
+        children.iter().filter_map(XmlNodeChild::as_text).collect()
+    }
+
+    /// `<html><body>…</body></html>` around `body`.
+    ///
+    /// Every fixture goes through this so the document's first 9 bytes are
+    /// ASCII: `parse_xml*` slices `xml[..9]` for the DOCTYPE sniff without a
+    /// char-boundary check (see
+    /// `parse_entrypoints_do_not_panic_on_short_multibyte_input`).
+    fn doc(body: &str) -> String {
+        format!("<html><body>{body}</body></html>")
+    }
+
+    /// Flat node arena of a `FastDom`.
+    fn nodes(dom: &FastDom) -> &[NodeData] {
+        dom.node_data.as_ref()
+    }
+
+    /// Text content of a `NodeType::Text` node (`None` for every other kind).
+    fn text_of(nd: &NodeData) -> Option<String> {
+        match nd.get_node_type() {
+            NodeType::Text(_) => nd.get_node_type().format(),
+            _ => None,
+        }
+    }
+
+    /// Minimal XML escaper — the inverse of `decode_xml_entities`.
+    #[cfg(feature = "xml")]
+    fn escape(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&apos;"),
+                _ => out.push(c),
+            }
+        }
+        out
+    }
+
+    /// Non-grammar / hostile fragments. All ASCII on purpose so they exercise
+    /// the tokenizer rather than the `xml[..9]` slice.
+    const GARBAGE: &[&str] = &[
+        "<<<<>>>>",
+        "!!!not xml at all!!!",
+        "<a b=c>",
+        "</>",
+        "</div>",
+        "<a></a",
+        "&&&&&&&&&&&&",
+        "]]>",
+        "<!--",
+        "<![CDATA[",
+        "<?",
+        "<!DOCTYPE",
+        "\u{0}\u{1}\u{2}",
+        "<a><<a><<<a>",
+        "= = = = = = = = = =",
+    ];
+
+    // ------------------------------------------------------------------
+    // decode_xml_entities / decode_xml_entities_slow
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn decode_xml_entities_borrows_when_there_is_no_ampersand() {
+        for s in ["", "hello", "  ", "日本語 🙂", "<tag/>", "a;b;c;"] {
+            assert!(
+                matches!(decode_xml_entities(s), std::borrow::Cow::Borrowed(_)),
+                "{s:?} has no '&' and must take the zero-alloc path"
+            );
+            assert_eq!(&*decode_xml_entities(s), s);
+        }
+    }
+
+    #[test]
+    fn decode_xml_entities_decodes_the_five_named_entities_and_nbsp() {
+        assert_eq!(&*decode_xml_entities("&lt;"), "<");
+        assert_eq!(&*decode_xml_entities("&gt;"), ">");
+        assert_eq!(&*decode_xml_entities("&amp;"), "&");
+        assert_eq!(&*decode_xml_entities("&apos;"), "'");
+        assert_eq!(&*decode_xml_entities("&quot;"), "\"");
+        assert_eq!(&*decode_xml_entities("&nbsp;"), "\u{00A0}");
+        assert_eq!(
+            &*decode_xml_entities("a&lt;b&gt;c&amp;d&quot;e&apos;f"),
+            "a<b>c&d\"e'f"
+        );
+    }
+
+    #[test]
+    fn decode_xml_entities_decodes_numeric_references() {
+        // decimal, lowercase hex, uppercase hex marker
+        assert_eq!(&*decode_xml_entities("&#60;"), "<");
+        assert_eq!(&*decode_xml_entities("&#x3C;"), "<");
+        assert_eq!(&*decode_xml_entities("&#X3c;"), "<");
+        assert_eq!(&*decode_xml_entities("&#65;"), "A");
+        // boundary code points: NUL, BMP max, astral, and the last legal scalar
+        assert_eq!(&*decode_xml_entities("&#0;"), "\u{0}");
+        assert_eq!(&*decode_xml_entities("&#xFFFF;"), "\u{FFFF}");
+        assert_eq!(&*decode_xml_entities("&#65536;"), "\u{10000}");
+        assert_eq!(&*decode_xml_entities("&#1114111;"), "\u{10FFFF}");
+        assert_eq!(&*decode_xml_entities("&#x10FFFF;"), "\u{10FFFF}");
+        // combining marks survive
+        assert_eq!(&*decode_xml_entities("e&#x301;"), "e\u{301}");
+    }
+
+    #[test]
+    fn decode_xml_entities_keeps_out_of_range_and_surrogate_code_points_verbatim() {
+        // Every one of these must round-trip to itself: no panic, no
+        // replacement char, no silent truncation to a wrong scalar.
+        for s in [
+            "&#xD800;",      // lone high surrogate
+            "&#xDFFF;",      // lone low surrogate
+            "&#55296;",      // decimal surrogate
+            "&#x110000;",    // one past the last scalar
+            "&#1114112;",    // decimal, one past the last scalar
+            "&#123456789;",  // entity name is exactly 10 bytes (the length cap)
+            "&#4294967296;", // u32::MAX + 1
+            "&#99999999999999;",
+            "&#x;",
+            "&#;",
+            "&#xZZ;",
+            "&#-1;",
+        ] {
+            assert_eq!(
+                &*decode_xml_entities(s),
+                s,
+                "{s:?} is not a decodable reference and must be preserved byte-for-byte"
+            );
+        }
+    }
+
+    #[test]
+    fn decode_xml_entities_keeps_unterminated_and_unknown_entities_verbatim() {
+        for s in [
+            "&",
+            "&&",
+            "&lt",
+            "&#",
+            "&#x",
+            "&foo;",
+            "&LT;", // entity table is case-sensitive
+            "&Amp;",
+            "& lt;",
+            "a & b",
+            "&;",
+        ] {
+            assert_eq!(&*decode_xml_entities(s), s, "{s:?} must be preserved");
+        }
+        // Trailing garbage after a valid entity is still emitted.
+        assert_eq!(&*decode_xml_entities("&lt;&"), "<&");
+    }
+
+    #[test]
+    fn decode_xml_entities_does_not_double_decode() {
+        // A single pass only. `&amp;lt;` is the escaped form of the literal
+        // text `&lt;` and must NOT collapse to `<` — that would be an
+        // injection vector for anything that escapes user text once.
+        assert_eq!(&*decode_xml_entities("&amp;lt;"), "&lt;");
+        assert_eq!(&*decode_xml_entities("&amp;amp;"), "&amp;");
+        assert_eq!(&*decode_xml_entities("&amp;#60;"), "&#60;");
+    }
+
+    #[test]
+    fn decode_xml_entities_handles_pathological_input_without_panicking() {
+        // Entity name far past the 10-byte cap: bails out and preserves input.
+        let long_name = format!("&{};", "a".repeat(10_000));
+        assert_eq!(&*decode_xml_entities(&long_name), long_name);
+
+        // Unterminated '&' followed by a megabyte of text.
+        let long_tail = format!("&{}", "x".repeat(1_000_000));
+        assert_eq!(decode_xml_entities(&long_tail).len(), long_tail.len());
+
+        // Multibyte / astral / combining input mixed with entities. The entity
+        // scanner uses `char::is_alphanumeric`, so multibyte chars can land in
+        // the accumulator — slicing must stay on char boundaries.
+        for s in [
+            "&\u{1F600}\u{1F600};",
+            "&½;",
+            "&日本;",
+            "&#\u{1F600};",
+            "&e\u{301};",
+            "🙂&amp;🙂",
+        ] {
+            let out = decode_xml_entities(s);
+            assert!(
+                !out.is_empty(),
+                "{s:?} decoded to nothing (input was non-empty)"
+            );
+        }
+
+        // Alternating entities at scale must not go quadratic-and-panic.
+        let many = "&lt;".repeat(50_000);
+        assert_eq!(decode_xml_entities(&many).chars().count(), 50_000);
+    }
+
+    #[test]
+    fn decode_xml_entities_slow_matches_the_fast_path() {
+        // The fast path is only a `contains('&')` short-circuit: for '&'-free
+        // input the slow path must be the identity, and for everything else
+        // the two must agree exactly.
+        for s in [
+            "",
+            "plain",
+            "日本語 🙂",
+            "&lt;",
+            "&amp;lt;",
+            "&#x1F600;",
+            "&unknown;",
+            "&",
+        ] {
+            assert_eq!(
+                &*decode_xml_entities(s),
+                &*decode_xml_entities_slow(s),
+                "fast/slow path disagree on {s:?}"
+            );
+        }
+        for s in ["", "plain", "日本語 🙂", "a;b", "<>"] {
+            assert_eq!(&*decode_xml_entities_slow(s), s);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // KNOWN BUG: unchecked `xml[..9]` slice in the DOCTYPE sniff
+    // ------------------------------------------------------------------
+
+    /// `parse_xml_string` (line ~737) and `parse_xml_to_fast_dom_with_css`
+    /// (line ~328) both do
+    ///
+    /// ```ignore
+    /// if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype")
+    /// ```
+    ///
+    /// `&str[..9]` panics when byte 9 is not a UTF-8 char boundary, so any
+    /// input longer than 9 bytes whose third-or-so character is multibyte
+    /// aborts the parse with `byte index 9 is not a char boundary` instead of
+    /// returning `Err`. `domxml_from_str`, which documents that it "deliberately
+    /// never fails", inherits the panic.
+    ///
+    /// The fix belongs in the source (`xml.is_char_boundary(9)` guard, or
+    /// `xml.get(..9)`), so this test asserts the correct invariant and is
+    /// expected to be RED until that lands.
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_entrypoints_do_not_panic_on_short_multibyte_input() {
+        // 3 x 4-byte emoji = 12 bytes; boundaries are 0/4/8/12, so 9 is inside
+        // the third character.
+        const INPUT: &str = "😀😀😀";
+        assert!(INPUT.len() > 9 && !INPUT.is_char_boundary(9));
+
+        let a = std::panic::catch_unwind(|| parse_xml_string(INPUT).is_ok());
+        let b = std::panic::catch_unwind(|| parse_xml_to_fast_dom(INPUT).is_ok());
+
+        assert!(
+            a.is_ok(),
+            "parse_xml_string panicked on {INPUT:?}: the DOCTYPE sniff slices \
+             xml[..9] without an is_char_boundary check"
+        );
+        assert!(
+            b.is_ok(),
+            "parse_xml_to_fast_dom panicked on {INPUT:?}: same unchecked \
+             xml[..9] slice"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // parse_xml_string
+    // ------------------------------------------------------------------
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_accepts_empty_and_whitespace_only_input() {
+        for s in ["", " ", "   ", "\t\n", "\r\n\r\n", "\u{FEFF}", "\u{FEFF}   "] {
+            let parsed = parse_xml_string(s)
+                .unwrap_or_else(|e| panic!("{s:?} should parse to an empty tree, got {e}"));
+            assert!(parsed.is_empty(), "{s:?} produced {} roots", parsed.len());
+        }
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_parses_a_minimal_document() {
+        let parsed = parse_xml_string(&doc("<div>hi</div>")).expect("valid document");
+        let roots = elements(&parsed);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].node_type.as_str(), "html");
+
+        let body = elements(roots[0].children.as_ref());
+        assert_eq!(body.len(), 1);
+        assert_eq!(body[0].node_type.as_str(), "body");
+
+        let div = elements(body[0].children.as_ref());
+        assert_eq!(div.len(), 1);
+        assert_eq!(div[0].node_type.as_str(), "div");
+        assert_eq!(texts(div[0].children.as_ref()), vec!["hi"]);
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_rejects_unclosed_elements() {
+        // A well-formed document unwinds to the root sentinel; anything left
+        // open must be an error rather than a silently-truncated tree.
+        assert!(matches!(
+            parse_xml_string("<div>"),
+            Err(XmlError::UnclosedRootNode)
+        ));
+        assert!(matches!(
+            parse_xml_string("<html><body><div>"),
+            Err(XmlError::UnclosedRootNode)
+        ));
+        assert!(
+            parse_xml_string("<html><body><div>text").is_err(),
+            "an unclosed element must not yield a partial 'valid' tree"
+        );
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_rejects_truncated_declaration_and_doctype() {
+        assert!(matches!(
+            parse_xml_string("<?xml version=\"1.0\""),
+            Err(XmlError::MalformedHierarchy(_))
+        ));
+        assert!(matches!(
+            parse_xml_string("<!DOCTYPE html PUBLIC \"x\""),
+            Err(XmlError::MalformedHierarchy(_))
+        ));
+        // ...but the complete forms are stripped and the rest parses.
+        for prefix in [
+            "<?xml version=\"1.0\"?>",
+            "<!DOCTYPE html>",
+            "<!doctype HTML>",
+            "<!-- leading comment -->",
+            "\u{FEFF}",
+        ] {
+            let src = format!("{prefix}{}", doc("<div/>"));
+            let parsed = parse_xml_string(&src)
+                .unwrap_or_else(|e| panic!("{prefix:?} prefix should be stripped, got {e}"));
+            let roots = elements(&parsed);
+            assert_eq!(roots.len(), 1, "{prefix:?} -> {roots:?}");
+            assert_eq!(roots[0].node_type.as_str(), "html");
+        }
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_is_deterministic_on_garbage() {
+        for g in GARBAGE {
+            // The contract is "Err or a tree", never a panic and never a
+            // different answer for the same bytes.
+            let a = parse_xml_string(g);
+            let b = parse_xml_string(g);
+            assert_eq!(a.is_ok(), b.is_ok(), "{g:?} parsed non-deterministically");
+            assert_eq!(a.ok(), b.ok(), "{g:?} produced two different trees");
+        }
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_trims_leading_and_trailing_whitespace() {
+        let padded = format!("  \t\n{}\n\t  ", doc("<div/>"));
+        let a = parse_xml_string(&padded).expect("padded document");
+        let b = parse_xml_string(&doc("<div/>")).expect("bare document");
+        assert_eq!(a, b, "surrounding whitespace must not change the tree");
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_keeps_trailing_junk_as_text() {
+        // Lenient HTML-ish parsing: trailing junk becomes a text node at the
+        // root rather than an error or a dropped document.
+        let parsed = parse_xml_string(&format!("{};garbage", doc("<div/>"))).expect("lenient parse");
+        assert_eq!(elements(&parsed).len(), 1);
+        assert_eq!(texts(&parsed), vec![";garbage"]);
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_round_trips_escaped_text() {
+        for raw in [
+            "a",
+            "<b>bold</b> & \"quotes\" 'apos'",
+            "&&&&",
+            "  spaced  ",
+            "日本語 🙂 combining e\u{301}",
+            "1 < 2 > 0 && true",
+        ] {
+            let src = doc(&escape(raw));
+            let parsed = parse_xml_string(&src)
+                .unwrap_or_else(|e| panic!("{src:?} should parse, got {e}"));
+            let html = elements(&parsed);
+            let body = elements(html[0].children.as_ref());
+            assert_eq!(
+                texts(body[0].children.as_ref()),
+                vec![raw],
+                "escape -> parse must be the identity for {raw:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_decodes_attribute_entities() {
+        let parsed = parse_xml_string(&doc(
+            r#"<div t="&amp;&lt;&gt;&quot;&apos;x" u="&nosuch;" v="&#x1F600;"></div>"#,
+        ))
+        .expect("valid document");
+        let html = elements(&parsed);
+        let body = elements(html[0].children.as_ref());
+        let div = elements(body[0].children.as_ref());
+        let attrs = &div[0].attributes;
+
+        assert_eq!(attrs.get_key("t").map(AzString::as_str), Some("&<>\"'x"));
+        assert_eq!(attrs.get_key("u").map(AzString::as_str), Some("&nosuch;"));
+        assert_eq!(attrs.get_key("v").map(AzString::as_str), Some("😀"));
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_tolerates_extra_and_mismatched_close_tags() {
+        let nested = doc("<div></span></div>");
+        let paragraphs = doc("<p>one<p>two");
+        for src in [
+            "<a></a></a>",
+            "<a></a></b>",
+            nested.as_str(),
+            paragraphs.as_str(),
+            "<br></br>",
+            "<br>",
+            "<br><br><br>",
+        ] {
+            let a = parse_xml_string(src);
+            let b = parse_xml_string(src);
+            assert_eq!(a.is_ok(), b.is_ok(), "{src:?} is non-deterministic");
+            assert_eq!(a.ok(), b.ok(), "{src:?} produced two different trees");
+        }
+        // A bare void element is a complete document (auto-closed at EOF).
+        let parsed = parse_xml_string("<br>").expect("bare void element");
+        assert_eq!(elements(&parsed).len(), 1);
+        assert_eq!(elements(&parsed)[0].node_type.as_str(), "br");
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_handles_deep_nesting_without_stack_overflow() {
+        // Building is iterative, but dropping the resulting `XmlNode` tree is
+        // recursive, so this pins the depth the *whole* lifecycle survives.
+        // (The arena path is exercised at 10k in
+        // `parse_xml_to_fast_dom_handles_ten_thousand_nested_elements`.)
+        const DEPTH: usize = 1_000;
+        let mut src = String::with_capacity(DEPTH * 12);
+        for _ in 0..DEPTH {
+            src.push_str("<a>");
+        }
+        for _ in 0..DEPTH {
+            src.push_str("</a>");
+        }
+
+        let parsed = parse_xml_string(&src).expect("balanced nesting is valid");
+        let mut depth = 0_usize;
+        {
+            let mut cursor: Vec<&XmlNode> = elements(&parsed);
+            while !cursor.is_empty() {
+                depth += 1;
+                let node: &XmlNode = cursor[0];
+                cursor = elements(node.children.as_ref());
+            }
+        }
+        assert_eq!(depth, DEPTH, "every nesting level must be preserved");
+        // Dropping the tree is the recursive half of the lifecycle — a deeper
+        // tree would blow the stack here, not during the (iterative) parse.
+        drop(parsed);
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_handles_a_one_million_char_text_node() {
+        let payload = "x".repeat(1_000_000);
+        let parsed = parse_xml_string(&doc(&payload)).expect("long text is valid");
+        let html = elements(&parsed);
+        let body = elements(html[0].children.as_ref());
+        let t = texts(body[0].children.as_ref());
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].len(), 1_000_000);
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_string_handles_many_sibling_elements() {
+        const N: usize = 2_000;
+        let parsed = parse_xml_string(&doc(&"<i>x</i>".repeat(N))).expect("wide tree is valid");
+        let html = elements(&parsed);
+        let body = elements(html[0].children.as_ref());
+        assert_eq!(elements(body[0].children.as_ref()).len(), N);
+    }
+
+    // ------------------------------------------------------------------
+    // parse_xml
+    // ------------------------------------------------------------------
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn parse_xml_agrees_with_parse_xml_string() {
+        let one = doc("<div>hi</div>");
+        let two = doc("<i/><i/>");
+        for src in ["", "   ", one.as_str(), two.as_str()] {
+            let via_xml = parse_xml(src).expect("valid");
+            let via_string = parse_xml_string(src).expect("valid");
+            assert_eq!(
+                via_xml.root.as_ref(),
+                via_string.as_slice(),
+                "parse_xml must be a thin wrapper over parse_xml_string for {src:?}"
+            );
+        }
+        assert!(parse_xml("<div>").is_err());
+    }
+
+    #[cfg(not(feature = "xml"))]
+    #[test]
+    fn parse_xml_without_the_xml_feature_reports_no_parser() {
+        for s in ["", "   ", "<div/>", "garbage"] {
+            assert!(matches!(parse_xml(s), Err(XmlError::NoParserAvailable)));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // parse_xml_to_fast_dom / parse_xml_to_fast_dom_with_css
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn parse_xml_to_fast_dom_accepts_empty_and_whitespace_only_input() {
+        for s in ["", " ", "   ", "\t\n", "\u{FEFF}", "\u{FEFF}  \n "] {
+            let dom = parse_xml_to_fast_dom(s)
+                .unwrap_or_else(|e| panic!("{s:?} should yield an empty arena, got {e}"));
+            assert!(nodes(&dom).is_empty(), "{s:?} produced {} nodes", nodes(&dom).len());
+            assert_eq!(dom.node_hierarchy.as_ref().len(), nodes(&dom).len());
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_builds_the_expected_arena() {
+        let dom = parse_xml_to_fast_dom(&doc("<div>hi</div>")).expect("valid document");
+        let n = nodes(&dom);
+        assert_eq!(n.len(), 4, "html + body + div + text");
+        assert_eq!(
+            dom.node_hierarchy.as_ref().len(),
+            n.len(),
+            "hierarchy and node_data arenas must stay parallel"
+        );
+        assert!(matches!(n[0].get_node_type(), NodeType::Html));
+        assert!(matches!(n[1].get_node_type(), NodeType::Body));
+        assert!(matches!(n[2].get_node_type(), NodeType::Div));
+        assert_eq!(text_of(&n[3]).as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_lowercases_tag_names() {
+        let dom = parse_xml_to_fast_dom("<HTML><BODY><DiV/></BODY></HTML>").expect("valid");
+        let n = nodes(&dom);
+        assert_eq!(n.len(), 3);
+        assert!(matches!(n[0].get_node_type(), NodeType::Html));
+        assert!(matches!(n[1].get_node_type(), NodeType::Body));
+        assert!(matches!(n[2].get_node_type(), NodeType::Div));
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_skips_head_but_collects_style_css() {
+        let src = "<html><head><title>T</title>\
+                   <style>div { width: 10px; }</style></head>\
+                   <body>x</body></html>";
+        let (dom, css) = parse_xml_to_fast_dom_with_css(src).expect("valid document");
+        let n = nodes(&dom);
+
+        assert_eq!(n.len(), 3, "html + body + text; <head> subtree is dropped");
+        assert!(
+            !n.iter()
+                .any(|nd| matches!(nd.get_node_type(), NodeType::Head | NodeType::Title)),
+            "no <head>/<title> node may reach the arena"
+        );
+        assert_eq!(text_of(&n[2]).as_deref(), Some("x"));
+        assert_eq!(css.len(), 1, "the <style> body must still be collected");
+        assert!(!css[0].rules.as_ref().is_empty(), "the CSS must have parsed");
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_splits_ids_and_classes_on_whitespace() {
+        let dom = parse_xml_to_fast_dom(&doc(r#"<div id="a b" class="c  d
+        e"></div>"#))
+        .expect("valid document");
+        let div = &nodes(&dom)[2];
+
+        assert!(div.has_id("a") && div.has_id("b"));
+        assert!(div.has_class("c") && div.has_class("d") && div.has_class("e"));
+        assert!(!div.has_id("a b"), "the raw joined value must not survive");
+        assert_eq!(div.get_ids_and_classes().as_ref().len(), 5);
+    }
+
+    /// Reads the tab index of the `<div>` in `doc("<div {attrs}></div>")`.
+    fn tab_index_with(attrs: &str) -> Option<TabIndex> {
+        let dom = parse_xml_to_fast_dom(&doc(&format!("<div {attrs}></div>")))
+            .unwrap_or_else(|e| panic!("{attrs:?} should parse, got {e}"));
+        nodes(&dom)[2].get_tab_index()
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_maps_tabindex_boundaries() {
+        assert_eq!(tab_index_with(r#"tabindex="0""#), Some(TabIndex::Auto));
+        assert_eq!(tab_index_with(r#"tabindex="-0""#), Some(TabIndex::Auto));
+        assert_eq!(
+            tab_index_with(r#"tabindex="1""#),
+            Some(TabIndex::OverrideInParent(1))
+        );
+        assert_eq!(
+            tab_index_with(r#"tabindex="+3""#),
+            Some(TabIndex::OverrideInParent(3)),
+            "isize::from_str accepts a leading '+'"
+        );
+        assert_eq!(
+            tab_index_with(r#"tabindex="-1""#),
+            Some(TabIndex::NoKeyboardFocus)
+        );
+        assert_eq!(
+            tab_index_with(r#"tabindex="-9223372036854775808""#),
+            Some(TabIndex::NoKeyboardFocus),
+            "i64::MIN is still just 'negative'"
+        );
+
+        // NodeFlags packs the override value into bits [27:0].
+        const MAX_EXACT: u32 = (1 << 28) - 1;
+        assert_eq!(
+            tab_index_with(&format!(r#"tabindex="{MAX_EXACT}""#)),
+            Some(TabIndex::OverrideInParent(MAX_EXACT))
+        );
+        // Past that it truncates rather than saturating or panicking. Two
+        // lossy steps stack up here: `isize as u32` in the XML parser, then
+        // the 28-bit mask in `NodeFlags::set_tab_index`. Pinned as-is because
+        // the safety property is "bounded and deterministic", not "exact".
+        assert_eq!(
+            tab_index_with(r#"tabindex="268435456""#),
+            Some(TabIndex::OverrideInParent(0)),
+            "1 << 28 truncates to 0"
+        );
+        assert_eq!(
+            tab_index_with(r#"tabindex="9223372036854775807""#),
+            Some(TabIndex::OverrideInParent(MAX_EXACT)),
+            "i64::MAX -> u32::MAX -> 28-bit mask"
+        );
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_ignores_unparseable_tabindex() {
+        let baseline = tab_index_with("");
+        for junk in [
+            r#"tabindex="""#,
+            r#"tabindex="NaN""#,
+            r#"tabindex="inf""#,
+            r#"tabindex="-inf""#,
+            r#"tabindex="1.0""#,
+            r#"tabindex="1e5""#,
+            r#"tabindex=" 3 ""#,
+            r#"tabindex="0x10""#,
+            r#"tabindex="99999999999999999999999999""#,
+            r#"tabindex="-99999999999999999999999999""#,
+            r#"tabindex="🙂""#,
+        ] {
+            assert_eq!(
+                tab_index_with(junk),
+                baseline,
+                "{junk} must leave the tab index untouched"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_parses_bool_attributes_case_sensitively() {
+        assert_eq!(
+            tab_index_with(r#"focusable="true""#),
+            Some(TabIndex::Auto)
+        );
+        assert_eq!(
+            tab_index_with(r#"focusable="false""#),
+            Some(TabIndex::NoKeyboardFocus)
+        );
+        for junk in [r#"focusable="TRUE""#, r#"focusable="1""#, r#"focusable="yes""#] {
+            assert_eq!(
+                tab_index_with(junk),
+                tab_index_with(""),
+                "{junk} is not a bool literal and must be ignored"
+            );
+        }
+
+        let editable = |v: &str| {
+            let dom = parse_xml_to_fast_dom(&doc(&format!(r#"<div contenteditable="{v}"></div>"#)))
+                .expect("valid");
+            nodes(&dom)[2].is_contenteditable()
+        };
+        assert!(editable("true"));
+        assert!(!editable("false"));
+        assert!(!editable("TRUE"));
+        assert!(!editable(""));
+        assert!(!editable("1"));
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_survives_malformed_style_attributes() {
+        let big = "a:b;".repeat(2_000);
+        for style in [
+            "",
+            ";;;;",
+            "::::",
+            ":",
+            "width",
+            "width:",
+            ":10px",
+            "a:b:c",
+            ";:;:;:",
+            "width:10px",
+            "width:10px;;;height:;;",
+            "width:not-a-length",
+            "🙂:🙂",
+            big.as_str(),
+        ] {
+            let dom = parse_xml_to_fast_dom(&doc(&format!(r#"<div style="{style}"></div>"#)))
+                .unwrap_or_else(|e| panic!("style={style:?} should parse, got {e}"));
+            assert_eq!(
+                nodes(&dom).len(),
+                3,
+                "style={style:?} must not change the node count"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_survives_unbalanced_tags() {
+        // The interesting case: elements opened inside <head> are pushed onto
+        // the tag stack but never opened in the builder, so the EOF unwind
+        // calls close_node() more often than open_node() ran. That must be a
+        // no-op, not an underflow.
+        let dom = parse_xml_to_fast_dom("<html><head><title>").expect("lenient parse");
+        assert_eq!(nodes(&dom).len(), 1, "only <html> survives");
+        assert!(matches!(nodes(&dom)[0].get_node_type(), NodeType::Html));
+
+        for src in [
+            "</div>",
+            "</div></div></div>",
+            "<a></a></a>",
+            "<html><body></body></body></html>",
+            "<html><head><head><head>",
+            "<html><body><div></span></div></body></html>",
+        ] {
+            let a = parse_xml_to_fast_dom(src);
+            let b = parse_xml_to_fast_dom(src);
+            assert_eq!(a.is_ok(), b.is_ok(), "{src:?} is non-deterministic");
+            if let (Ok(a), Ok(b)) = (&a, &b) {
+                assert_eq!(nodes(a).len(), nodes(b).len(), "{src:?} node count drifted");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_is_deterministic_on_garbage() {
+        for g in GARBAGE {
+            let a = parse_xml_to_fast_dom(g);
+            let b = parse_xml_to_fast_dom(g);
+            assert_eq!(a.is_ok(), b.is_ok(), "{g:?} parsed non-deterministically");
+            if let (Ok(a), Ok(b)) = (&a, &b) {
+                assert_eq!(nodes(a).len(), nodes(b).len(), "{g:?} node count drifted");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_handles_ten_thousand_nested_elements() {
+        // The arena path is iterative on the way in and flat on the way out,
+        // so it should hold a depth the recursive XmlNode tree cannot.
+        const DEPTH: usize = 10_000;
+        let mut src = String::with_capacity(DEPTH * 12 + 32);
+        src.push_str("<html><body>");
+        for _ in 0..DEPTH {
+            src.push_str("<div>");
+        }
+        for _ in 0..DEPTH {
+            src.push_str("</div>");
+        }
+        src.push_str("</body></html>");
+
+        let dom = parse_xml_to_fast_dom(&src).expect("balanced nesting is valid");
+        assert_eq!(nodes(&dom).len(), DEPTH + 2);
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_handles_a_one_million_char_document() {
+        let payload = "x".repeat(1_000_000);
+        let dom = parse_xml_to_fast_dom(&doc(&payload)).expect("long text is valid");
+        let n = nodes(&dom);
+        assert_eq!(n.len(), 3, "html + body + one text node");
+        assert_eq!(text_of(&n[2]).map(|s| s.len()), Some(1_000_000));
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_strips_bom_declaration_doctype_and_comments() {
+        let expected = nodes(&parse_xml_to_fast_dom(&doc("<div/>")).expect("baseline")).len();
+        for prefix in [
+            "\u{FEFF}",
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+            "<!DOCTYPE html>",
+            "<!doctype HTML>",
+            "<!DoCtYpE html SYSTEM \"about:legacy-compat\">",
+            "<!-- leading comment -->",
+        ] {
+            let src = format!("{prefix}{}", doc("<div/>"));
+            let dom = parse_xml_to_fast_dom(&src)
+                .unwrap_or_else(|e| panic!("{prefix:?} should be stripped, got {e}"));
+            assert_eq!(nodes(&dom).len(), expected, "{prefix:?} changed the arena");
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_preserves_unicode_text() {
+        for payload in [
+            "日本語",
+            "🙂🙂🙂🙂",
+            "e\u{301}\u{302}\u{303}",
+            "\u{200B}\u{FEFF}mid-string BOM",
+            "ﷺ",
+        ] {
+            let dom = parse_xml_to_fast_dom(&doc(payload))
+                .unwrap_or_else(|e| panic!("{payload:?} should parse, got {e}"));
+            let n = nodes(&dom);
+            assert_eq!(n.len(), 3, "{payload:?}");
+            assert_eq!(text_of(&n[2]).as_deref(), Some(payload));
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_fast_dom_treats_numeric_looking_documents_as_text() {
+        // Boundary numeric strings are markup content here, not numbers: they
+        // must survive verbatim rather than being coerced or rejected.
+        for payload in [
+            "0",
+            "-0",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "18446744073709551616",
+            "1e309",
+            "-1e-309",
+            "NaN",
+            "inf",
+            "-inf",
+        ] {
+            let dom = parse_xml_to_fast_dom(&doc(payload))
+                .unwrap_or_else(|e| panic!("{payload:?} should parse, got {e}"));
+            assert_eq!(text_of(&nodes(&dom)[2]).as_deref(), Some(payload));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // parse_xml_to_styled_dom
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn parse_xml_to_styled_dom_accepts_empty_and_whitespace_only_input() {
+        for s in ["", "   ", "\t\n", "\u{FEFF}"] {
+            let styled = parse_xml_to_styled_dom(s)
+                .unwrap_or_else(|e| panic!("{s:?} should cascade cleanly, got {e}"));
+            assert!(styled.node_data.as_ref().is_empty(), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_styled_dom_keeps_the_fast_dom_node_count() {
+        for src in [
+            doc("<div>hi</div>"),
+            doc("<div><span>a</span><span>b</span></div>"),
+            "<html><head><style>div { width: 10px; }</style></head><body><div/></body></html>"
+                .to_string(),
+        ] {
+            let fast = parse_xml_to_fast_dom(&src).expect("fast path");
+            let styled = parse_xml_to_styled_dom(&src).expect("styled path");
+            assert_eq!(
+                styled.node_data.as_ref().len(),
+                nodes(&fast).len(),
+                "the cascade must not add or drop nodes for {src:?}"
+            );
+            assert_eq!(
+                styled.node_hierarchy.as_ref().len(),
+                styled.node_data.as_ref().len()
+            );
+        }
+    }
+
+    #[test]
+    fn parse_xml_to_styled_dom_is_deterministic_on_garbage() {
+        for g in GARBAGE {
+            let a = parse_xml_to_styled_dom(g);
+            let b = parse_xml_to_styled_dom(g);
+            assert_eq!(a.is_ok(), b.is_ok(), "{g:?} cascaded non-deterministically");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // dom_from_parsed_xml
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn dom_from_parsed_xml_reports_errors_instead_of_panicking() {
+        // No <html>/<body>: the documented behaviour is an error Dom, not a
+        // panic and not an empty tree.
+        for root in [
+            Vec::new(),
+            vec![XmlNodeChild::Text("bare text".into())],
+            vec![XmlNodeChild::Element(XmlNode::create("div"))],
+            vec![XmlNodeChild::Element(XmlNode::create("html"))],
+        ] {
+            let dom = dom_from_parsed_xml(Xml { root: root.into() });
+            assert!(
+                matches!(dom.root.get_node_type(), NodeType::Body),
+                "the error Dom is rendered as a <body> with a label"
+            );
+            assert_eq!(dom.children.as_ref().len(), 1);
+        }
+    }
+
+    #[test]
+    fn dom_from_parsed_xml_builds_a_dom_for_a_minimal_document() {
+        let body = XmlNode::create("body")
+            .with_children(vec![XmlNodeChild::Element(XmlNode::create("div"))]);
+        let html = XmlNode::create("html").with_children(vec![XmlNodeChild::Element(body)]);
+        let dom = dom_from_parsed_xml(Xml {
+            root: vec![XmlNodeChild::Element(html)].into(),
+        });
+
+        assert!(matches!(dom.root.get_node_type(), NodeType::Html));
+        assert_eq!(dom.children.as_ref().len(), 1, "the <body> subtree");
+    }
+
+    #[test]
+    fn dom_from_parsed_xml_caps_recursion_on_deeply_nested_input() {
+        // MAX_XML_NESTING_DEPTH is 512; past it the builder drops children
+        // instead of blowing the native stack.
+        const DEPTH: usize = 550;
+        let mut node = XmlNode::create("div");
+        for _ in 0..DEPTH {
+            node = XmlNode::create("div").with_children(vec![XmlNodeChild::Element(node)]);
+        }
+        let body = XmlNode::create("body").with_children(vec![XmlNodeChild::Element(node)]);
+        let html = XmlNode::create("html").with_children(vec![XmlNodeChild::Element(body)]);
+
+        let dom = dom_from_parsed_xml(Xml {
+            root: vec![XmlNodeChild::Element(html)].into(),
+        });
+        assert!(matches!(dom.root.get_node_type(), NodeType::Html));
+    }
+
+    // ------------------------------------------------------------------
+    // domxml_from_str / domxml_from_file / DomXmlExt
+    // ------------------------------------------------------------------
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn domxml_from_str_never_fails() {
+        let map = ComponentMap::with_builtin();
+        let mut cases: Vec<String> = GARBAGE.iter().map(|s| (*s).to_string()).collect();
+        cases.push(String::new());
+        cases.push("   ".to_string());
+        cases.push("<svg".to_string());
+        cases.push("<?xml".to_string());
+        cases.push(doc("<div>hi</div>"));
+
+        for src in cases {
+            let dom_xml = domxml_from_str(&src, &map);
+            assert!(
+                !dom_xml.parsed_dom.node_data.as_ref().is_empty(),
+                "{src:?} produced an empty StyledDom; errors must render as a label"
+            );
+        }
+    }
+
+    #[cfg(all(feature = "std", feature = "xml"))]
+    #[test]
+    fn domxml_from_file_renders_io_errors_as_a_dom() {
+        let map = ComponentMap::with_builtin();
+        for path in [
+            "/nonexistent-azul-autotest-dir/definitely-not-here.xml",
+            "",
+            "/",
+            "/proc/self/nonexistent-🙂",
+        ] {
+            let dom_xml = domxml_from_file(path, &map);
+            assert!(
+                !dom_xml.parsed_dom.node_data.as_ref().is_empty(),
+                "{path:?} must render the io::Error as a label, not fail"
+            );
+        }
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn dom_xml_ext_matches_domxml_from_str() {
+        let map = ComponentMap::with_builtin();
+        let valid = doc("<div>hi</div>");
+        for src in ["", "<svg", valid.as_str()] {
+            let via_ext = <Dom as DomXmlExt>::from_xml_string(src);
+            let via_fn = domxml_from_str(src, &map).parsed_dom;
+            assert_eq!(
+                via_ext.node_data.as_ref().len(),
+                via_fn.node_data.as_ref().len(),
+                "the extension trait must be a pure delegation for {src:?}"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // peak_rss_bytes
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn peak_rss_bytes_never_panics_and_never_goes_backwards() {
+        let a = peak_rss_bytes();
+        let _ballast = "x".repeat(4 * 1024 * 1024);
+        let b = peak_rss_bytes();
+
+        #[cfg(all(unix, feature = "probe"))]
+        assert!(
+            b >= a,
+            "ru_maxrss is a high-water mark and must never decrease ({a} -> {b})"
+        );
+        #[cfg(not(all(unix, feature = "probe")))]
+        assert_eq!(
+            (a, b),
+            (0, 0),
+            "without the probe feature the stub must be a constant 0"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // translate_* (xmlparser / roxmltree -> FFI-stable azul types)
+    // ------------------------------------------------------------------
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn translate_textpos_round_trips_boundary_values() {
+        for (row, col) in [
+            (0, 0),
+            (1, 1),
+            (0, u32::MAX),
+            (u32::MAX, 0),
+            (u32::MAX, u32::MAX),
+        ] {
+            let expected = XmlTextPos { row, col };
+            assert_eq!(
+                translate_xmlparser_textpos(xmlparser::TextPos::new(row, col)),
+                expected
+            );
+            assert_eq!(
+                translate_roxml_textpos(roxmltree::TextPos::new(row, col)),
+                expected
+            );
+        }
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn translate_roxmltree_expandedname_preserves_name_and_namespace() {
+        let plain: roxmltree::ExpandedName<'_, '_> = "rect".into();
+        let out = translate_roxmltree_expandedname(plain);
+        assert_eq!(out.local_name.as_str(), "rect");
+        assert!(out.namespace.as_ref().is_none());
+
+        let ns: roxmltree::ExpandedName<'_, '_> = ("http://www.w3.org/2000/svg", "rect").into();
+        let out = translate_roxmltree_expandedname(ns);
+        assert_eq!(out.local_name.as_str(), "rect");
+        assert_eq!(
+            out.namespace.as_ref().map(AzString::as_str),
+            Some("http://www.w3.org/2000/svg")
+        );
+
+        // Degenerate names must survive untouched, not be normalised away.
+        for name in ["", " ", "日本語-🙂", "a:b"] {
+            let e: roxmltree::ExpandedName<'_, '_> = name.into();
+            assert_eq!(translate_roxmltree_expandedname(e).local_name.as_str(), name);
+        }
+        let empty_ns: roxmltree::ExpandedName<'_, '_> = ("", "x").into();
+        assert_eq!(
+            translate_roxmltree_expandedname(empty_ns)
+                .namespace
+                .as_ref()
+                .map(AzString::as_str),
+            Some(""),
+            "an empty namespace URI is Some(\"\"), not None"
+        );
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn translate_roxmltree_attribute_preserves_name_and_namespace() {
+        let rdoc = roxmltree::Document::parse(r#"<e xmlns:x="urn:x" x:a="1" b="2"/>"#)
+            .expect("valid XML");
+        let attrs: Vec<XmlQualifiedName> = rdoc
+            .root_element()
+            .attributes()
+            .map(translate_roxmltree_attribute)
+            .collect();
+
+        assert_eq!(attrs.len(), 2, "xmlns declarations are not attributes");
+        let a = attrs
+            .iter()
+            .find(|q| q.local_name.as_str() == "a")
+            .expect("x:a");
+        assert_eq!(a.namespace.as_ref().map(AzString::as_str), Some("urn:x"));
+        let b = attrs
+            .iter()
+            .find(|q| q.local_name.as_str() == "b")
+            .expect("b");
+        assert!(
+            b.namespace.as_ref().is_none(),
+            "an unprefixed attribute has no namespace"
+        );
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn translate_xmlparser_streamerror_maps_every_variant() {
+        use xmlparser::StreamError as Se;
+
+        let p = xmlparser::TextPos::new(3, 7);
+        let x = XmlTextPos { row: 3, col: 7 };
+
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::UnexpectedEndOfStream),
+            XmlStreamError::UnexpectedEndOfStream
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidName),
+            XmlStreamError::InvalidName
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidReference),
+            XmlStreamError::InvalidReference
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidExternalID),
+            XmlStreamError::InvalidExternalID
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidCommentData),
+            XmlStreamError::InvalidCommentData
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidCommentEnd),
+            XmlStreamError::InvalidCommentEnd
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidCharacterData),
+            XmlStreamError::InvalidCharacterData
+        );
+        // Astral char -> u32 (the FFI-stable representation) without loss.
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::NonXmlChar('\u{1F600}', p)),
+            XmlStreamError::NonXmlChar(NonXmlCharError {
+                ch: 0x1F600,
+                pos: x
+            })
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidQuote(b'`', p)),
+            XmlStreamError::InvalidQuote(InvalidQuoteError { got: b'`', pos: x })
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidSpace(b'\t', p)),
+            XmlStreamError::InvalidSpace(InvalidSpaceError { got: b'\t', pos: x })
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidString("?>", p)),
+            XmlStreamError::InvalidString(InvalidStringError {
+                got: "?>".into(),
+                pos: x
+            })
+        );
+        // NOTE: xmlparser documents InvalidChar/InvalidCharMultiple as
+        // (actual, expected, pos), but the translation stores the first field
+        // as `expected` and the second as `got` — i.e. the two are swapped.
+        // Characterised here rather than "fixed" in the test: it only affects
+        // error-message wording, and pinning it makes the swap visible if the
+        // mapping is ever corrected.
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidChar(b'a', b'b', p)),
+            XmlStreamError::InvalidChar(InvalidCharError {
+                expected: b'a',
+                got: b'b',
+                pos: x
+            })
+        );
+        assert_eq!(
+            translate_xmlparser_streamerror(Se::InvalidCharMultiple(b'a', &b"xy"[..], p)),
+            XmlStreamError::InvalidCharMultiple(InvalidCharMultipleError {
+                expected: b'a',
+                got: vec![b'x', b'y'].into(),
+                pos: x
+            })
+        );
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn translate_xmlparser_error_maps_every_variant() {
+        use xmlparser::{Error as Xe, StreamError as Se};
+
+        let p = xmlparser::TextPos::new(9, 4);
+        let x = XmlTextPos { row: 9, col: 4 };
+        let te = XmlTextError {
+            stream_error: XmlStreamError::InvalidName,
+            pos: x,
+        };
+
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidDeclaration(Se::InvalidName, p)),
+            XmlParseError::InvalidDeclaration(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidComment(Se::InvalidName, p)),
+            XmlParseError::InvalidComment(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidPI(Se::InvalidName, p)),
+            XmlParseError::InvalidPI(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidDoctype(Se::InvalidName, p)),
+            XmlParseError::InvalidDoctype(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidEntity(Se::InvalidName, p)),
+            XmlParseError::InvalidEntity(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidElement(Se::InvalidName, p)),
+            XmlParseError::InvalidElement(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidAttribute(Se::InvalidName, p)),
+            XmlParseError::InvalidAttribute(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidCdata(Se::InvalidName, p)),
+            XmlParseError::InvalidCdata(te.clone())
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::InvalidCharData(Se::InvalidName, p)),
+            XmlParseError::InvalidCharData(te)
+        );
+        assert_eq!(
+            translate_xmlparser_error(Xe::UnknownToken(p)),
+            XmlParseError::UnknownToken(x)
+        );
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn translate_roxmltree_error_maps_every_variant() {
+        use roxmltree::Error as Re;
+
+        let p = roxmltree::TextPos::new(2, 5);
+        let x = XmlTextPos { row: 2, col: 5 };
+
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidXmlPrefixUri(p)),
+            XmlError::InvalidXmlPrefixUri(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnexpectedXmlUri(p)),
+            XmlError::UnexpectedXmlUri(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnexpectedXmlnsUri(p)),
+            XmlError::UnexpectedXmlnsUri(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidElementNamePrefix(p)),
+            XmlError::InvalidElementNamePrefix(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::DuplicatedNamespace(String::from("ns"), p)),
+            XmlError::DuplicatedNamespace(DuplicatedNamespaceError {
+                ns: "ns".into(),
+                pos: x
+            })
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnknownNamespace(String::from("ns"), p)),
+            XmlError::UnknownNamespace(UnknownNamespaceError {
+                ns: "ns".into(),
+                pos: x
+            })
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnexpectedCloseTag(
+                String::from("a"),
+                String::from("b"),
+                p
+            )),
+            XmlError::UnexpectedCloseTag(UnexpectedCloseTagError {
+                expected: "a".into(),
+                actual: "b".into(),
+                pos: x
+            })
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnexpectedEntityCloseTag(p)),
+            XmlError::UnexpectedEntityCloseTag(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnknownEntityReference(String::from("e"), p)),
+            XmlError::UnknownEntityReference(UnknownEntityReferenceError {
+                entity: "e".into(),
+                pos: x
+            })
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::MalformedEntityReference(p)),
+            XmlError::MalformedEntityReference(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::EntityReferenceLoop(p)),
+            XmlError::EntityReferenceLoop(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidAttributeValue(p)),
+            XmlError::InvalidAttributeValue(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::DuplicatedAttribute(String::from("a"), p)),
+            XmlError::DuplicatedAttribute(DuplicatedAttributeError {
+                attribute: "a".into(),
+                pos: x
+            })
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::NoRootNode),
+            XmlError::NoRootNode
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::DtdDetected),
+            XmlError::DtdDetected
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnclosedRootNode),
+            XmlError::UnclosedRootNode
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnexpectedDeclaration(p)),
+            XmlError::UnexpectedDeclaration(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::NodesLimitReached),
+            XmlError::NodesLimitReached
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::AttributesLimitReached),
+            XmlError::AttributesLimitReached
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::NamespacesLimitReached),
+            XmlError::NamespacesLimitReached
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidName(p)),
+            XmlError::InvalidName(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::NonXmlChar('\u{0}', p)),
+            XmlError::NonXmlChar(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidChar(b'a', b'b', p)),
+            XmlError::InvalidChar(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidChar2("ab", b'c', p)),
+            XmlError::InvalidChar2(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidString("s", p)),
+            XmlError::InvalidString(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidExternalID(p)),
+            XmlError::InvalidExternalID(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidComment(p)),
+            XmlError::InvalidComment(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::InvalidCharacterData(p)),
+            XmlError::InvalidCharacterData(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnknownToken(p)),
+            XmlError::UnknownToken(x)
+        );
+        assert_eq!(
+            translate_roxmltree_error(Re::UnexpectedEndOfStream),
+            XmlError::UnexpectedEndOfStream
+        );
+        // roxmltree 0.21's EntityResolver is folded into UnknownEntityReference.
+        assert_eq!(
+            translate_roxmltree_error(Re::EntityResolver(p, String::from("e"))),
+            XmlError::UnknownEntityReference(UnknownEntityReferenceError {
+                entity: "e".into(),
+                pos: x
+            })
+        );
+    }
+}

@@ -2384,3 +2384,1739 @@ impl SvgMultiPolygonTessellation for SvgMultiPolygon {
         tessellate_multi_polygon_stroke(self, stroke_style)
     }
 }
+
+// ============================================================================
+// Adversarial unit tests
+// ============================================================================
+//
+// The whole module is `#[cfg(feature = "svg")]`, so the `#[cfg(not(feature =
+// "svg"))]` stubs above are never compiled and are therefore not exercised here.
+// `cpurender` is a separate flag and is gated per-test.
+
+#[cfg(test)]
+mod autotest_generated {
+    use azul_core::resources::RawImageData;
+
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // helpers
+    // ------------------------------------------------------------------
+
+    fn pt(x: f32, y: f32) -> SvgPoint {
+        SvgPoint { x, y }
+    }
+
+    fn ln(x0: f32, y0: f32, x1: f32, y1: f32) -> SvgLine {
+        SvgLine {
+            start: pt(x0, y0),
+            end: pt(x1, y1),
+        }
+    }
+
+    fn mk_path(items: Vec<SvgPathElement>) -> SvgPath {
+        SvgPath {
+            items: SvgPathElementVec::from_vec(items),
+        }
+    }
+
+    fn empty_path() -> SvgPath {
+        SvgPath {
+            items: SvgPathElementVec::from_const_slice(&[]),
+        }
+    }
+
+    /// A closed, axis-aligned 10x10 square whose lower-left corner is at `d`.
+    fn square_at(d: f32) -> SvgPath {
+        mk_path(vec![
+            SvgPathElement::Line(ln(d, d, d + 10.0, d)),
+            SvgPathElement::Line(ln(d + 10.0, d, d + 10.0, d + 10.0)),
+            SvgPathElement::Line(ln(d + 10.0, d + 10.0, d, d + 10.0)),
+            SvgPathElement::Line(ln(d, d + 10.0, d, d)),
+        ])
+    }
+
+    fn square_path() -> SvgPath {
+        square_at(0.0)
+    }
+
+    fn polygon_of(rings: Vec<SvgPath>) -> SvgMultiPolygon {
+        SvgMultiPolygon {
+            rings: SvgPathVec::from_vec(rings),
+        }
+    }
+
+    fn square_polygon() -> SvgMultiPolygon {
+        polygon_of(vec![square_path()])
+    }
+
+    fn empty_polygon() -> SvgMultiPolygon {
+        SvgMultiPolygon {
+            rings: SvgPathVec::from_const_slice(&[]),
+        }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> SvgRect {
+        SvgRect {
+            width: w,
+            height: h,
+            x,
+            y,
+            ..SvgRect::default()
+        }
+    }
+
+    /// `SvgTransform::default()` is the **zero** matrix (every field is `0.0`),
+    /// which collapses all geometry onto the origin — tests that want a real
+    /// 1:1 mapping must build the identity by hand.
+    const fn identity_transform() -> SvgTransform {
+        SvgTransform {
+            sx: 1.0,
+            kx: 0.0,
+            ky: 0.0,
+            sy: 1.0,
+            tx: 0.0,
+            ty: 0.0,
+        }
+    }
+
+    fn tess(vertices: &[(f32, f32)], indices: &[u32]) -> TessellatedSvgNode {
+        TessellatedSvgNode {
+            vertices: vertices
+                .iter()
+                .map(|&(x, y)| SvgVertex { x, y })
+                .collect::<Vec<_>>()
+                .into(),
+            indices: indices.to_vec().into(),
+        }
+    }
+
+    fn mask_image(w: usize, h: usize) -> RawImage {
+        RawImage {
+            pixels: RawImageData::U8(vec![0u8; w * h].into()),
+            width: w,
+            height: h,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::R8,
+            tag: Vec::new().into(),
+        }
+    }
+
+    fn mask_bytes(img: &RawImage) -> Vec<u8> {
+        match &img.pixels {
+            RawImageData::U8(v) => v.as_ref().to_vec(),
+            _ => panic!("a clip mask must always come back as 8-bit data"),
+        }
+    }
+
+    /// Every index must address a vertex that actually exists.
+    fn assert_indices_in_range(t: &TessellatedSvgNode) {
+        let verts = t.vertices.as_ref().len();
+        for i in t.indices.as_ref() {
+            if *i == GL_RESTART_INDEX {
+                continue;
+            }
+            assert!(
+                (*i as usize) < verts,
+                "index {i} points past a {verts}-vertex buffer"
+            );
+        }
+    }
+
+    const MINIMAL_SVG: &[u8] =
+        br#"<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="red"/></svg>"#;
+
+    // ==================================================================
+    // translate_svg_line_join / translate_svg_line_cap
+    // ==================================================================
+
+    #[test]
+    fn translate_svg_line_join_maps_every_variant() {
+        use lyon::tessellation::LineJoin as L;
+        assert_eq!(translate_svg_line_join(SvgLineJoin::Miter), L::Miter);
+        assert_eq!(translate_svg_line_join(SvgLineJoin::MiterClip), L::MiterClip);
+        assert_eq!(translate_svg_line_join(SvgLineJoin::Round), L::Round);
+        assert_eq!(translate_svg_line_join(SvgLineJoin::Bevel), L::Bevel);
+        assert_eq!(translate_svg_line_join(SvgLineJoin::default()), L::Miter);
+    }
+
+    #[test]
+    fn translate_svg_line_cap_maps_every_variant() {
+        use lyon::tessellation::LineCap as C;
+        assert_eq!(translate_svg_line_cap(SvgLineCap::Butt), C::Butt);
+        assert_eq!(translate_svg_line_cap(SvgLineCap::Square), C::Square);
+        assert_eq!(translate_svg_line_cap(SvgLineCap::Round), C::Round);
+        assert_eq!(translate_svg_line_cap(SvgLineCap::default()), C::Butt);
+    }
+
+    // ==================================================================
+    // translate_svg_stroke_style
+    // ==================================================================
+
+    #[test]
+    fn translate_svg_stroke_style_carries_every_field_across() {
+        let s = SvgStrokeStyle {
+            start_cap: SvgLineCap::Round,
+            end_cap: SvgLineCap::Square,
+            line_join: SvgLineJoin::Bevel,
+            line_width: 3.5,
+            miter_limit: 7.25,
+            tolerance: 0.25,
+            ..SvgStrokeStyle::default()
+        };
+        let o = translate_svg_stroke_style(s);
+        assert_eq!(o.start_cap, lyon::tessellation::LineCap::Round);
+        assert_eq!(o.end_cap, lyon::tessellation::LineCap::Square);
+        assert_eq!(o.line_join, lyon::tessellation::LineJoin::Bevel);
+        assert!((o.line_width - 3.5).abs() < 1e-6, "{o:?}");
+        assert!((o.miter_limit - 7.25).abs() < 1e-6, "{o:?}");
+        assert!((o.tolerance - 0.25).abs() < 1e-6, "{o:?}");
+    }
+
+    #[test]
+    fn translate_svg_stroke_style_accepts_the_azul_default() {
+        let o = translate_svg_stroke_style(SvgStrokeStyle::default());
+        assert!(o.miter_limit >= 1.0, "the default must clear lyon's assert");
+    }
+
+    // FINDING (pinned): lyon's `StrokeOptions::with_miter_limit` is a *hard*
+    // `assert!(limit >= 1.0)` (not a debug assert), so an `SvgStrokeStyle` whose
+    // miter_limit is below 1.0 aborts every stroke entry point instead of being
+    // clamped. `SvgStrokeStyle` accepts such a value without complaint.
+    #[test]
+    #[should_panic(expected = "limit")]
+    fn translate_svg_stroke_style_miter_limit_below_one_panics() {
+        let s = SvgStrokeStyle {
+            miter_limit: 0.0,
+            ..SvgStrokeStyle::default()
+        };
+        let _ = translate_svg_stroke_style(s);
+    }
+
+    #[test]
+    #[should_panic(expected = "limit")]
+    fn translate_svg_stroke_style_nan_miter_limit_panics() {
+        let s = SvgStrokeStyle {
+            miter_limit: f32::NAN,
+            ..SvgStrokeStyle::default()
+        };
+        let _ = translate_svg_stroke_style(s);
+    }
+
+    // ==================================================================
+    // raw_line_intersection / raw_line_intersection_byval
+    // ==================================================================
+
+    #[test]
+    fn raw_line_intersection_crossing_diagonals_meet_in_the_middle() {
+        let i = raw_line_intersection(&ln(0.0, 0.0, 10.0, 10.0), &ln(0.0, 10.0, 10.0, 0.0))
+            .expect("crossing diagonals intersect");
+        assert!((i.x - 5.0).abs() < 1e-4, "{i:?}");
+        assert!((i.y - 5.0).abs() < 1e-4, "{i:?}");
+    }
+
+    #[test]
+    fn raw_line_intersection_parallel_lines_are_none() {
+        assert_eq!(
+            raw_line_intersection(&ln(0.0, 0.0, 10.0, 0.0), &ln(0.0, 5.0, 10.0, 5.0)),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_line_intersection_identical_lines_are_none() {
+        // Collinear overlap has infinitely many solutions -> 0/0 -> NaN -> None.
+        let l = ln(0.0, 0.0, 10.0, 0.0);
+        assert_eq!(raw_line_intersection(&l, &l), None);
+    }
+
+    #[test]
+    fn raw_line_intersection_zero_length_lines_are_none() {
+        assert_eq!(
+            raw_line_intersection(&ln(1.0, 1.0, 1.0, 1.0), &ln(0.0, 0.0, 2.0, 2.0)),
+            None
+        );
+        assert_eq!(
+            raw_line_intersection(&ln(0.0, 0.0, 0.0, 0.0), &ln(0.0, 0.0, 0.0, 0.0)),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_line_intersection_never_leaks_nan_for_extreme_inputs() {
+        let extremes = [
+            ln(f32::NAN, 0.0, 1.0, 1.0),
+            ln(0.0, f32::NAN, 1.0, 1.0),
+            ln(f32::INFINITY, f32::INFINITY, 1.0, 1.0),
+            ln(f32::NEG_INFINITY, 0.0, f32::INFINITY, 0.0),
+            ln(f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+            ln(f32::MIN_POSITIVE, 0.0, -f32::MIN_POSITIVE, 0.0),
+            ln(0.0, 0.0, 0.0, 0.0),
+            ln(-1.0, -1.0, 1.0, 1.0),
+        ];
+        for p in &extremes {
+            for q in &extremes {
+                if let Some(i) = raw_line_intersection(p, q) {
+                    assert!(
+                        !i.x.is_nan() && !i.y.is_nan(),
+                        "NaN escaped for {p:?} x {q:?} -> {i:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn raw_line_intersection_byval_matches_the_by_ref_form() {
+        let p = ln(0.0, 0.0, 10.0, 10.0);
+        let q = ln(0.0, 10.0, 10.0, 0.0);
+        assert_eq!(
+            raw_line_intersection_byval(&p, q),
+            raw_line_intersection(&p, &q)
+        );
+        let horizontal = ln(0.0, 0.0, 10.0, 0.0);
+        let parallel = ln(0.0, 5.0, 10.0, 5.0);
+        assert_eq!(raw_line_intersection_byval(&horizontal, parallel), None);
+    }
+
+    // ==================================================================
+    // shorten_line_end_by / shorten_line_start_by
+    // ==================================================================
+
+    #[test]
+    fn shorten_line_end_by_trims_the_end_only() {
+        let out = shorten_line_end_by(ln(0.0, 0.0, 10.0, 0.0), 4.0);
+        assert_eq!(out.start, pt(0.0, 0.0));
+        assert!((out.end.x - 6.0).abs() < 1e-3, "{out:?}");
+        assert!(out.end.y.abs() < 1e-3, "{out:?}");
+    }
+
+    #[test]
+    fn shorten_line_end_by_zero_is_the_identity() {
+        let l = ln(1.0, 2.0, 11.0, 2.0);
+        let out = shorten_line_end_by(l, 0.0);
+        assert!((out.end.x - 11.0).abs() < 1e-3, "{out:?}");
+        assert!((out.end.y - 2.0).abs() < 1e-3, "{out:?}");
+    }
+
+    #[test]
+    fn shorten_line_end_by_more_than_the_length_overshoots_past_the_start() {
+        // 20 taken off a 10-long line puts the end 10 units *behind* the start.
+        let out = shorten_line_end_by(ln(0.0, 0.0, 10.0, 0.0), 20.0);
+        assert!((out.end.x + 10.0).abs() < 1e-3, "{out:?}");
+    }
+
+    #[test]
+    fn shorten_line_end_by_negative_distance_extends_the_line() {
+        let out = shorten_line_end_by(ln(0.0, 0.0, 10.0, 0.0), -5.0);
+        assert!((out.end.x - 15.0).abs() < 1e-3, "{out:?}");
+    }
+
+    #[test]
+    fn shorten_line_end_by_degenerate_segment_yields_nan() {
+        // LATENT DEFECT (pinned): a zero-length segment gives dt == 0, so
+        // (dt - distance) / dt is -inf and -inf * 0.0 == NaN. A fix that returns
+        // the line unchanged will flip this test loudly rather than silently.
+        let out = shorten_line_end_by(ln(5.0, 5.0, 5.0, 5.0), 1.0);
+        assert!(out.end.x.is_nan() && out.end.y.is_nan(), "{out:?}");
+        assert_eq!(out.start, pt(5.0, 5.0), "the start is never touched");
+    }
+
+    #[test]
+    fn shorten_line_end_by_non_finite_distance_does_not_panic() {
+        for d in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN,
+        ] {
+            let out = shorten_line_end_by(ln(0.0, 0.0, 10.0, 0.0), d);
+            assert_eq!(out.start, pt(0.0, 0.0), "distance {d}: start must survive");
+        }
+    }
+
+    #[test]
+    fn shorten_line_start_by_trims_the_start_only() {
+        let out = shorten_line_start_by(ln(0.0, 0.0, 10.0, 0.0), 4.0);
+        assert_eq!(out.end, pt(10.0, 0.0));
+        assert!((out.start.x - 4.0).abs() < 1e-3, "{out:?}");
+        assert!(out.start.y.abs() < 1e-3, "{out:?}");
+    }
+
+    #[test]
+    fn shorten_line_start_by_zero_is_the_identity() {
+        let out = shorten_line_start_by(ln(2.0, 3.0, 12.0, 3.0), 0.0);
+        assert!((out.start.x - 2.0).abs() < 1e-3, "{out:?}");
+        assert!((out.start.y - 3.0).abs() < 1e-3, "{out:?}");
+    }
+
+    #[test]
+    fn shorten_line_start_by_degenerate_segment_yields_nan() {
+        // Same latent defect as `shorten_line_end_by`, mirrored onto the start.
+        let out = shorten_line_start_by(ln(-3.0, 7.0, -3.0, 7.0), 2.0);
+        assert!(out.start.x.is_nan() && out.start.y.is_nan(), "{out:?}");
+        assert_eq!(out.end, pt(-3.0, 7.0));
+    }
+
+    // ==================================================================
+    // svg_path_offset
+    // ==================================================================
+
+    #[test]
+    fn svg_path_offset_zero_distance_returns_the_input_unchanged() {
+        let p = square_path();
+        assert_eq!(
+            svg_path_offset(&p, 0.0, SvgLineJoin::Miter, SvgLineCap::Butt),
+            p
+        );
+        // -0.0 == 0.0 under IEEE-754, so the early-out must fire for it too.
+        assert_eq!(
+            svg_path_offset(&p, -0.0, SvgLineJoin::Miter, SvgLineCap::Butt),
+            p
+        );
+    }
+
+    #[test]
+    fn svg_path_offset_empty_path_stays_empty() {
+        // The `items.pop()` at the end must not underflow on an empty vec.
+        let out = svg_path_offset(&empty_path(), 5.0, SvgLineJoin::Round, SvgLineCap::Round);
+        assert!(out.items.as_ref().is_empty());
+    }
+
+    #[test]
+    fn svg_path_offset_single_line_moves_along_its_outwards_normal() {
+        // (0,0)->(10,0) has inwards normal (0, 1), so outwards is (0, -1).
+        let p = mk_path(vec![SvgPathElement::Line(ln(0.0, 0.0, 10.0, 0.0))]);
+        let out = svg_path_offset(&p, 5.0, SvgLineJoin::Miter, SvgLineCap::Butt);
+        assert_eq!(out.items.as_ref().len(), 1);
+        match out.items.as_ref()[0] {
+            SvgPathElement::Line(l) => {
+                assert!(l.start.x.abs() < 1e-4, "{l:?}");
+                assert!((l.end.x - 10.0).abs() < 1e-4, "{l:?}");
+                assert!((l.start.y + 5.0).abs() < 1e-4, "{l:?}");
+                assert!((l.end.y + 5.0).abs() < 1e-4, "{l:?}");
+            }
+            other => panic!("expected a line, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn svg_path_offset_preserves_the_item_count_for_any_distance() {
+        let p = square_path();
+        for d in [
+            1.0_f32,
+            -1.0,
+            1e-30,
+            1e30,
+            f32::MAX,
+            f32::MIN,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ] {
+            let out = svg_path_offset(&p, d, SvgLineJoin::Miter, SvgLineCap::Butt);
+            assert_eq!(
+                out.items.as_ref().len(),
+                p.items.as_ref().len(),
+                "distance {d} changed the element count"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_path_offset_degenerate_segments_are_passed_through_unchanged() {
+        // A zero-length line has no normal, so the element must come back as-is.
+        let p = mk_path(vec![SvgPathElement::Line(ln(4.0, 4.0, 4.0, 4.0))]);
+        assert_eq!(
+            svg_path_offset(&p, 9.0, SvgLineJoin::Bevel, SvgLineCap::Square),
+            p
+        );
+    }
+
+    #[test]
+    fn svg_path_offset_ignores_its_join_and_cap_arguments() {
+        // Documented gap (pinned): neither parameter is ever read; the function
+        // only offsets the segments and re-intersects the neighbours.
+        let p = square_path();
+        let a = svg_path_offset(&p, 3.0, SvgLineJoin::Miter, SvgLineCap::Butt);
+        let b = svg_path_offset(&p, 3.0, SvgLineJoin::Round, SvgLineCap::Round);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn svg_path_offset_handles_curve_elements() {
+        let p = mk_path(vec![
+            SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
+                start: pt(0.0, 0.0),
+                ctrl: pt(5.0, 10.0),
+                end: pt(10.0, 0.0),
+            }),
+            SvgPathElement::CubicCurve(SvgCubicCurve {
+                start: pt(10.0, 0.0),
+                ctrl_1: pt(7.0, -5.0),
+                ctrl_2: pt(3.0, -5.0),
+                end: pt(0.0, 0.0),
+            }),
+        ]);
+        let out = svg_path_offset(&p, 2.0, SvgLineJoin::Miter, SvgLineCap::Butt);
+        assert_eq!(out.items.as_ref().len(), 2);
+    }
+
+    // ==================================================================
+    // svg_path_bevel
+    // ==================================================================
+
+    #[test]
+    fn svg_path_bevel_empty_path_stays_empty() {
+        // Two unconditional `pop()`s on an empty vec must not underflow.
+        assert!(svg_path_bevel(&empty_path(), 2.0).items.as_ref().is_empty());
+    }
+
+    #[test]
+    fn svg_path_bevel_single_line_expands_to_four_elements() {
+        // The single element is duplicated at both ends (3 items -> 2 pairs ->
+        // 6 pushes), then one element is trimmed off each side.
+        let p = mk_path(vec![SvgPathElement::Line(ln(0.0, 0.0, 10.0, 0.0))]);
+        let out = svg_path_bevel(&p, 2.0);
+        assert_eq!(out.items.as_ref().len(), 4);
+        for e in out.items.as_ref() {
+            let (s, t) = (e.get_start(), e.get_end());
+            assert!(
+                s.x.is_finite() && s.y.is_finite() && t.x.is_finite() && t.y.is_finite(),
+                "{e:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_path_bevel_non_line_pairs_are_passed_straight_through() {
+        let p = mk_path(vec![
+            SvgPathElement::Line(ln(0.0, 0.0, 10.0, 0.0)),
+            SvgPathElement::CubicCurve(SvgCubicCurve {
+                start: pt(10.0, 0.0),
+                ctrl_1: pt(12.0, 0.0),
+                ctrl_2: pt(14.0, 2.0),
+                end: pt(14.0, 4.0),
+            }),
+        ]);
+        // No (Line, Line) pair survives the duplication, so every pair takes the
+        // 2-push fall-through arm: 3 pairs -> 6 pushes -> 4 after trimming.
+        assert_eq!(svg_path_bevel(&p, 1.0).items.as_ref().len(), 4);
+    }
+
+    #[test]
+    fn svg_path_bevel_zero_distance_keeps_every_coordinate_finite() {
+        for e in svg_path_bevel(&square_path(), 0.0).items.as_ref() {
+            let (s, t) = (e.get_start(), e.get_end());
+            assert!(
+                s.x.is_finite() && s.y.is_finite() && t.x.is_finite() && t.y.is_finite(),
+                "{e:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_path_bevel_extreme_distances_do_not_panic() {
+        let p = square_path();
+        for d in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            -f32::MAX,
+            1e-30,
+        ] {
+            assert!(
+                !svg_path_bevel(&p, d).items.as_ref().is_empty(),
+                "distance {d} produced an empty path"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_path_bevel_degenerate_segments_do_not_panic() {
+        let p = mk_path(vec![
+            SvgPathElement::Line(ln(1.0, 1.0, 1.0, 1.0)),
+            SvgPathElement::Line(ln(1.0, 1.0, 1.0, 1.0)),
+        ]);
+        // NaN coordinates leak out of `shorten_line_*_by` here, but nothing panics.
+        assert!(!svg_path_bevel(&p, 3.0).items.as_ref().is_empty());
+    }
+
+    // ==================================================================
+    // svg_node_contains_point / path_contains_point / polygon_contains_point
+    // ==================================================================
+
+    #[test]
+    fn svg_node_contains_point_rect_excludes_its_own_border() {
+        let node = SvgNode::Rect(rect(0.0, 0.0, 10.0, 10.0));
+        assert!(svg_node_contains_point(
+            &node,
+            pt(5.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!svg_node_contains_point(
+            &node,
+            pt(15.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        // `>` / `<`, not `>=` / `<=`: the border itself is outside.
+        assert!(!svg_node_contains_point(
+            &node,
+            pt(0.0, 0.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!svg_node_contains_point(
+            &node,
+            pt(10.0, 10.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn svg_node_contains_point_circle_excludes_its_own_rim() {
+        let node = SvgNode::Circle(SvgCircle {
+            center_x: 0.0,
+            center_y: 0.0,
+            radius: 5.0,
+        });
+        assert!(svg_node_contains_point(
+            &node,
+            pt(0.0, 0.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!svg_node_contains_point(
+            &node,
+            pt(5.0, 0.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!svg_node_contains_point(
+            &node,
+            pt(100.0, 100.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn svg_node_contains_point_nan_and_infinite_points_are_outside() {
+        let r = SvgNode::Rect(rect(0.0, 0.0, 10.0, 10.0));
+        let c = SvgNode::Circle(SvgCircle {
+            center_x: 0.0,
+            center_y: 0.0,
+            radius: 5.0,
+        });
+        for p in [
+            pt(f32::NAN, f32::NAN),
+            pt(f32::NAN, 5.0),
+            pt(5.0, f32::NAN),
+            pt(f32::INFINITY, f32::INFINITY),
+            pt(f32::NEG_INFINITY, 0.0),
+        ] {
+            assert!(
+                !svg_node_contains_point(&r, p, SvgFillRule::Winding, 0.1),
+                "rect / {p:?}"
+            );
+            assert!(
+                !svg_node_contains_point(&c, p, SvgFillRule::EvenOdd, 0.1),
+                "circle / {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_node_contains_point_empty_geometry_is_never_hit() {
+        for node in [
+            SvgNode::MultiPolygonCollection(SvgMultiPolygonVec::from_const_slice(&[])),
+            SvgNode::MultiShape(SvgSimpleNodeVec::from_const_slice(&[])),
+            SvgNode::MultiPolygon(empty_polygon()),
+            SvgNode::Path(empty_path()),
+        ] {
+            assert!(
+                !svg_node_contains_point(&node, pt(0.0, 0.0), SvgFillRule::Winding, 0.1),
+                "{node:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_node_contains_point_open_paths_short_circuit_to_false() {
+        let open = mk_path(vec![
+            SvgPathElement::Line(ln(0.0, 0.0, 10.0, 0.0)),
+            SvgPathElement::Line(ln(10.0, 0.0, 10.0, 10.0)),
+        ]);
+        assert!(!svg_node_contains_point(
+            &SvgNode::Path(open.clone()),
+            pt(5.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!svg_node_contains_point(
+            &SvgNode::MultiShape(SvgSimpleNodeVec::from_vec(vec![SvgSimpleNode::Path(open)])),
+            pt(5.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn svg_node_contains_point_closed_square_path_is_hit() {
+        let node = SvgNode::Path(square_path());
+        assert!(svg_node_contains_point(
+            &node,
+            pt(5.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!svg_node_contains_point(
+            &node,
+            pt(50.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn svg_node_contains_point_lone_hole_reports_everything_outside_it() {
+        // Pinned semantics: a MultiShape made only of holes inverts, so every
+        // point *outside* the hole counts as a hit.
+        let hole = SvgCircle {
+            center_x: 0.0,
+            center_y: 0.0,
+            radius: 5.0,
+        };
+        let node = SvgNode::MultiShape(SvgSimpleNodeVec::from_vec(vec![
+            SvgSimpleNode::CircleHole(hole),
+        ]));
+        assert!(!svg_node_contains_point(
+            &node,
+            pt(0.0, 0.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(svg_node_contains_point(
+            &node,
+            pt(100.0, 100.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn path_contains_point_square_positive_and_negative_controls() {
+        let sq = square_path();
+        assert!(path_contains_point(
+            &sq,
+            pt(5.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(path_contains_point(
+            &sq,
+            pt(5.0, 5.0),
+            SvgFillRule::EvenOdd,
+            0.1
+        ));
+        assert!(!path_contains_point(
+            &sq,
+            pt(-1.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!path_contains_point(
+            &sq,
+            pt(5.0, 100.0),
+            SvgFillRule::EvenOdd,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn path_contains_point_empty_path_is_never_hit() {
+        assert!(!path_contains_point(
+            &empty_path(),
+            pt(0.0, 0.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn path_contains_point_tolerance_is_irrelevant_for_straight_edges() {
+        // A line-only path is never flattened, so even 0 / negative / huge
+        // tolerances must give the same answer instead of hanging.
+        let sq = square_path();
+        for t in [0.0_f32, 1e-6, 1.0, 1e6, -1.0] {
+            assert!(
+                path_contains_point(&sq, pt(5.0, 5.0), SvgFillRule::Winding, t),
+                "tolerance {t}"
+            );
+            assert!(
+                !path_contains_point(&sq, pt(-50.0, 5.0), SvgFillRule::Winding, t),
+                "tolerance {t}"
+            );
+        }
+    }
+
+    #[test]
+    fn polygon_contains_point_square_ring() {
+        let poly = square_polygon();
+        assert!(polygon_contains_point(
+            &poly,
+            pt(5.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        assert!(!polygon_contains_point(
+            &poly,
+            pt(-5.0, 5.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    #[test]
+    fn polygon_contains_point_without_rings_is_false() {
+        assert!(!polygon_contains_point(
+            &empty_polygon(),
+            pt(0.0, 0.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+        // A ring that carries no elements must not be treated as a hit either.
+        assert!(!polygon_contains_point(
+            &polygon_of(vec![empty_path()]),
+            pt(0.0, 0.0),
+            SvgFillRule::Winding,
+            0.1
+        ));
+    }
+
+    // ==================================================================
+    // lyon path conversion helpers
+    // ==================================================================
+
+    #[test]
+    fn svg_multipolygon_to_lyon_path_of_an_empty_polygon_is_empty() {
+        assert_eq!(svg_multipolygon_to_lyon_path(&empty_polygon()).iter().count(), 0);
+    }
+
+    #[test]
+    fn svg_multipolygon_to_lyon_path_skips_rings_without_items() {
+        let only_empty = polygon_of(vec![empty_path(), empty_path()]);
+        assert_eq!(svg_multipolygon_to_lyon_path(&only_empty).iter().count(), 0);
+        // …and an empty ring must not change the result of a real one.
+        let mixed = polygon_of(vec![empty_path(), square_path()]);
+        assert_eq!(
+            svg_multipolygon_to_lyon_path(&mixed).iter().count(),
+            svg_multipolygon_to_lyon_path(&square_polygon()).iter().count()
+        );
+    }
+
+    #[test]
+    fn svg_multi_shape_to_lyon_path_of_an_empty_slice_is_empty() {
+        assert_eq!(svg_multi_shape_to_lyon_path(&[]).iter().count(), 0);
+    }
+
+    #[test]
+    fn svg_path_to_lyon_path_events_of_an_empty_path_is_empty() {
+        assert_eq!(svg_path_to_lyon_path_events(&empty_path()).iter().count(), 0);
+    }
+
+    // ==================================================================
+    // vertex_buffers_to_tessellated_cpu_node
+    // ==================================================================
+
+    #[test]
+    fn vertex_buffers_to_tessellated_cpu_node_moves_both_buffers_verbatim() {
+        let mut vb: VertexBuffers<SvgVertex, u32> = VertexBuffers::new();
+        vb.vertices.push(SvgVertex { x: 1.0, y: 2.0 });
+        vb.vertices.push(SvgVertex { x: 3.0, y: 4.0 });
+        vb.indices.extend_from_slice(&[0, 1, 0]);
+        let t = vertex_buffers_to_tessellated_cpu_node(vb);
+        assert_eq!(t.vertices.as_ref().len(), 2);
+        assert_eq!(t.indices.as_ref(), &[0u32, 1, 0][..]);
+        assert!((t.vertices.as_ref()[1].x - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn vertex_buffers_to_tessellated_cpu_node_of_empty_buffers_is_empty() {
+        let t = vertex_buffers_to_tessellated_cpu_node(VertexBuffers::<SvgVertex, u32>::new());
+        assert!(t.vertices.as_ref().is_empty());
+        assert!(t.indices.as_ref().is_empty());
+    }
+
+    // ==================================================================
+    // tessellation
+    // ==================================================================
+
+    #[test]
+    fn tessellate_path_fill_of_a_square_produces_whole_triangles() {
+        let t = tessellate_path_fill(&square_path(), SvgFillStyle::default());
+        assert!(!t.vertices.as_ref().is_empty());
+        assert_eq!(t.indices.as_ref().len() % 3, 0);
+        assert_indices_in_range(&t);
+    }
+
+    #[test]
+    fn tessellate_path_fill_and_stroke_of_an_empty_path_are_empty() {
+        let f = tessellate_path_fill(&empty_path(), SvgFillStyle::default());
+        assert!(f.vertices.as_ref().is_empty() && f.indices.as_ref().is_empty());
+        let s = tessellate_path_stroke(&empty_path(), SvgStrokeStyle::default());
+        assert!(s.vertices.as_ref().is_empty() && s.indices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn tessellate_circle_fill_zero_radius_is_empty() {
+        let t = tessellate_circle_fill(
+            &SvgCircle {
+                center_x: 0.0,
+                center_y: 0.0,
+                radius: 0.0,
+            },
+            SvgFillStyle::default(),
+        );
+        assert!(t.vertices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn tessellate_circle_fill_negative_radius_matches_the_positive_one() {
+        let mk = |r: f32| {
+            tessellate_circle_fill(
+                &SvgCircle {
+                    center_x: 1.0,
+                    center_y: 2.0,
+                    radius: r,
+                },
+                SvgFillStyle::default(),
+            )
+        };
+        let positive = mk(5.0);
+        assert!(!positive.vertices.as_ref().is_empty());
+        assert_eq!(positive, mk(-5.0), "lyon takes |radius|; the sign must not matter");
+    }
+
+    #[test]
+    fn tessellate_rect_fill_always_emits_exactly_two_triangles() {
+        for r in [
+            rect(0.0, 0.0, 10.0, 10.0),
+            rect(0.0, 0.0, 0.0, 0.0),                     // fully degenerate
+            rect(5.0, 5.0, -10.0, -10.0),                 // inverted
+            rect(-f32::MAX, -f32::MAX, f32::MAX, f32::MAX), // extreme but finite
+        ] {
+            let t = tessellate_rect_fill(&r, SvgFillStyle::default());
+            assert_eq!(t.vertices.as_ref().len(), 4, "{r:?}");
+            assert_eq!(t.indices.as_ref().len(), 6, "{r:?}");
+            assert_indices_in_range(&t);
+        }
+    }
+
+    #[test]
+    fn tessellate_rect_stroke_of_a_real_rect_produces_geometry() {
+        let t = tessellate_rect_stroke(&rect(0.0, 0.0, 10.0, 10.0), SvgStrokeStyle::default());
+        assert!(!t.vertices.as_ref().is_empty());
+        assert_indices_in_range(&t);
+    }
+
+    #[test]
+    fn get_radii_maps_origin_and_size_onto_a_box() {
+        let b = get_radii(&rect(1.0, 2.0, 4.0, 6.0));
+        assert!((b.min.x - 1.0).abs() < 1e-6, "{b:?}");
+        assert!((b.min.y - 2.0).abs() < 1e-6, "{b:?}");
+        assert!((b.max.x - 5.0).abs() < 1e-6, "{b:?}");
+        assert!((b.max.y - 8.0).abs() < 1e-6, "{b:?}");
+    }
+
+    #[test]
+    fn get_radii_ignores_the_corner_radii() {
+        // Matches the source TODO: "radii not respected on latest version of lyon".
+        let base = rect(1.0, 2.0, 4.0, 6.0);
+        let rounded = SvgRect {
+            radius_top_left: 3.0,
+            radius_top_right: 4.0,
+            radius_bottom_left: 5.0,
+            radius_bottom_right: 9.0,
+            ..base
+        };
+        let (a, b) = (get_radii(&base), get_radii(&rounded));
+        assert!((a.min.x - b.min.x).abs() < 1e-6 && (a.min.y - b.min.y).abs() < 1e-6);
+        assert!((a.max.x - b.max.x).abs() < 1e-6 && (a.max.y - b.max.y).abs() < 1e-6);
+    }
+
+    #[test]
+    fn get_radii_of_a_negative_size_rect_produces_an_inverted_box() {
+        let b = get_radii(&rect(5.0, 5.0, -3.0, -4.0));
+        assert!(b.max.x < b.min.x, "{b:?}");
+        assert!(b.max.y < b.min.y, "{b:?}");
+    }
+
+    #[test]
+    fn tessellate_multi_polygon_fill_of_an_empty_polygon_is_empty() {
+        let t = tessellate_multi_polygon_fill(&empty_polygon(), SvgFillStyle::default());
+        assert!(t.vertices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn tessellate_multi_polygon_fill_skips_empty_rings() {
+        let with_empty = polygon_of(vec![empty_path(), square_path()]);
+        assert_eq!(
+            tessellate_multi_polygon_fill(&with_empty, SvgFillStyle::default()),
+            tessellate_multi_polygon_fill(&square_polygon(), SvgFillStyle::default()),
+        );
+    }
+
+    #[test]
+    fn tessellate_multi_shape_fill_of_an_empty_slice_is_empty() {
+        let t = tessellate_multi_shape_fill(&[], SvgFillStyle::default());
+        assert!(t.vertices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn tessellate_multi_shape_fill_of_a_plain_shape_produces_geometry() {
+        let ms = [
+            SvgSimpleNode::Circle(SvgCircle {
+                center_x: 40.0,
+                center_y: 40.0,
+                radius: 5.0,
+            }),
+            SvgSimpleNode::Rect(rect(60.0, 0.0, 5.0, 5.0)),
+        ];
+        let t = tessellate_multi_shape_fill(&ms, SvgFillStyle::default());
+        assert!(!t.vertices.as_ref().is_empty());
+        assert_indices_in_range(&t);
+    }
+
+    #[test]
+    fn tessellate_multi_shape_fill_handles_every_simple_node_kind() {
+        let ms = [
+            SvgSimpleNode::Path(square_path()),
+            SvgSimpleNode::Circle(SvgCircle {
+                center_x: 40.0,
+                center_y: 40.0,
+                radius: 5.0,
+            }),
+            SvgSimpleNode::CircleHole(SvgCircle {
+                center_x: 40.0,
+                center_y: 40.0,
+                radius: 2.0,
+            }),
+            SvgSimpleNode::Rect(rect(60.0, 0.0, 5.0, 5.0)),
+            SvgSimpleNode::RectHole(rect(61.0, 1.0, 2.0, 2.0)),
+        ];
+        assert_indices_in_range(&tessellate_multi_shape_fill(&ms, SvgFillStyle::default()));
+        assert_indices_in_range(&tessellate_multi_shape_stroke(
+            &ms,
+            SvgStrokeStyle::default(),
+        ));
+    }
+
+    #[test]
+    fn tessellate_multi_polygon_stroke_of_an_empty_polygon_is_empty() {
+        let t = tessellate_multi_polygon_stroke(&empty_polygon(), SvgStrokeStyle::default());
+        assert!(t.vertices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn tessellate_styled_node_dispatches_on_the_style() {
+        let geo = SvgNode::Rect(rect(0.0, 0.0, 10.0, 10.0));
+        let fill = SvgStyledNode {
+            geometry: geo.clone(),
+            style: SvgStyle::Fill(SvgFillStyle::default()),
+        };
+        let stroke = SvgStyledNode {
+            geometry: geo.clone(),
+            style: SvgStyle::Stroke(SvgStrokeStyle::default()),
+        };
+        assert_eq!(
+            tessellate_styled_node(&fill),
+            tessellate_node_fill(&geo, SvgFillStyle::default())
+        );
+        assert_eq!(
+            tessellate_styled_node(&stroke),
+            tessellate_node_stroke(&geo, SvgStrokeStyle::default())
+        );
+    }
+
+    #[test]
+    fn tessellate_node_fill_of_a_collection_is_the_join_of_its_parts() {
+        let mp = square_polygon();
+        let node =
+            SvgNode::MultiPolygonCollection(SvgMultiPolygonVec::from_vec(vec![mp.clone(), mp.clone()]));
+        let one = tessellate_multi_polygon_fill(&mp, SvgFillStyle::default());
+        assert_eq!(
+            tessellate_node_fill(&node, SvgFillStyle::default()),
+            join_tessellated_nodes(&[one.clone(), one])
+        );
+    }
+
+    #[test]
+    fn tessellate_node_fill_of_an_empty_collection_is_empty() {
+        let node = SvgNode::MultiPolygonCollection(SvgMultiPolygonVec::from_const_slice(&[]));
+        let t = tessellate_node_fill(&node, SvgFillStyle::default());
+        assert!(t.vertices.as_ref().is_empty() && t.indices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn tessellate_svgpathelement_stroke_matches_the_per_kind_helpers() {
+        let ss = SvgStrokeStyle::default();
+        let l = ln(0.0, 0.0, 10.0, 10.0);
+        assert_eq!(
+            tessellate_svgpathelement_stroke(&SvgPathElement::Line(l), ss),
+            tessellate_line_stroke(&l, ss)
+        );
+        let q = SvgQuadraticCurve {
+            start: pt(0.0, 0.0),
+            ctrl: pt(5.0, 10.0),
+            end: pt(10.0, 0.0),
+        };
+        assert_eq!(
+            tessellate_svgpathelement_stroke(&SvgPathElement::QuadraticCurve(q), ss),
+            tessellate_quadraticcurve_stroke(&q, ss)
+        );
+        let c = SvgCubicCurve {
+            start: pt(0.0, 0.0),
+            ctrl_1: pt(3.0, 10.0),
+            ctrl_2: pt(7.0, -10.0),
+            end: pt(10.0, 0.0),
+        };
+        assert_eq!(
+            tessellate_svgpathelement_stroke(&SvgPathElement::CubicCurve(c), ss),
+            tessellate_cubiccurve_stroke(&c, ss)
+        );
+    }
+
+    #[test]
+    fn tessellate_line_stroke_of_a_zero_length_line_does_not_panic() {
+        let t = tessellate_line_stroke(&ln(3.0, 3.0, 3.0, 3.0), SvgStrokeStyle::default());
+        assert_indices_in_range(&t);
+    }
+
+    // ==================================================================
+    // join_tessellated_nodes / join_tessellated_colored_nodes
+    // ==================================================================
+
+    #[test]
+    fn join_tessellated_nodes_of_nothing_is_empty() {
+        let t = join_tessellated_nodes(&[]);
+        assert!(t.vertices.as_ref().is_empty());
+        assert!(t.indices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn join_tessellated_nodes_offsets_and_terminates_each_buffer() {
+        let a = tess(&[(0.0, 0.0), (1.0, 0.0)], &[0, 1]);
+        let b = tess(&[(2.0, 0.0), (3.0, 0.0)], &[0, 1]);
+        let j = join_tessellated_nodes(&[a, b]);
+        assert_eq!(j.vertices.as_ref().len(), 4);
+        assert_eq!(
+            j.indices.as_ref(),
+            &[0u32, 1, GL_RESTART_INDEX, 2, 3, GL_RESTART_INDEX][..]
+        );
+        assert_indices_in_range(&j);
+    }
+
+    #[test]
+    fn join_tessellated_nodes_leaves_existing_restart_markers_unshifted() {
+        let a = tess(&[(0.0, 0.0)], &[0]);
+        let b = tess(&[(1.0, 0.0), (2.0, 0.0)], &[0, GL_RESTART_INDEX, 1]);
+        let j = join_tessellated_nodes(&[a, b]);
+        assert_eq!(
+            j.indices.as_ref(),
+            &[
+                0u32,
+                GL_RESTART_INDEX,
+                1,
+                GL_RESTART_INDEX,
+                2,
+                GL_RESTART_INDEX
+            ][..]
+        );
+    }
+
+    #[test]
+    fn join_tessellated_nodes_single_node_is_only_terminated() {
+        let j = join_tessellated_nodes(&[tess(&[(0.0, 0.0), (1.0, 1.0)], &[0, 1, 0])]);
+        assert_eq!(j.indices.as_ref(), &[0u32, 1, 0, GL_RESTART_INDEX][..]);
+    }
+
+    #[test]
+    fn join_tessellated_nodes_can_alias_an_index_onto_the_restart_marker() {
+        // FINDING (pinned): the offset is applied with a bare `+=` and is only
+        // skipped for indices that *already* equal GL_RESTART_INDEX, so a large
+        // index can be shifted onto the sentinel and silently turn into a
+        // primitive-restart marker. (Anything past u32::MAX additionally
+        // overflow-panics in debug builds.)
+        let a = tess(&[(0.0, 0.0)], &[0]);
+        let b = tess(&[(1.0, 0.0)], &[GL_RESTART_INDEX - 1]);
+        let j = join_tessellated_nodes(&[a, b]);
+        assert_eq!(
+            j.indices.as_ref(),
+            &[
+                0u32,
+                GL_RESTART_INDEX,
+                GL_RESTART_INDEX,
+                GL_RESTART_INDEX
+            ][..]
+        );
+    }
+
+    #[test]
+    fn join_tessellated_colored_nodes_of_nothing_is_empty() {
+        let t = join_tessellated_colored_nodes(&[]);
+        assert!(t.vertices.as_ref().is_empty());
+        assert!(t.indices.as_ref().is_empty());
+    }
+
+    #[test]
+    fn join_tessellated_colored_nodes_offsets_like_the_plain_variant() {
+        fn colored(xs: &[f32], idx: &[u32]) -> TessellatedColoredSvgNode {
+            TessellatedColoredSvgNode {
+                vertices: xs
+                    .iter()
+                    .map(|&x| SvgColoredVertex {
+                        x,
+                        y: 0.0,
+                        z: 0.0,
+                        r: 1.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+                indices: idx.to_vec().into(),
+            }
+        }
+        let j = join_tessellated_colored_nodes(&[
+            colored(&[0.0, 1.0], &[0, 1]),
+            colored(&[2.0], &[0]),
+        ]);
+        assert_eq!(j.vertices.as_ref().len(), 3);
+        assert_eq!(
+            j.indices.as_ref(),
+            &[0u32, 1, GL_RESTART_INDEX, 2, GL_RESTART_INDEX][..]
+        );
+    }
+
+    // ==================================================================
+    // boolean operations (agg scanline algebra)
+    // ==================================================================
+
+    #[test]
+    fn storage_to_multi_polygon_of_an_untouched_storage_is_empty() {
+        let mut storage = agg_rust::scanline_storage_aa::ScanlineStorageAa::new();
+        assert!(storage_to_multi_polygon(&mut storage).rings.as_ref().is_empty());
+    }
+
+    #[test]
+    fn svg_multi_polygon_boolean_ops_on_two_empties_are_empty() {
+        let e = empty_polygon();
+        assert!(svg_multi_polygon_union(&e, &e).rings.as_ref().is_empty());
+        assert!(svg_multi_polygon_intersection(&e, &e).rings.as_ref().is_empty());
+        assert!(svg_multi_polygon_difference(&e, &e).rings.as_ref().is_empty());
+        assert!(svg_multi_polygon_xor(&e, &e).rings.as_ref().is_empty());
+    }
+
+    #[test]
+    fn svg_multi_polygon_union_of_a_square_with_itself_keeps_the_square() {
+        let sq = square_polygon();
+        let out = svg_multi_polygon_union(&sq, &sq);
+        assert!(
+            !out.rings.as_ref().is_empty(),
+            "a shape unioned with itself must not vanish"
+        );
+        let b = out.get_bounds();
+        assert!(b.width > 0.0 && b.height > 0.0, "{b:?}");
+    }
+
+    #[test]
+    fn svg_multi_polygon_intersection_of_disjoint_squares_is_empty() {
+        let a = square_polygon();
+        let b = polygon_of(vec![square_at(100.0)]);
+        assert!(svg_multi_polygon_intersection(&a, &b)
+            .rings
+            .as_ref()
+            .is_empty());
+    }
+
+    #[test]
+    fn svg_multi_polygon_self_cancelling_ops_are_empty() {
+        let sq = square_polygon();
+        assert!(
+            svg_multi_polygon_difference(&sq, &sq).rings.as_ref().is_empty(),
+            "A minus A must be empty"
+        );
+        assert!(
+            svg_multi_polygon_xor(&sq, &sq).rings.as_ref().is_empty(),
+            "A xor A must be empty"
+        );
+    }
+
+    #[test]
+    fn svg_multi_polygon_ops_accept_curve_rings() {
+        let ring = mk_path(vec![
+            SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
+                start: pt(0.0, 0.0),
+                ctrl: pt(5.0, 12.0),
+                end: pt(10.0, 0.0),
+            }),
+            SvgPathElement::CubicCurve(SvgCubicCurve {
+                start: pt(10.0, 0.0),
+                ctrl_1: pt(7.0, -6.0),
+                ctrl_2: pt(3.0, -6.0),
+                end: pt(0.0, 0.0),
+            }),
+        ]);
+        let mp = polygon_of(vec![ring]);
+        assert!(!svg_multi_polygon_union(&mp, &mp).rings.as_ref().is_empty());
+    }
+
+    #[test]
+    fn svg_multi_polygon_byval_wrappers_match_the_by_ref_forms() {
+        let a = square_polygon();
+        let b = polygon_of(vec![square_at(5.0)]);
+        assert_eq!(
+            svg_multi_polygon_union_byval(&a, b.clone()),
+            svg_multi_polygon_union(&a, &b)
+        );
+        assert_eq!(
+            svg_multi_polygon_intersection_byval(&a, b.clone()),
+            svg_multi_polygon_intersection(&a, &b)
+        );
+        assert_eq!(
+            svg_multi_polygon_difference_byval(&a, b.clone()),
+            svg_multi_polygon_difference(&a, &b)
+        );
+        assert_eq!(
+            svg_multi_polygon_xor_byval(&a, b.clone()),
+            svg_multi_polygon_xor(&a, &b)
+        );
+    }
+
+    // ==================================================================
+    // render_node_clipmask_cpu
+    // ==================================================================
+
+    #[test]
+    fn render_node_clipmask_cpu_zero_sized_image_is_none() {
+        let node = SvgNode::Rect(rect(0.0, 0.0, 4.0, 4.0));
+        let style = SvgStyle::Fill(SvgFillStyle {
+            transform: identity_transform(),
+            ..SvgFillStyle::default()
+        });
+        assert_eq!(
+            render_node_clipmask_cpu(&mut mask_image(0, 4), &node, style),
+            None
+        );
+        assert_eq!(
+            render_node_clipmask_cpu(&mut mask_image(4, 0), &node, style),
+            None
+        );
+        assert_eq!(
+            render_node_clipmask_cpu(&mut mask_image(0, 0), &node, style),
+            None
+        );
+    }
+
+    #[test]
+    fn render_node_clipmask_cpu_geometry_less_nodes_are_none() {
+        let style = SvgStyle::Fill(SvgFillStyle {
+            transform: identity_transform(),
+            ..SvgFillStyle::default()
+        });
+        for node in [
+            SvgNode::Path(empty_path()),
+            SvgNode::MultiPolygon(empty_polygon()),
+            SvgNode::MultiShape(SvgSimpleNodeVec::from_const_slice(&[])),
+            SvgNode::MultiPolygonCollection(SvgMultiPolygonVec::from_const_slice(&[])),
+        ] {
+            assert_eq!(
+                render_node_clipmask_cpu(&mut mask_image(4, 4), &node, style),
+                None,
+                "{node:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_node_clipmask_cpu_writes_a_single_channel_mask() {
+        let node = SvgNode::Rect(rect(0.0, 0.0, 4.0, 4.0));
+        let style = SvgStyle::Fill(SvgFillStyle {
+            transform: identity_transform(),
+            ..SvgFillStyle::default()
+        });
+        let mut img = mask_image(4, 4);
+        assert_eq!(render_node_clipmask_cpu(&mut img, &node, style), Some(()));
+        assert_eq!(img.data_format, RawImageFormat::R8);
+        assert!(img.premultiplied_alpha);
+        let bytes = mask_bytes(&img);
+        assert_eq!(bytes.len(), 16, "one byte per pixel");
+        assert!(
+            bytes.iter().any(|&b| b > 0),
+            "a rect covering the whole image must leave coverage"
+        );
+    }
+
+    #[test]
+    fn render_node_clipmask_cpu_default_style_transform_is_not_the_identity() {
+        // FINDING (pinned): `SvgTransform::default()` is the *zero* matrix, so a
+        // style built straight from `SvgFillStyle::default()` collapses all
+        // geometry onto the origin instead of drawing it 1:1.
+        let node = SvgNode::Rect(rect(0.0, 0.0, 4.0, 4.0));
+        let mut zeroed = mask_image(4, 4);
+        let mut identity = mask_image(4, 4);
+        assert_eq!(
+            render_node_clipmask_cpu(&mut zeroed, &node, SvgStyle::Fill(SvgFillStyle::default())),
+            Some(())
+        );
+        assert_eq!(
+            render_node_clipmask_cpu(
+                &mut identity,
+                &node,
+                SvgStyle::Fill(SvgFillStyle {
+                    transform: identity_transform(),
+                    ..SvgFillStyle::default()
+                })
+            ),
+            Some(())
+        );
+        assert_ne!(mask_bytes(&zeroed), mask_bytes(&identity));
+    }
+
+    #[test]
+    fn render_node_clipmask_cpu_stroke_style_renders_without_panicking() {
+        let node = SvgNode::Circle(SvgCircle {
+            center_x: 8.0,
+            center_y: 8.0,
+            radius: 4.0,
+        });
+        let style = SvgStyle::Stroke(SvgStrokeStyle {
+            transform: identity_transform(),
+            line_width: 2.0,
+            ..SvgStrokeStyle::default()
+        });
+        let mut img = mask_image(16, 16);
+        assert_eq!(render_node_clipmask_cpu(&mut img, &node, style), Some(()));
+        assert_eq!(mask_bytes(&img).len(), 256);
+    }
+
+    #[test]
+    fn render_node_clipmask_cpu_geometry_far_outside_the_image_is_clipped_not_crashed() {
+        let node = SvgNode::Rect(rect(-1.0e6, -1.0e6, 10.0, 10.0));
+        let style = SvgStyle::Fill(SvgFillStyle {
+            transform: identity_transform(),
+            ..SvgFillStyle::default()
+        });
+        let mut img = mask_image(4, 4);
+        assert_eq!(render_node_clipmask_cpu(&mut img, &node, style), Some(()));
+        assert!(mask_bytes(&img).iter().all(|&b| b == 0));
+    }
+
+    // ==================================================================
+    // svgxmlnode_parse / svg_parse / ParsedSvg
+    // ==================================================================
+
+    #[test]
+    fn svg_parse_valid_minimal_input_keeps_the_bytes_verbatim() {
+        let p = svg_parse(MINIMAL_SVG, SvgParseOptions::default()).expect("positive control");
+        assert_eq!(p.svg_data.as_ref(), MINIMAL_SVG);
+        assert!(p.run_destructor);
+    }
+
+    #[test]
+    fn svg_parse_invalid_utf8_is_rejected() {
+        for bad in [
+            &[0xFFu8, 0xFE, 0x00][..],
+            &[0x80][..],
+            &[0xED, 0xA0, 0x80][..], // encoded surrogate
+            &[0xC0, 0x80][..],       // overlong NUL
+        ] {
+            assert_eq!(
+                svg_parse(bad, SvgParseOptions::default()).err(),
+                Some(SvgParseError::NotAnUtf8Str),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_parse_unclosed_elements_are_rejected() {
+        for bad in [&b"<svg"[..], &b"<svg>"[..], &b"<svg><g>"[..]] {
+            assert_eq!(
+                svg_parse(bad, SvgParseOptions::default()).err(),
+                Some(SvgParseError::NoParserAvailable),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn svg_parse_accepts_input_that_is_not_svg_at_all() {
+        // PINNED leniency: `svg_parse` only checks that the bytes are UTF-8 and
+        // tokenize as XML — it never requires an <svg> root, so empty,
+        // whitespace-only and plain-text input all come back Ok.
+        for lenient in [
+            &b""[..],
+            &b"   "[..],
+            &b"\t\n\r "[..],
+            &b"garbage"[..],
+            &b"</svg>"[..],
+            &b"<html><body/></html>"[..],
+        ] {
+            let p = svg_parse(lenient, SvgParseOptions::default())
+                .unwrap_or_else(|e| panic!("{lenient:?} was rejected with {e:?}"));
+            assert_eq!(p.svg_data.as_ref(), lenient);
+        }
+    }
+
+    #[test]
+    fn svg_parse_garbage_never_panics_and_never_invents_data() {
+        for data in [
+            &b"<<<<<<"[..],
+            &b"\x00\x01\x02\x03"[..],
+            &b"{\"json\": true}"[..],
+            &b"<svg <<>>"[..],
+            &b"&&&;;;"[..],
+            &b"<!--"[..],
+            &b"<?xml"[..],
+            &b"<!DOCTYPE"[..],
+        ] {
+            match svg_parse(data, SvgParseOptions::default()) {
+                Ok(p) => assert_eq!(p.svg_data.as_ref(), data, "{data:?}"),
+                Err(e) => assert_eq!(e, SvgParseError::NoParserAvailable, "{data:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn svg_parse_boundary_numeric_attributes_are_kept_as_opaque_strings() {
+        let src = concat!(
+            r#"<svg width="1e400" height="-0" a="9223372036854775807" "#,
+            r#"b="NaN" c="inf" d="0"><rect width="0"/></svg>"#
+        );
+        let p = ParsedSvg::from_string(src, SvgParseOptions::default()).expect("parse");
+        assert_eq!(p.to_string(SvgXmlOptions::default()), src);
+    }
+
+    #[test]
+    fn svg_parse_unicode_payloads_survive_untouched() {
+        for s in [
+            "<svg><text>\u{1F600}</text></svg>",
+            "<svg><text>e\u{0301}\u{0328}</text></svg>",
+            "<svg id=\"\u{65E5}\u{672C}\u{8A9E}\"/>",
+            "<svg>\u{200b}\u{1F600}</svg>",
+        ] {
+            let p = ParsedSvg::from_string(s, SvgParseOptions::default())
+                .unwrap_or_else(|e| panic!("{s:?} -> {e:?}"));
+            assert_eq!(p.to_string(SvgXmlOptions::default()), s);
+        }
+    }
+
+    #[test]
+    fn svg_parse_leading_and_trailing_junk_is_tolerated_and_preserved() {
+        let src = "  <svg/>  trailing;garbage";
+        let p = ParsedSvg::from_string(src, SvgParseOptions::default()).expect("lenient parse");
+        // The stored bytes are never trimmed — to_string gives back the original.
+        assert_eq!(p.to_string(SvgXmlOptions::default()), src);
+    }
+
+    #[test]
+    fn svg_parse_extremely_long_input_does_not_hang() {
+        let long = format!("<svg>{}</svg>", "a".repeat(1_000_000));
+        let p = ParsedSvg::from_string(&long, SvgParseOptions::default())
+            .expect("1 MB of text must parse");
+        assert_eq!(p.svg_data.as_ref().len(), long.len());
+    }
+
+    #[test]
+    fn svg_parse_many_sibling_elements_does_not_hang() {
+        let mut s = String::from("<svg>");
+        for _ in 0..50_000 {
+            s.push_str("<g/>");
+        }
+        s.push_str("</svg>");
+        assert!(ParsedSvg::from_string(&s, SvgParseOptions::default()).is_ok());
+    }
+
+    #[test]
+    fn svg_parse_deeply_nested_input_does_not_stack_overflow() {
+        // The tokenizer loop is iterative, but the XmlNode tree it builds is torn
+        // down recursively — run on a big stack so a genuinely linear-depth drop
+        // is proven safe instead of coin-flipping on the 2 MiB default test stack.
+        let child = std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                const DEPTH: usize = 10_000;
+                let mut s = String::from("<svg>");
+                for _ in 0..DEPTH {
+                    s.push_str("<g>");
+                }
+                for _ in 0..DEPTH {
+                    s.push_str("</g>");
+                }
+                s.push_str("</svg>");
+                ParsedSvg::from_string(&s, SvgParseOptions::default()).is_ok()
+            })
+            .expect("spawn");
+        assert!(child
+            .join()
+            .expect("10k-deep nesting must not overflow the stack"));
+    }
+
+    #[test]
+    fn svgxmlnode_parse_mirrors_svg_parse_acceptance() {
+        assert!(svgxmlnode_parse(MINIMAL_SVG, SvgParseOptions::default()).is_ok());
+        assert!(svgxmlnode_parse(b"", SvgParseOptions::default()).is_ok());
+        assert_eq!(
+            svgxmlnode_parse(&[0xFF, 0xFE], SvgParseOptions::default()).err(),
+            Some(SvgParseError::NotAnUtf8Str)
+        );
+        assert_eq!(
+            svgxmlnode_parse(b"<svg>", SvgParseOptions::default()).err(),
+            Some(SvgParseError::NoParserAvailable)
+        );
+        let node = svgxmlnode_parse(MINIMAL_SVG, SvgParseOptions::default()).expect("parse");
+        assert!(node.run_destructor);
+    }
+
+    #[test]
+    fn parsed_svg_round_trips_through_to_string_and_back() {
+        let src = r#"<svg viewBox="0 0 8 8"><rect width="8" height="8"/></svg>"#;
+        let once = ParsedSvg::from_string(src, SvgParseOptions::default()).expect("parse");
+        let text = once.to_string(SvgXmlOptions::default());
+        assert_eq!(text, src);
+        let twice = ParsedSvg::from_string(&text, SvgParseOptions::default()).expect("re-parse");
+        assert_eq!(
+            twice.to_string(SvgXmlOptions::default()),
+            text,
+            "serialisation must be idempotent"
+        );
+        assert_eq!(svg_to_string(&twice, SvgXmlOptions::default()), text);
+    }
+
+    #[test]
+    fn parsed_svg_from_bytes_and_from_string_agree() {
+        let a = ParsedSvg::from_bytes(MINIMAL_SVG, SvgParseOptions::default()).expect("bytes");
+        let b = ParsedSvg::from_string(
+            core::str::from_utf8(MINIMAL_SVG).expect("ascii"),
+            SvgParseOptions::default(),
+        )
+        .expect("string");
+        assert_eq!(a.svg_data.as_ref(), b.svg_data.as_ref());
+    }
+
+    #[test]
+    fn parsed_svg_to_string_replaces_invalid_utf8_instead_of_panicking() {
+        // `ParsedSvg` is a plain #[repr(C)] FFI struct, so it can hold bytes that
+        // `svg_parse` would have rejected; `to_string` must stay lossy, not panic.
+        let p = ParsedSvg {
+            svg_data: vec![0xFFu8, 0xFE].into(),
+            run_destructor: true,
+        };
+        assert_eq!(
+            p.to_string(SvgXmlOptions::default()),
+            "\u{FFFD}\u{FFFD}",
+            "each invalid byte becomes one replacement char"
+        );
+        assert_eq!(
+            svg_to_string(&p, SvgXmlOptions::default()),
+            p.to_string(SvgXmlOptions::default())
+        );
+    }
+
+    #[test]
+    fn parsed_svg_to_string_of_an_empty_document_is_empty() {
+        let p = ParsedSvg {
+            svg_data: Vec::new().into(),
+            run_destructor: true,
+        };
+        assert!(p.to_string(SvgXmlOptions::default()).is_empty());
+        assert_eq!(format!("{p:?}"), "ParsedSvg(0 bytes)");
+    }
+
+    #[test]
+    fn parsed_svg_debug_reports_the_byte_length() {
+        let p = ParsedSvg {
+            svg_data: vec![1u8, 2, 3].into(),
+            run_destructor: true,
+        };
+        assert_eq!(format!("{p:?}"), "ParsedSvg(3 bytes)");
+    }
+
+    #[test]
+    fn svg_root_and_get_root_agree() {
+        let p = svg_parse(MINIMAL_SVG, SvgParseOptions::default()).expect("parse");
+        assert!(p.get_root().run_destructor);
+        assert!(svg_root(&p).run_destructor);
+        // …and stay well-defined for a document with no elements at all.
+        let empty = svg_parse(b"", SvgParseOptions::default()).expect("lenient parse");
+        assert!(empty.get_root().run_destructor);
+    }
+
+    // ==================================================================
+    // svg_render
+    // ==================================================================
+
+    #[test]
+    fn svg_render_zero_target_size_is_none() {
+        let p = svg_parse(MINIMAL_SVG, SvgParseOptions::default()).expect("parse");
+        for size in [
+            LayoutSize::new(0, 0),
+            LayoutSize::new(0, 8),
+            LayoutSize::new(8, 0),
+        ] {
+            let opts = SvgRenderOptions {
+                target_size: OptionLayoutSize::Some(size),
+                ..SvgRenderOptions::default()
+            };
+            assert!(p.render(opts).is_none(), "{size:?}");
+            assert!(svg_render(&p, opts).is_none(), "{size:?}");
+        }
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn svg_render_produces_an_image_of_the_requested_size() {
+        let p = svg_parse(MINIMAL_SVG, SvgParseOptions::default()).expect("parse");
+        let opts = SvgRenderOptions {
+            target_size: OptionLayoutSize::Some(LayoutSize::new(8, 8)),
+            ..SvgRenderOptions::default()
+        };
+        let img = p.render(opts).expect("a minimal <svg> must rasterize");
+        assert_eq!((img.width, img.height), (8, 8));
+        assert_eq!(img.data_format, RawImageFormat::RGBA8);
+        assert!(!img.premultiplied_alpha);
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn svg_render_of_a_document_without_an_svg_root_is_none() {
+        // `svg_parse` accepts it, but rasterization has nothing to draw.
+        let p = svg_parse(b"<html><body/></html>", SvgParseOptions::default())
+            .expect("lenient parse");
+        let opts = SvgRenderOptions {
+            target_size: OptionLayoutSize::Some(LayoutSize::new(4, 4)),
+            ..SvgRenderOptions::default()
+        };
+        assert!(p.render(opts).is_none());
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn svg_render_one_by_one_target_is_the_smallest_valid_size() {
+        let p = svg_parse(MINIMAL_SVG, SvgParseOptions::default()).expect("parse");
+        let opts = SvgRenderOptions {
+            target_size: OptionLayoutSize::Some(LayoutSize::new(1, 1)),
+            ..SvgRenderOptions::default()
+        };
+        let img = p.render(opts).expect("1x1 must still rasterize");
+        assert_eq!((img.width, img.height), (1, 1));
+    }
+}
