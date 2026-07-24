@@ -2936,26 +2936,33 @@ impl CallbackInfo {
         let Ok(guard) = font_manager.parsed_fonts.lock() else {
             return Vec::new().into();
         };
+        fn describe(font_ref: &FontRef) -> LoadedFont {
+            let parsed = crate::font_ref_to_parsed_font(font_ref);
+            let family_name = parsed
+                .font_name
+                .as_ref()
+                .map(|s| AzString::from(s.clone()))
+                .unwrap_or_default();
+            LoadedFont {
+                font_hash: parsed.hash,
+                family_name,
+                num_glyphs: u32::from(parsed.num_glyphs),
+                has_bytes: parsed.source_bytes_for_subset().is_some(),
+            }
+        }
+
         // BTreeMap-style stable iteration is not guaranteed here (HashMap), so
-        // we collect then sort by font_hash for a deterministic order.
-        let mut out: Vec<LoadedFont> = guard
-            .values()
-            .map(|font_ref| {
-                let parsed = crate::font_ref_to_parsed_font(font_ref);
-                let family_name = parsed
-                    .font_name
-                    .as_ref()
-                    .map(|s| AzString::from(s.clone()))
-                    .unwrap_or_default();
-                LoadedFont {
-                    font_hash: parsed.hash,
-                    family_name,
-                    num_glyphs: u32::from(parsed.num_glyphs),
-                    has_bytes: parsed.source_bytes_for_subset().is_some(),
-                }
-            })
-            .collect();
+        // collect base faces plus their lazy static instances, then sort by
+        // font_hash for a deterministic order.
+        let mut out = Vec::new();
+        for font_ref in guard.values() {
+            let parsed = crate::font_ref_to_parsed_font(font_ref);
+            out.push(describe(font_ref));
+            let instances = parsed.get_variation_instances();
+            out.extend(instances.iter().map(describe));
+        }
         out.sort_by(|a, b| a.font_hash.cmp(&b.font_hash));
+        out.dedup_by_key(|font| font.font_hash);
         out.into()
     }
 

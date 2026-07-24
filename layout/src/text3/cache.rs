@@ -430,6 +430,14 @@ impl<T: ParsedFontTrait> LoadedFonts<T> {
         self.hash_to_id.get(&hash).and_then(|id| self.fonts.get(id))
     }
 
+    /// Get an owned shallow clone of a font by hash, including a variable-font
+    /// instance that may have been created lazily during shaping.
+    #[must_use] pub fn get_owned_by_hash(&self, hash: u64) -> Option<T> {
+        self.get_by_hash(hash)
+            .map(ShallowClone::shallow_clone)
+            .or_else(|| self.fonts.values().find_map(|font| font.resolve_font_hash(hash)))
+    }
+
     /// Get the `FontId` for a hash
     #[must_use] pub fn get_font_id_by_hash(&self, hash: u64) -> Option<&FontId> {
         self.hash_to_id.get(&hash)
@@ -517,6 +525,13 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
         match self {
             Self::Font(f) => f.get_hash(),
             Self::Ref(r) => r.get_hash(),
+        }
+    }
+
+    fn resolve_font_hash(&self, hash: u64) -> Option<Self> {
+        match self {
+            Self::Font(f) => f.resolve_font_hash(hash).map(Self::Font),
+            Self::Ref(r) => r.resolve_font_hash(hash).map(Self::Ref),
         }
     }
 
@@ -1275,11 +1290,11 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Panics if the internal font-cache mutex is poisoned.
     pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
-        // Linear search through all cached fonts to find one with matching hash
+        // Linear search through all cached base fonts. A base font can also
+        // resolve a lazily-created variable instance by its synthetic hash.
         let found = parsed
-            .iter()
-            .find(|(_, font)| font.get_hash() == font_hash)
-            .map(|(_, font)| font.clone());
+            .values()
+            .find_map(|font| font.resolve_font_hash(font_hash));
         drop(parsed);
         found
     }
@@ -4526,7 +4541,7 @@ impl ShapedGlyph {
         loaded_fonts: &LoadedFonts<T>,
     ) -> GlyphInstance {
         let size = loaded_fonts
-            .get_by_hash(self.font_hash)
+            .get_owned_by_hash(self.font_hash)
             .and_then(|font| font.get_glyph_size(self.glyph_id, self.style.font_size_px))
             .unwrap_or_default();
 
@@ -4558,7 +4573,7 @@ impl ShapedGlyph {
         loaded_fonts: &LoadedFonts<T>,
     ) -> GlyphInstance {
         let size = loaded_fonts
-            .get_by_hash(self.font_hash)
+            .get_owned_by_hash(self.font_hash)
             .and_then(|font| font.get_glyph_size(self.glyph_id, self.style.font_size_px))
             .unwrap_or_default();
 
@@ -9383,7 +9398,7 @@ pub struct HyphenationBreak {
     let style = last_cluster.style.clone();
 
     // Look up font from hash
-    let font = fonts.get_by_hash(last_glyph.font_hash)?;
+    let font = fonts.get_owned_by_hash(last_glyph.font_hash)?;
     let (hyphen_glyph_id, hyphen_advance) =
         font.get_hyphen_glyph_and_advance(style.font_size_px)?;
 
@@ -10198,9 +10213,9 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             if let Some(glyph) = c.glyphs.first() {
                 if glyph.script == Script::Arabic {
                     // Look up font from hash
-                    if let Some(font) = fonts.get_by_hash(glyph.font_hash) {
+                    if let Some(font) = fonts.get_owned_by_hash(glyph.font_hash) {
                         return Some((
-                            font.clone(),
+                            font,
                             glyph.font_hash,
                             glyph.font_metrics,
                             glyph.style.clone(),
