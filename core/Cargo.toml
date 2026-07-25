@@ -23,7 +23,13 @@ libm                    = { version = "0.2.2",   default-features = false       
 gl-context-loader       = { version = "0.1.9", default-features = false }
 rust-fontconfig = { version = ">=4.4.7, <4.5", default-features = false, features = ["std"] }
 serde                   = { version = "1.0", features = ["derive"], optional = true }
-serde_json              = { version = "1.0", optional = true }
+# `float_roundtrip`: without it serde_json parses floats "best effort" (a plain
+# f64 multiply by a POW10 table entry), which is NOT exact: `Json::parse` then
+# returns a value a few ULP off for extreme magnitudes and hard-errors with
+# "number out of range" on literals near f64::MAX that are perfectly
+# representable. `Json::to_json_string` emits Rust's shortest round-trip
+# Display, so the write side is already exact — this makes the read side match.
+serde_json              = { version = "1.0", features = ["float_roundtrip"], optional = true }
 url                     = { version = "2.5", default-features = false, optional = true }
 
 [features]

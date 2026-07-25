@@ -103,8 +103,12 @@ rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
 webpki-roots = { version = "1.0", optional = true }
 
 
-# JSON parsing
-serde_json = { version = "1.0", default-features = false, features = ["std"], optional = true }
+# JSON parsing.
+# `float_roundtrip` is REQUIRED for correctness, not a nicety: the default
+# best-effort float parser loses precision on extreme magnitudes and rejects
+# valid literals near f64::MAX outright ("number out of range"), so
+# `json_parse(json_stringify(x)) != x`. See core/Cargo.toml.
+serde_json = { version = "1.0", default-features = false, features = ["std", "float_roundtrip"], optional = true }
 
 # SPMC channel — ONLY used by the e2e-server HTTP transport (feature
 # `e2e-server-http`). The core op-dispatch does not need it.
