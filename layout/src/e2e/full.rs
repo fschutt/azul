@@ -4703,16 +4703,51 @@ fn capture_damage_png(
 
 /// `assert_damage`: the raw predicate over the last frame's damage.
 ///
-/// Parameters (all optional except that at least one should be given):
+/// Parameters:
 /// - `which`: `"paint"` (default) or `"present"`
+/// - `frame`: `"last"` to look at the last frame instead of the accumulation
 /// - `kind`: `"none"` | `"rects"` | `"full"` — exact damage kind
 /// - `min_rects` / `max_rects`: bounds on the rect count
 /// - `max_area_ratio`: damaged area / window area upper bound
+///
+/// AT LEAST ONE of `kind` / `min_rects` / `max_rects` / `max_area_ratio` is
+/// REQUIRED, and an unrecognised key is an error. Every constraint used to be
+/// matched with `if let Some(..)`, so a step with none of them — or with ONE
+/// TYPO (`max_area` instead of `max_area_ratio`) — fell straight through to
+/// `pass`. Against a generated corpus that is a false-green factory: the typo'd
+/// test asserts nothing and counts as coverage.
 #[cfg(feature = "std")]
 fn eval_assert_damage(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    const CONSTRAINTS: &[&str] = &["kind", "min_rects", "max_rects", "max_area_ratio"];
+    const SELECTORS: &[&str] = &["which", "frame"];
+
+    if let Some(obj) = params.as_object() {
+        for key in obj.keys() {
+            if key == "op" || key == "screenshot" || key == "expect" {
+                continue;
+            }
+            if !CONSTRAINTS.contains(&key.as_str()) && !SELECTORS.contains(&key.as_str()) {
+                return AssertionResult::fail(format!(
+                    "assert_damage: unknown parameter '{key}' (constraints: {}; selectors: {}). A \
+                     typo'd parameter would otherwise make this assertion pass while checking \
+                     nothing.",
+                    CONSTRAINTS.join(", "),
+                    SELECTORS.join(", ")
+                ));
+            }
+        }
+    }
+    if !CONSTRAINTS.iter().any(|c| params.get(*c).is_some()) {
+        return AssertionResult::fail(format!(
+            "assert_damage: no constraint given — at least one of {} is required, otherwise this \
+             assertion passes unconditionally",
+            CONSTRAINTS.join(", ")
+        ));
+    }
+
     let (damage, which) = damage_of(params, callback_info);
     let kind = damage_kind_str(&damage);
     let rects = damage.rect_count();
@@ -5047,6 +5082,23 @@ fn eval_assert_idle_stable(
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
     let report = callback_info.get_layout_window().frame_report.clone();
+
+    // LIVENESS PRECONDITION. This is an assertion of ABSENCE ("no damage"), and
+    // an assertion of absence passes for free when the machinery that would
+    // produce the thing never ran at all. That is not hypothetical: before the
+    // headless runner rendered any frame, `paint_damage` was permanently `None`
+    // and `e2e/op-no-damage-when-idle.json` went green while proving nothing.
+    // A frame must actually have been rendered since the last counter reset.
+    if report.frames_since_reset == 0 {
+        return AssertionResult::fail_with(
+            "assert_idle_stable: NO FRAME was rendered since the last reset — 'no damage' is \
+             vacuously true when nothing rendered. Drive a frame (tick_ms / wait_frame) first."
+                .to_string(),
+            "frames_since_reset >= 1".to_string(),
+            "0".to_string(),
+        );
+    }
+
     if !report.paint_damage.is_none() {
         return AssertionResult::fail_with(
             "assert_idle_stable: an IDLE window still reports paint damage — it will re-render \
@@ -5091,10 +5143,25 @@ fn eval_assert_idle_stable(
             );
         }
     }
+    // Without `cpurender` the pixel half of this assertion cannot run. Say so
+    // instead of silently dropping it: `assert_changed` and
+    // `assert_damage_covers_changes` both FAIL in that configuration, and a
+    // differential false-green (this one passing where they fail) is exactly the
+    // silent-fallback bug class this suite exists to catch.
+    #[cfg(not(feature = "cpurender"))]
+    if params.get("vs").and_then(|v| v.as_str()).is_some() {
+        return AssertionResult::fail(
+            "assert_idle_stable: 'vs' requests a pixel comparison but the cpurender feature is \
+             not enabled — refusing to pass while skipping the check",
+        );
+    }
     #[cfg(not(feature = "cpurender"))]
     let _ = params;
 
-    AssertionResult::pass("assert_idle_stable: idle window is stable (damage drained to none)")
+    AssertionResult::pass(format!(
+        "assert_idle_stable: idle window is stable (damage drained to none over {} frame(s))",
+        report.frames_since_reset
+    ))
 }
 
 /// `assert_work_bounded` — the invalidation-loop detector.
@@ -5114,6 +5181,20 @@ fn eval_assert_work_bounded(
     let relayouts = report.relayout_iterations;
     let regens = report.dom_regenerations;
     let depth_cap = report.hit_depth_cap;
+
+    // LIVENESS PRECONDITION — see `assert_idle_stable`. These are pure UPPER
+    // bounds, so "0 relayouts, 0 DOM regenerations, depth cap not hit" passes
+    // every bound there is, including when the engine never ran a frame at all.
+    // Require that a frame was actually produced since the last reset.
+    if report.frames_since_reset == 0 {
+        return AssertionResult::fail_with(
+            "assert_work_bounded: NO FRAME was rendered since the last reset — every upper bound \
+             is vacuously satisfied when no work happened at all"
+                .to_string(),
+            "frames_since_reset >= 1".to_string(),
+            "0".to_string(),
+        );
+    }
 
     if depth_cap && !params.get("allow_depth_cap").and_then(serde_json::Value::as_bool).unwrap_or(false) {
         return AssertionResult::fail_with(
@@ -5149,8 +5230,9 @@ fn eval_assert_work_bounded(
         }
     }
     AssertionResult::pass(format!(
-        "assert_work_bounded: {relayouts} event iteration(s), {regens} DOM regen(s), depth cap not \
-         hit"
+        "assert_work_bounded: {relayouts} event iteration(s), {regens} DOM regen(s) over {} \
+         frame(s), depth cap not hit",
+        report.frames_since_reset
     ))
 }
 
