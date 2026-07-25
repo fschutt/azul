@@ -1051,7 +1051,7 @@ impl RefAny {
         // allocation). A ZST is a *valid* stored value, so the type check above is
         // authoritative and a `&U` to a ZST dereferences no bytes — only a
         // *non-ZST* null pointer is a genuine failure.
-        if data_ptr.is_null() && core::mem::size_of::<U>() != 0 {
+        if data_ptr.is_null() && size_of::<U>() != 0 {
             self.sharing_info.decrease_ref();
             return None;
         }
@@ -1143,7 +1143,7 @@ impl RefAny {
         // no bytes to observe or mutate, so skip the update observer below and
         // hand out a dangling-but-aligned `&mut`, keeping the exclusive borrow.
         if data_ptr.is_null() {
-            if core::mem::size_of::<U>() != 0 {
+            if size_of::<U>() != 0 {
                 inner.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
                 return None;
             }
