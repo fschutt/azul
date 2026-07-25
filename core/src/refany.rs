@@ -981,7 +981,9 @@ impl RefAny {
     /// Returns `None` if:
     /// - The stored type doesn't match `U` (type safety)
     /// - A mutable borrow is already active (borrow checking)
-    /// - The pointer is null (ZST or uninitialized)
+    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A
+    ///   stored ZST has a null pointer *by design* (nothing is allocated) and
+    ///   downcasts successfully, via a dangling-but-aligned reference.
     ///
     /// # Type Safety
     ///
@@ -1077,7 +1079,10 @@ impl RefAny {
     /// Returns `None` if:
     /// - The stored type doesn't match `U` (type safety)
     /// - Any borrow is already active (borrow checking)
-    /// - The pointer is null (ZST or uninitialized)
+    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A
+    ///   stored ZST has a null pointer *by design* and downcasts successfully,
+    ///   via a dangling-but-aligned reference; note that the on-update observer
+    ///   is NOT fired for a ZST (there are no bytes for it to snapshot).
     ///
     /// # Type Safety
     ///
