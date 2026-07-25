@@ -100,6 +100,18 @@ impl Runner {
             let registry = azul_layout::FcFontRegistry::new();
             let had_cache = registry.load_from_disk_cache();
             registry.spawn_scout_and_builders();
+            // DETERMINISM: block until the scout has published the font set
+            // (no-op when a disk cache was loaded; 5 s cap inside).
+            //
+            // Without this the fonts a DOM resolves depend on HOW FAR the
+            // background builders happened to get before that particular
+            // layout ran — so the same scenario resolves a 1-font fallback
+            // chain when a step services a mount immediately and a 7-font one
+            // when a `wait` delays it, and any assertion over font resources
+            // silently measures thread scheduling. A verdict that moves with
+            // background-thread progress is exactly the flake class this suite
+            // exists to eliminate.
+            registry.wait_for_scout();
             let cache = if had_cache.is_some() {
                 registry.shared_cache()
             } else {
