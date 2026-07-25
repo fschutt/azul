@@ -1,0 +1,52 @@
+{
+  "name": "state_machines_idle",
+  "description": "STATE-MACHINE LEAKS (E2E_PLAN g3): do an interaction, END it, then assert every state machine noticed. A scroll starts the scroll manager (offset moves, scroll_dirty is set); a CSS override then forces the relayout that rebuilds the display list and clears scroll_dirty; tick_ms drives the (zero-duration) scroll animation to completion. assert_state_machines_idle then sweeps: no active drag, no un-ended gesture session, no active scroll animation, scroll_dirty cleared, scrollbar_fade_active cleared, no latched text_edit display_list_dirty, no orphan caret blink, no unresolved focus request, and FrameDamage::None on the last frame. FAILURE INJECTION EVIDENCE: dropping the `clear_scroll_dirty()` call at window.rs (end of layout_and_generate_display_list) makes this fixture go red with 'scroll_manager.scroll_dirty is still set'.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div id=\"scroller\">",
+        "    <div class=\"row\" id=\"r0\"></div>",
+        "    <div class=\"row\" id=\"r1\"></div>",
+        "    <div class=\"row\" id=\"r2\"></div>",
+        "    <div class=\"row\" id=\"r3\"></div>",
+        "    <div class=\"row\" id=\"r4\"></div>",
+        "    <div class=\"row\" id=\"r5\"></div>",
+        "  </div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 120 },
+    { "op": "wait", "ms": 1 },
+    { "op": "assert_scroll", "selector": "#scroller", "y": 120, "tolerance": 1.0 },
+
+    { "op": "set_node_css_override", "node_id": 5, "property": "background", "value": "red" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 50 },
+
+    { "op": "tick_ms", "ms": 500 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    { "op": "assert_idle_stable" },
+    { "op": "assert_state_machines_idle" }
+  ]
+}

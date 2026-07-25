@@ -1,0 +1,65 @@
+{
+  "name": "composition",
+  "description": "COMPOSITION (E2E_PLAN g1): several managers fire, IN ORDER, over one timeline, and the timeline then reaches a fixpoint. reset_frame_counters is the checkpoint (it zeroes the stage trace as well as the frame counters). Tab sets focus (stage focus_set), then a scroll moves the container (stage scroll_started), then a CSS override forces a bounded repaint (stage damage_patch). assert_composition requires all three to have been ENTERED, in the listed order, and — via its fixpoint half — that every state machine settled afterwards. FAILURE INJECTION EVIDENCE: reversing the expect list to [\"scroll_started\",\"focus_set\"] makes it red with 'the stages were entered OUT OF ORDER'; asking for a stage that never happens (\"drag_active\") makes it red with 'were never entered'.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"scroller\">",
+        "    <div class=\"row\" id=\"r0\"></div>",
+        "    <div class=\"row\" id=\"r1\"></div>",
+        "    <div class=\"row\" id=\"r2\"></div>",
+        "    <div class=\"row\" id=\"r3\"></div>",
+        "    <div class=\"row\" id=\"r4\"></div>",
+        "    <div class=\"row\" id=\"r5\"></div>",
+        "  </div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }",
+        ".item { width: 120px; height: 30px; background: silver; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+
+    { "op": "reset_frame_counters" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "wait", "ms": 1 },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 1 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 100 },
+    { "op": "wait", "ms": 1 },
+    { "op": "assert_scroll", "selector": "#scroller", "y": 100, "tolerance": 1.0 },
+
+    { "op": "set_node_css_override", "node_id": 5, "property": "background", "value": "red" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "tick_ms", "ms": 500 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+
+    {
+      "op": "assert_composition",
+      "expect": ["focus_set", "scroll_started", "damage_patch"]
+    }
+  ]
+}

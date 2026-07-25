@@ -467,6 +467,29 @@ impl ScrollManager {
         self.scroll_dirty
     }
 
+    /// Every `(DomId, NodeId)` this manager currently keys scroll state on.
+    ///
+    /// The E2E `assert_manager_invariants` op needs the KEY SET, not just the
+    /// count `debug_counts()` reports: a key naming a node that no longer exists
+    /// in `layout_results` is a dangling index (invariant X10), and a key set is
+    /// the only way to see it from outside.
+    #[must_use]
+    pub fn state_keys(&self) -> Vec<(DomId, NodeId)> {
+        self.states.keys().copied().collect()
+    }
+
+    /// Every `(DomId, NodeId)` whose `AnimatedScrollState` currently carries an
+    /// easing animation. `has_active_animations()` is exactly
+    /// `!animating_keys().is_empty()`; E2E invariant X2 asserts that identity.
+    #[must_use]
+    pub fn animating_keys(&self) -> Vec<(DomId, NodeId)> {
+        self.states
+            .iter()
+            .filter(|(_, s)| s.animation.is_some())
+            .map(|(k, _)| *k)
+            .collect()
+    }
+
     /// Clear the dirty flag after the display list has been regenerated.
     pub const fn clear_scroll_dirty(&mut self) {
         self.scroll_dirty = false;

@@ -1,0 +1,44 @@
+{
+  "name": "damage_sound",
+  "description": "DAMAGE SOUNDNESS, BOTH DIRECTIONS (E2E_PLAN c). Recoloring one 60x40 box must produce damage that (1) COVERS every pixel that actually changed (under-paint => stale pixels on screen), (2) satisfies PRESENT superset-of PAINT, (3) is TIGHT — its area is within max_overpaint_ratio of the bounding box of the pixels that really changed (over-paint => the perf bug that hides behind 'looks fine'), and (4) with pixel_identity, is PIXEL-IDENTICAL to an independent full repaint (CallbackInfo::take_screenshot re-renders from scratch with a fresh glyph cache — a different code path from render_display_list_damaged). Unlike assert_damage_covers_changes, a FULL repaint gets no free pass here: it is still measured for tightness, and forbid_full rejects it outright. FAILURE INJECTION EVIDENCE: shrinking the reported damage rects in cpu_backend makes it red with 'UNDER-PAINT'; inflating them makes it red with 'OVER-PAINT'; forcing the non-incremental path makes forbid_full red with 'the repaint was FULL'.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box\" id=\"b\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_node_count", "selector": ".box", "expected": 2 },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "before_recolor" },
+    { "op": "set_node_css_override", "node_id": 5, "property": "background", "value": "red" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+
+    { "op": "assert_changed", "vs": "before_recolor", "min_damage_rects": 1 },
+    {
+      "op": "assert_damage_sound",
+      "vs": "before_recolor",
+      "max_overpaint_ratio": 4.0,
+      "forbid_full": true,
+      "pixel_identity": true
+    }
+  ]
+}

@@ -753,6 +753,16 @@ impl Runner {
         let paint = self.cpu_backend.last_frame_damage.clone();
         let present = self.cpu_backend.last_present_damage.clone();
         self.layout_window.frame_report.record_frame(paint, present);
+
+        // Publish the DAMAGE-DRIVEN framebuffer so `assert_damage_sound`'s
+        // `pixel_identity` check can compare it against an independent full
+        // repaint (`CallbackInfo::take_screenshot`). Only this host can: the DLL
+        // presents from the GPU, which is why the op FAILS there rather than
+        // silently skipping the check.
+        #[cfg(feature = "cpurender")]
+        if let Some(frame) = self.cpu_backend.last_frame.as_ref() {
+            super::full::e2e_set_presented_frame(frame);
+        }
     }
 
     /// Port of the font-snapshot block at the top of `regenerate_layout`: the
@@ -961,6 +971,8 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
         ..super::hooks::E2eHostHooks::NONE
     });
     e2e_clear_continuation();
+    #[cfg(feature = "cpurender")]
+    super::full::e2e_clear_presented_frame();
     *MOUNT_XML.lock().unwrap() = None;
     *MOUNT_DIRTY.lock().unwrap() = false;
 

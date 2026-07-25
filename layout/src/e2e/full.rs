@@ -3644,6 +3644,10 @@ impl AssertionResult {
 /// | `assert_app_state`   | `path`, `expected`                           |
 /// | `assert_scroll`      | `selector`, `x?`, `y?`, `tolerance?`         |
 /// | `assert_screenshot`  | `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?` |
+/// | `assert_state_machines_idle` | `damage?`                            |
+/// | `assert_manager_invariants`  | `managers?`, `cross?`                |
+/// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
+/// | `assert_damage_sound`| `vs`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
@@ -3677,6 +3681,11 @@ pub fn evaluate_assertion(
         "assert_idle_stable" => eval_assert_idle_stable(params, callback_info),
         "assert_work_bounded" => eval_assert_work_bounded(params, callback_info),
         "assert_resource_counts" => eval_assert_resource_counts(params, callback_info),
+        // Manager / composition / damage-soundness (E2E_PLAN §(c)/(g1)/(g2)/(g3))
+        "assert_state_machines_idle" => eval_assert_state_machines_idle(params, callback_info),
+        "assert_manager_invariants" => eval_assert_manager_invariants(params, callback_info),
+        "assert_composition" => eval_assert_composition(params, callback_info),
+        "assert_damage_sound" => eval_assert_damage_sound(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -5257,6 +5266,1160 @@ fn eval_assert_resource_counts(
     ))
 }
 
+// ==================== Manager / composition / damage-soundness assertions ====
+
+// The four assertions `scripts/E2E_PLAN.md` designed (§(c), §(g1), §(g2), §(g3))
+// and that nothing implemented until now. They read manager state off
+// `LayoutWindow` through `CallbackInfo::get_layout_window()` — the same seam
+// every other assertion in this file uses — plus, for `assert_composition`, a
+// per-step sample recorded by the step loop in `resume_e2e_continuation`.
+//
+// DELIBERATELY NOT IMPLEMENTED, and LOUD about it: the cross-manager invariants
+// X1 (`scroll_into_view` ↔ `scroll_state`), X4 (`gesture.active_drag` ↔ the
+// deprecated `DragDropManager` — `LayoutWindow` has no `drag_drop_manager` field
+// at all, so that pair does not exist in this crate), X7 and X8. Each needs a
+// per-step trace of an adjustment that is applied and forgotten, or a manager
+// this crate does not own. Asking for one FAILS with that reason instead of
+// passing: a stub that always passes manufactures false-green, which is strictly
+// worse than no assertion at all.
+
+/// Does `(dom, node)` name a node that exists in the CURRENT layout?
+#[cfg(feature = "std")]
+fn node_is_live(
+    lw: &azul_layout::window::LayoutWindow,
+    dom: azul_core::dom::DomId,
+    node: azul_core::dom::NodeId,
+) -> bool {
+    lw.layout_results
+        .get(&dom)
+        .is_some_and(|lr| node.index() < lr.styled_dom.node_data.as_ref().len())
+}
+
+/// `DomNodeId` form of [`node_is_live`]. A `NONE` node id names the DOM itself,
+/// which is live iff that DOM is still laid out.
+#[cfg(feature = "std")]
+fn dom_node_is_live(
+    lw: &azul_layout::window::LayoutWindow,
+    id: azul_core::dom::DomNodeId,
+) -> bool {
+    id.node.into_crate_internal().map_or_else(
+        || lw.layout_results.contains_key(&id.dom),
+        |n| node_is_live(lw, id.dom, n),
+    )
+}
+
+/// Human name of the active drag kind, for diagnostics.
+#[cfg(feature = "std")]
+fn drag_kind_str(d: &azul_core::drag::DragContext) -> &'static str {
+    use azul_core::drag::ActiveDragType;
+    match d.drag_type {
+        ActiveDragType::TextSelection(_) => "text-selection",
+        ActiveDragType::ScrollbarThumb(_) => "scrollbar-thumb",
+        ActiveDragType::Node(_) => "node",
+        ActiveDragType::WindowMove(_) => "window-move",
+        ActiveDragType::WindowResize(_) => "window-resize",
+        ActiveDragType::FileDrop(_) => "file-drop",
+    }
+}
+
+/// The `(DomId, NodeId)` an active drag hangs off, if it has one. Window
+/// move/resize and file drops are not node-anchored.
+#[cfg(feature = "std")]
+fn drag_source_node(
+    d: &azul_core::drag::DragContext,
+) -> Option<(azul_core::dom::DomId, azul_core::dom::NodeId)> {
+    use azul_core::drag::ActiveDragType;
+    match &d.drag_type {
+        ActiveDragType::TextSelection(t) => Some((t.dom_id, t.anchor_ifc_node)),
+        ActiveDragType::ScrollbarThumb(s) => Some((s.dom_id, s.scroll_container_node)),
+        ActiveDragType::Node(n) => Some((n.dom_id, n.node_id)),
+        ActiveDragType::WindowMove(_)
+        | ActiveDragType::WindowResize(_)
+        | ActiveDragType::FileDrop(_) => None,
+    }
+}
+
+/// Total selected span across a multi-cursor state, used by
+/// `assert_composition`'s `selection_grew` stage. Bare cursors count 0; a range
+/// counts its byte span, with run crossings weighted so that "the selection
+/// swallowed another run" is always larger than any within-run growth.
+#[cfg(feature = "std")]
+fn multi_cursor_span(mc: &azul_core::selection::MultiCursorState) -> u64 {
+    use azul_core::selection::Selection;
+    mc.selections
+        .iter()
+        .map(|s| match s.selection {
+            Selection::Cursor(_) => 0u64,
+            Selection::Range(r) => {
+                let runs = u64::from(r.end.cluster_id.source_run.abs_diff(r.start.cluster_id.source_run));
+                let bytes = u64::from(
+                    r.end
+                        .cluster_id
+                        .start_byte_in_run
+                        .abs_diff(r.start.cluster_id.start_byte_in_run),
+                );
+                runs * 1_000_000 + bytes
+            }
+        })
+        .sum()
+}
+
+/// The (g3) state-machine sweep, shared by `assert_state_machines_idle` and the
+/// fixpoint half of `assert_composition`.
+///
+/// Returns ONE LINE PER LEAKED STATE MACHINE — an empty vec means everything
+/// settled. Every entry is a real read of a real field; there is no "unknown =
+/// ok" branch.
+#[cfg(feature = "std")]
+fn collect_state_machine_leaks(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    check_damage: bool,
+) -> Vec<String> {
+    let lw = callback_info.get_layout_window();
+    let mut leaks: Vec<String> = Vec::new();
+
+    // -- drag ended, drag still active --------------------------------------
+    if let Some(drag) = lw.gesture_drag_manager.active_drag.as_ref() {
+        leaks.push(format!(
+            "gesture_drag_manager.active_drag is still Some ({} drag, session {}, cancelled={})",
+            drag_kind_str(drag),
+            drag.session_id,
+            drag.cancelled
+        ));
+    }
+    let unended = lw
+        .gesture_drag_manager
+        .input_sessions
+        .iter()
+        .filter(|s| !s.ended)
+        .count();
+    if unended > 0 {
+        leaks.push(format!(
+            "gesture_drag_manager has {unended} un-ended input session(s) of {} (end_current_session \
+             / clear_old_sessions never ran)",
+            lw.gesture_drag_manager.input_sessions.len()
+        ));
+    }
+
+    // -- animation finished, still scheduling frames -------------------------
+    if lw.scroll_manager.has_active_animations() {
+        leaks.push(format!(
+            "scroll_manager still has {} active scroll animation(s) — the platform loop keeps \
+             generating frames",
+            lw.scroll_manager.animating_keys().len()
+        ));
+    }
+    if lw.scroll_manager.has_pending_scroll_changes() {
+        leaks.push(
+            "scroll_manager.scroll_dirty is still set — the display list will be rebuilt again"
+                .to_string(),
+        );
+    }
+    if lw.gpu_state_manager.scrollbar_fade_active {
+        leaks.push(
+            "gpu_state_manager.scrollbar_fade_active is still true — this is what kept an idle \
+             scrollbar'd window re-presenting forever"
+                .to_string(),
+        );
+    }
+
+    // -- selection cleared, listeners still armed ---------------------------
+    if lw.text_edit_manager.display_list_dirty {
+        leaks.push(
+            "text_edit_manager.display_list_dirty stayed latched — a permanently dirty flag is a \
+             permanent repaint"
+                .to_string(),
+        );
+    }
+    if lw.text_edit_manager.multi_cursor.is_none() && lw.text_edit_manager.blink.blink_timer_active {
+        leaks.push(
+            "text_edit_manager.blink.blink_timer_active is true with no multi_cursor — the caret \
+             blink outlived the editor"
+                .to_string(),
+        );
+    }
+
+    // -- focus requests that were never resolved ----------------------------
+    if lw.focus_manager.pending_focus_request.is_some() {
+        leaks.push(
+            "focus_manager.pending_focus_request is still Some — a focus change was queued and \
+             never finalized"
+                .to_string(),
+        );
+    }
+    if lw.focus_manager.pending_contenteditable_focus.is_some() {
+        leaks.push(
+            "focus_manager.pending_contenteditable_focus is still Some — contenteditable focus was \
+             queued and never finalized"
+                .to_string(),
+        );
+    }
+
+    // -- and the frame itself must have drained ------------------------------
+    if check_damage {
+        let report = &lw.frame_report;
+        if !report.paint_damage.is_none() {
+            leaks.push(format!(
+                "the last frame still reports PAINT damage ({}, {} rect(s)) — FrameDamage::None was \
+                 never reached",
+                damage_kind_str(&report.paint_damage),
+                report.paint_damage.rect_count()
+            ));
+        }
+        if !report.present_damage.is_none() {
+            leaks.push(format!(
+                "the last frame still reports PRESENT damage ({})",
+                damage_kind_str(&report.present_damage)
+            ));
+        }
+    }
+
+    leaks
+}
+
+/// `assert_state_machines_idle` — E2E_PLAN §(g3), "it ended, but the manager
+/// didn't notice".
+///
+/// The interaction is over; assert that every state machine noticed. Checks, in
+/// one sweep: no active drag, no un-ended gesture session, no active scroll
+/// animation, `scroll_dirty` cleared, `scrollbar_fade_active` cleared, no
+/// latched `display_list_dirty`, no orphan caret blink, no unresolved focus
+/// request, and (unless `damage: false`) `FrameDamage::None` on the last frame.
+///
+/// Parameters: `damage` (bool, default `true`) — include the
+/// `FrameDamage::None` requirement.
+#[cfg(feature = "std")]
+fn eval_assert_state_machines_idle(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let check_damage = params
+        .get("damage")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true);
+
+    let leaks = collect_state_machine_leaks(callback_info, check_damage);
+    if leaks.is_empty() {
+        return AssertionResult::pass(format!(
+            "assert_state_machines_idle: every state machine settled (drag, gesture sessions, \
+             scroll animation, scroll_dirty, scrollbar fade, text-edit dirty/blink, focus \
+             requests{})",
+            if check_damage { ", frame damage" } else { "" }
+        ));
+    }
+    AssertionResult::fail_with(
+        format!(
+            "assert_state_machines_idle: {} state machine(s) did not settle after the interaction \
+             ended",
+            leaks.len()
+        ),
+        "every state machine idle".to_string(),
+        leaks.join("; "),
+    )
+}
+
+/// `assert_manager_invariants` — E2E_PLAN §(g2), the cross-manager consistency
+/// table.
+///
+/// Parameters:
+/// * `managers` — which managers to sweep for dangling keys (X10). Default: all
+///   supported. Known: `scroll`, `hover`, `focus`, `gesture`, `selection`,
+///   `text_edit`, `virtual_view`, `undo_redo`.
+/// * `cross` — which pairwise invariants to check. Default:
+///   `["X2","X3","X5","X6","X9","X10"]`. `X1`, `X4`, `X7` and `X8` are NOT
+///   implemented and asking for one is an explicit failure (see the module
+///   comment above) — never a silent pass.
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_lines)]
+fn eval_assert_manager_invariants(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    const KNOWN_MANAGERS: &[&str] = &[
+        "scroll",
+        "hover",
+        "focus",
+        "gesture",
+        "selection",
+        "text_edit",
+        "virtual_view",
+        "undo_redo",
+    ];
+    const KNOWN_CROSS: &[&str] = &["X2", "X3", "X5", "X6", "X9", "X10"];
+    /// Invariants the plan lists that this crate CANNOT check. Requesting one is
+    /// a hard failure, so no test can go green on an assertion nobody wrote.
+    const UNIMPLEMENTED_CROSS: &[(&str, &str)] = &[
+        (
+            "X1",
+            "scroll_into_view is stateless (free functions that write ScrollManager and forget); \
+             proving the target landed inside the container needs a per-adjustment trace that does \
+             not exist",
+        ),
+        (
+            "X4",
+            "LayoutWindow has NO drag_drop_manager field — the deprecated second Option<DragContext> \
+             does not exist in azul-layout, so the pair cannot disagree",
+        ),
+        (
+            "X7",
+            "needs the pending scroll_cursor_into_view adjustment set, which is not retained \
+             anywhere",
+        ),
+        (
+            "X8",
+            "needs frame-to-frame selection-focus vs scrolled-container history, which is not \
+             retained anywhere",
+        ),
+    ];
+
+    let list = |key: &str, default: &[&str]| -> Result<Vec<String>, String> {
+        match params.get(key) {
+            None => Ok(default.iter().map(|s| (*s).to_string()).collect()),
+            Some(serde_json::Value::Array(a)) => {
+                let mut out = Vec::new();
+                for v in a {
+                    match v.as_str() {
+                        Some(s) => out.push(s.to_string()),
+                        None => return Err(format!("'{key}' must be an array of strings")),
+                    }
+                }
+                Ok(out)
+            }
+            Some(_) => Err(format!("'{key}' must be an array of strings")),
+        }
+    };
+
+    let managers = match list("managers", KNOWN_MANAGERS) {
+        Ok(m) => m,
+        Err(e) => return AssertionResult::fail(format!("assert_manager_invariants: {e}")),
+    };
+    let cross = match list("cross", KNOWN_CROSS) {
+        Ok(c) => c,
+        Err(e) => return AssertionResult::fail(format!("assert_manager_invariants: {e}")),
+    };
+
+    for m in &managers {
+        if !KNOWN_MANAGERS.contains(&m.as_str()) {
+            return AssertionResult::fail(format!(
+                "assert_manager_invariants: manager '{m}' has no key surface this assertion can \
+                 read (known: {}). Refusing to pass an unchecked manager.",
+                KNOWN_MANAGERS.join(", ")
+            ));
+        }
+    }
+    for c in &cross {
+        if let Some((_, why)) = UNIMPLEMENTED_CROSS.iter().find(|(n, _)| n == c) {
+            return AssertionResult::fail(format!(
+                "assert_manager_invariants: invariant {c} is NOT IMPLEMENTED and will not be \
+                 silently passed — {why}"
+            ));
+        }
+        if !KNOWN_CROSS.contains(&c.as_str()) {
+            return AssertionResult::fail(format!(
+                "assert_manager_invariants: unknown invariant '{c}' (known: {})",
+                KNOWN_CROSS.join(", ")
+            ));
+        }
+    }
+
+    let lw = callback_info.get_layout_window();
+    let mut violations: Vec<String> = Vec::new();
+    let mut checked = 0usize;
+    let want_x10 = cross.iter().any(|c| c == "X10");
+
+    // ---- X10: no manager key may refer to a node that no longer exists -----
+    if want_x10 {
+        for m in &managers {
+            match m.as_str() {
+                "scroll" => {
+                    for (dom, node) in lw.scroll_manager.state_keys() {
+                        checked += 1;
+                        if !node_is_live(lw, dom, node) {
+                            violations.push(format!(
+                                "X10 scroll: state key ({}, {}) points at a node that no longer \
+                                 exists",
+                                dom.inner,
+                                node.index()
+                            ));
+                        }
+                    }
+                }
+                "hover" => {
+                    for point in lw.hover_manager.get_active_input_points() {
+                        let Some(hit) = lw.hover_manager.get_current(&point) else {
+                            continue;
+                        };
+                        for (dom, ht) in &hit.hovered_nodes {
+                            let live_dom = lw.layout_results.contains_key(dom);
+                            let ids = ht
+                                .regular_hit_test_nodes
+                                .keys()
+                                .chain(ht.scroll_hit_test_nodes.keys())
+                                .chain(ht.cursor_hit_test_nodes.keys());
+                            for nid in ids {
+                                checked += 1;
+                                if !live_dom || !node_is_live(lw, *dom, *nid) {
+                                    violations.push(format!(
+                                        "X10 hover: hit-test history holds ({}, {}) which no longer \
+                                         exists",
+                                        dom.inner,
+                                        nid.index()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                "focus" => {
+                    if let Some(f) = lw.focus_manager.focused_node {
+                        checked += 1;
+                        if !dom_node_is_live(lw, f) {
+                            violations.push(format!(
+                                "X10 focus: focused_node ({}, {:?}) points at a dead node",
+                                f.dom.inner,
+                                f.node.into_crate_internal().map(|n| n.index())
+                            ));
+                        }
+                    }
+                }
+                "gesture" => {
+                    if let Some(drag) = lw.gesture_drag_manager.active_drag.as_ref() {
+                        if let Some((dom, node)) = drag_source_node(drag) {
+                            checked += 1;
+                            if !node_is_live(lw, dom, node) {
+                                violations.push(format!(
+                                    "X10 gesture: the active {} drag is anchored on ({}, {}), which \
+                                     no longer exists",
+                                    drag_kind_str(drag),
+                                    dom.inner,
+                                    node.index()
+                                ));
+                            }
+                        }
+                    }
+                }
+                "selection" | "text_edit" => {
+                    if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
+                        checked += 1;
+                        if !dom_node_is_live(lw, mc.node_id) {
+                            violations.push(format!(
+                                "X10 {m}: multi_cursor is anchored on ({}, {:?}), which no longer \
+                                 exists",
+                                mc.node_id.dom.inner,
+                                mc.node_id
+                                    .node
+                                    .into_crate_internal()
+                                    .map(|n| n.index())
+                            ));
+                        }
+                    }
+                }
+                "virtual_view" => {
+                    for (dom, node) in lw.virtual_view_manager.all_view_keys() {
+                        checked += 1;
+                        if !node_is_live(lw, dom, node) {
+                            violations.push(format!(
+                                "X10 virtual_view: state key ({}, {}) points at a node that no \
+                                 longer exists (virtual_view is NOT in \
+                                 update_managers_with_node_moves)",
+                                dom.inner,
+                                node.index()
+                            ));
+                        }
+                    }
+                }
+                "undo_redo" => {
+                    for stack in &lw.undo_redo_manager.node_stacks {
+                        checked += 1;
+                        if !node_is_live(lw, ROOT_DOM_ID, stack.node_id) {
+                            violations.push(format!(
+                                "X10 undo_redo: node_stacks holds node {} which no longer exists \
+                                 (undo_redo is NOT in update_managers_with_node_moves)",
+                                stack.node_id.index()
+                            ));
+                        }
+                    }
+                }
+                _ => unreachable!("manager names are validated above"),
+            }
+        }
+    }
+
+    // ---- X2: has_active_animations() ⟺ some state carries an animation -----
+    if cross.iter().any(|c| c == "X2") {
+        checked += 1;
+        let flag = lw.scroll_manager.has_active_animations();
+        let keys = lw.scroll_manager.animating_keys();
+        if flag != !keys.is_empty() {
+            violations.push(format!(
+                "X2 scroll: has_active_animations() = {flag} but {} state(s) carry an animation",
+                keys.len()
+            ));
+        }
+    }
+
+    // ---- X3: an active node/text drag agrees with the hit-test history -----
+    if cross.iter().any(|c| c == "X3") {
+        if let Some(drag) = lw.gesture_drag_manager.active_drag.as_ref() {
+            if let Some((dom, node)) = drag_source_node(drag) {
+                checked += 1;
+                if !node_is_live(lw, dom, node) {
+                    violations.push(format!(
+                        "X3: the active {} drag says ({}, {}) but the hit-test DOM has no such node",
+                        drag_kind_str(drag),
+                        dom.inner,
+                        node.index()
+                    ));
+                }
+                if let Some(hover) = lw.hover_manager.current_hover_node_full() {
+                    checked += 1;
+                    if !dom_node_is_live(lw, hover) {
+                        violations.push(format!(
+                            "X3: hover_manager.current_hover_node_full() = ({}, {:?}) resolves \
+                             against a DOM that no longer has it, while a {} drag is active",
+                            hover.dom.inner,
+                            hover.node.into_crate_internal().map(|n| n.index()),
+                            drag_kind_str(drag)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- X5: the selection anchor's node exists for the whole drag ---------
+    if cross.iter().any(|c| c == "X5") {
+        if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
+            checked += 1;
+            if !dom_node_is_live(lw, mc.node_id) {
+                violations.push(
+                    "X5: the multi-cursor anchor node was removed but the selection was not \
+                     cleared (remap_node_ids must DROP a selection whose node vanished)"
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    // ---- X6: multi_cursor ⇒ focus is set, live and the same node -----------
+    if cross.iter().any(|c| c == "X6") {
+        if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
+            checked += 1;
+            match lw.focus_manager.focused_node {
+                None => violations.push(
+                    "X6: text_edit_manager.multi_cursor is Some but focus_manager.focused_node is \
+                     None — blur must clear both"
+                        .to_string(),
+                ),
+                Some(f) if !dom_node_is_live(lw, f) => violations.push(
+                    "X6: multi_cursor is Some and focus points at a node that no longer exists"
+                        .to_string(),
+                ),
+                Some(_) => {}
+            }
+        }
+    }
+
+    // ---- X9: a scrollbar fade needs a scroll node to fade ------------------
+    if cross.iter().any(|c| c == "X9") {
+        checked += 1;
+        if lw.gpu_state_manager.scrollbar_fade_active && lw.scroll_manager.state_keys().is_empty() {
+            violations.push(
+                "X9: gpu_state_manager.scrollbar_fade_active is true with NO registered scroll \
+                 node — the flag keeps the platform loop generating frames for a scrollbar that \
+                 does not exist"
+                    .to_string(),
+            );
+        }
+    }
+
+    if violations.is_empty() {
+        return AssertionResult::pass(format!(
+            "assert_manager_invariants: {checked} key(s)/invariant(s) hold across [{}] / [{}]",
+            managers.join(","),
+            cross.join(",")
+        ));
+    }
+    AssertionResult::fail_with(
+        format!(
+            "assert_manager_invariants: {} invariant violation(s)",
+            violations.len()
+        ),
+        "no dangling manager state".to_string(),
+        violations.join("; "),
+    )
+}
+
+// ---- assert_composition: the per-step stage trace --------------------------
+
+/// One sample of the manager state, taken by the step loop before every step.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct CompositionSample {
+    drag_active: bool,
+    scroll_animating: bool,
+    focus_set: bool,
+    editing_active: bool,
+    hover_active: bool,
+    damage_patch: bool,
+    damage_full: bool,
+    selection_span: u64,
+    /// Sum of |scroll offset| over every scroll state, in 1/100 logical px, so
+    /// "the container started scrolling" is a plain integer comparison.
+    scroll_offset_sum: i64,
+}
+
+/// The stage trace `assert_composition` reads: for each stage name, the index of
+/// the FIRST step at which it was observed.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Default)]
+struct CompositionTrace {
+    entered: BTreeMap<String, usize>,
+    prev: Option<CompositionSample>,
+    samples: usize,
+}
+
+/// Every stage name `assert_composition` understands. An `expect` entry outside
+/// this list is a hard failure, so a typo can never silently pass.
+#[cfg(feature = "std")]
+const COMPOSITION_STAGES: &[&str] = &[
+    "drag_active",
+    "selection_grew",
+    "scroll_started",
+    "scroll_animating",
+    "damage_patch",
+    "damage_full",
+    "focus_set",
+    "editing_active",
+    "hover_active",
+];
+
+#[cfg(feature = "std")]
+static E2E_COMPOSITION_TRACE: Mutex<Option<CompositionTrace>> = Mutex::new(None);
+
+/// Reset the composition trace. Called at the start of every E2E test and by the
+/// `reset_frame_counters` op (the plan's "checkpoint").
+#[cfg(feature = "std")]
+pub(crate) fn e2e_reset_composition_trace() {
+    if let Ok(mut g) = E2E_COMPOSITION_TRACE.lock() {
+        *g = Some(CompositionTrace::default());
+    }
+}
+
+/// Sample the manager state and fold it into the stage trace. Called by the step
+/// loop in `resume_e2e_continuation` before each step, so the sample observes the
+/// PREVIOUS step's effects after the shell serviced them.
+#[cfg(feature = "std")]
+fn e2e_record_composition_sample(
+    step_index: usize,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) {
+    let lw = callback_info.get_layout_window();
+    let paint = &lw.frame_report.paint_damage;
+    let sample = CompositionSample {
+        drag_active: lw.gesture_drag_manager.active_drag.is_some(),
+        scroll_animating: lw.scroll_manager.has_active_animations(),
+        focus_set: lw.focus_manager.focused_node.is_some(),
+        editing_active: lw.text_edit_manager.multi_cursor.is_some(),
+        hover_active: lw.hover_manager.current_hover_node_full().is_some(),
+        damage_patch: !paint.is_none() && !paint.is_full(),
+        damage_full: paint.is_full(),
+        selection_span: lw
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map_or(0, multi_cursor_span),
+        scroll_offset_sum: lw
+            .scroll_manager
+            .state_keys()
+            .into_iter()
+            .filter_map(|(d, n)| lw.scroll_manager.get_current_offset(d, n))
+            .map(|o| {
+                (f64::from(o.x.abs()) * 100.0) as i64 + (f64::from(o.y.abs()) * 100.0) as i64
+            })
+            .sum(),
+    };
+
+    let Ok(mut guard) = E2E_COMPOSITION_TRACE.lock() else {
+        return;
+    };
+    let trace = guard.get_or_insert_with(CompositionTrace::default);
+
+    let mut entered: Vec<&'static str> = Vec::new();
+    if sample.drag_active {
+        entered.push("drag_active");
+    }
+    if sample.scroll_animating {
+        entered.push("scroll_animating");
+    }
+    if sample.focus_set {
+        entered.push("focus_set");
+    }
+    if sample.editing_active {
+        entered.push("editing_active");
+    }
+    if sample.hover_active {
+        entered.push("hover_active");
+    }
+    if sample.damage_patch {
+        entered.push("damage_patch");
+    }
+    if sample.damage_full {
+        entered.push("damage_full");
+    }
+    match trace.prev.as_ref() {
+        Some(prev) => {
+            if sample.selection_span > prev.selection_span {
+                entered.push("selection_grew");
+            }
+            if sample.scroll_offset_sum != prev.scroll_offset_sum {
+                entered.push("scroll_started");
+            }
+        }
+        None => {
+            if sample.scroll_offset_sum != 0 {
+                entered.push("scroll_started");
+            }
+        }
+    }
+    for name in entered {
+        trace.entered.entry(name.to_string()).or_insert(step_index);
+    }
+    trace.prev = Some(sample);
+    trace.samples += 1;
+}
+
+/// `assert_composition` — E2E_PLAN §(g1), "the managers fire together, in order,
+/// and reach a fixpoint".
+///
+/// Asserts that each named stage was ENTERED over the steps since the last
+/// checkpoint (test start, or `reset_frame_counters`), that they were entered in
+/// the LISTED ORDER, and — unless `fixpoint: false` — that the whole thing then
+/// settled (`assert_state_machines_idle`'s sweep).
+///
+/// Parameters: `expect` (array of stage names, required), `fixpoint` (bool,
+/// default `true`), `damage` (bool, default `false` — whether the fixpoint check
+/// also demands `FrameDamage::None`).
+#[cfg(feature = "std")]
+fn eval_assert_composition(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let Some(serde_json::Value::Array(want)) = params.get("expect") else {
+        return AssertionResult::fail(format!(
+            "assert_composition: missing 'expect' (an array of stage names; known: {})",
+            COMPOSITION_STAGES.join(", ")
+        ));
+    };
+    let mut stages: Vec<String> = Vec::new();
+    for v in want {
+        let Some(s) = v.as_str() else {
+            return AssertionResult::fail("assert_composition: 'expect' must be strings");
+        };
+        if !COMPOSITION_STAGES.contains(&s) {
+            return AssertionResult::fail(format!(
+                "assert_composition: unknown stage '{s}' (known: {})",
+                COMPOSITION_STAGES.join(", ")
+            ));
+        }
+        stages.push(s.to_string());
+    }
+    if stages.is_empty() {
+        return AssertionResult::fail("assert_composition: 'expect' is empty — it asserts nothing");
+    }
+
+    let Ok(guard) = E2E_COMPOSITION_TRACE.lock() else {
+        return AssertionResult::fail("assert_composition: composition trace lock poisoned");
+    };
+    let Some(trace) = guard.as_ref() else {
+        return AssertionResult::fail(
+            "assert_composition: no composition trace was recorded (the step loop never sampled — \
+             this op only works inside an E2E scenario run)",
+        );
+    };
+    if trace.samples == 0 {
+        return AssertionResult::fail(
+            "assert_composition: the composition trace is empty (0 samples since the last \
+             checkpoint)",
+        );
+    }
+
+    let seen: Vec<String> = {
+        let mut v: Vec<(usize, String)> = trace
+            .entered
+            .iter()
+            .map(|(k, i)| (*i, k.clone()))
+            .collect();
+        v.sort_unstable();
+        v.into_iter().map(|(i, k)| format!("{k}@{i}")).collect()
+    };
+
+    let missing: Vec<&str> = stages
+        .iter()
+        .filter(|s| !trace.entered.contains_key(s.as_str()))
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        return AssertionResult::fail_with(
+            format!(
+                "assert_composition: {} of the expected stage(s) were never entered",
+                missing.len()
+            ),
+            stages.join(" -> "),
+            format!(
+                "missing [{}]; observed [{}] over {} sample(s)",
+                missing.join(", "),
+                seen.join(", "),
+                trace.samples
+            ),
+        );
+    }
+
+    let mut last = 0usize;
+    for s in &stages {
+        let at = trace.entered[s.as_str()];
+        if at < last {
+            return AssertionResult::fail_with(
+                "assert_composition: the stages were entered OUT OF ORDER".to_string(),
+                stages.join(" -> "),
+                format!("observed [{}]", seen.join(", ")),
+            );
+        }
+        last = at;
+    }
+    drop(guard);
+
+    if params
+        .get("fixpoint")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true)
+    {
+        let check_damage = params
+            .get("damage")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let leaks = collect_state_machine_leaks(callback_info, check_damage);
+        if !leaks.is_empty() {
+            return AssertionResult::fail_with(
+                format!(
+                    "assert_composition: the stages all fired but the timeline never reached a \
+                     fixpoint ({} state machine(s) still running)",
+                    leaks.len()
+                ),
+                "every state machine idle after the last stage".to_string(),
+                leaks.join("; "),
+            );
+        }
+    }
+
+    AssertionResult::pass(format!(
+        "assert_composition: [{}] entered in order (observed [{}])",
+        stages.join(" -> "),
+        seen.join(", ")
+    ))
+}
+
+// ---- assert_damage_sound ---------------------------------------------------
+
+/// The damage-driven framebuffer of the last rendered frame, published by the
+/// headless runner (`crate::e2e::runner`). `(width, height, RGBA)`.
+///
+/// This is the INCREMENTAL side of the plan's pixel-identity check; the full
+/// repaint side is `render_current()` (`CallbackInfo::take_screenshot`, which
+/// re-renders from scratch with a fresh glyph cache). A host that does not
+/// publish it — the DLL, whose frames live on the GPU — makes
+/// `"pixel_identity": true` FAIL rather than silently skip.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+static E2E_PRESENTED_FRAME: Mutex<Option<(u32, u32, Vec<u8>)>> = Mutex::new(None);
+
+/// Publish the damage-driven framebuffer of the frame just rendered.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+pub(crate) fn e2e_set_presented_frame(pixmap: &azul_layout::cpurender::AzulPixmap) {
+    if let Ok(mut g) = E2E_PRESENTED_FRAME.lock() {
+        *g = Some((pixmap.width(), pixmap.height(), pixmap.data().to_vec()));
+    }
+}
+
+/// Drop the published framebuffer (start of a run).
+#[cfg(all(feature = "std", feature = "cpurender"))]
+pub(crate) fn e2e_clear_presented_frame() {
+    if let Ok(mut g) = E2E_PRESENTED_FRAME.lock() {
+        *g = None;
+    }
+}
+
+/// `assert_damage_sound` — E2E_PLAN §(c), damage soundness in BOTH directions.
+///
+/// The global, stronger form of `assert_damage_covers_changes`. It differs in
+/// four ways:
+///
+/// 1. `assert_damage_covers_changes` PASSES TRIVIALLY when the damage is `Full`
+///    ("a full repaint trivially covers every changed pixel"). Here a full
+///    repaint is still measured for TIGHTNESS, so over-paint cannot hide behind
+///    it, and `forbid_full` can reject it outright.
+/// 2. It checks PRESENT ⊇ PAINT, the invariant `FrameReport` documents and
+///    nothing asserted.
+/// 3. It adds the plan's TIGHTNESS bound: `area(damage) <=
+///    max_overpaint_ratio * area(bbox of the changed pixels)`.
+/// 4. With `pixel_identity: true` it additionally compares the damage-driven
+///    framebuffer against an independent full repaint — two different code paths
+///    for the same function.
+///
+/// Parameters: `vs` (snapshot name, required), `max_overpaint_ratio` (default
+/// 4.0), `forbid_full` (default false), `threshold` (default 2), `slack_px`
+/// (default 1), `pixel_identity` (default false).
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_lines)]
+fn eval_assert_damage_sound(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    #[cfg(not(feature = "cpurender"))]
+    {
+        let _ = (params, callback_info);
+        return AssertionResult::fail("assert_damage_sound: cpurender feature not enabled");
+    }
+    #[cfg(feature = "cpurender")]
+    {
+        let Some(vs) = params.get("vs").and_then(|v| v.as_str()) else {
+            return AssertionResult::fail(
+                "assert_damage_sound: missing 'vs' (the snapshot_frame to diff against)",
+            );
+        };
+        let threshold = params
+            .get("threshold")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(2) as u8;
+        let slack = params
+            .get("slack_px")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(1.0) as f32;
+        let max_overpaint = params
+            .get("max_overpaint_ratio")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(4.0);
+        let forbid_full = params
+            .get("forbid_full")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+
+        let report = callback_info.get_layout_window().frame_report.clone();
+        let paint = report.accumulated_paint_damage.clone();
+        let present = report.accumulated_present_damage.clone();
+
+        if forbid_full && paint.is_full() {
+            return AssertionResult::fail_with(
+                "assert_damage_sound: the repaint was FULL, but this case is declared incremental"
+                    .to_string(),
+                "rects".to_string(),
+                "full".to_string(),
+            );
+        }
+
+        let before = match load_snapshot(vs) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_damage_sound: {e}")),
+        };
+        let after = match render_current(callback_info) {
+            Ok(p) => p,
+            Err(e) => return AssertionResult::fail(format!("assert_damage_sound: {e}")),
+        };
+        if before.width() != after.width() || before.height() != after.height() {
+            return AssertionResult::fail(
+                "assert_damage_sound: frame size changed between the snapshot and now — the \
+                 comparison is meaningless",
+            );
+        }
+
+        let logical_w = callback_info
+            .get_current_window_state()
+            .size
+            .dimensions
+            .width
+            .max(1.0);
+        let scale = after.width() as f32 / logical_w;
+        let to_px = |d: &azul_layout::window::FrameDamage| -> Vec<(f32, f32, f32, f32)> {
+            d.rects()
+                .unwrap_or(&[])
+                .iter()
+                .map(|r| {
+                    (
+                        r.origin.x * scale - slack,
+                        r.origin.y * scale - slack,
+                        (r.origin.x + r.size.width) * scale + slack,
+                        (r.origin.y + r.size.height) * scale + slack,
+                    )
+                })
+                .collect()
+        };
+        let paint_rects = to_px(&paint);
+        let present_rects = to_px(&present);
+
+        // ---- (1) COVERAGE: every changed pixel lies inside the paint damage --
+        let (bd, ad) = (before.data(), after.data());
+        let w = after.width() as usize;
+        let h = after.height() as usize;
+        let mut changed = 0u64;
+        let mut uncovered = 0u64;
+        let mut first: Option<(usize, usize)> = None;
+        let (mut bx0, mut by0, mut bx1, mut by1) = (usize::MAX, usize::MAX, 0usize, 0usize);
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) * 4;
+                if !(0..4).any(|c| bd[i + c].abs_diff(ad[i + c]) > threshold) {
+                    continue;
+                }
+                changed += 1;
+                bx0 = bx0.min(x);
+                by0 = by0.min(y);
+                bx1 = bx1.max(x + 1);
+                by1 = by1.max(y + 1);
+                if paint.is_full() {
+                    continue;
+                }
+                let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                if !paint_rects
+                    .iter()
+                    .any(|(x0, y0, x1, y1)| px >= *x0 && px < *x1 && py >= *y0 && py < *y1)
+                {
+                    uncovered += 1;
+                    if first.is_none() {
+                        first = Some((x, y));
+                    }
+                }
+            }
+        }
+        if uncovered > 0 {
+            let (fx, fy) = first.unwrap_or((0, 0));
+            return AssertionResult::fail_with(
+                "assert_damage_sound: UNDER-PAINT — the damage set does not cover every changed \
+                 pixel, so those pixels are stale on a real screen"
+                    .to_string(),
+                "0 uncovered changed pixels".to_string(),
+                format!("{uncovered} uncovered of {changed} changed, first at ({fx}, {fy})"),
+            );
+        }
+        if changed > 0 && paint.is_none() {
+            return AssertionResult::fail_with(
+                format!(
+                    "assert_damage_sound: {changed} pixels changed but NO damage was reported"
+                ),
+                "damage != none".to_string(),
+                "none".to_string(),
+            );
+        }
+
+        // ---- (2) PRESENT ⊇ PAINT --------------------------------------------
+        if !present.is_full() && !paint.is_full() {
+            for (x0, y0, x1, y1) in &paint_rects {
+                let (cx, cy) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
+                let covered = present_rects
+                    .iter()
+                    .any(|(a, b, c, d)| cx >= *a && cx < *c && cy >= *b && cy < *d);
+                if !covered {
+                    return AssertionResult::fail_with(
+                        "assert_damage_sound: a PAINT rect is not inside the PRESENT damage — a \
+                         region was rasterised but never pushed to the screen"
+                            .to_string(),
+                        "present ⊇ paint".to_string(),
+                        format!(
+                            "paint rect ({x0:.1},{y0:.1})-({x1:.1},{y1:.1}) outside the {} present \
+                             rect(s)",
+                            present_rects.len()
+                        ),
+                    );
+                }
+            }
+        }
+
+        // ---- (3) TIGHTNESS ---------------------------------------------------
+        let mut tightness = String::from("n/a (nothing changed)");
+        if changed > 0 {
+            #[allow(clippy::cast_precision_loss)]
+            let bbox_area = ((bx1 - bx0) * (by1 - by0)) as f64;
+            // `FrameDamage::area` already answers `window_area` for `Full`.
+            let logical_area = window_logical_area(callback_info);
+            let damage_area =
+                f64::from(paint.area(logical_area).max(0.0)) * f64::from(scale * scale);
+            let ratio = damage_area / bbox_area.max(1.0);
+            tightness = format!("{ratio:.2}x the changed bbox");
+            if ratio > max_overpaint {
+                return AssertionResult::fail_with(
+                    format!(
+                        "assert_damage_sound: OVER-PAINT — the {} damage is far larger than the \
+                         region that actually changed",
+                        damage_kind_str(&paint)
+                    ),
+                    format!("area <= {max_overpaint:.2} x the changed bbox"),
+                    format!(
+                        "{ratio:.2}x (damage {damage_area:.0} px^2, changed bbox {bbox_area:.0} \
+                         px^2 around ({bx0},{by0})-({bx1},{by1}))"
+                    ),
+                );
+            }
+        }
+
+        // ---- (4) PIXEL IDENTITY (opt-in) ------------------------------------
+        let mut identity = String::new();
+        if params
+            .get("pixel_identity")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            let presented = E2E_PRESENTED_FRAME.lock().ok().and_then(|g| g.clone());
+            let Some((pw, ph, data)) = presented else {
+                return AssertionResult::fail(
+                    "assert_damage_sound: 'pixel_identity' was requested but this host does not \
+                     publish the damage-driven framebuffer (only the headless runner does). \
+                     Refusing to skip the check silently.",
+                );
+            };
+            if pw != after.width() || ph != after.height() {
+                return AssertionResult::fail_with(
+                    "assert_damage_sound: the damage-driven framebuffer has a different size than \
+                     the full repaint"
+                        .to_string(),
+                    format!("{}x{}", after.width(), after.height()),
+                    format!("{pw}x{ph}"),
+                );
+            }
+            let ad2 = after.data();
+            let mut diff = 0u64;
+            let mut firstd: Option<usize> = None;
+            for (i, (a, b)) in data.iter().zip(ad2.iter()).enumerate() {
+                if a.abs_diff(*b) > threshold {
+                    diff += 1;
+                    if firstd.is_none() {
+                        firstd = Some(i / 4);
+                    }
+                }
+            }
+            if diff > 0 {
+                let p = firstd.unwrap_or(0);
+                return AssertionResult::fail_with(
+                    "assert_damage_sound: the incrementally-repainted buffer does NOT match an \
+                     independent full repaint — the incremental path produced different pixels"
+                        .to_string(),
+                    "pixel-identical".to_string(),
+                    format!(
+                        "{diff} channel(s) differ, first at pixel ({}, {})",
+                        p % w,
+                        p / w
+                    ),
+                );
+            }
+            identity = String::from(", pixel-identical to a full repaint");
+        }
+
+        AssertionResult::pass(format!(
+            "assert_damage_sound: {changed} changed px all covered by the {} paint damage ({} \
+             rect(s)), present ⊇ paint, tightness {tightness}{identity}",
+            damage_kind_str(&paint),
+            paint.rect_count()
+        ))
+    }
+}
+
 // ==================== E2E Continuation ====================
 
 /// Resume an E2E test run that was paused for relayout.
@@ -5283,6 +6446,10 @@ fn resume_e2e_continuation(
             cont.current_step_results.clear();
             cont.current_test_failed = false;
             cont.test_start = std::time::Instant::now();
+            // The composition trace is process-global (an assertion only ever
+            // holds `&CallbackInfo`), so it must be zeroed per test or stages
+            // from the previous scenario would leak into this one.
+            e2e_reset_composition_trace();
         }
 
         // Apply the test's `setup` block (window size / DPI / app state) BEFORE
@@ -5347,6 +6514,12 @@ fn resume_e2e_continuation(
             let step_index = cont.step_idx;
             let step_start = std::time::Instant::now();
             let op = step.op.as_str();
+
+            // Sample the manager state for `assert_composition`'s stage trace.
+            // Taken BEFORE the step runs, so it observes the previous step's
+            // effects after the shell serviced them (a state-changing op yields,
+            // and the resume lands here).
+            e2e_record_composition_sample(step_index, callback_info);
 
             // `wait` yields with a resume deadline instead of sleeping on the
             // event-loop thread (an inline sleep would block the very relayout
@@ -8402,6 +9575,8 @@ pub fn process_debug_event(
             // reset goes through a generation counter — see
             // `azul_layout::window::request_frame_report_reset`).
             azul_layout::window::request_frame_report_reset();
+            // Same checkpoint semantics for `assert_composition`'s stage trace.
+            e2e_reset_composition_trace();
             send_ok(request, None, None);
         }
 

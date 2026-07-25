@@ -1,0 +1,60 @@
+{
+  "name": "manager_invariants",
+  "description": "CROSS-MANAGER CONSISTENCY (E2E_PLAN g2). Drives focus + scroll so the focus/scroll/hover managers actually hold keys, then sweeps them: X10 (no manager key may name a node that no longer exists in layout_results), X2 (has_active_animations() <=> some AnimatedScrollState carries an animation), X3 (an active drag agrees with the hit-test DOM), X5 (a multi-cursor anchor whose node vanished must have been cleared), X6 (multi_cursor => focus is set and live), X9 (scrollbar_fade_active needs a registered scroll node). Then DELETES a node mid-flight and re-sweeps: the managers must not be left holding a key into the removed subtree. FAILURE INJECTION EVIDENCE: making node_is_live() ignore layout_results (always false) turns the sweep red with 'X10 scroll: state key (0, N) points at a node that no longer exists'; asking for an unimplemented invariant (\"cross\": [\"X1\"]) fails loudly instead of passing.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "  <div id=\"f2\" tabindex=\"0\" class=\"item\">two</div>",
+        "  <div id=\"scroller\">",
+        "    <div class=\"row\" id=\"r0\"></div>",
+        "    <div class=\"row\" id=\"r1\"></div>",
+        "    <div class=\"row\" id=\"r2\"></div>",
+        "    <div class=\"row\" id=\"r3\"></div>",
+        "    <div class=\"row\" id=\"r4\"></div>",
+        "    <div class=\"row\" id=\"r5\"></div>",
+        "  </div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".item { width: 120px; height: 30px; background: silver; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: green; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_exists", "selector": "#scroller" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "wait", "ms": 1 },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 1 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+
+    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 100 },
+    { "op": "wait", "ms": 1 },
+
+    { "op": "assert_manager_invariants" },
+
+    { "op": "delete_node", "node_id": 23 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    {
+      "op": "assert_manager_invariants",
+      "managers": ["scroll", "hover", "focus", "gesture", "selection", "text_edit", "virtual_view", "undo_redo"],
+      "cross": ["X2", "X3", "X5", "X6", "X9", "X10"]
+    }
+  ]
+}

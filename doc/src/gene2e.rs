@@ -385,6 +385,18 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_display_list",       Some("geometry — `azul-doc reftest` owns layout correctness")),
     ("get_virtual_view_layout",Some("geometry — `azul-doc reftest` owns layout correctness")),
 
+    // -- ALLOW: the manager / composition / damage-soundness assertions ------
+    // E2E_PLAN §(c)/(g1)/(g2)/(g3). Classified explicitly rather than left to
+    // the `assert_*`-is-allowed fallback, because these four are the ones the
+    // corpus was WRITTEN against and a silent reclassification would be
+    // invisible. All four are real reads of `LayoutWindow` state that can fail;
+    // none of them is a stub. `assert_composition` additionally needs the
+    // per-step stage trace, so it only means anything inside a scenario run.
+    ("assert_state_machines_idle", None),
+    ("assert_manager_invariants",  None),
+    ("assert_composition",         None),
+    ("assert_damage_sound",        None),
+
     // -- DENY: assertions that leave the behaviour surface ------------------
     ("assert_layout",     Some("geometry — `azul-doc reftest` owns layout correctness")),
     ("assert_screenshot", Some("needs a reference PNG the generator cannot have; assert \
