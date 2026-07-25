@@ -189,31 +189,71 @@ impl From<StdInstant> for Instant {
     }
 }
 
-/// Injectable test-clock offset, in milliseconds, added to every `Instant::now()`.
-///
-/// Driven by the E2E `tick_ms` op. Everything time-driven in the engine — scroll
-/// momentum, scrollbar fade, cursor blink, animations, timers — reads the clock
-/// through `Instant::now()` / `get_system_time_libstd()`, so advancing this
-/// offset moves all of them forward by exactly N ms WITHOUT sleeping. That is
-/// what makes "drive the animation to completion and assert it converges"
-/// deterministic instead of a `wait { ms }` race.
-///
-/// Zero in production; only the debug-server `tick_ms` op ever writes it.
 #[cfg(feature = "std")]
-pub static TEST_CLOCK_OFFSET_MS: core::sync::atomic::AtomicU64 =
-    core::sync::atomic::AtomicU64::new(0);
-
-/// Advance the injectable test clock by `ms` (E2E `tick_ms`).
-#[cfg(feature = "std")]
-pub fn advance_test_clock_ms(ms: u64) -> u64 {
-    TEST_CLOCK_OFFSET_MS.fetch_add(ms, Ordering::SeqCst) + ms
+std::thread_local! {
+    /// Injectable test-clock offset, in milliseconds, added to every
+    /// `Instant::now()` **on this thread**.
+    ///
+    /// Driven by the E2E `tick_ms` op. Everything time-driven in the engine —
+    /// scroll momentum, scrollbar fade, cursor blink, animations, timers —
+    /// reads the clock through `Instant::now()` / `get_system_time_libstd()`,
+    /// so advancing this offset moves all of them forward by exactly N ms
+    /// WITHOUT sleeping. That is what makes "drive the animation to completion
+    /// and assert it converges" deterministic instead of a `wait { ms }` race.
+    ///
+    /// Zero in production; only the debug-server `tick_ms` op ever writes it.
+    ///
+    /// # Why this is a thread-local and not a `static AtomicU64`
+    ///
+    /// It used to be process-global, which made the clock a shared mutable
+    /// resource: every scenario that ticked had to run SERIALLY, or scenario
+    /// A's `tick_ms` would shift scenario B's animations mid-frame. Since the
+    /// corpus is dominated by idle/animation scenarios, that serialised
+    /// essentially the whole suite.
+    ///
+    /// The read path is [`GetSystemTimeCallbackType`] — a bare
+    /// `extern "C" fn() -> Instant` in the public C API — plus ~140 direct
+    /// `Instant::now()` calls. Neither can carry a window, an app or a clock
+    /// handle without either breaking the C ABI for every language binding or
+    /// threading a time source through every call site including `no_std`
+    /// ones. A thread-local is the narrowest scope a context-free C callback
+    /// can read: it turns "the whole process" into "the thread that owns this
+    /// scenario", which is exactly the ownership boundary the parallel E2E
+    /// runner already establishes (one scenario runs start-to-finish on one
+    /// worker thread). [`reset_test_clock`] makes that boundary explicit.
+    static TEST_CLOCK_OFFSET_MS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
-/// The current test-clock offset in ms (0 unless `tick_ms` was used).
+/// Advance the injectable test clock by `ms` (E2E `tick_ms`), returning the new
+/// offset. Affects only the CURRENT thread — see [`TEST_CLOCK_OFFSET_MS`].
+#[cfg(feature = "std")]
+#[must_use]
+pub fn advance_test_clock_ms(ms: u64) -> u64 {
+    TEST_CLOCK_OFFSET_MS.with(|c| {
+        let next = c.get().saturating_add(ms);
+        c.set(next);
+        next
+    })
+}
+
+/// The current test-clock offset in ms (0 unless `tick_ms` was used on this
+/// thread).
 #[cfg(feature = "std")]
 #[must_use]
 pub fn test_clock_offset_ms() -> u64 {
-    TEST_CLOCK_OFFSET_MS.load(Ordering::SeqCst)
+    TEST_CLOCK_OFFSET_MS.with(core::cell::Cell::get)
+}
+
+/// Put this thread's test clock back on real time.
+///
+/// Worker threads are REUSED across scenarios, so without this the next
+/// scenario scheduled onto this thread would inherit the previous one's
+/// accumulated offset — the same cross-contamination the process-global
+/// offset had, just at thread granularity. The E2E runner calls this at the
+/// start of every scenario.
+#[cfg(feature = "std")]
+pub fn reset_test_clock() {
+    TEST_CLOCK_OFFSET_MS.with(|c| c.set(0));
 }
 
 /// `std::time::Instant::now()` shifted by the injectable test-clock offset.
@@ -1032,6 +1072,48 @@ mod tests {
     }
     fn sys_dur(secs: u64, nanos: u32) -> Duration {
         Duration::System(SystemTimeDiff { secs, nanos })
+    }
+
+    /// The property the parallel E2E runner depends on: a `tick_ms` on one
+    /// thread must not shift any other thread's clock. This is what allows a
+    /// scenario that ticks to run in parallel with every other scenario
+    /// instead of being serialised behind a process-global offset.
+    #[test]
+    #[cfg(feature = "std")]
+    fn test_clock_offset_is_per_thread_not_process_global() {
+        reset_test_clock();
+        assert_eq!(test_clock_offset_ms(), 0);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        let other = std::thread::spawn(move || {
+            // Observed AFTER the main thread has advanced its own clock by 5 s.
+            go_rx.recv().expect("handshake");
+            let seen_after_main_ticked = test_clock_offset_ms();
+            let _ = advance_test_clock_ms(7);
+            tx.send((seen_after_main_ticked, test_clock_offset_ms()))
+                .expect("send");
+        });
+
+        assert_eq!(advance_test_clock_ms(5_000), 5_000);
+        go_tx.send(()).expect("handshake");
+        let (other_before, other_after) = rx.recv().expect("recv");
+        other.join().expect("join");
+
+        assert_eq!(
+            other_before, 0,
+            "a tick on the main thread leaked into another thread's clock"
+        );
+        assert_eq!(other_after, 7, "the other thread must own its own offset");
+        assert_eq!(
+            test_clock_offset_ms(),
+            5_000,
+            "another thread's tick leaked into the main thread's clock"
+        );
+
+        // And a reset really is a reset (worker threads are reused).
+        reset_test_clock();
+        assert_eq!(test_clock_offset_ms(), 0);
     }
 
     #[test]

@@ -96,9 +96,11 @@ fn run_all_e2e_scenarios() {
     // are independent of directory-iteration order.
     tests.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Serial on purpose. The CLI runner splits scenarios that drive the GLOBAL
-    // test clock out of its thread pool; running everything serially here gets
-    // the same guarantee without duplicating that partition.
+    // Serial on purpose — not for isolation (a scenario owns its `LayoutWindow`,
+    // its `E2eSession` and, since the test clock became thread-scoped, its own
+    // clock; the CLI runner runs the same scenarios fully in parallel), but
+    // because this gate is small and a serial run keeps the report order and any
+    // failure trace trivially reproducible.
     let results: Vec<E2eTestResult> = tests.iter().map(run_e2e_test).collect();
 
     let (report, verdict) = render_report(&tests, &results);

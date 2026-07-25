@@ -12,10 +12,12 @@
 //! corpus tractable. It is what the `e2e_headless` CI job runs.
 //!
 //! Parallelism is sound because a scenario owns its state: `run_e2e_test` builds
-//! its own `LayoutWindow` (so its own DOM mount override and E2E scratch —
-//! frame/resource snapshots, composition trace, presented frame) and its own
-//! `E2eSession`. The single remaining exception is the process-global test clock
-//! — see [`uses_global_clock`].
+//! its own `LayoutWindow` (so its own DOM mount override, E2E scratch —
+//! frame/resource snapshots, composition trace, presented frame — and its own
+//! frame-report reset generation) and its own `E2eSession`, and it starts by
+//! resetting the E2E test clock, which is scoped to the running THREAD
+//! (`azul_core::task`). Rayon runs a scenario's closure start-to-finish on one
+//! worker, so `tick_ms` moves that scenario's clock and no other's.
 //!
 //! `AZ_E2E` itself is unchanged — this is an additional front-end over the same
 //! runner, not a replacement.
@@ -23,12 +25,8 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context};
-use azul_layout::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTest, E2eTestResult};
+use azul_layout::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTestResult};
 use rayon::prelude::*;
-
-/// The op that advances the process-global E2E test clock
-/// (`azul_core::task::advance_test_clock_ms`).
-const GLOBAL_CLOCK_OP: &str = "tick_ms";
 
 /// Parsed `e2e` subcommand options.
 pub struct E2eRunOptions {
@@ -100,23 +98,6 @@ impl E2eRunOptions {
     }
 }
 
-/// Whether `test` advances the process-global E2E test clock.
-///
-/// `tick_ms` calls `azul_core::task::advance_test_clock_ms`, a process-wide
-/// monotonic offset added to every `Instant::now()` the engine sees. It is the
-/// ONE piece of shared mutable state a scenario can still write, and it is not
-/// per-window-able: the read path is `GetSystemTimeCallback`, a bare
-/// `extern "C" fn()` in the public C API with nowhere to carry a window.
-///
-/// A concurrent tick would jump an unrelated scenario's clock forward and
-/// complete its in-flight animations early — a silently wrong verdict, which is
-/// exactly what this suite exists to catch. So these scenarios run SERIALLY,
-/// before the parallel phase; during the parallel phase the offset is constant,
-/// and a constant shift is invisible (only deltas matter).
-fn uses_global_clock(test: &E2eTest) -> bool {
-    test.steps.iter().any(|s| s.op == GLOBAL_CLOCK_OP)
-}
-
 /// Run the scenarios and print a cargo-test-style report.
 ///
 /// Returns the process exit code (0 green, 1 red) rather than exiting, so the
@@ -159,44 +140,36 @@ pub fn run(opts: &E2eRunOptions) -> anyhow::Result<i32> {
         std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
     });
 
-    // Each scenario owns its state — its own `LayoutWindow` (hence its own
-    // mount override and E2E scratch) and its own `E2eSession`. The only
-    // exception is the global test clock; see `uses_global_clock`.
-    let (serial, parallel): (Vec<&E2eTest>, Vec<&E2eTest>) =
-        tests.iter().partition(|t| uses_global_clock(t));
-
+    // Every scenario runs in parallel: each owns its `LayoutWindow` (mount
+    // override, E2E scratch, frame-report reset generation), its `E2eSession`
+    // and — since the test clock became thread-scoped and `run_e2e_test` resets
+    // it — its own clock. Rayon never migrates a running closure, so a scenario
+    // stays on the worker whose clock it is ticking.
     eprintln!(
-        "\nrunning {} e2e scenario(s) — {} parallel on {jobs} thread(s), {} serial (global test \
-         clock)",
+        "\nrunning {} e2e scenario(s) in parallel on {jobs} thread(s)",
         tests.len(),
-        parallel.len(),
-        serial.len(),
     );
 
-    let mut results: Vec<E2eTestResult> =
-        serial.into_iter().map(|t| run_e2e_test(t)).collect();
-
-    if !parallel.is_empty() {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(jobs)
-            .thread_name(|i| format!("e2e-{i}"))
-            .build()
-            .context("failed to build the e2e thread pool")?;
-        results.extend(
-            pool.install(|| {
-                parallel
-                    .par_iter()
-                    .map(|t| run_e2e_test(t))
-                    .collect::<Vec<_>>()
-            }),
-        );
-    }
+    let started = std::time::Instant::now();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(jobs)
+        .thread_name(|i| format!("e2e-{i}"))
+        .build()
+        .context("failed to build the e2e thread pool")?;
+    let mut results: Vec<E2eTestResult> = pool.install(|| {
+        tests
+            .par_iter()
+            .map(|t| run_e2e_test(t))
+            .collect::<Vec<_>>()
+    });
+    let wall = started.elapsed();
 
     // Completion order is nondeterministic; the report must not be.
     results.sort_by(|a, b| a.name.cmp(&b.name));
 
     let (report, verdict) = render_report(&tests, &results);
     eprint!("{report}");
+    eprintln!("wall clock: {:.2}s", wall.as_secs_f64());
 
     Ok(verdict.exit_code())
 }

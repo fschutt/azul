@@ -947,6 +947,12 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
 /// results) — the same value the HTTP `run_e2e_tests` command produces.
 #[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
+    // Start this scenario on REAL time. The `tick_ms` op advances a clock that
+    // is scoped to the calling thread, and worker threads are reused across
+    // scenarios — without this reset the next scenario scheduled onto this
+    // thread would start with the previous one's accumulated offset.
+    azul_core::task::reset_test_clock();
+
     // This scenario's own scheduler slot. It is a LOCAL, not a `Runner` field,
     // only because `Runner::with_callback_info` takes `&mut self` and the
     // dispatcher needs `&mut` on the session at the same time — borrowck, not
