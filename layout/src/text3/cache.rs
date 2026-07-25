@@ -1404,7 +1404,40 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// rebuilt system cache) instead of assigning the field directly.
     pub fn replace_fc_cache(&mut self, fc_cache: FcFontCache) {
         self.fc_cache = fc_cache;
+        self.drop_dangling_memory_faces();
         self.register_builtin_mock_fonts();
+    }
+
+    /// Evict every entry of the memory-font INDEX (`memory_families`,
+    /// `vf_bake_cache`) whose `FontId` the *current* `fc_cache` does not know.
+    ///
+    /// `memory_families` is not a font store, it is an index INTO the cache: the
+    /// bytes live in `fc_cache`, the index only remembers which `FontId` a
+    /// (family, weight, slant) resolves to. Swapping the cache therefore
+    /// invalidates the whole index at once, and leaving it in place is worse
+    /// than losing it — a dangling id still MATCHES during chain resolution, so
+    /// `font-family: "X"` resolves "successfully" to an id that
+    /// `load_missing_for_chains` can no longer load, and the text silently
+    /// re-measures with the fallback font's metrics (line-height 1.2 instead of
+    /// the face's own ascent/descent).
+    ///
+    /// Re-registering the built-in mock fonts does NOT repair this by itself:
+    /// `register_named_font` cannot find the family in the fresh cache, so it
+    /// mints a NEW `FontId`; `index_memory_face` de-duplicates by `FontId`, so
+    /// the new face is APPENDED next to the dead one; and `pick_memory_face`
+    /// returns the FIRST face of the best weight — i.e. the dead one, forever.
+    /// (It also grew the index by one dead face per cache swap, and the DLL
+    /// swaps on every `regenerate_layout`.)
+    fn drop_dangling_memory_faces(&mut self) {
+        let fc_cache = &self.fc_cache;
+        self.memory_families.retain(|_, faces| {
+            faces.retain(|f| fc_cache.is_memory_font(&f.font_match.id));
+            !faces.is_empty()
+        });
+        // Same reasoning for the variable-font bake cache: its ids are handed
+        // straight back to `index_memory_face` on the "already baked" path.
+        self.vf_bake_cache
+            .retain(|_, baked| baked.iter().all(|(id, _)| fc_cache.is_memory_font(id)));
     }
 
     /// Remove a font from the cache
@@ -11618,6 +11651,75 @@ mod shape_outside_and_ruby_tests {
         // Narrower base, wider annotation: reserved inline-size = annotation width.
         let (w2, _) = ruby_reserved_box(20.0, 50.0, 24.0, 12.0);
         assert_eq!(w2, 50.0, "a long annotation widens the reserved box");
+    }
+}
+
+#[cfg(test)]
+mod font_cache_swap_tests {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    /// The invariant `memory_families` exists to uphold: it is an INDEX into
+    /// `fc_cache`, so every `FontId` it hands to chain resolution must still be
+    /// loadable from the cache that is live *right now*. A dangling id does not
+    /// fail loudly — it resolves, then fails to load, and the text silently
+    /// re-measures with the fallback font's metrics.
+    fn assert_index_is_live(m: &FontManager<FontRef>) {
+        for (family, faces) in &m.memory_families {
+            for f in faces {
+                assert!(
+                    m.fc_cache.is_memory_font(&f.font_match.id),
+                    "`{family}` is indexed with {:?}, which the live fc_cache cannot load",
+                    f.font_match.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn swapping_the_fc_cache_does_not_strand_a_dead_memory_font_id() {
+        let mut m: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("FontManager::new must not fail");
+        let norm = rust_fontconfig::utils::normalize_family_name("Azul Mock Mono");
+
+        let before = m
+            .memory_families
+            .get(&norm)
+            .cloned()
+            .expect("the built-in mock fonts are registered by every constructor");
+        assert_eq!(before.len(), 1);
+        assert_index_is_live(&m);
+
+        // Exactly what the DLL does at the top of EVERY `regenerate_layout`.
+        for swap in 1..=3 {
+            m.replace_fc_cache(FcFontCache::default());
+            assert_index_is_live(&m);
+            let faces = m
+                .memory_families
+                .get(&norm)
+                .expect("the mock fonts are re-registered into the new cache");
+            assert_eq!(
+                faces.len(),
+                1,
+                "swap {swap} appended a face instead of replacing it: the index grows by one \
+                 dead face per cache swap and `pick_memory_face` keeps returning the first \
+                 (dead) one"
+            );
+        }
+
+        // Non-vacuity: the fresh caches really were empty, so the face WAS
+        // re-minted under a new id — the old id is exactly the one that used to
+        // be stranded at the head of the list.
+        let after = &m.memory_families[&norm];
+        assert_ne!(
+            after[0].font_match.id, before[0].font_match.id,
+            "a fresh FcFontCache cannot already contain the mock font"
+        );
+        assert!(
+            !m.fc_cache.is_memory_font(&before[0].font_match.id),
+            "the pre-swap id must be dead — otherwise this test proves nothing"
+        );
     }
 }
 
