@@ -325,7 +325,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     // Skip <!DOCTYPE ...>
     let mut xml = xml.trim();
-    if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
+    if xml.len() > 9 && xml.is_char_boundary(9) && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
         if let Some(pos) = xml.find('>') {
             xml = &xml[(pos + 1)..];
         }
@@ -734,7 +734,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
     // Delete <!DOCTYPE ...> if necessary (case-insensitive)
     let mut xml = xml.trim();
-    if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
+    if xml.len() > 9 && xml.is_char_boundary(9) && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
         let pos = xml.find('>').ok_or(XmlError::MalformedHierarchy(
             MalformedHierarchyError {
                 expected: "<!DOCTYPE".into(),

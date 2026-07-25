@@ -202,10 +202,26 @@ fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
     ])
 }
 
+/// Clamps `value` into `[min, max]`, tolerating the degenerate bounds that
+/// `f32::clamp` panics on: an inverted range (`min > max`) is swapped, and a NaN
+/// bound is dropped (if both are NaN the value is returned untouched). `min`/`max`
+/// are `pub` fields on a `#[repr(C)]` `SliderState` that crosses the C/FFI
+/// boundary, so a caller can supply either — and unwinding across FFI is UB.
+fn clamp_to_range(value: f32, min: f32, max: f32) -> f32 {
+    let (lo, hi) = match (min.is_nan(), max.is_nan()) {
+        (true, true) => return value,
+        (true, false) => (max, max),
+        (false, true) => (min, min),
+        (false, false) if min <= max => (min, max),
+        (false, false) => (max, min),
+    };
+    value.clamp(lo, hi)
+}
+
 impl Slider {
     /// Creates a slider with the given current value and `[min, max]` range.
     #[must_use] pub fn create(value: f32, min: f32, max: f32) -> Self {
-        let value = value.clamp(min, max);
+        let value = clamp_to_range(value, min, max);
         Self {
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
@@ -221,7 +237,7 @@ impl Slider {
     pub fn set_value(&mut self, value: f32) {
         let min = self.slider_state.inner.min;
         let max = self.slider_state.inner.max;
-        let value = value.clamp(min, max);
+        let value = clamp_to_range(value, min, max);
         self.slider_state.inner.value = value;
         self.thumb_style = build_thumb_style(value_to_fraction(value, min, max));
     }

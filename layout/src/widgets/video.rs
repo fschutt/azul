@@ -402,16 +402,28 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
     let mut user_update = Update::DoNothing;
     match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {
-            if let Some(img) = ImageRef::new_rawimage(RawImage {
-                pixels: RawImageData::U8(frame.bytes.clone()),
-                width: frame.width as usize,
-                height: frame.height as usize,
-                premultiplied_alpha: false,
-                data_format: RawImageFormat::RGBA8,
-                tag: b"azul-video-frame".to_vec().into(),
-            }) {
-                if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
-                    s.current_frame = Some(img);
+            // Guard against dimensions whose RGBA byte count overflows `usize`
+            // before `ImageRef::new_rawimage` validates it against the buffer:
+            // `width * height * 4` wraps in release (e.g. 2^31 x 2^31 -> 0) so an
+            // empty buffer would spuriously "match" and store a bogus frame. A
+            // `checked_mul` that overflows drops the frame — the hook is still
+            // notified below, exactly as for a byte-count mismatch.
+            let fits = (frame.width as usize)
+                .checked_mul(frame.height as usize)
+                .and_then(|px| px.checked_mul(4))
+                .is_some();
+            if fits {
+                if let Some(img) = ImageRef::new_rawimage(RawImage {
+                    pixels: RawImageData::U8(frame.bytes.clone()),
+                    width: frame.width as usize,
+                    height: frame.height as usize,
+                    premultiplied_alpha: false,
+                    data_format: RawImageFormat::RGBA8,
+                    tag: b"azul-video-frame".to_vec().into(),
+                }) {
+                    if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
+                        s.current_frame = Some(img);
+                    }
                 }
             }
             user_update = invoke_on_frame(&hook, &mut info, &frame);

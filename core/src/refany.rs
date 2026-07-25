@@ -1046,15 +1046,28 @@ impl RefAny {
         // shared borrow: `replace_contents` needs `num_refs == 0` to proceed).
         let data_ptr = self.sharing_info.downcast()._internal_ptr;
 
-        // Null check: ZSTs or uninitialized
-        if data_ptr.is_null() {
+        // A null `_internal_ptr` means either an uninitialized `RefAny` or a ZST:
+        // `RefAny::new_c` stores ZSTs with a null pointer (they need no backing
+        // allocation). A ZST is a *valid* stored value, so the type check above is
+        // authoritative and a `&U` to a ZST dereferences no bytes — only a
+        // *non-ZST* null pointer is a genuine failure.
+        if data_ptr.is_null() && core::mem::size_of::<U>() != 0 {
             self.sharing_info.decrease_ref();
             return None;
         }
 
         Some(Ref {
-            // SAFETY: Type check passed, pointer is non-null and properly aligned
-            ptr: unsafe { &*(data_ptr as *const U) },
+            // SAFETY: type check passed. For a real value `data_ptr` is non-null
+            // and correctly aligned; for a ZST (null pointer) we hand out a
+            // dangling-but-aligned `NonNull::dangling` reference, valid precisely
+            // because it is never dereferenced for bytes.
+            ptr: unsafe {
+                if data_ptr.is_null() {
+                    &*core::ptr::NonNull::<U>::dangling().as_ptr()
+                } else {
+                    &*(data_ptr as *const U)
+                }
+            },
             sharing_info: self.sharing_info.clone(),
         })
     }
@@ -1124,10 +1137,22 @@ impl RefAny {
         // Get data pointer from shared RefCountInner
         let data_ptr = inner._internal_ptr;
 
-        // Null check
+        // A null `_internal_ptr` is either an uninitialized `RefAny` or a ZST
+        // (stored with a null pointer; see `downcast_ref`). A non-ZST null is a
+        // real failure — release the exclusive slot and bail. For a ZST there are
+        // no bytes to observe or mutate, so skip the update observer below and
+        // hand out a dangling-but-aligned `&mut`, keeping the exclusive borrow.
         if data_ptr.is_null() {
-            inner.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
-            return None;
+            if core::mem::size_of::<U>() != 0 {
+                inner.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
+                return None;
+            }
+            return Some(RefMut {
+                // SAFETY: type check passed; `U` is a ZST, so a dangling-but-
+                // aligned pointer is a valid `&mut` never dereferenced for bytes.
+                ptr: unsafe { &mut *core::ptr::NonNull::<U>::dangling().as_ptr() },
+                sharing_info: self.sharing_info.clone(),
+            });
         }
 
         // Fire the on-update observer (if registered) BEFORE handing out the
@@ -1803,8 +1828,9 @@ mod audit_tests {
         );
     }
 
-    // MIRI: ZST payload uses a null data pointer but must still construct,
-    // clone, run its destructor once, and reject downcasts (null ptr path).
+    // MIRI: ZST payload uses a null data pointer but must still construct, clone,
+    // run its destructor exactly once, and downcast (a ZST reference reads no
+    // bytes, so a dangling-but-aligned pointer is a valid reference).
     #[test]
     fn miri_zst_roundtrip_and_destructor() {
         let _serial = serialize_drop_count();
@@ -1818,8 +1844,9 @@ mod audit_tests {
         {
             let mut a = RefAny::new(ZstDrop);
             assert_eq!(a.get_data_len(), 0);
-            // downcast_ref bails on the null data pointer for a ZST.
-            assert!(a.downcast_ref::<ZstDrop>().is_none());
+            // downcast_ref succeeds for a ZST (dangling ref, no bytes read); the
+            // returned guard drops here without running the value's destructor.
+            assert!(a.downcast_ref::<ZstDrop>().is_some());
             let _b = a.clone();
         }
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
@@ -1977,7 +2004,8 @@ mod autotest_generated {
     }
 
     // len == 0 is the ZST path: NULL data pointer is legal, `align` is ignored
-    // (even a nonsensical 0), nothing is allocated, and downcasts fail cleanly.
+    // (even a nonsensical 0), nothing is allocated, and a ZST still downcasts
+    // (via a dangling-but-aligned reference — there are no bytes to read).
     #[test]
     fn new_c_zero_len_null_ptr_is_a_clean_zst() {
         let mut a = RefAny::new_c(
@@ -1993,10 +2021,11 @@ mod autotest_generated {
         assert_eq!(a.get_data_len(), 0);
         assert!(a.get_data_ptr().is_null());
         assert!(a.is_type(RefAny::get_type_id_static::<()>()));
-        // Type matches, but there is no data behind the pointer -> None, and the
-        // borrow counters must be released again on that bail-out path.
-        assert!(a.downcast_ref::<()>().is_none());
-        assert!(a.downcast_mut::<()>().is_none());
+        // Type matches and a `&()`/`&mut ()` needs no backing bytes, so the
+        // downcast succeeds; each temporary guard releases its borrow slot when it
+        // drops at the end of its statement.
+        assert!(a.downcast_ref::<()>().is_some());
+        assert!(a.downcast_mut::<()>().is_some());
         assert!(a.sharing_info.can_be_shared_mut());
     }
 
@@ -2132,7 +2161,7 @@ mod autotest_generated {
             a.sharing_info.debug_get_refcount_copied()._internal_layout_size,
             0
         );
-        assert!(a.downcast_ref::<[u64; 0]>().is_none());
+        assert!(a.downcast_ref::<[u64; 0]>().is_some());
         assert_eq!(a.get_ref_count(), 1);
     }
 
@@ -2684,13 +2713,14 @@ mod autotest_generated {
         assert!(a.is_type(RefAny::get_type_id_static::<u32>()));
         assert_eq!(*a.downcast_ref::<u32>().unwrap(), 0x4142_4344);
 
-        // sized -> ZST: the pointer goes back to null and downcasts must fail
-        // safely (releasing the borrow slot they speculatively took).
+        // sized -> ZST: the pointer goes back to null, but the ZST still downcasts
+        // via a dangling reference; each temporary guard releases its borrow slot
+        // on drop, so the exclusive slot is free again afterwards.
         assert!(a.replace_contents(RefAny::new(Zst)));
         assert_eq!(a.get_data_len(), 0);
         assert!(a.get_data_ptr().is_null());
-        assert!(a.downcast_ref::<Zst>().is_none());
-        assert!(a.downcast_mut::<Zst>().is_none());
+        assert!(a.downcast_ref::<Zst>().is_some());
+        assert!(a.downcast_mut::<Zst>().is_some());
         assert!(a.sharing_info.can_be_shared_mut());
     }
 

@@ -292,6 +292,22 @@ extern "C" fn on_focus_lost(
     }
 }
 
+/// Clamps `value` into `[min, max]`, tolerating the degenerate bounds that
+/// `f32::clamp` panics on: an inverted range (`min > max`) is swapped and a NaN
+/// bound is dropped (both NaN → value untouched). `min`/`max` are `pub` fields on
+/// a `#[repr(C)]` `NumberInputState` reachable across the C/FFI boundary, so a
+/// caller can invert or NaN them; a panic here would unwind across that boundary.
+fn clamp_to_range(value: f32, min: f32, max: f32) -> f32 {
+    let (lo, hi) = match (min.is_nan(), max.is_nan()) {
+        (true, true) => return value,
+        (true, false) => (max, max),
+        (false, true) => (min, min),
+        (false, false) if min <= max => (min, max),
+        (false, false) => (max, min),
+    };
+    value.clamp(lo, hi)
+}
+
 extern "C" fn validate_text_input(
     mut refany: RefAny,
     info: CallbackInfo,
@@ -325,7 +341,7 @@ extern "C" fn validate_text_input(
     let inner = &mut number_input.inner;
 
     inner.previous = inner.number;
-    let clamped = validated_f32.clamp(inner.min, inner.max);
+    let clamped = clamp_to_range(validated_f32, inner.min, inner.max);
     inner.number = clamped;
     let inner_clone = *inner;
 

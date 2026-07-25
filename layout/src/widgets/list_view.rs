@@ -1575,8 +1575,12 @@ impl ListView {
         if first >= total_rows {
             return (total_rows, total_rows);
         }
-        let visible = (viewport_height / row_height).ceil() as usize + 1;
-        let last = (first + visible).min(total_rows);
+        // Saturating: a sub-pixel `row_height` makes `viewport_height / row_height`
+        // astronomically large, whose `as usize` cast saturates to `usize::MAX`, so
+        // `+ 1` (and `first + visible`) would overflow. The `.min(total_rows)` clamp
+        // makes the saturated value harmless.
+        let visible = ((viewport_height / row_height).ceil() as usize).saturating_add(1);
+        let last = first.saturating_add(visible).min(total_rows);
         (first, last)
     }
 
