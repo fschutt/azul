@@ -167,15 +167,39 @@ impl Runner {
             .map(|mut c| std::mem::take(&mut *c))
             .unwrap_or_default();
 
-        let mut new_window_state: Option<FullWindowState> = None;
         let mut scroll_tos: Vec<(DomId, NodeHierarchyItemId, LogicalPosition, bool)> = Vec::new();
         let mut scroll_into_views: Vec<(
             DomNodeId,
             azul_layout::managers::scroll_into_view::ScrollIntoViewOptions,
         )> = Vec::new();
+
+        // 1. Window-state changes (focus / blur / move / resize / DPI / keyboard).
+        //
+        //    Each one is applied IN ORDER, as it is drained — NOT collapsed into
+        //    "the last state wins". The real shell runs its state-diff pass once
+        //    per `ModifyWindowState`, so every intermediate state is observed.
+        //    Collapsing loses transient states: a `key_down`+`key_up` pair that
+        //    lands in a single continuation slice (the E2E step loop only yields
+        //    on a pending *relayout*, and a focus change is not one) would leave
+        //    only the key-RELEASED state, and the keyboard default action would
+        //    never see the press — Tab-to-focus-next silently did nothing.
+        //
+        //    Relayout only on a size or DPI change (a focus/move/keyboard change
+        //    does not rebuild layout).
+        let mut relayout_needed = false;
         for ch in drained {
             match ch {
-                CallbackChange::ModifyWindowState { state } => new_window_state = Some(state),
+                CallbackChange::ModifyWindowState { state } => {
+                    let old_size = self.window_state.size.dimensions;
+                    let old_dpi = self.window_state.size.dpi;
+                    self.window_state = state;
+                    relayout_needed |= self.window_state.size.dimensions != old_size
+                        || self.window_state.size.dpi != old_dpi;
+                    // The DLL applies ModifyWindowState through the state-diff pass,
+                    // which runs the keyboard default action (Tab → focus next,
+                    // Esc → clear).
+                    self.run_keyboard_default_action();
+                }
                 CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
                     scroll_tos.push((dom_id, node_id, position, unclamped));
                 }
@@ -186,21 +210,6 @@ impl Runner {
                 // exercised by the E2E op set.
                 _ => {}
             }
-        }
-
-        // 1. Window-state change (focus / blur / move / resize / DPI / keyboard).
-        //    Relayout only on a size or DPI change (mirrors the real shell: a
-        //    focus/move/keyboard change does not rebuild layout).
-        let mut relayout_needed = false;
-        if let Some(state) = new_window_state {
-            let old_size = self.window_state.size.dimensions;
-            let old_dpi = self.window_state.size.dpi;
-            self.window_state = state;
-            relayout_needed = self.window_state.size.dimensions != old_size
-                || self.window_state.size.dpi != old_dpi;
-            // The DLL applies ModifyWindowState through the state-diff pass, which
-            // runs the keyboard default action (Tab → focus next, Esc → clear).
-            self.run_keyboard_default_action();
         }
 
         // 2. Mount / unmount / relayout.

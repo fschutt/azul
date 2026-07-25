@@ -328,6 +328,15 @@ fn main() -> anyhow::Result<()> {
             // `AZ_E2E=<path> ./app`, but with no host binary to link and no
             // process-per-file bash loop (the corpus is ~13k files).
             // Usage: e2e <file-or-dir.json> [--filter <substr>] [--list]
+            //
+            // Run from the PROJECT ROOT, not doc/ (main() chdir'd to the manifest
+            // dir above). Scenario files use repo-root-relative paths — e.g.
+            // `capture_damage_png` writes `target/e2e/<name>.png` — exactly as the
+            // DLL host does when CI runs them from the root. Staying in doc/ would
+            // silently write into doc/target/ (or fail with ENOENT).
+            std::env::set_current_dir(&project_root).with_context(|| {
+                format!("cannot enter project root {}", project_root.display())
+            })?;
             let opts = e2erun::E2eRunOptions::parse(rest)?;
             let code = e2erun::run(&opts)?;
             std::process::exit(code);
