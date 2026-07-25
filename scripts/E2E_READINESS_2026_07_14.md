@@ -1,5 +1,10 @@
 # E2E Readiness — 2026-07-14
 
+> **SUPERSEDED — see [`E2E_READINESS_2026_07_25.md`](E2E_READINESS_2026_07_25.md).** All four
+> blockers named below are fixed; §3.D ("no sharded runner"), §3.E ("no xfail marker") and §3.F2
+> ("`assert_state_machines_idle` does not exist") are now **FALSE**. Kept for its Part 4 bug-class
+> analysis and its record of what the tree looked like at `fe8165f57`.
+
 Audited against `master` = **`fe8165f57`**, working tree as committed. Every claim below was
 re-derived from source; where the brief's framing was wrong, it is corrected in place and the
 correction is marked **[CORRECTION]**.
