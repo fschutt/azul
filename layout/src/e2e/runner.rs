@@ -56,7 +56,7 @@ use azul_layout::{
 use super::cpu_backend::CpuBackend;
 use super::full::{
     process_debug_event, e2e_pump_continuation, DebugEvent, DebugRequest, DebugResponseData,
-    E2eSession, E2eTest, E2eTestResult, ResponseData,
+    E2eSession, E2eStepResult, E2eTest, E2eTestResult, ResponseData,
 };
 
 // ── Headless window scaffolding ──────────────────────────────────────────────
@@ -79,6 +79,12 @@ struct Runner {
     /// that with `RelayoutReason::Resize` + `mark_frame_needs_regeneration()`,
     /// which invalidates every cached rasterisation.
     resize_pending: bool,
+    /// `CallbackChange`s this host could not apply faithfully (see
+    /// [`Runner::unsupported`]). Non-empty ⇒ the scenario FAILS: it asked the
+    /// engine to do something the headless runner cannot do, so whatever it
+    /// asserted afterwards was asserted against a window where that something
+    /// never happened.
+    unsupported_changes: Vec<String>,
 }
 
 impl Runner {
@@ -132,6 +138,7 @@ impl Runner {
             #[cfg(feature = "font_async_registry")]
             font_registry,
             resize_pending: false,
+            unsupported_changes: Vec::new(),
         }
     }
 
@@ -719,14 +726,418 @@ impl Runner {
             | CallbackChange::StopImmediatePropagation
             | CallbackChange::PreventDefault => ProcessEventResult::DoNothing,
 
-            // Everything else (timers, threads, menus, tooltips, clipboard, text
-            // editing, drag & drop, window creation, routing, undo/redo) needs
-            // facilities only the DLL host has — a platform window, a timer
-            // driver, an OS clipboard. No scenario in `e2e/` reaches them; when
-            // one does, port its arm here from `event.rs` rather than widening
-            // this catch-all.
-            _ => ProcessEventResult::DoNothing,
+            // === Window lifetime ===
+            CallbackChange::CloseWindow => {
+                self.window_state.flags.close_requested = true;
+                ProcessEventResult::DoNothing
+            }
+
+            // === Text editing ===
+            CallbackChange::InsertText { dom_id, node_id, text } => {
+                use azul_layout::managers::text_input::TextInputSource;
+                let lw = &mut self.layout_window;
+                let dom_node_id = DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                let old_inline_content = lw.get_text_before_textinput(*dom_id, *node_id);
+                let old_text = lw.extract_text_from_inline_content(&old_inline_content);
+                lw.text_input_manager.record_input(
+                    dom_node_id,
+                    text.to_string(),
+                    old_text,
+                    TextInputSource::Programmatic,
+                );
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::DeleteBackward { dom_id, node_id } => {
+                let lw = &mut self.layout_window;
+                if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
+                    let content = lw.get_text_before_textinput(*dom_id, *node_id);
+                    let (updated_content, new_cursor) =
+                        azul_layout::text3::edit::delete_backward(&content, &cursor);
+                    if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
+                        mc.set_single_cursor(new_cursor);
+                    }
+                    lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+            CallbackChange::DeleteForward { dom_id, node_id } => {
+                let lw = &mut self.layout_window;
+                if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
+                    let content = lw.get_text_before_textinput(*dom_id, *node_id);
+                    let (updated_content, new_cursor) =
+                        azul_layout::text3::edit::delete_forward(&content, &cursor);
+                    if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
+                        mc.set_single_cursor(new_cursor);
+                    }
+                    lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+            CallbackChange::MoveCursor { dom_id: _, node_id: _, cursor } => {
+                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
+                    mc.set_single_cursor(*cursor);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::SetSelection { dom_id: _, node_id: _, selection } => {
+                use azul_core::selection::Selection;
+                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
+                    match selection {
+                        Selection::Cursor(cursor) => mc.set_single_cursor(*cursor),
+                        Selection::Range(range) => mc.set_single_range(*range),
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::SetTextChangeset { changeset } => {
+                self.layout_window.text_input_manager.pending_changeset = Some(changeset.clone());
+                ProcessEventResult::DoNothing
+            }
+
+            // === Cursor movement ===
+            CallbackChange::MoveCursorLeft { dom_id, node_id, extend_selection } => {
+                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                    layout.move_cursor_left(*cursor, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorRight { dom_id, node_id, extend_selection } => {
+                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                    layout.move_cursor_right(*cursor, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorUp { dom_id, node_id, extend_selection } => {
+                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                    layout.move_cursor_up(*cursor, &mut None, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorDown { dom_id, node_id, extend_selection } => {
+                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                    layout.move_cursor_down(*cursor, &mut None, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorToLineStart { dom_id, node_id, extend_selection } => {
+                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                    layout.move_cursor_to_line_start(*cursor, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorToLineEnd { dom_id, node_id, extend_selection } => {
+                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                    layout.move_cursor_to_line_end(*cursor, &mut None)
+                })
+            }
+            // Document start/end are NOT a `move_cursor_in_node` movement in the
+            // DLL either — they read the first/last cluster straight off the
+            // inline layout.
+            CallbackChange::MoveCursorToDocumentStart { dom_id, node_id, extend_selection } => {
+                use azul_core::selection::{CursorAffinity, TextCursor};
+                let lw = &mut self.layout_window;
+                let first = lw
+                    .get_inline_layout_for_node(*dom_id, *node_id)
+                    .and_then(|layout| layout.items.first().and_then(|i| i.item.as_cluster()))
+                    .map(|c| TextCursor {
+                        cluster_id: c.source_cluster_id,
+                        affinity: CursorAffinity::Leading,
+                    });
+                if let Some(doc_start) = first {
+                    lw.handle_cursor_movement(*dom_id, *node_id, doc_start, *extend_selection);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::MoveCursorToDocumentEnd { dom_id, node_id, extend_selection } => {
+                use azul_core::selection::{CursorAffinity, TextCursor};
+                let lw = &mut self.layout_window;
+                let last = lw
+                    .get_inline_layout_for_node(*dom_id, *node_id)
+                    .and_then(|layout| layout.items.last().and_then(|i| i.item.as_cluster()))
+                    .map(|c| TextCursor {
+                        cluster_id: c.source_cluster_id,
+                        affinity: CursorAffinity::Trailing,
+                    });
+                if let Some(doc_end) = last {
+                    lw.handle_cursor_movement(*dom_id, *node_id, doc_end, *extend_selection);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Multi-cursor / selection ===
+            CallbackChange::AddCursor { dom_id, node_id, cursor } => {
+                use azul_core::selection::MultiCursorState;
+                let lw = &mut self.layout_window;
+                if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
+                    let _ = mc.add_cursor(*cursor);
+                } else {
+                    let dom_node_id = DomNodeId {
+                        dom: *dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                    };
+                    lw.text_edit_manager.multi_cursor =
+                        Some(MultiCursorState::new_with_cursor(*cursor, dom_node_id, 0));
+                }
+                lw.text_edit_manager.mark_dirty();
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+            CallbackChange::AddSelectionRange { dom_id, node_id, range } => {
+                use azul_core::selection::MultiCursorState;
+                let lw = &mut self.layout_window;
+                if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
+                    let _ = mc.add_selection(*range);
+                } else {
+                    let dom_node_id = DomNodeId {
+                        dom: *dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                    };
+                    let mut mc = MultiCursorState::new_with_cursor(range.start, dom_node_id, 0);
+                    mc.set_single_range(*range);
+                    lw.text_edit_manager.multi_cursor = Some(mc);
+                }
+                lw.text_edit_manager.mark_dirty();
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+            CallbackChange::RemoveSelectionById { selection_id } => {
+                let lw = &mut self.layout_window;
+                if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
+                    let _ = mc.remove_selection(*selection_id);
+                    lw.text_edit_manager.mark_dirty();
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+            CallbackChange::SetSelectAllRange { target: _, range } => {
+                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
+                    mc.set_single_range(*range);
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::ProcessTextSelectionClick { position, time_ms } => {
+                self.layout_window
+                    .process_mouse_click_for_selection(*position, *time_ms);
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::ScrollActiveCursorIntoView => {
+                self.layout_window.scroll_selection_into_view(
+                    azul_layout::window::SelectionScrollType::Cursor,
+                    azul_layout::window::ScrollMode::Instant,
+                );
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Cursor blink STATE (the blink TIMER is a separate story, below) ===
+            CallbackChange::SetCursorVisibility { visible } => {
+                let lw = &mut self.layout_window;
+                lw.text_edit_manager.blink.set_visibility(*visible);
+                if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
+                    lw.regenerate_display_list_for_dom(dom_id);
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+            CallbackChange::ToggleCursorVisibility => {
+                let now = self.now();
+                let lw = &mut self.layout_window;
+                if lw.text_edit_manager.blink.should_blink(&now) {
+                    lw.text_edit_manager.blink.toggle_visibility();
+                } else {
+                    lw.text_edit_manager.blink.set_visibility(true);
+                }
+                if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
+                    lw.regenerate_display_list_for_dom(dom_id);
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+            CallbackChange::ResetCursorBlink => {
+                let now = self.now();
+                self.layout_window
+                    .text_edit_manager
+                    .blink
+                    .reset_blink_on_input(now);
+                ProcessEventResult::DoNothing
+            }
+
+            // === Drag & drop payload (the GESTURE that starts a drag is input) ===
+            CallbackChange::SetDragData { mime_type, data } => {
+                if let Some(ctx) = self
+                    .layout_window
+                    .gesture_drag_manager
+                    .get_drag_context_mut()
+                {
+                    if let Some(node_drag) = ctx.as_node_drag_mut() {
+                        node_drag.drag_data.set_data(mime_type.clone(), data.clone());
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::AcceptDrop => {
+                if let Some(ctx) = self
+                    .layout_window
+                    .gesture_drag_manager
+                    .get_drag_context_mut()
+                {
+                    if let Some(node_drag) = ctx.as_node_drag_mut() {
+                        node_drag.drop_accepted = true;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::SetDropEffect { effect } => {
+                if let Some(ctx) = self
+                    .layout_window
+                    .gesture_drag_manager
+                    .get_drag_context_mut()
+                {
+                    if let Some(node_drag) = ctx.as_node_drag_mut() {
+                        node_drag.drop_effect = *effect;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // ── NOT SUPPORTED HEADLESSLY ────────────────────────────────────
+            //
+            // Everything below needs a facility this host does not have. Each
+            // one FAILS THE SCENARIO by name (see `Runner::unsupported`) instead
+            // of being dropped on the floor: a change that is silently ignored
+            // produces a test that executes nothing and PASSES, which in a
+            // generated corpus is indistinguishable from a real pass and would
+            // certify thousands of scenarios that never ran.
+            //
+            // The variants are listed EXPLICITLY, with no `_` arm, so that a new
+            // `CallbackChange` in `layout/src/callbacks.rs` is a COMPILE ERROR
+            // here and forces a decision: port it (preferred — the reference is
+            // `dll/src/desktop/shell2/common/event.rs::apply_user_change`) or
+            // declare it unsupported.
+
+            // No hit tester: `perform_hit_test` lives in the DLL
+            // (`wr_translate2::convert_cpu_hit_test_to_full`), and without one a
+            // synthetic click lands on NO node — the callbacks under test would
+            // never fire and the scenario would pass having done nothing.
+            CallbackChange::QueueWindowStateSequence { .. } => {
+                self.unsupported("QueueWindowStateSequence", "synthetic input needs a hit tester")
+            }
+            CallbackChange::RequestHitTestUpdate { .. } => {
+                self.unsupported("RequestHitTestUpdate", "no hit tester")
+            }
+            CallbackChange::InjectNativeGesture { .. } => {
+                self.unsupported("InjectNativeGesture", "no hit tester / no platform gesture source")
+            }
+
+            // No timer driver: the runner has no event loop that ticks
+            // `LayoutWindow::timers`, so an installed timer would never fire.
+            CallbackChange::AddTimer { .. } => {
+                self.unsupported("AddTimer", "no timer driver — the timer would never fire")
+            }
+            CallbackChange::RemoveTimer { .. } => {
+                self.unsupported("RemoveTimer", "no timer driver")
+            }
+            CallbackChange::StartCursorBlinkTimer => {
+                self.unsupported("StartCursorBlinkTimer", "no timer driver — the caret would never blink")
+            }
+            CallbackChange::StopCursorBlinkTimer => {
+                self.unsupported("StopCursorBlinkTimer", "no timer driver")
+            }
+
+            // No thread pump: nothing polls thread writebacks.
+            CallbackChange::AddThread { .. } => {
+                self.unsupported("AddThread", "no thread pump — the writeback would never run")
+            }
+            CallbackChange::RemoveThread { .. } => {
+                self.unsupported("RemoveThread", "no thread pump")
+            }
+
+            // No OS integration.
+            CallbackChange::SetCopyContent { .. } => {
+                self.unsupported("SetCopyContent", "no OS clipboard")
+            }
+            CallbackChange::SetCutContent { .. } => {
+                self.unsupported("SetCutContent", "no OS clipboard")
+            }
+            CallbackChange::CreateNewWindow { .. } => {
+                self.unsupported("CreateNewWindow", "single-window host")
+            }
+            CallbackChange::BeginInteractiveMove => {
+                self.unsupported("BeginInteractiveMove", "no window manager")
+            }
+            CallbackChange::OpenMenu { .. } => {
+                self.unsupported("OpenMenu", "no native menu host")
+            }
+            CallbackChange::ShowTooltip { .. } => {
+                self.unsupported("ShowTooltip", "tooltips are a second platform window")
+            }
+            CallbackChange::HideTooltip => {
+                self.unsupported("HideTooltip", "tooltips are a second platform window")
+            }
+
+            // No app-level image cache: the runner lays out against
+            // `RendererResources` alone, so an image registered here would be
+            // invisible to the layout that is supposed to display it.
+            CallbackChange::AddImageToCache { .. } => {
+                self.unsupported("AddImageToCache", "no app-level ImageCache")
+            }
+            CallbackChange::RemoveImageFromCache { .. } => {
+                self.unsupported("RemoveImageFromCache", "no app-level ImageCache")
+            }
+
+            // No app data / undo manager: the runner's `RefAny` app data is `()`,
+            // so a snapshot or an undo would restore nothing.
+            CallbackChange::CommitUndoSnapshot => {
+                self.unsupported("CommitUndoSnapshot", "no app-data undo manager")
+            }
+            CallbackChange::UndoAppState => {
+                self.unsupported("UndoAppState", "no app-data undo manager")
+            }
+            CallbackChange::RedoAppState => {
+                self.unsupported("RedoAppState", "no app-data undo manager")
+            }
+
+            // Needs the DLL's synthetic-event dispatch: `process_text_input`
+            // returns the affected nodes and the shell then dispatches an
+            // `Input` event per node through `process_window_events`. Applying
+            // only the first half would edit the text while no `On::Input`
+            // callback ever fired.
+            CallbackChange::CreateTextInput { .. } => {
+                self.unsupported("CreateTextInput", "needs the shell's synthetic-event dispatch")
+            }
+
+            // The runner mounts XML documents; it never invokes a layout
+            // callback, which is the only thing a route switch changes.
+            CallbackChange::SwitchRoute { .. } => {
+                self.unsupported("SwitchRoute", "no layout callback — the runner mounts XML")
+            }
         }
+    }
+
+    /// Shared body of the eight `MoveCursor*` arms (port of the DLL's, which are
+    /// the same call with a different closure).
+    fn move_cursor(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+        f: impl FnOnce(
+            &azul_layout::text3::cache::UnifiedLayout,
+            &azul_core::selection::TextCursor,
+        ) -> azul_core::selection::TextCursor,
+    ) -> ProcessEventResult {
+        let lw = &mut self.layout_window;
+        if let Some(new_cursor) = lw.move_cursor_in_node(dom_id, node_id, f) {
+            lw.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+        }
+        ProcessEventResult::ShouldReRenderCurrentWindow
+    }
+
+    /// Record a `CallbackChange` this host cannot apply faithfully, and FAIL the
+    /// scenario for it (`run_e2e_test` turns a non-empty list into a red test).
+    ///
+    /// This is deliberately not a `log_warn` and not a `DoNothing`: an ignored
+    /// change makes a scenario that exercises nothing report the same "pass" as
+    /// one that exercised everything.
+    fn unsupported(&mut self, variant: &str, why: &str) -> ProcessEventResult {
+        self.unsupported_changes.push(format!(
+            "e2e runner: CallbackChange::{variant} is not supported by the headless runner \
+             ({why}) — this scenario cannot be executed faithfully (port the arm from \
+             dll/src/desktop/shell2/common/event.rs::apply_user_change)"
+        ));
+        ProcessEventResult::DoNothing
     }
 
     /// Port of `common::layout::regenerate_layout` + the headless backend's
@@ -1095,7 +1506,7 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
         );
     }
 
-    match rx.try_recv() {
+    let result = match rx.try_recv() {
         Ok(DebugResponseData::Ok { data: Some(ResponseData::E2eResults(r)), .. }) => r
             .results
             .into_iter()
@@ -1106,5 +1517,43 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
         }
         Ok(DebugResponseData::Err(e)) => fail_result(test, &e),
         Err(_) => fail_result(test, "RunE2eTests produced no response"),
+    };
+
+    // A scenario that asked the engine for something this host cannot do is
+    // RED, no matter what its assertions said: they were evaluated against a
+    // window where that something never happened. Reported per unsupported
+    // change, by name — see `Runner::unsupported`.
+    unsupported_to_failure(result, &runner.unsupported_changes)
+}
+
+/// Fold the runner's unsupported-change log into the scenario result, turning a
+/// pass that skipped work into a named failure.
+fn unsupported_to_failure(mut result: E2eTestResult, unsupported: &[String]) -> E2eTestResult {
+    if unsupported.is_empty() {
+        return result;
     }
+    // Deduplicate: one line per distinct facility, not one per applied change.
+    let mut seen: Vec<&String> = Vec::new();
+    for u in unsupported {
+        if !seen.contains(&u) {
+            seen.push(u);
+        }
+    }
+    let next_index = result.steps.len();
+    for (i, message) in seen.iter().enumerate() {
+        result.steps.push(E2eStepResult {
+            step_index: next_index + i,
+            op: "unsupported_callback_change".to_string(),
+            status: "fail".to_string(),
+            duration_ms: 0,
+            logs: Vec::new(),
+            screenshot: None,
+            error: Some((*message).clone()),
+            response: None,
+        });
+    }
+    result.status = "fail".to_string();
+    result.steps_failed += seen.len();
+    result.step_count = result.steps.len();
+    result
 }
