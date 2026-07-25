@@ -1120,7 +1120,13 @@ mod autotest_generated {
         // comparison, so a NaN container size is treated as usable and
         // poisons every ratio computed from it (see the pointer_move tests).
         let msize = main_size(SplitDirection::Horizontal, size(f32::NAN, 1.0));
-        assert!(!(msize <= 0.0), "NaN must not be caught by the <= 0 guard");
+        // Spelled out as a binding so the assertion is `!caught`, not a negated
+        // partial-ord comparison — the guard below is verbatim what the handlers use.
+        let caught_by_the_guard = msize <= 0.0;
+        assert!(
+            !caught_by_the_guard,
+            "NaN must not be caught by the <= 0 guard"
+        );
     }
 
     #[test]

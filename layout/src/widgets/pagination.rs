@@ -661,7 +661,7 @@ mod autotest_generated {
     /// The four corner radii a style declares, as `(top-left, bottom-left,
     /// top-right, bottom-right)`; `None` where the corner is left square.
     fn radii(props: &[CssProperty]) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
-        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| props.iter().find_map(|p| f(p));
+        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| props.iter().find_map(f);
         (
             find(&|p| match p {
                 CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| px(&r.inner)),
@@ -1390,9 +1390,9 @@ mod autotest_generated {
             assert_eq!(children.len(), total + 2, "Prev + {total} pages + Next");
             assert_eq!(text_of(&children[0]), Some("Prev"));
             assert_eq!(text_of(&children[total + 1]), Some("Next"));
-            for p in 1..=total {
+            for (p, child) in children.iter().enumerate().take(total + 1).skip(1) {
                 assert_eq!(
-                    text_of(&children[p]),
+                    text_of(child),
                     Some(p.to_string().as_str()),
                     "page {p} must sit at sibling position {p}"
                 );
@@ -1554,14 +1554,14 @@ mod autotest_generated {
             (None, None, Some(r), Some(r)),
             "Next is rounded on the right only"
         );
-        for p in 1..=total {
+        for (p, child) in children.iter().enumerate().take(total + 1).skip(1) {
             assert_eq!(
-                radii(&inline_props(&children[p])),
+                radii(&inline_props(child)),
                 (None, None, None, None),
                 "interior page {p} must stay square"
             );
             assert_eq!(
-                has_left_border(&inline_props(&children[p])),
+                has_left_border(&inline_props(child)),
                 (false, false, false),
                 "only Prev draws a left border, so buttons share one separator"
             );

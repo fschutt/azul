@@ -1224,8 +1224,10 @@ mod autotest_generated {
 
     #[test]
     fn hour_bounds_are_the_two_documented_bands() {
-        let mut s = TimePickerState::default();
-        s.is_24h = true;
+        let mut s = TimePickerState {
+            is_24h: true,
+            ..Default::default()
+        };
         assert_eq!(s.hour_bounds(), (0, 23), "the 24-hour band is wrong");
         s.is_24h = false;
         assert_eq!(s.hour_bounds(), (1, 12), "the 12-hour band is wrong");

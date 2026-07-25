@@ -1958,7 +1958,7 @@ mod autotest_generated {
                     .children
                     .as_ref()
                     .iter()
-                    .flat_map(|c| ids(c))
+                    .flat_map(ids)
                     .collect();
                 assert_eq!(actual, expected, "{buttons:?} on {side:?} produced the wrong buttons");
             }

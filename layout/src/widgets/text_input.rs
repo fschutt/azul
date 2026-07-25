@@ -1700,7 +1700,7 @@ mod autotest_generated {
     fn get_text_on_a_very_large_buffer_does_not_panic() {
         let n = 50_000;
         let state = TextInputState {
-            text: core::iter::repeat(u32::from('ß')).take(n).collect::<Vec<_>>().into(),
+            text: core::iter::repeat_n(u32::from('ß'), n).collect::<Vec<_>>().into(),
             ..TextInputState::default()
         };
         let text = state.get_text();
@@ -1776,7 +1776,7 @@ mod autotest_generated {
         // module — not by `set_text`, not by the text-input handler. A 200-char
         // assignment is stored whole. Pinned so that adding enforcement later shows
         // up as a deliberate change rather than a silent one.
-        let long: String = core::iter::repeat('x').take(200).collect();
+        let long: String = "x".repeat(200);
         let input = TextInput::create().with_text(long.clone().into());
         assert_eq!(input.text_input_state.inner.max_len, 50);
         assert_eq!(input.text_input_state.inner.text.len(), 200);
@@ -1815,7 +1815,7 @@ mod autotest_generated {
     #[test]
     fn with_text_on_a_very_large_string_does_not_panic() {
         let n = 50_000;
-        let long: String = core::iter::repeat('a').take(n).collect();
+        let long: String = "a".repeat(n);
         let input = TextInput::create().with_text(long.into());
         assert_eq!(input.text_input_state.inner.text.len(), n);
     }
@@ -2303,7 +2303,7 @@ mod autotest_generated {
     #[test]
     fn dom_on_a_very_large_buffer_does_not_panic() {
         let n = 50_000;
-        let long: String = core::iter::repeat('x').take(n).collect();
+        let long: String = "x".repeat(n);
         let dom = TextInput::create().with_text(long.into()).dom();
         assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]).len(), n);
         assert_eq!(dataset_state(&dom).cursor_pos, n);
@@ -2720,7 +2720,7 @@ mod autotest_generated {
         // KNOWN GAP (same root cause as `set_text_does_not_enforce_max_len`): typing
         // past `max_len` is accepted, one changeset at a time.
         let (styled_dom, state) = rendered(TextInput::create());
-        let filler: String = core::iter::repeat('x').take(80).collect();
+        let filler: String = "x".repeat(80);
         let (_, _, _) = run(Env::new(styled_dom).insert(&filler), |info| {
             default_on_text_input(state.clone(), info)
         });

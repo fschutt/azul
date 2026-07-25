@@ -270,7 +270,7 @@ mod autotest_generated {
             "e\u{0301}\u{0301}\u{0301}".to_string(),
             "\u{200B}\u{FEFF}\u{202E}drowssap".to_string(),
             "ｆｕｌｌｗｉｄｔｈ".to_string(),
-            core::iter::repeat('ß').take(65_536).collect::<String>(),
+            "ß".repeat(65_536),
         ]
     }
 

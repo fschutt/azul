@@ -689,7 +689,7 @@ mod autotest_generated {
     #[test]
     fn create_accepts_a_very_long_title_without_truncating_it() {
         // 100k astral-plane chars: 400 KB of UTF-8 through the AzString/BoxOrStatic path.
-        let huge: String = core::iter::repeat('\u{1F600}').take(100_000).collect();
+        let huge: String = "\u{1F600}".repeat(100_000);
         let f = frame(&huge, Dom::create_div());
         assert_eq!(f.title.as_str().len(), 400_000, "the long title was truncated on store");
 

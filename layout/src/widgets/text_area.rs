@@ -904,7 +904,7 @@ mod autotest_generated {
         let mut w = handle
             .downcast_mut::<TextAreaStateWrapper>()
             .expect("the payload must still be a TextAreaStateWrapper");
-        f(&mut *w);
+        f(&mut w);
     }
 
     /// `n` properties lifted off the default container style — an easy way to
@@ -1347,7 +1347,7 @@ mod autotest_generated {
 
     #[test]
     fn get_text_handles_a_very_large_buffer() {
-        let big: String = core::iter::repeat("line 😀 ünicode\n").take(20_000).collect();
+        let big: String = "line 😀 ünicode\n".repeat(20_000);
         let area = TextArea::create().with_text(AzString::from(big.as_str()));
 
         assert_eq!(area.text_area_state.inner.text.len(), big.chars().count());
@@ -1901,7 +1901,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_survives_a_very_large_buffer() {
-        let big: String = core::iter::repeat("wide 😀 line\n").take(20_000).collect();
+        let big: String = "wide 😀 line\n".repeat(20_000);
         let dom = TextArea::create().with_text(AzString::from(big.as_str())).dom();
         assert_eq!(text_of(&dom.children.as_ref()[1]), Some(big.as_str()));
     }
@@ -2383,7 +2383,7 @@ mod autotest_generated {
 
     #[test]
     fn text_input_survives_a_very_large_insertion() {
-        let big: String = core::iter::repeat("chunk 😀\n").take(10_000).collect();
+        let big: String = "chunk 😀\n".repeat(10_000);
         let data = RefAny::new(wrapper(""));
 
         let (out, changes, nodes) = run(Env::typed(&big), &data, default_on_text_input_inner);

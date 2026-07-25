@@ -1480,8 +1480,10 @@ mod autotest_generated {
         }
 
         // u32::MAX permissions must not overflow or corrupt the archive
-        let mut cfg = ZipWriteConfig::default();
-        cfg.unix_permissions = u32::MAX;
+        let mut cfg = ZipWriteConfig {
+            unix_permissions: u32::MAX,
+            ..Default::default()
+        };
         let bytes = zip_create(entries(), &cfg).unwrap();
         assert_eq!(
             ZipFile::from_bytes(&bytes, &ZipReadConfig::default())

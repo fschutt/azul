@@ -554,7 +554,7 @@ mod autotest_generated {
     /// Returns `(frames the worker managed to send, took_the_test_tone_path)`. The
     /// flag is read *after* the run on purpose: `MIC_BACKEND` is a `OnceLock`, so
     /// "still unregistered afterwards" proves it was unregistered *during* the run
-    /// - and another test in this binary (`capture_common`) may register one at any
+    /// — and another test in this binary (`capture_common`) may register one at any
     /// time. Assertions about the 440 Hz tone are gated on it; the path-independent
     /// invariants are always checked.
     fn run_worker(init: RefAny) -> (Vec<SentFrame>, bool) {

@@ -4178,39 +4178,43 @@ mod autotest_generated {
     fn generate_unique_node_id_returns_max_plus_one_and_ignores_gaps_and_order() {
         // Ids are deliberately unsorted and non-contiguous: the generator must take the
         // maximum, not the last element and not the length.
-        let mut g = NodeGraph::default();
-        g.nodes = vec![
-            NodeIdNodeMap {
-                node_id: NodeGraphNodeId { inner: 7 },
-                node: mk_node(TYPE_A, 0.0, 0.0),
-            },
-            NodeIdNodeMap {
-                node_id: NodeGraphNodeId { inner: 0 },
-                node: mk_node(TYPE_A, 0.0, 0.0),
-            },
-            NodeIdNodeMap {
-                node_id: NodeGraphNodeId { inner: 3 },
-                node: mk_node(TYPE_A, 0.0, 0.0),
-            },
-        ]
-        .into();
+        let g = NodeGraph {
+            nodes: vec![
+                NodeIdNodeMap {
+                    node_id: NodeGraphNodeId { inner: 7 },
+                    node: mk_node(TYPE_A, 0.0, 0.0),
+                },
+                NodeIdNodeMap {
+                    node_id: NodeGraphNodeId { inner: 0 },
+                    node: mk_node(TYPE_A, 0.0, 0.0),
+                },
+                NodeIdNodeMap {
+                    node_id: NodeGraphNodeId { inner: 3 },
+                    node: mk_node(TYPE_A, 0.0, 0.0),
+                },
+            ]
+            .into(),
+            ..Default::default()
+        };
         assert_eq!(g.generate_unique_node_id().inner, 8);
     }
 
     #[test]
     fn generate_unique_node_id_tolerates_duplicate_ids_in_the_graph() {
-        let mut g = NodeGraph::default();
-        g.nodes = vec![
-            NodeIdNodeMap {
-                node_id: N2,
-                node: mk_node(TYPE_A, 0.0, 0.0),
-            },
-            NodeIdNodeMap {
-                node_id: N2,
-                node: mk_node(TYPE_A, 0.0, 0.0),
-            },
-        ]
-        .into();
+        let g = NodeGraph {
+            nodes: vec![
+                NodeIdNodeMap {
+                    node_id: N2,
+                    node: mk_node(TYPE_A, 0.0, 0.0),
+                },
+                NodeIdNodeMap {
+                    node_id: N2,
+                    node: mk_node(TYPE_A, 0.0, 0.0),
+                },
+            ]
+            .into(),
+            ..Default::default()
+        };
         assert_eq!(g.generate_unique_node_id().inner, 3);
     }
 
@@ -4220,12 +4224,14 @@ mod autotest_generated {
         // collides with the existing node. That is a real (if unreachable in practice)
         // limitation — what matters here is that it saturates rather than wrapping to
         // 0 or panicking in a debug build.
-        let mut g = NodeGraph::default();
-        g.nodes = vec![NodeIdNodeMap {
-            node_id: NodeGraphNodeId { inner: u64::MAX },
-            node: mk_node(TYPE_A, 0.0, 0.0),
-        }]
-        .into();
+        let mut g = NodeGraph {
+            nodes: vec![NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: u64::MAX },
+                node: mk_node(TYPE_A, 0.0, 0.0),
+            }]
+            .into(),
+            ..Default::default()
+        };
         let id = g.generate_unique_node_id();
         assert_eq!(id.inner, u64::MAX);
         assert!(

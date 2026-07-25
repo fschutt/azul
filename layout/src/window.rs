@@ -576,14 +576,6 @@ pub struct TextChangesetResult {
     pub needs_relayout: bool,
 }
 
-/// A window-level layout manager that encapsulates all layout state and caching.
-///
-/// This struct owns the layout and text caches, and provides methods `dir_to`:
-/// - Perform initial layout
-/// - Incrementally update layout on DOM changes
-/// - Generate display lists for rendering
-/// - Handle window resizes efficiently
-/// - Manage multiple DOMs (for `VirtualViews`)
 /// The E2E `mount` override for one window: the XML+CSS document the debug
 /// `mount` op installed, plus a "must be (re-)parsed" flag.
 ///
@@ -624,11 +616,19 @@ impl E2eMountOverride {
     }
 
     /// Take the "must be (re-)parsed" flag, clearing it.
-    pub fn take_dirty(&mut self) -> bool {
+    pub const fn take_dirty(&mut self) -> bool {
         core::mem::replace(&mut self.dirty, false)
     }
 }
 
+/// A window-level layout manager that encapsulates all layout state and caching.
+///
+/// This struct owns the layout and text caches, and provides methods `dir_to`:
+/// - Perform initial layout
+/// - Incrementally update layout on DOM changes
+/// - Generate display lists for rendering
+/// - Handle window resizes efficiently
+/// - Manage multiple DOMs (for `VirtualViews`)
 #[derive(Debug)]
 pub struct LayoutWindow {
     /// E2E `mount` override for this window (debug-server `mount` / `unmount`).
@@ -8786,9 +8786,10 @@ mod autotest_generated {
     /// A report already in sync with the global generation, so `sync_generation`
     /// inside `record_frame` is a no-op for the test.
     fn synced_report() -> FrameReport {
-        let mut r = FrameReport::default();
-        r.reset_generation = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64;
-        r
+        FrameReport {
+            reset_generation: FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -8922,17 +8923,19 @@ mod autotest_generated {
 
     #[test]
     fn frame_report_reset_counters_clears_only_the_sticky_fields() {
-        let mut r = FrameReport::default();
-        r.frame_index = 42;
-        r.terminal_result = 7;
-        r.paint_damage = FrameDamage::Full;
-        r.present_damage = FrameDamage::Full;
-        r.relayout_iterations = 9;
-        r.dom_regenerations = 4;
-        r.hit_depth_cap = true;
-        r.frames_since_reset = 11;
-        r.accumulated_paint_damage = FrameDamage::Full;
-        r.accumulated_present_damage = FrameDamage::Rects(vec![rect(0.0, 0.0, 1.0, 1.0)]);
+        let mut r = FrameReport {
+            frame_index: 42,
+            terminal_result: 7,
+            paint_damage: FrameDamage::Full,
+            present_damage: FrameDamage::Full,
+            relayout_iterations: 9,
+            dom_regenerations: 4,
+            hit_depth_cap: true,
+            frames_since_reset: 11,
+            accumulated_paint_damage: FrameDamage::Full,
+            accumulated_present_damage: FrameDamage::Rects(vec![rect(0.0, 0.0, 1.0, 1.0)]),
+            ..Default::default()
+        };
 
         r.reset_counters();
 

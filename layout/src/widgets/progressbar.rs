@@ -1170,13 +1170,16 @@ mod autotest_generated {
     fn overwriting_a_background_releases_the_previous_one() {
         // 500 replacements of an owned buffer: a setter that forgot to drop the old
         // value leaks, and one that dropped it twice aborts.
+        let n = 500_usize;
         let mut pb = ProgressBar::create(0.0);
-        for i in 1..=500_usize {
+        for i in 1..=n {
             pb.set_bar_background(solid(i % 16 + 1));
             pb.set_container_background(solid(i % 4 + 1));
         }
-        assert_eq!(pb.bar_background.len(), 500 % 16 + 1);
-        assert_eq!(pb.container_background.len(), 500 % 4 + 1);
+        // The surviving background is whatever the LAST iteration installed, so the
+        // expected length is derived from `n` rather than hard-coded.
+        assert_eq!(pb.bar_background.len(), n % 16 + 1);
+        assert_eq!(pb.container_background.len(), n % 4 + 1);
     }
 
     #[test]

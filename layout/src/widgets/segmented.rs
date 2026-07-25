@@ -1618,7 +1618,7 @@ mod autotest_generated {
 
         let radii_of = |child: &Dom| -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
             let props = inline_properties(child);
-            let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| props.iter().find_map(|p| f(p));
+            let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| props.iter().find_map(f);
             (
                 find(&|p| match p {
                     CssProperty::BorderTopLeftRadius(x) => x.get_property().map(|x| px(&x.inner)),

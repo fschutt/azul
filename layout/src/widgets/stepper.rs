@@ -722,7 +722,7 @@ mod autotest_generated {
             })
             .collect();
         assert!(found.len() <= 1, "a stepper node must declare at most one background");
-        found.first().map(|bg| only_color(*bg))
+        found.first().map(|bg| only_color(bg))
     }
 
     fn text_color(props: &[CssProperty]) -> Option<ColorU> {
@@ -790,7 +790,7 @@ mod autotest_generated {
 
     /// The four corner radii as `(top-left, top-right, bottom-left, bottom-right)`.
     fn radii(props: &[CssProperty]) -> (Option<PixelValue>, Option<PixelValue>, Option<PixelValue>, Option<PixelValue>) {
-        let find = |f: &dyn Fn(&CssProperty) -> Option<PixelValue>| props.iter().find_map(|p| f(p));
+        let find = |f: &dyn Fn(&CssProperty) -> Option<PixelValue>| props.iter().find_map(f);
         (
             find(&|p| match p {
                 CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner),
