@@ -2,99 +2,114 @@
 //
 // THIN LOADER: this used to be a ~1000-line hand-written interpreter that
 // re-implemented every op against `LayoutWindow`. It now deserializes each
-// fixture into the debug server's OWN `E2eTest` schema and runs it through the
+// scenario into the debug server's OWN `E2eTest` schema and runs it through the
 // REAL op-dispatch (`azul_layout::e2e::process_debug_event` + the scenario
 // runner `resume_e2e_continuation`) via the headless driver
 // `azul_layout::e2e::run_e2e_test`. No parallel interpreter, no HTTP.
 //
-// Fixtures live under `layout/tests/e2e_fixtures/*.json`, are auto-discovered by
-// the single `#[test]`, and are stripped from the published crate by
-// `exclude = ["tests", ...]` in `layout/Cargo.toml`. They target the server op
-// vocabulary (`mount`, `scroll_node_by`, `dpi_changed`, assertions, …); ops
-// whose effect is applied asynchronously by the shell (`mount`, `focus`, `blur`,
-// `move`, `key_down/up`, `scroll_into_view`) are followed by a `wait` step so the
-// headless driver flushes the change + relayouts before the next assertion — the
-// same yield the real event loop provides between frames.
+// WHICH SCENARIOS. The canonical corpus is the repo-root `e2e/` directory —
+// the exact same files `azul-doc e2e e2e` and CI's `e2e_headless` gate run.
+// This test points AT that directory rather than at a private copy.
+//
+// It used to run an "adapted" copy of nine of those scenarios under
+// `tests/e2e_fixtures/`. Those adaptations were made to work around a runner
+// bug (efee23b4f: a `key_down`+`key_up` pair with no `wait` between them landed
+// in ONE continuation slice, so only the key-RELEASED state survived), and they
+// were strictly weaker than the originals AND blind to the very bug that was
+// fixed: `tab-focus.json` inserted a `wait` between `key_down` and `key_up`, so
+// reverting the runner fix left it GREEN while `e2e/op-tab-focus-next.json`
+// correctly went red. The other eight had dropped `resize`,
+// `reset_frame_counters`, `snapshot_frame`, `get_frame_report`,
+// `capture_damage_png`, the `wait_frame`+`wait` pairs that separate an op from
+// the assertion about its effect, and two trailing `assert_work_bounded`
+// checks. They are gone; `e2e/` is the single source of truth.
+//
+// `tests/e2e_fixtures/` is KEPT for the four scenarios that exercise assertion
+// ops the `e2e/` corpus has no scenario for — `assert_state_machines_idle`,
+// `assert_manager_invariants`, `assert_composition` and `assert_damage_sound`.
+// Add new scenarios to `e2e/`; only put one here if it covers an op `e2e/`
+// genuinely does not.
+//
+// VERDICTS come from `azul_layout::e2e::render_report`, the same function the
+// CLI and the CI gate use, so `expect: "fail"` is honoured identically
+// everywhere: FAIL and XPASS are red, XFAIL is green. Comparing
+// `result.status == "pass"` (what this file did before) turns a scenario
+// legitimately marked as a known failure into a red test, and would report an
+// XPASS as green — the two cases the marker exists to distinguish.
 //
 // Requires the `e2e-server` feature (see the `[[test]]` entry in Cargo.toml).
+// Fixtures are stripped from the published crate by `exclude = ["tests", …]` in
+// `layout/Cargo.toml`; `e2e/` sits outside the crate directory entirely and is
+// therefore not packaged either.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use azul_layout::e2e::{run_e2e_test, E2eTest, E2eTestResult};
+use azul_layout::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTest, E2eTestResult};
 
-fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/e2e_fixtures")
+/// The workspace root — `layout/`'s parent.
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("layout/ always has a parent")
+        .to_path_buf()
 }
 
-/// Render a failed result into a readable multi-line report.
-fn describe_failure(res: &E2eTestResult) -> String {
-    let mut out = format!(
-        "test '{}' -> {} ({} passed / {} failed of {} steps)",
-        res.name, res.status, res.steps_passed, res.steps_failed, res.step_count
+fn load_dir(dir: &Path) -> Vec<E2eTest> {
+    let tests = load_e2e_tests(dir)
+        .unwrap_or_else(|e| panic!("cannot load e2e scenarios from {}: {e}", dir.display()));
+    assert!(
+        !tests.is_empty(),
+        "no *.json scenarios found under {} — an empty selection is a broken path, not a green \
+         run",
+        dir.display()
     );
-    for step in &res.steps {
-        if step.status != "pass" {
-            out.push_str(&format!(
-                "\n    step {} [{}]: {}",
-                step.step_index,
-                step.op,
-                step.error.as_deref().unwrap_or("<no error message>")
-            ));
-        }
-    }
-    // The runner reports its own setup failures via `final_screenshot`.
-    if res.steps.is_empty() {
-        if let Some(msg) = &res.final_screenshot {
-            out.push_str(&format!("\n    {msg}"));
-        }
-    }
-    out
+    tests
 }
 
 #[test]
-fn run_all_e2e_fixtures() {
-    let dir = fixtures_dir();
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("cannot read fixtures dir {}: {e}", dir.display()))
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+fn run_all_e2e_scenarios() {
+    let root = repo_root();
+
+    // Scenario files use REPO-ROOT-relative paths — `capture_damage_png` writes
+    // `target/e2e/<name>.png` — exactly as the DLL host does when CI runs them
+    // from the root. `cargo test` starts the binary in the PACKAGE directory
+    // (`layout/`), which would silently write into `layout/target/` or fail with
+    // ENOENT, so chdir first. Safe here: this is the only test in the binary.
+    std::env::set_current_dir(&root)
+        .unwrap_or_else(|e| panic!("cannot enter repo root {}: {e}", root.display()));
+
+    let mut tests = load_dir(&root.join("e2e"));
+    tests.extend(load_dir(&root.join("layout/tests/e2e_fixtures")));
+
+    // `render_report` pairs a result to its `expect` marker BY NAME, so a
+    // duplicate name would silently apply the wrong marker to one of them.
+    let mut names: Vec<&str> = tests.iter().map(|t| t.name.as_str()).collect();
+    names.sort_unstable();
+    let dupes: Vec<&str> = names
+        .windows(2)
+        .filter(|w| w[0] == w[1])
+        .map(|w| w[0])
         .collect();
-    entries.sort();
+    assert!(dupes.is_empty(), "duplicate e2e scenario name(s): {dupes:?}");
+
+    // Sort up front so BOTH the report order and the pairing in `render_report`
+    // are independent of directory-iteration order.
+    tests.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Serial on purpose. The CLI runner splits scenarios that drive the GLOBAL
+    // test clock out of its thread pool; running everything serially here gets
+    // the same guarantee without duplicating that partition.
+    let results: Vec<E2eTestResult> = tests.iter().map(run_e2e_test).collect();
+
+    let (report, verdict) = render_report(&tests, &results);
+    eprint!("{report}");
 
     assert!(
-        !entries.is_empty(),
-        "no *.json fixtures found under {}",
-        dir.display()
-    );
-
-    let mut ran = 0usize;
-    let mut failures: Vec<String> = Vec::new();
-
-    for path in &entries {
-        let src = std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-        // Deserialize with the SERVER's own schema — no bespoke test types.
-        let test: E2eTest = serde_json::from_str(&src)
-            .unwrap_or_else(|e| panic!("cannot parse {} as E2eTest: {e}", path.display()));
-
-        eprintln!("=== running fixture: {} ({}) ===", test.name, path.display());
-        let result = run_e2e_test(&test);
-        eprintln!(
-            "    -> {} ({}/{} steps passed)",
-            result.status, result.steps_passed, result.step_count
-        );
-
-        if result.status == "pass" {
-            ran += 1;
-        } else {
-            failures.push(describe_failure(&result));
-        }
-    }
-
-    eprintln!("e2e_json: {ran}/{} fixtures passed", entries.len());
-    assert!(
-        failures.is_empty(),
-        "e2e_json fixtures failed:\n{}",
-        failures.join("\n")
+        !verdict.gate_failed(),
+        "e2e gate is red: {} failed, {} unexpectedly passed ({} passed, {} xfailed)",
+        verdict.failed,
+        verdict.xpass,
+        verdict.passed,
+        verdict.xfail,
     );
 }

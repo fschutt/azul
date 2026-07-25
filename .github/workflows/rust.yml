@@ -735,8 +735,9 @@ jobs:
           toolchain: 1.88.0
 
       # Cargo + target cache, same house style as every other cache in this file
-      # (CACHE_BUST first, content-hash key, restore-keys prefixes). The dev
-      # profile lands in target/debug.
+      # (CACHE_BUST first, content-hash key, restore-keys prefixes). The lib
+      # tests build on the dev profile (target/debug); the e2e_json step below
+      # builds on release (target/release).
       - name: Rust build cache
         uses: actions/cache@v5
         with:
@@ -744,6 +745,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/debug
+            target/release/deps
+            target/release/build
+            target/release/.fingerprint
           key: test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs') }}
           restore-keys: |
             test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
@@ -762,8 +766,20 @@ jobs:
       # `required-features = ["e2e-server"]`. Naming the target explicitly makes
       # cargo error out if the feature is ever removed, instead of skipping the
       # target in silence the way a bare `--tests` would.
-      - name: Run the JSON-driven E2E fixture target (required-features gate)
-        run: cargo test -p azul-layout --test e2e_json --features e2e-server
+      #
+      # `--release`, unlike the step above, and deliberately: this target now
+      # runs the repo-root `e2e/` corpus, and the corpus is gated on release
+      # EVERYWHERE else (`e2e_headless` builds `--release -p azul-doc`; the
+      # `AZ_E2E` shipped-binding runs are release too). On the dev profile
+      # `bug_font_never_removed` is reproducibly red: `parsed_fonts` grows
+      # 1 -> 7 when the text node mounts (IDENTICALLY on both profiles — probed)
+      # and returns to 1 after the unmount + `tick_ms 1000` + `wait 200ms` only
+      # in an optimized build. The scenario's 200 ms of real-time headroom is not
+      # enough for the eviction pass unoptimized. That is an engine/scenario
+      # timing weakness worth fixing on its own; it is NOT a reason to weaken the
+      # scenario, and it must not be hidden by dropping the corpus from this gate.
+      - name: Run the JSON-driven E2E scenario target (required-features gate)
+        run: cargo test --release -p azul-layout --test e2e_json --features e2e-server
 
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
