@@ -66,7 +66,13 @@ export LLVM_PROFILE_FILE="${PROFRAW_DIR}/azul-%p-%m.profraw"
 PROFILE="coverage"
 TARGET_DIR="./target/${PROFILE}/deps"
 
-# Run lib + integration tests only (no doctests — those are validated in CI separately)
+# Lib + integration tests. Doctests are deliberately NOT run: `cargo test --doc`
+# does not work under `-C instrument-coverage` in any useful way (each doctest is
+# its own binary and its profraw is not attributable back to the library), and
+# NO other CI job runs doctests for azul-css / azul-core / azul-layout either —
+# `cd dll && cargo test` only covers the DLL's. Treat library doctests as
+# UNVERIFIED; do not read this comment as a claim that something else checks
+# them.
 echo "  [1/3] azul-css tests"
 cargo test --profile "${PROFILE}" --package azul-css --lib --tests 2>&1 | tail -3
 
@@ -74,8 +80,8 @@ echo "  [2/3] azul-core tests"
 cargo test --profile "${PROFILE}" --package azul-core --lib --tests 2>&1 | tail -3
 
 echo "  [3/3] azul-layout tests"
-# Exclude slow integration tests (>10s in debug) that blow up under coverage instrumentation.
-# These are still run in the regular CI test job without coverage.
+# Exclude slow integration tests (>10s in debug) that blow up under coverage
+# instrumentation. These still run in the `test_lib` CI job without coverage.
 SLOW_TESTS=(
   "test_scrollbar_detection"
   "flexbox_integration"
@@ -85,14 +91,28 @@ SLOW_TESTS=(
   "ifc_caching"
   "margin_escape_regression"
 )
-EXCLUDE_ARGS=""
-for t in "${SLOW_TESTS[@]}"; do
-  EXCLUDE_ARGS="${EXCLUDE_ARGS} --exclude-test ${t}"
-done
-# cargo test doesn't support --exclude-test, so we run only lib + named fast test binaries
 cargo test --profile "${PROFILE}" --package azul-layout --lib 2>&1 | tail -3
-for test_file in layout/tests/*.rs; do
-  test_name="$(basename "${test_file}" .rs)"
+
+# Enumerate the test targets from the MANIFEST, not from `layout/tests/*.rs`.
+# That glob is top-level-only, so the three targets whose `path` points into a
+# subdirectory — solver3_calc (tests/solver3/calc.rs), solver3_sizing
+# (tests/solver3/sizing.rs) and managers_scroll_into_view
+# (tests/managers/scroll_into_view.rs) — were never run and never measured.
+mapfile -t LAYOUT_TESTS < <(
+  cargo metadata --no-deps --format-version 1 --manifest-path layout/Cargo.toml \
+    | python3 -c "
+import json, sys
+md = json.load(sys.stdin)
+for pkg in md['packages']:
+    if pkg['name'] != 'azul-layout':
+        continue
+    for t in pkg['targets']:
+        if 'test' in t['kind']:
+            print(t['name'])
+"
+)
+
+for test_name in "${LAYOUT_TESTS[@]}"; do
   skip=false
   for slow in "${SLOW_TESTS[@]}"; do
     if [[ "${test_name}" == "${slow}" ]]; then
@@ -125,6 +145,28 @@ GRCOV_FILTERS=(
   --ignore "*/.rustup/*"
   --ignore "*/tests/*"
   --ignore "*/examples/*"
+
+  # Drop the generated test suites from the MEASURED SOURCE.
+  #
+  # The ~2,530 `autotest_generated` tests live in 219 inline
+  # `#[cfg(test)] mod autotest_generated { … }` blocks INSIDE `*/src/*.rs` —
+  # 250,625 lines against 511,392 total src LOC. They are test code, ~100%
+  # covered by construction, and the `--ignore "*/tests/*"` filter above is
+  # path-based so it never touched them. Every coverage figure published before
+  # this change (70.27% overall, window.rs 42.30% line) therefore measured a
+  # denominator that was ~49% test code, i.e. was inflated roughly 2x and did
+  # not describe library coverage at all.
+  #
+  # `--excl-start`/`--excl-stop` are regexes over the source, so this needs no
+  # edit to the 219 files and picks up any suite generated later. The stop
+  # pattern is a closing brace in COLUMN 0: items nested inside a module are
+  # indented, so the first such line after `mod autotest_generated {` is the
+  # module's own terminator. Verified against a brace-matching lexer over all
+  # 219 blocks: 214 land exactly on the module end, and the 5 blocks that are
+  # themselves nested one level deep overshoot by exactly one line — the
+  # enclosing module's `}`, which carries no coverage regions.
+  --excl-start '^\s*mod autotest_generated\s*\{'
+  --excl-stop  '^\}'
 )
 
 grcov "${PROFRAW_DIR}" \
