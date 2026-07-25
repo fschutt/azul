@@ -634,6 +634,13 @@ pub struct LayoutWindow {
     /// E2E `mount` override for this window (debug-server `mount` / `unmount`).
     /// Empty and untouched in every normal build — see [`E2eMountOverride`].
     pub e2e_mount: E2eMountOverride,
+    /// Scratch state for the E2E ops that remember something between the steps
+    /// of one scenario (named frame / resource snapshots, the composition stage
+    /// trace, the last presented framebuffer). Per-window, so a parallel
+    /// headless run cannot have one scenario read another's snapshots.
+    /// See [`crate::e2e::E2eScratch`].
+    #[cfg(feature = "e2e-server")]
+    pub e2e_scratch: std::sync::Mutex<crate::e2e::E2eScratch>,
     /// M12.7 web/headless: skip the GPU transform/opacity sync in
     /// `layout_dom_recursive`. That sync only feeds the display list (which
     /// the web backend skips), has no GPU, and `GpuValueCache::synchronize`
@@ -860,6 +867,8 @@ impl LayoutWindow {
     fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
             e2e_mount: E2eMountOverride::default(),
+            #[cfg(feature = "e2e-server")]
+            e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
             // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
             frame_report: FrameReport::default(),
@@ -8198,6 +8207,8 @@ impl LayoutWindow {
             // The E2E mount override is an XML source string + a dirty flag:
             skip_gpu_sync: _,
             e2e_mount: _,
+            #[cfg(feature = "e2e-server")]
+            e2e_scratch: _,
             #[cfg(feature = "pdf")]
             fragmentation_context: _,
             safe_area_insets: _,

@@ -2646,13 +2646,53 @@ impl E2eSession {
 /// `CallbackInfo::take_screenshot` re-renders the display list from scratch with
 /// a fresh glyph cache — i.e. it is an INDEPENDENT full-repaint oracle, not the
 /// incremental buffer. That is exactly what the damage assertions need.
+/// Per-window scratch state for the E2E ops that have to remember something
+/// BETWEEN the steps of one scenario.
+///
+/// These were four process-global `static Mutex<…>`: the named frame snapshots
+/// (`snapshot_frame`), the named resource-counter snapshots
+/// (`snapshot_resources`), the composition stage trace (`assert_composition`)
+/// and the last presented framebuffer (`assert_damage_sound`'s pixel-identity
+/// check). Process-global was already wrong for two windows; it is FATAL for a
+/// parallel run, where two scenarios that use the same snapshot name would
+/// silently read each other's pixels and report a confident wrong verdict.
+///
+/// It hangs off [`azul_layout::window::LayoutWindow`] because an assertion only
+/// ever holds `&CallbackInfo`, hence `&LayoutWindow`. The `Mutex` is therefore
+/// per-instance interior mutability — one uncontended lock per window — not
+/// ambient state.
 #[cfg(feature = "std")]
-static E2E_FRAME_SNAPSHOTS: Mutex<BTreeMap<String, Vec<u8>>> = Mutex::new(BTreeMap::new());
+#[derive(Debug, Default)]
+pub struct E2eScratch {
+    /// Named full-repaint PNG snapshots taken by the `snapshot_frame` op.
+    ///
+    /// `CallbackInfo::take_screenshot` re-renders the display list from scratch
+    /// with a fresh glyph cache — i.e. it is an INDEPENDENT full-repaint oracle,
+    /// not the incremental buffer. That is exactly what the damage assertions
+    /// need.
+    frame_snapshots: BTreeMap<String, Vec<u8>>,
+    /// Named resource-counter snapshots taken by the `snapshot_resources` op.
+    resource_snapshots: BTreeMap<String, BTreeMap<String, u64>>,
+    /// Manager-stage trace folded by the step loop, read by `assert_composition`.
+    composition_trace: Option<CompositionTrace>,
+    /// The damage-driven framebuffer of the frame just rendered `(w, h, rgba)`.
+    #[cfg(feature = "cpurender")]
+    presented_frame: Option<(u32, u32, Vec<u8>)>,
+}
 
-/// Named resource-counter snapshots taken by the `snapshot_resources` op.
+/// Lock this window's E2E scratch. A poisoned lock is recovered rather than
+/// panicked on: a scenario that panicked mid-step must not take the whole
+/// (possibly parallel) run down with it.
 #[cfg(feature = "std")]
-static E2E_RESOURCE_SNAPSHOTS: Mutex<BTreeMap<String, BTreeMap<String, u64>>> =
-    Mutex::new(BTreeMap::new());
+fn scratch<'a>(
+    callback_info: &'a azul_layout::callbacks::CallbackInfo,
+) -> std::sync::MutexGuard<'a, E2eScratch> {
+    callback_info
+        .get_layout_window()
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// Build the XML document for a `mount` op out of the (line-array) html + css.
 ///
@@ -4483,10 +4523,12 @@ fn eval_assert_damage(
 
 /// Decode a named `snapshot_frame` PNG.
 #[cfg(all(feature = "std", feature = "cpurender"))]
-fn load_snapshot(name: &str) -> Result<azul_layout::cpurender::AzulPixmap, String> {
-    let bytes = E2E_FRAME_SNAPSHOTS
-        .lock()
-        .unwrap()
+fn load_snapshot(
+    name: &str,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> Result<azul_layout::cpurender::AzulPixmap, String> {
+    let bytes = scratch(callback_info)
+        .frame_snapshots
         .get(name)
         .cloned()
         .ok_or_else(|| format!("no frame snapshot named '{name}' (use snapshot_frame first)"))?;
@@ -4556,7 +4598,7 @@ fn eval_assert_changed(
                 damage.rect_count()
             ));
         };
-        let before = match load_snapshot(vs) {
+        let before = match load_snapshot(vs, callback_info) {
             Ok(p) => p,
             Err(e) => return AssertionResult::fail(format!("assert_changed: {e}")),
         };
@@ -4628,7 +4670,7 @@ fn eval_assert_damage_covers_changes(
                     .to_string(),
             );
         }
-        let before = match load_snapshot(vs) {
+        let before = match load_snapshot(vs, callback_info) {
             Ok(p) => p,
             Err(e) => return AssertionResult::fail(format!("assert_damage_covers_changes: {e}")),
         };
@@ -4808,7 +4850,7 @@ fn eval_assert_idle_stable(
             .get("threshold")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0) as u8;
-        let before = match load_snapshot(vs) {
+        let before = match load_snapshot(vs, callback_info) {
             Ok(p) => p,
             Err(e) => return AssertionResult::fail(format!("assert_idle_stable: {e}")),
         };
@@ -4938,7 +4980,7 @@ fn eval_assert_resource_counts(
 ) -> AssertionResult {
     let current = collect_resource_counts(callback_info);
     let baseline = match params.get("vs").and_then(|v| v.as_str()) {
-        Some(name) => match E2E_RESOURCE_SNAPSHOTS.lock().unwrap().get(name).cloned() {
+        Some(name) => match scratch(callback_info).resource_snapshots.get(name).cloned() {
             Some(b) => Some(b),
             None => {
                 return AssertionResult::fail(format!(
@@ -5658,16 +5700,13 @@ const COMPOSITION_STAGES: &[&str] = &[
     "hover_active",
 ];
 
-#[cfg(feature = "std")]
-static E2E_COMPOSITION_TRACE: Mutex<Option<CompositionTrace>> = Mutex::new(None);
-
 /// Reset the composition trace. Called at the start of every E2E test and by the
 /// `reset_frame_counters` op (the plan's "checkpoint").
 #[cfg(feature = "std")]
-pub(crate) fn e2e_reset_composition_trace() {
-    if let Ok(mut g) = E2E_COMPOSITION_TRACE.lock() {
-        *g = Some(CompositionTrace::default());
-    }
+pub(crate) fn e2e_reset_composition_trace(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) {
+    scratch(callback_info).composition_trace = Some(CompositionTrace::default());
 }
 
 /// Sample the manager state and fold it into the stage trace. Called by the step
@@ -5704,10 +5743,8 @@ fn e2e_record_composition_sample(
             .sum(),
     };
 
-    let Ok(mut guard) = E2E_COMPOSITION_TRACE.lock() else {
-        return;
-    };
-    let trace = guard.get_or_insert_with(CompositionTrace::default);
+    let mut guard = scratch(callback_info);
+    let trace = guard.composition_trace.get_or_insert_with(CompositionTrace::default);
 
     let mut entered: Vec<&'static str> = Vec::new();
     if sample.drag_active {
@@ -5792,10 +5829,8 @@ fn eval_assert_composition(
         return AssertionResult::fail("assert_composition: 'expect' is empty — it asserts nothing");
     }
 
-    let Ok(guard) = E2E_COMPOSITION_TRACE.lock() else {
-        return AssertionResult::fail("assert_composition: composition trace lock poisoned");
-    };
-    let Some(trace) = guard.as_ref() else {
+    let guard = scratch(callback_info);
+    let Some(trace) = guard.composition_trace.as_ref() else {
         return AssertionResult::fail(
             "assert_composition: no composition trace was recorded (the step loop never sampled — \
              this op only works inside an E2E scenario run)",
@@ -5893,23 +5928,18 @@ fn eval_assert_composition(
 /// re-renders from scratch with a fresh glyph cache). A host that does not
 /// publish it — the DLL, whose frames live on the GPU — makes
 /// `"pixel_identity": true` FAIL rather than silently skip.
+/// Publish the damage-driven framebuffer of the frame just rendered onto the
+/// window that rendered it.
 #[cfg(all(feature = "std", feature = "cpurender"))]
-static E2E_PRESENTED_FRAME: Mutex<Option<(u32, u32, Vec<u8>)>> = Mutex::new(None);
-
-/// Publish the damage-driven framebuffer of the frame just rendered.
-#[cfg(all(feature = "std", feature = "cpurender"))]
-pub(crate) fn e2e_set_presented_frame(pixmap: &azul_layout::cpurender::AzulPixmap) {
-    if let Ok(mut g) = E2E_PRESENTED_FRAME.lock() {
-        *g = Some((pixmap.width(), pixmap.height(), pixmap.data().to_vec()));
-    }
-}
-
-/// Drop the published framebuffer (start of a run).
-#[cfg(all(feature = "std", feature = "cpurender"))]
-pub(crate) fn e2e_clear_presented_frame() {
-    if let Ok(mut g) = E2E_PRESENTED_FRAME.lock() {
-        *g = None;
-    }
+pub fn e2e_set_presented_frame(
+    layout_window: &azul_layout::window::LayoutWindow,
+    pixmap: &azul_layout::cpurender::AzulPixmap,
+) {
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .presented_frame = Some((pixmap.width(), pixmap.height(), pixmap.data().to_vec()));
 }
 
 /// `assert_damage_sound` — E2E_PLAN §(c), damage soundness in BOTH directions.
@@ -5980,7 +6010,7 @@ fn eval_assert_damage_sound(
             );
         }
 
-        let before = match load_snapshot(vs) {
+        let before = match load_snapshot(vs, callback_info) {
             Ok(p) => p,
             Err(e) => return AssertionResult::fail(format!("assert_damage_sound: {e}")),
         };
@@ -6130,7 +6160,7 @@ fn eval_assert_damage_sound(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
         {
-            let presented = E2E_PRESENTED_FRAME.lock().ok().and_then(|g| g.clone());
+            let presented = scratch(callback_info).presented_frame.clone();
             let Some((pw, ph, data)) = presented else {
                 return AssertionResult::fail(
                     "assert_damage_sound: 'pixel_identity' was requested but this host does not \
@@ -6229,7 +6259,7 @@ fn resume_e2e_continuation_inner(
             // The composition trace is process-global (an assertion only ever
             // holds `&CallbackInfo`), so it must be zeroed per test or stages
             // from the previous scenario would leak into this one.
-            e2e_reset_composition_trace();
+            e2e_reset_composition_trace(callback_info);
         }
 
         // Apply the test's `setup` block (window size / DPI / app state) BEFORE
@@ -9295,9 +9325,8 @@ pub fn process_debug_event(
             {
                 match callback_info.take_screenshot(ROOT_DOM_ID) {
                     Ok(png) => {
-                        E2E_FRAME_SNAPSHOTS
-                            .lock()
-                            .unwrap()
+                        scratch(callback_info)
+                            .frame_snapshots
                             .insert(name.clone(), png);
                         send_ok(request, None, None);
                     }
@@ -9316,9 +9345,8 @@ pub fn process_debug_event(
 
         DebugEvent::SnapshotResources { name } => {
             let counts = collect_resource_counts(callback_info);
-            E2E_RESOURCE_SNAPSHOTS
-                .lock()
-                .unwrap()
+            scratch(callback_info)
+                .resource_snapshots
                 .insert(name.clone(), counts);
             send_ok(request, None, None);
         }
@@ -9381,7 +9409,7 @@ pub fn process_debug_event(
             // `azul_layout::window::request_frame_report_reset`).
             azul_layout::window::request_frame_report_reset();
             // Same checkpoint semantics for `assert_composition`'s stage trace.
-            e2e_reset_composition_trace();
+            e2e_reset_composition_trace(callback_info);
             send_ok(request, None, None);
         }
 

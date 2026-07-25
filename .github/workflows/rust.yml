@@ -1984,17 +1984,22 @@ jobs:
   # window-size / resource-leak invariants), run against the real engine with
   # AZ_BACKEND=headless.
   #
-  # The scenarios `mount` their own DOM+CSS, so the host binary is irrelevant —
-  # any debug-server-enabled binary works; we reuse the prebuilt E2E DLL from
-  # build_dll_e2e and link the rust hello-world example against it (exactly the
-  # recipe e2e_native's `rust` family uses).
+  # The scenarios `mount` their own DOM+CSS, so no host application is involved
+  # at all: `azul-doc e2e` drives the op dispatcher (azul_layout::e2e) against a
+  # headless LayoutWindow, in ONE process, in parallel.
+  #
+  # This used to link the rust hello-world example against the prebuilt E2E DLL
+  # and run one OS process per JSON file in a serial bash loop. That had a
+  # silent-pass hazard its own comment warned about (a wrong link mode makes
+  # AZ_E2E a no-op that still exits 0 — all scenarios "pass" while nothing ran),
+  # and it does not scale to the generated corpus. The step below asserts the
+  # reported scenario COUNT as well as 0 failures, so a vacuous run is red.
   #
   # BLOCKING: this job is in deploy_pages.needs, same as build_rust9x /
   # e2e_native — a red damage/leak invariant must not ship.
   # ===========================================================================
   e2e_headless:
     name: E2E Headless (e2e/*.json)
-    needs: build_dll_e2e
     timeout-minutes: 30
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
@@ -2029,28 +2034,8 @@ jobs:
             e2e-headless-${{ env.CACHE_BUST }}-ubuntu-22.04-${{ hashFiles('Cargo.lock') }}-
             e2e-headless-${{ env.CACHE_BUST }}-ubuntu-22.04-
 
-      - name: Download prebuilt E2E DLL + codegen
-        uses: actions/download-artifact@v8
-        with:
-          name: azul-e2e-dll-ubuntu-22.04
-          path: e2e-dll
-
-      - name: Place DLL + codegen into the target tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p target/release target/codegen
-          cp -a e2e-dll/codegen/. target/codegen/
-          cp -a e2e-dll/release/. target/release/
-          rm -rf e2e-dll
-          echo "AZ_LINK_PATH=$PWD/target/release" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
-
-      # link-dynamic links the PREBUILT debug-server DLL (link-static would
-      # rebuild azul-dll WITHOUT debug-server, and AZ_E2E would be a silent
-      # no-op — see the note in scripts/e2e_language_matrix.sh).
-      - name: Build the headless host binary (links the prebuilt DLL)
-        run: cargo build --release -p azul-examples --example hello-world --no-default-features --features link-dynamic
+      - name: Build the headless e2e runner
+        run: cargo build --release -p azul-doc
 
       - name: Run every e2e/*.json scenario (BLOCKING)
         shell: bash
@@ -2058,23 +2043,54 @@ jobs:
           set -uo pipefail
           mkdir -p target/e2e
           shopt -s nullglob
-          scenarios=(e2e/*.json)
-          if [ ${#scenarios[@]} -eq 0 ]; then
+          files=(e2e/*.json)
+          if [ ${#files[@]} -eq 0 ]; then
             echo "FATAL: no scenarios in e2e/ — the gate would be vacuous" >&2
             exit 1
           fi
-          failed=0
-          for f in "${scenarios[@]}"; do
-            echo "::group::$f"
-            if AZ_E2E="$f" timeout 300 ./target/release/examples/hello-world; then
-              echo "PASS $f"
-            else
-              echo "::error file=$f::e2e scenario FAILED: $f"
-              failed=1
-            fi
-            echo "::endgroup::"
-          done
-          exit "$failed"
+
+          # How many scenarios SHOULD run. A file may hold one test object or an
+          # array of them, so this is >= the file count, never less.
+          ./target/release/azul-doc e2e e2e --list > target/e2e/selected.txt
+          expected=$(wc -l < target/e2e/selected.txt)
+          if [ "$expected" -lt "${#files[@]}" ]; then
+            echo "::error::only $expected scenario(s) loaded from ${#files[@]} file(s) — a file parsed to nothing" >&2
+            exit 1
+          fi
+
+          # One process, every scenario, rayon-parallel.
+          set +e
+          timeout 900 ./target/release/azul-doc e2e e2e 2>&1 | tee target/e2e/report.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+
+          # PROOF OF EXECUTION. Exit 0 alone is not a gate: a runner that ran
+          # nothing would also exit 0 (that is exactly the trap the retired
+          # AZ_E2E + hello-world recipe fell into when the link mode was wrong).
+          # Require the summary to account for EVERY selected scenario, and to
+          # report no FAIL and no XPASS.
+          summary=$(sed 's/\x1b\[[0-9;]*m//g' target/e2e/report.txt | grep -a 'test result:' | tail -1)
+          if [ -z "$summary" ]; then
+            echo "::error::e2e runner produced no 'test result:' summary — the gate is vacuous" >&2
+            exit 1
+          fi
+          echo "expected $expected scenario(s); $summary"
+          counts=$(sed -n 's/.*[.] \([0-9]*\) passed; \([0-9]*\) failed; \([0-9]*\) xfailed; \([0-9]*\) xpassed.*/\1 \2 \3 \4/p' <<<"$summary")
+          if [ -z "$counts" ]; then
+            echo "::error::could not parse the e2e summary line: $summary" >&2
+            exit 1
+          fi
+          set -- $counts
+          total=$(( $1 + $2 + $3 + $4 ))
+          if [ "$total" -ne "$expected" ]; then
+            echo "::error::e2e accounted for $total scenario(s) but $expected were selected — one was silently skipped" >&2
+            exit 1
+          fi
+          if [ "$2" -ne 0 ] || [ "$4" -ne 0 ]; then
+            echo "::error::e2e gate is RED: $2 failed, $4 unexpectedly passed (XPASS — remove the expect marker)" >&2
+            exit 1
+          fi
+          exit "$rc"
 
       - name: Upload damage PNGs
         if: always()

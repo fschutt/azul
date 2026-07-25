@@ -327,7 +327,7 @@ fn main() -> anyhow::Result<()> {
             // cargo-test-style report. The in-process equivalent of
             // `AZ_E2E=<path> ./app`, but with no host binary to link and no
             // process-per-file bash loop (the corpus is ~13k files).
-            // Usage: e2e <file-or-dir.json> [--filter <substr>] [--list]
+            // Usage: e2e <file-or-dir.json> [--filter <substr>] [--list] [--jobs <n>]
             //
             // Run from the PROJECT ROOT, not doc/ (main() chdir'd to the manifest
             // dir above). Scenario files use repo-root-relative paths — e.g.

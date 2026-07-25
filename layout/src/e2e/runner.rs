@@ -746,7 +746,7 @@ impl Runner {
         // silently skipping the check.
         #[cfg(feature = "cpurender")]
         if let Some(frame) = self.cpu_backend.last_frame.as_ref() {
-            super::full::e2e_set_presented_frame(frame);
+            super::full::e2e_set_presented_frame(&self.layout_window, frame);
         }
     }
 
@@ -947,9 +947,6 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
 /// results) — the same value the HTTP `run_e2e_tests` command produces.
 #[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
-    #[cfg(feature = "cpurender")]
-    super::full::e2e_clear_presented_frame();
-
     // This scenario's own scheduler slot. It is a LOCAL, not a `Runner` field,
     // only because `Runner::with_callback_info` takes `&mut self` and the
     // dispatcher needs `&mut` on the session at the same time — borrowck, not
