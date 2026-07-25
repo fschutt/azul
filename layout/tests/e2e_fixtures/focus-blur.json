@@ -1,0 +1,34 @@
+{
+  "name": "focus_blur",
+  "description": "WINDOW FOCUS / BLUR: blur flips window_focused / flags.has_focus false, focus flips them true. Mirrors WM_SETFOCUS/WM_KILLFOCUS (Windows) and X11 FocusIn/FocusOut. Asserts the window state actually changes, plus a node focus via the focus op with a selector.",
+  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "steps": [
+    {
+      "op": "mount",
+      "html": ["<div id=\"root\" tabindex=\"0\">focus probe</div>"],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: green; font-family: \"Azul Mock Mono\"; font-size: 20px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+
+    { "op": "assert_exists", "selector": "#root" },
+    { "op": "assert_window_state", "property": "focused", "expected": true },
+    { "op": "assert_window_state", "property": "window_focused", "expected": true },
+
+    { "op": "blur" },
+    { "op": "assert_window_state", "property": "focused", "expected": false },
+    { "op": "assert_window_state", "property": "window_focused", "expected": false },
+
+    { "op": "focus", "selector": "#root" },
+    { "op": "assert_window_state", "property": "focused", "expected": true },
+    { "op": "assert_window_state", "property": "window_focused", "expected": true },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "type": "focus_state" },
+    { "op": "assert_response", "contains": "root" },
+
+    { "op": "blur" },
+    { "op": "assert_window_state", "property": "window_focused", "expected": false }
+  ]
+}

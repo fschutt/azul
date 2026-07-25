@@ -1,0 +1,42 @@
+{
+  "name": "dpi_changed",
+  "description": "DPI CHANGE: dpi_changed sets FullWindowState.size.dpi; the LOGICAL size stays put while the PHYSICAL/backing size rescales with the hidpi factor (400x300 @96 -> 800x600 @192 -> 500x375 @120). Exercises LayoutWindow::clear_caches (window.rs:1951) + full re-layout at the new scale; the DOM survives and logical geometry is unchanged.",
+  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "steps": [
+    {
+      "op": "mount",
+      "html": ["<div id=\"root\"><p id=\"t\">DPI</p></div>"],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: red; }",
+        "#t { font-family: \"Azul Mock Mono\"; font-size: 20px; color: white; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "assert_exists", "selector": "#root" },
+
+    { "op": "assert_window_state", "property": "dpi", "expected": 96 },
+    { "op": "assert_window_state", "property": "hidpi_factor", "expected": 1.0, "tolerance": 0.01 },
+    { "op": "assert_window_state", "property": "physical_width", "expected": 400 },
+    { "op": "assert_window_state", "property": "physical_height", "expected": 300 },
+
+    { "op": "dpi_changed", "dpi": 192 },
+    { "op": "assert_window_state", "property": "dpi", "expected": 192 },
+    { "op": "assert_window_state", "property": "hidpi_factor", "expected": 2.0, "tolerance": 0.01 },
+    { "op": "assert_window_state", "property": "logical_width", "expected": 400 },
+    { "op": "assert_window_state", "property": "logical_height", "expected": 300 },
+    { "op": "assert_window_state", "property": "physical_width", "expected": 800 },
+    { "op": "assert_window_state", "property": "physical_height", "expected": 600 },
+    { "op": "assert_layout", "selector": "#root", "property": "width", "expected": 400, "tolerance": 1 },
+    { "op": "assert_exists", "selector": "#t" },
+
+    { "op": "dpi_changed", "dpi": 120 },
+    { "op": "assert_window_state", "property": "dpi", "expected": 120 },
+    { "op": "assert_window_state", "property": "hidpi_factor", "expected": 1.25, "tolerance": 0.01 },
+    { "op": "assert_window_state", "property": "logical_width", "expected": 400 },
+    { "op": "assert_window_state", "property": "physical_width", "expected": 500 },
+    { "op": "assert_window_state", "property": "physical_height", "expected": 375 },
+    { "op": "assert_layout", "selector": "#root", "property": "width", "expected": 400, "tolerance": 1 },
+    { "op": "assert_exists", "selector": "#t" }
+  ]
+}

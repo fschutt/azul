@@ -1,0 +1,38 @@
+{
+  "name": "move_and_resize",
+  "description": "WINDOW MOVE + RESIZE: move sets FullWindowState.position = Initialized(x, y); a move must NOT resize. resize re-runs layout at the new logical size via LayoutWindow::resize_window (window.rs:1920) and the content reflows (the fixed 200px child stays 200px, the flex root fills the new width). Proves position is read back live and a move leaves size untouched.",
+  "setup": { "window_width": 320, "window_height": 240, "dpi": 96 },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"child\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { width: 100%; height: 100px; background: teal; }",
+        "#child { width: 200px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "assert_exists", "selector": "#root" },
+    { "op": "assert_window_state", "property": "logical_width", "expected": 320 },
+
+    { "op": "move", "x": 120, "y": 64 },
+    { "op": "assert_window_state", "property": "position_x", "expected": 120 },
+    { "op": "assert_window_state", "property": "position_y", "expected": 64 },
+    { "op": "assert_window_state", "property": "logical_width", "expected": 320 },
+    { "op": "assert_window_state", "property": "logical_height", "expected": 240 },
+
+    { "op": "move", "x": -30, "y": 900 },
+    { "op": "assert_window_state", "property": "position_x", "expected": -30 },
+    { "op": "assert_window_state", "property": "position_y", "expected": 900 },
+
+    { "op": "resize", "width": 500, "height": 400 },
+    { "op": "assert_window_state", "property": "logical_width", "expected": 500 },
+    { "op": "assert_window_state", "property": "logical_height", "expected": 400 },
+    { "op": "assert_layout", "selector": "#child", "property": "width", "expected": 200.0, "tolerance": 0.5 }
+  ]
+}

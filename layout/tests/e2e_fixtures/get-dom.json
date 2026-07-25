@@ -1,0 +1,60 @@
+{
+  "name": "get_dom",
+  "description": "GET DOM (live read): get_dom returns the current DOM as a serialized tree (index / type / id / class / text). Re-mounting a different DOM must carry the new content and no longer carry the old, proving the read is live off the StyledDom in layout_results, not a stale snapshot.",
+  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <p id=\"t\">GET_DOM_BEFORE</p>",
+        "</div>"
+      ],
+      "css": [
+        "body  { font-family: \"Azul Mock Mono\"; font-size: 20px; color: black; }",
+        "#root { display: flex; flex-direction: column; }",
+        ".box  { width: 60px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "assert_exists", "selector": "#root" },
+
+    { "op": "get_dom" },
+    { "op": "assert_response", "type": "dom" },
+    { "op": "assert_response", "contains": "GET_DOM_BEFORE" },
+    { "op": "assert_response", "contains": "\"children\"" },
+
+    { "op": "assert_dom", "min_node_count": 4 },
+    { "op": "assert_dom", "contains": "GET_DOM_BEFORE" },
+    { "op": "assert_dom", "contains": "root" },
+    { "op": "assert_dom", "contains": "box" },
+
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root2\">",
+        "  <div class=\"card\" id=\"c1\"></div>",
+        "  <div class=\"card\" id=\"c2\"></div>",
+        "  <p id=\"t2\">GET_DOM_AFTER</p>",
+        "</div>"
+      ],
+      "css": [
+        "body   { font-family: \"Azul Mock Mono\"; font-size: 20px; color: black; }",
+        "#root2 { display: flex; flex-direction: column; }",
+        ".card  { width: 50px; height: 30px; background: orange; }"
+      ]
+    },
+    { "op": "wait_frame" },
+
+    { "op": "assert_exists", "selector": "#root2" },
+    { "op": "get_dom" },
+    { "op": "assert_response", "type": "dom" },
+    { "op": "assert_response", "contains": "GET_DOM_AFTER" },
+
+    { "op": "assert_dom", "contains": "GET_DOM_AFTER" },
+    { "op": "assert_dom", "not_contains": "GET_DOM_BEFORE" },
+    { "op": "assert_dom", "contains": "card" },
+    { "op": "assert_dom", "min_node_count": 5 }
+  ]
+}
