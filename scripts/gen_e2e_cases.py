@@ -6,8 +6,9 @@ Reads the REAL surface out of the repo (never hand-typed lists):
 
   * Callback API      -> api.json  ["0.2.0"]["api"]["callbacks"]["classes"]["CallbackInfo"]["functions"]
                          UNION the `impl CallbackInfo` blocks in layout/src/callbacks.rs
-  * Mock input / debug ops -> `pub enum DebugEvent` in
-                         dll/src/desktop/shell2/common/debug_server/full.rs:1526
+  * Mock input / debug ops -> `pub enum DebugEvent` in layout/src/e2e/full.rs,
+                         MINUS everything `OP_POLICY` (doc/src/gene2e.rs) denies and
+                         MINUS every zombie (declared but with no match arm)
   * Managers          -> layout/src/managers/*.rs
   * Assertion families-> scripts/E2E_PLAN.md  §B  (a..f, g1..g5)
 
@@ -17,6 +18,31 @@ SIMPLE -> COMPLEX.
 
 Scope rule (E2E_PLAN.md §0.1): BEHAVIOUR ONLY. No geometry assertions, ever.
 `azul-doc reftest` owns layout/CSS/pixel correctness.
+
+COHERENCE IS ENFORCED, NOT HOPED FOR
+------------------------------------
+Every emitted line is consumed by an LLM that turns it into a JSON test. If a
+line says "…then undo the typing…" but no earlier step typed anything, the model
+will silently INVENT the missing step: the resulting test passes or fails on
+something the line never asked for, and nobody ever finds out. So the crossing is
+not a raw cartesian product. Every axis element declares:
+
+    REQUIRES  — capabilities that must already be live when it runs
+    PROVIDES  — capabilities it establishes for everything after it
+
+and a combination is emitted only when each element's REQUIRES is a subset of the
+union of the PROVIDES of the elements BEFORE it. The capability vocabulary is
+`CAPS` below. Combinations that cannot satisfy this are DROPPED, never softened:
+a vaguer line is worse than no line.
+
+Two further rules of the same kind:
+  * an assertion is only attached to a combination that can actually satisfy it
+    (no "assert the pixels changed" for an interaction defined as changing
+    nothing, no "assert the scroll animation terminates" for an instant scroll);
+  * a line may only name an op that `OP_POLICY` allows and that is not a zombie.
+
+`self_audit()` at the bottom re-checks the finished corpus from the outside, with
+regexes rather than with the tables above, and hard-fails on any violation.
 
 Uniqueness is guaranteed BY CONSTRUCTION: every emitted line is normalized to a
 key (lowercased, punctuation-stripped, whitespace-collapsed) and inserted into a
@@ -30,12 +56,13 @@ import json
 import os
 import re
 import sys
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "scripts", "E2E_TESTS.txt")
 
-FULL_RS = os.path.join(ROOT, "dll/src/desktop/shell2/common/debug_server/full.rs")
+FULL_RS = os.path.join(ROOT, "layout/src/e2e/full.rs")
+GENE2E_RS = os.path.join(ROOT, "doc/src/gene2e.rs")
 CALLBACKS_RS = os.path.join(ROOT, "layout/src/callbacks.rs")
 API_JSON = os.path.join(ROOT, "api.json")
 MANAGERS_DIR = os.path.join(ROOT, "layout/src/managers")
@@ -47,6 +74,15 @@ MANAGERS_DIR = os.path.join(ROOT, "layout/src/managers")
 def read(p):
     with open(p, "r", encoding="utf-8") as f:
         return f.read()
+
+
+# Every combination deliberately NOT emitted, and why. Printed at the end, so a
+# shrinking corpus is always accounted for rather than mysterious.
+DROPPED = Counter()
+
+
+def drop(reason, n=1):
+    DROPPED[reason] += n
 
 
 def callback_api_functions():
@@ -70,8 +106,27 @@ def callback_api_functions():
     return sorted(fns)
 
 
+def snake(name):
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
 def debug_ops():
-    """Every DebugEvent variant = every mock input event / debug op the harness drives."""
+    """
+    The ops a generated test may actually drive.
+
+    `DebugEvent` is the DEBUG / VISUAL-EDITOR protocol, not a test surface. Two
+    filters, both read out of the repo rather than hand-maintained here:
+
+      1. OP_POLICY (doc/src/gene2e.rs) — the law the generator's validation gate
+         enforces. Emitting a corpus line for a DENIED op produces a test that
+         can never be written; the old corpus had 232 of them.
+      2. ZOMBIES — a variant declared in the enum but with no match arm in the
+         dispatch falls through to the `_ => Unhandled` catch-all, which answers
+         `ok` without doing anything. A test using one is vacuously green.
+
+    Returns (usable, all_variants, denied, zombies) so the coverage table can be
+    honest about what was excluded and why.
+    """
     src = read(FULL_RS)
     start = src.index("pub enum DebugEvent {")
     i, depth = src.index("{", start) + 1, 1
@@ -81,25 +136,111 @@ def debug_ops():
         elif src[i] == "}":
             depth -= 1
         i += 1
-    body = src[start:i]
-    variants = re.findall(r"^    ([A-Z][A-Za-z0-9]*)", body, re.M)
-    return sorted(set(variants))
+    variants = sorted({snake(v) for v in re.findall(r"^    ([A-Z][A-Za-z0-9]*)", src[start:i], re.M)})
+
+    handled = {snake(m) for m in re.findall(r"^\s*DebugEvent::([A-Za-z0-9_]+)", src, re.M)}
+    # ops the E2E step loop dispatches itself (mirrors gene2e.rs::parse_schema)
+    handled |= {o for o in ("commit_undo_snapshot", "undo_app_state", "redo_app_state",
+                            "assert_response") if '"%s"' % o in src}
+
+    pol_src = read(GENE2E_RS)
+    pol = pol_src[pol_src.index("const OP_POLICY"):pol_src.index("/// The verdict for one op.")]
+    allowed = set(re.findall(r'\("([a-z_0-9]+)",\s*None\)', pol))
+    denied = set(re.findall(r'\("([a-z_0-9]+)",\s*Some\(', pol))
+    unclassified = [o for o in variants if o not in allowed and o not in denied
+                    and not o.startswith("assert_")]
+    assert not unclassified, (
+        "gen_e2e_cases: %d DebugEvent variant(s) are not in OP_POLICY: %s\n"
+        "Classify them in doc/src/gene2e.rs before regenerating the corpus."
+        % (len(unclassified), unclassified))
+
+    zombies = [o for o in variants if o not in handled]
+    usable = [o for o in variants if o in allowed and o in handled]
+    return usable, variants, sorted(o for o in variants if o in denied), zombies
 
 
-def snake(name):
-    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+def relayout_exempt():
+    """
+    The CssPropertyType variants for which `can_trigger_relayout()` is FALSE.
+
+    Read out of css/src/props/property.rs rather than hand-classified, because
+    hand-classifying it got `z-index` and `visibility` wrong: both were tagged
+    paint-only, so 48 lines asserted "it does not trigger a relayout" about two
+    properties the engine explicitly relayouts for. A test that asserts the
+    opposite of the engine's own declared behaviour is not adversarial, it is
+    just wrong.
+    """
+    src = read(os.path.join(ROOT, "css/src/props/property.rs"))
+    i = src.index("pub const fn can_trigger_relayout")
+    m = re.search(r"!matches!\(\s*self,(.*?)\n\s*\)\n", src[i:i + 4000], re.S)
+    assert m, "gen_e2e_cases: can_trigger_relayout no longer has the `!matches!` shape"
+    return set(re.findall(r"\b([A-Z][A-Za-z0-9]*)\b", m.group(1)))
+
+
+def cross_invariants():
+    """(implemented, unimplemented) X-invariants, read out of the assertion itself.
+
+    `eval_assert_manager_invariants` hard-FAILS on X1/X4/X7/X8 ("never a silent
+    pass"), so a corpus line naming one is an always-red test that proves
+    nothing. X4 is additionally unfalsifiable: LayoutWindow has no second
+    drag-drop manager for the pair to disagree.
+    """
+    src = read(FULL_RS)
+    known = re.search(r"const KNOWN_CROSS: &\[&str\] = &\[(.*?)\];", src, re.S)
+    unimpl = re.search(r"const UNIMPLEMENTED_CROSS: &\[\(&str, &str\)\] = &\[(.*?)\n    \];",
+                       src, re.S)
+    assert known and unimpl, "gen_e2e_cases: KNOWN_CROSS/UNIMPLEMENTED_CROSS not found in full.rs"
+    return (set(re.findall(r'"(X\d+)"', known.group(1))),
+            set(re.findall(r'"(X\d+)"', unimpl.group(1))))
+
+
+def key_surface_managers():
+    """Managers `assert_manager_invariants` can actually sweep for dangling keys.
+
+    Its KNOWN_MANAGERS list has 8 entries and it REFUSES any other name
+    ("Refusing to pass an unchecked manager"), so a key-set lifecycle assertion
+    aimed at one of the other modules cannot be written at all.
+    """
+    src = read(FULL_RS)
+    m = re.search(r"const KNOWN_MANAGERS: &\[&str\] = &\[(.*?)\];", src, re.S)
+    assert m, "gen_e2e_cases: KNOWN_MANAGERS not found in full.rs"
+    return set(re.findall(r'"([a-z_]+)"', m.group(1)))
+
+
+# the assertion's short names vs. the module file names
+MGR_ALIAS = {"scroll": "scroll_state", "focus": "focus_cursor"}
 
 
 def managers():
+    """
+    Modules that hold real manager STATE.
+
+    Not "every .rs file in managers/": `changeset.rs` defines TextChangeset and
+    the TextOp* payloads and no manager at all, and `a11y` / `drag_drop` /
+    `scroll_into_view` hold no state either (which is exactly why X1 and X4 are
+    unimplementable). Naming them "the X manager" asks for a lifecycle nobody
+    can observe. A module qualifies if it declares a `*Manager` struct, or if
+    the assertion's own KNOWN_MANAGERS list names it.
+    """
+    keyed = {MGR_ALIAS.get(m, m) for m in key_surface_managers()}
     out = []
     for f in sorted(os.listdir(MANAGERS_DIR)):
-        if f.endswith(".rs") and f != "mod.rs":
-            out.append(f[:-3])
+        if not f.endswith(".rs") or f == "mod.rs":
+            continue
+        name = f[:-3]
+        if re.search(r"pub struct [A-Za-z]*Manager\b", read(os.path.join(MANAGERS_DIR, f))) \
+                or name in keyed:
+            out.append(name)
+        else:
+            drop("manager/%s: module holds no manager state (no *Manager struct)" % name, 15)
     return out
 
 
 CALLBACK_FNS = callback_api_functions()
-DEBUG_OPS = debug_ops()
+DEBUG_OPS, ALL_OPS, DENIED_OPS, ZOMBIE_OPS = debug_ops()
+RELAYOUT_EXEMPT = relayout_exempt()
+CROSS_OK, CROSS_UNIMPL = cross_invariants()
+KEYED_MANAGERS = {MGR_ALIAS.get(m, m) for m in key_surface_managers()}
 MANAGERS = managers()
 
 # Assertion families, verbatim from E2E_PLAN.md §B
@@ -117,51 +258,170 @@ FAMILIES = OrderedDict([
     ("g5", "incrementality (the repaint is a patch, never Full)"),
 ])
 
-# ── the axes ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# THE CAPABILITY VOCABULARY
+#
+# The one shared currency of the whole file. An axis element PROVIDES some of
+# these and REQUIRES some of these; a combination is legal iff every element's
+# requirements are already provided when it runs. Keep this list closed — an
+# unknown capability name is a hard error, not a silently unsatisfiable
+# requirement.
+# ══════════════════════════════════════════════════════════════════════════
+CAPS = {
+    "press",      # a pointer button is currently held down
+    "drag",       # a pointer drag is in flight (implies press)
+    "scroll",     # some container's scroll offset has moved
+    "anim",       # a time-driven animation is currently ticking
+    "selection",  # a text selection exists
+    "focus",      # some node holds keyboard focus
+    "caret",      # a caret is blinking
+    "editable",   # a contenteditable node exists and is engaged
+    "typing",     # text was typed, so an undo record exists
+    "hover",      # the pointer is resting over a node
+    "gesture",    # a multi-touch / long-press gesture session is open
+    "stroke",     # a pen stroke is in progress
+    "domregen",   # the DOM was regenerated
+}
+
+
+def _chk(name, caps):
+    bad = set(caps) - CAPS
+    assert not bad, "%s: unknown capability %s" % (name, sorted(bad))
+    return frozenset(caps)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE AXES
+# ══════════════════════════════════════════════════════════════════════════
+#
+# WIDGET CAPABILITIES — what a mounted document can actually DO. Used to decide
+# whether an event/property can visibly change it, so a liveness assertion is
+# only ever attached where liveness must hold.
+#
+#   text        renders glyphs                selectable  text can be selected
+#   children    has element children          editable    contains a contenteditable
+#   focusable   can take keyboard focus       clickable   a click visibly changes it
+#   hoverstyle  has a :hover rule             scrollv/h   scrolls on that axis
+#   image       contains an image node        virtual     virtual-view list
+#   overlap     two nodes overlap in z        uniquefont  its own font family
+#
 WIDGETS = [
-    ("a red stretched flexbox filling the window", "flexbox"),
-    ("a single grey button with a :hover rule", "button"),
-    ("a paragraph of selectable text", "text"),
-    ("a contenteditable single-line input", "input"),
-    ("a contenteditable multi-line textarea", "textarea"),
-    ("a vertically scrollable list of 40 rows", "list"),
-    ("a horizontally scrollable strip of 40 cells", "hstrip"),
-    ("a scroll container nested inside another scroll container", "nested-scroll"),
-    ("a 10x10 grid of coloured boxes", "grid"),
-    ("an image node inside a flex row", "image"),
-    ("a virtual-view list with 5000 virtual rows", "virtual-list"),
-    ("a table with 20 rows and 5 columns", "table"),
-    ("an absolutely positioned overlay above the content", "overlay"),
-    ("two z-index stacked translucent boxes", "zstack"),
-    ("a box with a CSS transform applied", "transformed"),
-    ("a clipped overflow:hidden box with content larger than itself", "clipped"),
-    ("a sticky header above a scrolling body", "sticky"),
-    ("a form with three focusable fields and a submit button", "form"),
-    ("a tab strip with three switchable panels", "tabs"),
-    ("a tree view with expandable nodes", "tree"),
-    ("a text node whose font-family is unique to it", "unique-font"),
-    ("a container with a custom scrollbar that fades out", "fading-scrollbar"),
-    ("a deeply nested 12-level div chain with one leaf", "deep-nest"),
-    ("an empty body with no content at all", "empty"),
+    ("a red stretched flexbox filling the window", "flexbox", {"children"}),
+    ("a single grey button with a :hover rule", "button",
+     {"text", "children", "focusable", "clickable", "hoverstyle"}),
+    ("a paragraph of selectable text", "text", {"text", "children", "selectable"}),
+    ("a contenteditable single-line input", "input",
+     {"text", "editable", "focusable", "clickable", "selectable"}),
+    ("a contenteditable multi-line textarea", "textarea",
+     {"text", "editable", "focusable", "clickable", "selectable", "scrollv"}),
+    ("a vertically scrollable list of 40 rows", "list", {"text", "children", "scrollv"}),
+    ("a horizontally scrollable strip of 40 cells", "hstrip", {"children", "scrollh"}),
+    ("a scroll container nested inside another scroll container", "nested-scroll",
+     {"children", "scrollv"}),
+    ("a 10x10 grid of coloured boxes", "grid", {"children"}),
+    ("an image node inside a flex row", "image", {"children", "image"}),
+    ("a virtual-view list with 5000 virtual rows", "virtual-list",
+     {"text", "children", "scrollv", "virtual"}),
+    ("a table with 20 rows and 5 columns", "table", {"text", "children", "scrollv"}),
+    ("an absolutely positioned overlay above the content", "overlay", {"children", "overlap"}),
+    ("two z-index stacked translucent boxes", "zstack", {"children", "overlap"}),
+    ("a box with a CSS transform applied", "transformed", {"children"}),
+    ("a clipped overflow:hidden box with content larger than itself", "clipped", {"children"}),
+    ("a sticky header above a scrolling body", "sticky", {"text", "children", "scrollv"}),
+    ("a form with three focusable fields and a submit button", "form",
+     {"text", "children", "editable", "focusable", "clickable", "selectable"}),
+    ("a tab strip with three switchable panels", "tabs",
+     {"text", "children", "focusable", "clickable"}),
+    ("a tree view with expandable nodes", "tree",
+     {"text", "children", "focusable", "clickable"}),
+    ("a text node whose font-family is unique to it", "unique-font", {"text", "uniquefont"}),
+    ("a container with a custom scrollbar that fades out", "fading-scrollbar",
+     {"children", "scrollv"}),
+    ("a deeply nested 12-level div chain with one leaf", "deep-nest", {"children"}),
+    ("an empty body with no content at all", "empty", set()),
+]
+WCAP = {k: c for _, k, c in WIDGETS}
+
+# CSS properties. Each row states the CONCRETE change (so the generator is never
+# left to invent the value) and which widget capability the property needs in
+# order to change anything at all.
+#   (property, kind, "from X to Y", needs)
+# `needs` empty  => applies to every widget, including the empty body.
+# `needs` {"*"}  => any widget except the empty body (needs something painted).
+#
+# The CssPropertyType each row maps onto, so `kind` can be CHECKED against the
+# engine's own `can_trigger_relayout()` instead of trusted.
+CSS_TYPE = {
+    "background-color": "BackgroundContent", "color": "TextColor", "opacity": "Opacity",
+    "border-color": "BorderTopColor", "border-width": "BorderTopWidth",
+    "box-shadow": "BoxShadowLeft", "width": "Width", "height": "Height",
+    "padding": "PaddingLeft", "margin": "MarginLeft", "display": "Display",
+    "flex-direction": "FlexDirection", "flex-grow": "FlexGrow",
+    "justify-content": "JustifyContent", "align-items": "AlignItems",
+    "font-size": "FontSize", "font-family": "FontFamily", "font-weight": "FontWeight",
+    "line-height": "LineHeight", "letter-spacing": "LetterSpacing", "text-align": "TextAlign",
+    "overflow": "OverflowX", "position": "Position", "z-index": "ZIndex",
+    "transform": "Transform", "visibility": "Visibility", "cursor": "Cursor",
+    "border-radius": "BorderTopLeftRadius", "background-image": "BackgroundContent",
+    "white-space": "WhiteSpace",
+}
+CSS_PROPS = [
+    ("background-color", "paint-only", "from #ff0000 to #0000ff", set()),
+    ("color", "paint-only", "from #000000 to #ff0000", {"text"}),
+    ("opacity", "paint-only", "from 1.0 to 0.4", {"*"}),
+    ("border-color", "paint-only", "from red to blue on the node's existing 2px border", {"*"}),
+    ("border-width", "layout", "from 2px to 10px", {"*"}),
+    ("box-shadow", "paint-only", "from none to 0 0 8px black", {"*"}),
+    ("width", "layout", "from 200px to 320px", {"*"}),
+    ("height", "layout", "from 100px to 240px", {"*"}),
+    ("padding", "layout", "from 0 to 16px", {"*"}),
+    ("margin", "layout", "from 0 to 24px", {"*"}),
+    ("display", "structural", "from block to none", {"*"}),
+    ("flex-direction", "layout", "from row to column", {"children"}),
+    ("flex-grow", "layout", "from 0 to 1", {"children"}),
+    ("justify-content", "layout", "from flex-start to space-between", {"children"}),
+    ("align-items", "layout", "from stretch to center", {"children"}),
+    ("font-size", "layout", "from 16px to 28px", {"text"}),
+    ("font-family", "layout", 'from "Azul Mock Mono" to "Azul Mock Wide"', {"text"}),
+    ("font-weight", "layout", "from 400 to 700", {"text"}),
+    ("line-height", "layout", "from 1.0 to 2.0", {"text"}),
+    ("letter-spacing", "layout", "from 0 to 4px", {"text"}),
+    ("text-align", "layout", "from left to right", {"text"}),
+    ("overflow", "structural", "from visible to hidden", {"children"}),
+    ("position", "structural", "from static to absolute", {"children"}),
+    # z-index and visibility LOOK paint-only and are not: can_trigger_relayout()
+    # returns true for both, so the paint-only assertion ("does not trigger a
+    # relayout") contradicted the engine. Classified from the source below.
+    ("z-index", "layout", "from 0 to 5", {"overlap"}),
+    ("transform", "paint-only", "from none to translate(20px, 0)", {"*"}),
+    ("visibility", "layout", "from visible to hidden", {"*"}),
+    ("cursor", "none", "from default to pointer", set()),
+    ("border-radius", "paint-only", "from 0 to 12px", {"*"}),
+    ("background-image", "paint-only", "from none to a 4x4 embedded PNG", set()),
+    ("white-space", "layout", "from normal to nowrap", {"text"}),
 ]
 
-CSS_PROPS = [
-    ("background-color", "paint-only"), ("color", "paint-only"),
-    ("opacity", "paint-only"), ("border-color", "paint-only"),
-    ("border-width", "layout"), ("box-shadow", "paint-only"),
-    ("width", "layout"), ("height", "layout"),
-    ("padding", "layout"), ("margin", "layout"),
-    ("display", "structural"), ("flex-direction", "layout"),
-    ("flex-grow", "layout"), ("justify-content", "layout"),
-    ("align-items", "layout"), ("font-size", "layout"),
-    ("font-family", "layout"), ("font-weight", "layout"),
-    ("line-height", "layout"), ("letter-spacing", "layout"),
-    ("text-align", "layout"), ("overflow", "structural"),
-    ("position", "structural"), ("z-index", "paint-only"),
-    ("transform", "paint-only"), ("visibility", "paint-only"),
-    ("cursor", "none"), ("border-radius", "paint-only"),
-    ("background-image", "paint-only"), ("white-space", "layout"),
-]
+
+# HARD CHECK: a "paint-only" row promises the generator it may assert "no
+# relayout". Only the engine gets to decide that.
+for _p, _kind, _c, _n in CSS_PROPS:
+    _ty = CSS_TYPE[_p]
+    _engine_paint_only = _ty in RELAYOUT_EXEMPT
+    _claimed_paint_only = _kind in ("paint-only", "none")
+    assert _engine_paint_only == _claimed_paint_only, (
+        "gen_e2e_cases: '%s' is classified %r but can_trigger_relayout(%s) says relayout=%s. "
+        "Fix the row, not the engine — a corpus line that asserts the opposite of the engine's "
+        "declared behaviour is a broken test, not a strict one."
+        % (_p, _kind, _ty, not _engine_paint_only))
+
+
+def css_applies(needs, wk):
+    if not needs:
+        return True
+    if needs == {"*"}:
+        return wk != "empty"
+    return bool(needs & WCAP[wk])
+
 
 MUTATIONS = [
     ("delete the node itself", "delete-self"),
@@ -174,106 +434,192 @@ MUTATIONS = [
     ("change the node's classes so its style but not its identity changes", "reclass"),
 ]
 
+# PHASES — a mid-interaction MOMENT. Each names state the interaction must
+# actually be in, so a phase is only offered to an interaction that provides it.
+# The old corpus offered all five to all twelve interactions: 1,720 of 2,402
+# mutate/* lines named a mouse button, a drag or a scroll animation the
+# interaction never had.
+#   (text, key, requires)
 PHASES = [
-    ("immediately after mouse_down, before any movement", "after-down"),
-    ("mid-drag, after several mouse_move steps", "mid-drag"),
-    ("while the resulting scroll animation is still ticking", "mid-animation"),
-    ("exactly one frame before mouse_up", "pre-up"),
-    ("immediately after mouse_up, in the same frame", "post-up"),
+    ("immediately after mouse_down, before any movement", "after-down", {"press"}),
+    ("mid-drag, after several mouse_move steps", "mid-drag", {"drag"}),
+    ("while the resulting scroll animation is still ticking", "mid-animation", {"anim"}),
+    ("exactly one frame before mouse_up", "pre-up", {"press"}),
+    ("immediately after mouse_up, in the same frame", "post-up", {"press"}),
+    ("while the scroll offset is non-zero and the scrollbar is still faded in", "mid-scroll",
+     {"scroll"}),
+    ("while the caret blink timer is still armed", "caret-armed", {"caret"}),
+    ("between two keystrokes, before the undo snapshot coalesces", "between-keys", {"typing"}),
+    ("mid-gesture, between two touch_move steps", "mid-gesture", {"gesture"}),
+    ("mid-stroke, between two pen_move steps", "mid-stroke", {"stroke"}),
+    ("while the pointer is still resting on the node", "mid-hover", {"hover"}),
 ]
 
+# INTERACTIONS — a whole interaction, run from a cold start. `provides` is what
+# is live WHILE it runs (which is what PHASES and the cross/* invariants key
+# off). `abortable` says whether "abort it halfway with Escape" is meaningful.
+#   (text, key, provides, abortable)
 INTERACTIONS = [
-    ("a text-selection drag across the node", "text-select-drag"),
-    ("a node drag on the node", "node-drag"),
-    ("a scrollbar-thumb drag on the node's scroll container", "thumb-drag"),
-    ("a momentum scroll of the node's container", "momentum-scroll"),
-    ("a scroll_into_view animation targeting the node", "scroll-into-view"),
-    ("keyboard focus plus a blinking caret on the node", "focus-caret"),
-    ("a hover held over the node", "hover"),
-    ("a virtual-view scroll that has the node in its over-scan window", "virtual-scroll"),
-    ("an undo stack recorded against the node", "undo-stack"),
-    ("a long-press gesture on the node", "long-press"),
-    ("a pinch gesture centred on the node", "pinch"),
-    ("a pen stroke drawn over the node", "pen-stroke"),
+    ("a text-selection drag across the node", "text-select-drag",
+     {"press", "drag", "selection"}, True),
+    ("a node drag on the node", "node-drag", {"press", "drag"}, True),
+    ("a scrollbar-thumb drag on the node's scroll container", "thumb-drag",
+     {"press", "drag", "scroll"}, True),
+    ("a momentum scroll of the node's container", "momentum-scroll", {"scroll", "anim"}, True),
+    ("a scroll_into_view animation targeting the node", "scroll-into-view",
+     {"scroll", "anim"}, True),
+    ("keyboard focus plus a blinking caret on the node", "focus-caret",
+     {"focus", "caret", "editable"}, True),
+    ("a hover held over the node", "hover", {"hover"}, False),
+    ("a virtual-view scroll that has the node in its over-scan window", "virtual-scroll",
+     {"scroll"}, True),
+    ("typing into the node until an undo stack is recorded against it", "undo-stack",
+     {"focus", "editable", "typing"}, False),
+    ("a long-press gesture on the node", "long-press", {"press", "gesture"}, True),
+    ("a pinch gesture centred on the node", "pinch", {"gesture"}, True),
+    ("a pen stroke drawn over the node", "pen-stroke", {"stroke"}, True),
 ]
 
+# INPUT EVENTS — every one is self-contained (the old "a mouse_up delivered
+# outside the window bounds" had no matching mouse_down, and "a mouse_move that
+# leaves the node" was never inside it). `visible` is the set of widget
+# capabilities that make the event visibly change something; a liveness
+# assertion is attached ONLY when the widget has one of them. `ALWAYS` = the
+# viewport itself changes, so every widget repaints.
+ALWAYS = {"__always__"}
 INPUT_EVENTS = [
-    ("a single left click", "click"),
-    ("a double click", "double-click"),
-    ("a right click", "right-click"),
-    ("a middle click", "middle-click"),
-    ("a mouse_down without a matching mouse_up", "down-only"),
-    ("a mouse_move that enters the node", "move-in"),
-    ("a mouse_move that leaves the node", "move-out"),
-    ("a mouse_move that stays inside the node and changes nothing", "move-noop"),
-    ("a mouse_up delivered outside the window bounds", "up-outside"),
-    ("a vertical wheel scroll", "wheel-v"),
-    ("a horizontal wheel scroll", "wheel-h"),
-    ("a diagonal wheel scroll", "wheel-d"),
-    ("a key_down of the Tab key", "key-tab"),
-    ("a key_down of the Escape key", "key-esc"),
-    ("a key_down of the ArrowDown key", "key-down"),
-    ("a key_down followed by the matching key_up", "key-updown"),
-    ("a text_input of a single character", "text-1"),
-    ("a text_input of a 200 character paragraph", "text-200"),
-    ("a window resize that grows both axes", "resize-grow"),
-    ("a window resize that shrinks both axes", "resize-shrink"),
-    ("a dpi_changed event doubling the scale factor", "dpi"),
-    ("a touch_start / touch_move / touch_end sequence", "touch"),
-    ("a swipe gesture", "swipe"),
-    ("a pen_down / pen_move / pen_up sequence", "pen"),
+    ("a single left click", "click", {"clickable", "hoverstyle"}),
+    ("a double click", "double-click", {"clickable", "selectable"}),
+    ("a right click", "right-click", set()),
+    ("a middle click", "middle-click", set()),
+    ("a mouse_down without a matching mouse_up", "down-only", {"clickable", "hoverstyle"}),
+    ("a mouse_move that enters the node", "move-in", {"hoverstyle"}),
+    ("a mouse_move that enters the node followed by one that leaves it again", "move-out",
+     {"hoverstyle"}),
+    ("a mouse_move that stays inside the node and changes nothing", "move-noop", set()),
+    ("a mouse_down on the node followed by a mouse_up delivered outside the window bounds",
+     "up-outside", {"clickable", "hoverstyle"}),
+    ("a vertical wheel scroll", "wheel-v", {"scrollv"}),
+    ("a horizontal wheel scroll", "wheel-h", {"scrollh"}),
+    ("a diagonal wheel scroll", "wheel-d", {"scrollv", "scrollh"}),
+    ("a key_down of the Tab key", "key-tab", {"focusable"}),
+    ("a key_down of the Escape key", "key-esc", set()),
+    ("a key_down of the ArrowDown key", "key-down", {"editable"}),
+    ("a key_down followed by the matching key_up", "key-updown", set()),
+    ("a text_input of a single character", "text-1", {"editable"}),
+    ("a text_input of a 200 character paragraph", "text-200", {"editable"}),
+    ("a window resize that grows both axes", "resize-grow", ALWAYS),
+    ("a window resize that shrinks both axes", "resize-shrink", ALWAYS),
+    ("a dpi_changed event doubling the scale factor", "dpi", ALWAYS),
+    ("a touch_start / touch_move / touch_end sequence", "touch", {"scrollv", "clickable"}),
+    ("a swipe gesture", "swipe", {"scrollv", "scrollh"}),
+    ("a pen_down / pen_move / pen_up sequence", "pen", {"clickable"}),
 ]
 
+
+def event_visible(vis, wk):
+    # ALWAYS means "the viewport itself changed, so the content repaints" — which
+    # presumes there IS content. An empty body under a resize just crops or
+    # extends a blank buffer; "the pixels actually differ" is not a claim that
+    # survives contact with a differently-sized snapshot, so do not make it.
+    if vis is ALWAYS:
+        return wk != "empty"
+    return bool(vis & WCAP[wk])
+
+
+# SCROLL MODES — `animates` decides whether an animation-termination assertion
+# is honest; `fades` whether a scrollbar-fade assertion is.
 SCROLL_MODES = [
-    ("an instant scroll", "instant"),
-    ("a smooth animated scroll", "smooth"),
-    ("a wheel scroll with momentum", "momentum"),
-    ("a scrollbar-thumb drag", "thumb"),
-    ("a programmatic scroll_node_to", "programmatic"),
+    ("an instant scroll", "instant", False),
+    ("a smooth animated scroll", "smooth", True),
+    ("a wheel scroll with momentum", "momentum", True),
+    ("a scrollbar-thumb drag", "thumb", False),
+    ("a programmatic scroll_node_to", "programmatic", False),
 ]
 
+# SCROLL TARGETS — `scrolls` says whether the container can move at all. The two
+# that cannot are kept (they are excellent no-op tests) but get the CORRECT
+# assertion instead of one that presumes movement.
+SCROLL_TARGETS = [
+    ("a 40-row vertical list", "list", True),
+    ("a horizontally scrolling strip", "hstrip", True),
+    ("a scroll container nested inside another scroll container", "nested", True),
+    ("a virtual-view list of 5000 rows", "virtual", True),
+    ("a scroll container with a sticky header", "sticky", True),
+    ("a scroll container inside a CSS transform", "transformed", True),
+    ("a scroll container whose content exactly fits (no overflow)", "nooverflow", False),
+    ("a scroll container already pinned at its bottom edge, scrolled further down", "at-end",
+     False),
+]
+
+# RESOURCES — and the cycle that actually PRODUCES each one. The old corpus
+# asserted "gesture input sessions returned to baseline" after a bare
+# mount/unmount, which is 0 -> 0: vacuously green, 144 lines of it.
+#   (name, key, "the cycle that fills it", widget capability the cycle needs)
 RESOURCES = [
-    ("registered fonts", "fonts"),
-    ("font hash map entries", "font_hash_map"),
-    ("parsed font bytes in the FontManager", "parsed_fonts"),
-    ("the font chain cache", "font_chain_cache"),
-    ("registered images", "images"),
-    ("image key map entries", "image_key_map"),
-    ("scroll manager states", "scroll_states"),
-    ("hover hit-test histories", "hover_histories"),
-    ("gesture input sessions", "input_sessions"),
-    ("virtual view states", "virtual_view_states"),
-    ("undo/redo node stacks", "undo_stacks"),
-    ("GPU value caches", "gpu_caches"),
+    ("registered fonts", "fonts", "mount and unmount", {"text"}),
+    ("font hash map entries", "font_hash_map", "mount and unmount", {"text"}),
+    ("parsed font bytes in the FontManager", "parsed_fonts", "mount and unmount", {"text"}),
+    ("the font chain cache", "font_chain_cache", "mount and unmount", {"text"}),
+    ("registered images", "images", "mount and unmount", {"image"}),
+    ("image key map entries", "image_key_map", "mount and unmount", {"image"}),
+    ("scroll manager states", "scroll_states",
+     "scroll to a non-zero offset in, then unmount", {"scrollv", "scrollh"}),
+    ("hover hit-test histories", "hover_histories",
+     "sweep the pointer across, then unmount", {"children"}),
+    ("gesture input sessions", "input_sessions",
+     "run a short press-drag-release on, then unmount", {"children"}),
+    ("virtual view states", "virtual_view_states",
+     "scroll past the over-scan window of, then unmount", {"virtual"}),
+    ("undo/redo node stacks", "undo_stacks",
+     "type a character into, then unmount", {"editable"}),
+    ("GPU value caches", "gpu_caches",
+     "scroll so the scrollbar fades in and out over, then unmount", {"scrollv", "scrollh"}),
 ]
 
-# X1..X10 straight out of E2E_PLAN.md §B(g2)
+# X1..X10 straight out of E2E_PLAN.md §B(g2). `needs` is the capability the
+# interaction must supply for the invariant to say anything at all: asserting
+# "the active drag's source node still exists" about a hover is vacuous.
 CROSS = [
-    ("X1", "scroll_into_view and ScrollManager agree on which container scrolled and by how much"),
-    ("X2", "has_active_animations() is true exactly when some AnimatedScrollState has an animation and tick() asks for a repaint"),
-    ("X3", "the active drag's source node still exists and the hover manager resolves it against the same DOM"),
-    ("X4", "GestureAndDragManager.active_drag and the legacy DragDropManager.active_drag never disagree about whether a drag is live"),
-    ("X5", "the selection anchor's node exists for the whole drag, or the selection is cleared outright"),
-    ("X6", "multi_cursor is Some only while a contenteditable node that exists has focus"),
-    ("X7", "no scroll adjustment stays pending for a caret whose focus was cleared"),
-    ("X8", "selection focus and the autoscrolled container stay mutually consistent frame to frame"),
-    ("X9", "scrollbar_fade_active returns to false within the fade duration of the last scroll"),
-    ("X10", "no manager key refers to a node that no longer exists"),
+    ("X1", "scroll_into_view and ScrollManager agree on which container scrolled and by how much",
+     {"scroll"}),
+    ("X2", "has_active_animations() is true exactly when some AnimatedScrollState has an animation "
+           "and tick() asks for a repaint", {"anim"}),
+    ("X3", "the active drag's source node still exists and the hover manager resolves it against "
+           "the same DOM", {"drag"}),
+    ("X4", "GestureAndDragManager.active_drag and the legacy DragDropManager.active_drag never "
+           "disagree about whether a drag is live", {"drag"}),
+    ("X5", "the selection anchor's node exists for the whole drag, or the selection is cleared "
+           "outright", {"selection"}),
+    ("X6", "multi_cursor is Some only while a contenteditable node that exists has focus",
+     {"editable"}),
+    ("X7", "no scroll adjustment stays pending for a caret whose focus was cleared", {"caret"}),
+    ("X8", "selection focus and the autoscrolled container stay mutually consistent frame to "
+           "frame", {"selection", "scroll"}),
+    ("X9", "scrollbar_fade_active returns to false within the fade duration of the last scroll",
+     {"scroll"}),
+    ("X10", "no manager key refers to a node that no longer exists", set()),
 ]
 
-MANAGER_LIFECYCLE = [
+# Split by WHAT IT TAKES TO OBSERVE. The first group needs a per-node key set,
+# which only `assert_manager_invariants` can read and only for the 8 managers in
+# its KNOWN_MANAGERS list — it refuses any other name outright. The second group
+# is observable through damage / idle-state / counters for any manager.
+MANAGER_LIFECYCLE_KEYED = [
     ("acquires state on the first relevant event", "acquire"),
     ("keeps exactly one entry per live node, never two", "no-dupes"),
     ("drops its entry when the node is unmounted", "gc-on-unmount"),
     ("remaps its key when a preceding sibling is inserted", "remap-insert"),
     ("remaps its key when a preceding sibling is deleted", "remap-delete"),
     ("survives a full DOM rebuild without holding a dead key", "survive-rebuild"),
+    ("reports the same key set through debug_counts as the DOM actually contains", "counts-match-dom"),
+    ("is unaffected by a mutation in an unrelated subtree", "isolation"),
+]
+MANAGER_LIFECYCLE_GENERIC = [
     ("returns to an empty/idle state once the interaction ends", "idle-after"),
     ("does not grow across 200 idle frames", "no-growth"),
     ("does not latch a permanently-dirty flag", "no-latched-dirty"),
     ("does not force a full redraw when only it changed", "patch-only"),
-    ("reports the same key set through debug_counts as the DOM actually contains", "counts-match-dom"),
-    ("is unaffected by a mutation in an unrelated subtree", "isolation"),
 ]
 
 # --------------------------------------------------------------------------
@@ -310,33 +656,49 @@ def emit(tag, text, *, cb=None, op=None, mgr=None, fam=None, rank=0):
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 10 — idle stability: the simplest possible test, one widget, one assert
 # ─────────────────────────────────────────────────────────────────────────
-for wd, wk in WIDGETS:
+for wd, wk, _ in WIDGETS:
     emit("idle/stability",
          "mount %s, tick 5 frames with no input at all, assert every frame is byte-identical to "
          "the previous one and the paint damage drains to None and stays there" % wd,
-         fam="a", op="WaitFrame", rank=10)
+         fam="a", op="wait_frame", rank=10)
     emit("idle/bounded",
          "mount %s, tick 5 frames with no input, assert relayout_iterations stays at 0 and "
          "dom_regenerations stays at 0 for every idle frame" % wd,
-         fam="d", op="WaitFrame", rank=10)
+         fam="d", op="wait_frame", rank=10)
     emit("idle/growth",
          "mount %s and run 200 idle frames, assert every manager debug_counts counter has zero "
          "slope and RSS does not climb" % wd,
-         fam="f", op="Wait", rank=11)
-    emit("idle/relayout-noop",
-         "mount %s then issue a relayout op with no state change, assert the resulting damage is "
-         "None and no pixel differs from the previous frame" % wd,
-         fam=["a", "c"], op="Relayout", rank=11)
-    emit("idle/redraw-noop",
-         "mount %s then issue a redraw op with no state change, assert the redraw produces no "
-         "paint damage and the frame is unchanged" % wd,
-         fam="a", op="Redraw", rank=11)
+         fam="f", op="wait", rank=11)
+    # The two old lines here ("issue a relayout op", "issue a redraw op") named
+    # ops that OP_POLICY DENIES precisely because forcing the repaint masks a
+    # broken invalidation path. Same intent, driven the way a real app would:
+    # apply a mutation that changes nothing and prove the engine schedules
+    # nothing.
+    emit("idle/noop-css",
+         "mount %s then apply a set_node_css_override that sets a property to the value the node "
+         "already has, assert the engine schedules no relayout, the damage stays None and the "
+         "frame is byte-identical to the previous one" % wd,
+         fam=["a", "d"], op="set_node_css_override", rank=11)
+    emit("idle/noop-class",
+         "mount %s then call set_node_classes with exactly the class list the node already has, "
+         "assert no DOM regeneration is scheduled, the damage stays None and no pixel differs" % wd,
+         fam=["a", "d"], op="set_node_classes", rank=11)
+    if "text" in WCAP[wk]:
+        emit("idle/noop-text",
+             "mount %s then call set_node_text with the exact text the node already contains, "
+             "assert the engine schedules no repaint, the damage stays None and the glyph count "
+             "is unchanged" % wd,
+             fam=["a", "d"], op="set_node_text", rank=11)
+    else:
+        drop("idle/noop-text: widget has no text")
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 20 — one input event, one widget, one assertion family
 # ─────────────────────────────────────────────────────────────────────────
+# `liveness` is CONDITIONAL: it is only honest when the event can actually change
+# the widget. The other three hold for every pair (including zero-damage ones),
+# so they are emitted unconditionally.
 INPUT_ASSERTS = [
-    ("liveness", "assert the damage set is non-empty and the pixels actually changed", "b"),
     ("damage", "assert the damage-driven buffer is pixel-identical to a full repaint and the "
                "paint region does not balloon to the whole window", "c"),
     ("bounded", "assert the event costs at most 2 relayout iterations, 0 DOM regenerations and "
@@ -344,15 +706,32 @@ INPUT_ASSERTS = [
     ("settle", "assert that after the event the window returns to idle with zero damage within "
                "5 ticks", "a"),
 ]
-for ie, ik in INPUT_EVENTS:
-    for wd, wk in WIDGETS:
+for ie, ik, vis in INPUT_EVENTS:
+    for wd, wk, _ in WIDGETS:
         for aname, atxt, afam in INPUT_ASSERTS:
             emit("input/%s" % aname,
                  "mount %s and deliver %s to it, %s" % (wd, ie, atxt),
                  fam=afam, rank=20)
+        if event_visible(vis, wk):
+            emit("input/liveness",
+                 "mount %s and deliver %s to it, assert the damage set is non-empty and the "
+                 "pixels actually changed" % (wd, ie),
+                 fam="b", rank=20)
+        else:
+            # Do not drop the cell — FLIP IT. The pair cannot change anything on
+            # screen, so the property to assert is the opposite one, and it
+            # covers a bug class the corpus otherwise has none of:
+            # OVER-invalidation, where the engine repaints for an event that
+            # changed nothing and burns a frame forever after.
+            emit("input/over-invalidation",
+                 "mount %s and deliver %s to it — nothing this widget renders can change as a "
+                 "result — and assert the engine does not over-invalidate: the damage stays None, "
+                 "no relayout iteration is spent, and the frame is byte-identical to the one "
+                 "before the event" % (wd, ie),
+                 fam=["a", "d"], rank=20)
 
-# every raw debug op gets its own dedicated line set
-OP_TEMPLATES = [
+# every usable debug op gets its own dedicated line set, split by what the op IS
+DRIVE_TEMPLATES = [
     ("smoke", "assert the op is accepted, no panic occurs, and the process stays alive", "f", 21),
     ("settle", "assert the window returns to a zero-damage idle state within 5 ticks afterwards", "a", 22),
     ("bounded", "assert the op costs a bounded number of relayout iterations and never trips the "
@@ -364,15 +743,47 @@ OP_TEMPLATES = [
     ("managers", "assert no manager key points at a node that does not exist afterwards", "g2", 23),
     ("repeat", "issue the op 50 times in a row and assert no counter grows without bound and the "
                "frame still settles", "f", 24),
-    ("interleave", "issue the op while a scroll animation is already running and assert both the "
-                   "animation and the op complete and the window settles", "g1", 25),
+    ("interleave", "issue the op while a smooth scroll animation started earlier in the same "
+                   "timeline is still running, and assert both the animation and the op complete "
+                   "and the window settles", "g1", 25),
 ]
-for op in DEBUG_OPS:
-    o = snake(op)
-    for suffix, atxt, afam, rank in OP_TEMPLATES:
+# An observation op drives nothing, so "any repaint it causes" is vacuous for it.
+# What it MUST do is not perturb the engine at all.
+OBSERVE_TEMPLATES = [
+    ("smoke", "assert the op is accepted, no panic occurs, and the process stays alive", "f", 21),
+    ("nodamage", "assert merely issuing it produces NO damage, spends no relayout iteration, and "
+                 "leaves the next frame's incremental render state undisturbed", "a", 22),
+    ("repeat", "issue the op 50 times in a row and assert no counter grows without bound and the "
+               "frame still settles", "f", 24),
+    ("resources", "assert every resource counter returns to its pre-op baseline after 3 GC frames",
+     "e", 23),
+]
+HARNESS_TEMPLATES = [
+    ("smoke", "assert the op is accepted, no panic occurs, and the process stays alive", "f", 21),
+    ("settle", "assert the window returns to a zero-damage idle state within 5 ticks afterwards", "a", 22),
+    ("repeat", "issue the op 50 times in a row and assert no counter grows without bound and the "
+               "frame still settles", "f", 24),
+]
+HARNESS_OPS = {"mount", "unmount", "tick_ms", "wait", "wait_frame", "reset_frame_counters"}
+
+
+def op_kind(o):
+    if o in HARNESS_OPS:
+        return "harness"
+    if o.startswith(("get_", "dump_", "find_", "take_", "snapshot_", "capture_")) or o == "hit_test":
+        return "observe"
+    return "drive"
+
+
+OP_TEMPLATES = {"drive": DRIVE_TEMPLATES, "observe": OBSERVE_TEMPLATES,
+                "harness": HARNESS_TEMPLATES}
+for o in DEBUG_OPS:
+    for suffix, atxt, afam, rank in OP_TEMPLATES[op_kind(o)]:
         emit("op/%s" % suffix,
              "drive the %s debug op against a mounted DOM, %s" % (o, atxt),
-             op=op, fam=afam, rank=rank)
+             op=o, fam=afam, rank=rank)
+drop("op/*: op denied by OP_POLICY", len(DENIED_OPS) * len(DRIVE_TEMPLATES))
+drop("op/*: zombie op (declared, no match arm)", len(ZOMBIE_OPS) * len(DRIVE_TEMPLATES))
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 30 — CSS-override damage matrix (behavioural: refresh + patch + settle)
@@ -395,98 +806,192 @@ PROP_ASSERTS = {
         ("assert every manager key still points at a live node afterwards", "g2", 33),
         ("assert the change costs at most one DOM regeneration", "d", 33),
     ],
+    # A property with no visual effect can only be tested against a POSITIVE
+    # CONTROL: "nothing was repainted" is also what a completely dead engine
+    # reports, so every one of these pairs the inert change with a change that
+    # MUST repaint, in the same timeline.
     "none": [
-        ("assert nothing is repainted at all and the damage stays None", "a", 30),
-        ("assert no relayout is triggered and the frame is byte-identical", "a", 30),
-        ("assert no resource counter moves", "e", 31),
+        ("assert nothing is repainted at all and the damage stays None, then change the node's "
+         "background-color in the same timeline as a positive control and assert THAT does "
+         "produce damage (so the None above is a real result and not a dead engine)", "a", 30),
+        ("assert no relayout is triggered and the frame is byte-identical, then override the "
+         "node's width as a positive control and assert THAT does spend a relayout iteration",
+         "a", 30),
+        ("assert no resource counter moves, then add an image node as a positive control and "
+         "assert the image counter does move", "e", 31),
     ],
 }
-for prop, kind in CSS_PROPS:
-    for wd, wk in WIDGETS:
+for prop, kind, change, needs in CSS_PROPS:
+    for wd, wk, _ in WIDGETS:
+        if not css_applies(needs, wk):
+            drop("css/%s: '%s' cannot affect this widget" % (kind, prop), len(PROP_ASSERTS[kind]))
+            continue
         for atxt, afam, rank in PROP_ASSERTS[kind]:
             emit("css/%s" % kind,
-                 "mount %s and change its %s via set_node_css_override, %s" % (wd, prop, atxt),
-                 op="SetNodeCssOverride", fam=afam, rank=rank)
+                 "mount %s and change its %s %s via set_node_css_override, %s"
+                 % (wd, prop, change, atxt),
+                 op="set_node_css_override", fam=afam, rank=rank)
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 35 — resize / dpi damage (the user's own example lives here)
 # ─────────────────────────────────────────────────────────────────────────
+#   (from, to, description, moved) — `moved` false means the geometry did not
+#   change, so a refresh assertion would be flatly wrong: the correct property is
+#   that the engine RECOGNISES the no-op.
 RESIZES = [
-    ("500x600", "800x900", "grow both axes"),
-    ("800x900", "500x600", "shrink both axes"),
-    ("400x300", "400x900", "grow only the height"),
-    ("400x300", "1200x300", "grow only the width"),
-    ("800x600", "801x600", "grow the width by a single pixel"),
-    ("800x600", "800x600", "resize to the exact same size"),
-    ("300x200", "60x40", "shrink below the content's minimum"),
-    ("640x480", "1920x1080", "grow by more than 4x in area"),
+    ("500x600", "800x900", "grow both axes", True),
+    ("800x900", "500x600", "shrink both axes", True),
+    ("400x300", "400x900", "grow only the height", True),
+    ("400x300", "1200x300", "grow only the width", True),
+    ("800x600", "801x600", "grow the width by a single pixel", True),
+    ("800x600", "800x600", "resize to the exact same size", False),
+    ("300x200", "60x40", "shrink below the content's minimum", True),
+    ("640x480", "1920x1080", "grow by more than 4x in area", True),
 ]
-for wd, wk in WIDGETS:
-    for a, b, desc in RESIZES:
-        emit("resize/damage",
-             "window starts at %s with %s and is resized to %s (%s) via a window resize event, "
-             "assert the output refreshes, the content still covers the viewport it is supposed to, "
-             "and only a partial redraw region is generated rather than a full redraw"
-             % (a, wd, b, desc),
-             op="Resize", fam=["b", "c", "g5"], rank=35)
+for wd, wk, _ in WIDGETS:
+    for a, b, desc, moved in RESIZES:
+        if moved:
+            emit("resize/damage",
+                 "window starts at %s with %s and is resized to %s (%s) via a window resize event, "
+                 "assert the output refreshes, the content still covers the viewport it is supposed to, "
+                 "and only a partial redraw region is generated rather than a full redraw"
+                 % (a, wd, b, desc),
+                 op="resize", fam=["b", "c", "g5"], rank=35)
+        else:
+            emit("resize/noop",
+                 "window starts at %s with %s and is resized to %s (%s), assert the engine "
+                 "recognises the no-op: no relayout iteration is spent, the damage stays None and "
+                 "the frame is byte-identical to the one before the event"
+                 % (a, wd, b, desc),
+                 op="resize", fam=["a", "d"], rank=35)
         emit("resize/settle",
              "window starts at %s with %s and is resized to %s (%s), assert the window reaches "
              "zero damage within 5 ticks and does not re-enter an invalidation loop"
              % (a, wd, b, desc),
-             op="Resize", fam=["a", "d"], rank=36)
-for wd, wk in WIDGETS:
+             op="resize", fam=["a", "d"], rank=36)
+for wd, wk, _ in WIDGETS:
     for scale in ("1.0 to 2.0", "2.0 to 1.0", "1.0 to 1.5", "1.5 to 1.25"):
         emit("dpi/damage",
              "mount %s and change the DPI scale from %s via dpi_changed, assert the whole content "
              "is repainted correctly, no stale region survives, and the window settles to zero "
              "damage afterwards" % (wd, scale),
-             op="DpiChanged", fam=["b", "a"], rank=37)
+             op="dpi_changed", fam=["b", "a"], rank=37)
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 40 — scroll matrix
 # ─────────────────────────────────────────────────────────────────────────
-SCROLL_TARGETS = [
-    ("a 40-row vertical list", "list"),
-    ("a horizontally scrolling strip", "hstrip"),
-    ("a scroll container nested inside another scroll container", "nested"),
-    ("a virtual-view list of 5000 rows", "virtual"),
-    ("a scroll container with a sticky header", "sticky"),
-    ("a scroll container whose content exactly fits (no overflow)", "nooverflow"),
-    ("a scroll container already pinned at its bottom edge", "at-end"),
-    ("a scroll container inside a CSS transform", "transformed"),
-]
+#   (text, family, rank, needs) — `needs` gates the assertion on what the
+#   mode/target can actually do: "moves" (the offset changes at all) and
+#   "animates" (there is an animation to terminate).
 SCROLL_ASSERTS = [
     ("assert the exposed strip is the only region PAINTED while the present damage covers the whole "
-     "memmoved clip, and the damage-driven buffer matches a full repaint exactly", "g5", 40),
+     "memmoved clip, and the damage-driven buffer matches a full repaint exactly", "g5", 40,
+     {"moves"}),
     ("assert the ScrollManager offset and the rendered content agree and no stale row is left "
-     "behind at the old offset", "b", 41),
+     "behind at the old offset", "b", 41, {"moves"}),
     ("assert the scroll animation terminates, has_active_animations() goes false, scroll_dirty "
-     "clears, and the window reaches zero damage", "g3", 42),
+     "clears, and the window reaches zero damage", "g3", 42, {"moves", "animates"}),
     ("assert the scrollbar fade completes and gpu_state.scrollbar_fade_active returns to false so "
-     "the window stops generating frames", "g3", 42),
-    ("assert the scroll costs no DOM regeneration and at most one relayout iteration", "d", 41),
+     "the window stops generating frames", "g3", 42, {"moves"}),
+    ("assert the scroll costs no DOM regeneration and at most one relayout iteration", "d", 41,
+     {"moves"}),
 ]
-for st, sk in SCROLL_TARGETS:
-    for sm, smk in SCROLL_MODES:
-        for atxt, afam, rank in SCROLL_ASSERTS:
+for st, sk, can_scroll in SCROLL_TARGETS:
+    for sm, smk, animates in SCROLL_MODES:
+        have = set()
+        if can_scroll:
+            have.add("moves")
+        if animates:
+            have.add("animates")
+        for atxt, afam, rank, needs in SCROLL_ASSERTS:
+            if needs - have:
+                drop("scroll/%s: target/mode provides no %s" % (smk, ",".join(sorted(needs - have))))
+                continue
             emit("scroll/%s" % smk,
                  "perform %s on %s, %s" % (sm, st, atxt),
-                 op="Scroll", mgr="scroll_state", fam=afam, rank=rank)
+                 op="scroll", mgr="scroll_state", fam=afam, rank=rank)
+        if not can_scroll:
+            # kept, with the assertion the situation actually supports
+            emit("scroll/noop",
+                 "perform %s on %s, assert the engine recognises there is nothing to scroll: the "
+                 "ScrollManager offset does not move, the damage stays None and no scrollbar fade "
+                 "animation is armed" % (sm, st),
+                 op="scroll", mgr="scroll_state", fam=["a", "g3"], rank=40)
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 45 — every Callback API function
 # ─────────────────────────────────────────────────────────────────────────
-# classify so the generated assertion is honest about what the fn does
+# The old classifier was three prefix tests, which put `pluralize` and
+# `format_date` in the "query a node" bucket (so 94 lines asked what happens to
+# them "one frame after the node they refer to was deleted" — they refer to no
+# node) and `add_timer`, `stop_propagation`, `keyring_store` in the "mutator"
+# bucket (so 46 lines asserted their repaint is pixel-identical to a full
+# repaint — they paint nothing). Classify by what the function DOES.
+
+# refers to no node and touches no DOM: a pure/ICU/formatting helper
+CB_PURE = set("""compare_strings format_date format_datetime format_decimal format_integer
+format_list format_time pluralize sort_strings strings_equal get_plural_category
+get_icu_localizer get_string_contents get_system_time_fn get_current_time""".split())
+
+# reads process/OS/window-global state, not a node
+CB_ENV = set("""get_monitors get_current_monitor get_gl_context get_gamepad_state
+get_primary_gamepad get_location_fix get_biometric_kind get_biometric_result get_keyring_result
+get_sensor_reading get_wacom_pad get_pen_pressure get_pen_state get_pen_tilt get_permission_status
+get_thread get_thread_ids get_timer get_timer_ids get_ctx get_current_event_id
+get_current_keyboard_state get_previous_keyboard_state get_current_mouse_state
+get_previous_mouse_state get_current_window_state get_previous_window_state
+get_current_window_flags get_previous_window_flags get_current_window_handle get_safe_area_insets
+get_system_style get_clipboard_content get_dropped_file get_dropped_files get_hovered_file
+get_hovered_files get_route_pattern get_route_param get_swipe_direction get_rotation get_pinch
+get_long_press get_scroll_delta get_drag_types get_drag_data get_dom_ids get_loaded_fonts
+get_loaded_font_bytes""".split())
+
+# returns a rect/size/offset: `azul-doc reftest` owns whether the NUMBER is right,
+# so a behaviour test may only assert that calling it is free and degrades safely
+CB_GEOMETRY = set("""get_computed_height get_computed_width get_node_rect get_node_size
+get_node_position get_hit_node_rect get_hit_node_layout_rect get_node_hit_test_bounds measure_dom
+get_cursor_position get_cursor_position_screen get_cursor_relative_to_node
+get_cursor_relative_to_viewport get_scroll_offset get_scroll_offset_for_node""".split())
+
+# mutates real state but paints NOTHING by itself
+CB_INVISIBLE = set("""stop_propagation stop_immediate_propagation prevent_default keyring_get
+keyring_store keyring_delete request_biometric_auth set_clipboard_content set_copy_content
+set_cut_content set_drag_data set_drop_effect accept_drop add_timer remove_timer add_thread
+remove_thread commit_undo_snapshot find_scroll_parent set_route_param push_change
+set_text_changeset queue_window_state_sequence inject_native_gesture add_image_to_cache
+remove_image_from_cache set_node_ids_and_classes""".split())
+
+# out of scope for a single-window headless timeline
+CB_OUT_OF_SCOPE = {"close_window", "create_window"}
+
+CB_SCREENSHOT_PREFIX = ("take_screenshot", "take_native_screenshot")
+CB_QUERY_PREFIX = ("get_", "has_", "is_", "was_", "can_", "node_has", "had_", "inspect_",
+                   "measure_", "compare_", "strings_", "format_", "pluralize", "sort_")
+
+
 def cb_kind(fn):
-    if fn.startswith(("get_", "has_", "is_", "was_", "can_", "node_has", "had_", "inspect_", "measure_", "compare_", "strings_", "format_", "pluralize", "sort_")):
-        return "query"
-    if fn.startswith("take_") or fn.startswith("take_native"):
+    if fn in CB_OUT_OF_SCOPE:
+        return "skip"
+    if fn in CB_PURE:
+        return "pure"
+    if fn in CB_GEOMETRY:
+        return "geometry"
+    if fn in CB_ENV:
+        return "env"
+    if fn.startswith(CB_SCREENSHOT_PREFIX):
         return "screenshot"
+    if fn == "take_changes":
+        return "node-query"          # drains a changeset; it is a read, not a paint
+    if fn.startswith(CB_QUERY_PREFIX):
+        return "node-query"
+    if fn in CB_INVISIBLE:
+        return "invisible-mutator"
     return "mutator"
 
 
 CB_TEMPLATES = {
-    "query": [
+    # reads a node -> the node-renumbering / dead-node templates are meaningful
+    "node-query": [
         ("read", "call CallbackInfo::%s from inside a callback fired by a click and assert it "
                  "returns a value consistent with the current DOM and that merely calling it "
                  "produces NO damage and NO relayout", "a", 45),
@@ -504,12 +1009,66 @@ CB_TEMPLATES = {
                     "terminates within the relayout iteration budget and never trips the recursion "
                     "depth cap", "d", 46),
     ],
+    # returns a rect/size: assert only that reading it is free and degrades safely
+    "geometry": [
+        ("free", "call CallbackInfo::%s from inside a click callback and assert that merely "
+                 "reading it produces NO damage, spends no relayout iteration and does not mark "
+                 "the display list dirty (its NUMERIC result is reftest territory, not this "
+                 "suite's)", "a", 45),
+        ("stale", "call CallbackInfo::%s from a callback that runs one frame AFTER the node it "
+                  "refers to was deleted, assert it returns None/zero rather than panicking or "
+                  "reading a stale layout entry", "g4", 47),
+        ("idle", "call CallbackInfo::%s on every one of 20 idle frames and assert the window still "
+                 "reaches FrameDamage::None and no relayout is scheduled by the read", "f", 46),
+    ],
+    # reads process/OS/window state: no node, so no renumbering template
+    "env": [
+        ("read", "call CallbackInfo::%s from inside a callback fired by a click and assert merely "
+                 "calling it produces NO damage and NO relayout", "a", 45),
+        ("idle", "call CallbackInfo::%s on every one of 20 idle frames and assert the window still "
+                 "reaches FrameDamage::None and no counter grows", "f", 46),
+        ("leak", "call CallbackInfo::%s 500 times in a loop from a timer callback and assert every "
+                 "resource counter returns to its baseline and RSS does not climb", "e", 46),
+        ("headless", "call CallbackInfo::%s under AZ_BACKEND=headless where the underlying "
+                     "platform resource is absent, and assert it degrades cleanly (None/default, "
+                     "no panic, no abort)", "f", 45),
+    ],
+    # a pure helper: it must be inert, and that is the whole test
+    "pure": [
+        ("inert", "call CallbackInfo::%s from inside a click callback and assert it is completely "
+                  "inert with respect to the engine: no damage, no relayout, no DOM regeneration "
+                  "and no resource counter moves", "a", 45),
+        ("leak", "call CallbackInfo::%s 500 times in a loop from a timer callback and assert every "
+                 "resource counter returns to its baseline and RSS does not climb", "e", 46),
+    ],
+    # mutates state that IS visible
     "mutator": [
         ("effect", "call CallbackInfo::%s from a click callback and assert the resulting frame "
                    "actually refreshes: damage is non-empty and the pixels differ", "b", 45),
         ("patch", "call CallbackInfo::%s from a click callback and assert the repaint it causes is "
                   "an incremental Rects patch, never a full redraw, and matches the full-repaint "
                   "oracle pixel for pixel", "g5", 46),
+        ("settle", "call CallbackInfo::%s from a click callback and assert the window returns to "
+                   "zero damage within 5 ticks afterwards rather than re-invalidating forever", "a", 46),
+        ("bounded", "call CallbackInfo::%s from a callback and assert the event costs a bounded "
+                    "number of relayout iterations, DOM regenerations, and never trips the "
+                    "recursion depth cap", "d", 46),
+        ("loop", "call CallbackInfo::%s unconditionally from a callback that is itself re-fired by "
+                 "the update it causes, and assert the engine reaches a fixpoint instead of "
+                 "looping forever", "d", 49),
+        ("leak", "call CallbackInfo::%s then undo its effect, force 3 GC frames, and assert every "
+                 "resource counter returns to baseline", "e", 47),
+        ("stale", "call CallbackInfo::%s targeting a node that was deleted in the same frame, "
+                  "assert no panic, no dangling manager key, and the window still settles", "g4", 48),
+        ("managers", "call CallbackInfo::%s and assert every manager's key set still matches the "
+                     "live DOM afterwards (X10)", "g2", 47),
+    ],
+    # mutates state that is NOT visible: the repaint assertions are replaced by
+    # their opposite, which is the real (and much sharper) property
+    "invisible-mutator": [
+        ("nodamage", "call CallbackInfo::%s from a click callback and assert it schedules NO "
+                     "repaint of its own: the damage stays None and no relayout iteration is "
+                     "spent, because nothing it changes is on screen", "a", 45),
         ("settle", "call CallbackInfo::%s from a click callback and assert the window returns to "
                    "zero damage within 5 ticks afterwards rather than re-invalidating forever", "a", 46),
         ("bounded", "call CallbackInfo::%s from a callback and assert the event costs a bounded "
@@ -539,6 +1098,10 @@ CB_TEMPLATES = {
 }
 for fn in CALLBACK_FNS:
     k = cb_kind(fn)
+    if k == "skip":
+        drop("callback/*: fn is out of scope for a single-window headless timeline",
+             len(CB_TEMPLATES["mutator"]))
+        continue
     for suffix, tmpl, afam, rank in CB_TEMPLATES[k]:
         emit("callback/%s" % suffix, tmpl % fn, cb=fn, fam=afam, rank=rank)
 
@@ -569,20 +1132,37 @@ MGR_TRIGGER = {
     "sensors": "reading a sensor value from a callback",
     "gamepad": "reading gamepad state from a callback",
 }
+# A manager with no named trigger used to fall back to "exercising it from a
+# callback", which tells the generator nothing. Fail loudly instead.
+_missing = [m for m in MANAGERS if m not in MGR_TRIGGER]
+assert not _missing, (
+    "gen_e2e_cases: no concrete trigger for manager(s) %s — add one to MGR_TRIGGER "
+    "rather than emitting a line the generator has to invent an interaction for." % _missing)
 for mgr in MANAGERS:
-    trig = MGR_TRIGGER.get(mgr, "exercising it from a callback")
-    for desc, key in MANAGER_LIFECYCLE:
+    trig = MGR_TRIGGER[mgr]
+    keyed = mgr in KEYED_MANAGERS
+    for desc, key in MANAGER_LIFECYCLE_KEYED:
+        if not keyed:
+            drop("manager/%s: assert_manager_invariants has no key surface for this manager" % mgr)
+            continue
         emit("manager/%s" % mgr,
              "exercise the %s manager by %s, then assert it %s" % (mgr, trig, desc),
-             mgr=mgr, fam="g2" if "key" in desc or "entry" in desc else "g3", rank=50)
+             mgr=mgr, fam="g2", rank=50)
+    for desc, key in MANAGER_LIFECYCLE_GENERIC:
+        emit("manager/%s" % mgr,
+             "exercise the %s manager by %s, then assert it %s" % (mgr, trig, desc),
+             mgr=mgr, fam="g3", rank=50)
     emit("manager/%s" % mgr,
          "exercise the %s manager by %s and assert the state it produces does not force "
          "FrameDamage::Full when only that manager's state changed" % (mgr, trig),
          mgr=mgr, fam="g5", rank=51)
-    emit("manager/%s" % mgr,
-         "exercise the %s manager by %s, then delete the node it keyed and assert no dangling key "
-         "survives and nothing panics" % (mgr, trig),
-         mgr=mgr, fam="g4", rank=52)
+    if keyed:
+        emit("manager/%s" % mgr,
+             "exercise the %s manager by %s, then delete the node it keyed and assert no dangling key "
+             "survives and nothing panics" % (mgr, trig),
+             mgr=mgr, fam="g4", rank=52)
+    else:
+        drop("manager/%s: assert_manager_invariants has no key surface for this manager" % mgr)
     emit("manager/%s" % mgr,
          "exercise the %s manager by %s, end the interaction, then assert assert_state_machines_idle "
          "holds and the window reaches FrameDamage::None" % (mgr, trig),
@@ -591,43 +1171,58 @@ for mgr in MANAGERS:
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 55 — resource leak matrix
 # ─────────────────────────────────────────────────────────────────────────
+# Every line now runs the cycle that actually FILLS the counter it asserts on.
 LEAK_CYCLES = [("once", 1), ("10 times in a row", 10), ("200 times in a row", 200)]
-LEAK_WIDGETS = [w for w in WIDGETS if w[1] in
-                ("unique-font", "image", "text", "list", "virtual-list", "input", "grid", "table")]
-for rname, rk in RESOURCES:
-    for wd, wk in LEAK_WIDGETS:
+for rname, rk, cycle, needs in RESOURCES:
+    hosts = [(wd, wk) for wd, wk, c in WIDGETS if needs & c]
+    if not hosts:
+        drop("leak/%s: no widget can host this resource" % rk, len(LEAK_CYCLES))
+        continue
+    for wd, wk in hosts:
         for cdesc, n in LEAK_CYCLES:
             emit("leak/%s" % rk,
-                 "snapshot the resource counters, mount and unmount %s %s, force 3 GC frames, then "
+                 "snapshot the resource counters, %s %s %s, force 3 GC frames, then "
                  "assert the count of %s has returned exactly to the baseline"
-                 % (wd, cdesc, rname),
-                 op="SetAppState", fam="e", rank=55)
+                 % (cycle, wd, cdesc, rname),
+                 op="set_app_state", fam="e", rank=55)
+drop("leak/*: widget cannot produce the asserted resource",
+     len(RESOURCES) * len(WIDGETS) * len(LEAK_CYCLES)
+     - sum(len(LEAK_CYCLES) * len([1 for _, _, c in WIDGETS if needs & c])
+           for _, _, _, needs in RESOURCES))
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 58 — invalidation-loop / bounded-work traps
 # ─────────────────────────────────────────────────────────────────────────
+# Every action names a real Callback API function (checked below), so the
+# generator never has to reach for a denied `relayout` / `redraw` op to express
+# "the callback asks for more work".
 LOOP_ACTIONS = [
-    "requesting a relayout from inside the callback that the relayout itself re-fires",
-    "calling set_css_property with the value it already has",
-    "calling scroll_to with the offset the container is already at",
-    "calling set_focus_to_node on the node that is already focused",
-    "calling change_node_text with the text the node already contains",
-    "calling modify_window_state without changing anything",
-    "calling request_hit_test_update on every frame",
-    "calling trigger_virtual_view_rerender from inside the virtual-view render callback",
-    "calling commit_undo_snapshot on every keystroke callback",
-    "calling scroll_node_into_view on a node that is already fully visible",
-    "toggling a class on and off in the same callback",
-    "calling take_screenshot from inside a layout callback",
-    "returning ShouldRegenerateDom unconditionally from an event handler",
-    "mutating the DOM from a timer that fires every frame",
-    "calling reload_system_fonts from a hover callback",
+    ("returning Update::RefreshDom from the callback that the DOM regeneration itself re-fires",
+     None),
+    ("calling set_css_property with the value it already has", "set_css_property"),
+    ("calling scroll_to with the offset the container is already at", "scroll_to"),
+    ("calling set_focus_to_node on the node that is already focused", "set_focus_to_node"),
+    ("calling change_node_text with the text the node already contains", "change_node_text"),
+    ("calling modify_window_state without changing anything", "modify_window_state"),
+    ("calling request_hit_test_update on every frame", "request_hit_test_update"),
+    ("calling trigger_virtual_view_rerender from inside the virtual-view render callback",
+     "trigger_virtual_view_rerender"),
+    ("calling commit_undo_snapshot on every keystroke callback", "commit_undo_snapshot"),
+    ("calling scroll_node_into_view on a node that is already fully visible",
+     "scroll_node_into_view"),
+    ("toggling a class on and off in the same callback", "set_node_ids_and_classes"),
+    ("calling take_screenshot from inside a layout callback", "take_screenshot"),
+    ("returning ShouldRegenerateDom unconditionally from an event handler", None),
+    ("mutating the DOM from a timer that fires every frame", "add_timer"),
+    ("calling reload_system_fonts from a hover callback", "reload_system_fonts"),
 ]
+_bogus = [f for _, f in LOOP_ACTIONS if f and f not in CALLBACK_FNS]
+assert not _bogus, "gen_e2e_cases: loop actions name non-existent callbacks: %s" % _bogus
 LOOP_TRIGGERS = [
     "a click", "a hover", "a wheel scroll", "a keypress", "a window resize",
     "a text_input", "a focus change", "an idle tick", "a timer firing", "a DOM mutation",
 ]
-for act in LOOP_ACTIONS:
+for act, _fn in LOOP_ACTIONS:
     for trg in LOOP_TRIGGERS:
         emit("loop/bounded",
              "trigger %s that responds by %s, assert the engine reaches a fixpoint: "
@@ -638,36 +1233,77 @@ for act in LOOP_ACTIONS:
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 60 — cross-manager consistency (X1..X10)
 # ─────────────────────────────────────────────────────────────────────────
-for xid, xdesc in CROSS:
-    for ie, ik in INTERACTIONS:
+for xid, xdesc, xneeds in CROSS:
+    # X1/X4/X7/X8 are declared UNIMPLEMENTED by eval_assert_manager_invariants,
+    # which hard-fails when asked for one ("never a silent pass"). A corpus line
+    # naming one is an always-red test that proves nothing about the engine.
+    if xid in CROSS_UNIMPL:
+        drop("cross/%s: the assertion declares this invariant UNIMPLEMENTED and hard-fails on it"
+             % xid, 2 * len(INTERACTIONS))
+        continue
+    assert xid in CROSS_OK, "gen_e2e_cases: %s is neither implemented nor declared unimplemented" % xid
+    for ie, ik, prov, abortable in INTERACTIONS:
+        if xneeds - prov:
+            drop("cross/%s: the interaction never engages %s"
+                 % (xid, ",".join(sorted(xneeds - prov))), 2)
+            continue
         emit("cross/%s" % xid,
              "run %s to completion and assert invariant %s: %s" % (ie, xid, xdesc),
              fam="g2", rank=60)
-        emit("cross/%s" % xid,
-             "run %s and abort it halfway with an Escape keypress, then assert invariant %s still "
-             "holds: %s" % (ie, xid, xdesc),
-             fam=["g2", "g3"], rank=61)
+        if abortable:
+            emit("cross/%s" % xid,
+                 "run %s and abort it halfway with an Escape keypress, then assert invariant %s still "
+                 "holds: %s" % (ie, xid, xdesc),
+                 fam=["g2", "g3"], rank=61)
+        else:
+            drop("cross/%s: the interaction has no abortable midpoint" % xid)
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 70 — COMPOSITIONS: two- and three-stage manager chains
 # ─────────────────────────────────────────────────────────────────────────
+# THE headline fix. Each stage declares REQUIRES/PROVIDES; a sequence is emitted
+# only if every stage's requirements are met by the stages BEFORE it. In the old
+# corpus 1,372 of 2,040 compose lines (67%) named state no earlier stage created
+# — "press and drag to start a text selection, then undo the typing" and so on.
+#   (text, key, requires, provides)
 STAGES = [
-    ("press and drag to start a text selection", "gesture + selection"),
-    ("drag past the container edge so it autoscrolls", "scroll_into_view + scroll_state"),
-    ("let the scroll animation run to a stop", "scroll animation"),
-    ("hover a sibling node while the drag is live", "hover"),
-    ("focus a contenteditable node and blink the caret", "focus_cursor + text_edit"),
-    ("type a character into the focused node", "text_edit + changeset"),
-    ("undo the typing", "undo_redo"),
-    ("copy the selection to the clipboard", "clipboard"),
-    ("scroll a virtual-view list past its over-scan window", "virtual_view"),
-    ("drag the scrollbar thumb", "gesture + gpu_state"),
-    ("resize the window", "layout + damage"),
-    ("change the DPI", "layout + damage"),
-    ("switch a tab so a whole subtree is replaced", "DOM regeneration"),
-    ("long-press to open a context menu", "gesture"),
-    ("pinch-zoom the content", "gesture"),
+    ("press and drag to start a text selection", "select-drag",
+     set(), {"press", "drag", "selection"}),
+    ("drag past the container edge so it autoscrolls", "autoscroll",
+     {"drag"}, {"scroll", "anim"}),
+    ("let the scroll animation run to a stop", "anim-stop", {"anim"}, set()),
+    ("hover a sibling node while the drag is live", "hover-in-drag", {"drag"}, {"hover"}),
+    ("focus a contenteditable node and blink the caret", "focus-caret",
+     set(), {"focus", "caret", "editable"}),
+    ("type a character into the focused node", "type", {"focus"}, {"typing"}),
+    ("undo the typing", "undo", {"typing"}, set()),
+    ("copy the selection to the clipboard", "copy", {"selection"}, set()),
+    ("scroll a virtual-view list past its over-scan window", "virtual-scroll",
+     set(), {"scroll"}),
+    ("drag the scrollbar thumb", "thumb-drag", set(), {"press", "drag", "scroll"}),
+    ("resize the window", "resize", set(), set()),
+    ("change the DPI", "dpi", set(), set()),
+    ("switch a tab so a whole subtree is replaced", "tab-switch", set(), {"domregen"}),
+    ("long-press to open a context menu", "long-press", set(), {"press", "gesture"}),
+    ("pinch-zoom the content", "pinch", set(), {"gesture"}),
+    # ── self-starting providers, so the DEPENDENT stages above get real
+    #    coverage instead of the fake coverage they had. Each is a distinct
+    #    interaction in its own right, not a rephrasing of an existing one.
+    ("wheel-scroll the container hard enough that momentum keeps it moving", "flick",
+     set(), {"scroll", "anim"}),
+    ("click into a text node to give it focus and select the whole paragraph with ctrl+a",
+     "select-all", set(), {"focus", "editable", "selection"}),
+    ("start a smooth scroll_into_view towards an off-screen node", "smooth-sciv",
+     set(), {"scroll", "anim"}),
+    # ── a consumer for the one PROVIDES nothing else consumed
+    ("re-run the interaction against the subtree that replaced the old one", "post-regen",
+     {"domregen"}, set()),
 ]
+STAGE_REQ = {k: _chk("stage " + k, r) for _, k, r, _ in STAGES}
+STAGE_PROV = {k: _chk("stage " + k, p) for _, k, _, p in STAGES}
+STAGE_TXT = {k: t for t, k, _, _ in STAGES}
+STAGE_KEYS = [k for _, k, _, _ in STAGES]
+
 COMPOSE_ASSERTS = [
     ("every stage is entered in the listed order and the whole thing reaches a fixpoint", "g1"),
     ("every repaint along the way is an incremental patch and never a full redraw", "g5"),
@@ -676,26 +1312,59 @@ COMPOSE_ASSERTS = [
     ("after the last step every state machine is idle and the window reaches FrameDamage::None", "g3"),
     ("every resource counter returns to the pre-composition baseline", "e"),
 ]
-n = len(STAGES)
-for i in range(n):
-    for j in range(n):
+
+
+def coherent(seq):
+    """True iff every stage's REQUIRES is met by the PROVIDES of its predecessors."""
+    have = set()
+    for k in seq:
+        if STAGE_REQ[k] - have:
+            return False
+        have |= STAGE_PROV[k]
+    return True
+
+
+def has_dependency(seq):
+    """True iff at least one stage in the sequence consumes something an earlier
+    stage produced. A sequence of three mutually independent stages is just three
+    tests concatenated; the point of compose/3 is the CHAIN."""
+    return any(STAGE_REQ[k] for k in seq)
+
+
+n2 = n3 = 0
+for i in STAGE_KEYS:
+    for j in STAGE_KEYS:
         if i == j:
             continue
+        if not coherent((i, j)):
+            drop("compose/2: stage 2 requires state stage 1 does not provide",
+                 len(COMPOSE_ASSERTS))
+            continue
+        n2 += 1
         for atxt, afam in COMPOSE_ASSERTS:
             emit("compose/2",
                  "in one timeline, %s, then %s, and assert %s"
-                 % (STAGES[i][0], STAGES[j][0], atxt),
+                 % (STAGE_TXT[i], STAGE_TXT[j], atxt),
                  fam=afam, rank=70)
-for i in range(n):
-    j = (i + 3) % n
-    for k in range(n):
-        if k in (i, j):
-            continue
-        for atxt, afam in COMPOSE_ASSERTS[:4]:
-            emit("compose/3",
-                 "in one timeline, %s, then %s, then %s, and assert %s"
-                 % (STAGES[i][0], STAGES[j][0], STAGES[k][0], atxt),
-                 fam=afam, rank=72)
+for i in STAGE_KEYS:
+    for j in STAGE_KEYS:
+        for k in STAGE_KEYS:
+            if len({i, j, k}) != 3:
+                continue
+            if not coherent((i, j, k)):
+                drop("compose/3: a stage requires state no earlier stage provides",
+                     len(COMPOSE_ASSERTS[:4]))
+                continue
+            if not has_dependency((i, j, k)):
+                drop("compose/3: three mutually independent stages, no chain to test",
+                     len(COMPOSE_ASSERTS[:4]))
+                continue
+            n3 += 1
+            for atxt, afam in COMPOSE_ASSERTS[:4]:
+                emit("compose/3",
+                     "in one timeline, %s, then %s, then %s, and assert %s"
+                     % (STAGE_TXT[i], STAGE_TXT[j], STAGE_TXT[k], atxt),
+                     fam=afam, rank=72)
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 80 — (g4) DANGLING INDICES UNDER MID-INTERACTION MUTATION (the payload)
@@ -710,9 +1379,13 @@ G4_ASSERTS = [
     ("assert the frame that follows the mutation is repainted correctly with no stale pixels left "
      "from the removed content", "b"),
 ]
-for ie, ik in INTERACTIONS:
-    for md, mk in MUTATIONS:
-        for pd, pk in PHASES:
+for ie, ik, prov, _ab in INTERACTIONS:
+    for pd, pk, preq in PHASES:
+        if _chk("phase " + pk, preq) - _chk("interaction " + ik, prov):
+            drop("mutate/*: the interaction is never in the '%s' state" % pk,
+                 len(MUTATIONS) * len(G4_ASSERTS))
+            continue
+        for md, mk in MUTATIONS:
             for atxt, afam in G4_ASSERTS:
                 emit("mutate/%s" % mk,
                      "start %s, then %s %s, %s" % (ie, md, pd, atxt),
@@ -778,60 +1451,236 @@ for tag, txt in SEEDS:
     emit(tag, txt, fam="g1", rank=90)
 
 # a few hundred more rich seeds, derived by crossing the seed shapes with widgets
+#
+# The old shapes all began "start an interaction" / "run an interaction" — 120
+# lines in which the thing under test was never named, so the generator picked
+# one. Each shape now takes a CONCRETE interaction, chosen per widget from the
+# ones that widget can actually support, and a widget that supports none of them
+# is skipped rather than handed a drag it has no children to drag across.
+SEED_INTERACTIONS = [
+    ("a text-selection drag across two of its nodes", {"selectable"}),
+    ("a wheel scroll of its scroll container", {"scrollv", "scrollh"}),
+    ("a hover held over one of its nodes", {"hoverstyle"}),
+    ("a caret blink in its focused contenteditable node", {"editable"}),
+    ("a click on its focusable node", {"clickable"}),
+]
 SEED_SHAPES = [
     ("drag from the first child across three siblings while the container autoscrolls, then delete "
      "the middle sibling mid-drag, and assert the interaction survives, the selection never spans a "
-     "dead node, and everything settles"),
-    ("start an interaction, resize the window mid-interaction, and assert the interaction continues "
-     "against the same logical nodes and the repaint stays incremental"),
-    ("start an interaction, change the DPI mid-interaction, and assert nothing panics and the window "
-     "still reaches zero damage"),
-    ("run an interaction to completion, then run it again immediately, and assert the second run's "
-     "resource counters match the first run's (no per-interaction leak)"),
-    ("run an interaction while a timer mutates an unrelated subtree on every frame, and assert the "
-     "two do not interfere and both settle"),
-    ("run an interaction, then rebuild the entire DOM via set_app_state, and assert no manager "
-     "carries a key across the rebuild that does not resolve to a live node"),
+     "dead node, and everything settles", {"children", "scrollv"}, None),
+    ("start %s, resize the window mid-interaction, and assert the interaction continues "
+     "against the same logical nodes and the repaint stays incremental", None, "one"),
+    ("start %s, change the DPI mid-interaction, and assert nothing panics and the window "
+     "still reaches zero damage", None, "one"),
+    ("run %s to completion, then run it again immediately, and assert the second run's "
+     "resource counters match the first run's (no per-interaction leak)", None, "one"),
+    ("run %s while a timer mutates an unrelated subtree on every frame, and assert the "
+     "two do not interfere and both settle", None, "one"),
+    ("run %s, then rebuild the entire DOM via set_app_state, and assert no manager "
+     "carries a key across the rebuild that does not resolve to a live node", None, "one"),
 ]
-for wd, wk in WIDGETS:
-    for shape in SEED_SHAPES:
-        emit("seed/%s" % wk, "with %s mounted, %s" % (wd, shape), fam=["g1", "g4"], rank=92)
+for wd, wk, caps in WIDGETS:
+    supported = [t for t, need in SEED_INTERACTIONS if need & caps]
+    for shape, need, mode in SEED_SHAPES:
+        if need is not None:
+            if need - caps:
+                drop("seed/%s: the widget cannot support the shape" % wk)
+                continue
+            emit("seed/%s" % wk, "with %s mounted, %s" % (wd, shape), fam=["g1", "g4"], rank=92)
+            continue
+        if not supported:
+            drop("seed/%s: the widget supports no interaction to run" % wk)
+            continue
+        for ia in supported:
+            emit("seed/%s" % wk, "with %s mounted, %s" % (wd, shape % ia),
+                 fam=["g1", "g4"], rank=92)
+# the empty body deserves its own degenerate cases rather than a drag across
+# children it does not have
+for shape in [
+    "resize the window five times in a row and assert every frame still settles to zero damage "
+    "with no relayout iteration wasted on the absent content",
+    "deliver a click, a wheel scroll, a keypress and a text_input into the void and assert every "
+    "one is absorbed without a panic and without scheduling a repaint",
+    "rebuild the DOM via set_app_state 50 times and assert no manager accumulates a key and every "
+    "resource counter stays at zero",
+]:
+    emit("seed/empty", "with an empty body with no content at all mounted, %s" % shape,
+         fam=["f", "e"], rank=92)
+
 
 # ─────────────────────────────────────────────────────────────────────────
-# 3. WRITE + COVERAGE
+# 3. SELF-AUDIT — an OUTSIDE check on the finished text
 # ─────────────────────────────────────────────────────────────────────────
+# Deliberately NOT expressed with the tables above: this scans the emitted
+# STRINGS for referring phrases and for the phrase that would have to establish
+# them. If the two ever drift apart, this fails and the corpus is not written.
+REFERENTS = [
+    ("live-drag",
+     r"while the drag is live|drag past the container edge"
+     r"|mid-drag, after several mouse_move steps|the active drag\b|the drag's source node",
+     r"press and drag|a text-selection drag|a node drag|scrollbar-thumb drag"
+     r"|drag the scrollbar thumb|start a node drag|start a drag|starting a drag"
+     r"|starting a legacy drag|drag from node|drag from the first|press in the first"
+     r"|drag-select|mouse_down|drag through GestureAndDragManager|resize the window while a drag"),
+    ("typing",
+     r"undo the typing|undo the edit|redo the typing",
+     r"typ(e|ing|ed)\b|text_input|insert_text|a character into|keystroke"),
+    ("scroll-animation",
+     r"the resulting scroll animation|let the scroll animation run to a stop"
+     r"|tick until the scroll animation stops",
+     r"autoscroll|momentum|smooth|scroll_into_view|scroll_node_into_view|flick"
+     r"|scroll a virtual-view list|past the bottom edge|animated scroll"),
+    ("selection",
+     r"copy the selection|the live selection|the selection anchor",
+     r"select"),
+    ("focus",
+     r"into the focused node|the focused node",
+     r"focus|contenteditable|text input"),
+]
+
+
+def self_audit(lines):
+    bad = []
+    for line in lines:
+        b = line[line.index("] ") + 2:]
+        for name, ref, est in REFERENTS:
+            m = re.search(ref, b)
+            if m and not re.search(est, b[:m.start()]):
+                bad.append((name, line))
+    return bad
+
+
+# --------------------------------------------------------------------------
+# 4. WRITE + COVERAGE
+# --------------------------------------------------------------------------
 assert not COLLISIONS, "COLLISIONS: %d, e.g. %r" % (len(COLLISIONS), COLLISIONS[:3])
 
 LINES.sort(key=lambda t: (t[0], t[1]))
-body = "\n".join(l for _, _, l in LINES) + "\n"
+_text = [l for _, _, l in LINES]
+
+_bad = self_audit(_text)
+assert not _bad, (
+    "gen_e2e_cases: SELF-AUDIT FAILED — %d line(s) refer to state no earlier step establishes.\n"
+    "The first three:\n  %s" % (len(_bad), "\n  ".join("[%s] %s" % b for b in _bad[:3])))
+
+body = "\n".join(_text) + "\n"
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3b. WAVE 1 — the subset that the HEADLESS RUNNER can execute faithfully today
+# ─────────────────────────────────────────────────────────────────────────
+# The corpus is a specification and keeps every line, including the ones the
+# runner cannot yet drive: those lines are correct and the runner is what is
+# deficient (it now records each such `CallbackChange` via `unsupported()` and
+# FAILS the scenario, rather than reporting a vacuous pass).
+#
+# But there is no point spending LLM budget generating a test that is guaranteed
+# to red on the harness rather than on the engine. So a second file carries the
+# subset worth generating first. Same lines, byte for byte, so the artifacts are
+# shared with the full corpus and nothing is regenerated later.
+#
+# Membership is DERIVED, not hand-listed: when the missing runner arms land, the
+# `unsupported(...)` call sites disappear and re-running this script promotes
+# those lines into Wave 1 automatically.
+WAVE1 = os.path.join(ROOT, "scripts", "E2E_TESTS_WAVE1.txt")
+
+
+def unsupported_callback_fns():
+    """CallbackInfo fns whose CallbackChange the headless runner cannot apply."""
+    src = read(os.path.join(ROOT, "layout/src/e2e/runner.rs"))
+    variants = set(re.findall(r'unsupported\(\s*"([A-Za-z0-9]+)"', src))
+    assert variants, "gen_e2e_cases: no `unsupported(\"...\")` call sites in runner.rs"
+    # a CallbackChange variant can be raised by several API fns
+    alias = {"CreateNewWindow": ["create_window"],
+             "OpenMenu": ["open_menu", "open_menu_at", "open_menu_for_hit_node",
+                          "open_menu_for_node"],
+             "ShowTooltip": ["show_tooltip", "show_tooltip_at"]}
+    fns, unmapped = set(), []
+    for v in sorted(variants):
+        cands = alias.get(v, [snake(v)])
+        hit = [c for c in cands if c in CALLBACK_FNS]
+        if hit:
+            fns |= set(hit)
+        else:
+            unmapped.append(v)
+    assert not unmapped, (
+        "gen_e2e_cases: runner.rs marks CallbackChange::%s unsupported but no CallbackInfo fn "
+        "maps to it — add an alias so the wave split cannot rot." % unmapped)
+    return fns
+
+
+UNSUPPORTED_FNS = unsupported_callback_fns()
+# managers whose state is filled only by an OS facility the headless runner has
+# no mock for; a `manager/<x>` line for one of them cannot be driven at all.
+HOSTLESS_MANAGERS = {"biometric", "clipboard", "file_drop", "gamepad", "geolocation",
+                     "keyring", "permission", "sensors"}
+
+
+def wave1_defer(line):
+    """Reason this line is NOT in wave 1, or None if it is."""
+    tag = line[1:line.index("]")]
+    if tag.startswith("compose/"):
+        return "multi-stage chain: needs text editing + gesture injection end to end"
+    if tag.startswith("manager/") and tag.split("/", 1)[1] in HOSTLESS_MANAGERS:
+        return "manager needs an OS facility the headless runner does not mock"
+    m = re.search(r"CallbackInfo::([a-z_0-9]+)", line)
+    if m and m.group(1) in UNSUPPORTED_FNS:
+        return "runner.rs marks this CallbackChange unsupported (it fails the scenario)"
+    return None
+
+
+_wave1, _defer = [], Counter()
+for l in _text:
+    why = wave1_defer(l)
+    if why:
+        _defer[why] += 1
+    else:
+        _wave1.append(l)
+wave1_body = "\n".join(_wave1) + "\n"
 
 if "--check" in sys.argv:
-    cur = read(OUT) if os.path.exists(OUT) else ""
-    sys.exit(0 if cur == body else 1)
+    ok = (read(OUT) if os.path.exists(OUT) else "") == body
+    ok = ok and (read(WAVE1) if os.path.exists(WAVE1) else "") == wave1_body
+    sys.exit(0 if ok else 1)
 
 with open(OUT, "w", encoding="utf-8") as f:
     f.write(body)
+with open(WAVE1, "w", encoding="utf-8") as f:
+    f.write(wave1_body)
 
 
-def table(title, universe, cover):
-    miss = [x for x in universe if not cover.get(x)]
+def table(title, universe, cover, excluded=()):
+    miss = [x for x in universe if not cover.get(x) and x not in excluded]
+    note = "OK" if not miss else "MISSING: " + ", ".join(miss)
+    if excluded:
+        note += "   (deliberately excluded: %s)" % ", ".join(sorted(excluded))
     print("%-28s %5d / %-5d covered   %s"
-          % (title, len(universe) - len(miss), len(universe),
-             "OK" if not miss else "MISSING: " + ", ".join(miss)))
+          % (title, len(universe) - len(miss) - len(excluded), len(universe), note))
     return miss
 
 
 print("wrote %s: %d lines (0 duplicates, uniqueness enforced on the normalized key)"
       % (OUT, len(LINES)))
+print("self-audit: 0 dangling referents over %d lines" % len(LINES))
+print("wrote %s: %d lines (the subset the headless runner can drive today)"
+      % (WAVE1, len(_wave1)))
+for k, v in _defer.most_common():
+    print("    deferred %5d  %s" % (v, k))
 print()
 print("COVERAGE")
-table("Callback API functions", CALLBACK_FNS, COVER_CB)
-table("Debug ops / mock inputs", DEBUG_OPS, COVER_OP)
+table("Callback API functions", CALLBACK_FNS, COVER_CB, excluded=CB_OUT_OF_SCOPE)
+table("Debug ops (usable)", DEBUG_OPS, COVER_OP)
 table("Managers", MANAGERS, COVER_MGR)
 table("Assertion families", list(FAMILIES), COVER_FAM)
+print("%-28s %5d denied by OP_POLICY, %d zombie(s), %d of %d usable"
+      % ("Debug ops (excluded)", len(DENIED_OPS), len(ZOMBIE_OPS), len(DEBUG_OPS), len(ALL_OPS)))
+print("%-28s compose/2 %d of %d orderings, compose/3 %d chains"
+      % ("Coherent compositions", n2, len(STAGE_KEYS) * (len(STAGE_KEYS) - 1), n3))
 print()
-from collections import Counter
-c = Counter(l.split("]")[0][1:].split("/")[0] for _, _, l in LINES)
+c = Counter(l.split("]")[0][1:].split("/")[0] for l in _text)
 print("BY CATEGORY")
 for k, v in sorted(c.items(), key=lambda kv: -kv[1]):
     print("  %-14s %6d" % (k, v))
+print()
+print("DROPPED (combinations deliberately NOT emitted; total %d)" % sum(DROPPED.values()))
+for k, v in sorted(DROPPED.items(), key=lambda kv: -kv[1])[:20]:
+    print("  %6d  %s" % (v, k))
