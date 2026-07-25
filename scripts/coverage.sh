@@ -73,11 +73,37 @@ TARGET_DIR="./target/${PROFILE}/deps"
 # `cd dll && cargo test` only covers the DLL's. Treat library doctests as
 # UNVERIFIED; do not read this comment as a claim that something else checks
 # them.
+# Run a cargo-test invocation, showing the tail on success but the FAILURE
+# DETAIL on failure.
+#
+# Every call here used to be `... 2>&1 | tail -3`. With `set -o pipefail` that
+# still fails the job, but it discards the `failures:` block — so CI reported
+# only "7010 passed; 1 failed" with no way to tell WHICH test, and the failure
+# had to be re-derived by hand. Keep the output short when green; print the test
+# names, panic messages and assertion diffs when red.
+run_tests() {
+  local label="$1"; shift
+  local log
+  log="$(mktemp)"
+  if "$@" >"${log}" 2>&1; then
+    tail -3 "${log}"
+    rm -f "${log}"
+  else
+    local status=$?
+    echo "::error::${label} FAILED (exit ${status}) — detail follows"
+    # The `failures:` block, panics and assertion diffs; fall back to the tail.
+    grep -aE '^(failures|error|test .* FAILED)|^    [a-zA-Z_:]+$|panicked at|assertion|left ==|right ==' "${log}" | tail -60 \
+      || tail -40 "${log}"
+    rm -f "${log}"
+    return "${status}"
+  fi
+}
+
 echo "  [1/3] azul-css tests"
-cargo test --profile "${PROFILE}" --package azul-css --lib --tests 2>&1 | tail -3
+run_tests "azul-css" cargo test --profile "${PROFILE}" --package azul-css --lib --tests
 
 echo "  [2/3] azul-core tests"
-cargo test --profile "${PROFILE}" --package azul-core --lib --tests 2>&1 | tail -3
+run_tests "azul-core" cargo test --profile "${PROFILE}" --package azul-core --lib --tests
 
 echo "  [3/3] azul-layout tests"
 # Exclude slow integration tests (>10s in debug) that blow up under coverage
@@ -91,7 +117,7 @@ SLOW_TESTS=(
   "ifc_caching"
   "margin_escape_regression"
 )
-cargo test --profile "${PROFILE}" --package azul-layout --lib 2>&1 | tail -3
+run_tests "azul-layout --lib" cargo test --profile "${PROFILE}" --package azul-layout --lib
 
 # Enumerate the test targets from the MANIFEST, not from `layout/tests/*.rs`.
 # That glob is top-level-only, so the three targets whose `path` points into a
@@ -130,7 +156,8 @@ for test_name in "${LAYOUT_TESTS[@]}"; do
       e2e_json) extra_features="--features e2e-server" ;;
     esac
     # shellcheck disable=SC2086  # word splitting of the feature flag is intended
-    cargo test --profile "${PROFILE}" --package azul-layout --test "${test_name}" ${extra_features} 2>&1 | tail -1
+    run_tests "azul-layout --test ${test_name}" \
+      cargo test --profile "${PROFILE}" --package azul-layout --test "${test_name}" ${extra_features}
   fi
 done
 
