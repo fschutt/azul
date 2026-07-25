@@ -32,6 +32,26 @@ use std::sync::{mpsc, Arc, Mutex, OnceLock};
 
 const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
 
+/// Wall-clock `wall_clock_now()` for the E2E runner's own bookkeeping
+/// (per-step durations and the `wait` op's resume deadline).
+///
+/// Every such read in this module funnels through here so that the WASM-compat
+/// CI gate ("no ungated `wall_clock_now()` in azul-css / azul-core /
+/// azul-layout", `rust.yml` -> Lint & Static Checks) has exactly ONE site to
+/// look at instead of a call scattered through a 12k-line dispatcher.
+///
+/// It is sound to read the real clock here: the whole `e2e` module is
+/// `#[cfg(feature = "e2e-server")]`, a desktop-test-only feature that is not in
+/// `default` and is never enabled for a wasm build — which is the target where
+/// `Instant::now()` panics. This is deliberately NOT the injectable test clock
+/// (`azul_core::task::Instant::now`): step durations and the `wait` deadline
+/// must measure real elapsed time, or `tick_ms` would let a scenario "wait"
+/// without the event loop ever making progress.
+#[cfg(feature = "std")]
+fn wall_clock_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 // ==================== Types ====================
 
 /// Request from HTTP thread to timer callback
@@ -6255,7 +6275,7 @@ fn resume_e2e_continuation_inner(
         if cont.step_idx == 0 && !cont.setup_applied {
             cont.current_step_results.clear();
             cont.current_test_failed = false;
-            cont.test_start = std::time::Instant::now();
+            cont.test_start = wall_clock_now();
             // The composition trace is process-global (an assertion only ever
             // holds `&CallbackInfo`), so it must be zeroed per test or stages
             // from the previous scenario would leak into this one.
@@ -6322,7 +6342,7 @@ fn resume_e2e_continuation_inner(
         while cont.step_idx < test.steps.len() {
             let step = &test.steps[cont.step_idx];
             let step_index = cont.step_idx;
-            let step_start = std::time::Instant::now();
+            let step_start = wall_clock_now();
             let op = step.op.as_str();
 
             // Sample the manager state for `assert_composition`'s stage trace.
@@ -6345,7 +6365,7 @@ fn resume_e2e_continuation_inner(
                 cont.step_idx = step_index + 1;
                 cont.app_data = app_data;
                 cont.resume_not_before =
-                    Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
+                    Some(wall_clock_now() + std::time::Duration::from_millis(ms));
                 session.pending = Some(cont);
                 return needs_update;
             }
@@ -6642,7 +6662,7 @@ pub fn e2e_pump_continuation(
     // continuation back untouched and report it as still pending.
     if let Some(cont) = pending.take_if(|c| {
         c.resume_not_before
-            .is_some_and(|t| std::time::Instant::now() < t)
+            .is_some_and(|t| wall_clock_now() < t)
     }) {
         let rnb = cont.resume_not_before;
         session.pending = Some(cont);
@@ -6705,7 +6725,7 @@ pub extern "C" fn debug_timer_callback(
     // `wait` steps yield with a deadline — if it hasn't passed, put the
     // continuation back and let this tick process queued input/relayout.
     if let Some(cont) = pending_continuation.take_if(|c| {
-        c.resume_not_before.is_some_and(|t| std::time::Instant::now() < t)
+        c.resume_not_before.is_some_and(|t| wall_clock_now() < t)
     }) {
         session.pending = Some(cont);
     }
@@ -12001,7 +12021,7 @@ pub fn process_debug_event(
                 completed_results: Vec::new(),
                 current_step_results: Vec::new(),
                 current_test_failed: false,
-                test_start: std::time::Instant::now(),
+                test_start: wall_clock_now(),
                 component_map: component_map.clone(),
                 app_data: app_data.clone(),
                 undo_manager: azul_layout::json::RefAnyUndoManager::new(0),

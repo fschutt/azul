@@ -3254,16 +3254,12 @@ impl RustGenerator {
         export_feature: &str,
         is_export_only: bool,
     ) {
-        // Trait functions only exist when cabi_export is enabled
-        if is_export_only {
-            builder.line(&format!("#[cfg(feature = \"{export_feature}\")]"));
-        }
-        // Attributes
-        builder.line("#[allow(unused_variables)]");
-        // Gate #[no_mangle] behind the export feature flag
-        builder.line(&format!(
-            "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
-        ));
+        // NOTE: the item attributes are NOT emitted here. The pair-pattern branch
+        // below emits three separate `extern "C" fn` items and gives each one its
+        // own attribute block; emitting them here as well put `#[no_mangle]` on the
+        // raw variant TWICE, which rustc reports as `warning: unused attribute`
+        // (39 of them in the generated `dll_api_internal.rs`). Only the single-item
+        // path prepends them, right before the item it belongs to.
 
         // Apply callback wrapper substitution for API functions (Constructor, Method, etc.)
         // NOT for trait functions (Delete, DeepCopy, etc.) which operate on the callback wrapper itself
@@ -3292,6 +3288,17 @@ impl RustGenerator {
             .unwrap_or_default();
 
         if !emit_pair {
+            // Trait functions only exist when cabi_export is enabled
+            if is_export_only {
+                builder.line(&format!("#[cfg(feature = \"{export_feature}\")]"));
+            }
+            // Attributes
+            builder.line("#[allow(unused_variables)]");
+            // Gate #[no_mangle] behind the export feature flag
+            builder.line(&format!(
+                "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
+            ));
+
             let args = if should_substitute_callbacks {
                 self.format_function_args_for_cabi(func, ir, config)
             } else {
