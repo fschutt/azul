@@ -1,0 +1,33 @@
+{
+  "name": "mount_basic",
+  "description": "MOUNT + FIRST LAYOUT: a fixed-pixel DOM mounts, lays out, and its geometry is deterministic without any font dependency. Exercises LayoutWindow::layout_and_generate_display_list (window.rs:971) and the recursive layout path. assert_exists / assert_node_count exercise the selector resolver; assert_layout reads the computed used_size straight from the layout tree.",
+  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"box\" id=\"a\"></div>",
+        "  <div class=\"box\" id=\"b\"></div>",
+        "  <div class=\"box\" id=\"c\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; width: 200px; }",
+        ".box { width: 120px; height: 40px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "assert_exists", "selector": "#root" },
+    { "op": "assert_exists", "selector": "#a" },
+    { "op": "assert_not_exists", "selector": "#nonexistent" },
+    { "op": "assert_node_count", "selector": ".box", "expected": 3 },
+
+    { "op": "assert_layout", "selector": "#a", "property": "width", "expected": 120.0, "tolerance": 0.5 },
+    { "op": "assert_layout", "selector": "#a", "property": "height", "expected": 40.0, "tolerance": 0.5 },
+    { "op": "assert_layout", "selector": "#root", "property": "width", "expected": 200.0, "tolerance": 0.5 }
+  ]
+}

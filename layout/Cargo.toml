@@ -333,6 +333,17 @@ name = "contenteditable_e2e"
 path = "tests/contenteditable_e2e.rs"
 required-features = ["cpurender", "text_layout", "font_loading", "a11y", "widgets"]
 
+[[test]]
+name = "e2e_json"
+path = "tests/e2e_json.rs"
+required-features = ["cpurender", "text_layout", "font_loading", "a11y", "widgets"]
+
+# Dev-only: JSON fixture deserialization for the e2e_json harness. Dev-deps are
+# never shipped and never affect the published dependency graph, so this does
+# NOT rely on the optional `json` crate feature.
+[dev-dependencies]
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
 [[bench]]
 name = "fast_dom_bench"
 harness = false
