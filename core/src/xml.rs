@@ -2250,23 +2250,55 @@ mod serde_impl {
     }
 
     impl<'de> Deserialize<'de> for ComponentDataModel {
+        /// A data model is a JSON **object**. This deliberately drives the
+        /// deserializer with `deserialize_map` instead of `deserialize_struct`:
+        /// the struct hint makes serde accept a *sequence* as well (the
+        /// positional encoding used by compact formats), so `from_json("[]")`
+        /// used to succeed and hand back a nameless, field-less model instead of
+        /// reporting that the input is not a data model at all. Every key stays
+        /// optional, so `{}` still deserializes to the empty model.
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            #[derive(Deserialize)]
-            struct Helper {
-                #[serde(default)]
-                name: alloc::string::String,
-                #[serde(default)]
-                description: alloc::string::String,
-                #[serde(default)]
-                fields: alloc::vec::Vec<ComponentDataField>,
+            use serde::de::{IgnoredAny, MapAccess, Visitor};
+
+            struct ModelVisitor;
+
+            impl<'de> Visitor<'de> for ModelVisitor {
+                type Value = ComponentDataModel;
+
+                fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                    f.write_str("a data model object with `name`, `description` and `fields`")
+                }
+
+                fn visit_map<A: MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Self::Value, A::Error> {
+                    let mut name: Option<alloc::string::String> = None;
+                    let mut description: Option<alloc::string::String> = None;
+                    let mut fields: Option<alloc::vec::Vec<ComponentDataField>> = None;
+
+                    while let Some(key) = map.next_key::<alloc::string::String>()? {
+                        match key.as_str() {
+                            "name" => name = Some(map.next_value()?),
+                            "description" => description = Some(map.next_value()?),
+                            "fields" => fields = Some(map.next_value()?),
+                            // Unknown keys are ignored (forward compatibility),
+                            // but their values must still be consumed.
+                            _ => {
+                                map.next_value::<IgnoredAny>()?;
+                            }
+                        }
+                    }
+
+                    Ok(ComponentDataModel {
+                        name: AzString::from(name.unwrap_or_default().as_str()),
+                        description: AzString::from(description.unwrap_or_default().as_str()),
+                        fields: ComponentDataFieldVec::from_vec(fields.unwrap_or_default()),
+                    })
+                }
             }
 
-            let h = Helper::deserialize(deserializer)?;
-            Ok(ComponentDataModel {
-                name: AzString::from(h.name.as_str()),
-                description: AzString::from(h.description.as_str()),
-                fields: ComponentDataFieldVec::from_vec(h.fields),
-            })
+            deserializer.deserialize_map(ModelVisitor)
         }
     }
 }
