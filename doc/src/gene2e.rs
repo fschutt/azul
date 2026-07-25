@@ -736,10 +736,35 @@ line) so the test stays human-readable — NOT one escaped mega-string.
 ## THE SCHEMA (this is the complete, actual op set — nothing else exists)
 {schema_doc}
 
-## A REAL, PASSING TEST (the ground truth for the format)
+## A REAL TEST (the ground truth for the FORMAT — copy its shape, not its bounds)
 ```json
 {example}
 ```
+
+## A FAILING TEST IS A SUCCESS — DO NOT TUNE FOR GREEN
+You are writing a SPECIFICATION of correct engine behaviour, not a description of
+what the engine currently does. Nothing runs your test before it is accepted: the
+gate checks JSON shape and op names only. So you will never be told whether it
+passed, and you must not try to guess.
+
+Assert what the engine SHOULD do. If the engine is buggy, your test fails — that is
+the POINT of this corpus and a genuinely useful result. A test that passes because
+you softened it until it could not fail is WORSE THAN NO TEST: it hides the bug and
+lends false confidence forever after.
+
+Concretely:
+- Pick the bound the one-liner IMPLIES, not a safe-looking one. "does not trigger a
+  relayout" is `max_relayouts: 0` — never 1 "just in case". "returns to idle" is
+  `assert_idle_stable` with damage `none` — never "some small damage is probably OK".
+- The numbers in the recipes below are ILLUSTRATIVE placeholders. Derive each bound
+  from the sentence you were given; do not copy them by default.
+- Never widen a bound, drop an assertion, or downgrade `eq` to `le` to make the test
+  feel safer. If the description implies an exact count, assert equality.
+- Never add an assertion the line does not ask for merely to make the file look
+  substantial. Each assertion must trace to the one-liner.
+- If the described behaviour cannot be expressed with the ops above, write the
+  closest HONEST test and let it fail — do NOT substitute a weaker property that
+  happens to hold.
 
 ## SCOPE — THE ONE RULE YOU MUST NOT BREAK
 Assert BEHAVIOUR: damage, redraw, repaint liveness/soundness, settling to idle,
