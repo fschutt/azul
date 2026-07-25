@@ -3,11 +3,26 @@
 //! [`run_e2e_test`] runs an [`E2eTest`] end-to-end through the REAL server
 //! op-dispatch (`super::full::process_debug_event` + the scenario runner
 //! `resume_e2e_continuation`, pumped via `super::full::e2e_pump_continuation`) —
-//! no HTTP, no timer, no DLL. It emulates just the slice of the platform event
-//! loop the E2E path needs: build a [`CallbackInfo`] over a headless
-//! [`LayoutWindow`], apply the window-state changes the runner pushes
-//! (`modify_window_state` for the setup resize / DPI), consume the process-global
-//! mount XML the `mount` op installs, and relayout between yields.
+//! no HTTP, no timer, no DLL. It emulates the slice of the platform event loop
+//! the E2E path needs, and it emulates it by PORTING the DLL, not by
+//! approximating it:
+//!
+//! * [`Runner::apply_user_change`] is a port of `PlatformWindow::apply_user_change`
+//!   (`dll/src/desktop/shell2/common/event.rs`) for the `CallbackChange`
+//!   variants the E2E op set can produce — DOM mutation included.
+//! * [`Runner::regenerate_layout`] / [`Runner::relayout_only`] port
+//!   `regenerate_layout` / `incremental_relayout`
+//!   (`dll/src/desktop/shell2/common/layout.rs`) plus the render + damage tail
+//!   of the headless backend (`dll/src/desktop/shell2/headless/mod.rs`).
+//! * [`super::cpu_backend::CpuBackend`] is the port of that backend's CPU
+//!   renderer, which is what fills `LayoutWindow::frame_report` — without it
+//!   every damage assertion reports "nothing was repainted (stale screen)".
+//! * The font pipeline mirrors `AppInternal::create` + the font-snapshot block
+//!   at the top of `regenerate_layout`, because font RESOLUTION differs between
+//!   "one `FcFontCache::build()` for the whole process" and "an async registry
+//!   snapshot re-installed on every DOM regeneration" — and the corpus contains
+//!   a scenario (`mock_font_exact_metrics`) whose verdict depends on exactly
+//!   that difference.
 //!
 //! The window/callback scaffolding mirrors the pattern in
 //! `tests/contenteditable_e2e.rs` (LayoutWindow + `RendererResources::default()`
@@ -19,8 +34,9 @@ use std::time::Instant;
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
+    events::ProcessEventResult,
     gl::OptionGlContextPtr,
-    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     refany::{OptionRefAny, RefAny},
     resources::RendererResources,
@@ -37,6 +53,7 @@ use azul_layout::{
     window_state::FullWindowState,
 };
 
+use super::cpu_backend::CpuBackend;
 use super::full::{
     process_debug_event, e2e_clear_continuation, e2e_pump_continuation, DebugEvent,
     DebugRequest, DebugResponseData, E2eTest, E2eTestResult, ResponseData,
@@ -63,6 +80,9 @@ fn mount_sink(xml: Option<String>) {
 }
 
 /// Take the mount document iff the `mount`/`unmount` op set it since last check.
+/// Mirrors the DLL's `get_e2e_mount_xml()` + `take_e2e_mount_dirty()` pair: a
+/// non-dirty mount keeps the ALREADY-MOUNTED DOM (with every debug DOM mutation
+/// applied to it) instead of rebuilding it from the XML.
 fn take_mount_if_dirty() -> Option<Option<String>> {
     let dirty = MOUNT_DIRTY.lock().map(|mut d| std::mem::replace(&mut *d, false)).unwrap_or(false);
     if dirty {
@@ -79,8 +99,19 @@ struct Runner {
     renderer_resources: RendererResources,
     system_callbacks: ExternalSystemCallbacks,
     window_state: FullWindowState,
-    /// Last-mounted styled DOM, kept so a setup resize / DPI change can relayout.
-    mounted_dom: Option<StyledDom>,
+    /// CPU renderer + retained damage state (port of the headless backend).
+    cpu_backend: CpuBackend,
+    /// The app-level font cache, i.e. `AppInternal::fc_cache`. Re-installed on
+    /// the layout window's font manager at the top of every `regenerate_layout`,
+    /// exactly like the DLL does.
+    app_fc_cache: FcFontCache,
+    /// The async font registry, i.e. `AppInternal::font_registry`.
+    #[cfg(feature = "font_async_registry")]
+    font_registry: Option<Arc<azul_layout::FcFontRegistry>>,
+    /// Set by a `ModifyWindowState` whose size or DPI changed — the DLL answers
+    /// that with `RelayoutReason::Resize` + `mark_frame_needs_regeneration()`,
+    /// which invalidates every cached rasterisation.
+    resize_pending: bool,
 }
 
 impl Runner {
@@ -88,12 +119,40 @@ impl Runner {
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(width, height);
         ws.size.dpi = dpi;
+
+        // Port of `AppInternal::create`'s font setup: the app starts with an
+        // async registry and an EMPTY `FcFontCache` (or a disk-cache snapshot);
+        // the cache is populated from the registry at the first layout. This is
+        // NOT the same as handing the window one eagerly-built `FcFontCache`:
+        // the registry snapshot replaces the window's cache handle, which is
+        // what makes in-memory (`register_named_font`) families behave the way
+        // they do in a real app.
+        #[cfg(feature = "font_async_registry")]
+        let (app_fc_cache, font_registry) = {
+            // `FcFontRegistry::new()` already returns an `Arc<Self>`.
+            let registry = azul_layout::FcFontRegistry::new();
+            let had_cache = registry.load_from_disk_cache();
+            registry.spawn_scout_and_builders();
+            let cache = if had_cache.is_some() {
+                registry.shared_cache()
+            } else {
+                FcFontCache::default()
+            };
+            (cache, Some(registry))
+        };
+        #[cfg(not(feature = "font_async_registry"))]
+        let app_fc_cache = FcFontCache::build();
+
         Self {
-            layout_window: LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new"),
+            layout_window: LayoutWindow::new(app_fc_cache.clone()).expect("LayoutWindow::new"),
             renderer_resources: RendererResources::default(),
             system_callbacks: ExternalSystemCallbacks::rust_internal(),
             window_state: ws,
-            mounted_dom: None,
+            cpu_backend: CpuBackend::new(),
+            app_fc_cache,
+            #[cfg(feature = "font_async_registry")]
+            font_registry,
+            resize_pending: false,
         }
     }
 
@@ -135,8 +194,8 @@ impl Runner {
             &ref_data,
             changes,
             DomNodeId { dom: DomId::ROOT_ID, node: NodeHierarchyItemId::NONE },
-            OptionLogicalPosition::None,
-            OptionLogicalPosition::None,
+            azul_core::geom::OptionLogicalPosition::None,
+            azul_core::geom::OptionLogicalPosition::None,
         );
         f(&mut callback_info)
     }
@@ -156,118 +215,571 @@ impl Runner {
         self.register_scroll_nodes();
     }
 
-    /// Apply the `CallbackChange`s the runner pushed this pump + consume any
-    /// pending mount, relayouting as needed. This is the headless equivalent of
-    /// the DLL's `apply_user_change` + `regenerate_layout` slice: the op handlers
-    /// in `process_debug_event` push changes rather than mutating directly, and
-    /// the platform event loop applies them between frames — here, between pumps.
-    fn service(&mut self, changes: &Arc<Mutex<Vec<CallbackChange>>>) {
+    /// Apply the `CallbackChange`s the runner pushed this pump, then finish the
+    /// frame the way the platform event loop does.
+    ///
+    /// `needs_update` is the debug-op `needs_update` flag: the DLL's debug timer
+    /// returns `Update::RefreshDom` for it, which the event loop turns into a
+    /// full `regenerate_layout()`.
+    fn service(&mut self, changes: &Arc<Mutex<Vec<CallbackChange>>>, needs_update: bool) {
         let drained = changes
             .lock()
             .map(|mut c| std::mem::take(&mut *c))
             .unwrap_or_default();
 
-        let mut scroll_tos: Vec<(DomId, NodeHierarchyItemId, LogicalPosition, bool)> = Vec::new();
-        let mut scroll_into_views: Vec<(
-            DomNodeId,
-            azul_layout::managers::scroll_into_view::ScrollIntoViewOptions,
-        )> = Vec::new();
-
-        // 1. Window-state changes (focus / blur / move / resize / DPI / keyboard).
-        //
-        //    Each one is applied IN ORDER, as it is drained — NOT collapsed into
-        //    "the last state wins". The real shell runs its state-diff pass once
-        //    per `ModifyWindowState`, so every intermediate state is observed.
-        //    Collapsing loses transient states: a `key_down`+`key_up` pair that
-        //    lands in a single continuation slice (the E2E step loop only yields
-        //    on a pending *relayout*, and a focus change is not one) would leave
-        //    only the key-RELEASED state, and the keyboard default action would
-        //    never see the press — Tab-to-focus-next silently did nothing.
-        //
-        //    Relayout only on a size or DPI change (a focus/move/keyboard change
-        //    does not rebuild layout).
-        let mut relayout_needed = false;
+        // Each change is applied IN ORDER, as it is drained — NOT collapsed into
+        // "the last one wins". The real shell runs `apply_user_change` once per
+        // change and takes the MAX of the results; collapsing loses transient
+        // states (a `key_down`+`key_up` pair that lands in a single continuation
+        // slice would leave only the key-RELEASED state, and Tab-to-focus-next
+        // would silently do nothing).
+        let mut result = ProcessEventResult::DoNothing;
         for ch in drained {
-            match ch {
-                CallbackChange::ModifyWindowState { state } => {
-                    let old_size = self.window_state.size.dimensions;
-                    let old_dpi = self.window_state.size.dpi;
-                    self.window_state = state;
-                    relayout_needed |= self.window_state.size.dimensions != old_size
-                        || self.window_state.size.dpi != old_dpi;
-                    // The DLL applies ModifyWindowState through the state-diff pass,
-                    // which runs the keyboard default action (Tab → focus next,
-                    // Esc → clear).
-                    self.run_keyboard_default_action();
-                }
-                CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
-                    scroll_tos.push((dom_id, node_id, position, unclamped));
-                }
-                CallbackChange::ScrollIntoView { node_id, options } => {
-                    scroll_into_views.push((node_id, options));
-                }
-                // The remaining variants (timers, images, menus, …) are not
-                // exercised by the E2E op set.
-                _ => {}
-            }
+            result = result.max(self.apply_user_change(&ch));
+        }
+        if needs_update {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        // A pending mount/unmount always needs the DOM rebuilt, even if the op
+        // that produced it somehow did not set `needs_update`.
+        if MOUNT_DIRTY.lock().map(|d| *d).unwrap_or(false) {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        // A size/DPI change invalidates every rasterised pixel — same thing
+        // WM_DPICHANGED / the X11 DPI path do (`frame_needs_regeneration`).
+        if self.resize_pending {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
 
-        // 2. Mount / unmount / relayout.
-        match take_mount_if_dirty() {
-            Some(Some(xml)) => {
-                if let Ok(sd) = azul_layout::xml::parse_xml_to_styled_dom(&xml) {
-                    self.mounted_dom = Some(sd.clone());
-                    self.layout(sd);
+        self.layout_window.frame_report.sync_generation();
+        self.layout_window.frame_report.terminal_result = result as u8;
+
+        match result {
+            ProcessEventResult::DoNothing => {}
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows => self.regenerate_layout(),
+            ProcessEventResult::ShouldIncrementalRelayout => self.relayout_only(),
+            ProcessEventResult::ShouldReRenderCurrentWindow
+            | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => self.render_and_record(),
+        }
+    }
+
+    /// Port of `PlatformWindow::apply_user_change`
+    /// (`dll/src/desktop/shell2/common/event.rs`) for the `CallbackChange`
+    /// variants the E2E op set can produce. Each arm mirrors the DLL's arm —
+    /// including its relayout / display-list bookkeeping, which is what makes
+    /// the damage the assertions observe the SAME damage the real host produces.
+    #[allow(clippy::too_many_lines)]
+    fn apply_user_change(&mut self, change: &CallbackChange) -> ProcessEventResult {
+        match change {
+            // === Window State ===
+            CallbackChange::ModifyWindowState { state } => {
+                let old_size = self.window_state.size.dimensions;
+                let old_dpi = self.window_state.size.dpi;
+                self.window_state = state.clone();
+                let size_changed = self.window_state.size.dimensions != old_size;
+                let dpi_changed = self.window_state.size.dpi != old_dpi;
+                if size_changed || dpi_changed {
+                    self.resize_pending = true;
+                }
+                if state.flags.close_requested {
+                    return ProcessEventResult::DoNothing;
+                }
+                // The DLL runs the state-diff pass ONCE per ModifyWindowState
+                // (`process_window_events(0)`), which is what turns a state delta
+                // into synthetic events and runs the keyboard default action
+                // (Tab → focus next, Esc → clear).
+                self.layout_window.frame_report.sync_generation();
+                self.layout_window.frame_report.relayout_iterations =
+                    self.layout_window.frame_report.relayout_iterations.max(1);
+                self.run_keyboard_default_action();
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Focus ===
+            CallbackChange::SetFocusTarget { target } => {
+                use azul_layout::managers::focus_cursor::resolve_focus_target;
+                use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+
+                let now = self.now();
+                let lw = &mut self.layout_window;
+                let current_focus = lw.focus_manager.get_focused_node().copied();
+                match resolve_focus_target(target, &lw.layout_results, current_focus) {
+                    Ok(Some(new_focus)) => {
+                        lw.focus_manager.set_focused_node(Some(new_focus));
+                        lw.scroll_node_into_view(new_focus, ScrollIntoViewOptions::nearest(), now);
+                        lw.finalize_pending_focus_changes();
+                        ProcessEventResult::ShouldReRenderCurrentWindow
+                    }
+                    Ok(None) => {
+                        lw.focus_manager.set_focused_node(None);
+                        lw.finalize_pending_focus_changes();
+                        ProcessEventResult::ShouldReRenderCurrentWindow
+                    }
+                    Err(_) => ProcessEventResult::DoNothing,
                 }
             }
-            Some(None) => {
-                self.mounted_dom = None;
-            }
-            None => {
-                if relayout_needed {
-                    if let Some(dom) = self.mounted_dom.clone() {
-                        // A DPI change invalidates the layout cache; clearing is a
-                        // superset of what a pure resize needs.
-                        self.layout_window.clear_caches();
-                        self.layout(dom);
+
+            // === Content Modifications ===
+            CallbackChange::ChangeNodeText { node_id, text } => {
+                let dom_id = node_id.dom;
+                let Some(internal_node_id) = node_id.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                let lw = &mut self.layout_window;
+                if let Some(layout_result) = lw.layout_results.get_mut(&dom_id) {
+                    let idx = internal_node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        layout_result.styled_dom.node_data.as_container_mut()[internal_node_id]
+                            .set_node_type(azul_core::dom::NodeType::Text(
+                                azul_css::css::BoxOrStatic::heap(text.clone()),
+                            ));
                     }
                 }
+                // The incremental layout cache keys its shaped-text runs on the
+                // DOM pointer, which a text mutation does not change — so the
+                // next relayout happily reused the OLD glyph runs and the screen
+                // kept showing the previous text (damage was reported, yet not
+                // one pixel differed). Drop the incremental cache so the text is
+                // re-shaped…
+                lw.layout_cache.reset_incremental();
+                // …and rebuild the display list, which otherwise still carries
+                // the old glyph run.
+                lw.regenerate_display_list_for_dom(dom_id);
+                ProcessEventResult::ShouldIncrementalRelayout
             }
+
+            CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
+                let lw = &mut self.layout_window;
+                if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_node_type(azul_core::dom::NodeType::Image(
+                                azul_css::css::BoxOrStatic::heap(image.clone()),
+                            ));
+                    }
+                }
+                lw.regenerate_display_list_for_dom(*dom_id);
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::ChangeNodeImageMask { dom_id, node_id, mask } => {
+                let lw = &mut self.layout_window;
+                if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_clip_mask(mask.clone());
+                    }
+                }
+                lw.regenerate_display_list_for_dom(*dom_id);
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::ChangeNodeCssProperties { dom_id, node_id, properties } => {
+                let lw = &mut self.layout_window;
+                if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        use azul_css::dynamic_selector::CssPropertyWithConditions;
+                        let new_props: Vec<CssPropertyWithConditions> = properties
+                            .as_ref()
+                            .iter()
+                            .map(|p| CssPropertyWithConditions::simple(p.clone()))
+                            .collect();
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_css_props(new_props.into());
+
+                        // STALE-SCREEN FIX: `set_css_props` only writes the
+                        // node's INLINE property vec. Layout and the display
+                        // list read the CSS PROPERTY CACHE, which still holds the
+                        // cascaded value — so the node kept its old paint, the
+                        // display list came out identical, the diff reported no
+                        // damage and the screen went stale. Push the same
+                        // properties through the user-override channel (the one
+                        // the resolver consults FIRST).
+                        let props_slice: Vec<azul_css::props::property::CssProperty> =
+                            properties.as_ref().iter().cloned().collect();
+                        drop(
+                            layout_result
+                                .styled_dom
+                                .restyle_user_property(node_id, &props_slice),
+                        );
+                    }
+                }
+                lw.regenerate_display_list_for_dom(*dom_id);
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            CallbackChange::OverrideNodeCssProperties { dom_id, node_id, properties } => {
+                // Fast-path override channel: writes land in
+                // `CssPropertyCache::user_overridden_properties`, which the
+                // property resolver consults first.
+                let lw = &mut self.layout_window;
+                if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        let props_slice: Vec<azul_css::props::property::CssProperty> =
+                            properties.as_ref().iter().cloned().collect();
+                        drop(
+                            layout_result
+                                .styled_dom
+                                .restyle_user_property(node_id, &props_slice),
+                        );
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            CallbackChange::UpdateVirtualView { dom_id, node_id } => {
+                let mut updates = BTreeMap::new();
+                let mut set = azul_core::FastBTreeSet::new();
+                set.insert(*node_id);
+                updates.insert(*dom_id, set);
+                self.layout_window.queue_virtual_view_updates(updates);
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::UpdateAllVirtualViews => {
+                self.layout_window.queue_all_virtual_view_reinvoke();
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::UpdateImageCallback { .. }
+            | CallbackChange::UpdateAllImageCallbacks => {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === DOM structure ===
+            CallbackChange::InsertChildNode {
+                dom_id, parent_node_id, node_type_str, position, classes, id,
+            } => {
+                let lw = &mut self.layout_window;
+                if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                    let parent_idx = parent_node_id.index();
+                    if parent_idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        let node_type = parse_node_type_from_str(node_type_str.as_str());
+                        let mut dom = azul_core::dom::Dom::create_node(node_type);
+                        if let Some(id_str) = id.as_ref() {
+                            dom = dom.with_id(id_str.clone());
+                        }
+                        for class in classes.iter() {
+                            dom = dom.with_class(class.clone());
+                        }
+                        // Style it (empty CSS — the author rules are unavailable
+                        // here; they are re-applied by `restyle_retained` below).
+                        let css = azul_css::css::Css::empty();
+                        let styled = StyledDom::create(&mut dom, css);
+
+                        // `append_child` always attaches to the DOM's ROOT — the
+                        // requested `parent_node_id` was accepted, validated and
+                        // then IGNORED, so every inserted node landed as a last
+                        // child of <html>. Append first, then RE-PARENT.
+                        let sd = &mut layout_result.styled_dom;
+                        let new_id = NodeId::new(sd.node_data.as_ref().len());
+                        let root_id = sd.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+                        let root_last_before =
+                            sd.node_hierarchy.as_container()[root_id].last_child_id();
+                        sd.append_child(styled);
+
+                        if *parent_node_id != root_id {
+                            // The hierarchy is a FLAT DFS array whose
+                            // `first_child_id(n)` is DERIVED as `n + 1`. A node
+                            // appended at the end can therefore only ever be a
+                            // LAST child, and only of a parent that already has
+                            // children. Anything else needs a full re-index of
+                            // the DOM (and every node-keyed manager), so it is
+                            // rejected instead of silently corrupting the tree.
+                            let parent_last =
+                                sd.node_hierarchy.as_container()[*parent_node_id].last_child_id();
+                            if let Some(parent_last) = parent_last {
+                                // 1. unlink the new node from the root chain
+                                {
+                                    let h = &mut sd.node_hierarchy;
+                                    h.as_container_mut()[root_id].last_child =
+                                        NodeId::into_raw(&root_last_before);
+                                    if let Some(rl) = root_last_before {
+                                        h.as_container_mut()[rl].next_sibling =
+                                            NodeId::into_raw(&None);
+                                    }
+                                    // 2. link it as the parent's new last child
+                                    h.as_container_mut()[parent_last].next_sibling =
+                                        NodeId::into_raw(&Some(new_id));
+                                    h.as_container_mut()[new_id].previous_sibling =
+                                        NodeId::into_raw(&Some(parent_last));
+                                    h.as_container_mut()[new_id].next_sibling =
+                                        NodeId::into_raw(&None);
+                                    h.as_container_mut()[new_id].parent =
+                                        NodeId::into_raw(&Some(*parent_node_id));
+                                    h.as_container_mut()[*parent_node_id].last_child =
+                                        NodeId::into_raw(&Some(new_id));
+                                }
+                                // 3. keep the cascade bookkeeping consistent
+                                let sibling_index = {
+                                    let h = sd.node_hierarchy.as_container();
+                                    parent_node_id.az_children(&h).count().saturating_sub(1)
+                                };
+                                let ci = sd.cascade_info.as_mut();
+                                ci[parent_last.index()].is_last_child = false;
+                                ci[new_id.index()].index_in_parent =
+                                    u32::try_from(sibling_index).unwrap_or(u32::MAX);
+                                ci[new_id.index()].is_last_child = true;
+                                sd.finalize_non_leaf_nodes();
+                            }
+                        }
+                        let _ = position; // only append-as-last-child is representable
+
+                        // Re-run the author cascade from the retained stylesheet:
+                        // the node was styled with an EMPTY css above, so without
+                        // this it would never match rules like `.hot { width: 80px }`
+                        // — the "inserted node never gets the author cascade" bug.
+                        sd.extend_author_scopes_for_appended(new_id, *parent_node_id);
+                        sd.restyle_retained();
+                        // `append_child` composes the trees but does NOT re-run
+                        // inheritance or rebuild the compact cache: the appended
+                        // node would keep its isolated cascade (no inherited
+                        // font-size/color, no UA defaults, no compact-cache entry)
+                        // and measure 0×0.
+                        sd.recompute_inheritance_and_compact_cache();
+                    }
+                }
+                // The tree changed shape: the incremental layout cache (keyed on
+                // the DOM pointer) would otherwise reuse the old tree, and the
+                // stored display list still describes the OLD tree.
+                lw.layout_cache.reset_incremental();
+                lw.regenerate_display_list_for_dom(*dom_id);
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            CallbackChange::DeleteNode { dom_id, node_id } => {
+                let lw = &mut self.layout_window;
+                if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    let node_count = layout_result.styled_dom.node_data.as_ref().len();
+                    if idx < node_count && idx != 0 {
+                        // Tombstone: set node to empty Div and unlink it.
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_node_type(azul_core::dom::NodeType::Div);
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_ids_and_classes(Vec::new().into());
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_callbacks(Vec::new().into());
+
+                        let hierarchy = &mut layout_result.styled_dom.node_hierarchy;
+                        let prev_sib = hierarchy.as_container()[*node_id].previous_sibling_id();
+                        let next_sib = hierarchy.as_container()[*node_id].next_sibling_id();
+                        let parent = hierarchy.as_container()[*node_id].parent_id();
+
+                        if let Some(prev) = prev_sib {
+                            hierarchy.as_container_mut()[prev].next_sibling =
+                                NodeId::into_raw(&next_sib);
+                        }
+                        if let Some(next) = next_sib {
+                            hierarchy.as_container_mut()[next].previous_sibling =
+                                NodeId::into_raw(&prev_sib);
+                        } else if let Some(p) = parent {
+                            hierarchy.as_container_mut()[p].last_child =
+                                NodeId::into_raw(&prev_sib);
+                        }
+
+                        hierarchy.as_container_mut()[*node_id].parent = 0;
+                        hierarchy.as_container_mut()[*node_id].previous_sibling = 0;
+                        hierarchy.as_container_mut()[*node_id].next_sibling = 0;
+                        hierarchy.as_container_mut()[*node_id].last_child = 0;
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            CallbackChange::SetNodeIdsAndClasses { dom_id, node_id, ids_and_classes } => {
+                if let Some(layout_result) = self.layout_window.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_ids_and_classes(ids_and_classes.clone());
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            // === Scroll ===
+            CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
+                let now = self.now();
+                if let Some(internal_node_id) = node_id.into_crate_internal() {
+                    let lw = &mut self.layout_window;
+                    if *unclamped {
+                        lw.scroll_manager.set_scroll_position_unclamped(
+                            *dom_id, internal_node_id, *position, now,
+                        );
+                    } else {
+                        lw.scroll_manager.scroll_to(
+                            *dom_id,
+                            internal_node_id,
+                            *position,
+                            std::time::Duration::from_millis(0).into(),
+                            azul_core::events::EasingFunction::Linear,
+                            now,
+                        );
+                    }
+                    // Recalculate scrollbar geometry so CPU-side hit testing has
+                    // up-to-date thumb positions.
+                    lw.scroll_manager.calculate_scrollbar_states();
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::ScrollIntoView { node_id, options } => {
+                let now = self.now();
+                let lw = &mut self.layout_window;
+                azul_layout::managers::scroll_into_view::scroll_node_into_view(
+                    *node_id,
+                    &lw.layout_results,
+                    &mut lw.scroll_manager,
+                    *options,
+                    now,
+                );
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Font cache ===
+            CallbackChange::ReloadSystemFonts => {
+                self.layout_window
+                    .font_manager
+                    .replace_fc_cache(FcFontCache::build());
+                ProcessEventResult::DoNothing
+            }
+
+            // === Propagation control (consumed by the dispatch loop) ===
+            CallbackChange::StopPropagation
+            | CallbackChange::StopImmediatePropagation
+            | CallbackChange::PreventDefault => ProcessEventResult::DoNothing,
+
+            // Everything else (timers, threads, menus, tooltips, clipboard, text
+            // editing, drag & drop, window creation, routing, undo/redo) needs
+            // facilities only the DLL host has — a platform window, a timer
+            // driver, an OS clipboard. No scenario in `e2e/` reaches them; when
+            // one does, port its arm here from `event.rs` rather than widening
+            // this catch-all.
+            _ => ProcessEventResult::DoNothing,
+        }
+    }
+
+    /// Port of `common::layout::regenerate_layout` + the headless backend's
+    /// render/damage tail: refresh the font snapshot, install the pending mount
+    /// document (or keep the already-mounted, possibly-mutated DOM), re-run
+    /// layout and render a frame.
+    fn regenerate_layout(&mut self) {
+        self.refresh_font_snapshot();
+
+        self.layout_window.frame_report.sync_generation();
+        self.layout_window.frame_report.dom_regenerations =
+            self.layout_window.frame_report.dom_regenerations.saturating_add(1);
+
+        // E2E `mount` override: replace the DOM wholesale with the test's inline
+        // XML+CSS document, but ONLY when the mount is dirty — otherwise keep the
+        // already-mounted DOM (with any debug DOM mutations applied to it).
+        let styled_dom = match take_mount_if_dirty() {
+            Some(Some(xml)) => match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
+                Ok(sd) => Some(sd),
+                Err(_) => None,
+            },
+            Some(None) => {
+                // `unmount`: drop the mounted document entirely.
+                self.layout_window.layout_results.clear();
+                self.cpu_backend.previous_display_list = None;
+                self.resize_pending = false;
+                return;
+            }
+            None => self
+                .layout_window
+                .layout_results
+                .remove(&DomId::ROOT_ID)
+                .map(|lr| lr.styled_dom),
+        };
+
+        let Some(mut styled_dom) = styled_dom else {
+            self.resize_pending = false;
+            return;
+        };
+
+        // A DPI or size change invalidates every cached rasterisation and every
+        // shaped run measured at the old scale.
+        if self.resize_pending {
+            self.layout_window.clear_caches();
+            self.resize_pending = false;
         }
 
-        // 3. Scroll changes — applied after (re)layout so the scroll nodes are
-        //    registered. Matches event.rs `CallbackChange::ScrollTo` handling.
-        if !scroll_tos.is_empty() {
-            let now = self.now();
-            for (dom_id, node_id, position, unclamped) in scroll_tos {
-                let Some(nid) = node_id.into_crate_internal() else { continue };
-                if unclamped {
-                    self.layout_window.scroll_manager.set_scroll_position_unclamped(
-                        dom_id, nid, position, now.clone(),
-                    );
-                } else {
-                    self.layout_window.scroll_manager.scroll_to(
-                        dom_id,
-                        nid,
-                        position,
-                        std::time::Duration::from_millis(0).into(),
-                        azul_core::events::EasingFunction::Linear,
-                        now.clone(),
-                    );
-                }
+        // Step 3.4 of `regenerate_layout`: re-run inheritance + rebuild the
+        // compact cache on the composed tree.
+        styled_dom.recompute_inheritance_and_compact_cache();
+
+        self.layout(styled_dom);
+        self.render_and_record();
+    }
+
+    /// Port of `common::layout::incremental_relayout` + the headless backend's
+    /// render/damage tail: re-run layout on the EXISTING (already mutated)
+    /// `StyledDom`, then render.
+    ///
+    /// This is NOT the same as `regenerate_layout()` for an in-place DOM
+    /// mutation: `regenerate_layout` short-circuits on
+    /// `is_layout_equivalent(old, new)`, and after an in-place mutation "old"
+    /// and "new" are the same DOM — so layout would be skipped and the frame
+    /// would keep the pre-mutation shaped text and geometry forever.
+    fn relayout_only(&mut self) {
+        if let Some(layout_result) = self.layout_window.layout_results.remove(&DomId::ROOT_ID) {
+            self.layout(layout_result.styled_dom);
+        }
+        self.render_and_record();
+    }
+
+    /// CPU-render the current frame and publish its damage onto the
+    /// `LayoutWindow`, where `CallbackInfo::get_layout_window()` — and therefore
+    /// an E2E assertion — can see it.
+    fn render_and_record(&mut self) {
+        let width = self.window_state.size.dimensions.width;
+        let height = self.window_state.size.dimensions.height;
+        #[allow(clippy::cast_precision_loss)]
+        let dpi = self.window_state.size.dpi as f32 / 96.0;
+        self.cpu_backend.render_frame(
+            &self.layout_window,
+            &self.renderer_resources,
+            width,
+            height,
+            dpi,
+        );
+        let paint = self.cpu_backend.last_frame_damage.clone();
+        let present = self.cpu_backend.last_present_damage.clone();
+        self.layout_window.frame_report.record_frame(paint, present);
+    }
+
+    /// Port of the font-snapshot block at the top of `regenerate_layout`: the
+    /// window's font cache is re-installed from the async registry (or from the
+    /// app-level cache when there is none) before every DOM regeneration.
+    fn refresh_font_snapshot(&mut self) {
+        #[cfg(feature = "font_async_registry")]
+        if let Some(registry) = self.font_registry.as_ref() {
+            // Avoid replacing a complete font cache with an incomplete snapshot
+            // while the background builder threads are still parsing fonts.
+            let current_cache_empty = self.layout_window.font_manager.fc_cache.is_empty();
+            let build_complete = registry.is_build_complete();
+            if current_cache_empty || build_complete {
+                let font_stacks = rust_fontconfig::config::tokenize_common_families(
+                    rust_fontconfig::OperatingSystem::current(),
+                );
+                registry.request_fonts(&font_stacks);
+                self.layout_window
+                    .font_manager
+                    .replace_fc_cache(registry.shared_cache());
             }
-            self.layout_window.scroll_manager.calculate_scrollbar_states();
+            return;
         }
-        for (node_id, options) in scroll_into_views {
-            let now = self.now();
-            azul_layout::managers::scroll_into_view::scroll_node_into_view(
-                node_id,
-                &self.layout_window.layout_results,
-                &mut self.layout_window.scroll_manager,
-                options,
-                now,
-            );
-        }
+        // Fallback: use the app-level cache directly.
+        self.layout_window
+            .font_manager
+            .replace_fc_cache(self.app_fc_cache.clone());
     }
 
     /// Port of the DLL event loop's keyboard-default-action pass: Tab →
@@ -376,6 +888,52 @@ impl Runner {
     }
 }
 
+/// Port of `parse_node_type_from_str` (dll/.../common/event.rs) — the `insert_node`
+/// op's `node_type` string (`"div"`, `"p"`, `"text:HELLO"`, …) → `NodeType`.
+fn parse_node_type_from_str(s: &str) -> azul_core::dom::NodeType {
+    use azul_core::dom::NodeType;
+    if let Some(text) = s.strip_prefix("text:") {
+        return NodeType::Text(azul_css::css::BoxOrStatic::heap(text.to_string().into()));
+    }
+    match s.to_lowercase().as_str() {
+        "html" => NodeType::Html,
+        "head" => NodeType::Head,
+        "body" => NodeType::Body,
+        "p" => NodeType::P,
+        "article" => NodeType::Article,
+        "section" => NodeType::Section,
+        "nav" => NodeType::Nav,
+        "aside" => NodeType::Aside,
+        "header" => NodeType::Header,
+        "footer" => NodeType::Footer,
+        "main" => NodeType::Main,
+        "h1" => NodeType::H1,
+        "h2" => NodeType::H2,
+        "h3" => NodeType::H3,
+        "h4" => NodeType::H4,
+        "h5" => NodeType::H5,
+        "h6" => NodeType::H6,
+        "br" => NodeType::Br,
+        "hr" => NodeType::Hr,
+        "pre" => NodeType::Pre,
+        "blockquote" => NodeType::BlockQuote,
+        "ul" => NodeType::Ul,
+        "ol" => NodeType::Ol,
+        "li" => NodeType::Li,
+        "table" => NodeType::Table,
+        "thead" => NodeType::THead,
+        "tbody" => NodeType::TBody,
+        "tr" => NodeType::Tr,
+        "th" => NodeType::Th,
+        "td" => NodeType::Td,
+        "form" => NodeType::Form,
+        "label" => NodeType::Label,
+        "input" => NodeType::Input,
+        "button" => NodeType::Button,
+        _ => NodeType::Div,
+    }
+}
+
 fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
     E2eTestResult {
         name: test.name.clone(),
@@ -426,16 +984,16 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
 
     // First dispatch: RunE2eTests sets up the continuation and runs it until the
     // first yield (or completion).
-    runner.with_callback_info(&callback_changes, |ci| {
-        let _ = process_debug_event(&request, ci, &mut app_data, &component_map);
+    let needs_update = runner.with_callback_info(&callback_changes, |ci| {
+        process_debug_event(&request, ci, &mut app_data, &component_map)
     });
-    runner.service(&callback_changes);
+    runner.service(&callback_changes, needs_update);
 
     // Pump the continuation until it terminates (the result is sent on the final
     // resume). A generous cap guards against a non-terminating scenario.
     let mut iterations = 0usize;
     loop {
-        let (_needs_update, still_pending, resume_not_before) =
+        let (needs_update, still_pending, resume_not_before) =
             runner.with_callback_info(&callback_changes, e2e_pump_continuation);
 
         if let Some(deadline) = resume_not_before {
@@ -444,7 +1002,7 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
                 std::thread::sleep(deadline - now);
             }
         }
-        runner.service(&callback_changes);
+        runner.service(&callback_changes, needs_update);
 
         if !still_pending {
             break;

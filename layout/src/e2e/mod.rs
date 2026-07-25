@@ -23,6 +23,8 @@
 mod full;
 pub use full::*;
 
+mod cpu_backend;
+
 mod runner;
 pub use runner::run_e2e_test;
 
