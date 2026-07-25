@@ -26,7 +26,6 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 // Import the NativeScreenshotExt trait for native screenshots
-use crate::desktop::native_screenshot::NativeScreenshotExt;
 
 #[cfg(feature = "std")]
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
@@ -2571,6 +2570,7 @@ static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 /// Global debug server handle (singleton — one per application).
 /// Started in `AppInternal::create()` when `AZ_DEBUG=<port>` is set.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
 
 /// Continuation state for E2E tests that need to yield to the event loop
@@ -2697,6 +2697,7 @@ struct E2eContinuation {
 
 /// Handle to the debug server for clean shutdown
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 pub struct DebugServerHandle {
     pub shutdown_tx: mpsc::Sender<()>,
     pub thread_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -2707,6 +2708,7 @@ pub struct DebugServerHandle {
 }
 
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 impl std::fmt::Debug for DebugServerHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DebugServerHandle")
@@ -2716,6 +2718,7 @@ impl std::fmt::Debug for DebugServerHandle {
 }
 
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 impl DebugServerHandle {
     /// Signal the server to shut down
     pub fn shutdown(&self) {
@@ -2730,6 +2733,7 @@ impl DebugServerHandle {
 }
 
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 impl Drop for DebugServerHandle {
     fn drop(&mut self) {
         self.shutdown();
@@ -2743,6 +2747,7 @@ impl Drop for DebugServerHandle {
 /// Returns `None` when `AZ_DEBUG` was not set or the server
 /// hasn't been started yet.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
     DEBUG_SERVER.get().cloned()
 }
@@ -2795,6 +2800,7 @@ pub fn init_recording() {
 /// typically on a background thread that prints results and calls
 /// `std::process::exit`.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 pub fn queue_e2e_tests(
     tests: Vec<E2eTest>,
 ) -> std::sync::mpsc::Receiver<DebugResponseData> {
@@ -2862,6 +2868,7 @@ pub fn get_debug_port() -> Option<u16> {
 /// Called once from `run()` when `AZ_DEBUG=<port>` is set.
 /// Subsequent calls return the existing handle (without a new receiver).
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-platform")]
 pub fn start_debug_server(
     port: u16,
 ) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
@@ -2995,6 +3002,7 @@ pub fn start_debug_server(
 /// Creates the `spmc` channel, stores a minimal `DebugServerHandle` in
 /// `DEBUG_SERVER`, and returns the receiver for window timers.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 pub fn create_debug_channel() -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
     SERVER_START_TIME.get_or_init(std::time::Instant::now);
     LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
@@ -3108,6 +3116,7 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
 
 /// Helper function for serializing DebugHttpResponse
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 fn serialize_http_response(response: &DebugHttpResponse) -> String {
     serde_json::to_string_pretty(response)
         .unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
@@ -3116,6 +3125,7 @@ fn serialize_http_response(response: &DebugHttpResponse) -> String {
 // ==================== HTTP Server ====================
 
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-platform")]
 fn serve_response(stream: &mut std::net::TcpStream, header: &str, body: &[u8]) {
     use std::io::{Read, Write};
     stream.set_nodelay(true).ok();
@@ -3130,6 +3140,7 @@ fn serve_response(stream: &mut std::net::TcpStream, header: &str, body: &[u8]) {
 }
 
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-platform")]
 fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) {
     use std::io::{Read, Write};
 
@@ -3158,7 +3169,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
 
     // ── Route: GET /material-icons.ttf → serve embedded Material Icons font ──
     if method == "GET" && path == "/material-icons.ttf" {
-        if let Some(font_bytes) = crate::desktop::material_icons::get_material_icons_font_bytes() {
+        if let Some(font_bytes) = crate::e2e::hooks::get_material_icons_font_bytes() {
             let header = format!(
                 "HTTP/1.0 200 OK\r\nContent-Type: font/ttf\r\nCache-Control: public, max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 font_bytes.len()
@@ -3295,6 +3306,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
 /// responses rather than abrupt disconnects so the AZ_DEBUG webpage can render
 /// a useful message.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-platform")]
 fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source: &str) {
     use std::io::{Read, Write};
 
@@ -3384,6 +3396,7 @@ fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source
 }
 
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) -> String {
     use std::time::Duration;
 
@@ -5627,6 +5640,7 @@ fn resume_e2e_continuation(
 /// Timer callback that processes debug requests.
 /// Called every ~16ms when debug mode is enabled.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 pub extern "C" fn debug_timer_callback(
     mut timer_data: azul_core::refany::RefAny,
     mut timer_info: azul_layout::timer::TimerCallbackInfo,
@@ -8233,7 +8247,7 @@ fn process_debug_event(
                 // rather than silently rendering the app's own DOM.
                 match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
                     Ok(_) => {
-                        crate::desktop::shell2::common::layout::set_e2e_mount_xml(Some(xml));
+                        crate::e2e::hooks::set_mount_xml(Some(xml));
                         needs_update = true; // → Update::RefreshDom → regenerate_layout
                         send_ok(request, None, None);
                     }
@@ -8245,7 +8259,7 @@ fn process_debug_event(
         }
 
         DebugEvent::Unmount => {
-            crate::desktop::shell2::common::layout::set_e2e_mount_xml(None);
+            crate::e2e::hooks::set_mount_xml(None);
             needs_update = true;
             send_ok(request, None, None);
         }
@@ -8474,7 +8488,7 @@ fn process_debug_event(
                 None,
             );
             // Use the NativeScreenshotExt trait method explicitly (not the stubbed inherent method)
-            match NativeScreenshotExt::take_native_screenshot_base64(callback_info) {
+            match crate::e2e::hooks::take_native_screenshot_base64(callback_info) {
                 Ok(data_uri) => {
                     let data = ScreenshotData {
                         data: data_uri.as_str().to_string(),
@@ -12099,6 +12113,7 @@ fn process_debug_event(
 /// * `component_map` - Shared component map (Arc-cloned per window)
 /// * `window_id` - This window's unique ID string
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 pub fn create_debug_timer(
     app_data: azul_core::refany::RefAny,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
@@ -12133,6 +12148,7 @@ pub fn create_debug_timer(
 /// It reads `app_data` and `window_id` from the window, then creates
 /// a `DebugTimerData` with the given channel receiver and component map.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-platform")]
 pub fn register_debug_timer(
     window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
     request_rx: spmc::Receiver<DebugRequest>,
@@ -12172,6 +12188,7 @@ pub fn register_debug_timer(
 /// Holds the application state, component map, spmc receiver, and window ID
 /// so that `debug_timer_callback` can process debug requests for this window.
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
 struct DebugTimerData {
     /// The user's application state (`GetAppState` / `SetAppState`)
     app_data: azul_core::refany::RefAny,

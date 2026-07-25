@@ -76,6 +76,10 @@
 #[macro_use]
 extern crate alloc;
 extern crate core;
+// Let this crate refer to itself as `azul_layout::…`. The e2e/debug-server port
+// (`src/e2e/full.rs`) was written verbatim against the published crate name; the
+// self-alias makes those ~80 `azul_layout::…` paths resolve without editing them.
+extern crate self as azul_layout;
 
 // Dependencies kept for downstream/feature-plumbing use but not referenced
 // directly in this crate's source — marked intentionally linked so
@@ -377,6 +381,11 @@ pub mod window_state;
 // Scoped (was crate-wide): incremental parser-state assignments.
 #[allow(unused_assignments)]
 pub mod xml;
+
+/// Debug / E2E server op-dispatch, ported verbatim from the DLL. Gated behind
+/// the `e2e-server` feature (NOT in `default`), so the lean crate is unaffected.
+#[cfg(feature = "e2e-server")]
+pub mod e2e;
 
 // Export the main layout function and window management
 /// Canonical paged-media page margins (defined in [`paged`]).

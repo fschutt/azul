@@ -1,219 +1,105 @@
-//! Debug server module.
+//! Debug / E2E server, ported into `azul-layout` from the DLL's
+//! `desktop::shell2::common::debug_server`.
 //!
-//! With the `debug-server` feature ON, the full HTTP debug/inspector server +
-//! E2E runner live in [`full`] (the ~10k-line implementation). With it OFF (the
-//! default, shipped lean `azul.*`), only the tiny [`stub`] is compiled: AZ_DEBUG
-//! is a no-op, no server thread, no request handlers, no scaffold generators —
-//! removing several MB and an attacker-reachable port from customer builds.
-//! Build `azuldbg.*` with `--features build-dll,debug-server` to get the server.
+//! The whole module is gated behind the `e2e-server` feature (declared NOT in
+//! `default`), so the lean published crate is byte-for-byte unaffected. The
+//! ~12k-line op-dispatch implementation lives verbatim in [`full`]:
+//! `process_debug_event` (the op dispatcher), the `DebugEvent` enum, the `E2e*`
+//! JSON schema types and the scenario runner (`resume_e2e_continuation`).
 //!
-//! The `log_*` macros are defined here (always compiled, 700+ call sites). Their
-//! body keeps the `if is_debug_enabled() { log(..., format!(...), ...) }` shape
-//! so the format arguments still type-check in the lean build (no unused-var
-//! warnings); `is_debug_enabled()` is a compile-time-constant `false` there, so
-//! the branch is dead and the logging machinery is never reached.
+//! Three OS/DLL-coupled call sites in [`full`] are injected through [`hooks`] so
+//! the core dispatch stays host-agnostic: the native window screenshot, the
+//! process-global mount-XML swap, and the embedded Material Icons font bytes.
+//! The DLL installs real implementations via [`hooks::set_host_hooks`]; headless
+//! callers (the `e2e_json` test, [`run_e2e_test`]) get the no-op / `None`
+//! defaults.
+//!
+//! The HTTP transport (TcpListener + spmc channel + request handlers) is gated
+//! behind the `e2e-server-http` sub-feature; the platform timer registration
+//! (`register_debug_timer`, which needs a `dyn PlatformWindow` that only exists
+//! in the DLL) behind `e2e-server-platform`. Neither is needed by the library
+//! API path.
 
-#[cfg(feature = "debug-server")]
 mod full;
-#[cfg(feature = "debug-server")]
 pub use full::*;
 
-#[cfg(not(feature = "debug-server"))]
-mod stub;
-#[cfg(not(feature = "debug-server"))]
-pub use stub::*;
+pub mod hooks {
+    //! Dependency-injection seam for the three host-coupled call sites in
+    //! [`super::full`]. See the module docs above.
 
-// ==================== Logging Macros ====================
+    use std::sync::RwLock;
 
-// ==================== Always-on Platform Logging ====================
-//
-// The `log_*!` macros above are gated on the (compile-time-off-in-lean) debug
-// server. The platform device/windowing layer (`shell2/*`, `extra/*`) instead
-// needs traces that reach the *standard* `log` facade so they show up in the
-// customer/lean build too — wherever a logger is installed (env_logger in
-// azul-self-test, android_logger on Android, pyo3-log under Python, or nothing).
-//
-// `plog_*!` route to `log::<level>!` when the `logging` feature is on (it is in
-// `default` and in every real desktop/mobile build), and to an arg-consuming
-// no-op otherwise so `--no-default-features` (no `log` crate) still compiles.
-// No `LogCategory`/window arg — prefix the message with a `[subsystem]` tag.
+    use azul_layout::callbacks::CallbackInfo;
 
-/// Always-on platform trace log (routes to the `log` crate facade).
-#[macro_export]
-macro_rules! plog_trace {
-    ($($arg:tt)*) => {{
-        #[cfg(feature = "logging")]
-        { log::trace!($($arg)*); }
-        #[cfg(not(feature = "logging"))]
-        { let _ = format_args!($($arg)*); }
-    }};
-}
+    /// Host-supplied implementations for the call sites the layout crate cannot
+    /// satisfy on its own. Each is optional: `None` selects the headless
+    /// default (error / no-op / `None`).
+    #[derive(Clone, Copy, Debug)]
+    pub struct E2eHostHooks {
+        /// Grab a real window screenshot as a base64 data-URI. `None` (headless)
+        /// makes the `screenshot` op return an error.
+        pub take_native_screenshot_base64:
+            Option<fn(&mut CallbackInfo) -> Result<String, String>>,
+        /// Store / clear the process-global mount XML that the shell swaps in on
+        /// the next relayout. `None` makes `mount` / `unmount` a no-op.
+        pub set_mount_xml: Option<fn(Option<String>)>,
+        /// Bytes of the embedded Material Icons TTF (served by the HTTP route).
+        pub get_material_icons_font_bytes: Option<fn() -> Option<&'static [u8]>>,
+    }
 
-/// Always-on platform debug log (routes to the `log` crate facade).
-#[macro_export]
-macro_rules! plog_debug {
-    ($($arg:tt)*) => {{
-        #[cfg(feature = "logging")]
-        { log::debug!($($arg)*); }
-        #[cfg(not(feature = "logging"))]
-        { let _ = format_args!($($arg)*); }
-    }};
-}
+    impl E2eHostHooks {
+        /// All-headless defaults.
+        pub const NONE: Self = Self {
+            take_native_screenshot_base64: None,
+            set_mount_xml: None,
+            get_material_icons_font_bytes: None,
+        };
+    }
 
-/// Always-on platform info log (routes to the `log` crate facade).
-#[macro_export]
-macro_rules! plog_info {
-    ($($arg:tt)*) => {{
-        #[cfg(feature = "logging")]
-        { log::info!($($arg)*); }
-        #[cfg(not(feature = "logging"))]
-        { let _ = format_args!($($arg)*); }
-    }};
-}
-
-/// Always-on platform warning log (routes to the `log` crate facade).
-#[macro_export]
-macro_rules! plog_warn {
-    ($($arg:tt)*) => {{
-        #[cfg(feature = "logging")]
-        { log::warn!($($arg)*); }
-        #[cfg(not(feature = "logging"))]
-        { let _ = format_args!($($arg)*); }
-    }};
-}
-
-/// Always-on platform error log (routes to the `log` crate facade).
-#[macro_export]
-macro_rules! plog_error {
-    ($($arg:tt)*) => {{
-        #[cfg(feature = "logging")]
-        { log::error!($($arg)*); }
-        #[cfg(not(feature = "logging"))]
-        { let _ = format_args!($($arg)*); }
-    }};
-}
-
-/// Log a trace message (only evaluated when debug server is active)
-#[macro_export]
-macro_rules! log_trace {
-    ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Trace,
-                $cat,
-                format!($($arg)*),
-                None,
-            );
+    impl Default for E2eHostHooks {
+        fn default() -> Self {
+            Self::NONE
         }
-    };
-    ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Trace,
-                $cat,
-                format!($($arg)*),
-                Some($win),
-            );
-        }
-    };
-}
+    }
 
-/// Log a debug message (only evaluated when debug server is active)
-#[macro_export]
-macro_rules! log_debug {
-    ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Debug,
-                $cat,
-                format!($($arg)*),
-                None,
-            );
-        }
-    };
-    ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Debug,
-                $cat,
-                format!($($arg)*),
-                Some($win),
-            );
-        }
-    };
-}
+    static HOST_HOOKS: RwLock<E2eHostHooks> = RwLock::new(E2eHostHooks::NONE);
 
-/// Log an info message (only evaluated when debug server is active)
-#[macro_export]
-macro_rules! log_info {
-    ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Info,
-                $cat,
-                format!($($arg)*),
-                None,
-            );
+    /// Install host hooks. Called once by the DLL at startup; a headless caller
+    /// may call it to override individual seams (e.g. capture screenshots).
+    pub fn set_host_hooks(hooks: E2eHostHooks) {
+        if let Ok(mut h) = HOST_HOOKS.write() {
+            *h = hooks;
         }
-    };
-    ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Info,
-                $cat,
-                format!($($arg)*),
-                Some($win),
-            );
-        }
-    };
-}
+    }
 
-/// Log a warning message (only evaluated when debug server is active)
-#[macro_export]
-macro_rules! log_warn {
-    ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Warn,
-                $cat,
-                format!($($arg)*),
-                None,
-            );
-        }
-    };
-    ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Warn,
-                $cat,
-                format!($($arg)*),
-                Some($win),
-            );
-        }
-    };
-}
+    fn get() -> E2eHostHooks {
+        HOST_HOOKS.read().map(|h| *h).unwrap_or(E2eHostHooks::NONE)
+    }
 
-/// Log an error message (only evaluated when debug server is active)
-#[macro_export]
-macro_rules! log_error {
-    ($cat:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Error,
-                $cat,
-                format!($($arg)*),
-                None,
-            );
+    /// Screenshot seam (`screenshot` op). Errors headlessly.
+    pub(crate) fn take_native_screenshot_base64(
+        ci: &mut CallbackInfo,
+    ) -> Result<String, String> {
+        match get().take_native_screenshot_base64 {
+            Some(f) => f(ci),
+            None => Err(
+                "native screenshot unavailable (no e2e host hook installed)".to_string(),
+            ),
         }
-    };
-    ($cat:expr, $win:expr, $($arg:tt)*) => {
-        if $crate::desktop::shell2::common::debug_server::log_active() {
-            $crate::desktop::shell2::common::debug_server::log(
-                $crate::desktop::shell2::common::debug_server::LogLevel::Error,
-                $cat,
-                format!($($arg)*),
-                Some($win),
-            );
+    }
+
+    /// Mount-XML seam (`mount` / `unmount` ops). No-op headlessly unless a hook
+    /// (e.g. the headless runner's) is installed.
+    pub(crate) fn set_mount_xml(xml: Option<String>) {
+        if let Some(f) = get().set_mount_xml {
+            f(xml);
         }
-    };
+    }
+
+    /// Material Icons font seam (HTTP `/material-icons.ttf` route, served by the
+    /// DLL-supplied web server).
+    #[cfg(feature = "e2e-server-platform")]
+    pub(crate) fn get_material_icons_font_bytes() -> Option<&'static [u8]> {
+        get().get_material_icons_font_bytes.and_then(|f| f())
+    }
 }

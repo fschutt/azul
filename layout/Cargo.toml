@@ -106,6 +106,10 @@ webpki-roots = { version = "1.0", optional = true }
 # JSON parsing
 serde_json = { version = "1.0", default-features = false, features = ["std"], optional = true }
 
+# SPMC channel — ONLY used by the e2e-server HTTP transport (feature
+# `e2e-server-http`). The core op-dispatch does not need it.
+spmc = { version = "0.3", optional = true }
+
 # Platform-specific user directories (home, config, cache, etc.)
 dirs = { version = "6.0", default-features = false, optional = true }
 
@@ -288,6 +292,28 @@ json = ["dep:serde_json", "std", "azul-core/serde-json"]
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 
+# ─── E2E / debug-server op-dispatch (ported verbatim from the DLL) ───
+# The ~12k-line `src/e2e/full.rs` op-dispatch (process_debug_event, the
+# DebugEvent enum, the E2e* JSON types + scenario runner). Deliberately NOT in
+# `default` so the lean published crate is byte-for-byte unaffected. The core
+# path is host-agnostic (no networking, no OS coupling — those go through
+# `e2e::hooks`), so a headless library caller can run E2E JSON scenarios with
+# just this feature.
+e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml"]
+
+# HTTP transport (TcpListener + spmc channel + the `/…` request handlers). Opt-in
+# ON TOP of `e2e-server`; the core op-dispatch and the headless runner compile
+# WITHOUT it. This is what keeps networking off the library API path.
+e2e-server-http = ["e2e-server", "dep:spmc"]
+
+# The parts of the port that need facilities only the DLL provides: the
+# `register_debug_timer(&mut dyn PlatformWindow)` entry point (that trait lives
+# in the DLL) and the HTTP web server that serves the debugger UI via
+# `include_bytes!(env!("OUT_DIR")/debugger.*.br)` (assets emitted by the DLL's
+# build script). Never enabled inside `azul-layout` itself — the bodies are
+# preserved but gated out of the layout copy; the DLL enables this feature.
+e2e-server-platform = ["e2e-server-http"]
+
 # Opt-in gates for intentionally-disabled test files (kept in the tree, off by
 # default — their `#![cfg(feature = "DISABLED_*")]` never matches normal builds).
 # Declared here so the cfg is expected (silences unexpected_cfgs); enable with
@@ -336,7 +362,7 @@ required-features = ["cpurender", "text_layout", "font_loading", "a11y", "widget
 [[test]]
 name = "e2e_json"
 path = "tests/e2e_json.rs"
-required-features = ["cpurender", "text_layout", "font_loading", "a11y", "widgets"]
+required-features = ["e2e-server"]
 
 # Dev-only: JSON fixture deserialization for the e2e_json harness. Dev-deps are
 # never shipped and never affect the published dependency graph, so this does
