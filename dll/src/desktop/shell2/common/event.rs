@@ -252,7 +252,11 @@ fn parse_node_type_from_str(s: &str) -> azul_core::dom::NodeType {
 ///
 /// Events can trigger callbacks that regenerate the DOM, which triggers new events.
 /// This limit prevents infinite loops.
-const MAX_EVENT_RECURSION_DEPTH: usize = 7;
+///
+/// Defined in `azul-layout` so that the headless E2E runner — which ports this
+/// event loop (`azul_layout::e2e::runner`) — caps at the SAME depth and reports
+/// the same `relayout_iterations` / `hit_depth_cap` as the real shell.
+const MAX_EVENT_RECURSION_DEPTH: usize = azul_layout::window::MAX_EVENT_RECURSION_DEPTH;
 
 // Platform-specific Clipboard Helpers
 
@@ -4176,8 +4180,8 @@ pub trait PlatformWindow {
         #[allow(clippy::cast_possible_truncation)]
         let depth_u32 = depth as u32;
         if let Some(lw) = self.get_layout_window_mut() {
+            lw.sync_frame_report();
             let r = &mut lw.frame_report;
-            r.sync_generation();
             r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
         }
 

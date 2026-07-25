@@ -2714,6 +2714,47 @@ fn scratch<'a>(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// This window's frame report AS AN ASSERTION MUST READ IT — with a pending
+/// `reset_frame_counters` already applied.
+///
+/// The reset is recorded as a generation bump (the op only holds
+/// `&LayoutWindow`) and is folded into the stored report by the next writer.
+/// Reading the stored report directly therefore reports the counters and the
+/// accumulated damage of the PREVIOUS checkpoint until a frame happens to be
+/// rendered — which is how `assert_work_bounded` came to report the window
+/// resize from the scenario's `setup` block as if it were work done by the step
+/// under test.
+#[cfg(feature = "std")]
+fn frame_report_of(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> azul_layout::window::FrameReport {
+    callback_info.get_layout_window().frame_report_synced()
+}
+
+/// Ask the shell for ONE more frame WITHOUT fabricating any work.
+///
+/// `wait_frame` and `tick_ms` are the ops that mean "let the engine produce the
+/// frame that follows from what just happened". They cannot use the step
+/// loop's `needs_update` flag for that: `needs_update` is turned into
+/// `Update::RefreshDom` (a full `layout()` + DOM regeneration) by the debug
+/// timer, so every clock tick would charge the window a DOM regeneration that
+/// the application never asked for — which makes "did this idle frame do any
+/// work?" unanswerable, because the harness itself is the work.
+///
+/// Re-pushing the CURRENT window state is the engine's existing "repaint, no
+/// event pass, no DOM regeneration" signal. `apply_user_change`'s
+/// `ModifyWindowState` arm gates the state-diff pass on `anything_changed`
+/// (dll/src/desktop/shell2/common/event.rs) and otherwise returns
+/// `ShouldReRenderCurrentWindow`, which `process_timers_and_threads` turns
+/// into a redraw with `needs_layout_regeneration = false`. It also makes
+/// `CallbackInfo::has_pending_relayout_change()` true, so the step loop YIELDS
+/// and the frame actually lands before the next step reads the frame report.
+#[cfg(feature = "std")]
+fn request_repaint(callback_info: &mut azul_layout::callbacks::CallbackInfo) {
+    let state = callback_info.get_current_window_state().clone();
+    callback_info.modify_window_state(state);
+}
+
 /// Build the XML document for a `mount` op out of the (line-array) html + css.
 ///
 /// The CSS is injected as a `<style>` element inside a `<head>` — the XML parser
@@ -4268,7 +4309,7 @@ fn damage_of(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> (azul_layout::window::FrameDamage, &'static str) {
-    let report = &callback_info.get_layout_window().frame_report;
+    let report = frame_report_of(callback_info);
     let last_only = params.get("frame").and_then(|v| v.as_str()) == Some("last");
     match params.get("which").and_then(|v| v.as_str()) {
         Some("present") => (
@@ -4353,7 +4394,7 @@ fn capture_damage_png(
     use azul_layout::cpurender::AzulPixmap;
 
     // Accumulated since the last `reset_frame_counters` — see `damage_of`.
-    let report = &callback_info.get_layout_window().frame_report;
+    let report = frame_report_of(callback_info);
     let damage = if which == Some("present") {
         report.accumulated_present_damage.clone()
     } else {
@@ -4825,7 +4866,7 @@ fn eval_assert_idle_stable(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    let report = callback_info.get_layout_window().frame_report.clone();
+    let report = frame_report_of(callback_info);
 
     // LIVENESS PRECONDITION. This is an assertion of ABSENCE ("no damage"), and
     // an assertion of absence passes for free when the machinery that would
@@ -4921,7 +4962,7 @@ fn eval_assert_work_bounded(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    let report = callback_info.get_layout_window().frame_report.clone();
+    let report = frame_report_of(callback_info);
     let relayouts = report.relayout_iterations;
     let regens = report.dom_regenerations;
     let depth_cap = report.hit_depth_cap;
@@ -5283,7 +5324,7 @@ fn collect_state_machine_leaks(
 
     // -- and the frame itself must have drained ------------------------------
     if check_damage {
-        let report = &lw.frame_report;
+        let report = lw.frame_report_synced();
         if !report.paint_damage.is_none() {
             leaks.push(format!(
                 "the last frame still reports PAINT damage ({}, {} rect(s)) — FrameDamage::None was \
@@ -5738,7 +5779,8 @@ fn e2e_record_composition_sample(
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) {
     let lw = callback_info.get_layout_window();
-    let paint = &lw.frame_report.paint_damage;
+    let synced_report = lw.frame_report_synced();
+    let paint = &synced_report.paint_damage;
     let sample = CompositionSample {
         drag_active: lw.gesture_drag_manager.active_drag.is_some(),
         scroll_animating: lw.scroll_manager.has_active_animations(),
@@ -6017,7 +6059,7 @@ fn eval_assert_damage_sound(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
-        let report = callback_info.get_layout_window().frame_report.clone();
+        let report = frame_report_of(callback_info);
         let paint = report.accumulated_paint_damage.clone();
         let present = report.accumulated_present_damage.clone();
 
@@ -6540,19 +6582,31 @@ fn resume_e2e_continuation_inner(
                         );
                         if step_needs_update {
                             needs_update = true;
-                            if callback_info.has_pending_relayout_change() {
-                                // Yield: save progress and return
-                                cont.current_step_results.push(E2eStepResult {
-                                    step_index, op: op.to_string(), status: "pass".into(),
-                                    duration_ms: step_start.elapsed().as_millis() as u64,
-                                    logs: vec![format!("Executed: {} (yield for relayout)", op)],
-                                    screenshot: None, error: None, response: None,
-                                });
-                                cont.step_idx = step_index + 1;
-                                cont.app_data = app_data;
-                                session.pending = Some(cont);
-                                return true;
-                            }
+                        }
+                        // Yield whenever the op left a change the SHELL has to
+                        // service (a window-state change, a scroll, a queued
+                        // input sequence), whether or not it also asked for a
+                        // DOM refresh. It used to yield only when both were
+                        // true, so an op that deliberately pushes a state change
+                        // *without* `needs_update` — `set_window_state`,
+                        // `tick_ms`, `wait_frame` — ran every following step
+                        // against the state from before it, which is exactly the
+                        // trap `has_pending_relayout_change` exists to avoid.
+                        if callback_info.has_pending_relayout_change() {
+                            // Yield: save progress and return
+                            cont.current_step_results.push(E2eStepResult {
+                                step_index, op: op.to_string(), status: "pass".into(),
+                                duration_ms: step_start.elapsed().as_millis() as u64,
+                                logs: vec![format!("Executed: {} (yield for relayout)", op)],
+                                screenshot: None, error: None, response: None,
+                            });
+                            cont.step_idx = step_index + 1;
+                            cont.app_data = app_data;
+                            session.pending = Some(cont);
+                            // NOT an unconditional `true`: a repaint-only yield
+                            // (`tick_ms` / `wait_frame`) must not be upgraded
+                            // into a DOM regeneration on the way out.
+                            return needs_update;
                         }
                         // Record result
                         match step_rx.try_recv() {
@@ -9382,12 +9436,17 @@ pub fn process_debug_event(
             // Force a frame so that time-driven state (fade / momentum / blink /
             // animation) actually advances and re-renders; an idle engine then
             // reports FrameDamage::None, which is what `assert_idle_stable` asserts.
-            needs_update = true;
+            //
+            // A REPAINT, not `needs_update`: advancing a clock is not a reason
+            // to rebuild the DOM, and charging the window a DOM regeneration per
+            // tick made every "an idle frame does no work" assertion
+            // unanswerable. See `request_repaint`.
+            request_repaint(callback_info);
             send_ok(request, None, None);
         }
 
         DebugEvent::GetFrameReport => {
-            let report = callback_info.get_layout_window().frame_report.clone();
+            let report = frame_report_of(callback_info);
             send_ok(
                 request,
                 None,
@@ -9425,9 +9484,14 @@ pub fn process_debug_event(
         DebugEvent::ResetFrameCounters => {
             // Zeroes the work counters AND the accumulated damage at the next
             // frame-report write (an assertion only holds `&LayoutWindow`, so the
-            // reset goes through a generation counter — see
-            // `azul_layout::window::request_frame_report_reset`).
-            azul_layout::window::request_frame_report_reset();
+            // reset goes through a per-window generation counter — see
+            // `LayoutWindow::request_frame_report_reset`). Readers go through
+            // `frame_report_of`, which applies the pending reset, so the
+            // checkpoint is observable immediately rather than at the next
+            // frame.
+            callback_info
+                .get_layout_window()
+                .request_frame_report_reset();
             // Same checkpoint semantics for `assert_composition`'s stage trace.
             e2e_reset_composition_trace(callback_info);
             send_ok(request, None, None);
@@ -9526,6 +9590,15 @@ pub fn process_debug_event(
         }
 
         DebugEvent::WaitFrame => {
+            // "Drive one frame and let it land before the next step" — which is
+            // how every assertion of ABSENCE in the corpus is documented to be
+            // driven ("`wait_frame` × K → `assert_idle_stable`"). This used to
+            // be a pure no-op that sent `ok` and did nothing at all, so those
+            // scenarios asserted against whatever frame the mount had left
+            // behind. Same repaint-only path as `tick_ms`: no DOM regeneration,
+            // no event pass, and a yield so the frame is rendered before the
+            // step after it reads the frame report.
+            request_repaint(callback_info);
             send_ok(request, None, None);
         }
 

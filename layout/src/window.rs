@@ -453,29 +453,44 @@ pub struct FrameReport {
     pub terminal_result: u8,
 }
 
-/// Global "please reset the frame-report counters" generation.
+/// Maximum recursion depth for event processing.
 ///
-/// The `reset_frame_counters` debug op bumps this; every writer of the
-/// `FrameReport` calls [`FrameReport::sync_generation`] before it writes, which
-/// zeroes the counters + accumulated damage exactly once. This indirection
-/// exists because an E2E assertion only ever holds `&LayoutWindow` (through
-/// `CallbackInfo`) and cannot clear the counters itself.
-pub static FRAME_REPORT_RESET_GENERATION: AtomicUsize = AtomicUsize::new(0);
-
-/// Ask every window to zero its frame-report counters before the next write.
-pub fn request_frame_report_reset() {
-    FRAME_REPORT_RESET_GENERATION.fetch_add(1, Ordering::SeqCst);
-}
+/// An event pass whose callbacks regenerate the DOM (which raises new events) is
+/// re-entered at most this many times before the loop is broken and
+/// [`FrameReport::hit_depth_cap`] is set.
+///
+/// Lives here rather than in the shell because BOTH event loops must agree: the
+/// real one (`dll/src/desktop/shell2/common/event.rs`) and the headless E2E port
+/// of it ([`crate::e2e`]), whose whole purpose is to report the same numbers.
+pub const MAX_EVENT_RECURSION_DEPTH: usize = 7;
 
 impl FrameReport {
-    /// Zero the work counters + accumulated damage if a reset was requested.
-    /// Called by every writer of the report before it writes.
-    pub fn sync_generation(&mut self) {
-        let current = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64;
-        if current != self.reset_generation {
-            self.reset_generation = current;
+    /// Zero the work counters + accumulated damage if `requested_generation`
+    /// (this window's [`LayoutWindow::frame_report_reset_request`]) has moved
+    /// since this report last observed it. Called by every writer of the report
+    /// before it writes.
+    pub fn sync_generation_to(&mut self, requested_generation: u64) {
+        if requested_generation != self.reset_generation {
+            self.reset_generation = requested_generation;
             self.reset_counters();
         }
+    }
+
+    /// This report as a READER must see it: the counters and accumulated damage
+    /// as of `requested_generation`.
+    ///
+    /// The reset is applied lazily (a writer zeroes the fields on its next
+    /// write), because the op that requests it — and the assertion that reads
+    /// the result — only ever hold `&LayoutWindow` through `CallbackInfo`.
+    /// Without this, every read between `reset_frame_counters` and the next
+    /// frame returned the counters and damage from BEFORE the reset: an
+    /// assertion placed right after the reset silently measured the previous
+    /// checkpoint's work.
+    #[must_use]
+    pub fn as_of_generation(&self, requested_generation: u64) -> Self {
+        let mut out = self.clone();
+        out.sync_generation_to(requested_generation);
+        out
     }
 
     /// Zero the sticky work counters + accumulated damage.
@@ -490,8 +505,16 @@ impl FrameReport {
 
     /// Record the damage of a freshly rendered frame: it becomes the last-frame
     /// damage AND is merged into the accumulated damage since the last reset.
-    pub fn record_frame(&mut self, paint: FrameDamage, present: FrameDamage) {
-        self.sync_generation();
+    ///
+    /// Prefer [`LayoutWindow::record_frame`], which supplies the window's reset
+    /// generation; this form is for tests that hold a bare report.
+    pub fn record_frame_at_generation(
+        &mut self,
+        requested_generation: u64,
+        paint: FrameDamage,
+        present: FrameDamage,
+    ) {
+        self.sync_generation_to(requested_generation);
         self.frame_index = self.frame_index.wrapping_add(1);
         self.frames_since_reset = self.frames_since_reset.saturating_add(1);
         Self::merge_into(&mut self.accumulated_paint_damage, &paint);
@@ -653,6 +676,17 @@ pub struct LayoutWindow {
     /// backend after each `render_frame` and by the event loop; read by E2E
     /// assertions through `CallbackInfo::get_layout_window()`.
     pub frame_report: FrameReport,
+    /// "Please zero this window's frame-report counters" generation, bumped by
+    /// [`Self::request_frame_report_reset`] (the `reset_frame_counters` op).
+    ///
+    /// An atomic on the WINDOW rather than a process-global static: the op that
+    /// requests the reset only ever holds `&LayoutWindow` (through
+    /// `CallbackInfo`), which is why the request cannot simply zero the fields —
+    /// but "global" was never the right scope. With a process-global generation
+    /// one scenario's `reset_frame_counters` zeroed every OTHER concurrently
+    /// running scenario's counters, so no scenario that measured frame work
+    /// could run in parallel.
+    pub frame_report_reset_request: core::sync::atomic::AtomicU64,
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
     pub fragmentation_context: crate::paged::FragmentationContext,
@@ -858,6 +892,41 @@ fn duration_to_millis(duration: Duration) -> u64 {
 }
 
 impl LayoutWindow {
+    /// Ask this window to zero its frame-report counters + accumulated damage
+    /// before the next write (the `reset_frame_counters` E2E op).
+    ///
+    /// Takes `&self` because the op that calls it only has `&LayoutWindow`
+    /// through `CallbackInfo`.
+    pub fn request_frame_report_reset(&self) {
+        self.frame_report_reset_request
+            .fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Apply a pending [`Self::request_frame_report_reset`]. Every writer of
+    /// [`Self::frame_report`] calls this before it writes.
+    pub fn sync_frame_report(&mut self) {
+        let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
+        self.frame_report.sync_generation_to(generation);
+    }
+
+    /// The frame report as a READER must see it — with any pending reset
+    /// already applied. This is what every E2E assertion reads; reading
+    /// [`Self::frame_report`] directly reports the counters and accumulated
+    /// damage from BEFORE the last `reset_frame_counters`.
+    #[must_use]
+    pub fn frame_report_synced(&self) -> FrameReport {
+        let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
+        self.frame_report.as_of_generation(generation)
+    }
+
+    /// Record the damage of a freshly rendered frame on this window's report,
+    /// applying any pending counter reset first.
+    pub fn record_frame(&mut self, paint: FrameDamage, present: FrameDamage) {
+        let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
+        self.frame_report
+            .record_frame_at_generation(generation, paint, present);
+    }
+
     /// Create a new layout window with empty caches.
     ///
     /// For full initialization with `WindowInternal` compatibility, use `new_full()`.
@@ -872,6 +941,7 @@ impl LayoutWindow {
             // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
             frame_report: FrameReport::default(),
+            frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             layout_cache: Solver3LayoutCache {
@@ -8182,6 +8252,7 @@ impl LayoutWindow {
             // Rebuilt wholesale by the very layout pass that triggered this remap:
             // Exempt: damage rects + frame counters only, keyed by nothing.
             frame_report: _,
+            frame_report_reset_request: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
@@ -8773,23 +8844,15 @@ mod autotest_generated {
     // FrameReport
     // ==================================================================
 
-    /// `FRAME_REPORT_RESET_GENERATION` is process-global, so the tests that
-    /// touch it must not run concurrently with each other.
-    static FRAME_REPORT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn frame_report_lock() -> std::sync::MutexGuard<'static, ()> {
-        FRAME_REPORT_TEST_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    /// A report in sync with generation 0, i.e. no reset pending, so the sync
+    /// inside `record_frame_at_generation` is a no-op for the test.
+    fn synced_report() -> FrameReport {
+        FrameReport::default()
     }
 
-    /// A report already in sync with the global generation, so `sync_generation`
-    /// inside `record_frame` is a no-op for the test.
-    fn synced_report() -> FrameReport {
-        FrameReport {
-            reset_generation: FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64,
-            ..Default::default()
-        }
+    /// `record_frame` against a report with no reset pending.
+    fn record(r: &mut FrameReport, paint: FrameDamage, present: FrameDamage) {
+        r.record_frame_at_generation(r.reset_generation, paint, present);
     }
 
     #[test]
@@ -8868,11 +8931,10 @@ mod autotest_generated {
 
     #[test]
     fn frame_report_record_frame_keeps_last_frame_and_accumulated_damage_apart() {
-        let _guard = frame_report_lock();
         let a = rect(0.0, 0.0, 4.0, 4.0);
         let mut r = synced_report();
 
-        r.record_frame(FrameDamage::Rects(vec![a]), FrameDamage::Full);
+        record(&mut r, FrameDamage::Rects(vec![a]), FrameDamage::Full);
         assert_eq!(r.frame_index, 1);
         assert_eq!(r.frames_since_reset, 1);
         assert_eq!(r.paint_damage, FrameDamage::Rects(vec![a]));
@@ -8882,7 +8944,7 @@ mod autotest_generated {
 
         // An idle frame clobbers the last-frame damage but must NOT erase the
         // accumulated damage — that is the whole point of the sticky counters.
-        r.record_frame(FrameDamage::None, FrameDamage::None);
+        record(&mut r, FrameDamage::None, FrameDamage::None);
         assert_eq!(r.frame_index, 2);
         assert_eq!(r.frames_since_reset, 2);
         assert_eq!(r.paint_damage, FrameDamage::None);
@@ -8893,11 +8955,10 @@ mod autotest_generated {
 
     #[test]
     fn frame_report_accumulated_rects_grow_without_dedup() {
-        let _guard = frame_report_lock();
         let a = rect(0.0, 0.0, 1.0, 1.0);
         let mut r = synced_report();
         for _ in 0..5 {
-            r.record_frame(FrameDamage::Rects(vec![a]), FrameDamage::None);
+            record(&mut r, FrameDamage::Rects(vec![a]), FrameDamage::None);
         }
         // Five identical rects accumulate to five entries: the merge is a
         // concatenation, so a long-running window grows this list unboundedly
@@ -8908,12 +8969,11 @@ mod autotest_generated {
 
     #[test]
     fn frame_report_counters_saturate_and_wrap_as_documented() {
-        let _guard = frame_report_lock();
         let mut r = synced_report();
         r.frames_since_reset = u32::MAX;
         r.frame_index = u64::MAX;
 
-        r.record_frame(FrameDamage::None, FrameDamage::None);
+        record(&mut r, FrameDamage::None, FrameDamage::None);
 
         // `saturating_add` on the frame counter...
         assert_eq!(r.frames_since_reset, u32::MAX);
@@ -8958,7 +9018,6 @@ mod autotest_generated {
 
     #[test]
     fn frame_report_sync_generation_resets_once_per_request() {
-        let _guard = frame_report_lock();
         let mut r = synced_report();
         r.relayout_iterations = 7;
         r.dom_regenerations = 3;
@@ -8969,12 +9028,11 @@ mod autotest_generated {
         r.paint_damage = FrameDamage::Full;
 
         // No request pending -> no-op.
-        r.sync_generation();
+        r.sync_generation_to(0);
         assert_eq!(r.relayout_iterations, 7);
         assert_eq!(r.accumulated_paint_damage, FrameDamage::Full);
 
-        request_frame_report_reset();
-        r.sync_generation();
+        r.sync_generation_to(1);
         assert_eq!(r.relayout_iterations, 0);
         assert_eq!(r.dom_regenerations, 0);
         assert!(!r.hit_depth_cap);
@@ -8984,25 +9042,66 @@ mod autotest_generated {
         // The reset must not disturb the last-frame record or the index.
         assert_eq!(r.frame_index, 42);
         assert_eq!(r.paint_damage, FrameDamage::Full);
-        assert_eq!(
-            r.reset_generation,
-            FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst) as u64
-        );
+        assert_eq!(r.reset_generation, 1);
 
         // A second sync without a new request must NOT re-zero.
         r.relayout_iterations = 3;
-        r.sync_generation();
+        r.sync_generation_to(1);
         assert_eq!(r.relayout_iterations, 3, "sync must fire once per request");
     }
 
+    /// The READ path an assertion uses. Before this existed, everything between
+    /// `reset_frame_counters` and the next frame read the counters and the
+    /// accumulated damage from BEFORE the reset — so an assertion placed right
+    /// after the reset silently measured the previous checkpoint.
     #[test]
-    fn request_frame_report_reset_is_monotonic_and_never_panics() {
-        let _guard = frame_report_lock();
-        let before = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst);
-        request_frame_report_reset();
-        request_frame_report_reset();
-        let after = FRAME_REPORT_RESET_GENERATION.load(Ordering::SeqCst);
-        assert_eq!(after, before + 2);
+    fn frame_report_as_of_generation_applies_a_pending_reset_to_readers() {
+        let mut r = synced_report();
+        r.relayout_iterations = 4;
+        r.dom_regenerations = 2;
+        r.frames_since_reset = 9;
+        r.accumulated_paint_damage = FrameDamage::Full;
+        r.paint_damage = FrameDamage::Full;
+
+        // Same generation → the reader sees exactly what is stored.
+        let same = r.as_of_generation(0);
+        assert_eq!(same, r);
+
+        // Reset requested but not yet applied by any writer: the reader must
+        // still see zeroed counters.
+        let after = r.as_of_generation(1);
+        assert_eq!(after.relayout_iterations, 0);
+        assert_eq!(after.dom_regenerations, 0);
+        assert_eq!(after.frames_since_reset, 0);
+        assert_eq!(after.accumulated_paint_damage, FrameDamage::None);
+        // ...without disturbing the stored report or the last-frame record.
+        assert_eq!(after.paint_damage, FrameDamage::Full);
+        assert_eq!(r.relayout_iterations, 4);
+    }
+
+    /// One window's `reset_frame_counters` must not touch another window's
+    /// counters — that is what lets scenarios that measure frame work run in
+    /// parallel.
+    #[test]
+    fn frame_report_reset_request_is_per_window() {
+        let mut a = fresh_window();
+        let mut b = fresh_window();
+        a.frame_report.relayout_iterations = 3;
+        b.frame_report.relayout_iterations = 3;
+
+        a.request_frame_report_reset();
+
+        assert_eq!(a.frame_report_synced().relayout_iterations, 0);
+        assert_eq!(
+            b.frame_report_synced().relayout_iterations,
+            3,
+            "a reset on window A leaked into window B"
+        );
+
+        a.sync_frame_report();
+        b.sync_frame_report();
+        assert_eq!(a.frame_report.relayout_iterations, 0);
+        assert_eq!(b.frame_report.relayout_iterations, 3);
     }
 
     // ==================================================================

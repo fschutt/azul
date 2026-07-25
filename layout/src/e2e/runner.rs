@@ -49,7 +49,7 @@ use rust_fontconfig::FcFontCache;
 
 use azul_layout::{
     callbacks::{CallbackChange, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks},
-    window::LayoutWindow,
+    window::{LayoutWindow, MAX_EVENT_RECURSION_DEPTH},
     window_state::FullWindowState,
 };
 
@@ -221,7 +221,7 @@ impl Runner {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
 
-        self.layout_window.frame_report.sync_generation();
+        self.layout_window.sync_frame_report();
         self.layout_window.frame_report.terminal_result = result as u8;
 
         match result {
@@ -235,6 +235,67 @@ impl Runner {
         }
     }
 
+    /// Port of `PlatformWindow::process_window_events`
+    /// (`dll/src/desktop/shell2/common/event.rs`) — the state-diff pass, and the
+    /// thing `FrameReport::relayout_iterations` counts.
+    ///
+    /// The DLL records `max(depth + 1)` in an observability wrapper around this
+    /// function and sets `hit_depth_cap` when the recursion is broken off at
+    /// `MAX_EVENT_RECURSION_DEPTH`. Both are ported here VERBATIM, because the
+    /// number an assertion reads has to mean the same thing in both hosts:
+    ///
+    /// * `0` — no event pass ran at all. That is what an idle frame looks like:
+    ///   a clock tick with no state delta produces a repaint and nothing else.
+    /// * `1` — one pass, converged.
+    /// * `>1` — the pass had to be re-entered (a callback changed state that
+    ///   raised new events); this is the invalidation-loop signal.
+    ///
+    /// Before this existed the runner hard-coded `1` inside the
+    /// `ModifyWindowState` arm, so an idle frame reported the same number as a
+    /// converged event pass and `assert_work_bounded` could not tell "no work"
+    /// from "one pass of work".
+    fn process_window_events(&mut self, depth: usize) -> ProcessEventResult {
+        #[allow(clippy::cast_possible_truncation)]
+        let depth_u32 = depth as u32;
+        self.layout_window.sync_frame_report();
+        let r = &mut self.layout_window.frame_report;
+        r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
+
+        if depth >= MAX_EVENT_RECURSION_DEPTH {
+            // The DLL log_warn's here and returns; the flag is what turns that
+            // silent cap into a red assertion.
+            self.layout_window.frame_report.hit_depth_cap = true;
+            return ProcessEventResult::DoNothing;
+        }
+
+        // The state-diff pass. The E2E op set reaches exactly one branch of it
+        // without a platform window: the keyboard default action (Tab → focus
+        // next / previous, Escape → clear focus).
+        let focus_before = self
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied();
+        self.run_keyboard_default_action();
+        let focus_after = self
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied();
+
+        let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
+        // Port of the DLL's focus recursion (`event.rs`: a focus change re-enters
+        // the pass so the newly focused node's own state is evaluated).
+        if focus_before != focus_after {
+            if depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+                result = result.max(self.process_window_events(depth + 1));
+            } else {
+                self.layout_window.frame_report.hit_depth_cap = true;
+            }
+        }
+        result
+    }
+
     /// Port of `PlatformWindow::apply_user_change`
     /// (`dll/src/desktop/shell2/common/event.rs`) for the `CallbackChange`
     /// variants the E2E op set can produce. Each arm mirrors the DLL's arm —
@@ -245,26 +306,36 @@ impl Runner {
         match change {
             // === Window State ===
             CallbackChange::ModifyWindowState { state } => {
-                let old_size = self.window_state.size.dimensions;
-                let old_dpi = self.window_state.size.dpi;
-                self.window_state = state.clone();
-                let size_changed = self.window_state.size.dimensions != old_size;
-                let dpi_changed = self.window_state.size.dpi != old_dpi;
+                let old = std::mem::replace(&mut self.window_state, state.clone());
+                let size_changed = self.window_state.size.dimensions != old.size.dimensions;
+                let dpi_changed = self.window_state.size.dpi != old.size.dpi;
                 if size_changed || dpi_changed {
                     self.resize_pending = true;
                 }
                 if state.flags.close_requested {
                     return ProcessEventResult::DoNothing;
                 }
-                // The DLL runs the state-diff pass ONCE per ModifyWindowState
-                // (`process_window_events(0)`), which is what turns a state delta
-                // into synthetic events and runs the keyboard default action
-                // (Tab → focus next, Esc → clear).
-                self.layout_window.frame_report.sync_generation();
-                self.layout_window.frame_report.relayout_iterations =
-                    self.layout_window.frame_report.relayout_iterations.max(1);
-                self.run_keyboard_default_action();
-                ProcessEventResult::ShouldReRenderCurrentWindow
+
+                // Port of the DLL's `anything_changed` gate: the state-diff pass
+                // runs ONCE per ModifyWindowState **that actually changed
+                // something**, and NOT AT ALL for a state re-push. That gate is
+                // what makes `relayout_iterations` mean what it says — a
+                // repaint request (`tick_ms` / `wait_frame`, which re-push the
+                // current state) is not an event pass and must not be counted
+                // as one.
+                let anything_changed = size_changed
+                    || dpi_changed
+                    || self.window_state.mouse_state != old.mouse_state
+                    || self.window_state.keyboard_state != old.keyboard_state
+                    || self.window_state.window_focused != old.window_focused
+                    || self.window_state.flags.has_focus != old.flags.has_focus
+                    || self.window_state.position != old.position;
+
+                let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
+                if anything_changed {
+                    result = result.max(self.process_window_events(0));
+                }
+                result
             }
 
             // === Focus ===
@@ -653,7 +724,7 @@ impl Runner {
     fn regenerate_layout(&mut self) {
         self.refresh_font_snapshot();
 
-        self.layout_window.frame_report.sync_generation();
+        self.layout_window.sync_frame_report();
         self.layout_window.frame_report.dom_regenerations =
             self.layout_window.frame_report.dom_regenerations.saturating_add(1);
 
@@ -737,7 +808,7 @@ impl Runner {
         );
         let paint = self.cpu_backend.last_frame_damage.clone();
         let present = self.cpu_backend.last_present_damage.clone();
-        self.layout_window.frame_report.record_frame(paint, present);
+        self.layout_window.record_frame(paint, present);
 
         // Publish the DAMAGE-DRIVEN framebuffer so `assert_damage_sound`'s
         // `pixel_identity` check can compare it against an independent full

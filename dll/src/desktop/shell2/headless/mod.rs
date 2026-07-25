@@ -1001,7 +1001,7 @@ impl HeadlessWindow {
             let paint = self.cpu_backend.last_frame_damage.clone();
             let present = self.cpu_backend.last_present_damage.clone();
             if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.frame_report.record_frame(paint, present);
+                lw.record_frame(paint, present);
             }
         }
 
@@ -1075,7 +1075,7 @@ impl HeadlessWindow {
             let paint = self.cpu_backend.last_frame_damage.clone();
             let present = self.cpu_backend.last_present_damage.clone();
             if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.frame_report.record_frame(paint, present);
+                lw.record_frame(paint, present);
             }
         }
 

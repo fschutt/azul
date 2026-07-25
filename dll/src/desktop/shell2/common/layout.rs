@@ -178,7 +178,7 @@ pub fn regenerate_layout(
     // E2E observability: count DOM regenerations (sticky until
     // `reset_frame_counters`) so that a test can assert an interaction did not
     // trigger a DOM rebuild storm.
-    layout_window.frame_report.sync_generation();
+    layout_window.sync_frame_report();
     layout_window.frame_report.dom_regenerations =
         layout_window.frame_report.dom_regenerations.saturating_add(1);
 
