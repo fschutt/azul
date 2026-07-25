@@ -1,7 +1,11 @@
 {
   "name": "scroll_by_delta",
   "description": "SCROLLING (by delta): 10x 50px rows (500px content) inside a 100px-tall overflow-y:scroll container. scroll_node_by delta_y=120 moves the offset to y=120 (within 0..400, no clamp). A second by-delta of 120 accumulates to 240. Exercises the register_scroll_nodes port + ScrollManager::scroll_to + get_current_offset (window.rs scroll paths).",
-  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
   "steps": [
     {
       "op": "mount",
@@ -25,15 +29,47 @@
         ".row { width: 100%; height: 50px; background: blue; }"
       ]
     },
-    { "op": "wait_frame" },
-
-    { "op": "assert_exists", "selector": "#scroller" },
-    { "op": "assert_node_count", "selector": ".row", "expected": 10 },
-
-    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 120 },
-    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 120, "tolerance": 1.0 },
-
-    { "op": "scroll_node_by", "selector": "#scroller", "delta_x": 0, "delta_y": 120 },
-    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 240, "tolerance": 1.0 }
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#scroller"
+    },
+    {
+      "op": "assert_node_count",
+      "selector": ".row",
+      "expected": 10
+    },
+    {
+      "op": "scroll_node_by",
+      "selector": "#scroller",
+      "delta_x": 0,
+      "delta_y": 120
+    },
+    {
+      "op": "assert_scroll",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 120,
+      "tolerance": 1.0
+    },
+    {
+      "op": "scroll_node_by",
+      "selector": "#scroller",
+      "delta_x": 0,
+      "delta_y": 120
+    },
+    {
+      "op": "assert_scroll",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 240,
+      "tolerance": 1.0
+    }
   ]
 }

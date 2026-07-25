@@ -1,7 +1,11 @@
 {
   "name": "get_dom",
   "description": "GET DOM (live read): get_dom returns the current DOM as a serialized tree (index / type / id / class / text). Re-mounting a different DOM must carry the new content and no longer carry the old, proving the read is live off the StyledDom in layout_results, not a stale snapshot.",
-  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
   "steps": [
     {
       "op": "mount",
@@ -17,19 +21,48 @@
         ".box  { width: 60px; height: 40px; background: blue; }"
       ]
     },
-    { "op": "wait_frame" },
-    { "op": "assert_exists", "selector": "#root" },
-
-    { "op": "get_dom" },
-    { "op": "assert_response", "type": "dom" },
-    { "op": "assert_response", "contains": "GET_DOM_BEFORE" },
-    { "op": "assert_response", "contains": "\"children\"" },
-
-    { "op": "assert_dom", "min_node_count": 4 },
-    { "op": "assert_dom", "contains": "GET_DOM_BEFORE" },
-    { "op": "assert_dom", "contains": "root" },
-    { "op": "assert_dom", "contains": "box" },
-
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#root"
+    },
+    {
+      "op": "get_dom"
+    },
+    {
+      "op": "assert_response",
+      "type": "dom"
+    },
+    {
+      "op": "assert_response",
+      "contains": "GET_DOM_BEFORE"
+    },
+    {
+      "op": "assert_response",
+      "contains": "\"children\""
+    },
+    {
+      "op": "assert_dom",
+      "min_node_count": 4
+    },
+    {
+      "op": "assert_dom",
+      "contains": "GET_DOM_BEFORE"
+    },
+    {
+      "op": "assert_dom",
+      "contains": "root"
+    },
+    {
+      "op": "assert_dom",
+      "contains": "box"
+    },
     {
       "op": "mount",
       "html": [
@@ -45,16 +78,43 @@
         ".card  { width: 50px; height: 30px; background: orange; }"
       ]
     },
-    { "op": "wait_frame" },
-
-    { "op": "assert_exists", "selector": "#root2" },
-    { "op": "get_dom" },
-    { "op": "assert_response", "type": "dom" },
-    { "op": "assert_response", "contains": "GET_DOM_AFTER" },
-
-    { "op": "assert_dom", "contains": "GET_DOM_AFTER" },
-    { "op": "assert_dom", "not_contains": "GET_DOM_BEFORE" },
-    { "op": "assert_dom", "contains": "card" },
-    { "op": "assert_dom", "min_node_count": 5 }
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#root2"
+    },
+    {
+      "op": "get_dom"
+    },
+    {
+      "op": "assert_response",
+      "type": "dom"
+    },
+    {
+      "op": "assert_response",
+      "contains": "GET_DOM_AFTER"
+    },
+    {
+      "op": "assert_dom",
+      "contains": "GET_DOM_AFTER"
+    },
+    {
+      "op": "assert_dom",
+      "not_contains": "GET_DOM_BEFORE"
+    },
+    {
+      "op": "assert_dom",
+      "contains": "card"
+    },
+    {
+      "op": "assert_dom",
+      "min_node_count": 5
+    }
   ]
 }

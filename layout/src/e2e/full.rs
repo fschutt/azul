@@ -5635,6 +5635,54 @@ fn resume_e2e_continuation(
     needs_update
 }
 
+/// Headless driver seam: resume any pending E2E continuation exactly ONCE.
+///
+/// This is the same per-tick work `debug_timer_callback` does (take the stored
+/// continuation, honor its `wait` deadline, resume it), minus the spmc request
+/// drain. It lets the headless runner (`crate::e2e::runner`) pump the REAL
+/// scenario runner (`resume_e2e_continuation`) without a platform timer or any
+/// networking — the private `E2eContinuation` never leaves this module.
+///
+/// Returns `(needs_update, still_pending, resume_not_before)`:
+/// * `needs_update` — a step mutated state and the caller must relayout;
+/// * `still_pending` — the continuation yielded again (more steps remain);
+/// * `resume_not_before` — a `wait` deadline the caller should honor before the
+///   next pump.
+#[cfg(feature = "std")]
+pub fn e2e_pump_continuation(
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+) -> (bool, bool, Option<std::time::Instant>) {
+    let mut pending = E2E_CONTINUATION.lock().unwrap().take();
+    // `wait` steps yield with a deadline — if it hasn't passed, put the
+    // continuation back untouched and report it as still pending.
+    if let Some(cont) = pending.take_if(|c| {
+        c.resume_not_before
+            .is_some_and(|t| std::time::Instant::now() < t)
+    }) {
+        let rnb = cont.resume_not_before;
+        *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+        return (false, true, rnb);
+    }
+    let Some(mut cont) = pending else {
+        return (false, false, None);
+    };
+    cont.resume_not_before = None;
+    let needs_update = resume_e2e_continuation(cont, callback_info);
+    let (still_pending, resume_not_before) = {
+        let guard = E2E_CONTINUATION.lock().unwrap();
+        (guard.is_some(), guard.as_ref().and_then(|c| c.resume_not_before))
+    };
+    (needs_update, still_pending, resume_not_before)
+}
+
+/// Headless driver seam: discard any pending E2E continuation. Called by
+/// `crate::e2e::runner` before a run so a previously panicked test cannot leak
+/// its half-finished continuation into the next one.
+#[cfg(feature = "std")]
+pub fn e2e_clear_continuation() {
+    *E2E_CONTINUATION.lock().unwrap() = None;
+}
+
 // ==================== Timer Callback ====================
 
 /// Timer callback that processes debug requests.
@@ -7691,7 +7739,7 @@ fn build_dom_response(
 
 /// Process a single debug event
 #[cfg(feature = "std")]
-fn process_debug_event(
+pub fn process_debug_event(
     request: &DebugRequest,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
     app_data: &mut azul_core::refany::RefAny,

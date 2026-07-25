@@ -1,7 +1,11 @@
 {
   "name": "scroll_to_and_clamp",
-  "description": "SCROLLING (absolute position + max clamp): scroll_node_to y=200 sets the absolute offset; y=0 returns to top (proving it is absolute, not a delta); y=99999 clamps to the maximum scroll (content 500 - viewport 100 = 400). Exercises ScrollManager::set_scroll_position → state.clamp().",
-  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "description": "SCROLLING (absolute position + max clamp): scroll_node_to y=200 sets the absolute offset; y=0 returns to top (proving it is absolute, not a delta); y=99999 clamps to the maximum scroll (content 500 - viewport 100 = 400). Exercises ScrollManager::set_scroll_position \u2192 state.clamp().",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
   "steps": [
     {
       "op": "mount",
@@ -25,16 +29,54 @@
         ".row { width: 100%; height: 50px; background: teal; }"
       ]
     },
-    { "op": "wait_frame" },
-    { "op": "assert_exists", "selector": "#scroller" },
-
-    { "op": "scroll_node_to", "selector": "#scroller", "x": 0, "y": 200 },
-    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 200, "tolerance": 1.0 },
-
-    { "op": "scroll_node_to", "selector": "#scroller", "x": 0, "y": 0 },
-    { "op": "assert_scroll", "selector": "#scroller", "x": 0, "y": 0, "tolerance": 1.0 },
-
-    { "op": "scroll_node_to", "selector": "#scroller", "x": 0, "y": 99999 },
-    { "op": "assert_scroll", "selector": "#scroller", "y": 400, "tolerance": 1.0 }
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#scroller"
+    },
+    {
+      "op": "scroll_node_to",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 200
+    },
+    {
+      "op": "assert_scroll",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 200,
+      "tolerance": 1.0
+    },
+    {
+      "op": "scroll_node_to",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 0
+    },
+    {
+      "op": "assert_scroll",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 0,
+      "tolerance": 1.0
+    },
+    {
+      "op": "scroll_node_to",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 99999
+    },
+    {
+      "op": "assert_scroll",
+      "selector": "#scroller",
+      "y": 400,
+      "tolerance": 1.0
+    }
   ]
 }

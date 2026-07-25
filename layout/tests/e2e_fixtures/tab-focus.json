@@ -1,7 +1,11 @@
 {
   "name": "tab_focus",
   "description": "FOCUS / TAB: three focusable divs (tabindex=0). Tab with nothing focused runs determine_keyboard_default_action -> FocusNext -> resolve_focus_target -> set_focused_node on #f1; further Tabs advance to #f2, #f3. Shift+Tab runs FocusPrevious back to #f2. Exercises the keyboard default-action + focus resolution path and find_next/prev tab order (window.rs focus paths).",
-  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
   "steps": [
     {
       "op": "mount",
@@ -18,29 +22,122 @@
         ".item { width: 120px; height: 30px; background: silver; font-family: \"Azul Mock Mono\"; font-size: 20px; }"
       ]
     },
-    { "op": "wait_frame" },
-    { "op": "assert_exists", "selector": "#f1" },
-    { "op": "assert_exists", "selector": "#f3" },
-
-    { "op": "key_down", "key": "tab" },
-    { "op": "key_up", "key": "tab" },
-    { "op": "get_focus_state" },
-    { "op": "assert_response", "type": "focus_state" },
-    { "op": "assert_response", "contains": "f1" },
-
-    { "op": "key_down", "key": "tab" },
-    { "op": "key_up", "key": "tab" },
-    { "op": "get_focus_state" },
-    { "op": "assert_response", "contains": "f2" },
-
-    { "op": "key_down", "key": "tab" },
-    { "op": "key_up", "key": "tab" },
-    { "op": "get_focus_state" },
-    { "op": "assert_response", "contains": "f3" },
-
-    { "op": "key_down", "key": "tab", "modifiers": { "shift": true } },
-    { "op": "key_up", "key": "tab", "modifiers": { "shift": true } },
-    { "op": "get_focus_state" },
-    { "op": "assert_response", "contains": "f2" }
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#f1"
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#f3"
+    },
+    {
+      "op": "key_down",
+      "key": "tab"
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "key_up",
+      "key": "tab"
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "get_focus_state"
+    },
+    {
+      "op": "assert_response",
+      "type": "focus_state"
+    },
+    {
+      "op": "assert_response",
+      "contains": "f1"
+    },
+    {
+      "op": "key_down",
+      "key": "tab"
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "key_up",
+      "key": "tab"
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "get_focus_state"
+    },
+    {
+      "op": "assert_response",
+      "contains": "f2"
+    },
+    {
+      "op": "key_down",
+      "key": "tab"
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "key_up",
+      "key": "tab"
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "get_focus_state"
+    },
+    {
+      "op": "assert_response",
+      "contains": "f3"
+    },
+    {
+      "op": "key_down",
+      "key": "tab",
+      "modifiers": {
+        "shift": true
+      }
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "key_up",
+      "key": "tab",
+      "modifiers": {
+        "shift": true
+      }
+    },
+    {
+      "op": "wait",
+      "ms": 1
+    },
+    {
+      "op": "get_focus_state"
+    },
+    {
+      "op": "assert_response",
+      "contains": "f2"
+    }
   ]
 }

@@ -23,6 +23,9 @@
 mod full;
 pub use full::*;
 
+mod runner;
+pub use runner::run_e2e_test;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
