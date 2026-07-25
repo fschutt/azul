@@ -10116,4 +10116,193 @@ mod autotest_generated {
         assert_eq!(w.get_dom_ids().len(), 1);
         assert!(w.get_layout_result(&DomId { inner: 1 }).is_none());
     }
+
+    // ==================================================================
+    // Edge / error arms exercised by the headless e2e_json harness at the
+    // integration level, pinned here as fast unit checks (no fonts, no
+    // solver where avoidable). These cover the "nothing there" / degenerate
+    // branches a happy-path fixture never reaches.
+    // ==================================================================
+
+    /// Run the real layout pipeline on a `StyledDom` at a given viewport.
+    fn laid_out(styled_dom: StyledDom, w: f32, h: f32) -> LayoutWindow {
+        let mut win = fresh_window();
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(w, h);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        win.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+            .expect("layout must succeed on a well-formed DOM");
+        win
+    }
+
+    #[test]
+    fn layout_and_generate_display_list_populates_results_for_a_plain_dom() {
+        let win = laid_out(fixture_dom(), 200.0, 150.0);
+        let lr = win
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("root layout result must exist after a successful layout");
+        assert!(
+            !lr.layout_tree.nodes.is_empty(),
+            "the layout tree must carry nodes"
+        );
+        // The root (body) must have real computed bounds.
+        let root_bounds = win.get_node_bounds(DomId::ROOT_ID, NodeId::new(0));
+        assert!(root_bounds.is_some(), "root node must have bounds");
+    }
+
+    #[test]
+    fn get_node_bounds_is_none_for_missing_dom_and_missing_node() {
+        let win = laid_out(fixture_dom(), 200.0, 150.0);
+        // Missing DOM.
+        assert!(win.get_node_bounds(DomId { inner: 9 }, NodeId::new(0)).is_none());
+        // Out-of-range node in a real DOM.
+        assert!(win
+            .get_node_bounds(DomId::ROOT_ID, NodeId::new(9_999))
+            .is_none());
+    }
+
+    #[test]
+    fn scroll_position_roundtrips_and_is_none_when_unregistered() {
+        let mut win = fresh_window();
+        let dom = DomId::ROOT_ID;
+        let node = NodeId::new(1);
+        assert!(
+            win.get_scroll_position(dom, node).is_none(),
+            "an unregistered node has no scroll position"
+        );
+        let sp = ScrollPosition {
+            parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+            children_rect: rect(0.0, 0.0, 100.0, 500.0),
+        };
+        win.set_scroll_position(dom, node, sp);
+        assert!(
+            win.get_scroll_position(dom, node).is_some(),
+            "after set_scroll_position the node must have a position"
+        );
+    }
+
+    #[test]
+    fn timer_scheduling_helpers_handle_the_empty_case() {
+        let mut win = fresh_window();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        assert!(
+            win.time_until_next_timer_ms(&sc.get_system_time_fn).is_none(),
+            "no timers => can block indefinitely"
+        );
+        assert!(
+            win.tick_timers(tick(0)).is_empty(),
+            "no timers => nothing is ready"
+        );
+    }
+
+    #[test]
+    fn scroll_node_into_view_on_an_empty_window_yields_no_adjustments() {
+        let mut win = fresh_window();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let now = (sc.get_system_time_fn.cb)();
+        let adjustments = win.scroll_node_into_view(
+            dnid(0),
+            crate::managers::scroll_into_view::ScrollIntoViewOptions::start(),
+            now,
+        );
+        assert!(
+            adjustments.is_empty(),
+            "a node with no scrollable ancestor cannot be scrolled into view"
+        );
+    }
+
+    #[test]
+    fn find_scrollable_ancestor_is_none_without_a_layout_tree() {
+        let win = fresh_window();
+        assert!(
+            win.find_scrollable_ancestor(dnid(0)).is_none(),
+            "no layout_cache tree => no scrollable ancestor"
+        );
+    }
+
+    #[test]
+    fn clear_caches_drops_layout_results_and_scroll_state() {
+        let mut win = laid_out(fixture_dom(), 200.0, 150.0);
+        win.set_scroll_position(
+            DomId::ROOT_ID,
+            NodeId::new(1),
+            ScrollPosition {
+                parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+                children_rect: rect(0.0, 0.0, 100.0, 500.0),
+            },
+        );
+        assert!(!win.layout_results.is_empty());
+        assert!(win.get_scroll_position(DomId::ROOT_ID, NodeId::new(1)).is_some());
+
+        win.clear_caches();
+
+        assert!(win.layout_results.is_empty(), "layout results must be cleared");
+        assert!(
+            win.get_scroll_position(DomId::ROOT_ID, NodeId::new(1)).is_none(),
+            "the ScrollManager must be reset"
+        );
+        assert!(win.layout_cache.tree.is_none());
+    }
+
+    #[test]
+    fn finalize_pending_focus_changes_is_false_without_a_pending_request() {
+        let mut win = fresh_window();
+        assert!(
+            !win.finalize_pending_focus_changes(),
+            "nothing pending => no cursor initialization happened"
+        );
+    }
+
+    #[test]
+    fn text_node_navigation_is_none_on_an_empty_window() {
+        let win = fresh_window();
+        assert!(win.find_next_text_node(&DomId::ROOT_ID, NodeId::new(0)).is_none());
+        assert!(win.find_prev_text_node(&DomId::ROOT_ID, NodeId::new(0)).is_none());
+    }
+
+    #[test]
+    fn text_node_navigation_walks_a_real_dom_without_running_off_the_end() {
+        let dom = StyledDom::create_from_dom(
+            Dom::create_body().with_child(Dom::create_text("hello world")),
+        );
+        let win = laid_out(dom, 200.0, 150.0);
+        let node_count = win
+            .get_layout_result(&DomId::ROOT_ID)
+            .unwrap()
+            .styled_dom
+            .node_hierarchy
+            .len();
+        // Searching forward from the very last node must terminate at None.
+        let last = NodeId::new(node_count.saturating_sub(1));
+        assert!(
+            win.find_next_text_node(&DomId::ROOT_ID, last).is_none(),
+            "no node exists after the last one"
+        );
+        // Searching backward from node 0 must terminate at None too.
+        assert!(
+            win.find_prev_text_node(&DomId::ROOT_ID, NodeId::new(0)).is_none(),
+            "no node exists before the first one"
+        );
+    }
+
+    #[test]
+    fn resize_window_relayouts_and_returns_a_display_list() {
+        let mut win = laid_out(fixture_dom(), 200.0, 150.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        // resize_window consumes a fresh StyledDom (as the real caller re-derives
+        // it each frame from the app's layout callback).
+        let dl = win
+            .resize_window(fixture_dom(), size(400.0, 300.0), &rr, &sc, &mut dbg)
+            .expect("resize_window must succeed");
+        // The returned display list belongs to the freshly laid-out DOM.
+        let _ = dl;
+        assert!(
+            win.get_layout_result(&DomId::ROOT_ID).is_some(),
+            "resize must leave a laid-out DOM behind"
+        );
+    }
 }
