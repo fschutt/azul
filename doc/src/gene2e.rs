@@ -9,7 +9,7 @@
 //! `<out-dir>/<NNNNN>-<slug>.json`.
 //!
 //! Everything the agent is told about the schema is DERIVED FROM THE CODE
-//! (`dll/src/desktop/shell2/common/debug_server/full.rs`) at run time — the op
+//! (`layout/src/e2e/full.rs`) at run time — the op
 //! names, their parameters and which of those are required are parsed out of
 //! the `DebugEvent` enum and the `evaluate_assertion` dispatch, never recalled
 //! from memory. The same parse is the mechanical validation gate: a generated
@@ -56,7 +56,13 @@ use std::{
 use anyhow::{bail, Context, Result};
 
 /// Relative path of the file that DEFINES the e2e schema. Single source of truth.
-const FULL_RS: &str = "dll/src/desktop/shell2/common/debug_server/full.rs";
+// MUST be the copy that `azul-doc e2e` actually EXECUTES (azul_layout::e2e), not
+// the DLL's. The server was ported into azul-layout and the two copies have
+// already drifted (12,187 vs 12,252 lines); generating against the DLL's schema
+// would emit tests whose ops the runner does not have — a silent false-green
+// across the whole corpus. De-duplicating the DLL copy is tracked separately;
+// until then, this path is the single source of truth for generation.
+const FULL_RS: &str = "layout/src/e2e/full.rs";
 /// Relative path of the worked example handed to every agent.
 const EXAMPLE_JSON: &str = "tests/e2e/mount_damage_smoke.json";
 

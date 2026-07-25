@@ -101,7 +101,16 @@ for test_file in layout/tests/*.rs; do
     fi
   done
   if [[ "${skip}" == false ]]; then
-    cargo test --profile "${PROFILE}" --package azul-layout --test "${test_name}" 2>&1 | tail -1
+    # Some test targets declare `required-features`. Cargo SILENTLY SKIPS a
+    # target whose features are unmet — it does not warn and does not fail — so
+    # without this the test looks green while never having been built. Pass the
+    # feature each such target needs.
+    extra_features=""
+    case "${test_name}" in
+      e2e_json) extra_features="--features e2e-server" ;;
+    esac
+    # shellcheck disable=SC2086  # word splitting of the feature flag is intended
+    cargo test --profile "${PROFILE}" --package azul-layout --test "${test_name}" ${extra_features} 2>&1 | tail -1
   fi
 done
 
