@@ -1470,8 +1470,19 @@ extern "C" fn map_widget_render(
             };
             let screen_x = proj(x as f32, centre_x, width_px);
             let screen_y = proj(y as f32, centre_y, height_px);
-            let size_w = (proj(x as f32 + 1.0, centre_x, width_px) - screen_x).max(1);
-            let size_h = (proj(y as f32 + 1.0, centre_y, height_px) - screen_y).max(1);
+            // `saturating_sub`: `proj` ends in `as i32`, which SATURATES a
+            // non-finite or out-of-range float to i32::MIN / i32::MAX. A viewport
+            // whose zoom is `f32::INFINITY` therefore puts the two projected
+            // origins at opposite ends of i32, and a plain `-` overflows — an
+            // abort in an overflow-checked build (these run inside an `extern "C"`
+            // render callback, so the panic does not unwind) and a wrapped,
+            // nonsensical tile size in release.
+            let size_w = proj(x as f32 + 1.0, centre_x, width_px)
+                .saturating_sub(screen_x)
+                .max(1);
+            let size_h = proj(y as f32 + 1.0, centre_y, height_px)
+                .saturating_sub(screen_y)
+                .max(1);
 
             // Placeholder (still-loading) tiles show the loading grid — a grey
             // background + 1px border — so fetch state is visible. A LOADED tile

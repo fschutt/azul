@@ -969,16 +969,28 @@ mod autotest_generated {
             channels: 1,
         }));
 
+        // Path-independent: whatever produced the frame, it carries the requested
+        // format.
         for f in &sent {
             assert_eq!((f.sample_rate, f.channels), (0, 1));
-            assert!(
-                f.samples.iter().all(|s| s.is_finite()),
-                "an infinite phase step must not leak NaN/inf into the samples"
-            );
         }
         if !tone_path {
             return;
         }
+        // Tone-path only, like every sibling worker test. `capture_common`'s
+        // `register_mic_backend_is_first_wins_and_passes_f32_samples_through`
+        // installs a process-wide `OnceLock` backend whose `read` deliberately
+        // yields `[NaN, inf, -inf, -0.0]` to prove the vtable passes samples
+        // through untouched. Once that test has run, `mic_worker` takes the
+        // backend branch and never evaluates a phase step at all — so asserting
+        // finiteness ABOVE the gate made this test fail depending on which other
+        // test happened to run first in the same process. (It passed under
+        // `cargo nextest`, which forks per test, and failed under `cargo test`,
+        // which does not.)
+        assert!(
+            sent.iter().all(|f| f.samples.iter().all(|s| s.is_finite())),
+            "an infinite phase step must not leak NaN/inf into the samples"
+        );
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].samples, vec![0.0_f32], "one frame, at phase 0");
     }

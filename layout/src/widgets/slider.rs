@@ -172,7 +172,19 @@ fn value_to_fraction(value: f32, min: f32, max: f32) -> f32 {
 /// property and slides the thumb between the left (`min`) and right (`max`) ends.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
 fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
-    let margin = (fraction * (TRACK_WIDTH - THUMB_SIZE) as f32).round() as isize;
+    // `fraction` is a bare `f32` with no type-level guard. Its only caller feeds
+    // it `value_to_fraction`'s already-clamped output, but the helper must be
+    // safe on its own terms: `const_px` encodes the margin as `isize * 1000`
+    // (`FloatValue::const_new`), so any |margin| above `isize::MAX / 1000`
+    // overflows that multiply — a panic in an overflow-checked build, a wrapped
+    // and wildly-wrong margin in release. `as isize` already saturates NaN to 0
+    // and ±inf to isize::MIN/MAX, so the only thing missing is the clamp into
+    // what the fixed-point encoding can actually hold. Clamping the ENCODED px
+    // rather than the fraction keeps every in-contract and out-of-contract-but-
+    // representable result (including negative fractions) bit-for-bit unchanged.
+    const MAX_ENCODABLE_PX: isize = isize::MAX / 1000;
+    let margin = ((fraction * (TRACK_WIDTH - THUMB_SIZE) as f32).round() as isize)
+        .clamp(-MAX_ENCODABLE_PX, MAX_ENCODABLE_PX);
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
             THUMB_SIZE,

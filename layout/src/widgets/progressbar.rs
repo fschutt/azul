@@ -695,6 +695,28 @@ mod autotest_generated {
         pv.number.number()
     }
 
+    /// The addresses `ProgressBar::create` hands out for the two static
+    /// gradients — the reference every "is this still borrowed?" assertion below
+    /// compares against.
+    ///
+    /// Deliberately NOT `STYLE_BACKGROUND_CONTENT_*_ITEMS.as_ptr()`. Those are
+    /// `const` items, and every *use site* of a `const &[T]` gets its own
+    /// promoted read-only allocation; two use sites share an address only if the
+    /// optimizer merges them, which it does in an optimized build and does not
+    /// in an unoptimized one. Comparing a `create()` pointer against the const
+    /// was therefore an accidental green that held only because the suite had
+    /// never been run on the dev profile. `create()` contains ONE use site of
+    /// each const, so the address it returns is stable across calls — and that
+    /// is exactly the property under test: a `create()` that copied the slice
+    /// into a heap vec would hand out a fresh address every time.
+    fn create_gradient_ptrs() -> (
+        *const StyleBackgroundContent,
+        *const StyleBackgroundContent,
+    ) {
+        let pb = ProgressBar::create(0.0);
+        (pb.bar_background.as_ptr(), pb.container_background.as_ptr())
+    }
+
     /// A heap-allocated background of `n` distinct solid colours. Heap-backed on
     /// purpose: it is the only case where the vec owns memory that can be
     /// double-freed or leaked.
@@ -860,6 +882,7 @@ mod autotest_generated {
     #[test]
     fn create_borrows_the_static_gradients_instead_of_allocating_them() {
         let pb = ProgressBar::create(50.0);
+        let (bar_ptr, container_ptr) = create_gradient_ptrs();
 
         // Pointer identity, not just content equality: a `create()` that copied the
         // static slice into a heap vec would allocate on every frame, and one that
@@ -867,13 +890,23 @@ mod autotest_generated {
         // memory on drop.
         assert_eq!(
             pb.bar_background.as_ptr(),
-            STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS.as_ptr(),
+            bar_ptr,
             "the bar gradient stopped being shared with the static slice",
         );
         assert_eq!(
             pb.container_background.as_ptr(),
-            STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS.as_ptr(),
+            container_ptr,
             "the container gradient stopped being shared with the static slice",
+        );
+        // Content still pinned to the declared constants, so "shared" cannot
+        // degrade into "shared with something else".
+        assert_eq!(
+            pb.bar_background.as_ref(),
+            STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS,
+        );
+        assert_eq!(
+            pb.container_background.as_ref(),
+            STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
         );
         assert_eq!(pb.bar_background.len(), 1);
         assert_eq!(pb.container_background.len(), 1);
@@ -889,10 +922,7 @@ mod autotest_generated {
         for i in 0..10_000 {
             let pb = ProgressBar::create(i as f32);
             assert_eq!(pb.bar_background.len(), 1);
-            assert_eq!(
-                pb.bar_background.as_ptr(),
-                STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS.as_ptr(),
-            );
+            assert_eq!(pb.bar_background.as_ptr(), bar_ptr);
         }
     }
 
@@ -972,7 +1002,7 @@ mod autotest_generated {
             assert_eq!(raw(pb.height), 15_000, "the replacement must use the default height");
             assert_eq!(
                 pb.bar_background.as_ptr(),
-                STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS.as_ptr(),
+                create_gradient_ptrs().0,
                 "the replacement must borrow the static gradient again",
             );
         }
@@ -1012,6 +1042,7 @@ mod autotest_generated {
     #[test]
     fn repeated_swaps_never_alias_or_leak_the_backgrounds() {
         let mut pb = ProgressBar::create(1.0);
+        let (bar_ptr, _) = create_gradient_ptrs();
         for i in 0..1_000_usize {
             let want = i % 8 + 1;
             pb.set_bar_background(solid(want));
@@ -1019,10 +1050,7 @@ mod autotest_generated {
 
             assert_eq!(prev.bar_background.len(), want, "round {i} handed back the wrong buffer");
             assert_eq!(pb.progressbar_state.percent_done, 0.0);
-            assert_eq!(
-                pb.bar_background.as_ptr(),
-                STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS.as_ptr(),
-            );
+            assert_eq!(pb.bar_background.as_ptr(), bar_ptr);
         }
     }
 

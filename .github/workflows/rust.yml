@@ -695,6 +695,76 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+  # THE gate for the ~12,500 workspace unit tests. Until this job existed, NO
+  # workflow ran `cargo test -p azul-core` or `-p azul-layout` at all: the whole
+  # suite executed only as a side effect of the `coverage` job
+  # (scripts/coverage.sh). That was a false green for two independent reasons.
+  #
+  # 1. PROFILE. coverage.sh builds with `--profile coverage`, which
+  #    `inherits = "release"` (root Cargo.toml), so `debug-assertions = false`
+  #    and `overflow-checks = false`. Every `#[cfg(debug_assertions)]` test is
+  #    then compiled OUT of the binary — silently, with the same "N passed"
+  #    line — and every arithmetic overflow wraps instead of panicking. This job
+  #    runs the same tests on the DEV profile, where both are on. That is not
+  #    theoretical: turning it on surfaced four latent overflow/abort bugs
+  #    (map tile projection, image-decode byte count, slider thumb margin) that
+  #    a release-profile run cannot observe by construction.
+  #
+  # 2. FEATURES. A test module behind `#[cfg(feature = "…")]` and a `[[test]]`
+  #    target with `required-features` both disappear when the feature is off —
+  #    and cargo SILENTLY SKIPS a target whose required-features are unmet: no
+  #    warning, no diagnostic, exit code 0. Three JSON tests were red and
+  #    invisible for exactly this reason until df4740c87 / f4208d55b, and
+  #    `layout/tests/e2e_json.rs` (required-features = ["e2e-server"]) could
+  #    report success while never having been compiled. Both feature sets are
+  #    therefore enabled EXPLICITLY below; do not drop them.
+  #
+  # The `coverage` job stays, but for instrumentation only — it is not the test
+  # gate and must never be treated as one.
+  test_lib:
+    name: Workspace Unit Tests (dev profile)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      # Cargo + target cache, same house style as every other cache in this file
+      # (CACHE_BUST first, content-hash key, restore-keys prefixes). The dev
+      # profile lands in target/debug.
+      - name: Rust build cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/debug
+          key: test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs') }}
+          restore-keys: |
+            test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            test-lib-${{ env.CACHE_BUST }}-${{ runner.os }}-
+
+      # `azul-core/serde-json` + `azul-layout/json` gate the JSON parse/serialise
+      # test modules; without them those `#[cfg(feature = …)]` blocks are not
+      # compiled and the suite reports green over a strictly smaller set.
+      - name: Run workspace lib tests (debug-assertions + overflow-checks ON)
+        run: |
+          cargo test -p azul-css -p azul-core -p azul-layout --lib \
+            --features azul-core/serde-json,azul-layout/json \
+            --no-fail-fast
+
+      # Separate step, and NOT merged into the one above: `e2e_json` declares
+      # `required-features = ["e2e-server"]`. Naming the target explicitly makes
+      # cargo error out if the feature is ever removed, instead of skipping the
+      # target in silence the way a bare `--tests` would.
+      - name: Run the JSON-driven E2E fixture target (required-features gate)
+        run: cargo test -p azul-layout --test e2e_json --features e2e-server
+
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
@@ -3126,7 +3196,12 @@ jobs:
     # build_dll_linux producer) are continue-on-error, so a packager failure
     # can delay but never block the deploy; a missing artifact just makes the
     # corresponding channel skip gracefully.
-    needs: [test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_headless, pypi, npm, rubygems, nuget, maven-central]
+    # test_lib is BLOCKING: it is the only job that runs the ~12,500 workspace
+    # unit tests on the dev profile (debug-assertions + overflow-checks ON) and
+    # with the feature-gated test modules / required-features targets actually
+    # compiled. `coverage` runs the same tests on a release-derived profile and
+    # is instrumentation, NOT a gate.
+    needs: [test_lib, test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_headless, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     # The top-level workflow permissions are `contents: read`; the GitHub Release
     # step (`gh release create`/`upload`) needs `contents: write` or it 403s.

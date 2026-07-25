@@ -1918,6 +1918,17 @@ impl RawImage {
         // None rather than panicking (debug) / wrapping to a bogus length (release).
         let expected_len = width.checked_mul(height)?;
 
+        // …and neither is one whose BYTE count overflows. Every `load_*` below
+        // scales this pixel count by its channel count (2, 3 or 4) to validate the
+        // input buffer, and allocates a 4-byte-per-pixel BGRA output buffer, so a
+        // pixel count that cannot survive `* 4` cannot describe a real image
+        // either. Without this guard those multiplies wrapped in release (an empty
+        // buffer then *validated* as a 2^31 x 2^31 image) and panicked in debug —
+        // and because the callers are `extern "C"` widget callbacks, that panic is
+        // a non-unwinding ABORT that `catch_unwind` cannot contain. One check here
+        // covers all 20 multiplication sites.
+        expected_len.checked_mul(FOUR_BPP)?;
+
         let (bytes, data_format, is_opaque): (U8Vec, RawImageFormat, bool) = match data_format {
             RawImageFormat::R8 => {
                 let (bytes, is_opaque) = Self::load_r8(pixels, expected_len)?;
