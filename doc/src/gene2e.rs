@@ -1830,9 +1830,12 @@ fn evaluate_assertion(op: &str) {{
         for bad in [
             "- redraw", "- relayout", "- create_component", "- export_code", "- get_node_layout",
             "- get_display_list", "- assert_layout", "- assert_screenshot", "- close", "- open_file",
-            // zombies (allowed by policy, but they do nothing — see
-            // `no_zombie_is_reachable`)
-            "- focus :", "- blur :", "- move :", "- dpi_changed :", "- get_dom :",
+            // NOTE: `focus`, `blur`, `move`, `dpi_changed` and `get_dom` used to
+            // be listed here as ZOMBIES. They are not any more — they have real
+            // match arms (see the `KNOWN_ZOMBIES = &[]` comment below), so the
+            // prompt SHOULD offer them. `no_zombie_is_reachable` is the test
+            // that keeps zombies out of the prompt, and it derives the set from
+            // the code; hardcoding names here only rots.
         ] {
             assert!(!doc.contains(bad), "prompt must not offer `{bad}`");
         }
