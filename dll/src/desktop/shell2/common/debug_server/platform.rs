@@ -481,13 +481,13 @@ pub fn register_debug_timer(
 
 // ==================== Host hooks ====================
 
-/// Install this crate's implementations for the call sites `azul_layout::e2e`
-/// cannot satisfy on its own (see `azul_layout::e2e::hooks`).
+/// Install this crate's implementation for the one call site
+/// `azul_layout::e2e` cannot satisfy on its own: the native OS screenshot
+/// (see `azul_layout::e2e::hooks`).
 ///
 /// Called once from `setup_debug_and_e2e` before any request can be dispatched.
-/// Without it the `screenshot` op errors out and `mount` / `unmount` are no-ops
-/// — loudly, not silently: the headless default for the screenshot seam is an
-/// `Err`, never a fake success.
+/// Without it the `screenshot` op errors out — loudly, not silently: the
+/// headless default is an `Err`, never a fake success.
 #[cfg(feature = "std")]
 pub fn install_e2e_host_hooks() {
     use azul_layout::e2e::hooks::{set_host_hooks, E2eHostHooks};
@@ -500,12 +500,7 @@ pub fn install_e2e_host_hooks() {
             .map_err(|e| e.as_str().to_string())
     }
 
-    fn mount_xml(xml: Option<String>) {
-        crate::desktop::shell2::common::layout::set_e2e_mount_xml(xml);
-    }
-
     set_host_hooks(E2eHostHooks {
         take_native_screenshot_base64: Some(screenshot),
-        set_mount_xml: Some(mount_xml),
     });
 }

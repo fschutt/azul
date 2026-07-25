@@ -584,8 +584,56 @@ pub struct TextChangesetResult {
 /// - Generate display lists for rendering
 /// - Handle window resizes efficiently
 /// - Manage multiple DOMs (for `VirtualViews`)
+/// The E2E `mount` override for one window: the XML+CSS document the debug
+/// `mount` op installed, plus a "must be (re-)parsed" flag.
+///
+/// `regenerate_layout` swaps the parsed document in for the app's own DOM. The
+/// dirty flag exists because after the FIRST regeneration the mounted DOM is
+/// kept as-is and cloned forward — otherwise every `RefreshDom` would rebuild it
+/// from the XML and silently discard the DOM-mutation ops (`insert_node`,
+/// `set_node_css_override`, …) the test just applied, which makes every damage
+/// assertion see "nothing changed".
+///
+/// This lives on the window (and is written through
+/// [`crate::callbacks::CallbackChange::RemountDom`]) rather than in a process
+/// -global, so two windows cannot share one mounted document and a parallel
+/// headless run cannot have one scenario overwrite another's DOM.
+#[derive(Debug, Default, Clone)]
+pub struct E2eMountOverride {
+    xml: Option<String>,
+    dirty: bool,
+}
+
+impl E2eMountOverride {
+    /// Install (`Some`) or clear (`None`) the override; marks it dirty.
+    pub fn set(&mut self, xml: Option<String>) {
+        self.xml = xml;
+        self.dirty = true;
+    }
+
+    /// The currently mounted document, if any.
+    #[must_use]
+    pub fn xml(&self) -> Option<&str> {
+        self.xml.as_deref()
+    }
+
+    /// Whether a `mount` / `unmount` landed since the last [`Self::take_dirty`].
+    #[must_use]
+    pub const fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Take the "must be (re-)parsed" flag, clearing it.
+    pub fn take_dirty(&mut self) -> bool {
+        core::mem::replace(&mut self.dirty, false)
+    }
+}
+
 #[derive(Debug)]
 pub struct LayoutWindow {
+    /// E2E `mount` override for this window (debug-server `mount` / `unmount`).
+    /// Empty and untouched in every normal build — see [`E2eMountOverride`].
+    pub e2e_mount: E2eMountOverride,
     /// M12.7 web/headless: skip the GPU transform/opacity sync in
     /// `layout_dom_recursive`. That sync only feeds the display list (which
     /// the web backend skips), has no GPU, and `GpuValueCache::synchronize`
@@ -811,6 +859,7 @@ impl LayoutWindow {
     /// so adding a field touches one site instead of three).
     fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
+            e2e_mount: E2eMountOverride::default(),
             // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
             frame_report: FrameReport::default(),
@@ -8146,7 +8195,9 @@ impl LayoutWindow {
             file_drop_manager: _,
             clipboard_manager: _,
             // Plain window/render state, no NodeIds:
+            // The E2E mount override is an XML source string + a dirty flag:
             skip_gpu_sync: _,
+            e2e_mount: _,
             #[cfg(feature = "pdf")]
             fragmentation_context: _,
             safe_area_insets: _,

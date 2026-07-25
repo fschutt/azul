@@ -2573,10 +2573,73 @@ static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 #[cfg(feature = "e2e-server-http")]
 static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
 
-/// Continuation state for E2E tests that need to yield to the event loop
-/// (e.g., after a resize step that requires relayout before the next step).
+/// Per-window E2E scheduler slot: the half-finished scenario run that has to
+/// survive between event-loop ticks.
+///
+/// The scenario runner YIELDS whenever a step needs a relayout
+/// (`resume_e2e_continuation`) and resumes on the next tick. That state used to
+/// live in a process-global `static Mutex<Option<E2eContinuation>>`, which had
+/// two consequences: two windows shared ONE slot and clobbered each other, and
+/// the headless runner needed a process-wide `RUN_LOCK` to serialize whole runs
+/// because of it.
+///
+/// It now lives with the thing that ALREADY survives ticks — the `RefAny` the
+/// debug timer owns (`DebugTimerData`) in the DLL path, and a local in
+/// `crate::e2e::runner::run_e2e_test` in the headless path. One session per
+/// window, no ambient state, and `f(UI) -> DOM -> Screen` stays a function of
+/// its arguments.
 #[cfg(feature = "std")]
-static E2E_CONTINUATION: Mutex<Option<E2eContinuation>> = Mutex::new(None);
+#[derive(Default)]
+pub struct E2eSession {
+    /// The suspended run, if any. `None` between runs and while a run is
+    /// executing (the continuation is owned by `resume_e2e_continuation`).
+    pending: Option<E2eContinuation>,
+    /// `true` while `resume_e2e_continuation` is on the stack. Guards against a
+    /// scenario whose step is itself `run_e2e_tests`: with a single slot per
+    /// window, a nested run would silently overwrite the outer one's progress.
+    running: bool,
+}
+
+#[cfg(feature = "std")]
+impl core::fmt::Debug for E2eSession {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("E2eSession")
+            .field("pending", &self.pending.is_some())
+            .field("running", &self.running)
+            .finish()
+    }
+}
+
+#[cfg(feature = "std")]
+impl E2eSession {
+    /// An idle session.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            pending: None,
+            running: false,
+        }
+    }
+
+    /// Whether a run is suspended in this slot.
+    #[must_use]
+    pub const fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// The `wait` deadline of the suspended run, if it set one.
+    #[must_use]
+    pub fn resume_not_before(&self) -> Option<std::time::Instant> {
+        self.pending.as_ref().and_then(|c| c.resume_not_before)
+    }
+
+    /// Drop any suspended run. Used by the headless runner so a previously
+    /// panicked scenario cannot leak into the next one.
+    pub fn clear(&mut self) {
+        self.pending = None;
+        self.running = false;
+    }
+}
 
 /// Named full-repaint PNG snapshots taken by the `snapshot_frame` op.
 ///
@@ -6130,8 +6193,24 @@ fn eval_assert_damage_sound(
 /// or saves a new continuation for the next tick if another yield is needed.
 #[cfg(feature = "std")]
 fn resume_e2e_continuation(
+    cont: E2eContinuation,
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    session: &mut E2eSession,
+) -> bool {
+    // `running` is what makes a nested `run_e2e_tests` step fail loudly instead
+    // of silently stealing this window's single continuation slot. Set around
+    // the whole body so every early `return` clears it.
+    session.running = true;
+    let needs_update = resume_e2e_continuation_inner(cont, callback_info, session);
+    session.running = false;
+    needs_update
+}
+
+#[cfg(feature = "std")]
+fn resume_e2e_continuation_inner(
     mut cont: E2eContinuation,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    session: &mut E2eSession,
 ) -> bool {
     let mut needs_update = false;
     let mut app_data = cont.app_data.clone();
@@ -6188,7 +6267,7 @@ fn resume_e2e_continuation(
                             response_tx: tx,
                         };
                         let _ = process_debug_event(
-                            &req, callback_info, &mut app_data, &cont.component_map,
+                            &req, callback_info, &mut app_data, &cont.component_map, session,
                         );
                     }
                 }
@@ -6205,7 +6284,7 @@ fn resume_e2e_continuation(
 
                 // Yield so the resize lands (and layout re-runs) before step 0.
                 cont.app_data = app_data;
-                *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+                session.pending = Some(cont);
                 return true;
             }
         }
@@ -6237,7 +6316,7 @@ fn resume_e2e_continuation(
                 cont.app_data = app_data;
                 cont.resume_not_before =
                     Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
-                *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+                session.pending = Some(cont);
                 return needs_update;
             }
 
@@ -6407,6 +6486,7 @@ fn resume_e2e_continuation(
                         };
                         let step_needs_update = process_debug_event(
                             &step_request, callback_info, &mut app_data, &cont.component_map,
+                            session,
                         );
                         if step_needs_update {
                             needs_update = true;
@@ -6420,7 +6500,7 @@ fn resume_e2e_continuation(
                                 });
                                 cont.step_idx = step_index + 1;
                                 cont.app_data = app_data;
-                                *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+                                session.pending = Some(cont);
                                 return true;
                             }
                         }
@@ -6525,8 +6605,9 @@ fn resume_e2e_continuation(
 #[cfg(feature = "std")]
 pub fn e2e_pump_continuation(
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    session: &mut E2eSession,
 ) -> (bool, bool, Option<std::time::Instant>) {
-    let mut pending = E2E_CONTINUATION.lock().unwrap().take();
+    let mut pending = session.pending.take();
     // `wait` steps yield with a deadline — if it hasn't passed, put the
     // continuation back untouched and report it as still pending.
     if let Some(cont) = pending.take_if(|c| {
@@ -6534,27 +6615,15 @@ pub fn e2e_pump_continuation(
             .is_some_and(|t| std::time::Instant::now() < t)
     }) {
         let rnb = cont.resume_not_before;
-        *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+        session.pending = Some(cont);
         return (false, true, rnb);
     }
     let Some(mut cont) = pending else {
         return (false, false, None);
     };
     cont.resume_not_before = None;
-    let needs_update = resume_e2e_continuation(cont, callback_info);
-    let (still_pending, resume_not_before) = {
-        let guard = E2E_CONTINUATION.lock().unwrap();
-        (guard.is_some(), guard.as_ref().and_then(|c| c.resume_not_before))
-    };
-    (needs_update, still_pending, resume_not_before)
-}
-
-/// Headless driver seam: discard any pending E2E continuation. Called by
-/// `crate::e2e::runner` before a run so a previously panicked test cannot leak
-/// its half-finished continuation into the next one.
-#[cfg(feature = "std")]
-pub fn e2e_clear_continuation() {
-    *E2E_CONTINUATION.lock().unwrap() = None;
+    let needs_update = resume_e2e_continuation(cont, callback_info, session);
+    (needs_update, session.is_pending(), session.resume_not_before())
 }
 
 // ==================== Timer Callback ====================
@@ -6570,37 +6639,45 @@ pub extern "C" fn debug_timer_callback(
     use azul_core::callbacks::{TimerCallbackReturn, Update};
     use azul_core::task::TerminateTimer;
 
-    // Downcast the RefAny to DebugTimerData to get app_data + channel
-    let dtd = match timer_data.downcast_ref::<DebugTimerData>() {
-        Some(d) => d,
-        None => {
-            log(
-                LogLevel::Error,
-                LogCategory::DebugServer,
-                "[timer] Failed to downcast DebugTimerData",
-                None,
-            );
-            return TimerCallbackReturn {
-                should_update: Update::DoNothing,
-                should_terminate: TerminateTimer::Continue,
-            };
-        }
+    // Downcast the RefAny to DebugTimerData to get app_data + channel + this
+    // window's E2E session. The session is MOVED OUT for the duration of the
+    // tick and put back at the end: the dispatcher needs `&mut` access to it
+    // while `timer_data`'s exclusive borrow must not stay live across the
+    // callbacks below.
+    let (mut app_data, component_map, request_rx, my_window_id, mut session) = {
+        let mut dtd = match timer_data.downcast_mut::<DebugTimerData>() {
+            Some(d) => d,
+            None => {
+                log(
+                    LogLevel::Error,
+                    LogCategory::DebugServer,
+                    "[timer] Failed to downcast DebugTimerData",
+                    None,
+                );
+                return TimerCallbackReturn {
+                    should_update: Update::DoNothing,
+                    should_terminate: TerminateTimer::Continue,
+                };
+            }
+        };
+        (
+            dtd.app_data.clone(),
+            dtd.component_map.clone(),
+            dtd.request_rx.clone(),
+            dtd.window_id.clone(),
+            core::mem::take(&mut dtd.session),
+        )
     };
-    let mut app_data = dtd.app_data.clone();
-    let component_map = dtd.component_map.clone();
-    let request_rx = dtd.request_rx.clone();
-    let my_window_id = dtd.window_id.clone();
-    drop(dtd);
 
     // Check for E2E continuation from a previous tick (resume after relayout)
     let mut needs_update = false;
-    let mut pending_continuation = E2E_CONTINUATION.lock().unwrap().take();
+    let mut pending_continuation = session.pending.take();
     // `wait` steps yield with a deadline — if it hasn't passed, put the
     // continuation back and let this tick process queued input/relayout.
     if let Some(cont) = pending_continuation.take_if(|c| {
         c.resume_not_before.is_some_and(|t| std::time::Instant::now() < t)
     }) {
-        *E2E_CONTINUATION.lock().unwrap() = Some(cont);
+        session.pending = Some(cont);
     }
     if let Some(mut continuation) = pending_continuation {
         continuation.resume_not_before = None;
@@ -6610,11 +6687,12 @@ pub extern "C" fn debug_timer_callback(
             format!("[E2E] Resuming continuation: test {}, step {}", continuation.test_idx, continuation.step_idx),
             None,
         );
-        // MutexGuard is dropped here — resume_e2e_continuation may re-lock
-        // E2E_CONTINUATION to save a new continuation if another yield is needed.
+        // `session.pending` is empty here — `resume_e2e_continuation` refills it
+        // if another yield is needed.
         let result = resume_e2e_continuation(
             continuation,
             &mut timer_info.callback_info,
+            &mut session,
         );
         needs_update = needs_update || result;
     }
@@ -6644,9 +6722,21 @@ pub extern "C" fn debug_timer_callback(
         );
 
         // Pass the app_data and component_map to process_debug_event
-        let result = process_debug_event(&request, &mut timer_info.callback_info, &mut app_data, &component_map);
+        let result = process_debug_event(
+            &request,
+            &mut timer_info.callback_info,
+            &mut app_data,
+            &component_map,
+            &mut session,
+        );
         needs_update = needs_update || result;
         processed_count += 1;
+    }
+
+    // Hand the session back to the timer's `RefAny` so the next tick resumes
+    // exactly where this one left off.
+    if let Some(mut dtd) = timer_data.downcast_mut::<DebugTimerData>() {
+        dtd.session = session;
     }
 
     if processed_count > 0 {
@@ -8618,6 +8708,10 @@ pub fn process_debug_event(
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
     app_data: &mut azul_core::refany::RefAny,
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+    // This window's E2E scheduler slot. Only `RunE2eTests` touches it; every
+    // other op ignores it. Passing it explicitly is what replaced the
+    // process-global continuation.
+    session: &mut E2eSession,
 ) -> bool {
     use azul_core::geom::{LogicalPosition, LogicalSize};
 
@@ -9169,7 +9263,15 @@ pub fn process_debug_event(
                 // rather than silently rendering the app's own DOM.
                 match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
                     Ok(_) => {
-                        crate::e2e::hooks::set_mount_xml(Some(xml));
+                        // Route the document through the SAME change pipeline
+                        // every other op uses; the shell applies it to
+                        // `LayoutWindow::e2e_mount` and `regenerate_layout`
+                        // reads it back. No process-global sink.
+                        callback_info.push_change(
+                            azul_layout::callbacks::CallbackChange::RemountDom {
+                                xml: Some(xml.into()),
+                            },
+                        );
                         needs_update = true; // → Update::RefreshDom → regenerate_layout
                         send_ok(request, None, None);
                     }
@@ -9181,7 +9283,9 @@ pub fn process_debug_event(
         }
 
         DebugEvent::Unmount => {
-            crate::e2e::hooks::set_mount_xml(None);
+            callback_info.push_change(
+                azul_layout::callbacks::CallbackChange::RemountDom { xml: None },
+            );
             needs_update = true;
             send_ok(request, None, None);
         }
@@ -11835,6 +11939,18 @@ pub fn process_debug_event(
         }
 
         DebugEvent::RunE2eTests { ref tests, ref snapshots } => {
+            // One scheduler slot per window. A second run started while one is
+            // suspended (or while a scenario STEP is itself `run_e2e_tests`)
+            // would overwrite the first run's progress and leave its requester
+            // blocked on a reply that never comes. Refuse instead of corrupting.
+            if session.is_pending() || session.running {
+                send_err(
+                    request,
+                    "run_e2e_tests: an E2E run is already in progress on this window",
+                );
+                return needs_update;
+            }
+
             log(
                 LogLevel::Info,
                 LogCategory::DebugServer,
@@ -11862,7 +11978,7 @@ pub fn process_debug_event(
                 app_data: app_data.clone(),
                 undo_manager: azul_layout::json::RefAnyUndoManager::new(0),
             };
-            let result = resume_e2e_continuation(cont, callback_info);
+            let result = resume_e2e_continuation(cont, callback_info, session);
             if result { needs_update = true; }
             // Don't send_ok — resume_e2e_continuation sends the response directly
         }
@@ -13053,6 +13169,7 @@ pub fn create_debug_timer(
         component_map,
         request_rx,
         window_id,
+        session: E2eSession::new(),
     });
 
     Timer::create(
@@ -13080,6 +13197,10 @@ struct DebugTimerData {
     request_rx: spmc::Receiver<DebugRequest>,
     /// This window's unique ID for request routing
     window_id: String,
+    /// This window's E2E scheduler slot — the suspended scenario run that has
+    /// to survive between timer ticks. Per-window on purpose: it used to be a
+    /// process-global, so two windows shared one slot.
+    session: E2eSession,
 }
 
 // Re-export log categories for convenience

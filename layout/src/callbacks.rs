@@ -529,6 +529,17 @@ pub enum CallbackChange {
         node_id: NodeId,
         ids_and_classes: azul_core::dom::IdOrClassVec,
     },
+    /// Replace the window's whole DOM with the debug `mount` op's inline
+    /// XML+CSS document (`Some`), or drop the override again (`None`, the
+    /// `unmount` op).
+    ///
+    /// The mounted document is an INPUT to the next layout, not ambient state:
+    /// the shell applies it to [`LayoutWindow::e2e_mount`] like every other
+    /// change and `regenerate_layout` reads it back from there. It used to
+    /// travel through a process-global sink instead (an `e2e::hooks` function
+    /// pointer into a `static` in the DLL), which meant a second window
+    /// silently rendered the first window's mounted document.
+    RemountDom { xml: Option<AzString> },
 
     // Routing
     /// Switch to a different route.

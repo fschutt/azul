@@ -55,42 +55,9 @@ use azul_layout::{
 
 use super::cpu_backend::CpuBackend;
 use super::full::{
-    process_debug_event, e2e_clear_continuation, e2e_pump_continuation, DebugEvent,
-    DebugRequest, DebugResponseData, E2eTest, E2eTestResult, ResponseData,
+    process_debug_event, e2e_pump_continuation, DebugEvent, DebugRequest, DebugResponseData,
+    E2eSession, E2eTest, E2eTestResult, ResponseData,
 };
-
-// ── Process-global mount sink ────────────────────────────────────────────────
-//
-// The `mount` op calls `crate::e2e::hooks::set_mount_xml(Some(doc))` with the
-// fully-built mount document; the shell (here: this runner) reads it back on the
-// next relayout. Host hooks are plain `fn` pointers, so the sink is a static.
-// `RUN_LOCK` serializes whole runs because this sink and `E2E_CONTINUATION` are
-// process-global.
-static RUN_LOCK: Mutex<()> = Mutex::new(());
-static MOUNT_XML: Mutex<Option<String>> = Mutex::new(None);
-static MOUNT_DIRTY: Mutex<bool> = Mutex::new(false);
-
-fn mount_sink(xml: Option<String>) {
-    if let Ok(mut g) = MOUNT_XML.lock() {
-        *g = xml;
-    }
-    if let Ok(mut d) = MOUNT_DIRTY.lock() {
-        *d = true;
-    }
-}
-
-/// Take the mount document iff the `mount`/`unmount` op set it since last check.
-/// Mirrors the DLL's `get_e2e_mount_xml()` + `take_e2e_mount_dirty()` pair: a
-/// non-dirty mount keeps the ALREADY-MOUNTED DOM (with every debug DOM mutation
-/// applied to it) instead of rebuilding it from the XML.
-fn take_mount_if_dirty() -> Option<Option<String>> {
-    let dirty = MOUNT_DIRTY.lock().map(|mut d| std::mem::replace(&mut *d, false)).unwrap_or(false);
-    if dirty {
-        Some(MOUNT_XML.lock().ok().and_then(|g| g.clone()))
-    } else {
-        None
-    }
-}
 
 // ── Headless window scaffolding ──────────────────────────────────────────────
 
@@ -241,8 +208,11 @@ impl Runner {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
         // A pending mount/unmount always needs the DOM rebuilt, even if the op
-        // that produced it somehow did not set `needs_update`.
-        if MOUNT_DIRTY.lock().map(|d| *d).unwrap_or(false) {
+        // that produced it somehow did not set `needs_update`. (`RemountDom`
+        // already returns `ShouldRegenerateDomCurrentWindow` from
+        // `apply_user_change`; this covers a mount left dirty by an earlier
+        // pass that never got to regenerate.)
+        if self.layout_window.e2e_mount.is_dirty() {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
         // A size/DPI change invalidates every rasterised pixel — same thing
@@ -604,6 +574,16 @@ impl Runner {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            CallbackChange::RemountDom { xml } => {
+                // The E2E `mount` / `unmount` document is per-window state, not
+                // a process-global sink: store it on the window and let
+                // `regenerate_layout` read it back on the next pass.
+                self.layout_window
+                    .e2e_mount
+                    .set(xml.as_ref().map(|s| s.as_str().to_string()));
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
+
             // === Scroll ===
             CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
                 let now = self.now();
@@ -680,7 +660,12 @@ impl Runner {
         // E2E `mount` override: replace the DOM wholesale with the test's inline
         // XML+CSS document, but ONLY when the mount is dirty — otherwise keep the
         // already-mounted DOM (with any debug DOM mutations applied to it).
-        let styled_dom = match take_mount_if_dirty() {
+        let mount_change = self
+            .layout_window
+            .e2e_mount
+            .take_dirty()
+            .then(|| self.layout_window.e2e_mount.xml().map(str::to_string));
+        let styled_dom = match mount_change {
             Some(Some(xml)) => match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
                 Ok(sd) => Some(sd),
                 Err(_) => None,
@@ -962,19 +947,14 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
 /// results) — the same value the HTTP `run_e2e_tests` command produces.
 #[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
-    let _guard = RUN_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-
-    // Install the mount sink and clear any state a previous (possibly panicked)
-    // run may have left in the process globals.
-    super::hooks::set_host_hooks(super::hooks::E2eHostHooks {
-        set_mount_xml: Some(mount_sink),
-        ..super::hooks::E2eHostHooks::NONE
-    });
-    e2e_clear_continuation();
     #[cfg(feature = "cpurender")]
     super::full::e2e_clear_presented_frame();
-    *MOUNT_XML.lock().unwrap() = None;
-    *MOUNT_DIRTY.lock().unwrap() = false;
+
+    // This scenario's own scheduler slot. It is a LOCAL, not a `Runner` field,
+    // only because `Runner::with_callback_info` takes `&mut self` and the
+    // dispatcher needs `&mut` on the session at the same time — borrowck, not
+    // ambient state. It has exactly the lifetime of this run.
+    let mut session = E2eSession::new();
 
     let (w, h, dpi) = match &test.setup {
         Some(s) => (s.window_width as f32, s.window_height as f32, s.dpi),
@@ -997,7 +977,7 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     // First dispatch: RunE2eTests sets up the continuation and runs it until the
     // first yield (or completion).
     let needs_update = runner.with_callback_info(&callback_changes, |ci| {
-        process_debug_event(&request, ci, &mut app_data, &component_map)
+        process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
     });
     runner.service(&callback_changes, needs_update);
 
@@ -1005,8 +985,10 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     // resume). A generous cap guards against a non-terminating scenario.
     let mut iterations = 0usize;
     loop {
-        let (needs_update, still_pending, resume_not_before) =
-            runner.with_callback_info(&callback_changes, e2e_pump_continuation);
+        let (needs_update, still_pending, resume_not_before) = runner
+            .with_callback_info(&callback_changes, |ci| {
+                e2e_pump_continuation(ci, &mut session)
+            });
 
         if let Some(deadline) = resume_not_before {
             let now = Instant::now();

@@ -2564,6 +2564,16 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            CallbackChange::RemountDom { xml } => {
+                // The E2E `mount` / `unmount` document is per-window state, not
+                // a process-global sink: store it on the window and let
+                // `regenerate_layout` read it back on the next pass.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.e2e_mount.set(xml.as_ref().map(|s| s.as_str().to_string()));
+                }
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
+
             // === Routing ===
 
             CallbackChange::SwitchRoute { pattern, params } => {

@@ -7,11 +7,11 @@
 //! `process_debug_event` (the op dispatcher), the `DebugEvent` enum, the `E2e*`
 //! JSON schema types and the scenario runner (`resume_e2e_continuation`).
 //!
-//! The OS/DLL-coupled call sites in [`full`] are injected through [`hooks`] so
-//! the core dispatch stays host-agnostic: the native window screenshot and the
-//! process-global mount-XML swap. The DLL installs real implementations via
-//! [`hooks::set_host_hooks`]; headless callers (the `e2e_json` test,
-//! [`run_e2e_test`]) get the no-op / `None` defaults.
+//! ONE call site in [`full`] is injected through [`hooks`] so the core dispatch
+//! stays host-agnostic: the native window screenshot. The DLL installs the real
+//! implementation via [`hooks::set_host_hooks`]; headless callers (the
+//! `e2e_json` test, [`run_e2e_test`]) get the `None` default, which ERRORS
+//! rather than pretending a screenshot was taken.
 //!
 //! The `DebugRequest` plumbing (spmc channel + `handle_event_request` + the
 //! server statics) is gated behind the `e2e-server-http` sub-feature; it is not
@@ -48,16 +48,12 @@ pub mod hooks {
         /// makes the `screenshot` op return an error.
         pub take_native_screenshot_base64:
             Option<fn(&mut CallbackInfo) -> Result<String, String>>,
-        /// Store / clear the process-global mount XML that the shell swaps in on
-        /// the next relayout. `None` makes `mount` / `unmount` a no-op.
-        pub set_mount_xml: Option<fn(Option<String>)>,
     }
 
     impl E2eHostHooks {
         /// All-headless defaults.
         pub const NONE: Self = Self {
             take_native_screenshot_base64: None,
-            set_mount_xml: None,
         };
     }
 
@@ -90,14 +86,6 @@ pub mod hooks {
             None => Err(
                 "native screenshot unavailable (no e2e host hook installed)".to_string(),
             ),
-        }
-    }
-
-    /// Mount-XML seam (`mount` / `unmount` ops). No-op headlessly unless a hook
-    /// (e.g. the headless runner's) is installed.
-    pub(crate) fn set_mount_xml(xml: Option<String>) {
-        if let Some(f) = get().set_mount_xml {
-            f(xml);
         }
     }
 }
