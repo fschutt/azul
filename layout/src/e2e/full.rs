@@ -2855,145 +2855,37 @@ pub fn get_debug_port() -> Option<u16> {
         .and_then(|s| s.parse().ok())
 }
 
-/// Initialize and start the debug server.
+/// Initialize the process-wide debug-server statics.
 ///
-/// This function:
-/// 1. Creates an `spmc::channel` for debug requests
-/// 2. Binds to the port (exits process if port is taken)
-/// 3. Starts the HTTP server thread (captures the `spmc::Sender`)
-/// 4. Blocks until the server is ready to accept connections
-/// 5. Stores the handle in `DEBUG_SERVER` for global access
-/// 6. Returns the handle AND the `spmc::Receiver` for window timers
-///
-/// Called once from `run()` when `AZ_DEBUG=<port>` is set.
-/// Subsequent calls return the existing handle (without a new receiver).
+/// Split out of `start_debug_server`, which now lives in the DLL
+/// (`desktop::shell2::common::debug_server::platform`) because it serves the
+/// debugger UI from assets that only the DLL's `build.rs` emits. The STATE it
+/// touches stays here, next to everything else that reads it.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-platform")]
-pub fn start_debug_server(
-    port: u16,
-) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
-
-    use std::io::{Read, Write};
-    use std::net::{TcpListener, TcpStream};
-    use std::thread;
-    use std::time::Duration;
-
-    // Initialize static state
+#[cfg(feature = "e2e-server-http")]
+pub fn init_debug_server_statics(port: u16) {
     SERVER_START_TIME.get_or_init(std::time::Instant::now);
     LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
     let _ = DEBUG_PORT.set(port);
     DEBUG_ENABLED.store(true, Ordering::SeqCst);
+}
 
-    // Create spmc channel for debug requests
-    let (request_tx, request_rx) = spmc::channel::<DebugRequest>();
-    let request_tx = Arc::new(Mutex::new(request_tx));
-    let request_tx_for_thread = request_tx.clone();
+/// Publish the finished [`DebugServerHandle`] as the process-wide singleton.
+/// Counterpart of [`get_debug_server`]; called by the DLL once its HTTP thread
+/// is up.
+#[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
+pub fn set_debug_server(handle: Arc<DebugServerHandle>) {
+    let _ = DEBUG_SERVER.set(handle);
+}
 
-    // Try to bind - exit if port is taken
-    let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("Debug server failed to bind to port {}: {}", port, e);
-            std::process::exit(1);
-        }
-    };
-
-    // Set a short timeout for accept() so we can check for shutdown
-    listener.set_nonblocking(false).ok();
-
-    // Create shutdown channel
-    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
-
-    // Channel to signal when server is ready
-    let (ready_tx, ready_rx) = mpsc::channel::<()>();
-
-    // Start server thread
-    let thread_handle = thread::Builder::new()
-        .name("azul-debug-server".to_string())
-        .spawn(move || {
-            // Signal that we're ready
-            let _ = ready_tx.send(());
-
-            // Set a timeout on the listener so we can check for shutdown
-            listener.set_nonblocking(true).ok();
-
-            log_internal(
-                LogLevel::Info,
-                LogCategory::DebugServer,
-                format!("Debug server listening on http://127.0.0.1:{}", port),
-                None,
-            );
-
-            loop {
-                // Check for shutdown signal (non-blocking)
-                if shutdown_rx.try_recv().is_ok() {
-                    log_internal(
-                        LogLevel::Info,
-                        LogCategory::DebugServer,
-                        "Debug server shutting down",
-                        None,
-                    );
-                    break;
-                }
-
-                // Try to accept a connection (non-blocking)
-                match listener.accept() {
-                    Ok((mut stream, _addr)) => {
-                        // NOTE: Stream explicitly set to blocking mode
-                        // The listener is non-blocking, but accepted streams may inherit this.
-                        // This causes the final read loop to fail immediately with WouldBlock,
-                        // closing the socket before the client has read all data.
-                        stream.set_nonblocking(false).ok();
-                        // Set read timeout
-                        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-                        // Increase write timeout to 30s for large screenshot transfers
-                        stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
-                        handle_http_connection(&mut stream, &request_tx_for_thread);
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // No connection pending, sleep a bit
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(_) => {
-                        // Other error, continue
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                }
-            }
-        })
-        .expect("Failed to spawn debug server thread");
-
-    // Wait for server to be ready
-    let _ = ready_rx.recv_timeout(Duration::from_secs(5));
-
-    // Verify server is actually accepting connections
-    for _ in 0..10 {
-        if TcpStream::connect_timeout(
-            &format!("127.0.0.1:{}", port).parse().unwrap(),
-            Duration::from_millis(100),
-        )
-        .is_ok()
-        {
-            break;
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    log_internal(
-        LogLevel::Info,
-        LogCategory::DebugServer,
-        format!("Debug server ready on http://127.0.0.1:{}", port),
-        None,
-    );
-
-    let handle = Arc::new(DebugServerHandle {
-        shutdown_tx,
-        thread_handle: Mutex::new(Some(thread_handle)),
-        port,
-        request_tx,
-    });
-    let _ = DEBUG_SERVER.set(handle.clone());
-    (handle, request_rx)
+/// The port the debug server was started on (`0` if it was never started).
+/// Unlike [`get_debug_port`] this reads the ACTUAL bound port, not `AZ_DEBUG`.
+#[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
+#[must_use]
+pub fn debug_server_port() -> u16 {
+    DEBUG_PORT.get().copied().unwrap_or(0)
 }
 
 /// Create a debug channel without starting the HTTP server.
@@ -3117,287 +3009,14 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
 /// Helper function for serializing DebugHttpResponse
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server-http")]
-fn serialize_http_response(response: &DebugHttpResponse) -> String {
+pub fn serialize_http_response(response: &DebugHttpResponse) -> String {
     serde_json::to_string_pretty(response)
         .unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
 }
 
-// ==================== HTTP Server ====================
-
-#[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-platform")]
-fn serve_response(stream: &mut std::net::TcpStream, header: &str, body: &[u8]) {
-    use std::io::{Read, Write};
-    stream.set_nodelay(true).ok();
-    if stream.write_all(header.as_bytes()).is_err() { return; }
-    for chunk in body.chunks(8192) {
-        if stream.write_all(chunk).is_err() { return; }
-    }
-    let _ = stream.flush();
-    let _ = stream.shutdown(std::net::Shutdown::Write);
-    let mut drain = [0u8; 512];
-    while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
-}
-
-#[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-platform")]
-fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) {
-    use std::io::{Read, Write};
-
-    let mut buffer = [0u8; 16384];
-    let bytes_read = match stream.read(&mut buffer) {
-        Ok(n) if n > 0 => n,
-        _ => return,
-    };
-
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-
-    // Parse HTTP request
-    let lines: Vec<&str> = request.lines().collect();
-    if lines.is_empty() {
-        return;
-    }
-
-    let first_line = lines[0];
-    let parts: Vec<&str> = first_line.split_whitespace().collect();
-    if parts.len() < 2 {
-        return;
-    }
-
-    let method = parts[0];
-    let path = parts[1];
-
-    // ── Route: GET /material-icons.ttf → serve embedded Material Icons font ──
-    if method == "GET" && path == "/material-icons.ttf" {
-        if let Some(font_bytes) = crate::e2e::hooks::get_material_icons_font_bytes() {
-            let header = format!(
-                "HTTP/1.0 200 OK\r\nContent-Type: font/ttf\r\nCache-Control: public, max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                font_bytes.len()
-            );
-            serve_response(stream, &header, font_bytes);
-        } else {
-            let body = b"Material Icons font not available (icons feature not enabled)";
-            let header = format!(
-                "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            serve_response(stream, &header, body);
-        }
-        return;
-    }
-
-    // Compressed debugger assets (gzip, built by build.rs)
-    // Browsers decompress transparently via Content-Encoding: br.
-    static DEBUGGER_CSS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.css.br"));
-    static DEBUGGER_JS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.js.br"));
-    static DEBUGGER_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.html.br"));
-
-    // ── Route: GET /debugger.css → serve brotli-compressed CSS ──
-    if method == "GET" && path == "/debugger.css" {
-        let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            DEBUGGER_CSS_BR.len()
-        );
-        serve_response(stream, &header, DEBUGGER_CSS_BR);
-        return;
-    }
-
-    // ── Route: GET /debugger.js → serve brotli-compressed JS ──
-    if method == "GET" && path == "/debugger.js" {
-        let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            DEBUGGER_JS_BR.len()
-        );
-        serve_response(stream, &header, DEBUGGER_JS_BR);
-        return;
-    }
-
-    // ── Route: GET / → serve brotli-compressed debugger HTML ──
-    if method == "GET" && (path == "/" || path == "/index.html") {
-        let header = format!(
-            "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            DEBUGGER_HTML_BR.len()
-        );
-        serve_response(stream, &header, DEBUGGER_HTML_BR);
-        return;
-    }
-
-    // ── Route: POST /debug/compile?lang=<rust|cpp|python> → return generated project as ZIP ──
-    if method == "POST" && path.starts_with("/debug/compile") {
-        let lang = path
-            .split_once('?')
-            .and_then(|(_, q)| {
-                q.split('&').find_map(|kv| {
-                    let (k, v) = kv.split_once('=')?;
-                    if k == "lang" { Some(v) } else { None }
-                })
-            })
-            .unwrap_or("rust");
-
-        let body_start = request
-            .find("\r\n\r\n")
-            .map(|i| i + 4)
-            .or_else(|| request.find("\n\n").map(|i| i + 2));
-        let css_source = body_start.map(|s| &request[s..]).unwrap_or("");
-
-        compile_and_send_zip(stream, lang, css_source);
-        return;
-    }
-
-    let response_json = match (method, path) {
-        // Health check - GET /health
-        ("GET", "/health") => {
-            let logs = take_logs();
-            let health = HealthResponse {
-                port: DEBUG_PORT.get().copied().unwrap_or(0),
-                pending_logs: logs.len(),
-                logs: logs
-                    .iter()
-                    .map(|l| LogMessageJson {
-                        timestamp_us: l.timestamp_us,
-                        level: format!("{:?}", l.level),
-                        category: format!("{:?}", l.category),
-                        message: l.message.clone(),
-                    })
-                    .collect(),
-            };
-            serialize_http_response(&DebugHttpResponse::Ok(DebugHttpResponseOk {
-                request_id: 0,
-                window_state: None,
-                data: Some(ResponseData::Health(health)),
-            }))
-        }
-
-        // Event handling - POST /
-        ("POST", "/") => {
-            // Parse body
-            let body_start = request
-                .find("\r\n\r\n")
-                .map(|i| i + 4)
-                .or_else(|| request.find("\n\n").map(|i| i + 2));
-
-            if let Some(start) = body_start {
-                let body = &request[start..];
-                handle_event_request(body, request_tx)
-            } else {
-                serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
-                    request_id: None,
-                    message: "No request body".to_string(),
-                }))
-            }
-        }
-
-        _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
-            request_id: None,
-            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET /material-icons.ttf → font, GET /health → status, POST / → debug commands (incl. run_e2e_tests), POST /debug/compile?lang=rust → standalone project ZIP".to_string(),
-        })),
-    };
-
-    let body_bytes = response_json.as_bytes();
-    let header = format!(
-        "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body_bytes.len()
-    );
-    serve_response(stream, &header, body_bytes);
-}
-
-/// Compile a CSS source string into a standalone project for `lang` and stream
-/// the resulting ZIP back over `stream`. Errors are surfaced as 4xx/5xx
-/// responses rather than abrupt disconnects so the AZ_DEBUG webpage can render
-/// a useful message.
-#[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-platform")]
-fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source: &str) {
-    use std::io::{Read, Write};
-
-    use azul_css::codegen::backend_for;
-    use azul_layout::zip::{ZipFileEntry, ZipWriteConfig};
-
-    let backend = match backend_for(lang) {
-        Some(b) => b,
-        None => {
-            let body = format!("Unknown lang: {lang}. Supported: rust, cpp, python.");
-            let header = format!(
-                "HTTP/1.0 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: \
-                 {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            stream.set_nodelay(true).ok();
-            let _ = stream.write_all(header.as_bytes());
-            let _ = stream.write_all(body.as_bytes());
-            let _ = stream.flush();
-            let _ = stream.shutdown(std::net::Shutdown::Write);
-            let mut drain = [0u8; 64];
-            while let Ok(n) = stream.read(&mut drain) {
-                if n == 0 {
-                    break;
-                }
-            }
-            return;
-        }
-    };
-
-    let (parsed, _warnings) = azul_css::parser2::new_from_str(css_source);
-    let files = backend.emit_project(&parsed);
-
-    let entries: Vec<ZipFileEntry> = files
-        .into_iter()
-        .map(|f| ZipFileEntry::file(f.path, f.contents.into_bytes()))
-        .collect();
-    let archive = azul_layout::zip::ZipFile { entries };
-
-    let zip_bytes = match archive.to_bytes(&ZipWriteConfig::default()) {
-        Ok(b) => b,
-        Err(e) => {
-            let body = format!("ZIP write failed: {e:?}");
-            let header = format!(
-                "HTTP/1.0 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: \
-                 {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            stream.set_nodelay(true).ok();
-            let _ = stream.write_all(header.as_bytes());
-            let _ = stream.write_all(body.as_bytes());
-            let _ = stream.flush();
-            let _ = stream.shutdown(std::net::Shutdown::Write);
-            let mut drain = [0u8; 64];
-            while let Ok(n) = stream.read(&mut drain) {
-                if n == 0 {
-                    break;
-                }
-            }
-            return;
-        }
-    };
-
-    let header = format!(
-        "HTTP/1.0 200 OK\r\nContent-Type: application/zip\r\nContent-Disposition: attachment; \
-         filename=\"azul-generated-{lang}.zip\"\r\nContent-Length: {}\r\nConnection: \
-         close\r\n\r\n",
-        zip_bytes.len()
-    );
-    stream.set_nodelay(true).ok();
-    if stream.write_all(header.as_bytes()).is_err() {
-        return;
-    }
-    for chunk in zip_bytes.chunks(8192) {
-        if stream.write_all(chunk).is_err() {
-            return;
-        }
-    }
-    let _ = stream.flush();
-    let _ = stream.shutdown(std::net::Shutdown::Write);
-    let mut drain = [0u8; 64];
-    while let Ok(n) = stream.read(&mut drain) {
-        if n == 0 {
-            break;
-        }
-    }
-}
-
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server-http")]
-fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) -> String {
+pub fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) -> String {
     use std::time::Duration;
 
     // Parse the event request
@@ -13444,48 +13063,6 @@ pub fn create_debug_timer(
     .with_interval(Duration::System(
         azul_core::task::SystemTimeDiff::from_millis(16),
     ))
-}
-
-/// Register the debug timer on a window if `AZ_DEBUG` or E2E mode is active.
-///
-/// This is the single cross-platform entry point that replaces the
-/// copy-pasted registration blocks in each platform window constructor.
-/// It reads `app_data` and `window_id` from the window, then creates
-/// a `DebugTimerData` with the given channel receiver and component map.
-#[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-platform")]
-pub fn register_debug_timer(
-    window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
-    request_rx: spmc::Receiver<DebugRequest>,
-    component_map: Arc<Mutex<azul_core::xml::ComponentMap>>,
-) {
-    if !is_debug_enabled() {
-        return;
-    }
-
-    log(
-        LogLevel::Debug,
-        LogCategory::DebugServer,
-        "[Window Init] Registering debug timer",
-        None,
-    );
-
-    /// Well-known timer ID for the debug server polling timer.
-    /// Chosen to avoid collision with user-registered timer IDs.
-    const DEBUG_TIMER_ID: usize = 0xDEBE;
-    let timer_id: usize = DEBUG_TIMER_ID;
-    let app_data_for_timer = window.get_app_data().borrow().clone();
-    let window_id = window.get_current_window_state().window_id.as_str().to_string();
-    let get_system_time_fn = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
-    let debug_timer = create_debug_timer(app_data_for_timer, get_system_time_fn, request_rx, component_map, window_id);
-    window.start_timer(timer_id, debug_timer);
-
-    log(
-        LogLevel::Debug,
-        LogCategory::DebugServer,
-        format!("[Window Init] Debug timer registered with ID 0x{:X}", timer_id),
-        None,
-    );
 }
 
 /// Data stored in the debug timer's `RefAny`.

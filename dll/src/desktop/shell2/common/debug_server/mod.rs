@@ -1,11 +1,24 @@
 //! Debug server module.
 //!
-//! With the `debug-server` feature ON, the full HTTP debug/inspector server +
-//! E2E runner live in [`full`] (the ~10k-line implementation). With it OFF (the
-//! default, shipped lean `azul.*`), only the tiny [`stub`] is compiled: AZ_DEBUG
-//! is a no-op, no server thread, no request handlers, no scaffold generators —
-//! removing several MB and an attacker-reachable port from customer builds.
-//! Build `azuldbg.*` with `--features build-dll,debug-server` to get the server.
+//! With the `debug-server` feature ON, the debug/inspector server + E2E runner
+//! come from [`azul_layout::e2e`] (the ~13k-line op dispatcher, the `DebugEvent`
+//! schema, the assertion library and the scenario runner), re-exported here so
+//! the 180 `debug_server::…` call sites across the shell keep compiling
+//! unchanged. Only the pieces that genuinely cannot live in `azul-layout` are
+//! local, in [`platform`]: the TCP listener that serves the debugger UI out of
+//! this crate's `build.rs` assets, and `register_debug_timer`, which takes a
+//! `&mut dyn PlatformWindow`.
+//!
+//! This module used to carry a SECOND, hand-ported copy of that dispatcher
+//! (`full.rs`). The two copies drifted 1,322 lines apart because CI gated only
+//! this one while `azul-doc e2e` gated only the layout one, so an assertion
+//! fixed in either was silently not fixed in the other. There is now one copy.
+//!
+//! With the feature OFF (the default, shipped lean `azul.*`), only the tiny
+//! [`stub`] is compiled: AZ_DEBUG is a no-op, no server thread, no request
+//! handlers, no scaffold generators — removing several MB and an
+//! attacker-reachable port from customer builds. Build `azuldbg.*` with
+//! `--features build-dll,debug-server` to get the server.
 //!
 //! The `log_*` macros are defined here (always compiled, 700+ call sites). Their
 //! body keeps the `if is_debug_enabled() { log(..., format!(...), ...) }` shape
@@ -14,9 +27,12 @@
 //! the branch is dead and the logging machinery is never reached.
 
 #[cfg(feature = "debug-server")]
-mod full;
+pub use azul_layout::e2e::*;
+
 #[cfg(feature = "debug-server")]
-pub use full::*;
+mod platform;
+#[cfg(feature = "debug-server")]
+pub use platform::*;
 
 #[cfg(not(feature = "debug-server"))]
 mod stub;

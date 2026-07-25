@@ -354,6 +354,11 @@ fn setup_debug_and_e2e(
 
     #[cfg(feature = "debug-server")]
     {
+        // The op dispatcher lives in `azul_layout::e2e` and reaches back into
+        // this crate for the native screenshot + the DOM mount override. Install
+        // those before the first request can be dispatched.
+        debug_server::install_e2e_host_hooks();
+
         let debug_port = debug_server::get_debug_port();
         let e2e_file = e2e_test_file();
         let needs_debug = debug_port.is_some() || e2e_file.is_some();

@@ -305,18 +305,14 @@ icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 # just this feature.
 e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml"]
 
-# HTTP transport (TcpListener + spmc channel + the `/…` request handlers). Opt-in
-# ON TOP of `e2e-server`; the core op-dispatch and the headless runner compile
-# WITHOUT it. This is what keeps networking off the library API path.
+# Request transport for the debug server: the spmc channel, the debug timer and
+# `handle_event_request`. Opt-in ON TOP of `e2e-server`; the core op-dispatch and
+# the headless runner compile WITHOUT it. This is what keeps the request
+# plumbing off the library API path. The socket itself is the DLL's
+# (`debug_server::platform`), because the debugger UI it serves is built by the
+# DLL's build script.
 e2e-server-http = ["e2e-server", "dep:spmc"]
 
-# The parts of the port that need facilities only the DLL provides: the
-# `register_debug_timer(&mut dyn PlatformWindow)` entry point (that trait lives
-# in the DLL) and the HTTP web server that serves the debugger UI via
-# `include_bytes!(env!("OUT_DIR")/debugger.*.br)` (assets emitted by the DLL's
-# build script). Never enabled inside `azul-layout` itself — the bodies are
-# preserved but gated out of the layout copy; the DLL enables this feature.
-e2e-server-platform = ["e2e-server-http"]
 
 # Opt-in gates for intentionally-disabled test files (kept in the tree, off by
 # default — their `#![cfg(feature = "DISABLED_*")]` never matches normal builds).

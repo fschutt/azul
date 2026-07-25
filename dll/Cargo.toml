@@ -703,7 +703,12 @@ logging = ["log"]
 # Pulls `json`: the debug server's app-state ops (get/set/assert_app_state and
 # the undo/redo mini-git) deserialize/serialize the app RefAny through
 # `azul_layout::json`, so the server cannot compile without it.
-debug-server = ["json"]
+#
+# The implementation itself lives in `azul-layout` behind `e2e-server-http`
+# (which implies `e2e-server`); `common/debug_server` only re-exports it and
+# adds the TCP listener + `register_debug_timer`. It used to be a second, drifted
+# copy of the same 12k lines.
+debug-server = ["json", "azul-layout/e2e-server-http", "spmc"]
 
 # Memory allocator features — set the global allocator inside the azul DLL.
 # Since azul exposes a C API, the allocator only affects azul's internal
