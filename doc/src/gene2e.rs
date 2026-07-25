@@ -1142,7 +1142,19 @@ pub fn plan(
     }
 
     // Orphans: on disk, but no corpus line (in the WHOLE corpus) claims them.
+    //
+    // ONLY files this generator produced are eligible. `--prune` deletes orphans,
+    // and the out-dir is now the shared `e2e/` corpus, which also holds the
+    // hand-written scenarios (`op-*.json`, `bug-*.json`, `mock-*.json`). Those
+    // carry no `_source_hash` — they predate content-addressing and no corpus
+    // line will ever claim them — so the old "unclaimed => orphan" rule made all
+    // 21 of them prune candidates. A single `--prune` would have silently deleted
+    // the entire hand-written suite, including the regression tests guarding bugs
+    // fixed today. A foreign file is not ours to reclassify, let alone remove.
     for a in artifacts {
+        if !is_generated_artifact(&a.path) {
+            continue;
+        }
         let claimed = a
             .hash
             .as_ref()
@@ -1152,6 +1164,27 @@ pub fn plan(
         }
     }
     p
+}
+
+/// Whether `path` is an artifact THIS generator wrote.
+///
+/// Generated artifacts are named `<NNNNN>-<slug>.json` (see the `out` path built
+/// in `plan`), so a leading 5-digit index followed by `-` is the signature. Any
+/// other `*.json` in the out-dir belongs to someone else — hand-written
+/// scenarios, fixtures, scratch files — and must never be pruned or renumbered.
+fn is_generated_artifact(path: &std::path::Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let Some((index, rest)) = name.split_once('-') else {
+        return false;
+    };
+    // The slug itself must be non-empty: `00001-.json` is malformed, and an
+    // ambiguous name is not worth a deletion. Err toward NOT ours.
+    index.len() == 5
+        && index.bytes().all(|b| b.is_ascii_digit())
+        && !rest.trim_start_matches(".json").is_empty()
+        && rest != ".json"
 }
 
 fn slug(tag: &str, desc: &str) -> String {
@@ -1531,6 +1564,67 @@ mod tests {
             .to_path_buf()
     }
 
+    /// `--prune` deletes orphans, and the out-dir is the shared `e2e/` corpus
+    /// that also holds the hand-written scenarios. Those carry no `_source_hash`
+    /// and no corpus line will ever claim them, so if they counted as artifacts a
+    /// single `--prune` would delete the whole hand-written suite. Only files
+    /// this generator NAMED (`<NNNNN>-<slug>.json`) may be reclassified.
+    #[test]
+    fn prune_only_ever_considers_files_this_generator_wrote() {
+        for generated in [
+            "00001-idle-stability-mount-a-red-flexbox.json",
+            "13223-some-tag-trailing.json",
+            "00000-a.json",
+        ] {
+            assert!(
+                is_generated_artifact(std::path::Path::new(generated)),
+                "{generated} is a generated artifact and must stay prunable",
+            );
+        }
+
+        // Every hand-written scenario shipped in e2e/, plus near-miss shapes.
+        for foreign in [
+            "op-tab-focus-next.json",
+            "bug-dom-mutation-no-damage.json",
+            "mock-font-exact-metrics.json",
+            "0001-too-short-an-index.json",
+            "000001-too-long-an-index.json",
+            "abcde-not-digits.json",
+            "00001.json",
+            "00001-.json",
+        ] {
+            assert!(
+                !is_generated_artifact(std::path::Path::new(foreign)),
+                "{foreign} is NOT ours — pruning it would delete someone else's test",
+            );
+        }
+    }
+
+    /// The real corpus directory must survive a prune untouched.
+    #[test]
+    fn the_hand_written_e2e_corpus_is_never_prunable() {
+        let dir = root().join("e2e");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&dir).expect("e2e/ must exist") {
+            let path = entry.expect("readable dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_str().unwrap();
+            // Generated artifacts may legitimately live here too; only assert
+            // about the hand-written ones.
+            if is_generated_artifact(&path) {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                !name.chars().take(5).all(|c| c.is_ascii_digit()),
+                "{name} looks generated but was classified as hand-written",
+            );
+        }
+        assert!(checked > 0, "no hand-written scenarios found in {}", dir.display());
+    }
+
     #[test]
     fn schema_parses_the_real_full_rs() {
         let s = parse_schema(&root()).unwrap();
@@ -1878,7 +1972,11 @@ fn evaluate_assertion(op: &str) {{
 
     fn art(hash: &str, valid: bool) -> Artifact {
         Artifact {
-            path: PathBuf::from(format!("/out/{hash}.json")),
+            // Must match the REAL naming convention (`<NNNNN>-<slug>.json`), not
+            // `<hash>.json`: only files named that way are eligible for pruning,
+            // so a helper using an unrealistic name would silently exempt every
+            // artifact in these tests from the orphan logic they exercise.
+            path: PathBuf::from(format!("/out/00001-{hash}.json")),
             hash: Some(hash.to_string()),
             valid,
         }
@@ -1988,20 +2086,39 @@ fn evaluate_assertion(op: &str) {{
         assert_eq!(p.already_done, 2, "the two moved-but-unchanged lines stay done");
         assert_eq!(p.todo.len(), 1);
         assert_eq!(p.todo[0].tag, "z/new");
-        assert_eq!(p.orphans, vec![PathBuf::from(format!("/out/{}.json", w[2].hash))]);
+        // Path must match `art()`'s naming, which mirrors the real
+        // `<NNNNN>-<slug>.json` convention — only such files are prunable.
+        assert_eq!(p.orphans, vec![PathBuf::from(format!("/out/00001-{}.json", w[2].hash))]);
     }
 
     #[test]
     fn an_unidentified_file_is_an_orphan() {
         let w = parse_corpus(CORPUS, Path::new("/out"));
-        let stray = Artifact {
+
+        // A file WE named but carrying no `_source_hash` (written before
+        // content-addressing, or truncated mid-write) is genuinely ours and
+        // genuinely unclaimed — an orphan, and `--prune` may remove it.
+        let ours = Artifact {
+            path: PathBuf::from("/out/00007-some-generated-slug.json"),
+            hash: None,
+            valid: true,
+        };
+        // A file we did NOT name is not ours to reclassify. The out-dir is now
+        // the shared `e2e/` corpus, which also holds the hand-written scenarios;
+        // orphaning those would let a single `--prune` delete the entire
+        // hand-written suite, regression tests included.
+        let foreign = Artifact {
             path: PathBuf::from("/out/handwritten.json"),
             hash: None,
             valid: true,
         };
-        let p = plan(w.clone(), &hashes(&w), &[stray], &BTreeSet::new(), false, None);
+        let p = plan(w.clone(), &hashes(&w), &[ours, foreign], &BTreeSet::new(), false, None);
         assert_eq!(p.todo.len(), 3);
-        assert_eq!(p.orphans, vec![PathBuf::from("/out/handwritten.json")]);
+        assert_eq!(
+            p.orphans,
+            vec![PathBuf::from("/out/00007-some-generated-slug.json")],
+            "only a file this generator NAMED may be pruned",
+        );
     }
 
     #[test]
