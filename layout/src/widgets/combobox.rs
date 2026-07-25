@@ -763,6 +763,13 @@ impl From<ComboBox> for Dom {
 
 #[cfg(all(test, feature = "std"))]
 #[allow(clippy::too_many_lines)]
+// `redundant_closure`: NOT redundant here. `run()` takes
+// `impl FnOnce(RefAny, CallbackInfo) -> R`; `CallbackInfo` carries an elided
+// lifetime, so the bound is higher-ranked (`for<'a> FnOnce(_, CallbackInfo<'a>)`).
+// The handlers are `extern "C" fn` items, which do NOT satisfy a higher-ranked
+// `FnOnce` bound — passing one bare fails to compile with E0277. The `|r, ci| f(r, ci)`
+// wrapper is what makes the coercion happen and must stay.
+#[allow(clippy::redundant_closure)]
 mod autotest_generated {
     use std::{
         cell::{Cell, RefCell},

@@ -512,6 +512,11 @@ impl From<RadioGroup> for Dom {
 
 #[cfg(test)]
 #[allow(clippy::float_cmp, clippy::too_many_lines)]
+// `assertions_on_constants`: these are deliberate invariant guards over sibling
+// `const`s in this module. They are const-foldable *today*, which is exactly the
+// point — they must go red the moment someone edits one of those constants into an
+// inconsistent value. Deleting them (clippy's suggestion) would delete the check.
+#[allow(clippy::assertions_on_constants)]
 mod autotest_generated {
     use std::{
         collections::{BTreeMap, HashMap},

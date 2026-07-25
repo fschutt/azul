@@ -346,6 +346,11 @@ impl From<Switch> for Dom {
 
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // every float here is an exact, integral px constant
+// `assertions_on_constants`: these are deliberate invariant guards over sibling
+// `const`s in this module. They are const-foldable *today*, which is exactly the
+// point — they must go red the moment someone edits one of those constants into an
+// inconsistent value. Deleting them (clippy's suggestion) would delete the check.
+#[allow(clippy::assertions_on_constants)]
 mod autotest_generated {
     use std::{
         collections::{BTreeMap, HashMap},
