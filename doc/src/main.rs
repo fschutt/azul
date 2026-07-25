@@ -13,6 +13,7 @@ pub mod autotest;
 pub mod codegen;
 pub mod doc_coverage;
 pub mod dllgen;
+pub mod e2erun;
 pub mod gene2e;
 pub mod docgen;
 pub mod patch;
@@ -320,6 +321,16 @@ fn main() -> anyhow::Result<()> {
             let api_data = load_api_json(&api_path)?;
             doc_coverage::run(&project_root, &api_data, &opts)?;
             return Ok(());
+        }
+        ["e2e", rest @ ..] => {
+            // RUN e2e JSON scenarios headlessly, in ONE process, printing a
+            // cargo-test-style report. The in-process equivalent of
+            // `AZ_E2E=<path> ./app`, but with no host binary to link and no
+            // process-per-file bash loop (the corpus is ~13k files).
+            // Usage: e2e <file-or-dir.json> [--filter <substr>] [--list]
+            let opts = e2erun::E2eRunOptions::parse(rest)?;
+            let code = e2erun::run(&opts)?;
+            std::process::exit(code);
         }
         ["gen-e2e", rest @ ..] => {
             // Fan out a fleet of cheap Claude agents that turn each ONE-LINE test

@@ -26,6 +26,9 @@ pub use full::*;
 mod runner;
 pub use runner::run_e2e_test;
 
+mod report;
+pub use report::{load_e2e_tests, render_report, E2eVerdict};
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
