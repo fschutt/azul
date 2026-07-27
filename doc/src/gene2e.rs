@@ -1127,6 +1127,21 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    - "damage covers the change" / sound  -> assert_damage_covers_changes {{"vs": "before"}}
    - "a patch, not a full redraw"        -> assert_damage_incremental {{"max_area_ratio": 0.5}}
    - "returns to idle / zero damage"     -> tick_ms, wait, then assert_idle_stable {{"vs": "<a snapshot_frame taken after the change>"}}
+   - "EVERY frame identical to the PREVIOUS one" / "stays idle for N frames"
+     -> this is NOT the single-snapshot form above. `assert_idle_stable` compares
+        against ONE named snapshot, so `snapshot f0; tick; tick; tick; assert vs f0`
+        only proves frame_N == frame_0 — an engine that oscillates A -> B -> A -> B -> A
+        PASSES it. When the line says every frame equals the previous one, or asks
+        the window to stay idle across N frames, RE-SNAPSHOT EACH FRAME and assert
+        against the frame immediately before it:
+            {{"op":"snapshot_frame","as":"f0"}},
+            {{"op":"tick_ms","ms":16}}, {{"op":"wait_frame"}},
+            {{"op":"assert_idle_stable","vs":"f0"}}, {{"op":"snapshot_frame","as":"f1"}},
+            {{"op":"tick_ms","ms":16}}, {{"op":"wait_frame"}},
+            {{"op":"assert_idle_stable","vs":"f1"}}, {{"op":"snapshot_frame","as":"f2"}},
+            … one such triple per frame the line asks for.
+        Use distinct snapshot names (f0, f1, f2 …); reusing one name compares
+        against the wrong frame and silently weakens the test.
    - "bounded work / no relayout storm"  -> assert_work_bounded {{"max_relayouts": 4, "max_dom_regens": 3}}
    - "does not trigger a relayout"       -> assert_work_bounded {{"max_relayouts": 0}}
    - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "images": "eq", "fonts": "le"}}
