@@ -3246,11 +3246,25 @@ jobs:
           sudo docker image prune --all --force 2>/dev/null || true
           echo "After:"; df -h / | tail -1
 
-      - name: Checkout repository (for fallback assets)
+      - name: Checkout repository (for fallback assets + the mirror builder)
         uses: actions/checkout@v7
         with:
+          # `scripts/build_registry_mirrors.sh` MUST be listed here. This is a
+          # sparse checkout with cone-mode off, so anything not named below is
+          # simply absent from the workspace — and the mirror step below runs
+          # that script by path. It was missing from 2026-05-30 (when the script
+          # was added) until 2026-07-27, so the step died with
+          #     bash: scripts/build_registry_mirrors.sh: No such file or directory
+          #     exit code 127
+          # every single time. A `|| true` on that line swallowed the 127, so the
+          # deploy went green while /ui/azul, /ui/npm, /ui/nuget and /ui/gems were
+          # never built — and the site kept publishing
+          #     pip install azul --index-url https://azul.rs/ui
+          # against an index that did not exist. Adding a script here without
+          # adding its path is silent; keep the two in sync.
           sparse-checkout: |
             examples/assets/screenshots
+            scripts/build_registry_mirrors.sh
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton
