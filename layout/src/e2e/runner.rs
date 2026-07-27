@@ -66,6 +66,20 @@ struct Runner {
     renderer_resources: RendererResources,
     system_callbacks: ExternalSystemCallbacks,
     window_state: FullWindowState,
+    /// The sync baseline the state-diff pass reads, i.e.
+    /// `CommonWindowState::previous_window_state`. `determine_all_events`
+    /// derives EVERY synthetic event (MouseDown/Up, KeyDown/Up, WindowFocusIn/
+    /// Out, WindowMove/Resize) from `current` vs `previous`, so without this
+    /// field the diff is always empty and no pointer or key event exists at
+    /// all. Advanced by `ModifyWindowState` / `QueueWindowStateSequence`
+    /// exactly where the DLL calls `set_previous_window_state`.
+    previous_window_state: Option<FullWindowState>,
+    /// Pointer→node resolution, i.e. `CommonWindowState::cpu_hit_tester`.
+    ///
+    /// The runner has no WebRender, so this is the same `CpuHitTester` the
+    /// headless / CPU-mode desktop backends use, rebuilt from the layout
+    /// results (see [`Runner::rebuild_hit_tester`]).
+    cpu_hit_tester: azul_layout::headless::CpuHitTester,
     /// CPU renderer + retained damage state (port of the headless backend).
     cpu_backend: CpuBackend,
     /// The app-level font cache, i.e. `AppInternal::fc_cache`. Re-installed on
@@ -133,6 +147,8 @@ impl Runner {
             renderer_resources: RendererResources::default(),
             system_callbacks: ExternalSystemCallbacks::rust_internal(),
             window_state: ws,
+            previous_window_state: None,
+            cpu_hit_tester: azul_layout::headless::CpuHitTester::new(),
             cpu_backend: CpuBackend::new(),
             app_fc_cache,
             #[cfg(feature = "font_async_registry")]
@@ -199,6 +215,62 @@ impl Runner {
             )
             .expect("layout_and_generate_display_list");
         self.register_scroll_nodes();
+        self.rebuild_hit_tester();
+    }
+
+    /// Rebuild [`Runner::cpu_hit_tester`] from the current layout results.
+    ///
+    /// Port of the headless backend's post-`regenerate_layout` rebuild
+    /// (`dll/.../shell2/headless/mod.rs`), which carries this comment: *without
+    /// this rebuild that tester stays empty, so every click hit-tests to
+    /// nothing and widget callbacks never fire*.
+    ///
+    /// Called from exactly two places, and both are load-bearing:
+    ///
+    /// * [`Runner::layout`] — the single funnel every layout pass goes through
+    ///   (`regenerate_layout` for mount / remount / resize / DPI, and
+    ///   `relayout_only` for an in-place DOM or style mutation). Rebuilding
+    ///   here is what keeps a `click` after a `set_node_text` from testing the
+    ///   pre-mutation geometry.
+    /// * the tail of [`Runner::service`] — the paths that produce a new frame
+    ///   WITHOUT running layout (`ShouldReRenderCurrentWindow`,
+    ///   `ShouldUpdateDisplayListCurrentWindow`,
+    ///   `UpdateHitTesterAndProcessAgain` — the last one names it outright) all
+    ///   land there, and a display-list rebuild can move the `VirtualView`
+    ///   placements this tester translates child DOMs by. It also guarantees
+    ///   the invariant that actually matters: at the START of every op the
+    ///   tester agrees with the frame on screen. A stale tester does not fail
+    ///   loudly — it silently answers with the WRONG node, which is worse than
+    ///   the `unsupported` refusal this replaced.
+    fn rebuild_hit_tester(&mut self) {
+        self.cpu_hit_tester
+            .rebuild_from_layout(&self.layout_window.layout_results);
+    }
+
+    /// Port of `PlatformWindow::update_hit_test_at`
+    /// (`dll/src/desktop/shell2/common/event.rs`): resolve the pointer position
+    /// to nodes and publish the result on the hover manager, which is where
+    /// `determine_all_events` reads the mouse target from and where
+    /// `CallbackInfo::get_hit_node` / text selection look it up.
+    ///
+    /// The CPU→`FullHitTest` conversion is the SAME function the desktop
+    /// shells' `perform_hit_test` uses
+    /// ([`azul_layout::headless::convert_cpu_hit_test_to_full`]) — not a
+    /// re-derivation.
+    fn update_hit_test_at(&mut self, position: LogicalPosition) {
+        use azul_layout::managers::hover::InputPointId;
+
+        let focused_node = self.layout_window.focus_manager.get_focused_node().copied();
+        let hits = self.cpu_hit_tester.hit_test(position);
+        let hit_test = azul_layout::headless::convert_cpu_hit_test_to_full(
+            &hits,
+            focused_node,
+            &self.layout_window.layout_results,
+            position,
+        );
+        self.layout_window
+            .hover_manager
+            .push_hit_test(InputPointId::Mouse, hit_test);
     }
 
     /// Apply the `CallbackChange`s the runner pushed this pump, then finish the
@@ -252,6 +324,12 @@ impl Runner {
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => self.render_and_record(),
         }
+
+        // The frame is now final for this op. Re-derive the pointer→node map
+        // from it so the NEXT op's hit test cannot read geometry that a
+        // display-list-only path (the render-only arms above) just moved. See
+        // [`Runner::rebuild_hit_tester`].
+        self.rebuild_hit_tester();
     }
 
     /// Port of `PlatformWindow::process_window_events`
@@ -273,6 +351,11 @@ impl Runner {
     /// `ModifyWindowState` arm, so an idle frame reported the same number as a
     /// converged event pass and `assert_work_bounded` could not tell "no work"
     /// from "one pass of work".
+    ///
+    /// The pass itself mirrors the DLL's ordering: determine events → `:hover`
+    /// restyle → user callbacks → click-to-focus → keyboard default action →
+    /// focus events → re-entry. It used to run ONLY the keyboard branch, which
+    /// is why no pointer op could focus a node headlessly.
     fn process_window_events(&mut self, depth: usize) -> ProcessEventResult {
         #[allow(clippy::cast_possible_truncation)]
         let depth_u32 = depth as u32;
@@ -287,32 +370,547 @@ impl Runner {
             return ProcessEventResult::DoNothing;
         }
 
-        // The state-diff pass. The E2E op set reaches exactly one branch of it
-        // without a platform window: the keyboard default action (Tab → focus
-        // next / previous, Escape → clear focus).
-        let focus_before = self
-            .layout_window
-            .focus_manager
-            .get_focused_node()
-            .copied();
-        self.run_keyboard_default_action();
-        let focus_after = self
-            .layout_window
-            .focus_manager
-            .get_focused_node()
-            .copied();
+        // ── 1. EVENT DETERMINATION ───────────────────────────────────────
+        //
+        // `determine_all_events` is the ONLY thing that turns a window-state
+        // delta into events. It reads the pointer target off the hover
+        // manager, which the callers of this pass (`ModifyWindowState`,
+        // `QueueWindowStateSequence`, `RequestHitTestUpdate`) fill in via
+        // `update_hit_test_at` — exactly as the DLL's platform layer does
+        // before calling `process_window_events`.
+        let previous_state = self
+            .previous_window_state
+            .clone()
+            .unwrap_or_else(|| self.window_state.clone());
+        let timestamp = self.now();
+        let wheel_delta = self.layout_window.scroll_manager.pending_wheel_event;
+        let synthetic_events = {
+            let lw = &self.layout_window;
+            let providers: Vec<&dyn azul_core::events::EventProvider> = vec![
+                &lw.text_input_manager,
+                &lw.sensor_manager,
+                &lw.gamepad_manager,
+                &lw.geolocation_manager,
+                &lw.permission_manager,
+                &lw.biometric_manager,
+                &lw.keyring_manager,
+            ];
+            azul_layout::event_determination::determine_all_events(
+                &self.window_state,
+                &previous_state,
+                &lw.hover_manager,
+                &lw.focus_manager,
+                &lw.file_drop_manager,
+                Some(&lw.gesture_drag_manager),
+                &providers,
+                wheel_delta,
+                timestamp,
+            )
+        };
 
-        let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
-        // Port of the DLL's focus recursion (`event.rs`: a focus change re-enters
-        // the pass so the newly focused node's own state is evaluated).
-        if focus_before != focus_after {
-            if depth + 1 < MAX_EVENT_RECURSION_DEPTH {
-                result = result.max(self.process_window_events(depth + 1));
-            } else {
-                self.layout_window.frame_report.hit_depth_cap = true;
+        // Clear the one-shot pending-event flags now that this pass has
+        // collected them — one event per change, not one per frame (the DLL
+        // does this at the same point, right after determination).
+        {
+            let lw = &mut self.layout_window;
+            lw.sensor_manager.clear_pending_event();
+            lw.gamepad_manager.clear_pending_event();
+            lw.geolocation_manager.clear_pending_event();
+            lw.permission_manager.clear_pending_changed();
+            lw.biometric_manager.clear_pending_event();
+            lw.keyring_manager.clear_pending_event();
+            lw.gesture_drag_manager.clear_pen_event_pending();
+            lw.gesture_drag_manager.clear_native_gesture();
+        }
+
+        if synthetic_events.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+
+        let mut result = ProcessEventResult::DoNothing;
+
+        // ── 2. INCREMENTAL `:hover` RESTYLE ──────────────────────────────
+        // Enter/leave targets of THIS pass, restyled now so pure-CSS `:hover`
+        // rules take effect without a DOM regeneration.
+        {
+            let mut per_dom: BTreeMap<DomId, azul_core::styled_dom::HoverChange> = BTreeMap::new();
+            for ev in &synthetic_events {
+                let is_enter = ev.event_type == azul_core::events::EventType::MouseEnter;
+                let is_leave = ev.event_type == azul_core::events::EventType::MouseLeave;
+                if !is_enter && !is_leave {
+                    continue;
+                }
+                let Some(node) = ev.target.node.into_crate_internal() else {
+                    continue;
+                };
+                let entry = per_dom.entry(ev.target.dom).or_insert_with(|| {
+                    azul_core::styled_dom::HoverChange {
+                        left_nodes: Vec::new(),
+                        entered_nodes: Vec::new(),
+                    }
+                });
+                if is_enter {
+                    entry.entered_nodes.push(node);
+                } else {
+                    entry.left_nodes.push(node);
+                }
+            }
+            if !per_dom.is_empty() {
+                result = result.max(apply_hover_restyle(&mut self.layout_window, per_dom));
             }
         }
+
+        // The hit test the callbacks (and the click-to-focus pass below) see.
+        let hit_test_for_dispatch = self
+            .layout_window
+            .hover_manager
+            .get_current(&azul_layout::managers::hover::InputPointId::Mouse)
+            .cloned();
+
+        // ── 3. USER CALLBACK DISPATCH (W3C capture → target → bubble) ────
+        let old_focus = self.layout_window.focus_manager.get_focused_node().copied();
+        let (changes_result, callback_update, prevent_default) =
+            self.dispatch_events_propagated(&synthetic_events);
+        result = result.max(changes_result);
+
+        // The wheel delta has now been delivered; clear it so no later pass
+        // re-fires a stale Scroll event.
+        self.layout_window.scroll_manager.pending_wheel_event = None;
+
+        let mut should_recurse = false;
+        if matches!(
+            callback_update,
+            azul_core::callbacks::Update::RefreshDom
+                | azul_core::callbacks::Update::RefreshDomAllWindows
+        ) {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+            should_recurse = true;
+        }
+
+        // ── 4. MOUSE CLICK-TO-FOCUS (W3C default action) ─────────────────
+        // The deepest focusable ancestor of the deepest hit node takes focus
+        // on MouseDown. This is the default action that makes `click` able to
+        // focus anything at all — before the hit tester was wired, the ONLY
+        // way to move focus headlessly was Tab.
+        let mut mouse_click_focus_changed = false;
+        if !prevent_default
+            && synthetic_events
+                .iter()
+                .any(|e| e.event_type == azul_core::events::EventType::MouseDown)
+        {
+            let clicked_focusable_node = hit_test_for_dispatch.as_ref().and_then(|hit_test| {
+                let mut found: Option<DomNodeId> = None;
+                for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
+                    let deepest = hit_test_data
+                        .regular_hit_test_nodes
+                        .iter()
+                        .max_by_key(|(_, hit_item)| core::cmp::Reverse(hit_item.hit_depth));
+                    let Some((node_id, _)) = deepest else { continue };
+                    let Some(layout_result) = self.layout_window.layout_results.get(dom_id) else {
+                        continue;
+                    };
+                    let node_data = layout_result.styled_dom.node_data.as_container();
+                    let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+                    let mut current = Some(*node_id);
+                    while let Some(nid) = current {
+                        if node_data.get(nid).is_some_and(azul_core::dom::NodeData::is_focusable) {
+                            found = Some(DomNodeId {
+                                dom: *dom_id,
+                                node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
+                            });
+                            break;
+                        }
+                        current = node_hierarchy.get(nid).and_then(|h| h.parent_id());
+                    }
+                }
+                found
+            });
+
+            if let Some(new_focus_target) = clicked_focusable_node {
+                if old_focus.and_then(|f| f.node.into_crate_internal())
+                    != new_focus_target.node.into_crate_internal()
+                {
+                    result = result.max(self.set_focus(Some(new_focus_target), old_focus));
+                    mouse_click_focus_changed = true;
+                }
+            }
+        }
+
+        // ── 5. KEYBOARD DEFAULT ACTIONS (Tab / Shift+Tab / Escape) ───────
+        // Gated on a KeyDown in THIS pass, like the DLL. Before that gate
+        // existed the runner re-ran the action on every recursion level, so a
+        // single Tab walked the focus ring MAX_EVENT_RECURSION_DEPTH times and
+        // set `hit_depth_cap` on every key press (it only produced the right
+        // answer because 7 steps over 3 focusables is a net +1).
+        let mut default_action_focus_changed = false;
+        if !prevent_default
+            && synthetic_events
+                .iter()
+                .any(|e| e.event_type == azul_core::events::EventType::KeyDown)
+        {
+            let (r, changed) = self.run_keyboard_default_action();
+            result = result.max(r);
+            default_action_focus_changed = changed;
+        }
+
+        // ── 6. FOCUS EVENTS + RE-ENTRY ───────────────────────────────────
+        if (default_action_focus_changed || mouse_click_focus_changed)
+            && depth + 1 < MAX_EVENT_RECURSION_DEPTH
+        {
+            let new_focus = self.layout_window.focus_manager.get_focused_node().copied();
+
+            // Collapse any selection: standard UI behaviour on focus change.
+            if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
+                if let Some(cursor) = mc.get_primary_cursor() {
+                    mc.set_single_cursor(cursor);
+                }
+            }
+
+            let now = self.now();
+            let mut focus_events = Vec::new();
+            if let Some(old_node) = old_focus {
+                focus_events.push(azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::Blur,
+                    azul_core::events::EventSource::User,
+                    old_node,
+                    now.clone(),
+                    azul_core::events::EventData::None,
+                ));
+            }
+            if let Some(new_node) = new_focus {
+                focus_events.push(azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::Focus,
+                    azul_core::events::EventSource::User,
+                    new_node,
+                    now,
+                    azul_core::events::EventData::None,
+                ));
+            }
+            if !focus_events.is_empty() {
+                let (focus_result, focus_update, _) =
+                    self.dispatch_events_propagated(&focus_events);
+                result = result.max(focus_result);
+                if matches!(
+                    focus_update,
+                    azul_core::callbacks::Update::RefreshDom
+                        | azul_core::callbacks::Update::RefreshDomAllWindows
+                ) {
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
+            }
+
+            // CRITICAL (verbatim from the DLL): advance the sync baseline
+            // BEFORE recursing, or the SAME MouseDown / Tab is re-detected at
+            // depth+1 and its default action fires again on every level.
+            self.previous_window_state = Some(self.window_state.clone());
+            result = result.max(self.process_window_events(depth + 1));
+        } else if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+            self.previous_window_state = Some(self.window_state.clone());
+            result = result.max(self.process_window_events(depth + 1));
+        }
+
+        // Finalize pending focus changes (caret init for contenteditable) —
+        // the DLL's end-of-pass `SystemChange::FinalizePendingFocusChanges`.
+        self.layout_window.finalize_pending_focus_changes();
+
+        // DELIBERATE DEVIATION, floored not faithful: the DLL returns `result`
+        // as-is, so a pass whose events changed nothing observable returns
+        // DoNothing and the shell skips the frame. This host's damage
+        // machinery is fed by `render_and_record` (see `Runner::service`), and
+        // an event pass that produced no frame at all leaves the frame report
+        // describing the PREVIOUS op. Flooring at "repaint" costs an extra
+        // no-damage render and never hides one.
+        result.max(ProcessEventResult::ShouldReRenderCurrentWindow)
+    }
+
+    /// Port of the DLL's `apply_system_change(SystemChange::SetFocus { .. })`:
+    /// move focus, scroll the new node into view, and apply the `:focus`
+    /// restyle so focus styling lands on THIS frame instead of the next resize.
+    fn set_focus(
+        &mut self,
+        new_focus: Option<DomNodeId>,
+        old_focus: Option<DomNodeId>,
+    ) -> ProcessEventResult {
+        use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+
+        let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
+        let new_focus_node_id = new_focus.and_then(|f| f.node.into_crate_internal());
+
+        let now = self.now();
+        let lw = &mut self.layout_window;
+        lw.focus_manager.set_focused_node(new_focus);
+        if let Some(focus_node) = new_focus {
+            lw.scroll_node_into_view(focus_node, ScrollIntoViewOptions::nearest(), now);
+        }
+
+        let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
+        if old_focus_node_id != new_focus_node_id {
+            result = result.max(apply_focus_restyle(lw, old_focus_node_id, new_focus_node_id));
+        }
         result
+    }
+
+    /// Port of `PlatformWindow::dispatch_events_propagated`
+    /// (`dll/src/desktop/shell2/common/event.rs`): plan the callback
+    /// invocations for a batch of `SyntheticEvent`s using the W3C
+    /// capture→target→bubble model, invoke them, then apply every
+    /// `CallbackChange` they produced through [`Runner::apply_user_change`].
+    ///
+    /// Returns `(max ProcessEventResult, merged Update, any preventDefault)`.
+    /// `preventDefault` is what suppresses the click-to-focus and keyboard
+    /// default actions above, so this cannot be short-circuited to "no
+    /// callbacks exist in an XML mount" — a scenario that mounts a component
+    /// carrying callbacks would then silently take the default action anyway.
+    #[allow(clippy::too_many_lines)]
+    fn dispatch_events_propagated(
+        &mut self,
+        events: &[azul_core::events::SyntheticEvent],
+    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool) {
+        use azul_core::{
+            callbacks::{CoreCallbackData, Update},
+            events::EventFilter,
+            id::NodeId as CoreNodeId,
+        };
+
+        struct PlannedInvocation {
+            dom_id: DomId,
+            node_id: NodeId,
+            callback_data: CoreCallbackData,
+        }
+
+        // Phase 1 — build the dispatch plan (read-only over the layout window).
+        let planned_callbacks: Vec<PlannedInvocation> = {
+            let lw = &self.layout_window;
+            let focused_node = lw.focus_manager.get_focused_node().copied();
+            let mut planned = Vec::new();
+
+            for event in events {
+                let event_filters =
+                    azul_core::events::event_type_to_filters(event.event_type, &event.data);
+
+                for filter in &event_filters {
+                    match filter {
+                        EventFilter::Hover(_) => {
+                            let dom_id = event.target.dom;
+                            let Some(layout_result) = lw.layout_results.get(&dom_id) else {
+                                continue;
+                            };
+
+                            let node_hierarchy = {
+                                let items = layout_result.styled_dom.node_hierarchy.as_container();
+                                let nodes: Vec<azul_core::id::Node> = (0..items.len())
+                                    .map(|i| {
+                                        let item = &items.internal[i];
+                                        azul_core::id::Node {
+                                            parent: CoreNodeId::from_usize(item.parent),
+                                            previous_sibling: CoreNodeId::from_usize(
+                                                item.previous_sibling,
+                                            ),
+                                            next_sibling: CoreNodeId::from_usize(item.next_sibling),
+                                            last_child: CoreNodeId::from_usize(item.last_child),
+                                        }
+                                    })
+                                    .collect();
+                                azul_core::id::NodeHierarchy::new(nodes)
+                            };
+
+                            let node_data_container =
+                                layout_result.styled_dom.node_data.as_container();
+                            let mut callback_map: BTreeMap<CoreNodeId, Vec<EventFilter>> =
+                                BTreeMap::new();
+                            for node_idx in 0..node_data_container.len() {
+                                let node_id = CoreNodeId::new(node_idx);
+                                if let Some(nd) = node_data_container.get(node_id) {
+                                    let matching: Vec<EventFilter> = nd
+                                        .get_callbacks()
+                                        .as_ref()
+                                        .iter()
+                                        .filter(|cb| cb.event == *filter)
+                                        .map(|cb| cb.event)
+                                        .collect();
+                                    if !matching.is_empty() {
+                                        callback_map.insert(node_id, matching);
+                                    }
+                                }
+                            }
+                            if callback_map.is_empty() {
+                                continue;
+                            }
+
+                            let mut event_clone = event.clone();
+                            let prop_result = azul_core::events::propagate_event(
+                                &mut event_clone,
+                                &node_hierarchy,
+                                &callback_map,
+                            );
+
+                            for (node_id, matched_filter) in &prop_result.callbacks_to_invoke {
+                                let Some(nd) = node_data_container.get(*node_id) else {
+                                    continue;
+                                };
+                                for cb in nd.get_callbacks().as_ref() {
+                                    if cb.event == *matched_filter {
+                                        planned.push(PlannedInvocation {
+                                            dom_id,
+                                            node_id: *node_id,
+                                            callback_data: cb.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        EventFilter::Focus(_) => {
+                            // Focus events fire on the focused node only.
+                            let Some(focused) = focused_node else { continue };
+                            let Some(node_id) = focused.node.into_crate_internal() else {
+                                continue;
+                            };
+                            let Some(lr) = lw.layout_results.get(&focused.dom) else {
+                                continue;
+                            };
+                            let ndc = lr.styled_dom.node_data.as_container();
+                            let Some(nd) = ndc.get(node_id) else { continue };
+                            for cb in nd.get_callbacks().as_ref() {
+                                if cb.event == *filter {
+                                    planned.push(PlannedInvocation {
+                                        dom_id: focused.dom,
+                                        node_id,
+                                        callback_data: cb.clone(),
+                                    });
+                                }
+                            }
+                        }
+                        EventFilter::Window(_) | EventFilter::Application(_) => {
+                            // Window / Application events fire on EVERY node
+                            // carrying a matching callback.
+                            for (dom_id, lr) in &lw.layout_results {
+                                let ndc = lr.styled_dom.node_data.as_container();
+                                for node_idx in 0..ndc.len() {
+                                    let node_id = CoreNodeId::new(node_idx);
+                                    let Some(nd) = ndc.get(node_id) else { continue };
+                                    for cb in nd.get_callbacks().as_ref() {
+                                        if cb.event == *filter {
+                                            planned.push(PlannedInvocation {
+                                                dom_id: *dom_id,
+                                                node_id,
+                                                callback_data: cb.clone(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        EventFilter::Component(_) => {
+                            // Lifecycle events carry their target node; no
+                            // propagation.
+                            let dom_id = event.target.dom;
+                            let Some(node_id) = event.target.node.into_crate_internal() else {
+                                continue;
+                            };
+                            let Some(lr) = lw.layout_results.get(&dom_id) else {
+                                continue;
+                            };
+                            let ndc = lr.styled_dom.node_data.as_container();
+                            let Some(nd) = ndc.get(node_id) else { continue };
+                            for cb in nd.get_callbacks().as_ref() {
+                                if cb.event == *filter {
+                                    planned.push(PlannedInvocation {
+                                        dom_id,
+                                        node_id,
+                                        callback_data: cb.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            planned
+        };
+
+        if planned_callbacks.is_empty() {
+            return (ProcessEventResult::DoNothing, Update::DoNothing, false);
+        }
+
+        // Phase 2 — invoke.
+        let previous_window_state = self.previous_window_state.clone();
+        let gl_context = OptionGlContextPtr::None;
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_style = Arc::new(SystemStyle::default());
+
+        let mut all_updates: Vec<Update> = Vec::new();
+        let mut all_changes: Vec<CallbackChange> = Vec::new();
+        let mut any_prevent_default = false;
+        let mut propagation_stopped = false;
+        let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
+
+        for planned in planned_callbacks {
+            // W3C stopPropagation: remaining handlers on the SAME node still
+            // run; the first handler on a different node ends the dispatch.
+            if propagation_stopped
+                && propagation_stopped_node
+                    .is_none_or(|(dom, nid)| dom != planned.dom_id || nid != planned.node_id)
+            {
+                break;
+            }
+
+            let mut callback =
+                azul_layout::callbacks::Callback::from_core(planned.callback_data.callback);
+            let hit_node = DomNodeId {
+                dom: planned.dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(planned.node_id)),
+            };
+
+            let (changes, update) = {
+                let lw = &mut self.layout_window;
+                lw.invoke_single_callback_at(
+                    hit_node,
+                    &mut callback,
+                    &mut planned.callback_data.refany.clone(),
+                    &window_handle,
+                    &gl_context,
+                    system_style.clone(),
+                    &ExternalSystemCallbacks::rust_internal(),
+                    &previous_window_state,
+                    &self.window_state,
+                    &self.renderer_resources,
+                )
+            };
+
+            all_updates.push(update);
+
+            let mut should_stop_immediate = false;
+            let mut should_stop_propagation = false;
+            for change in &changes {
+                match change {
+                    CallbackChange::PreventDefault => any_prevent_default = true,
+                    CallbackChange::StopImmediatePropagation => should_stop_immediate = true,
+                    CallbackChange::StopPropagation => should_stop_propagation = true,
+                    _ => {}
+                }
+            }
+            all_changes.extend(changes);
+
+            if should_stop_propagation && !propagation_stopped {
+                propagation_stopped = true;
+                propagation_stopped_node = Some((planned.dom_id, planned.node_id));
+            }
+            if should_stop_immediate {
+                break;
+            }
+        }
+
+        let mut changes_result = ProcessEventResult::DoNothing;
+        for change in &all_changes {
+            changes_result = changes_result.max(self.apply_user_change(change));
+        }
+
+        let merged_update = all_updates
+            .iter()
+            .copied()
+            .fold(Update::DoNothing, Update::max);
+
+        (changes_result, merged_update, any_prevent_default)
     }
 
     /// Port of `PlatformWindow::apply_user_change`
@@ -328,6 +926,7 @@ impl Runner {
                 let old = std::mem::replace(&mut self.window_state, state.clone());
                 let size_changed = self.window_state.size.dimensions != old.size.dimensions;
                 let dpi_changed = self.window_state.size.dpi != old.size.dpi;
+                let mouse_state_changed = self.window_state.mouse_state != old.mouse_state;
                 if size_changed || dpi_changed {
                     self.resize_pending = true;
                 }
@@ -351,6 +950,21 @@ impl Runner {
                     || self.window_state.position != old.position;
 
                 let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
+                if anything_changed {
+                    // Advance the sync baseline BEFORE the pass — it is what
+                    // `determine_all_events` diffs `current` against, so
+                    // forgetting it makes every event pass see a zero delta
+                    // and produce nothing.
+                    self.previous_window_state = Some(old);
+                }
+                // Mouse state changed → re-resolve the pointer target before
+                // the pass, exactly where the DLL calls `update_hit_test_at`.
+                if mouse_state_changed {
+                    if let Some(pos) = self.window_state.mouse_state.cursor_position.get_position()
+                    {
+                        self.update_hit_test_at(pos);
+                    }
+                }
                 if anything_changed {
                     result = result.max(self.process_window_events(0));
                 }
@@ -1007,18 +1621,54 @@ impl Runner {
             // `dll/src/desktop/shell2/common/event.rs::apply_user_change`) or
             // declare it unsupported.
 
-            // No hit tester: `perform_hit_test` lives in the DLL
-            // (`wr_translate2::convert_cpu_hit_test_to_full`), and without one a
-            // synthetic click lands on NO node — the callbacks under test would
-            // never fire and the scenario would pass having done nothing.
-            CallbackChange::QueueWindowStateSequence { .. } => {
-                self.unsupported("QueueWindowStateSequence", "synthetic input needs a hit tester")
+            // Synthetic pointer input. `click` / `double_click` / `drag` all
+            // land here: a SEQUENCE of window states that has to be applied ONE
+            // AT A TIME, each with its own hit test and its own state-diff pass
+            // — collapsing them to "the last one wins" would leave only the
+            // button-RELEASED state and no MouseDown would ever exist (the same
+            // transient-input bug documented in `Runner::service`).
+            CallbackChange::QueueWindowStateSequence { states } => {
+                let mut result = ProcessEventResult::DoNothing;
+                for queued_state in states {
+                    let old = self.window_state.clone();
+                    self.previous_window_state = Some(old.clone());
+
+                    // The DLL copies exactly these fields (not the whole
+                    // state): the queued states are built from a clone of the
+                    // current state, so anything else would be a no-op copy.
+                    {
+                        let current = &mut self.window_state;
+                        current.mouse_state = queued_state.mouse_state;
+                        current.keyboard_state = queued_state.keyboard_state.clone();
+                        current.title = queued_state.title.clone();
+                        current.size = queued_state.size;
+                        current.position = queued_state.position;
+                        current.flags = queued_state.flags;
+                    }
+                    // Not in the DLL's arm, which has no equivalent bookkeeping:
+                    // this host caches rasterisations per size/DPI, so a queued
+                    // size change has to invalidate them or the frame keeps the
+                    // old scale (`ModifyWindowState` does the same).
+                    if self.window_state.size.dimensions != old.size.dimensions
+                        || self.window_state.size.dpi != old.size.dpi
+                    {
+                        self.resize_pending = true;
+                    }
+
+                    if let Some(pos) = queued_state.mouse_state.cursor_position.get_position() {
+                        self.update_hit_test_at(pos);
+                    }
+
+                    result = result.max(self.process_window_events(0));
+                }
+                result
             }
-            CallbackChange::RequestHitTestUpdate { .. } => {
-                self.unsupported("RequestHitTestUpdate", "no hit tester")
+            CallbackChange::RequestHitTestUpdate { position } => {
+                self.update_hit_test_at(*position);
+                ProcessEventResult::DoNothing
             }
             CallbackChange::InjectNativeGesture { .. } => {
-                self.unsupported("InjectNativeGesture", "no hit tester / no platform gesture source")
+                self.unsupported("InjectNativeGesture", "no platform gesture source")
             }
 
             // No timer driver: the runner has no event loop that ticks
@@ -1089,13 +1739,57 @@ impl Runner {
                 self.unsupported("RedoAppState", "no app-data undo manager")
             }
 
-            // Needs the DLL's synthetic-event dispatch: `process_text_input`
-            // returns the affected nodes and the shell then dispatches an
-            // `Input` event per node through `process_window_events`. Applying
-            // only the first half would edit the text while no `On::Input`
-            // callback ever fired.
-            CallbackChange::CreateTextInput { .. } => {
-                self.unsupported("CreateTextInput", "needs the shell's synthetic-event dispatch")
+            // Text input. `process_text_input` records the changeset and
+            // reports the affected nodes; the host then dispatches one `Input`
+            // event per node and only THEN applies the changeset, so an
+            // `On::Input` callback observes the pre-edit text exactly as it
+            // does in the DLL. Applying only the first half would edit the text
+            // while no callback ever fired.
+            CallbackChange::CreateTextInput { text } => {
+                let affected_nodes = self.layout_window.process_text_input(text.as_str());
+                if affected_nodes.is_empty() {
+                    return ProcessEventResult::DoNothing;
+                }
+
+                let now = self.now();
+                let text_events: Vec<_> = affected_nodes
+                    .keys()
+                    .map(|dom_node_id| {
+                        azul_core::events::SyntheticEvent::new(
+                            azul_core::events::EventType::Input,
+                            azul_core::events::EventSource::User,
+                            *dom_node_id,
+                            now.clone(),
+                            azul_core::events::EventData::None,
+                        )
+                    })
+                    .collect();
+
+                let mut result = ProcessEventResult::DoNothing;
+                let (text_changes_result, text_update, _) =
+                    self.dispatch_events_propagated(&text_events);
+                result = result.max(text_changes_result);
+                if matches!(
+                    text_update,
+                    azul_core::callbacks::Update::RefreshDom
+                        | azul_core::callbacks::Update::RefreshDomAllWindows
+                ) {
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
+
+                let changeset_result = self.layout_window.apply_text_changeset();
+                if !changeset_result.dirty_nodes.is_empty() {
+                    result = result.max(if changeset_result.needs_relayout {
+                        ProcessEventResult::ShouldIncrementalRelayout
+                    } else {
+                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                    });
+                    self.layout_window.scroll_selection_into_view(
+                        azul_layout::window::SelectionScrollType::Cursor,
+                        azul_layout::window::ScrollMode::Instant,
+                    );
+                }
+                result
             }
 
             // The runner mounts XML documents; it never invokes a layout
@@ -1272,50 +1966,56 @@ impl Runner {
     }
 
     /// Port of the DLL event loop's keyboard-default-action pass: Tab →
-    /// FocusNext/Previous, Escape → ClearFocus. Runs after a keyboard-state
-    /// change lands (the real shell derives it in the state-diff pass).
-    fn run_keyboard_default_action(&mut self) {
+    /// FocusNext/Previous, Escape → ClearFocus. Runs once per pass that saw a
+    /// `KeyDown`, which is the DLL's `has_key_event` gate.
+    ///
+    /// Returns `(result, focus_changed)`; the caller uses `focus_changed` to
+    /// decide whether to dispatch Blur/Focus and re-enter the pass.
+    fn run_keyboard_default_action(&mut self) -> (ProcessEventResult, bool) {
         use azul_core::events::DefaultAction;
         use azul_layout::default_actions::{
             default_action_to_focus_target, determine_keyboard_default_action,
         };
         use azul_layout::managers::focus_cursor::resolve_focus_target;
-        use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
 
         let ks = self.window_state.keyboard_state.clone();
-        let now = self.now();
-        let lw = &mut self.layout_window;
-        let focused = lw.focus_manager.get_focused_node().copied();
-        let result = determine_keyboard_default_action(&ks, focused, &lw.layout_results, false);
-        if !result.has_action() {
-            lw.finalize_pending_focus_changes();
-            return;
+        let focused = self.layout_window.focus_manager.get_focused_node().copied();
+        let action = determine_keyboard_default_action(
+            &ks,
+            focused,
+            &self.layout_window.layout_results,
+            false,
+        );
+        if !action.has_action() {
+            return (ProcessEventResult::DoNothing, false);
         }
 
-        let mut new_focus: Option<DomNodeId> = None;
-        let mut do_clear = false;
-        match &result.action {
+        match &action.action {
             DefaultAction::FocusNext
             | DefaultAction::FocusPrevious
             | DefaultAction::FocusFirst
             | DefaultAction::FocusLast => {
-                if let Some(target) = default_action_to_focus_target(&result.action) {
-                    if let Ok(resolved) = resolve_focus_target(&target, &lw.layout_results, focused) {
-                        new_focus = resolved;
-                    }
+                let Some(target) = default_action_to_focus_target(&action.action) else {
+                    return (ProcessEventResult::DoNothing, false);
+                };
+                let Ok(resolved) =
+                    resolve_focus_target(&target, &self.layout_window.layout_results, focused)
+                else {
+                    return (ProcessEventResult::DoNothing, false);
+                };
+                if resolved == focused {
+                    return (ProcessEventResult::DoNothing, false);
                 }
+                (self.set_focus(resolved, focused), true)
             }
-            DefaultAction::ClearFocus => do_clear = true,
-            _ => {}
+            DefaultAction::ClearFocus => {
+                if focused.is_none() {
+                    return (ProcessEventResult::DoNothing, false);
+                }
+                (self.set_focus(None, focused), true)
+            }
+            _ => (ProcessEventResult::DoNothing, false),
         }
-
-        if let Some(nf) = new_focus {
-            lw.focus_manager.set_focused_node(Some(nf));
-            lw.scroll_node_into_view(nf, ScrollIntoViewOptions::nearest(), now);
-        } else if do_clear {
-            lw.focus_manager.set_focused_node(None);
-        }
-        lw.finalize_pending_focus_changes();
     }
 
     /// Port of the DLL's `register_scroll_nodes` (dll/.../common/layout.rs):
@@ -1375,6 +2075,86 @@ impl Runner {
         }
         lw.scroll_manager.calculate_scrollbar_states();
     }
+}
+
+/// Port of the DLL's `apply_focus_restyle` (`.../common/event.rs`): apply the
+/// `:focus` / `:focus-within` state change to the styled DOM and classify how
+/// much work the resulting property deltas need.
+///
+/// Without this a click (or a Tab) moved focus but left the node painted
+/// unfocused until the next full DOM regeneration.
+fn apply_focus_restyle(
+    layout_window: &mut LayoutWindow,
+    old_focus: Option<NodeId>,
+    new_focus: Option<NodeId>,
+) -> ProcessEventResult {
+    use azul_core::{diff::ChangeAccumulator, styled_dom::FocusChange};
+
+    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    };
+
+    let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+        Some(FocusChange {
+            lost_focus: old_focus,
+            gained_focus: new_focus,
+        }),
+        None, // hover
+        None, // active
+    );
+
+    if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+
+    let mut accumulator = ChangeAccumulator::new();
+    accumulator.merge_restyle_result(&restyle_result);
+    if accumulator.needs_layout() {
+        ProcessEventResult::ShouldIncrementalRelayout
+    } else if accumulator.needs_paint_only() {
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    } else {
+        ProcessEventResult::ShouldReRenderCurrentWindow
+    }
+}
+
+/// Port of the DLL's `apply_hover_restyle` (`.../common/event.rs`): apply this
+/// pass's MouseEnter / MouseLeave targets to the styled DOM so pure-CSS
+/// `:hover` rules take effect without a DOM regeneration.
+fn apply_hover_restyle(
+    layout_window: &mut LayoutWindow,
+    changes_per_dom: BTreeMap<DomId, azul_core::styled_dom::HoverChange>,
+) -> ProcessEventResult {
+    use azul_core::diff::ChangeAccumulator;
+
+    let mut result = ProcessEventResult::DoNothing;
+    for (dom_id, hover_change) in changes_per_dom {
+        let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+            continue;
+        };
+        let restyle_result =
+            layout_result
+                .styled_dom
+                .restyle_on_state_change(None, Some(hover_change), None);
+        if restyle_result.changed_nodes.is_empty() {
+            continue;
+        }
+        let r = if restyle_result.gpu_only_changes {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            let mut accumulator = ChangeAccumulator::new();
+            accumulator.merge_restyle_result(&restyle_result);
+            if accumulator.needs_layout() {
+                ProcessEventResult::ShouldIncrementalRelayout
+            } else if accumulator.needs_paint_only() {
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            } else {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+        };
+        result = result.max(r);
+    }
+    result
 }
 
 /// Port of `parse_node_type_from_str` (dll/.../common/event.rs) — the `insert_node`

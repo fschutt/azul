@@ -20,12 +20,14 @@
 use std::collections::BTreeMap;
 
 use azul_core::{
-    dom::{DomId, NodeId},
+    dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
+    hit_test::FullHitTest,
     styled_dom::StyledDom,
 };
 
 use crate::solver3::{getters::{get_overflow_x, get_overflow_y}, layout_tree::LayoutNodeHot, PositionVec};
+use crate::window::DomLayoutResult;
 
 /// Large finite half-extent used in place of `f32::INFINITY` for clip axes that
 /// are not constrained by any ancestor. Keeping it finite avoids `NaN` in
@@ -88,7 +90,7 @@ impl CpuHitTester {
     /// point-in-rect testing.
     pub fn rebuild_from_layout(
         &mut self,
-        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        layout_results: &BTreeMap<DomId, DomLayoutResult>,
     ) {
         self.node_rects.clear();
 
@@ -238,6 +240,184 @@ fn point_in_rect(point: LogicalPosition, rect: &LogicalRect) -> bool {
         && point.x < rect.origin.x + rect.size.width
         && point.y >= rect.origin.y
         && point.y < rect.origin.y + rect.size.height
+}
+
+/// Convert CPU hit test results to `FullHitTest` format.
+///
+/// Maps `(DomId, NodeId)` pairs from [`CpuHitTester::hit_test`] into the same
+/// `FullHitTest` structure that `WebRender`'s `fullhittest_new_webrender`
+/// produces, so the event dispatch code works identically for both backends.
+///
+/// This lives HERE (next to the tester that produces its input) rather than in
+/// the DLL, because two hosts consume it: the desktop shells
+/// (`wr_translate2::convert_cpu_hit_test_to_full`, which now delegates) and the
+/// headless E2E runner (`crate::e2e::runner`). Two copies of "which node did
+/// the pointer land on" is exactly the divergence that makes a scenario pass in
+/// one host and fail in the other.
+#[allow(clippy::cast_possible_truncation)] // bounded: DomId/NodeId indices, hit depth
+#[allow(clippy::too_many_lines)] // moved verbatim from the DLL; one pass per hit-test kind
+#[must_use]
+pub fn convert_cpu_hit_test_to_full(
+    hits: &[(DomId, NodeId)],
+    old_focus_node: Option<DomNodeId>,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    cursor_position: LogicalPosition,
+) -> FullHitTest {
+    use azul_core::{
+        dom::OptionDomNodeId,
+        hit_test::{HitTest, HitTestItem, OverflowingScrollNode, ScrollHitTestItem},
+    };
+
+    let focused_node = old_focus_node.map_or(OptionDomNodeId::None, OptionDomNodeId::Some);
+
+    let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
+
+    for (depth, (dom_id, node_id)) in hits.iter().enumerate() {
+        // Compute point_relative_to_item in content-box coordinates.
+        // cursor_position is in window coordinates. Subtract node's border-box
+        // position AND padding+border to get content-box-local coordinates
+        // that match the text layout coordinate space.
+        let point_relative = layout_results
+            .get(dom_id)
+            .and_then(|lr| {
+                lr.layout_tree
+                    .dom_to_layout
+                    .get(node_id)
+                    .and_then(|indices| indices.first())
+                    .and_then(|&idx| {
+                        let node_pos = lr.calculated_positions.get(idx)?;
+                        let node = lr.layout_tree.get(idx)?;
+                        let bp = node.box_props.unpack();
+                        let content_x = node_pos.x + bp.padding.left + bp.border.left;
+                        let content_y = node_pos.y + bp.padding.top + bp.border.top;
+                        Some(LogicalPosition::new(
+                            cursor_position.x - content_x,
+                            cursor_position.y - content_y,
+                        ))
+                    })
+            })
+            .unwrap_or_else(LogicalPosition::zero);
+
+        let hit_test = hovered_nodes.entry(*dom_id).or_insert_with(|| HitTest {
+            regular_hit_test_nodes: BTreeMap::new(),
+            scroll_hit_test_nodes: BTreeMap::new(),
+            scrollbar_hit_test_nodes: BTreeMap::new(),
+            cursor_hit_test_nodes: BTreeMap::new(),
+        });
+
+        hit_test.regular_hit_test_nodes.insert(
+            *node_id,
+            HitTestItem {
+                point_in_viewport: cursor_position,
+                point_relative_to_item: point_relative,
+                is_focusable: false,
+                is_virtual_view_hit: None,
+                hit_depth: depth as u32,
+            },
+        );
+    }
+
+    // Scroll containers: the CPU hit tester reports only regular DOM nodes,
+    // so mirror the WR converter's TAG_TYPE_SCROLL_CONTAINER pass by rect
+    // containment. Without this, scroll_hit_test_nodes stays empty on the
+    // CPU-render path and wheel/trackpad scrolling never finds a target
+    // (a11y scrolling still worked - it targets nodes directly - which is
+    // how this stayed unnoticed).
+    for (dom_id, lr) in layout_results {
+        for (&scroll_id, &node_id) in &lr.scroll_id_to_node_id {
+            let Some(&layout_idx) = lr
+                .layout_tree
+                .dom_to_layout
+                .get(&node_id)
+                .and_then(|indices| indices.first())
+            else {
+                continue;
+            };
+            let Some(layout_node) = lr.layout_tree.get(layout_idx) else {
+                continue;
+            };
+            let node_pos = lr
+                .calculated_positions
+                .get(layout_idx)
+                .copied()
+                .unwrap_or_default();
+            let node_size = layout_node.used_size.unwrap_or_default();
+            let inside = cursor_position.x >= node_pos.x
+                && cursor_position.x <= node_pos.x + node_size.width
+                && cursor_position.y >= node_pos.y
+                && cursor_position.y <= node_pos.y + node_size.height;
+            if !inside {
+                continue;
+            }
+            let parent_rect = LogicalRect::new(node_pos, node_size);
+            let child_rect = compute_scroll_child_rect(lr, layout_idx, parent_rect);
+
+            let scroll_node = OverflowingScrollNode {
+                parent_rect,
+                child_rect,
+                virtual_child_rect: child_rect,
+                // CPU path has no WebRender document; the pipeline half of the
+                // external id is only used for WR scroll-layer sync.
+                parent_external_scroll_id: azul_core::hit_test::ExternalScrollId(
+                    scroll_id,
+                    azul_core::hit_test::PipelineId(dom_id.inner as u32, 0),
+                ),
+                parent_dom_hash: azul_core::dom::DomNodeHash {
+                    inner: node_id.index() as u64,
+                },
+                scroll_tag_id: azul_core::dom::ScrollTagId {
+                    inner: azul_core::dom::TagId {
+                        inner: node_id.index() as u64,
+                    },
+                },
+            };
+            hovered_nodes
+                .entry(*dom_id)
+                .or_insert_with(HitTest::empty)
+                .scroll_hit_test_nodes
+                .insert(
+                    node_id,
+                    ScrollHitTestItem {
+                        point_in_viewport: cursor_position,
+                        point_relative_to_item: LogicalPosition::new(
+                            cursor_position.x - node_pos.x,
+                            cursor_position.y - node_pos.y,
+                        ),
+                        scroll_node,
+                    },
+                );
+        }
+    }
+
+    FullHitTest {
+        hovered_nodes,
+        focused_node,
+    }
+}
+
+/// Compute the `child_rect` (scrollable content bounds) of an overflowing scroll
+/// node from the layout tree.
+///
+/// The content rect is anchored at the node's own border-box origin and sized to
+/// the node's overflow content size (`LayoutTree::get_content_size`, which honors
+/// `overflow_content_size` / inline text overflow). It is clamped to be at least
+/// as large as the viewport (`parent_rect`), so a node whose content does *not*
+/// overflow yields `child_rect == parent_rect` and the `ScrollState` clamping
+/// produces a zero scroll range (the prior, always-no-scroll behavior).
+#[must_use]
+pub fn compute_scroll_child_rect(
+    layout_result: &DomLayoutResult,
+    layout_idx: usize,
+    parent_rect: LogicalRect,
+) -> LogicalRect {
+    let content_size = layout_result.layout_tree.get_content_size(layout_idx);
+    LogicalRect::new(
+        parent_rect.origin,
+        LogicalSize::new(
+            content_size.width.max(parent_rect.size.width),
+            content_size.height.max(parent_rect.size.height),
+        ),
+    )
 }
 
 /// Compute the hit-test clip rect for a layout node: the intersection of the
