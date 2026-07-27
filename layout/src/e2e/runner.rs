@@ -99,6 +99,27 @@ struct Runner {
     /// asserted afterwards was asserted against a window where that something
     /// never happened.
     unsupported_changes: Vec<String>,
+    /// The redraw a rendered frame asked for, i.e. the platform loop's
+    /// `request_redraw()`.
+    ///
+    /// PORT of the tail of every DLL present path (x11 `mod.rs:4031`, wayland
+    /// `mod.rs:4761`, windows `mod.rs:1062`/`1297`, macos `mod.rs:6334`):
+    ///
+    /// ```ignore
+    /// // If any scrollbar is actively fading (0 < opacity < 1), schedule
+    /// // another frame so the fade-out animation runs to completion.
+    /// if lw.gpu_state_manager.scrollbar_fade_active { self.request_redraw(); }
+    /// ```
+    ///
+    /// This host had no such re-arm, so the frame driven by `tick_ms` /
+    /// `wait_frame` was the LAST one: a `wait` yields with a resume deadline,
+    /// the pump sleeps, and `service()` then finds no pending change and
+    /// renders nothing. Every state that settles on ELAPSED TIME — and the
+    /// scrollbar fade, at `fade_delay` 500 ms + `fade_duration` 200 ms, is the
+    /// one the corpus exercises — stayed frozen at whatever the last explicit
+    /// frame left behind, so `scrollbar_fade_active` was still true when the
+    /// scenario asked whether the window had settled.
+    pending_redraw: bool,
 }
 
 impl Runner {
@@ -155,6 +176,7 @@ impl Runner {
             font_registry,
             resize_pending: false,
             unsupported_changes: Vec::new(),
+            pending_redraw: false,
         }
     }
 
@@ -389,7 +411,16 @@ impl Runner {
         // states (a `key_down`+`key_up` pair that lands in a single continuation
         // slice would leave only the key-RELEASED state, and Tab-to-focus-next
         // would silently do nothing).
-        let mut result = ProcessEventResult::DoNothing;
+        // The redraw the PREVIOUS frame asked for (see `pending_redraw`). The
+        // platform loops service `request_redraw()` on the next turn of the
+        // loop, which is exactly here — and it is the only thing that lets a
+        // time-driven animation advance across a step that pushes no change of
+        // its own (`wait`).
+        let mut result = if core::mem::take(&mut self.pending_redraw) {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::DoNothing
+        };
         for ch in drained {
             result = result.max(self.apply_user_change(&ch));
         }
@@ -443,12 +474,40 @@ impl Runner {
             ProcessEventResult::ShouldReRenderCurrentWindow => self.render_and_record(),
         }
 
+        // Keep servicing the redraws the frames themselves ask for, until the
+        // window stops changing. The platform loops do this across turns of the
+        // event loop; here it has to happen INSIDE one `service()`, because the
+        // next thing the pump runs is the scenario's next step — and if that
+        // step is an idleness assertion, it reads whatever this call left
+        // behind. The scrollbar fade is 700 ms of WALL CLOCK (`fade_delay` 500 +
+        // `fade_duration` 200) and each headless frame costs about a
+        // millisecond, so this is a real-time-paced loop, exactly like a shell
+        // redrawing at the display's rate — not a spin that fabricates time.
+        self.pump_pending_redraws();
+
         // The frame is now final for this op. Re-derive the pointer→node map
         // from it so the NEXT op's hit test cannot read geometry that a
         // display-list-only path (the render-only arms above) just moved. See
         // [`Runner::rebuild_hit_tester`].
         self.rebuild_hit_tester();
         self.purge_ended_touch_points();
+    }
+
+    /// Service the redraws a rendered frame asked for (`pending_redraw`), until
+    /// the window stops changing.
+    ///
+    /// The cap is a SAFETY NET for a flag that never clears, not the expected
+    /// exit: the scrollbar fade is driven by a monotonic clock, so it always
+    /// terminates on its own. Hitting the cap deliberately leaves the state
+    /// machine visibly un-settled rather than hanging the run — which is the
+    /// outcome `assert_state_machines_idle` exists to report.
+    fn pump_pending_redraws(&mut self) {
+        const MAX_REDRAW_FRAMES: usize = 4096;
+        let mut frames = 0usize;
+        while self.pending_redraw && frames < MAX_REDRAW_FRAMES {
+            self.render_and_record();
+            frames += 1;
+        }
     }
 
     /// Port of `PlatformWindow::process_window_events`
@@ -2094,7 +2153,7 @@ impl Runner {
         // NO SCROLLBAR FADE WAS OBSERVABLE IN E2E AT ALL. The `full.rs:5285`
         // leak check for "an idle scrollbar'd window re-presenting forever"
         // could not fire either.
-        self.layout_window.refresh_scrollbar_gpu_cache_for_cpu_frame();
+        let gpu_cache_moved = self.layout_window.refresh_scrollbar_gpu_cache_for_cpu_frame();
 
         let width = self.window_state.size.dimensions.width;
         let height = self.window_state.size.dimensions.height;
@@ -2110,6 +2169,20 @@ impl Runner {
         let paint = self.cpu_backend.last_frame_damage.clone();
         let present = self.cpu_backend.last_present_damage.clone();
         self.layout_window.record_frame(paint, present);
+
+        // "If any scrollbar is actively fading (0 < opacity < 1), schedule
+        // another frame so the fade-out animation runs to completion." — the
+        // tail of every DLL present path, ported. See `Runner::pending_redraw`.
+        //
+        // `gpu_cache_moved` is the extra term the DLL does not need and this
+        // host does: the frame that lands the fade on opacity 0.0 clears
+        // `scrollbar_fade_active` and still repaints the strip the scrollbar
+        // vacated, so stopping on the flag alone leaves the LAST frame carrying
+        // damage. A shell does not care (nothing asks it whether it settled);
+        // an idleness assertion reads exactly that frame. One more frame after
+        // the last change is what makes "settled" observable.
+        self.pending_redraw =
+            self.layout_window.gpu_state_manager.scrollbar_fade_active || gpu_cache_moved;
 
         // Publish the DAMAGE-DRIVEN framebuffer so `assert_damage_sound`'s
         // `pixel_identity` check can compare it against an independent full

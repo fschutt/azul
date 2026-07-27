@@ -3351,9 +3351,20 @@ impl LayoutWindow {
     /// `CpuBackend::render_frame`. Uses the manager's own
     /// `fade_delay`/`fade_duration` (the WR paths still pass literals — see
     /// FOLLOW-UPS note).
+    ///
+    /// Returns `true` if the refresh MOVED the cache — a thumb transform or a
+    /// fade opacity actually changed value this frame. That is a strictly
+    /// stronger signal than [`GpuStateManager::scrollbar_fade_active`], which
+    /// only says "a fade is mid-flight RIGHT NOW": the frame that lands the
+    /// fade on its final value (opacity 1.0 -> 0.0) clears `scrollbar_fade_active`
+    /// and still repaints, so a loop that stops on the flag alone stops one
+    /// frame BEFORE the window is quiescent. Callers that need "keep presenting
+    /// until nothing moves" — the E2E host, which has to reach a fixpoint
+    /// before an idleness assertion reads the frame — want this.
     #[cfg(feature = "std")]
-    pub fn refresh_scrollbar_gpu_cache_for_cpu_frame(&mut self) {
+    pub fn refresh_scrollbar_gpu_cache_for_cpu_frame(&mut self) -> bool {
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
+        let mut moved = false;
         {
             let Self {
                 ref layout_results,
@@ -3362,11 +3373,13 @@ impl LayoutWindow {
                 ..
             } = *self;
             for (dom_id, layout_result) in layout_results {
-                drop(gpu_state_manager.update_scrollbar_transforms(
-                    *dom_id,
-                    scroll_manager,
-                    &layout_result.layout_tree,
-                ));
+                moved |= !gpu_state_manager
+                    .update_scrollbar_transforms(
+                        *dom_id,
+                        scroll_manager,
+                        &layout_result.layout_tree,
+                    )
+                    .is_empty();
             }
         }
         let fade_delay = self.gpu_state_manager.fade_delay;
@@ -3378,7 +3391,7 @@ impl LayoutWindow {
             ..
         } = *self;
         for (dom_id, layout_result) in layout_results {
-            drop(Self::synchronize_scrollbar_opacity(
+            moved |= !Self::synchronize_scrollbar_opacity(
                 gpu_state_manager,
                 scroll_manager,
                 *dom_id,
@@ -3386,8 +3399,10 @@ impl LayoutWindow {
                 &system_callbacks,
                 fade_delay,
                 fade_duration,
-            ));
+            )
+            .is_empty();
         }
+        moved
     }
 
     #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural split
