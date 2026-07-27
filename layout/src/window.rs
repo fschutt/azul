@@ -441,10 +441,43 @@ pub struct FrameReport {
     pub reset_generation: u64,
     /// Highest `process_window_events` recursion depth reached since the last
     /// counter reset. > 1 means the frame did not converge in one pass.
+    ///
+    /// THIS IS AN EVENT-PASS COUNTER AND NOT A LAYOUT COUNTER — the name is
+    /// historical and has misled every reader of it. `0` means "no state delta
+    /// was processed", which is what an idle frame looks like; it does NOT mean
+    /// "no layout ran". A mutation that arrives through the CALLBACK API
+    /// (`set_node_css_override`, `set_node_text`, `set_node_classes`, …) never
+    /// enters `process_window_events` at all, yet routes through
+    /// `ShouldIncrementalRelayout` → a FULL relayout of the root DOM. Asserting
+    /// `max_relayouts: 0` over such a step therefore passes while the engine
+    /// re-laid-out the whole tree. Use [`Self::layout_passes`] for that
+    /// question.
     pub relayout_iterations: u32,
     /// Number of `regenerate_layout()` (i.e. `layout_callback`) runs since the
     /// last counter reset.
     pub dom_regenerations: u32,
+    /// Number of times LAYOUT ACTUALLY RAN since the last counter reset.
+    ///
+    /// Incremented in [`LayoutWindow::layout_and_generate_display_list`], the
+    /// one funnel both hosts and both paths go through — the shells'
+    /// `regenerate_layout` / `incremental_relayout` and the E2E runner's
+    /// `regenerate_layout()` / `relayout_only()`. So it counts layout work
+    /// regardless of what scheduled it, which is exactly what the other two
+    /// counters each miss on their own:
+    ///
+    /// | step                    | `relayout_iterations` | `dom_regenerations` | `layout_passes` |
+    /// |-------------------------|-----------------------|---------------------|-----------------|
+    /// | idle tick               | 0                     | 0                   | 0               |
+    /// | inert pointer event     | 1                     | 0                   | 0               |
+    /// | `set_node_css_override` | 0                     | 0                   | 1               |
+    /// | resize / mount          | 1 / 0                 | 1                   | 1               |
+    ///
+    /// The second and third rows are the two directions the over-invalidation
+    /// families were reading wrongly: an input-free timeline never reaches the
+    /// event pass (counter `0`, a vacuous pass even while a manager rebuilds the
+    /// display list every frame), and a callback-API mutation runs a full
+    /// relayout while the counter stays `0`.
+    pub layout_passes: u32,
     /// `true` if `MAX_EVENT_RECURSION_DEPTH` was ever hit since the last reset.
     /// Today the engine only `log_warn`s on this; this flag is what lets a test
     /// turn an invalidation loop into a red assertion instead of a silent cap.
@@ -497,6 +530,7 @@ impl FrameReport {
     pub fn reset_counters(&mut self) {
         self.relayout_iterations = 0;
         self.dom_regenerations = 0;
+        self.layout_passes = 0;
         self.hit_depth_cap = false;
         self.frames_since_reset = 0;
         self.accumulated_paint_damage = FrameDamage::None;
@@ -1104,6 +1138,15 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
+        // E2E observability: this is the ONE funnel every layout pass goes
+        // through — `regenerate_layout` and `incremental_relayout` in the
+        // shells, `regenerate_layout()` and `relayout_only()` in the headless
+        // E2E runner. Counting here (rather than at either caller) is what
+        // makes `FrameReport::layout_passes` mean "layout ran", independently
+        // of which scheduler decided it should.
+        self.sync_frame_report();
+        self.frame_report.layout_passes = self.frame_report.layout_passes.saturating_add(1);
+
         // Clear previous results for a full relayout
         self.layout_results.clear();
 

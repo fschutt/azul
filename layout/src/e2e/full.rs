@@ -277,8 +277,11 @@ pub struct FrameReportResponse {
     pub accumulated_paint_damage_rects: Vec<DamageRectJson>,
     pub accumulated_present_damage_kind: String,
     pub frames_since_reset: u32,
+    /// EVENT passes (`process_window_events` depth), not layout passes.
     pub relayout_iterations: u32,
     pub dom_regenerations: u32,
+    /// Times layout ACTUALLY ran (`layout_and_generate_display_list`).
+    pub layout_passes: u32,
     pub hit_depth_cap: bool,
     /// Terminal `ProcessEventResult` discriminant (0 = DoNothing … 6 = RegenerateDomAllWindows).
     pub terminal_result: u8,
@@ -4376,6 +4379,7 @@ fn build_frame_report_response(
         frames_since_reset: report.frames_since_reset,
         relayout_iterations: report.relayout_iterations,
         dom_regenerations: report.dom_regenerations,
+        layout_passes: report.layout_passes,
         hit_depth_cap: report.hit_depth_cap,
         terminal_result: report.terminal_result,
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
@@ -4955,8 +4959,18 @@ fn eval_assert_idle_stable(
 /// Today an invalidation loop just hits `MAX_EVENT_RECURSION_DEPTH` and is
 /// swallowed with a `log_warn`; `hit_depth_cap` turns that into a red test.
 ///
-/// Parameters: `max_relayouts`, `max_dom_regens`, `allow_depth_cap` (default
-/// false).
+/// THREE COUNTERS, THREE DIFFERENT QUESTIONS — see `FrameReport`:
+/// * `max_relayouts` bounds `relayout_iterations`, the EVENT-pass depth. `0`
+///   means "no state delta was processed at all". It does NOT mean "no layout
+///   ran": a `set_node_*` mutation arrives through the callback API, never
+///   enters `process_window_events`, and still re-lays-out the whole root DOM.
+/// * `max_dom_regens` bounds `dom_regenerations`, i.e. full DOM rebuilds.
+/// * `max_layout_passes` bounds `layout_passes`, i.e. how many times layout
+///   ACTUALLY ran, whichever scheduler asked for it. This is the one to use for
+///   "the engine schedules no relayout" over a callback-API mutation.
+///
+/// Parameters: `max_relayouts`, `max_dom_regens`, `max_layout_passes`,
+/// `allow_depth_cap` (default false).
 #[cfg(feature = "std")]
 fn eval_assert_work_bounded(
     params: &serde_json::Value,
@@ -4965,6 +4979,7 @@ fn eval_assert_work_bounded(
     let report = frame_report_of(callback_info);
     let relayouts = report.relayout_iterations;
     let regens = report.dom_regenerations;
+    let layouts = report.layout_passes;
     let depth_cap = report.hit_depth_cap;
 
     // LIVENESS PRECONDITION — see `assert_idle_stable`. These are pure UPPER
@@ -5014,9 +5029,24 @@ fn eval_assert_work_bounded(
             );
         }
     }
+    if let Some(max) = params
+        .get("max_layout_passes")
+        .and_then(serde_json::Value::as_u64)
+    {
+        if u64::from(layouts) > max {
+            return AssertionResult::fail_with(
+                "assert_work_bounded: layout ran more often than allowed (this is the counter \
+                 `max_relayouts` cannot see — a callback-API mutation relayouts without ever \
+                 running an event pass)"
+                    .to_string(),
+                format!("<= {max}"),
+                layouts.to_string(),
+            );
+        }
+    }
     AssertionResult::pass(format!(
-        "assert_work_bounded: {relayouts} event iteration(s), {regens} DOM regen(s) over {} \
-         frame(s), depth cap not hit",
+        "assert_work_bounded: {relayouts} event iteration(s), {regens} DOM regen(s), {layouts} \
+         layout pass(es) over {} frame(s), depth cap not hit",
         report.frames_since_reset
     ))
 }
