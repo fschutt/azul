@@ -281,8 +281,9 @@ pub struct Schema {
     ops: Vec<OpDef>,
     /// Assertion ops (`evaluate_assertion` dispatch) + the params they read.
     asserts: Vec<OpDef>,
-    /// Ops handled directly by the E2E step loop (not `DebugEvent` variants).
-    extra: Vec<String>,
+    /// Ops handled directly by the E2E step loop (not `DebugEvent` variants),
+    /// with the params that block reads — see `step_loop_op_params`.
+    extra: Vec<OpDef>,
     /// `DebugEvent` variants that ACTUALLY HAVE A MATCH ARM in the dispatch.
     /// A declared variant missing from this set is a ZOMBIE: it falls through to
     /// the catch-all, which logs "Unhandled" and answers `ok` — so a test using
@@ -298,7 +299,7 @@ impl Schema {
             .find(|o| o.name == op)
     }
     fn is_known(&self, op: &str) -> bool {
-        self.known_op(op).is_some() || self.extra.iter().any(|e| e == op)
+        self.known_op(op).is_some() || self.extra.iter().any(|e| e.name == op)
     }
     /// Every op the engine has, in one list (timeline ops, step-loop ops, asserts).
     fn all_op_names(&self) -> impl Iterator<Item = &str> {
@@ -306,7 +307,7 @@ impl Schema {
             .iter()
             .chain(self.asserts.iter())
             .map(|o| o.name.as_str())
-            .chain(self.extra.iter().map(String::as_str))
+            .chain(self.extra.iter().map(|o| o.name.as_str()))
     }
     /// Ops the engine has that NOBODY classified — a new `DebugEvent` variant.
     /// These are denied by the gate and must be surfaced loudly, never ignored.
@@ -729,12 +730,39 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     // step's response payload), not as a DebugEvent arm — so the schema scanner
     // never sees it. Without it here, any GENERATED test using the get_* / query
     // family (which pairs a query op with `assert_response`) fails validation.
-    let extra: Vec<String> =
+    let extra: Vec<OpDef> =
         ["commit_undo_snapshot", "undo_app_state", "redo_app_state", "assert_response"]
             .into_iter()
             .filter(|o| src.contains(&format!("\"{o}\"")))
-            .map(str::to_string)
+            .map(|o| OpDef {
+                name: o.to_string(),
+                params: step_loop_op_params(&src, o),
+                doc: None,
+            })
             .collect();
+
+    // Blind-spot alarm. `schema_doc` renders "(no params)" for anything this
+    // scanner came up empty on, and the prompt says params not listed do not
+    // exist — so an assertion whose eval fn CLEARLY reads params but reported
+    // none is a scanner gap that silently un-narrows a whole assertion class
+    // (this is exactly how `assert_manager_invariants` lost `managers`/`cross`).
+    // Shout instead of shipping the lie.
+    for a in &asserts {
+        if !a.params.is_empty() {
+            continue;
+        }
+        let Some(body) = top_level_fn_body(&src, &format!("eval_{}", a.name)) else {
+            continue;
+        };
+        if body.contains("params") {
+            eprintln!(
+                "!! [gen-e2e] `{}` reads `params` in full.rs but the schema scan extracted NONE — \
+                 the prompt will advertise it as `(no params)` and the model cannot narrow it. \
+                 Extend gene2e.rs::eval_fn_params.",
+                a.name
+            );
+        }
+    }
 
     Ok(Schema {
         ops,
@@ -744,36 +772,221 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     })
 }
 
-/// Every `params.get("…")` key read inside `fn <name>(…)`.
-fn eval_fn_params(src: &str, fn_name: &str) -> Vec<(String, bool)> {
-    let Some(start) = src.find(&format!("\nfn {fn_name}(")) else {
-        return Vec::new();
-    };
+/// The body of the top-level `fn <name>(…)` in `src`, or `None`.
+///
+/// "Top-level" = declared at column 0; the body ends at the first line that is
+/// exactly `}` at column 0.
+fn top_level_fn_body<'a>(src: &'a str, fn_name: &str) -> Option<&'a str> {
+    let start = src.find(&format!("\nfn {fn_name}("))?;
     let body = &src[start + 1..];
-    // end of fn = first line that is exactly "}" at column 0
     let end = body.find("\n}\n").map_or(body.len(), |e| e + 2);
-    let body = &body[..end];
+    Some(&body[..end])
+}
 
-    let mut out: Vec<(String, bool)> = Vec::new();
+/// Every `<recv>.get("…")` key in `body`, in source order, deduplicated.
+fn literal_get_keys(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
     let mut rest = body;
     while let Some(p) = rest.find(".get(\"") {
         rest = &rest[p + 6..];
         if let Some(k) = rest.split('"').next() {
-            let k = k.to_string();
-            // every assertion param is read with `if let Some(..)` = optional,
-            // except `vs`/`selector`/`expected`, which the eval fns hard-require.
-            let required = matches!(k.as_str(), "selector" | "expected" | "reference");
-            if !out.iter().any(|(n, _)| *n == k) {
-                out.push((k, required));
+            if !out.iter().any(|n| n == k) {
+                out.push(k.to_string());
             }
         }
     }
     out
 }
 
+/// Param keys an eval fn reads INDIRECTLY, through a local reader closure.
+///
+/// `eval_assert_manager_invariants` is the motivating case:
+///
+/// ```ignore
+/// let list = |key: &str, default: &[&str]| { match params.get(key) { … } };
+/// let managers = list("managers", KNOWN_MANAGERS);
+/// let cross    = list("cross",    KNOWN_CROSS);
+/// ```
+///
+/// There is no `params.get("…")` literal anywhere in that function, so the
+/// literal scan returns NOTHING and the prompt advertises the assertion as
+/// `(no params)` — the model then cannot narrow it to a manager or an
+/// invariant and emits the broadest possible form, every time.
+///
+/// So: find each `let <ident> = |<first>: …` closure whose body reads
+/// `params.get(<first>)`, then harvest the string literal each `<ident>("…"`
+/// call site passes.
+fn closure_relayed_keys(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (i, _) in body.match_indices("let ") {
+        let after = &body[i + 4..];
+        let Some(eq) = after.find(" = |") else { continue };
+        let name = after[..eq].trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            continue;
+        }
+        // First closure parameter name: `|key: &str, …|` → `key`.
+        let params_start = eq + 4;
+        let Some(bar) = after[params_start..].find('|') else { continue };
+        let arg = after[params_start..params_start + bar]
+            .split(',')
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim();
+        if arg.is_empty() {
+            continue;
+        }
+        // Does the closure actually relay that argument into `params.get()`?
+        if !after[params_start + bar..].contains(&format!("params.get({arg})")) {
+            continue;
+        }
+        // Harvest the literal first argument of every call to it.
+        let call = format!("{name}(\"");
+        let mut rest = body;
+        while let Some(p) = rest.find(&call) {
+            rest = &rest[p + call.len()..];
+            if let Some(k) = rest.split('"').next() {
+                if !out.iter().any(|n| n == k) {
+                    out.push(k.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Param keys that are not fixed names at all: the eval fn walks
+/// `params.as_object()` and looks each key up in a map built by a `collect_*`
+/// helper (`eval_assert_resource_counts` × `collect_resource_counts`). The
+/// assertion's real param surface is that map's KEY SET, which lives in the
+/// helper's `insert("…"` calls.
+fn collected_map_keys(src: &str, body: &str) -> Vec<String> {
+    if !body.contains("params.as_object()") {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (i, _) in body.match_indices("collect_") {
+        let suffix: String = body[i + 8..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        let name = format!("collect_{suffix}");
+        let Some(helper) = top_level_fn_body(src, &name) else {
+            continue;
+        };
+        let mut rest = helper;
+        while let Some(p) = rest.find(".insert(\n") {
+            // `out.insert(\n    "key".to_string(),` — the literal is on the
+            // next line.
+            rest = &rest[p + 9..];
+            let Some(q) = rest.find('"') else { break };
+            if let Some(k) = rest[q + 1..].split('"').next() {
+                if !out.iter().any(|n: &String| n == k) {
+                    out.push(k.to_string());
+                }
+            }
+        }
+        let mut rest = helper;
+        while let Some(p) = rest.find(".insert(\"") {
+            rest = &rest[p + 9..];
+            if let Some(k) = rest.split('"').next() {
+                if !out.iter().any(|n: &String| n == k) {
+                    out.push(k.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Every param key `fn <name>(…)` reads — directly, through a local reader
+/// closure, or as a dynamic key looked up in a `collect_*` map.
+///
+/// A key this misses is a key the generator NEVER SEES: `schema_doc` renders
+/// the extracted list verbatim into the prompt, and "Params NOT listed here do
+/// not exist — do not invent any" is right underneath it. So an under-reported
+/// assertion cannot be narrowed at all.
+fn eval_fn_params(src: &str, fn_name: &str) -> Vec<(String, bool)> {
+    let Some(body) = top_level_fn_body(src, fn_name) else {
+        return Vec::new();
+    };
+
+    let mut keys = literal_get_keys(body);
+    for k in closure_relayed_keys(body) {
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+    for k in collected_map_keys(src, body) {
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+
+    keys.into_iter()
+        .map(|k| {
+            // every assertion param is read with `if let Some(..)` = optional,
+            // except `vs`/`selector`/`expected`, which the eval fns hard-require.
+            let required = matches!(k.as_str(), "selector" | "expected" | "reference");
+            (k, required)
+        })
+        .collect()
+}
+
+/// Param keys read by a block the E2E STEP LOOP handles itself, i.e.
+/// `if op == "<name>" { … step.params.get("…") … }`. Those ops have no
+/// `DebugEvent` variant and no `eval_*` fn, so neither of the two scanners
+/// above ever sees them — `assert_response` (`type` / `contains`), which every
+/// `get_*` query in the corpus is paired with, was advertised as
+/// `(no params)`.
+fn step_loop_op_params(src: &str, op: &str) -> Vec<(String, bool)> {
+    let Some(start) = src.find(&format!("if op == \"{op}\" {{")) else {
+        return Vec::new();
+    };
+    let body = &src[start..];
+    // The block is inside the step loop, so it is NOT at column 0; bound the
+    // scan at the matching closing brace by tracking depth.
+    let mut depth = 0i32;
+    let mut end = body.len();
+    for (i, c) in body.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body = &body[..end];
+    literal_get_keys(body)
+        .into_iter()
+        .filter(|k| k != "op" && k != "screenshot")
+        .map(|k| (k, false))
+        .collect()
+}
+
 // ===========================================================================
 // The prompt
 // ===========================================================================
+
+/// `(no params)`, or `a, b?, c?` — required first-class, optional with `?`.
+fn render_params(params: &[(String, bool)]) -> String {
+    if params.is_empty() {
+        return "(no params)".to_string();
+    }
+    params
+        .iter()
+        .map(|(n, req)| if *req { n.clone() } else { format!("{n}?") })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// The schema section of the agent prompt — rendered from the parsed `full.rs`,
 /// FILTERED THROUGH `OP_POLICY` (only ALLOWED ops are ever shown) and through the
@@ -788,15 +1001,7 @@ fn schema_doc(schema: &Schema) -> String {
         .iter()
         .filter(|o| classify(&o.name) == OpClass::Allowed && !schema.is_zombie(&o.name))
     {
-        let params = if op.params.is_empty() {
-            "(no params)".to_string()
-        } else {
-            op.params
-                .iter()
-                .map(|(n, req)| if *req { n.clone() } else { format!("{n}?") })
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
+        let params = render_params(&op.params);
         match &op.doc {
             Some(d) => s.push_str(&format!("- {} : {}   // {}\n", op.name, params, d)),
             None => s.push_str(&format!("- {} : {}\n", op.name, params)),
@@ -805,9 +1010,9 @@ fn schema_doc(schema: &Schema) -> String {
     for e in schema
         .extra
         .iter()
-        .filter(|e| classify(e) == OpClass::Allowed)
+        .filter(|e| classify(&e.name) == OpClass::Allowed)
     {
-        s.push_str(&format!("- {e} : (no params)\n"));
+        s.push_str(&format!("- {} : {}\n", e.name, render_params(&e.params)));
     }
     s.push_str("\n### ASSERTIONS\n");
     for a in schema
@@ -815,16 +1020,7 @@ fn schema_doc(schema: &Schema) -> String {
         .iter()
         .filter(|a| classify(&a.name) == OpClass::Allowed)
     {
-        let params = if a.params.is_empty() {
-            "(no params)".to_string()
-        } else {
-            a.params
-                .iter()
-                .map(|(n, req)| if *req { n.clone() } else { format!("{n}?") })
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        s.push_str(&format!("- {} : {}\n", a.name, params));
+        s.push_str(&format!("- {} : {}\n", a.name, render_params(&a.params)));
     }
     s.push_str(
         "\n`?` = optional. Params NOT listed here do not exist — do not invent any.\n\
@@ -2924,6 +3120,61 @@ fn evaluate_assertion(op: &str) {{
             // the code; hardcoding names here only rots.
         ] {
             assert!(!doc.contains(bad), "prompt must not offer `{bad}`");
+        }
+    }
+
+    #[test]
+    fn the_prompt_lists_every_param_an_assertion_actually_reads() {
+        let s = parse_schema(&root()).unwrap();
+        let doc = schema_doc(&s);
+
+        // Extract the rendered schema line for one op ("- <name> : <params>").
+        let line = |op: &str| -> String {
+            doc.lines()
+                .find(|l| l.starts_with(&format!("- {op} :")))
+                .unwrap_or_else(|| panic!("prompt does not offer `{op}` at all"))
+                .to_string()
+        };
+
+        // THE REPORTED BUG. `eval_assert_manager_invariants` reads its two
+        // params through a `list(key, default)` closure, not through a literal
+        // `params.get("…")`, so the scanner saw nothing and the prompt said
+        // "(no params)" — the model could not narrow the assertion to a
+        // manager or an invariant and emitted the broadest form every time.
+        let mi = line("assert_manager_invariants");
+        assert!(
+            mi.contains("managers"),
+            "assert_manager_invariants must advertise `managers`, got: {mi}"
+        );
+        assert!(
+            mi.contains("cross"),
+            "assert_manager_invariants must advertise `cross`, got: {mi}"
+        );
+        assert!(
+            !mi.contains("(no params)"),
+            "assert_manager_invariants must not be advertised as param-less: {mi}"
+        );
+
+        // SAME CLASS, different mechanism: `assert_resource_counts` takes one
+        // free-form key per counter, looked up in the map `collect_resource_counts`
+        // builds. Only `vs` was ever advertised.
+        let rc = line("assert_resource_counts");
+        for counter in ["vs", "fonts", "images", "parsed_fonts"] {
+            assert!(
+                rc.contains(counter),
+                "assert_resource_counts must advertise `{counter}`, got: {rc}"
+            );
+        }
+
+        // SAME CLASS, third mechanism: `assert_response` has no eval fn at all
+        // (the step loop handles it inline), so it was rendered "(no params)"
+        // — while being the mandatory partner of every `get_*` query op.
+        let ar = line("assert_response");
+        for p in ["type", "contains"] {
+            assert!(
+                ar.contains(p),
+                "assert_response must advertise `{p}`, got: {ar}"
+            );
         }
     }
 
