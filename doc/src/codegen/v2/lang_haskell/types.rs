@@ -24,7 +24,9 @@
 //!   payload variant. Unsizeable payloads (recursive types, generics)
 //!   are skipped with a `-- SKIPPED:` marker.
 
-use anyhow::Result;
+use std::collections::BTreeMap;
+
+use anyhow::{bail, Result};
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
@@ -46,6 +48,15 @@ pub fn emit_type_decls(
     builder.line("-- Struct data declarations + Storable instances");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
+
+    // Module-scoped registry of every `foreign import` binding this
+    // module has already emitted: binding name -> C symbol it is bound
+    // to. Emission below is driven by a *per-struct* loop while some
+    // bindings are keyed on a struct's *element* type, so two structs
+    // sharing an element (e.g. `StringVec` and `IcuStringVec`, both
+    // over `String`) would otherwise emit the same declaration twice
+    // and trip GHC-29916 "Multiple declarations of ...".
+    let mut foreign_imports: BTreeMap<String, String> = BTreeMap::new();
 
     for s in &ir.structs {
         if !should_emit_struct(s, config) {
@@ -69,7 +80,7 @@ pub fn emit_type_decls(
             }
             continue;
         }
-        emit_struct_decl(builder, s, ir);
+        emit_struct_decl(builder, s, ir, &mut foreign_imports)?;
     }
 
     builder.line("-- ---------------------------------------------------------------------------");
@@ -321,7 +332,12 @@ pub fn should_emit_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
 // Struct emission
 // ============================================================================
 
-fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_struct_decl(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    foreign_imports: &mut BTreeMap<String, String>,
+) -> Result<()> {
     let name = haskell_data_name(&s.name);
 
     if !s.doc.is_empty() {
@@ -342,7 +358,7 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.line("poke _ _ = pure ()");
         builder.dedent();
         builder.blank();
-        return;
+        return Ok(());
     }
 
     // data Name = Name { ... }
@@ -467,8 +483,10 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // shape exactly (so non-Vec structs with happenstance "Vec" suffixes
     // are left alone).
     if let Some(elem_ty) = detect_vec_elem_type(s) {
-        emit_vec_to_list_helper(builder, s, &elem_ty, ir);
+        emit_vec_to_list_helper(builder, s, &elem_ty, ir, foreign_imports)?;
     }
+
+    Ok(())
 }
 
 /// True if this struct matches the codegen-emitted Vec shape:
@@ -507,7 +525,8 @@ fn emit_vec_to_list_helper(
     s: &super::super::ir::StructDef,
     elem_rust: &str,
     ir: &CodegenIR,
-) {
+    foreign_imports: &mut BTreeMap<String, String>,
+) -> Result<()> {
     use super::super::ir::FunctionKind;
     let vec_name = haskell_data_name(&s.name);
     let elem_haskell = haskell_field_type(
@@ -531,25 +550,69 @@ fn emit_vec_to_list_helper(
         f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy)
     });
     let clone_via_binding = format!("az_{}_clone_via_internal", lower_first(&haskell_data_name(elem_rust)));
+    let clone_via_symbol = format!("Az{}_clone_via", elem_rust);
 
     if has_clone {
         // Emit a local foreign-import bound to the same C symbol the
-        // FFI module imports. The duplicate binding is intentional —
-        // Haskell links each module's foreign-import to the C symbol
-        // independently, and using a `_internal` suffix avoids name
-        // clashes with `Azul.Internal.FFI.c_<symbol>` for users who
-        // import both modules unqualified.
-        builder.line(&format!(
-            "foreign import ccall unsafe \"Az{}_clone_via\"",
-            elem_rust
-        ));
-        builder.indent();
-        builder.line(&format!(
-            "{} :: Ptr {} -> Ptr {} -> IO ()",
-            clone_via_binding, elem_haskell, elem_haskell
-        ));
-        builder.dedent();
-        builder.blank();
+        // FFI module imports. Re-declaring the symbol in *another*
+        // module is intentional and safe — Haskell links each module's
+        // foreign-import to the C symbol independently, and the
+        // `_internal` suffix avoids name clashes with
+        // `Azul.Internal.FFI.c_<symbol>` for users who import both
+        // modules unqualified.
+        //
+        // WITHIN a module, however, a repeated declaration is a hard
+        // GHC error (GHC-29916 "Multiple declarations of ..."), and
+        // that is exactly what this loop can produce: the binding name
+        // is keyed on the *element* type while this helper runs once
+        // per *Vec* struct, so every pair of Vec types over the same
+        // element (`StringVec` + `IcuStringVec` over `String`) hits it.
+        // `foreign_imports` is the module-scoped registry that makes
+        // the declaration emit exactly once. Do NOT drop it — and note
+        // that only the shared `foreign import` is deduplicated; the
+        // per-Vec `<vec>ToList` below must still be emitted for every
+        // Vec struct.
+        match foreign_imports.get(&clone_via_binding) {
+            None => {
+                foreign_imports
+                    .insert(clone_via_binding.clone(), clone_via_symbol.clone());
+                builder.line(&format!("foreign import ccall unsafe \"{}\"", clone_via_symbol));
+                builder.indent();
+                builder.line(&format!(
+                    "{} :: Ptr {} -> Ptr {} -> IO ()",
+                    clone_via_binding, elem_haskell, elem_haskell
+                ));
+                builder.dedent();
+                builder.blank();
+            }
+            Some(prev) if *prev == clone_via_symbol => {
+                // Already declared for an earlier Vec over the same
+                // element type. The binding is module-scoped, so the
+                // `ToList` emitted below resolves against it.
+                builder.line(&format!(
+                    "-- `{}` (= C `{}`) already declared above for another Vec over `{}`.",
+                    clone_via_binding, clone_via_symbol, elem_rust
+                ));
+            }
+            Some(prev) => {
+                // Two *different* C symbols normalized onto one Haskell
+                // binding name. Silently reusing the first would make
+                // this Vec's `ToList` clone via the wrong C function —
+                // a memory-corruption bug that no downstream compiler
+                // can catch. Fail codegen instead.
+                bail!(
+                    "Haskell codegen: foreign-import binding `{}` would be bound to two \
+                     different C symbols in Azul.Types: `{}` (already emitted) and `{}` \
+                     (required by `{}` over element `{}`). The generated binding name must \
+                     be made unique per C symbol.",
+                    clone_via_binding,
+                    prev,
+                    clone_via_symbol,
+                    s.name,
+                    elem_rust
+                );
+            }
+        }
     }
 
     builder.line("-- | Phase H.3 / V8: Decode the underlying buffer into a Haskell list.");
@@ -595,6 +658,8 @@ fn emit_vec_to_list_helper(
     }
     builder.dedent();
     builder.blank();
+
+    Ok(())
 }
 
 use super::lower_first;
@@ -941,4 +1006,220 @@ fn pointer_form(inner: &str, ir: &CodegenIR) -> String {
         return "(Ptr Word8)".to_string();
     }
     format!("(Ptr {})", map_owned_type(inner, ir))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::super::ir::{FunctionDef, FunctionKind};
+
+    /// A Vec-shaped struct: `[ptr: *const <elem>, len, cap, destructor]` —
+    /// exactly the shape `detect_vec_elem_type` keys on.
+    fn vec_struct(name: &str, elem: &str) -> StructDef {
+        let field = |fname: &str, ty: &str| FieldDef {
+            name: fname.to_string(),
+            type_name: ty.to_string(),
+            doc: None,
+            is_public: true,
+            ref_kind: FieldRefKind::Owned,
+        };
+        StructDef {
+            name: name.to_string(),
+            doc: vec![],
+            fields: vec![
+                field("ptr", &format!("*const {}", elem)),
+                field("len", "usize"),
+                field("cap", "usize"),
+                field("destructor", &format!("{}Destructor", name)),
+            ],
+            external_path: None,
+            module: "vec".to_string(),
+            derives: vec![],
+            has_explicit_derive: false,
+            custom_impls: vec![],
+            is_boxed: false,
+            repr: Some("C".to_string()),
+            is_send_safe: true,
+            generic_params: vec![],
+            traits: Default::default(),
+            category: TypeCategory::Vec,
+            dependencies: vec![],
+            sort_order: 0,
+            needs_forward_decl: false,
+            callback_wrapper_info: None,
+        }
+    }
+
+    fn deep_copy_fn(class_name: &str) -> FunctionDef {
+        FunctionDef {
+            c_name: format!("Az{}_deepCopy", class_name),
+            class_name: class_name.to_string(),
+            method_name: "deepCopy".to_string(),
+            kind: FunctionKind::DeepCopy,
+            args: vec![],
+            return_type: Some(class_name.to_string()),
+            fn_body: None,
+            doc: vec![],
+            is_const: false,
+            is_unsafe: false,
+        }
+    }
+
+    /// The element type carries a `_clone` export, so every Vec over it
+    /// wants the `az_<elem>_clone_via_internal` foreign import. Two such
+    /// Vec structs must still produce exactly ONE declaration — GHC
+    /// rejects a repeat with GHC-29916 "Multiple declarations of ...".
+    ///
+    /// Regression guard for `StringVec` + `IcuStringVec` (both over
+    /// `String`), which broke the Haskell binding build.
+    fn emit_two_vecs_over_same_elem() -> String {
+        let mut ir = CodegenIR::new();
+        // The element type must be a known IR struct, otherwise it maps
+        // to the opaque `(Ptr ())` fallback and the test would no longer
+        // mirror the real `StringVec` / `IcuStringVec` output.
+        let mut string_ty = vec_struct("String", "u8");
+        string_ty.fields.truncate(1);
+        string_ty.category = TypeCategory::Regular;
+        ir.structs.push(string_ty);
+        ir.structs.push(vec_struct("StringVec", "String"));
+        ir.structs.push(vec_struct("IcuStringVec", "String"));
+        ir.functions.push(deep_copy_fn("String"));
+
+        let config = CodegenConfig::c_header();
+        let mut builder = CodeBuilder::new(&config.indent);
+        emit_type_decls(&mut builder, &ir, &config).expect("emit must succeed");
+        builder.finish()
+    }
+
+    /// Extract every `foreign import` binding name from Haskell source.
+    fn foreign_import_names(src: &str) -> Vec<String> {
+        let lines: Vec<&str> = src.lines().collect();
+        let mut names = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if !line.trim_start().starts_with("foreign import") {
+                continue;
+            }
+            let Some(next) = lines.get(i + 1) else { continue };
+            let t = next.trim_start();
+            let end = t
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '\''))
+                .unwrap_or(t.len());
+            names.push(t[..end].to_string());
+        }
+        names
+    }
+
+    #[test]
+    fn vec_clone_via_foreign_import_emitted_once_per_module() {
+        let src = emit_two_vecs_over_same_elem();
+
+        let names = foreign_import_names(&src);
+        let hits = names
+            .iter()
+            .filter(|n| n.as_str() == "az_azString_clone_via_internal")
+            .count();
+        assert_eq!(
+            hits, 1,
+            "the shared clone-via foreign import must be declared exactly once per \
+             module, got {} declaration(s) in:\n{}",
+            hits, src
+        );
+
+        // ...and no OTHER foreign import may repeat either.
+        let mut sorted = names.clone();
+        sorted.sort();
+        let unique = {
+            let mut u = sorted.clone();
+            u.dedup();
+            u
+        };
+        assert_eq!(sorted, unique, "duplicate foreign imports: {:?}", names);
+    }
+
+    #[test]
+    fn every_vec_still_gets_its_own_to_list_helper() {
+        // Deduplicating the shared foreign import must NOT skip the
+        // per-Vec decoder.
+        let src = emit_two_vecs_over_same_elem();
+        assert!(
+            src.contains("stringVecToList :: StringVec -> IO [AzString]"),
+            "missing stringVecToList in:\n{}",
+            src
+        );
+        assert!(
+            src.contains("icuStringVecToList :: IcuStringVec -> IO [AzString]"),
+            "missing icuStringVecToList in:\n{}",
+            src
+        );
+        // The second Vec's decoder still calls the shared binding.
+        assert_eq!(
+            src.matches("az_azString_clone_via_internal __ep __out").count(),
+            2,
+            "both decoders must call the shared clone-via binding:\n{}",
+            src
+        );
+    }
+
+    #[test]
+    fn duplicate_declaration_guard_rejects_the_regressed_output() {
+        // The module-scope guard in `mod.rs` is what turns a re-introduced
+        // duplicate into a codegen failure instead of a GHC-29916 error
+        // three CI jobs later. Feed it the exact shape this bug produced.
+        let regressed = concat!(
+            "module Azul.Types where\n",
+            "\n",
+            "foreign import ccall unsafe \"AzString_clone_via\"\n",
+            "    az_azString_clone_via_internal :: Ptr AzString -> Ptr AzString -> IO ()\n",
+            "\n",
+            "foreign import ccall unsafe \"AzString_clone_via\"\n",
+            "    az_azString_clone_via_internal :: Ptr AzString -> Ptr AzString -> IO ()\n",
+        );
+        let err = super::super::check_no_duplicate_declarations("src/Azul/Types.hs", regressed)
+            .expect_err("the guard must reject a duplicated declaration");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("az_azString_clone_via_internal"),
+            "error must name the offending binding, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn duplicate_declaration_guard_accepts_the_fixed_output() {
+        let src = emit_two_vecs_over_same_elem();
+        super::super::check_no_duplicate_declarations("src/Azul/Types.hs", &src)
+            .expect("deduplicated output must pass the module-scope guard");
+    }
+
+    #[test]
+    fn duplicate_declaration_guard_ignores_non_declarations() {
+        // Record fields, inline `::` annotations and Haddock prose must
+        // not be mistaken for module-scope declarations, or the guard
+        // would fire on perfectly valid output.
+        let src = concat!(
+            "{- |\n",
+            "Prose that mentions foo :: Int and foo :: Int again.\n",
+            "-}\n",
+            "{-# LANGUAGE ForeignFunctionInterface #-}\n",
+            "module Azul.Types where\n",
+            "\n",
+            "data A = A\n",
+            "    { aPtr :: !(Ptr ())\n",
+            "    , aLen :: !(CSize)\n",
+            "    } deriving (Show)\n",
+            "\n",
+            "data B = B\n",
+            "    { aPtr :: !(Ptr ())\n",
+            "    , aLen :: !(CSize)\n",
+            "    } deriving (Show)\n",
+            "\n",
+            "instance Storable A where\n",
+            "    peek p = do\n",
+            "        v0 <- peekByteOff p (0) :: IO (Ptr ())\n",
+            "        v1 <- peekByteOff p (sizeOf (undefined :: (Ptr ()))) :: IO (CSize)\n",
+            "        pure (A v0 v1)\n",
+        );
+        super::super::check_no_duplicate_declarations("src/Azul/Types.hs", src)
+            .expect("valid output must not trip the guard");
+    }
 }

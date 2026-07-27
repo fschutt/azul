@@ -95,6 +95,15 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let cabal_src = cabal::generate_cabal(&ir.api_version);
     let cshim_src = cshim::generate_c_shims(ir, config);
 
+    // Codegen-time guard: a Haskell module may declare each name at most
+    // once. Emitters that key a declaration on something other than the
+    // loop variable (a Vec's *element* type inside a per-*Vec* loop, for
+    // instance) can silently produce two identical declarations, which
+    // GHC only rejects much later with GHC-29916. Fail here instead.
+    check_no_duplicate_declarations("src/Azul.hs", &umbrella)?;
+    check_no_duplicate_declarations("src/Azul/Internal/FFI.hs", &ffi)?;
+    check_no_duplicate_declarations("src/Azul/Types.hs", &types_src)?;
+
     let mut out = String::with_capacity(
         umbrella.len() + ffi.len() + types_src.len() + cabal_src.len() + cshim_src.len() + 256,
     );
@@ -104,6 +113,109 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     push_section(&mut out, "cbits/azul_shims.c", &cshim_src);
     push_section(&mut out, "azul.cabal", &cabal_src);
     Ok(out)
+}
+
+// ============================================================================
+// Codegen-time duplicate-declaration guard
+// ============================================================================
+
+/// Every declaration name a Haskell module binds at module scope, paired
+/// with the 1-based line it was declared on.
+///
+/// Recognised shapes (all of which GHC rejects if repeated in one module):
+/// - `data <Name>` / `newtype <Name>` / `type <Name>` at column 0
+/// - a type signature `<name> :: <ty>` — at column 0 for a plain binding,
+///   or indented directly under a `foreign import ...` header, which is
+///   how this backend emits its FFI bindings.
+///
+/// Deliberately *not* matched, because they are not module-scope
+/// declarations: record fields (`{ foo :: !T` / `, bar :: !T` — the line
+/// starts with a brace or comma), inline type annotations
+/// (`x <- peekByteOff p 0 :: IO CSize`, `sizeOf (undefined :: T)` — the
+/// identifier is not immediately followed by `::`), and comments.
+fn module_scope_declarations(src: &str) -> Vec<(String, usize)> {
+    let mut out = Vec::new();
+    // Haddock block comments (`{- | ... -}`) carry prose that can look
+    // like a declaration; skip their contents. Haskell block comments
+    // nest, so track depth rather than a boolean.
+    let mut comment_depth: usize = 0;
+    for (idx, line) in src.lines().enumerate() {
+        let lineno = idx + 1;
+        let trimmed = line.trim_start();
+        let opens = line.matches("{-").count();
+        let closes = line.matches("-}").count();
+        let was_in_comment = comment_depth > 0;
+        comment_depth = (comment_depth + opens).saturating_sub(closes);
+        if was_in_comment || opens > 0 {
+            continue;
+        }
+        if trimmed.is_empty() || trimmed.starts_with("--") {
+            continue;
+        }
+
+        // `data X = ...` / `newtype X = ...` / `type X = ...`
+        if line.starts_with("data ") || line.starts_with("newtype ") || line.starts_with("type ") {
+            if let Some(name) = trimmed.split_whitespace().nth(1) {
+                let name = name.trim_end_matches(|c: char| !is_haskell_ident_char(c));
+                if !name.is_empty() {
+                    out.push((name.to_string(), lineno));
+                }
+            }
+            continue;
+        }
+
+        // `<name> ::` — a type signature, at column 0 or indented under a
+        // `foreign import` header.
+        let ident_len = trimmed
+            .find(|c: char| !is_haskell_ident_char(c))
+            .unwrap_or(trimmed.len());
+        if ident_len == 0 {
+            continue;
+        }
+        let (ident, rest) = trimmed.split_at(ident_len);
+        if !rest.trim_start().starts_with("::") {
+            continue;
+        }
+        if !ident.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+            continue;
+        }
+        out.push((ident.to_string(), lineno));
+    }
+    out
+}
+
+fn is_haskell_ident_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '\''
+}
+
+/// Fail codegen if `src` declares any name more than once at module
+/// scope. Duplicate declarations are a hard GHC error (GHC-29916
+/// "Multiple declarations of ..."), so catching them here turns a
+/// downstream Cabal build failure into an actionable codegen failure.
+fn check_no_duplicate_declarations(path: &str, src: &str) -> Result<()> {
+    let mut seen: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut dupes: Vec<String> = Vec::new();
+    for (name, lineno) in module_scope_declarations(src) {
+        match seen.get(&name) {
+            Some(first) => dupes.push(format!(
+                "  `{}` declared at line {} and again at line {}",
+                name, first, lineno
+            )),
+            None => {
+                seen.insert(name, lineno);
+            }
+        }
+    }
+    if !dupes.is_empty() {
+        anyhow::bail!(
+            "Haskell codegen emitted {} duplicate module-scope declaration(s) in {} \
+             (GHC rejects these with GHC-29916 \"Multiple declarations of ...\"):\n{}",
+            dupes.len(),
+            path,
+            dupes.join("\n")
+        );
+    }
+    Ok(())
 }
 
 fn push_section(out: &mut String, path: &str, content: &str) {
