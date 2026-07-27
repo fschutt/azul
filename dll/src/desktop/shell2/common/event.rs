@@ -5417,6 +5417,31 @@ pub trait PlatformWindow {
         // Also sync window state after all changes
         self.sync_window_state();
 
+        // A CHANGE whose own result is a full DOM regeneration says exactly what
+        // a timer that returned `Update::RefreshDom` says, and it must be read.
+        //
+        // `timer_results` / `thread_update` above are only the update the TIMER
+        // (or thread writeback) callback itself returned. They are NOT the only
+        // way a rebuild gets requested: `apply_user_change` runs a whole event
+        // pass for `ModifyWindowState` / `QueueWindowStateSequence` /
+        // `CreateTextInput`, and a USER callback dispatched inside that pass can
+        // return `Update::RefreshDom` — which `process_window_events` reports by
+        // returning `ShouldRegenerateDomCurrentWindow` (and by calling
+        // `mark_frame_needs_regeneration` itself).
+        //
+        // Leaving `needs_layout_regeneration` false for that case was not merely
+        // a missed flag: it fell through to the `ShouldIncrementalRelayout` arm
+        // below and DOWNGRADED the request to `frame_relayout_only`. Every frame
+        // path — X11, Wayland, Windows and headless — tests `frame_relayout_only`
+        // FIRST and clears both flags, so the requested DOM rebuild was not
+        // delayed, it was discarded: `relayout_only` re-runs layout on the OLD
+        // StyledDom and never re-invokes the layout callback, so the window kept
+        // rendering the pre-callback data forever.
+        if max_changes_result >= ProcessEventResult::ShouldRegenerateDomCurrentWindow {
+            needs_layout_regeneration = true;
+            needs_redraw = true;
+        }
+
         // Mark frame for regeneration ONLY when a callback returned RefreshDom
         // (full DOM rebuild). ShouldUpdateDisplayListCurrentWindow means the
         // display list was already regenerated internally (e.g. by CreateTextInput)
@@ -5442,6 +5467,11 @@ pub trait PlatformWindow {
         // skipped — the shaped text, the glyph runs and the geometry all stay at
         // their pre-mutation values. That is the stale screen: the DOM says "AFTER",
         // every frame keeps rendering "before".
+        //
+        // `!needs_layout_regeneration` is what keeps this arm strictly BELOW the
+        // regeneration threshold: a `ShouldRegenerateDom*` result has already set
+        // that flag just above, so a rebuild can never be downgraded to a
+        // relayout of the DOM it was supposed to replace.
         if max_changes_result >= ProcessEventResult::ShouldIncrementalRelayout
             && !needs_layout_regeneration
         {
