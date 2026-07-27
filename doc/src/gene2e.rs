@@ -411,6 +411,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("hit_test",                  None),
     ("focus",                     None),
     ("blur",                      None),
+    // DOM focus, as opposed to the two WINDOW-focus ops above. `text_input`
+    // hard-errors without a focused node and 18 of the 24 corpus widgets have
+    // no focusable node, so every keyboard-editing line needed a precondition
+    // it had no op to express. Click-to-focus is not a substitute: it needs a
+    // coordinate, which a generated test may not guess.
+    ("focus_node",                None),
 
     // -- ALLOW: APP-CALLBACK API — a real app mutates the DOM from a callback,
     //    so this is a legitimate second drive surface. ----------------------

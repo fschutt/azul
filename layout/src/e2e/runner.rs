@@ -756,11 +756,13 @@ impl Runner {
         let new_focus_node_id = new_focus.and_then(|f| f.node.into_crate_internal());
 
         let now = self.now();
+        let window_state = self.window_state.clone();
         let lw = &mut self.layout_window;
         lw.focus_manager.set_focused_node(new_focus);
         if let Some(focus_node) = new_focus {
             lw.scroll_node_into_view(focus_node, ScrollIntoViewOptions::nearest(), now);
         }
+        arm_caret_for_focus(lw, new_focus, &window_state);
 
         let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
         if old_focus_node_id != new_focus_node_id {
@@ -1117,17 +1119,20 @@ impl Runner {
                 use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
 
                 let now = self.now();
+                let window_state = self.window_state.clone();
                 let lw = &mut self.layout_window;
                 let current_focus = lw.focus_manager.get_focused_node().copied();
                 match resolve_focus_target(target, &lw.layout_results, current_focus) {
                     Ok(Some(new_focus)) => {
                         lw.focus_manager.set_focused_node(Some(new_focus));
                         lw.scroll_node_into_view(new_focus, ScrollIntoViewOptions::nearest(), now);
+                        arm_caret_for_focus(lw, Some(new_focus), &window_state);
                         lw.finalize_pending_focus_changes();
                         ProcessEventResult::ShouldReRenderCurrentWindow
                     }
                     Ok(None) => {
                         lw.focus_manager.set_focused_node(None);
+                        arm_caret_for_focus(lw, None, &window_state);
                         lw.finalize_pending_focus_changes();
                         ProcessEventResult::ShouldReRenderCurrentWindow
                     }
@@ -2256,6 +2261,30 @@ fn apply_focus_restyle(
     } else {
         ProcessEventResult::ShouldReRenderCurrentWindow
     }
+}
+
+/// Port of the caret half of the DLL's `SystemChange::SetFocus` /
+/// `CallbackChange::SetFocusTarget` handling.
+///
+/// `handle_focus_change_for_cursor_blink` is what FLAGS a contenteditable focus
+/// for caret initialisation; `finalize_pending_focus_changes` (already called at
+/// the end of every pass) is what turns that flag into a real cursor. The runner
+/// called only the second one, so the flag was never set, no cursor was ever
+/// created, and `text_input` went through `record_text_input` (which only needs a
+/// focused node) into `apply_text_changeset` (which needs a CURSOR) and produced
+/// zero dirty nodes — a silent no-op with focus in place.
+///
+/// The returned `CursorBlinkTimerAction` is DELIBERATELY dropped: this host has
+/// no timer driver (`CallbackChange::AddTimer` is `unsupported` by name), so the
+/// caret is drawn steady instead of blinking. That is a visible-state
+/// simplification, not a silent skip — nothing about the edit itself depends on
+/// the timer.
+fn arm_caret_for_focus(
+    layout_window: &mut LayoutWindow,
+    new_focus: Option<DomNodeId>,
+    window_state: &FullWindowState,
+) {
+    let _blink = layout_window.handle_focus_change_for_cursor_blink(new_focus, window_state);
 }
 
 /// Port of the DLL's `apply_hover_restyle` (`.../common/event.rs`): apply this

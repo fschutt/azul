@@ -142,6 +142,8 @@ pub enum ResponseData {
     DragContext(DragContextResponse),
     /// Focus state (which node has keyboard focus)
     FocusState(FocusStateResponse),
+    /// `focus_node` result — which node the op actually focused
+    FocusNode(FocusNodeResponse),
     /// Cursor state (cursor position and blink state)
     CursorState(CursorStateResponse),
     /// E2E test results
@@ -237,6 +239,15 @@ pub struct NodeDeletedResponse {
 pub struct NodeTextSetResponse {
     pub node_id: u64,
     pub new_text: String,
+}
+
+/// Response for `FocusNode`: the node DOM focus was moved to.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FocusNodeResponse {
+    pub node_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 /// Response for SetNodeClasses
@@ -1826,8 +1837,32 @@ pub enum DebugEvent {
         x: i32,
         y: i32,
     },
+    /// Give the WINDOW keyboard focus (`window_focused` / `flags.has_focus`).
+    /// This does NOT move DOM focus — use `focus_node` for that.
     Focus,
+    /// Take WINDOW keyboard focus away. Does NOT clear DOM focus.
     Blur,
+    /// Move DOM (keyboard) focus to a node.
+    ///
+    /// `focus` / `blur` above are WINDOW focus and never touch the focus
+    /// manager. Until this op existed there was NO way to focus a node except
+    /// as a side effect of a `click` that happens to land on a focusable
+    /// ancestor, or of `key_down {"key": "tab"}` — and `text_input` hard-errors
+    /// without a focused node, so every keyboard-editing test depended on an
+    /// unstated precondition it had no way to express. Click-to-focus is not a
+    /// substitute either: it needs a coordinate, and a generated test may not
+    /// know or guess one.
+    ///
+    /// Give exactly one of `selector` / `node_id`. Refuses (loudly) if the node
+    /// does not exist or cannot hold focus.
+    FocusNode {
+        /// CSS selector for the node to focus
+        #[serde(default)]
+        selector: Option<String>,
+        /// Node ID to focus (alternative to `selector`)
+        #[serde(default)]
+        node_id: Option<u64>,
+    },
     Close,
     DpiChanged {
         dpi: u32,
@@ -9008,6 +9043,67 @@ pub fn process_debug_event(
             new_state.flags.has_focus = false;
             callback_info.modify_window_state(new_state);
             send_ok(request, None, None);
+        }
+
+        DebugEvent::FocusNode { selector, node_id } => {
+            use azul_core::callbacks::FocusTarget;
+            use azul_core::dom::DomNodeId;
+            use azul_core::styled_dom::NodeHierarchyItemId;
+
+            let target = resolve_node_target(callback_info, selector.as_deref(), *node_id, None);
+            let described = selector
+                .clone()
+                .unwrap_or_else(|| node_id.map_or_else(|| "<nothing>".to_string(), |n| format!("node {n}")));
+
+            // Resolve + validate BEFORE pushing the change. The runner's
+            // `SetFocusTarget` arm answers an unresolvable target with
+            // `DoNothing` — silently — so a test that focused a node that does
+            // not exist, or one that can never hold focus, would run its whole
+            // keyboard timeline against no focus at all and blame the engine.
+            let focusable = target.and_then(|nid| {
+                callback_info
+                    .get_layout_window()
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .and_then(|lr| {
+                        lr.styled_dom
+                            .node_data
+                            .as_container()
+                            .get(nid)
+                            .map(azul_core::dom::NodeData::is_focusable)
+                    })
+            });
+
+            match (target, focusable) {
+                (Some(nid), Some(true)) => {
+                    callback_info.set_focus(FocusTarget::Id(DomNodeId {
+                        dom: ROOT_DOM_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
+                    }));
+                    send_ok(
+                        request,
+                        None,
+                        Some(ResponseData::FocusNode(FocusNodeResponse {
+                            node_id: nid.index() as u64,
+                            selector: selector.clone(),
+                        })),
+                    );
+                }
+                (Some(nid), _) => send_err(
+                    request,
+                    format!(
+                        "focus_node: '{described}' resolves to node {} but that node cannot hold \
+                         focus (not a/button/input/select/textarea, not contenteditable, no \
+                         tabindex and no focus callback). Focusing it would leave the focus \
+                         manager empty and every following keyboard step would test nothing.",
+                        nid.index()
+                    ),
+                ),
+                (None, _) => send_err(
+                    request,
+                    format!("focus_node: no node matches '{described}'"),
+                ),
+            }
         }
 
         DebugEvent::Move { x, y } => {
