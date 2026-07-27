@@ -2084,6 +2084,18 @@ impl Runner {
     /// `LayoutWindow`, where `CallbackInfo::get_layout_window()` — and therefore
     /// an E2E assertion — can see it.
     fn render_and_record(&mut self) {
+        // The scrollbar thumb transform and fade opacity live in the GPU value
+        // cache, which the WebRender builders refresh every frame and the CPU
+        // path has to refresh by hand. `LayoutWindow::refresh_scrollbar_gpu_cache_for_cpu_frame`
+        // says so in its own doc comment ("before `CpuBackend::render_frame`"),
+        // and ALL SEVEN DLL platform loops call it — this host did not. So the
+        // cache was only ever advanced by a full relayout: `scrollbar_fade_active`
+        // never became true, `has_gpu_damage` never became true from a fade, and
+        // NO SCROLLBAR FADE WAS OBSERVABLE IN E2E AT ALL. The `full.rs:5285`
+        // leak check for "an idle scrollbar'd window re-presenting forever"
+        // could not fire either.
+        self.layout_window.refresh_scrollbar_gpu_cache_for_cpu_frame();
+
         let width = self.window_state.size.dimensions.width;
         let height = self.window_state.size.dimensions.height;
         #[allow(clippy::cast_precision_loss)]
