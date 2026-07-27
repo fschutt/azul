@@ -314,9 +314,16 @@ impl CpuBackend {
         let needs_resize = old_pw != pixel_w || old_ph != pixel_h;
 
         let mut resize_damage = Vec::new();
+        // A GROW preserves the previous frame: `resize_grow_only` copies the old
+        // pixels into the top-left of the enlarged buffer (and `resize_reuse`
+        // does the same for `last_frame` below), so the frame stays a valid base
+        // for an incremental repaint and only the newly-exposed L is unknown.
+        // A SHRINK throws the whole compositor away, so nothing may be reused.
+        let mut resize_preserved_pixels = false;
         if needs_resize {
             let is_grow = pixel_w >= old_pw && pixel_h >= old_ph && old_pw > 0 && old_ph > 0;
             if is_grow {
+                resize_preserved_pixels = true;
                 // Grow-only: resize root layer pixbuf, keep old content
                 if let Some(root_layer) = compositor.layers.get_mut(&compositor.root_layer) {
                     let _ = root_layer.pixbuf.resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
@@ -335,7 +342,18 @@ impl CpuBackend {
                     height,
                 );
             } else {
-                // Shrink or first allocation: full recreate
+                // Shrink or first allocation: full recreate.
+                //
+                // A MIXED resize (wider but shorter) lands here too — `is_grow`
+                // demands both axes. This branch stays a FULL repaint, and that
+                // is a measured decision, not an oversight: it recreates the
+                // compositor AND never calls `compute_resize_damage`, so letting
+                // it reuse the previous frame under-paints. Measured with the
+                // resize probe at 500x600 -> 700x400: 53200 changed pixels
+                // uncovered by any damage rect, the first at (500, 134) — i.e.
+                // the whole newly-exposed right strip, stale on a real screen. A
+                // shrink also exposes nothing new, so a full repaint here costs
+                // at most the NEW (smaller) buffer.
                 *compositor = cpurender::CompositorState::new(pixel_w, pixel_h);
             }
         }
@@ -372,9 +390,14 @@ impl CpuBackend {
         self.previous_gpu_transforms = gpu_transforms;
         self.previous_gpu_opacities = gpu_opacities;
 
+        // Can the pixels of the previous frame still be trusted? Yes when the
+        // buffer did not change size at all, and yes on a GROW (the old pixels
+        // were copied over verbatim). No on a shrink / first allocation.
+        let can_reuse_previous_frame = !needs_resize || resize_preserved_pixels;
+
         // Compute display list damage (incremental path)
         let dl_damage = match &self.previous_display_list {
-            Some(old_dl) if !needs_resize && !gpu_damage.needs_full => {
+            Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
                 cpurender::compute_display_list_damage(
                     old_dl,
                     display_list,
@@ -382,7 +405,7 @@ impl CpuBackend {
                     &scroll_offsets,
                 )
             }
-            _ => None, // first frame, resize or ref-frame transform → full repaint
+            _ => None, // first frame, shrink or ref-frame transform → full repaint
         };
 
         // VirtualView child-DOM damage. A child DOM (e.g. the MapWidget tile
@@ -489,11 +512,18 @@ impl CpuBackend {
         match dl_damage {
             Some(rects)
                 if rects.is_empty()
+                    && !needs_resize
                     && resize_damage.is_empty()
                     && !has_scroll
                     && !has_vview_damage
                     && !has_gpu_damage =>
             {
+                // `!needs_resize` is load-bearing now that a resize can reach
+                // this match at all: skipping leaves `last_frame` at the OLD
+                // dimensions while the compositor is already at the new ones, so
+                // the host would publish (and present) a wrongly-sized buffer.
+                // A frame whose backing store changed size is never "nothing".
+                //
                 // Nothing changed — skip rendering entirely. (`!has_vview_damage`
                 // keeps us out of this branch when only a VirtualView child DOM
                 // changed — that case must still re-composite, see below.)
@@ -505,14 +535,21 @@ impl CpuBackend {
                 self.last_present_damage = FrameDamage::None;
                 return Vec::new();
             }
-            Some(mut rects) if !needs_resize => {
+            // The display-list diff plus, on a grow, the newly-exposed L. The
+            // guard used to be `!needs_resize`, which meant a grow BUILT the
+            // bounded repaint (`compute_resize_damage` + `resize_grow_only`
+            // preserving the old pixels) and then threw it away: `dl_damage` was
+            // forced to `None`, the match fell through to `_`, the buffer was
+            // filled white and everything was repainted — `FrameDamage::Full`
+            // for a window that only grew by a strip.
+            Some(mut rects) if can_reuse_previous_frame => {
                 // Incremental: changed items + (scroll strips added below)
                 rects.extend(resize_damage);
                 all_damage = rects;
                 is_incremental = true;
             }
             _ => {
-                // Full repaint (first frame, structural change, resize). Scroll
+                // Full repaint (first frame, structural change, shrink). Scroll
                 // offsets are applied fresh by the full render, so no pixel move.
                 all_damage = resize_damage;
                 is_incremental = false;

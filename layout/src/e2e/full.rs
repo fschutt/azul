@@ -6278,6 +6278,29 @@ pub fn e2e_set_presented_frame(
 ///    framebuffer against an independent full repaint — two different code paths
 ///    for the same function.
 ///
+/// # Across a RESIZE
+///
+/// This used to bail out with "frame size changed between the snapshot and now
+/// — the comparison is meaningless" whenever `vs` and the current frame had
+/// different dimensions, which left the one repaint path that reuses pixels
+/// across a buffer realloc (the grow fast path in `cpu_backend`) with NO
+/// soundness net at all.
+///
+/// A dimension change does not make the comparison meaningless, it makes the
+/// CHANGED SET bigger, and in a way that is exactly definable:
+///
+/// * inside the intersection of the two frames, a pixel changed iff it differs
+///   from the snapshot — the ordinary test;
+/// * every pixel of the new frame OUTSIDE that intersection is newly exposed,
+///   so it changed BY DEFINITION (there is no previous value for it) and the
+///   damage set must cover it.
+///
+/// Both halves are checked, so a grow that reuses the old pixels but forgets to
+/// repaint a region the reflow moved is caught by the first half, and one that
+/// forgets the newly-exposed L is caught by the second. `pixel_identity` needs
+/// no adjustment at all: it compares the damage-driven framebuffer against a
+/// FRESH full repaint at the CURRENT size, never against the snapshot.
+///
 /// Parameters: `vs` (snapshot name, required), `max_overpaint_ratio` (default
 /// 4.0), `forbid_full` (default false), `threshold` (default 2), `slack_px`
 /// (default 1), `pixel_identity` (default false).
@@ -6340,12 +6363,12 @@ fn eval_assert_damage_sound(
             Ok(p) => p,
             Err(e) => return AssertionResult::fail(format!("assert_damage_sound: {e}")),
         };
-        if before.width() != after.width() || before.height() != after.height() {
-            return AssertionResult::fail(
-                "assert_damage_sound: frame size changed between the snapshot and now — the \
-                 comparison is meaningless",
-            );
-        }
+        // The overlap of the snapshot and the current frame. Outside it every
+        // pixel of the current frame is newly exposed and therefore CHANGED —
+        // see the "Across a RESIZE" section on this function.
+        let overlap_w = before.width().min(after.width()) as usize;
+        let overlap_h = before.height().min(after.height()) as usize;
+        let resized = before.width() != after.width() || before.height() != after.height();
 
         let logical_w = callback_info
             .get_current_window_state()
@@ -6375,6 +6398,7 @@ fn eval_assert_damage_sound(
         let (bd, ad) = (before.data(), after.data());
         let w = after.width() as usize;
         let h = after.height() as usize;
+        let before_stride = before.width() as usize;
         let mut changed = 0u64;
         let mut uncovered = 0u64;
         let mut first: Option<(usize, usize)> = None;
@@ -6382,8 +6406,15 @@ fn eval_assert_damage_sound(
         for y in 0..h {
             for x in 0..w {
                 let i = (y * w + x) * 4;
-                if !(0..4).any(|c| bd[i + c].abs_diff(ad[i + c]) > threshold) {
-                    continue;
+                // Inside the overlap the snapshot has a previous value for this
+                // pixel, so "changed" is the ordinary per-channel diff. Outside
+                // it there IS no previous value — the pixel is newly exposed by
+                // the resize and counts as changed unconditionally.
+                if x < overlap_w && y < overlap_h {
+                    let bi = (y * before_stride + x) * 4;
+                    if !(0..4).any(|c| bd[bi + c].abs_diff(ad[i + c]) > threshold) {
+                        continue;
+                    }
                 }
                 changed += 1;
                 bx0 = bx0.min(x);
@@ -6527,9 +6558,20 @@ fn eval_assert_damage_sound(
             identity = String::from(", pixel-identical to a full repaint");
         }
 
+        let across = if resized {
+            format!(
+                " [across a resize {}x{} -> {}x{}: every px outside the overlap counted as changed]",
+                before.width(),
+                before.height(),
+                after.width(),
+                after.height()
+            )
+        } else {
+            String::new()
+        };
         AssertionResult::pass(format!(
             "assert_damage_sound: {changed} changed px all covered by the {} paint damage ({} \
-             rect(s)), present ⊇ paint, tightness {tightness}{identity}",
+             rect(s)), present ⊇ paint, tightness {tightness}{identity}{across}",
             damage_kind_str(&paint),
             paint.rect_count()
         ))
