@@ -1678,6 +1678,29 @@ pub trait PlatformWindow {
                     None => return ProcessEventResult::DoNothing,
                 };
 
+                // NO-OP SHORT CIRCUIT (mirrors the headless E2E runner):
+                // re-setting the byte-identical string used to drop the ENTIRE
+                // incremental shaped-text cache and re-shape every run in the
+                // DOM for a write that changed nothing — and produced no damage,
+                // so nothing could ever observe the waste.
+                let unchanged = self.get_layout_window().is_some_and(|lw| {
+                    lw.layout_results
+                        .get(&dom_id)
+                        .is_some_and(|lr| {
+                            let nodes = lr.styled_dom.node_data.as_container();
+                            nodes.get(internal_node_id).is_some_and(|node| {
+                                matches!(
+                                    node.get_node_type(),
+                                    azul_core::dom::NodeType::Text(existing)
+                                        if existing.as_str() == text.as_str()
+                                )
+                            })
+                        })
+                });
+                if unchanged {
+                    return ProcessEventResult::DoNothing;
+                }
+
                 // Update StyledDom text content
                 if let Some(lw) = self.get_layout_window_mut() {
                     if let Some(layout_result) = lw.layout_results.get_mut(&dom_id) {

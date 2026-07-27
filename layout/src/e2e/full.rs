@@ -12662,9 +12662,40 @@ pub fn process_debug_event(
             if target_node_id.index() >= node_count {
                 send_err(request, format!("Node {} not found", node_id));
             } else {
+                // "omit to keep current" — the variant's own doc comment. The
+                // handler did the OPPOSITE: `set_node_ids_and_classes` REPLACES
+                // the node's entire id+class vec, so omitting `id` DELETED the
+                // id. Every "set the classes the node already has" no-op test on
+                // a fixture whose target carries an `id=` was therefore a real
+                // mutation wearing a no-op costume — and `#box` stopped matching
+                // right after it.
+                let current_id = if id.is_none() {
+                    callback_info
+                        .get_layout_window()
+                        .layout_results
+                        .get(&dom_id)
+                        .and_then(|lr| {
+                            lr.styled_dom
+                                .node_data
+                                .as_container()
+                                .get(target_node_id)
+                                .map(azul_core::dom::NodeData::get_ids_and_classes)
+                        })
+                        .and_then(|ids| {
+                            ids.as_ref().iter().find_map(|entry| match entry {
+                                IdOrClass::Id(s) => Some(s.clone()),
+                                IdOrClass::Class(_) => None,
+                            })
+                        })
+                } else {
+                    None
+                };
+
                 let mut ids_and_classes = Vec::new();
                 if let Some(id_str) = id {
                     ids_and_classes.push(IdOrClass::Id(azul_css::AzString::from(id_str.as_str())));
+                } else if let Some(existing) = current_id {
+                    ids_and_classes.push(IdOrClass::Id(existing));
                 }
                 for class in classes.iter() {
                     ids_and_classes.push(IdOrClass::Class(azul_css::AzString::from(class.as_str())));
