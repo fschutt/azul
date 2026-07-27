@@ -563,6 +563,32 @@ pub enum CallbackChange {
     RedoAppState,
 }
 
+/// Whether a batch of CSS property overrides can move geometry, i.e. whether
+/// applying it has to re-run layout or only has to repaint.
+///
+/// [`CssPropertyType::can_trigger_relayout`] is the engine's existing authority
+/// on the question (`background-color`, `color`, `opacity`, `transform`,
+/// `box-shadow`, the border colours/styles and the scrollbar paint properties
+/// are all paint-only), and the property cache already consults it in
+/// `check_layout_properties_changed`. The two `apply_user_change`
+/// implementations — the headless E2E host and
+/// `dll/src/desktop/shell2/common/event.rs` — did not: both answered
+/// `ChangeNodeCssProperties` and `OverrideNodeCssProperties` with an
+/// unconditional `ShouldIncrementalRelayout`, so animating a colour, a
+/// `:hover` background or an `opacity` re-laid-out the whole DOM every frame.
+///
+/// An EMPTY batch changes nothing and therefore needs no layout.
+///
+/// This lives here, next to `CallbackChange`, so the two hosts cannot drift:
+/// the decision is one function, not two copies of a match arm.
+#[must_use]
+pub fn css_properties_need_relayout(properties: &CssPropertyVec) -> bool {
+    properties
+        .as_ref()
+        .iter()
+        .any(|p| p.get_type().can_trigger_relayout())
+}
+
 /// Main callback type for UI event handling
 pub type CallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
 

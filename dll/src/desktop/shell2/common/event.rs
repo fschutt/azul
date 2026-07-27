@@ -1823,7 +1823,18 @@ pub trait PlatformWindow {
                     // stored one still carries the old paint.
                     lw.regenerate_display_list_for_dom(*dom_id);
                 }
-                ProcessEventResult::ShouldIncrementalRelayout
+                // A paint-only property (colour, background, opacity,
+                // transform, shadow, …) cannot move geometry, so it must not
+                // charge the window a layout pass. This arm used to answer
+                // ShouldIncrementalRelayout unconditionally, which re-laid-out
+                // the whole DOM for every animated colour and every :hover.
+                // The decision lives in azul-layout so this host and the
+                // headless E2E host cannot drift apart.
+                if azul_layout::callbacks::css_properties_need_relayout(properties) {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                }
             }
 
             CallbackChange::OverrideNodeCssProperties { dom_id, node_id, properties } => {
@@ -1844,7 +1855,15 @@ pub trait PlatformWindow {
                         }
                     }
                 }
-                ProcessEventResult::ShouldIncrementalRelayout
+                // Same rule as ChangeNodeCssProperties above: the override
+                // channel exists precisely so an animation can push a handful
+                // of properties per frame cheaply — charging it a layout pass
+                // for a colour defeats the point.
+                if azul_layout::callbacks::css_properties_need_relayout(properties) {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                }
             }
 
             // === Scroll ===

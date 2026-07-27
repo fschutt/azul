@@ -1315,7 +1315,15 @@ impl Runner {
                     }
                 }
                 lw.regenerate_display_list_for_dom(*dom_id);
-                ProcessEventResult::ShouldIncrementalRelayout
+                // A paint-only property (colour, background, opacity,
+                // transform, shadow, …) cannot move geometry, so it must not
+                // charge the window a layout pass. See
+                // `crate::callbacks::css_properties_need_relayout`.
+                if crate::callbacks::css_properties_need_relayout(properties) {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                }
             }
 
             CallbackChange::OverrideNodeCssProperties { dom_id, node_id, properties } => {
@@ -1335,7 +1343,15 @@ impl Runner {
                         );
                     }
                 }
-                ProcessEventResult::ShouldIncrementalRelayout
+                // Same rule as `ChangeNodeCssProperties`: the override channel
+                // exists precisely so an animation can push a handful of
+                // properties per frame cheaply — charging it a layout pass for
+                // a colour defeats the point.
+                if crate::callbacks::css_properties_need_relayout(properties) {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                }
             }
 
             CallbackChange::UpdateVirtualView { dom_id, node_id } => {
