@@ -424,6 +424,10 @@ impl Runner {
         for ch in drained {
             result = result.max(self.apply_user_change(&ch));
         }
+        // Timers, AFTER this pass's changes: an op that ARMS a timer (focusing a
+        // contenteditable arms the caret blink) has to have armed it before the
+        // pump looks, or the timer would always be one op late.
+        result = result.max(self.pump_timers());
         if needs_update {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
@@ -491,6 +495,96 @@ impl Runner {
         // [`Runner::rebuild_hit_tester`].
         self.rebuild_hit_tester();
         self.purge_ended_touch_points();
+    }
+
+    /// Run every timer that is due, i.e. the timer half of the DLL's
+    /// `PlatformWindow::process_timers_and_threads` +
+    /// `PlatformWindow::invoke_expired_timers`
+    /// (`dll/src/desktop/shell2/common/event.rs`).
+    ///
+    /// WHY IT EXISTS: `AddTimer` / `RemoveTimer` / `StartCursorBlinkTimer` /
+    /// `StopCursorBlinkTimer` were all declared `unsupported("no timer driver")`
+    /// — every one of `LayoutWindow`'s pieces (`tick_timers`, `run_single_timer`,
+    /// `time_until_next_timer_ms`) existed, but nothing in this host ever drove
+    /// them. Caret blink was therefore untestable and any behaviour that only
+    /// happens on a timer expiry could not be expressed as a scenario.
+    ///
+    /// TIME. `Instant::now()` honours the thread-scoped test clock that the
+    /// `tick_ms` op advances (`azul_core::task::advance_test_clock_ms`), so a
+    /// scenario drives timers by *asserting* time rather than by sleeping
+    /// through it: `tick_ms 600` expires a 530 ms blink, deterministically, in
+    /// microseconds.
+    ///
+    /// READINESS is decided by `Timer::invoke`, not here — `tick_timers`
+    /// deliberately returns every registered timer and `invoke` returns
+    /// `DoNothing`/`Continue` for one whose delay or interval has not elapsed.
+    /// That is why pumping on every `service()` is cheap and correct rather
+    /// than a spin.
+    ///
+    /// The `Update` a timer callback returns is NOT the only way a rebuild gets
+    /// requested (465060f5b): `apply_user_change` runs a whole event pass for
+    /// `ModifyWindowState` / `CreateTextInput`, and a user callback dispatched
+    /// inside it can itself return `Update::RefreshDom`, which surfaces as a
+    /// `ShouldRegenerateDom*` RESULT. Folding both into one `max` is what keeps
+    /// a requested DOM rebuild from being downgraded to a relayout of the DOM it
+    /// was supposed to replace — the bug just fixed on the DLL side.
+    fn pump_timers(&mut self) -> ProcessEventResult {
+        use azul_core::callbacks::Update;
+        use azul_core::task::TimerId;
+
+        if self.layout_window.timers.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+
+        let frame_start = self.now();
+        let due: Vec<TimerId> = self.layout_window.tick_timers(frame_start.clone());
+
+        let window_handle = RawWindowHandle::Unsupported;
+        let gl_context = OptionGlContextPtr::None;
+
+        let mut result = ProcessEventResult::DoNothing;
+        let mut needs_dom_regeneration = false;
+
+        for timer_id in due {
+            let (changes, update) = {
+                let Self {
+                    layout_window,
+                    window_state,
+                    previous_window_state,
+                    renderer_resources,
+                    system_callbacks,
+                    ..
+                } = self;
+                layout_window.run_single_timer(
+                    timer_id.id,
+                    frame_start.clone(),
+                    &window_handle,
+                    &gl_context,
+                    Arc::new(SystemStyle::default()),
+                    system_callbacks,
+                    previous_window_state,
+                    window_state,
+                    renderer_resources,
+                )
+            };
+
+            // Applied IMMEDIATELY, before the next timer runs, so inter-timer
+            // visibility works: a timer that removes another timer must actually
+            // have removed it by the time that one is reached. (A `Timer` that
+            // asked to terminate arrives here as a `RemoveTimer` change appended
+            // by `run_single_timer` itself.)
+            for change in &changes {
+                result = result.max(self.apply_user_change(change));
+            }
+            if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                needs_dom_regeneration = true;
+            }
+        }
+
+        if needs_dom_regeneration {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        result
     }
 
     /// Service the redraws a rendered frame asked for (`pending_redraw`), until
@@ -1918,19 +2012,50 @@ impl Runner {
                 self.unsupported("InjectNativeGesture", "no platform gesture source")
             }
 
-            // No timer driver: the runner has no event loop that ticks
-            // `LayoutWindow::timers`, so an installed timer would never fire.
-            CallbackChange::AddTimer { .. } => {
-                self.unsupported("AddTimer", "no timer driver — the timer would never fire")
+            // === Timers ===
+            //
+            // Port of the DLL's four arms. There, `lw.timers.insert(..)` records
+            // the timer and the platform trait's `start_timer` arms the OS
+            // wakeup that will get the loop back to `process_timers_and_threads`.
+            // This host has no OS: `LayoutWindow::timers` IS the registry and
+            // [`Runner::pump_timers`] IS the loop, so the insert alone is the
+            // whole job. Time comes from `Instant::now()`, which honours the
+            // thread-scoped test clock the `tick_ms` op advances, so a timer
+            // fires when the SCENARIO says it does — no sleeping, no race.
+            CallbackChange::AddTimer { timer_id, timer } => {
+                self.layout_window.add_timer(*timer_id, timer.clone());
+                ProcessEventResult::DoNothing
             }
-            CallbackChange::RemoveTimer { .. } => {
-                self.unsupported("RemoveTimer", "no timer driver")
+            CallbackChange::RemoveTimer { timer_id } => {
+                self.layout_window.remove_timer(timer_id);
+                ProcessEventResult::DoNothing
             }
             CallbackChange::StartCursorBlinkTimer => {
-                self.unsupported("StartCursorBlinkTimer", "no timer driver — the caret would never blink")
+                use azul_core::task::CURSOR_BLINK_TIMER_ID;
+                // Idempotent, like the DLL's arm: re-arming an already-running
+                // blink would reset `last_run` and stall the caret forever under
+                // a stream of input events.
+                if !self.layout_window.text_edit_manager.blink.is_blink_timer_active() {
+                    self.layout_window
+                        .text_edit_manager
+                        .blink
+                        .set_blink_timer_active(true);
+                    let window_state = self.window_state.clone();
+                    let timer = self.layout_window.create_cursor_blink_timer(&window_state);
+                    self.layout_window.add_timer(CURSOR_BLINK_TIMER_ID, timer);
+                }
+                ProcessEventResult::DoNothing
             }
             CallbackChange::StopCursorBlinkTimer => {
-                self.unsupported("StopCursorBlinkTimer", "no timer driver")
+                use azul_core::task::CURSOR_BLINK_TIMER_ID;
+                if self.layout_window.text_edit_manager.blink.is_blink_timer_active() {
+                    self.layout_window
+                        .text_edit_manager
+                        .blink
+                        .set_blink_timer_active(false);
+                }
+                self.layout_window.remove_timer(&CURSOR_BLINK_TIMER_ID);
+                ProcessEventResult::DoNothing
             }
 
             // No thread pump: nothing polls thread writebacks.
@@ -2402,17 +2527,35 @@ fn apply_focus_restyle(
 /// focused node) into `apply_text_changeset` (which needs a CURSOR) and produced
 /// zero dirty nodes — a silent no-op with focus in place.
 ///
-/// The returned `CursorBlinkTimerAction` is DELIBERATELY dropped: this host has
-/// no timer driver (`CallbackChange::AddTimer` is `unsupported` by name), so the
-/// caret is drawn steady instead of blinking. That is a visible-state
-/// simplification, not a silent skip — nothing about the edit itself depends on
-/// the timer.
+/// The returned `CursorBlinkTimerAction` is HONOURED: this host now has a timer
+/// driver ([`Runner::pump_timers`]), so focusing a contenteditable really
+/// registers `CURSOR_BLINK_TIMER_ID` and leaving one really removes it. The
+/// action used to be dropped on the floor with "no timer driver, the caret is
+/// drawn steady instead of blinking", which made caret blink untestable.
+///
+/// The DLL splits this over two seams — the platform trait's
+/// `start_timer` / `stop_timer` arm the OS wakeup, and
+/// `CallbackChange::StartCursorBlinkTimer` is what inserts the `Timer` into
+/// `LayoutWindow::timers`. Here the two are the same thing: `timers` IS the
+/// driver, so `Start` inserts and `Stop` removes, exactly as the DLL's
+/// `StartCursorBlinkTimer` / `StopCursorBlinkTimer` arms do.
 fn arm_caret_for_focus(
     layout_window: &mut LayoutWindow,
     new_focus: Option<DomNodeId>,
     window_state: &FullWindowState,
 ) {
-    let _blink = layout_window.handle_focus_change_for_cursor_blink(new_focus, window_state);
+    use azul_core::task::CURSOR_BLINK_TIMER_ID;
+    use azul_layout::CursorBlinkTimerAction;
+
+    match layout_window.handle_focus_change_for_cursor_blink(new_focus, window_state) {
+        CursorBlinkTimerAction::Start(timer) => {
+            layout_window.add_timer(CURSOR_BLINK_TIMER_ID, timer);
+        }
+        CursorBlinkTimerAction::Stop => {
+            layout_window.remove_timer(&CURSOR_BLINK_TIMER_ID);
+        }
+        CursorBlinkTimerAction::NoChange => {}
+    }
 }
 
 /// Port of the DLL's `apply_hover_restyle` (`.../common/event.rs`): apply this
