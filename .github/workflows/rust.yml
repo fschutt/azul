@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -125,7 +125,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -210,7 +210,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -219,7 +219,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -320,7 +320,7 @@ jobs:
             check_build_dll: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -330,7 +330,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -442,7 +442,7 @@ jobs:
             nfpm_arch: riscv64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Early artifact cache: skip the entire cross-build if source hasn't changed.
       # An EXACT key hit => "Validate build cache" sets skip=true and the build is
@@ -451,7 +451,7 @@ jobs:
       # this target, so cargo rebuilds incrementally instead of from zero.
       - name: Check cross-build artifact cache
         id: build-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             target/${{ matrix.target }}/prod-release
@@ -491,7 +491,7 @@ jobs:
       - name: Cache codegen output
         if: steps.cache-valid.outputs.skip != 'true'
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -571,7 +571,7 @@ jobs:
       RUST9X_ASSET: rust9x-stage1-x86_64-pc-windows-msvc.tar.gz
     steps:
       - name: Checkout azul
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           path: azul
 
@@ -609,7 +609,7 @@ jobs:
 
       - name: Install Python (for x.py)
         if: steps.rust9x_asset.outputs.found != 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -727,7 +727,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -739,7 +739,7 @@ jobs:
       # tests build on the dev profile (target/debug); the e2e_json step below
       # builds on release (target/release).
       - name: Rust build cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -787,7 +787,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -813,7 +813,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -829,7 +829,7 @@ jobs:
         uses: browser-actions/setup-chrome@v2
 
       - name: Cache Chrome reference images
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
           key: reftest-chrome-images-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xhtml') }}
@@ -857,7 +857,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -870,7 +870,7 @@ jobs:
       # two cargo-install manifests are cached so `cargo install grcov` below sees
       # it as already-installed instead of recompiling grcov on every run.
       - name: Rust build cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -922,7 +922,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -943,7 +943,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -1026,14 +1026,14 @@ jobs:
             run: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Skip entirely if layout source (incl. ICU tests) hasn't changed. Only an
       # EXACT key hit skips the run (the steps below gate on cache-hit); a
       # restore-keys hit just restores the previous sentinel, which no step reads.
       - name: Check ICU parity cache
         id: icu-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/icu-parity-done-${{ matrix.backend.feature }}
           key: icu-parity-${{ env.CACHE_BUST }}-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('layout/src/**/*.rs', 'layout/tests/**/*.rs', 'layout/Cargo.toml') }}
@@ -1082,7 +1082,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1099,7 +1099,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -1151,7 +1151,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1165,7 +1165,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -1225,7 +1225,7 @@ jobs:
               target/prod-release/azul.pyd
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Early artifact cache: if engine source + Cargo.lock haven't changed,
       # skip the entire build and just upload cached artifacts. Cache key is
@@ -1237,7 +1237,7 @@ jobs:
       # cargo does an INCREMENTAL rebuild instead of compiling every crate cold.
       - name: Check build artifact cache
         id: build-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             target/prod-release
@@ -1291,7 +1291,7 @@ jobs:
       - name: Cache codegen output
         if: steps.cache-valid.outputs.skip != 'true'
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -1798,7 +1798,7 @@ jobs:
             dll_artifact: azul-windows-amd64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1822,7 +1822,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -1942,7 +1942,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Early artifact cache: skip the DLL build if engine source hasn't changed.
       # EXACT hit => skip=true (no build). restore-keys (prefix) hit => cache-hit is
@@ -1950,7 +1950,7 @@ jobs:
       # target/, i.e. incrementally rather than from zero.
       - name: Check E2E DLL artifact cache
         id: build-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             target/release
@@ -1995,7 +1995,7 @@ jobs:
       - name: Cache codegen output
         if: steps.cache-valid.outputs.skip != 'true'
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -2093,7 +2093,7 @@ jobs:
       AZ_BACKEND: headless
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -2107,7 +2107,7 @@ jobs:
       # key PREFIX. Caches only the dep subdirs of target/release — the prebuilt
       # libazul is copied into target/release below and must not be re-uploaded.
       - name: Rust build cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -2218,7 +2218,7 @@ jobs:
       AZ_BACKEND: headless
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Rust toolchain: the rust family compiles examples/rust; the others don't
       # rebuild the DLL but installing rustup is cheap and harmless.
@@ -2236,7 +2236,7 @@ jobs:
       # re-upload that whole DLL into the (10 GB) cache on every run.
       - name: Rust build cache
         if: matrix.family.key == 'rust'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -2283,7 +2283,7 @@ jobs:
       # Also exports JAVA_HOME, which kotlinc/scala pick up.
       - name: Set up JDK 17 (JVM bindings)
         if: matrix.family.key == 'scripting'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -2348,7 +2348,7 @@ jobs:
       - name: Set up Swift (Windows)
         if: matrix.family.key == 'scripting' && matrix.os == 'windows-2022'
         continue-on-error: true
-        uses: compnerd/gha-setup-swift@main
+        uses: compnerd/gha-setup-swift@v0.4.0
         with:
           branch: swift-5.10-release
           tag: 5.10-RELEASE
@@ -2366,7 +2366,7 @@ jobs:
       - name: Set up Go (macOS)
         if: matrix.family.key == 'scripting' && matrix.os == 'macos-14'
         continue-on-error: true
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.22'
 
@@ -2518,7 +2518,7 @@ jobs:
     env:
       MOBILE_FEATURES: "std,logging,link-static,a11y"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -2528,7 +2528,7 @@ jobs:
       # warm target/<triple>/release (incremental, not cold).
       - name: Check mobile build artifact cache
         id: build-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             target/${{ matrix.target }}/release
@@ -2558,7 +2558,7 @@ jobs:
       - name: Cache codegen output
         if: steps.cache-valid.outputs.skip != 'true'
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -2693,14 +2693,14 @@ jobs:
       APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
       APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -2778,12 +2778,12 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
           targets: aarch64-linux-android
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -2796,7 +2796,7 @@ jobs:
           ndk-version: r27
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -2845,7 +2845,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Download Linux binaries
         uses: actions/download-artifact@v8
@@ -3114,7 +3114,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -3123,7 +3123,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -3247,7 +3247,7 @@ jobs:
           echo "After:"; df -h / | tail -1
 
       - name: Checkout repository (for fallback assets)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           sparse-checkout: |
             examples/assets/screenshots
@@ -4143,7 +4143,7 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -4192,13 +4192,13 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -4285,14 +4285,14 @@ jobs:
     # clippy-clean under the pedantic+nursery lint set, so this gate MUST stay
     # green. A red here is a real regression to fix, not triage debt.
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
           components: clippy
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -4349,7 +4349,7 @@ jobs:
     env:
       AZ_BACKEND: headless
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -4357,7 +4357,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -4432,13 +4432,13 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -4498,7 +4498,7 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
@@ -4507,7 +4507,7 @@ jobs:
       # just drops the previous PDF on disk, which the re-render then overwrites.
       - name: Check docs PDF cache
         id: pdf-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/azul-documentation.pdf
           key: docs-pdf-${{ env.CACHE_BUST }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}
@@ -4519,7 +4519,7 @@ jobs:
       # WebSocket, which is only available on Node 22+ (runners default lower).
       - name: Install Node 24
         if: steps.pdf-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Install Chrome
@@ -4573,7 +4573,7 @@ jobs:
     name: Publish safety (no [patch] on published deps)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
@@ -4683,7 +4683,7 @@ jobs:
     needs: publish_safety
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -4748,7 +4748,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -4758,7 +4758,7 @@ jobs:
           toolchain: 1.88.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -4767,7 +4767,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -4884,7 +4884,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -4898,7 +4898,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -4974,12 +4974,12 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
@@ -5065,7 +5065,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -5158,12 +5158,12 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
 
@@ -5244,12 +5244,12 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -5411,7 +5411,7 @@ jobs:
 
       - name: Re-configure JDK with OSSRH server + GPG
         if: steps.mvncheck.outputs.ready == '1'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -5443,7 +5443,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Stamp PKGBUILD version
         run: |
@@ -5502,7 +5502,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -5516,7 +5516,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: target/codegen
           key: codegen-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
