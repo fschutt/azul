@@ -3935,7 +3935,14 @@ jobs:
           sudo apt-get install -y createrepo-c >/dev/null 2>&1 || true
           mkdir -p artifacts-registry
           cp -r artifacts-rpm artifacts-registry/artifacts-rpm 2>/dev/null || true
-          bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry || true
+          # NO `|| true` here. This script builds the package indexes that the
+          # install commands on the site point at (/ui/azul for pip, /ui/npm,
+          # /ui/nuget, /ui/gems, /ui/maven). Swallowing its failure ships a site
+          # that TELLS users to `pip install azul --index-url https://azul.rs/ui`
+          # while /ui/azul/ does not exist — pip then fetches the site's HTML
+          # landing page and dies with a confusing "no matching distribution".
+          # A red deploy is strictly better than a green one with dead links.
+          bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry
 
           echo "=== self-hosted channel summary ==="
           for d in website/ui/homebrew-azul.git website/ui/apt website/ui/azul \
@@ -3943,6 +3950,30 @@ jobs:
                    website/ui/gems website/ui/rpm website/ui/arch website/ui/alpine; do
             if [ -d "$d" ]; then echo "[live] ${d#website/}"; else echo "[skip] ${d#website/}"; fi
           done
+
+          # A channel whose PRODUCER succeeded must have produced a mirror. The
+          # producers are in deploy_pages.needs, so by the time we get here their
+          # artifacts are either present or the job did not run at all — in which
+          # case the artifact directory is absent and the channel is legitimately
+          # skipped. Missing mirror + present artifact = the script silently did
+          # nothing, which is exactly the failure that shipped dead install
+          # commands. Fail loudly instead.
+          missing=""
+          check_channel() { # $1 = artifact dir, $2 = expected mirror dir
+            if [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ] && [ ! -d "$2" ]; then
+              echo "::error::$1 has artifacts but $2 was not built — the install commands for this channel would 404"
+              missing="$missing $2"
+            fi
+          }
+          check_channel artifacts-registry/pypi-dist     website/ui/azul
+          check_channel artifacts-registry/npm-package   website/ui/npm
+          check_channel artifacts-registry/nuget-package website/ui/nuget
+          check_channel artifacts-registry/ruby-gem      website/ui/gems
+          check_channel artifacts-registry/maven-jar     website/ui/maven
+          if [ -n "$missing" ]; then
+            echo "::error::registry mirrors missing for:$missing"
+            exit 1
+          fi
 
       # Fold the real shared libraries + the compiled demo binaries into
       # examples.zip so the one download demonstrates the "one dll, many small
