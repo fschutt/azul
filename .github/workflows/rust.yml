@@ -1838,7 +1838,7 @@ jobs:
       # skipped (no binary shipped) instead of failing the step/job. azul-doc is
       # intentionally excluded — it's the generator tool, not a demo.
       - name: Download prebuilt libazul (static .a for self-contained demos)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.dll_artifact }}
           path: libazul-prebuilt
@@ -4924,13 +4924,13 @@ jobs:
       # binding packages are cross-platform. Best-effort: a missing platform
       # just drops that slot (the package still ships whatever built).
       - name: Download macOS native lib (arm64)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-macos-amd64
           path: native-macos
       - name: Download Windows native lib (x64)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: azul-windows-amd64
@@ -4987,7 +4987,7 @@ jobs:
       # Pure packager: no Rust toolchain / cargo build. Pull the prebuilt
       # libazul.so + codegen from the shared build_dll_linux producer.
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: azul-dll-linux
           path: dll-share
@@ -5076,7 +5076,7 @@ jobs:
 
       # Pure packager: pull the prebuilt libazul.so + codegen from build_dll_linux.
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: azul-dll-linux
           path: dll-share
@@ -5169,7 +5169,7 @@ jobs:
 
       # Pure packager: pull the prebuilt libazul.so + codegen from build_dll_linux.
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: azul-dll-linux
           path: dll-share
@@ -5256,7 +5256,7 @@ jobs:
 
       # Pure packager: pull the prebuilt libazul.so + codegen from build_dll_linux.
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: azul-dll-linux
           path: dll-share
