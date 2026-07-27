@@ -1,6 +1,6 @@
 {
   "name": "op_dpi_changed",
-  "description": "ZOMBIE-OP PROOF (dpi_changed): `dpi_changed` was declared with no match arm — the 96 [dpi/*] corpus lines were therefore ungeneratable, and any test using it would have been vacuously green. It now sets FullWindowState.size.dpi through CallbackChange::ModifyWindowState; apply_user_change() saves previous_window_state, applies the scale, tags RelayoutReason::Resize + frame_needs_regeneration (what WM_DPICHANGED and the X11 DPI path do) and runs the state-diff pass, and the op asks for the relayout+repaint a real scale change forces. Proof that it is not a no-op: the DPI and hidpi factor really change, the LOGICAL size stays put while the PHYSICAL/backing size rescales with it (400x300 @96 -> 800x600 @192 -> 500x375 @120 — the framebuffer is genuinely reallocated at the new scale), the relayout really re-runs, and the DOM survives it. Against the old zombie every one of those goes red: the op answered `ok` and the DPI stayed 96. TWO deliberate omissions, so this scenario tests ONE thing and does not conflate bugs: (1) the window size is driven with an explicit `resize` op, not the `setup` block, because E2eSetup.window_width / window_height do not reach the headless window (it stays at the 640x480 default) — separate tracked bug, see e2e/bug-window-size-ignored.json. (2) there is NO assert_changed / assert_idle_stable here, because a surface-SIZE change currently reports FrameDamage::None: after a `dpi_changed` the pixels are re-rasterised at the new scale but the damage tracker reports nothing repainted. That is NOT specific to dpi_changed — a plain `resize` (a long-standing, non-zombie op) reports `damage: none` in exactly the same way, so it is a pre-existing gap in damage tracking across a buffer realloc and it needs its own bug-*.json scenario. Asserting it here would make this scenario red for a bug it is not about.",
+  "description": "ZOMBIE-OP PROOF (dpi_changed): `dpi_changed` was declared with no match arm — the 96 [dpi/*] corpus lines were therefore ungeneratable, and any test using it would have been vacuously green. It now sets FullWindowState.size.dpi through CallbackChange::ModifyWindowState; apply_user_change() saves previous_window_state, applies the scale, tags RelayoutReason::Resize + frame_needs_regeneration (what WM_DPICHANGED and the X11 DPI path do) and runs the state-diff pass, and the op asks for the relayout+repaint a real scale change forces. Proof that it is not a no-op: the DPI and hidpi factor really change, the LOGICAL size stays put while the PHYSICAL/backing size rescales with it (400x300 @96 -> 800x600 @192 -> 500x375 @120 — the framebuffer is genuinely reallocated at the new scale), the relayout really re-runs, and the DOM survives it. Against the old zombie every one of those goes red: the op answered `ok` and the DPI stayed 96. TWO deliberate omissions, so this scenario tests ONE thing and does not conflate bugs: (1) the window size is driven with an explicit `resize` op, not the `setup` block, because E2eSetup.window_width / window_height do not reach the headless window (it stays at the 640x480 default) — separate tracked bug, see e2e/bug-window-size-ignored.json. (2) there is NO assert_changed / assert_idle_stable here, because a pixel comparison is UNDEFINED across a dimension change: the screenshot is physical-pixel sized, so the before/after buffers differ in size and there is nothing meaningful to diff. NOTE: this note previously claimed a surface-SIZE change reports FrameDamage::None. That was WRONG. Measured 2026-07-27: a `dpi_changed` 96->192 reports FrameDamage::Full, both accumulated and with \"frame\":\"last\". A plain `resize` also reports Full — and in fact OVER-invalidates: cpu_backend computes the newly-exposed region (compute_resize_damage) and then discards it, filling white and repainting everything. That over-invalidation is a separate tracked defect; it is not a missing-damage gap in damage tracking across a buffer realloc and it needs its own bug-*.json scenario. Asserting it here would make this scenario red for a bug it is not about.",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -18,46 +18,161 @@
         "#t { font-size: 20px; color: white; }"
       ]
     },
-    { "op": "wait_frame" },
-    { "op": "wait", "ms": 200 },
-
-    { "op": "assert_exists", "selector": "#root" },
-
-    { "op": "resize", "width": 400, "height": 300 },
-    { "op": "wait", "ms": 200 },
-
-    { "op": "assert_window_state", "property": "dpi", "expected": 96 },
-    { "op": "assert_window_state", "property": "hidpi_factor", "expected": 1.0, "tolerance": 0.01 },
-    { "op": "assert_window_state", "property": "physical_width", "expected": 400 },
-    { "op": "assert_window_state", "property": "physical_height", "expected": 300 },
-
-    { "op": "reset_frame_counters" },
-    { "op": "snapshot_frame", "as": "at_96" },
-
-    { "op": "dpi_changed", "dpi": 192 },
-    { "op": "wait_frame" },
-    { "op": "wait", "ms": 250 },
-    { "op": "get_frame_report" },
-    { "op": "capture_damage_png", "path": "target/e2e/op_dpi_changed_192.png" },
-
-    { "op": "assert_window_state", "property": "dpi", "expected": 192 },
-    { "op": "assert_window_state", "property": "hidpi_factor", "expected": 2.0, "tolerance": 0.01 },
-    { "op": "assert_window_state", "property": "logical_width", "expected": 400 },
-    { "op": "assert_window_state", "property": "logical_height", "expected": 300 },
-    { "op": "assert_window_state", "property": "physical_width", "expected": 800 },
-    { "op": "assert_window_state", "property": "physical_height", "expected": 600 },
-    { "op": "assert_layout", "selector": "#root", "property": "width", "expected": 400, "tolerance": 1 },
-    { "op": "assert_exists", "selector": "#t" },
-
-    { "op": "dpi_changed", "dpi": 120 },
-    { "op": "wait_frame" },
-    { "op": "wait", "ms": 250 },
-    { "op": "assert_window_state", "property": "dpi", "expected": 120 },
-    { "op": "assert_window_state", "property": "hidpi_factor", "expected": 1.25, "tolerance": 0.01 },
-    { "op": "assert_window_state", "property": "logical_width", "expected": 400 },
-    { "op": "assert_window_state", "property": "physical_width", "expected": 500 },
-    { "op": "assert_window_state", "property": "physical_height", "expected": 375 },
-    { "op": "assert_layout", "selector": "#root", "property": "width", "expected": 400, "tolerance": 1 },
-    { "op": "assert_exists", "selector": "#t" }
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 200
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#root"
+    },
+    {
+      "op": "resize",
+      "width": 400,
+      "height": 300
+    },
+    {
+      "op": "wait",
+      "ms": 200
+    },
+    {
+      "op": "assert_window_state",
+      "property": "dpi",
+      "expected": 96
+    },
+    {
+      "op": "assert_window_state",
+      "property": "hidpi_factor",
+      "expected": 1.0,
+      "tolerance": 0.01
+    },
+    {
+      "op": "assert_window_state",
+      "property": "physical_width",
+      "expected": 400
+    },
+    {
+      "op": "assert_window_state",
+      "property": "physical_height",
+      "expected": 300
+    },
+    {
+      "op": "reset_frame_counters"
+    },
+    {
+      "op": "snapshot_frame",
+      "as": "at_96"
+    },
+    {
+      "op": "dpi_changed",
+      "dpi": 192
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 250
+    },
+    {
+      "op": "get_frame_report"
+    },
+    {
+      "op": "capture_damage_png",
+      "path": "target/e2e/op_dpi_changed_192.png"
+    },
+    {
+      "op": "assert_window_state",
+      "property": "dpi",
+      "expected": 192
+    },
+    {
+      "op": "assert_window_state",
+      "property": "hidpi_factor",
+      "expected": 2.0,
+      "tolerance": 0.01
+    },
+    {
+      "op": "assert_window_state",
+      "property": "logical_width",
+      "expected": 400
+    },
+    {
+      "op": "assert_window_state",
+      "property": "logical_height",
+      "expected": 300
+    },
+    {
+      "op": "assert_window_state",
+      "property": "physical_width",
+      "expected": 800
+    },
+    {
+      "op": "assert_window_state",
+      "property": "physical_height",
+      "expected": 600
+    },
+    {
+      "op": "assert_layout",
+      "selector": "#root",
+      "property": "width",
+      "expected": 400,
+      "tolerance": 1
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#t"
+    },
+    {
+      "op": "dpi_changed",
+      "dpi": 120
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 250
+    },
+    {
+      "op": "assert_window_state",
+      "property": "dpi",
+      "expected": 120
+    },
+    {
+      "op": "assert_window_state",
+      "property": "hidpi_factor",
+      "expected": 1.25,
+      "tolerance": 0.01
+    },
+    {
+      "op": "assert_window_state",
+      "property": "logical_width",
+      "expected": 400
+    },
+    {
+      "op": "assert_window_state",
+      "property": "physical_width",
+      "expected": 500
+    },
+    {
+      "op": "assert_window_state",
+      "property": "physical_height",
+      "expected": 375
+    },
+    {
+      "op": "assert_layout",
+      "selector": "#root",
+      "property": "width",
+      "expected": 400,
+      "tolerance": 1
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#t"
+    }
   ]
 }
