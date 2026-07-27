@@ -3536,6 +3536,9 @@ fn eval_assert_text(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_text", params, &["selector", "expected"]) {
+        return bad;
+    }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_text: missing 'selector' parameter"),
@@ -3594,6 +3597,9 @@ fn eval_assert_exists(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_exists", params, &["selector"]) {
+        return bad;
+    }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_exists: missing 'selector' parameter"),
@@ -3617,6 +3623,9 @@ fn eval_assert_not_exists(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_not_exists", params, &["selector"]) {
+        return bad;
+    }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_not_exists: missing 'selector' parameter"),
@@ -3641,6 +3650,9 @@ fn eval_assert_node_count(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_node_count", params, &["selector", "expected"]) {
+        return bad;
+    }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_node_count: missing 'selector' parameter"),
@@ -3685,6 +3697,9 @@ fn eval_assert_window_state(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_window_state", params, &["property", "expected", "tolerance"]) {
+        return bad;
+    }
     let property = match params.get("property").and_then(|v| v.as_str()) {
         Some(p) if !p.is_empty() => p,
         _ => return AssertionResult::fail("assert_window_state: missing 'property' parameter"),
@@ -3797,6 +3812,13 @@ fn eval_assert_dom(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params(
+        "assert_dom",
+        params,
+        &["contains", "not_contains", "node_count", "min_node_count", "root_type", "root_children"],
+    ) {
+        return bad;
+    }
     let Some(dom) = build_dom_response(callback_info) else {
         return AssertionResult::fail("assert_dom: no layout result for DOM 0");
     };
@@ -3891,6 +3913,9 @@ fn eval_assert_layout(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_layout", params, &["selector", "property", "expected", "tolerance"]) {
+        return bad;
+    }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_layout: missing 'selector' parameter"),
@@ -3956,6 +3981,9 @@ fn eval_assert_css(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_css", params, &["selector", "property", "expected"]) {
+        return bad;
+    }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_css: missing 'selector' parameter"),
@@ -4027,6 +4055,9 @@ fn eval_assert_app_state(
     params: &serde_json::Value,
     app_data: &azul_core::refany::RefAny,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_app_state", params, &["path", "expected"]) {
+        return bad;
+    }
     let path = match params.get("path").and_then(|v| v.as_str()) {
         Some(p) if !p.is_empty() => p,
         _ => return AssertionResult::fail("assert_app_state: missing 'path' parameter"),
@@ -4107,6 +4138,9 @@ fn eval_assert_scroll(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_scroll", params, &["selector", "x", "y", "tolerance"]) {
+        return bad;
+    }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_scroll: missing 'selector' parameter"),
@@ -4194,6 +4228,9 @@ fn eval_assert_screenshot(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_screenshot", params, &["reference", "threshold", "max_diff_ratio", "save_actual"]) {
+        return bad;
+    }
     #[cfg(not(feature = "cpurender"))]
     {
         return AssertionResult::fail("assert_screenshot: cpurender feature not enabled");
@@ -4523,6 +4560,44 @@ fn capture_damage_png(
     out.encode_png()
 }
 
+/// Fail an assertion that was handed a parameter it does not read.
+///
+/// Only `assert_damage` had this guard. Every other evaluator matched its params
+/// with `if let Some(..)` and silently ignored the rest, so ONE TYPO
+/// (`max_relayout` for `max_relayouts`, `min_rect` for `min_rects`) turned the
+/// assertion into an unconditional pass that still counted as coverage. Against
+/// a generated corpus that is a false-green factory, and it gets worse as
+/// parameters are added: a test asking for a bound the evaluator does not yet
+/// support would go green while asserting nothing at all.
+///
+/// The list passed here is also the assertion's advertised param surface — the
+/// generator's schema scan reads these call sites (`gene2e.rs::reject_guard_keys`),
+/// so a param that is accepted is a param the model is told about, and vice
+/// versa, by construction.
+///
+/// `op` and `screenshot` are STEP-level keys owned by the harness, never by an
+/// assertion.
+#[cfg(feature = "std")]
+fn reject_unknown_params(
+    op: &str,
+    params: &serde_json::Value,
+    allowed: &[&str],
+) -> Option<AssertionResult> {
+    const HARNESS_KEYS: &[&str] = &["op", "screenshot"];
+    let obj = params.as_object()?;
+    for key in obj.keys() {
+        if HARNESS_KEYS.contains(&key.as_str()) || allowed.contains(&key.as_str()) {
+            continue;
+        }
+        return Some(AssertionResult::fail(format!(
+            "{op}: unknown parameter '{key}' (known: {}). Ignoring it would let a typo'd bound \
+             assert NOTHING while the step reports green.",
+            allowed.join(", ")
+        )));
+    }
+    None
+}
+
 /// `assert_damage`: the raw predicate over the last frame's damage.
 ///
 /// Parameters:
@@ -4544,23 +4619,13 @@ fn eval_assert_damage(
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
     const CONSTRAINTS: &[&str] = &["kind", "min_rects", "max_rects", "max_area_ratio"];
-    const SELECTORS: &[&str] = &["which", "frame"];
 
-    if let Some(obj) = params.as_object() {
-        for key in obj.keys() {
-            if key == "op" || key == "screenshot" || key == "expect" {
-                continue;
-            }
-            if !CONSTRAINTS.contains(&key.as_str()) && !SELECTORS.contains(&key.as_str()) {
-                return AssertionResult::fail(format!(
-                    "assert_damage: unknown parameter '{key}' (constraints: {}; selectors: {}). A \
-                     typo'd parameter would otherwise make this assertion pass while checking \
-                     nothing.",
-                    CONSTRAINTS.join(", "),
-                    SELECTORS.join(", ")
-                ));
-            }
-        }
+    if let Some(bad) = reject_unknown_params(
+        "assert_damage",
+        params,
+        &["kind", "min_rects", "max_rects", "max_area_ratio", "which", "frame"],
+    ) {
+        return bad;
     }
     if !CONSTRAINTS.iter().any(|c| params.get(*c).is_some()) {
         return AssertionResult::fail(format!(
@@ -4658,6 +4723,9 @@ fn eval_assert_changed(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_changed", params, &["vs", "min_damage_rects", "threshold", "which", "frame"]) {
+        return bad;
+    }
     #[cfg(not(feature = "cpurender"))]
     {
         let _ = (params, callback_info);
@@ -4768,6 +4836,9 @@ fn eval_assert_damage_covers_changes(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_damage_covers_changes", params, &["vs", "threshold", "slack_px", "which", "frame"]) {
+        return bad;
+    }
     #[cfg(not(feature = "cpurender"))]
     {
         let _ = (params, callback_info);
@@ -4884,6 +4955,9 @@ fn eval_assert_damage_incremental(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_damage_incremental", params, &["max_area_ratio", "which", "frame"]) {
+        return bad;
+    }
     let max_ratio = params
         .get("max_area_ratio")
         .and_then(serde_json::Value::as_f64)
@@ -4925,11 +4999,18 @@ fn eval_assert_damage_incremental(
 /// (`vs`) the pixels must also be identical to a snapshot taken earlier.
 ///
 /// Drive it as: `wait_frame` × K → `assert_idle_stable`.
+///
+/// Parameters: `vs` (snapshot name), `threshold` (per-channel pixel tolerance),
+/// `max_frames` (how many frames the window may take to settle, counted from the
+/// last `reset_frame_counters`).
 #[cfg(feature = "std")]
 fn eval_assert_idle_stable(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_idle_stable", params, &["vs", "threshold", "max_frames"]) {
+        return bad;
+    }
     let report = frame_report_of(callback_info);
 
     // LIVENESS PRECONDITION. This is an assertion of ABSENCE ("no damage"), and
@@ -4967,6 +5048,24 @@ fn eval_assert_idle_stable(
             "present damage = none".to_string(),
             damage_kind_str(&report.present_damage).to_string(),
         );
+    }
+
+    // "settles within N ticks" was unenforceable prose across 576 corpus lines:
+    // the frame count was REPORTED in the pass message and never constrained,
+    // so a scenario that took 20 frames satisfied a sentence that said 5, and an
+    // engine that needed 20 passed a test that said it must settle in 5.
+    // `frames_since_reset` counts the frames rendered since the last
+    // `reset_frame_counters`, so put that reset immediately before the
+    // interaction and this bounds the settle.
+    if let Some(max_frames) = params.get("max_frames").and_then(serde_json::Value::as_u64) {
+        if u64::from(report.frames_since_reset) > max_frames {
+            return AssertionResult::fail_with(
+                "assert_idle_stable: the window took more frames to settle than the test allows"
+                    .to_string(),
+                format!("<= {max_frames} frame(s) since the counter reset"),
+                report.frames_since_reset.to_string(),
+            );
+        }
     }
 
     #[cfg(feature = "cpurender")]
@@ -5029,23 +5128,42 @@ fn eval_assert_idle_stable(
 ///   ACTUALLY ran, whichever scheduler asked for it. This is the one to use for
 ///   "the engine schedules no relayout" over a callback-API mutation.
 ///
-/// Parameters: `max_relayouts`, `max_dom_regens`, `max_layout_passes`,
+/// Every counter takes `max_`, `min_` and `exact_`. UPPER BOUNDS ALONE CANNOT
+/// FAIL ON A DEAD ENGINE: `0` satisfies every `max_*` there is, so an engine
+/// that dropped the interaction passed. Use `min_*` / `exact_*` to prove the
+/// work DID happen.
+///
+/// Parameters: `max_relayouts` / `min_relayouts` / `exact_relayouts`,
+/// `max_dom_regens` / `min_dom_regens` / `exact_dom_regens`,
+/// `max_layout_passes` / `min_layout_passes` / `exact_layout_passes`,
 /// `allow_depth_cap` (default false).
 #[cfg(feature = "std")]
 fn eval_assert_work_bounded(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params(
+        "assert_work_bounded",
+        params,
+        &[
+            "allow_depth_cap",
+            "max_relayouts", "min_relayouts", "exact_relayouts",
+            "max_dom_regens", "min_dom_regens", "exact_dom_regens",
+            "max_layout_passes", "min_layout_passes", "exact_layout_passes",
+        ],
+    ) {
+        return bad;
+    }
+
     let report = frame_report_of(callback_info);
     let relayouts = report.relayout_iterations;
     let regens = report.dom_regenerations;
     let layouts = report.layout_passes;
     let depth_cap = report.hit_depth_cap;
 
-    // LIVENESS PRECONDITION — see `assert_idle_stable`. These are pure UPPER
-    // bounds, so "0 relayouts, 0 DOM regenerations, depth cap not hit" passes
-    // every bound there is, including when the engine never ran a frame at all.
-    // Require that a frame was actually produced since the last reset.
+    // LIVENESS PRECONDITION — see `assert_idle_stable`. Upper bounds alone are
+    // satisfied by "no work at all", including when the engine never ran a
+    // frame. Require that a frame was actually produced since the last reset.
     if report.frames_since_reset == 0 {
         return AssertionResult::fail_with(
             "assert_work_bounded: NO FRAME was rendered since the last reset — every upper bound \
@@ -5065,45 +5183,85 @@ fn eval_assert_work_bounded(
             "true".to_string(),
         );
     }
-    if let Some(max) = params
-        .get("max_relayouts")
-        .and_then(serde_json::Value::as_u64)
-    {
-        if u64::from(relayouts) > max {
-            return AssertionResult::fail_with(
-                "assert_work_bounded: too many event-processing iterations".to_string(),
-                format!("<= {max}"),
-                relayouts.to_string(),
-            );
+
+    let num = |key: &str| params.get(key).and_then(serde_json::Value::as_u64);
+
+    // ONE checker per counter, so a counter cannot grow a `max_` without the
+    // matching `min_` / `exact_`. That asymmetry was the defect: with only
+    // upper bounds, `0` satisfies EVERY bound there is, so an engine that
+    // dropped the interaction entirely passed every bounded test in the corpus.
+    let check = |what: &str,
+                 actual: u32,
+                 min: Option<u64>,
+                 max: Option<u64>,
+                 exact: Option<u64>|
+     -> Option<AssertionResult> {
+        let actual = u64::from(actual);
+        if let Some(want) = exact {
+            if actual != want {
+                return Some(AssertionResult::fail_with(
+                    format!("assert_work_bounded: wrong number of {what}"),
+                    format!("exactly {want}"),
+                    actual.to_string(),
+                ));
+            }
         }
-    }
-    if let Some(max) = params
-        .get("max_dom_regens")
-        .and_then(serde_json::Value::as_u64)
-    {
-        if u64::from(regens) > max {
-            return AssertionResult::fail_with(
-                "assert_work_bounded: too many DOM regenerations".to_string(),
-                format!("<= {max}"),
-                regens.to_string(),
-            );
+        if let Some(want) = max {
+            if actual > want {
+                return Some(AssertionResult::fail_with(
+                    format!("assert_work_bounded: too many {what}"),
+                    format!("<= {want}"),
+                    actual.to_string(),
+                ));
+            }
         }
-    }
-    if let Some(max) = params
-        .get("max_layout_passes")
-        .and_then(serde_json::Value::as_u64)
-    {
-        if u64::from(layouts) > max {
-            return AssertionResult::fail_with(
-                "assert_work_bounded: layout ran more often than allowed (this is the counter \
-                 `max_relayouts` cannot see — a callback-API mutation relayouts without ever \
-                 running an event pass)"
-                    .to_string(),
-                format!("<= {max}"),
-                layouts.to_string(),
-            );
+        if let Some(want) = min {
+            if actual < want {
+                return Some(AssertionResult::fail_with(
+                    format!(
+                        "assert_work_bounded: too FEW {what} — the step did less work than the \
+                         test requires, which is exactly what an engine that dropped the \
+                         interaction looks like"
+                    ),
+                    format!(">= {want}"),
+                    actual.to_string(),
+                ));
+            }
         }
+        None
+    };
+
+    let failure = [
+        check(
+            "event-processing iterations (relayout_iterations)",
+            relayouts,
+            num("min_relayouts"),
+            num("max_relayouts"),
+            num("exact_relayouts"),
+        ),
+        check(
+            "DOM regenerations",
+            regens,
+            num("min_dom_regens"),
+            num("max_dom_regens"),
+            num("exact_dom_regens"),
+        ),
+        check(
+            "layout passes (the counter `max_relayouts` cannot see — a callback-API mutation \
+             relayouts without ever running an event pass)",
+            layouts,
+            num("min_layout_passes"),
+            num("max_layout_passes"),
+            num("exact_layout_passes"),
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .next();
+    if let Some(fail) = failure {
+        return fail;
     }
+
     AssertionResult::pass(format!(
         "assert_work_bounded: {relayouts} event iteration(s), {regens} DOM regen(s), {layouts} \
          layout pass(es) over {} frame(s), depth cap not hit",
@@ -5450,6 +5608,9 @@ fn eval_assert_state_machines_idle(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_state_machines_idle", params, &["damage"]) {
+        return bad;
+    }
     let check_damage = params
         .get("damage")
         .and_then(serde_json::Value::as_bool)
@@ -5492,6 +5653,9 @@ fn eval_assert_manager_invariants(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_manager_invariants", params, &["managers", "cross"]) {
+        return bad;
+    }
     const KNOWN_MANAGERS: &[&str] = &[
         "scroll",
         "hover",
@@ -5958,6 +6122,9 @@ fn eval_assert_composition(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_composition", params, &["expect", "fixpoint", "damage"]) {
+        return bad;
+    }
     let Some(serde_json::Value::Array(want)) = params.get("expect") else {
         return AssertionResult::fail(format!(
             "assert_composition: missing 'expect' (an array of stage names; known: {})",
@@ -6120,6 +6287,9 @@ fn eval_assert_damage_sound(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_damage_sound", params, &["vs", "threshold", "slack_px", "max_overpaint_ratio", "forbid_full", "pixel_identity"]) {
+        return bad;
+    }
     #[cfg(not(feature = "cpurender"))]
     {
         let _ = (params, callback_info);

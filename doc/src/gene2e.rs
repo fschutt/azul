@@ -867,6 +867,33 @@ fn closure_relayed_keys(body: &str) -> Vec<String> {
     out
 }
 
+/// The allow-list an eval fn declares by calling
+/// `reject_unknown_params("assert_x", params, &["a", "b"])` (`full.rs`).
+///
+/// That list IS the assertion's param surface — the guard fails the assertion on
+/// anything else — but several of those keys are read through a HELPER rather
+/// than in the eval fn's own body (`damage_of` reads `which` / `frame`), so the
+/// `params.get("…")` scan never saw them and the prompt advertised a narrower
+/// set than the engine accepts. Reading the guard is exact by construction:
+/// accepted-at-runtime and advertised-to-the-model are the same list.
+fn reject_guard_keys(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = body;
+    while let Some(p) = rest.find("reject_unknown_params(") {
+        rest = &rest[p + "reject_unknown_params(".len()..];
+        let Some(open) = rest.find("&[") else { break };
+        let Some(close) = rest[open..].find(']') else { break };
+        let list = &rest[open..open + close];
+        for key in list.split('"').skip(1).step_by(2) {
+            if !out.iter().any(|n| n == key) {
+                out.push(key.to_string());
+            }
+        }
+        rest = &rest[open + close..];
+    }
+    out
+}
+
 /// Param keys that are not fixed names at all: the eval fn walks
 /// `params.as_object()` and looks each key up in a map built by a `collect_*`
 /// helper (`eval_assert_resource_counts` × `collect_resource_counts`). The
@@ -930,6 +957,11 @@ fn eval_fn_params(src: &str, fn_name: &str) -> Vec<(String, bool)> {
         }
     }
     for k in collected_map_keys(src, body) {
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+    for k in reject_guard_keys(body) {
         if !keys.contains(&k) {
             keys.push(k);
         }
@@ -1268,6 +1300,35 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
             for (p, required) in &def.params {
                 if *required && !s.contains_key(p) {
                     bail!("step {i}: op `{op}` is missing required param `{p}`");
+                }
+            }
+        }
+        // UNKNOWN PARAM. This gate used to check only that REQUIRED params were
+        // PRESENT — never that the params supplied actually exist. So a step
+        // could ask for a bound the evaluator does not implement
+        // (`min_relayouts` before it existed, `max_relayout` with the `s`
+        // dropped), be accepted here, be ignored at run time, and report green
+        // while asserting nothing. The evaluators now reject unknown keys at run
+        // time (`full.rs::reject_unknown_params`); rejecting them at GENERATION
+        // time costs nothing and stops the artifact from being written at all.
+        //
+        // `screenshot` is a step-level flag owned by the harness, not a param.
+        if let Some(def) = schema
+            .known_op(op)
+            .or_else(|| schema.extra.iter().find(|e| e.name == op))
+        {
+            for key in s.keys() {
+                if key == "op" || key == "screenshot" {
+                    continue;
+                }
+                if !def.params.iter().any(|(p, _)| p == key) {
+                    let known: Vec<&str> =
+                        def.params.iter().map(|(p, _)| p.as_str()).collect();
+                    bail!(
+                        "step {i}: op `{op}` has no param `{key}` (known: {}). An unknown param \
+                         is dropped by the runner, so the step would assert LESS than it says.",
+                        if known.is_empty() { "(none)".to_string() } else { known.join(", ") }
+                    );
                 }
             }
         }
@@ -2872,6 +2933,35 @@ mod tests {
         assert!(validate(&s, inert).is_err());
     }
 
+    /// A param the op does not have is DROPPED by the runner, so a step that
+    /// carries one asserts less than it says. The gate used to check only that
+    /// REQUIRED params were PRESENT and never that the supplied ones exist, so
+    /// `max_relayout` (the `s` dropped) was accepted here, ignored at run time,
+    /// and reported green while asserting nothing.
+    #[test]
+    fn the_gate_rejects_a_param_the_op_does_not_have() {
+        let s = parse_schema(&root()).unwrap();
+
+        let typo = r#"{"name":"x","steps":[{"op":"wait_frame"},
+            {"op":"assert_work_bounded","max_relayout":0}]}"#;
+        let e = validate(&s, typo).unwrap_err().to_string();
+        assert!(e.contains("max_relayout"), "{e}");
+        assert!(e.contains("has no param"), "{e}");
+
+        // …and the correctly spelled ones, including every bound added for the
+        // min/exact half and the params only the run-time guard names, still
+        // pass — the advertised surface and the accepted surface are the SAME
+        // list by construction (`reject_guard_keys`).
+        let good = r#"{"name":"x","steps":[
+            {"op":"snapshot_frame","as":"before"},
+            {"op":"wait_frame"},
+            {"op":"assert_work_bounded","max_relayouts":1,"min_relayouts":1,
+             "exact_dom_regens":0,"max_layout_passes":1,"allow_depth_cap":false},
+            {"op":"assert_idle_stable","vs":"before","max_frames":5},
+            {"op":"assert_damage","kind":"none","which":"paint","frame":"last"}]}"#;
+        validate(&s, good).unwrap();
+    }
+
     // -----------------------------------------------------------------------
     // Op classification
     // -----------------------------------------------------------------------
@@ -2959,7 +3049,7 @@ mod tests {
         for op in [
             "click", "click_node", "double_click", "mouse_down", "mouse_move", "mouse_up",
             "key_down", "key_up", "text_input", "scroll", "touch_start", "touch_move", "touch_end",
-            "touch_cancel", "pen_down", "pen_move", "pen_up", "pinch", "rotate", "swipe",
+            "pen_down", "pen_move", "pen_up", "pinch", "rotate", "swipe",
             "long_press", "move", "resize", "dpi_changed", "hit_test", "focus", "blur",
             "set_node_text", "set_node_css_override", "set_node_classes", "insert_node",
             "delete_node", "set_app_state", "scroll_node_to", "scroll_node_by", "scroll_into_view",
@@ -2971,6 +3061,16 @@ mod tests {
         ] {
             assert_eq!(classify(op), OpClass::Allowed, "`{op}` must be allowed");
         }
+
+        // `touch_cancel` is DELIBERATELY not in that list. `TouchState` has no
+        // cancel channel — a cancelled point and a lifted point are the same
+        // state delta — so no `EventType::TouchCancel` can be determined and the
+        // op refuses by name rather than silently lifting the points, which
+        // would let a cancellation test go green on END semantics.
+        assert!(
+            matches!(classify("touch_cancel"), OpClass::Denied(_)),
+            "`touch_cancel` must stay denied while the engine has no cancel signal"
+        );
     }
 
     /// A NEW `DebugEvent` variant must be surfaced, not silently allowed/denied.
@@ -3074,7 +3174,10 @@ mod tests {
 pub enum DebugEvent {{
     Focus,
     WaitFrame,
-    SnapshotFrame {{ name: String }},
+    SnapshotFrame {{
+        #[serde(rename = "as")]
+        name: String,
+    }},
 }}
 
 fn dispatch(request: Request) {{
@@ -3093,6 +3196,11 @@ fn evaluate_assertion(op: &str) {{
         "assert_changed" => eval_assert_changed(params),
         _ => {{}}
     }}
+}}
+
+fn eval_assert_changed(params: &Value) -> AssertionResult {{
+    let vs = params.get("vs");
+    AssertionResult::pass("ok")
 }}
 "#
             ),
