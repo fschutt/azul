@@ -9461,13 +9461,25 @@ pub fn process_debug_event(
             #[cfg(feature = "cpurender")]
             {
                 match capture_damage_png(callback_info, which.as_deref(), *crop) {
-                    Ok(png) => match std::fs::write(path, &png) {
-                        Ok(()) => send_ok(request, None, None),
-                        Err(e) => send_err(
-                            request,
-                            format!("capture_damage_png: cannot write {path}: {e}"),
-                        ),
-                    },
+                    // Create the parent directory first. Scenarios write to
+                    // `target/e2e/<name>.png`, which does not exist in a fresh
+                    // checkout — so every `capture_damage_png` step failed on CI
+                    // while passing locally, where a previous run had already
+                    // left the directory behind. A scenario must not depend on
+                    // leftover build artefacts to pass.
+                    Ok(png) => {
+                        let parent_ok = std::path::Path::new(path.as_str())
+                            .parent()
+                            .filter(|p| !p.as_os_str().is_empty())
+                            .map_or(Ok(()), std::fs::create_dir_all);
+                        match parent_ok.and_then(|()| std::fs::write(path, &png)) {
+                            Ok(()) => send_ok(request, None, None),
+                            Err(e) => send_err(
+                                request,
+                                format!("capture_damage_png: cannot write {path}: {e}"),
+                            ),
+                        }
+                    }
                     Err(e) => send_err(request, format!("capture_damage_png: {e}")),
                 }
             }
