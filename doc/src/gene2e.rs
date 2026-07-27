@@ -1115,9 +1115,18 @@ you softened it until it could not fail is WORSE THAN NO TEST: it hides the bug 
 lends false confidence forever after.
 
 Concretely:
-- Pick the bound the one-liner IMPLIES, not a safe-looking one. "does not trigger a
-  relayout" is `max_relayouts: 0` — never 1 "just in case". "returns to idle" is
+- Pick the bound the one-liner IMPLIES, not a safe-looking one. "does not re-run
+  layout" is `max_layout_passes: 0` — never 1 "just in case". "returns to idle" is
   `assert_idle_stable` with damage `none` — never "some small damage is probably OK".
+- AN UPPER BOUND ALONE IS SATISFIED BY ZERO. `max_relayouts: 2` is true of an engine
+  that dropped the input on the floor and did nothing at all. Whenever the line says
+  the step DID something, pin the lower end too (`min_*`, or `exact_*` when the count
+  is determined) — see step 6.
+- WHEN THE LINE ASSERTS AN ABSENCE, ADD THE CONTROL IT ASKS FOR. "no damage", "no
+  layout pass", "the counter did not move" is also exactly what a dead engine
+  reports. Most such one-liners spell the control out ("... then change the node's
+  background-color as a POSITIVE CONTROL and assert THAT does produce damage"). Put
+  it in the SAME timeline, after the absence assertion — never in a second file.
 - The numbers in the recipes below are ILLUSTRATIVE placeholders. Derive each bound
   from the sentence you were given; do not copy them by default.
 - Never widen a bound, drop an assertion, or downgrade `eq` to `le` to make the test
@@ -1161,6 +1170,12 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
 4. Perform the interaction / mutation / CSS change the line describes (click,
    scroll, key_down, text_input, resize, set_node_css_override, insert_node,
    delete_node, set_node_classes, a second `mount` with changed markup, …).
+   KEYBOARD EDITING NEEDS DOM FOCUS FIRST. `text_input` hard-errors with "No focused
+   node - text input requires focus on contenteditable" unless some node holds DOM
+   focus, and the `focus` / `blur` ops are WINDOW focus — they set `window_focused`
+   and nothing else. Use `focus_node {{"selector": ".editor"}}` (or its `node_id`
+   form) immediately before typing. Do NOT substitute a click: a click needs a
+   coordinate, and you may not guess coordinates.
 5. `wait_frame` + `wait` (and `tick_ms` for anything time-driven: momentum,
    fade, blink, animation — `tick_ms` advances the engine clock WITHOUT sleeping).
 6. Assert what the line asks for:
@@ -1183,9 +1198,54 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
             … one such triple per frame the line asks for.
         Use distinct snapshot names (f0, f1, f2 …); reusing one name compares
         against the wrong frame and silently weakens the test.
-   - "bounded work / no relayout storm"  -> assert_work_bounded {{"max_relayouts": 4, "max_dom_regens": 3}}
-   - "does not trigger a relayout"       -> assert_work_bounded {{"max_relayouts": 0}}
+   - "settles WITHIN N frames"           -> assert_idle_stable {{"vs": "<snapshot>", "max_frames": N}}
+     `max_frames` counts frames since the `reset_frame_counters` of step 3, so put
+     that reset immediately before the interaction and the budget is real. Without
+     it "within 5 ticks" is prose: nothing stops a 20-frame settle from passing.
+   - "damage covers the change AND is not a full redraw"
+                                         -> assert_damage_sound {{"vs": "before", "forbid_full": true}}
+     The ONLY assertion that checks soundness (every changed pixel is inside a damage
+     rect) and tightness (it is not a whole-window repaint) in one call. Prefer it
+     whenever the line claims both, which "the repaint is sound and tight" does.
+   - "every state machine settled / nothing is latched"
+                                         -> assert_state_machines_idle {{}}
+     One sweep over: no active drag, no un-ended gesture session, no running scroll
+     animation, `scroll_dirty` cleared, `scrollbar_fade_active` cleared, no latched
+     `display_list_dirty`, no orphan caret blink, no unresolved focus request.
+     Strictly stronger than `assert_idle_stable` for "did every manager notice the
+     interaction ended?".
+
+   ### THE THREE WORK COUNTERS — pick the RIGHT one, they measure different things
+   `assert_work_bounded` reads three independent counters. Choosing the wrong one is
+   the single most common way to write a test that cannot fail:
+
+   | counter          | what it counts                          | idle | inert pointer event | set_node_css_override | resize |
+   |------------------|-----------------------------------------|------|---------------------|-----------------------|--------|
+   | `relayouts`      | EVENT PASSES (`process_window_events`)  | 0    | 1                   | 0                     | 1      |
+   | `dom_regens`     | runs of the layout callback             | 0    | 0                   | 0                     | 1      |
+   | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 1                     | 1      |
+
+   - `relayouts` is NOT a layout counter, despite the name. It is the recursion depth
+     of the event pass. `0` means "no state delta was processed" — what an IDLE frame
+     looks like. Any input that changes window state runs exactly ONE pass, so
+     `max_relayouts: 0` after a click is a test that ALWAYS FAILS against a correct
+     engine. `> 1` is the engine's own invalidation-loop signal.
+   - `layout_passes` is the one that sees a CALLBACK-API mutation. `set_node_css_override`,
+     `set_node_text` and `set_node_classes` never enter the event pass at all, so
+     `relayouts` stays `0` for them no matter how much work the engine does — but they
+     route through a full relayout, which `layout_passes` counts. "a no-op CSS write
+     must not re-run layout" is `max_layout_passes: 0`, and nothing else expresses it.
+   - Rows: "does not re-run layout"      -> assert_work_bounded {{"max_layout_passes": 0}}
+           "costs exactly one layout pass"-> assert_work_bounded {{"exact_layout_passes": 1}}
+           "one event pass, no re-entry" -> assert_work_bounded {{"exact_relayouts": 1, "max_dom_regens": 0}}
+           "bounded, and it DID run"     -> assert_work_bounded {{"min_relayouts": 1, "max_relayouts": 2}}
+           "never trips the depth cap"   -> any assert_work_bounded (it fails on `hit_depth_cap` unless `allow_depth_cap`)
+
    - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "images": "eq", "fonts": "le"}}
+   - "the counter PROVABLY moved" (a control)
+                                         -> assert_resource_counts {{"vs": "baseline", "fonts": "gt"}}
+     `gt` / `lt` are what make a leak test mean something: `"fonts": "eq"` is `0 == 0`
+     on a window that never loaded a font, and holds on an engine that was deleted.
    - "damage kind / no full redraw"      -> assert_damage {{"kind": "rects", "max_area_ratio": 0.5}}  (kind is "none" | "rects" | "full")
    - "nothing panics"                    -> the steps running at all IS the assertion; still end with a liveness or idle assertion.
    - structure survived a mutation       -> assert_exists / assert_not_exists / assert_node_count / assert_text
