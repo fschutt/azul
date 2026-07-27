@@ -4673,8 +4673,33 @@ fn eval_assert_changed(
         };
         let diff = azul_layout::cpurender::pixel_diff(&before, &after, threshold);
         if !diff.dimensions_match {
-            return AssertionResult::pass(
-                "assert_changed: frame size changed (pixels necessarily differ)".to_string(),
+            // This used to `pass()` on the reasoning that differently-sized
+            // images "necessarily differ". Screenshots are PHYSICAL-pixel
+            // sized, so EVERY `resize` and EVERY `dpi_changed` lands here — and
+            // the pass was unconditional, which meant a resize that rendered a
+            // completely blank window (the classic "content vanished after
+            // resize" bug) satisfied a liveness assertion.
+            //
+            // Its sibling `assert_damage_covers_changes` already FAILS on
+            // exactly this input ("frame size changed between snapshot and
+            // now"). The asymmetry WAS the bug: two assertions over the same
+            // two images disagreeing about whether the comparison is possible.
+            //
+            // There is no honest pixel answer across a dimension change, so
+            // refuse instead of inventing one. Two ways to keep the assertion:
+            // compare at equal dimensions (resize away and back, then diff
+            // against the pre-resize snapshot — a resize that loses content
+            // shows up at the ORIGINAL size, where the comparison is real), or
+            // drop `vs` and assert the damage half alone.
+            return AssertionResult::fail_with(
+                format!(
+                    "assert_changed: frame size changed between snapshot '{vs}' and now, so the \
+                     pixel comparison is undefined — it is NOT evidence that anything was drawn. \
+                     Either round-trip back to the original size and compare there, or omit 'vs' \
+                     and assert the damage alone."
+                ),
+                format!("{}x{}", before.width(), before.height()),
+                format!("{}x{}", after.width(), after.height()),
             );
         }
         if diff.diff_count == 0 {
