@@ -394,7 +394,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("touch_start",               None),
     ("touch_move",                None),
     ("touch_end",                 None),
-    ("touch_cancel",              None),
+    ("touch_cancel",              Some("FullWindowState.touch_state has no cancel channel — a \
+                                        cancelled touch is the same state delta as a lifted one, \
+                                        so no TouchCancel event can be determined and the op \
+                                        refuses by name; use touch_end")),
     ("pen_down",                  None),
     ("pen_move",                  None),
     ("pen_up",                    None),

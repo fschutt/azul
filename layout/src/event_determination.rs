@@ -415,6 +415,92 @@ pub fn determine_all_events(
     }
 
     // ========================================================================
+    // Touch Events  (TouchStart / TouchMove / TouchEnd)
+    // ========================================================================
+    //
+    // `FullWindowState::touch_state` is what EVERY platform backend writes on a
+    // touch — X11 `XI_TouchBegin/Update/End`, `wl_touch`, `WM_TOUCH`, UIKit,
+    // Android `MotionEvent` — and NOTHING read it. `EventType::TouchStart` and
+    // friends existed, `HoverEventFilter::TouchStart` was bound to real
+    // handlers by the slider, split-pane and map widgets, and not one of them
+    // could fire on any platform: the touch half of the event surface was
+    // WRITE-ONLY. It is also why the headless E2E touch ops answered `ok` while
+    // determining nothing at all.
+    //
+    // Targeting: a finger is a pointer of its own, so the target is the node
+    // under THAT point (`HoverManager` keyed by `InputPointId::Touch(id)`) when
+    // the host published a hit test for it, falling back to the mouse target —
+    // the same fallback the pen path uses.
+    //
+    // `TouchCancel` is deliberately NOT derived here: `TouchState` carries no
+    // cancel channel (a cancelled point and a lifted point are the same state
+    // delta), so guessing one would put a fabricated event on the same footing
+    // as a real one. The debug op refuses by name instead.
+    //
+    // KNOWN LIMIT: `deduplicate_synthetic_events` coalesces by (target,
+    // event_type), so two fingers landing on the SAME node produce one
+    // `TouchStart`, not two. That is pre-existing engine policy (it collapses
+    // two simultaneous MouseDowns the same way) and is left alone here; a
+    // multi-touch test must give each finger its own target, or read the
+    // per-finger state off `GestureAndDragManager`, which does track sessions
+    // individually.
+    {
+        use crate::managers::hover::InputPointId;
+        use azul_core::events::TouchEventData;
+
+        let previous_points = previous_state.touch_state.touch_points.as_ref();
+        let current_points = current_state.touch_state.touch_points.as_ref();
+
+        if !previous_points.is_empty() || !current_points.is_empty() {
+            let target_of = |id: u64| {
+                hover_manager
+                    .hover_node_full_for(&InputPointId::Touch(id))
+                    .unwrap_or(mouse_target)
+            };
+            let touch_data = |p: &azul_core::window::TouchPoint| {
+                EventData::Touch(TouchEventData {
+                    id: p.id,
+                    position: p.position,
+                    force: p.force,
+                })
+            };
+
+            for point in current_points {
+                match previous_points.iter().find(|q| q.id == point.id) {
+                    None => events.push(SyntheticEvent::new(
+                        EventType::TouchStart,
+                        EventSource::User,
+                        target_of(point.id),
+                        timestamp.clone(),
+                        touch_data(point),
+                    )),
+                    Some(before) if before.position != point.position => {
+                        events.push(SyntheticEvent::new(
+                            EventType::TouchMove,
+                            EventSource::User,
+                            target_of(point.id),
+                            timestamp.clone(),
+                            touch_data(point),
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
+            for point in previous_points {
+                if !current_points.iter().any(|p| p.id == point.id) {
+                    events.push(SyntheticEvent::new(
+                        EventType::TouchEnd,
+                        EventSource::User,
+                        target_of(point.id),
+                        timestamp.clone(),
+                        touch_data(point),
+                    ));
+                }
+            }
+        }
+    }
+
+    // ========================================================================
     // Wheel / trackpad scroll  →  Scroll event on the hovered node
     // ========================================================================
     // The platform recorded a wheel delta this pass. The scroll-physics path
@@ -1002,6 +1088,103 @@ mod tests {
         let filedrop = crate::managers::file_drop::FileDropManager::new();
         let providers = empty_providers();
         determine_all_events(current, previous, &hover, &focus, &filedrop, None, &providers, None, ts())
+    }
+
+    // === Touch tests ===
+    //
+    // Regression guard for a hole that made the whole touch surface
+    // write-only: every backend wrote `FullWindowState.touch_state` and
+    // `determine_all_events` never read it, so `HoverEventFilter::TouchStart`
+    // handlers (slider, split-pane, map) could not fire on ANY platform.
+
+    fn n_of(events: &[SyntheticEvent], ty: EventType) -> usize {
+        events.iter().filter(|e| e.event_type == ty).count()
+    }
+
+    fn state_with_touch(points: &[(u64, f32, f32)]) -> FullWindowState {
+        use azul_core::window::{TouchPoint, TouchPointVec};
+        let mut s = default_state();
+        let pts: Vec<TouchPoint> = points
+            .iter()
+            .map(|(id, x, y)| TouchPoint {
+                id: *id,
+                position: LogicalPosition::new(*x, *y),
+                force: 0.5,
+            })
+            .collect();
+        s.touch_state.num_touches = pts.len();
+        s.touch_state.touch_points = TouchPointVec::from_vec(pts);
+        s
+    }
+
+    #[test]
+    fn touch_start_fires_for_a_newly_down_point() {
+        let events = run_determine(&state_with_touch(&[(1, 10.0, 20.0)]), &default_state());
+        let ts: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::TouchStart)
+            .collect();
+        assert_eq!(ts.len(), 1);
+        match &ts[0].data {
+            EventData::Touch(t) => {
+                assert_eq!(t.id, 1);
+                assert_eq!(t.position, LogicalPosition::new(10.0, 20.0));
+            }
+            other => panic!("TouchStart must carry EventData::Touch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn touch_move_fires_only_when_the_point_moved() {
+        let held = state_with_touch(&[(1, 10.0, 20.0)]);
+        assert_eq!(n_of(&run_determine(&held, &held), EventType::TouchMove), 0);
+
+        let moved = state_with_touch(&[(1, 11.0, 20.0)]);
+        assert_eq!(n_of(&run_determine(&moved, &held), EventType::TouchMove), 1);
+        assert_eq!(n_of(&run_determine(&moved, &held), EventType::TouchStart), 0);
+    }
+
+    #[test]
+    fn touch_end_fires_for_a_point_that_disappeared() {
+        let down = state_with_touch(&[(1, 10.0, 20.0), (2, 30.0, 40.0)]);
+        let one_left = state_with_touch(&[(2, 30.0, 40.0)]);
+        let events = run_determine(&one_left, &down);
+        assert_eq!(n_of(&events, EventType::TouchEnd), 1);
+        let ended = events
+            .iter()
+            .find(|e| e.event_type == EventType::TouchEnd)
+            .expect("a TouchEnd exists");
+        match &ended.data {
+            EventData::Touch(t) => assert_eq!(t.id, 1),
+            other => panic!("TouchEnd must carry EventData::Touch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_touch_events_without_a_touch_state_delta() {
+        let events = run_determine(&default_state(), &default_state());
+        assert_eq!(n_of(&events, EventType::TouchStart), 0);
+        assert_eq!(n_of(&events, EventType::TouchMove), 0);
+        assert_eq!(n_of(&events, EventType::TouchEnd), 0);
+    }
+
+    #[test]
+    fn touch_cancel_is_never_synthesised() {
+        // `TouchState` has no cancel channel; lifting every point is
+        // indistinguishable from a cancel, so the determination emits TouchEnd
+        // and the debug op refuses `touch_cancel` by name rather than letting a
+        // cancellation test go green on end semantics.
+        //
+        // Both fingers resolve to the SAME target here (no per-touch hit test
+        // is published in this fixture, so both fall back to the root), and
+        // `deduplicate_synthetic_events` coalesces by (target, event_type) —
+        // pre-existing engine policy, the same thing that collapses two
+        // simultaneous MouseDowns. So one TouchEnd survives, and zero
+        // TouchCancels, which is the property under test.
+        let down = state_with_touch(&[(1, 10.0, 20.0), (2, 30.0, 40.0)]);
+        let events = run_determine(&default_state(), &down);
+        assert_eq!(n_of(&events, EventType::TouchEnd), 1);
+        assert_eq!(n_of(&events, EventType::TouchCancel), 0);
     }
 
     // === Keyboard tests ===

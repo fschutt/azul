@@ -273,6 +273,104 @@ impl Runner {
             .push_hit_test(InputPointId::Mouse, hit_test);
     }
 
+    /// Publish one hit test per live touch point and drive the gesture
+    /// manager's per-finger sessions.
+    ///
+    /// This is the port of the X11 XI2 touch handler
+    /// (`dll/src/desktop/shell2/linux/x11/mod.rs`), which does exactly these
+    /// two things next to writing `touch_state`: it feeds
+    /// `gesture_drag_manager.touch_down/touch_move/touch_up` (what
+    /// `detect_pinch` / `detect_rotation` / `detect_swipe_direction` consume)
+    /// and lets the state-diff pass derive the touch events.
+    ///
+    /// DELIBERATE DEVIATION: the shells pass the pointer's SCREEN position as
+    /// the second coordinate; a headless window has no screen, so the window
+    /// position is reused. Only multi-window gesture bookkeeping reads it.
+    fn sync_touch_points(&mut self, old_points: &[azul_core::window::TouchPoint]) {
+        use azul_layout::managers::hover::InputPointId;
+
+        let now = self.now();
+        let window_position = self.window_state.position;
+        let focused_node = self.layout_window.focus_manager.get_focused_node().copied();
+        let new_points: Vec<azul_core::window::TouchPoint> =
+            self.window_state.touch_state.touch_points.as_ref().to_vec();
+
+        for point in &new_points {
+            let hits = self.cpu_hit_tester.hit_test(point.position);
+            let hit_test = azul_layout::headless::convert_cpu_hit_test_to_full(
+                &hits,
+                focused_node,
+                &self.layout_window.layout_results,
+                point.position,
+            );
+            self.layout_window
+                .hover_manager
+                .push_hit_test(InputPointId::Touch(point.id), hit_test);
+
+            match old_points.iter().find(|q| q.id == point.id) {
+                None => self.layout_window.gesture_drag_manager.touch_down(
+                    point.id,
+                    point.position,
+                    now.clone(),
+                    window_position,
+                    point.position,
+                ),
+                Some(before) if before.position != point.position => {
+                    let _ = self.layout_window.gesture_drag_manager.touch_move(
+                        point.id,
+                        point.position,
+                        now.clone(),
+                        point.position,
+                    );
+                }
+                Some(_) => {}
+            }
+        }
+        for point in old_points {
+            if !new_points.iter().any(|p| p.id == point.id) {
+                self.layout_window.gesture_drag_manager.touch_up(
+                    point.id,
+                    point.position,
+                    now.clone(),
+                    point.position,
+                );
+            }
+        }
+    }
+
+    /// Drop the hover history of every touch point that is no longer down.
+    ///
+    /// Runs at the END of [`Runner::service`], not inside
+    /// [`Runner::sync_touch_points`]: `determine_all_events` resolves the
+    /// TARGET of a `TouchEnd` through that history, so purging before the pass
+    /// would send every touch-up to the mouse target instead of to the node the
+    /// finger was actually on. Purging afterwards keeps
+    /// `HoverManager::hover_histories` from growing one entry per touch id
+    /// forever, which is exactly the kind of per-interaction growth the
+    /// `[idle/growth]` family exists to catch.
+    fn purge_ended_touch_points(&mut self) {
+        use azul_layout::managers::hover::InputPointId;
+
+        let live: Vec<u64> = self
+            .window_state
+            .touch_state
+            .touch_points
+            .as_ref()
+            .iter()
+            .map(|p| p.id)
+            .collect();
+        let stale: Vec<InputPointId> = self
+            .layout_window
+            .hover_manager
+            .get_active_input_points()
+            .into_iter()
+            .filter(|id| matches!(id, InputPointId::Touch(t) if !live.contains(t)))
+            .collect();
+        for id in stale {
+            self.layout_window.hover_manager.remove_input_point(&id);
+        }
+    }
+
     /// Apply the `CallbackChange`s the runner pushed this pump, then finish the
     /// frame the way the platform event loop does.
     ///
@@ -350,6 +448,7 @@ impl Runner {
         // display-list-only path (the render-only arms above) just moved. See
         // [`Runner::rebuild_hit_tester`].
         self.rebuild_hit_tester();
+        self.purge_ended_touch_points();
     }
 
     /// Port of `PlatformWindow::process_window_events`
@@ -961,8 +1060,24 @@ impl Runner {
                 // repaint request (`tick_ms` / `wait_frame`, which re-push the
                 // current state) is not an event pass and must not be counted
                 // as one.
+                // `touch_state` was MISSING from this list, and the string
+                // `touch_state` appeared nowhere in this file. A touch op
+                // mutated the state, the gate answered "nothing changed", the
+                // pass never ran and no touch event was ever determined — with
+                // no `unsupported`, no `send_err` and a green `ok`. 48 corpus
+                // lines executed nothing and passed.
+                let touch_state_changed = self.window_state.touch_state != old.touch_state;
+                // Captured BEFORE `old` is moved into `previous_window_state`
+                // below; `sync_touch_points` needs the previous point set to
+                // tell a new finger from a moved one.
+                let old_touch_points: Vec<azul_core::window::TouchPoint> = if touch_state_changed {
+                    old.touch_state.touch_points.as_ref().to_vec()
+                } else {
+                    Vec::new()
+                };
                 let anything_changed = size_changed
                     || dpi_changed
+                    || touch_state_changed
                     || self.window_state.mouse_state != old.mouse_state
                     || self.window_state.keyboard_state != old.keyboard_state
                     || self.window_state.window_focused != old.window_focused
@@ -984,6 +1099,11 @@ impl Runner {
                     {
                         self.update_hit_test_at(pos);
                     }
+                }
+                // Same idea for touch, one hit test PER FINGER — see
+                // [`Runner::sync_touch_points`].
+                if touch_state_changed {
+                    self.sync_touch_points(&old_touch_points);
                 }
                 if anything_changed {
                     result = result.max(self.process_window_events(0));

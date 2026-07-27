@@ -233,6 +233,18 @@ impl HoverManager {
         deepest_node_across_doms(history.get(1)?)
     }
 
+    /// [`current_hover_node_full`] for ANY input point, not just the mouse.
+    ///
+    /// Touch event determination needs this: a finger is a pointer of its own,
+    /// so a `TouchStart` must target the node under THAT finger. Every getter
+    /// here was mouse-only, which is part of why nothing ever derived a touch
+    /// event from `FullWindowState::touch_state`.
+    #[must_use] pub fn hover_node_full_for(
+        &self,
+        input_id: &InputPointId,
+    ) -> Option<azul_core::dom::DomNodeId> {
+        deepest_node_across_doms(self.get_current(input_id)?)
+    }
 }
 
 impl crate::managers::NodeIdRemap for HoverManager {

@@ -11961,12 +11961,24 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
         DebugEvent::TouchCancel => {
-            let mut state = callback_info.get_current_window_state().clone();
-            state.touch_state.touch_points = Vec::new().into();
-            state.touch_state.num_touches = 0;
-            callback_info.modify_window_state(state);
-            // NO `needs_update` — see the note on `process_debug_event`.
-            send_ok(request, None, None);
+            // REFUSED BY NAME, not silently downgraded. `TouchState` carries no
+            // cancel channel: a cancelled point and a lifted point are the
+            // SAME state delta, so `determine_all_events` cannot tell them
+            // apart and nothing in the engine has ever produced
+            // `EventType::TouchCancel` on any platform. Clearing the points
+            // here would fire `TouchEnd` for each of them and let a test named
+            // after cancellation go green on end semantics — the false-green
+            // this whole pass exists to remove. Use `touch_end` to lift a
+            // point; re-enable this op when the platform layer grows a real
+            // cancel signal to diff against.
+            send_err(
+                request,
+                "touch_cancel: FullWindowState.touch_state has no cancel channel — a cancelled \
+                 touch and a lifted touch are the same state delta, so no TouchCancel event can \
+                 be determined (nothing in the engine produces EventType::TouchCancel on any \
+                 platform). Use touch_end to lift the point."
+                    .to_string(),
+            );
         }
 
         // ─── Pen / Stylus Events ─────────────────────────────────────

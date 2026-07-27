@@ -1428,13 +1428,20 @@ pub trait PlatformWindow {
                 let position_changed = old_state.position != state.position;
                 let size_changed = old_state.size.dimensions != state.size.dimensions;
                 let dpi_changed = old_state.size.dpi != state.size.dpi;
+                // Touch was missing from BOTH the copy below and this gate, so
+                // a callback that pushed a modified `touch_state` through
+                // `modify_window_state` changed nothing and ran no pass. The
+                // headless E2E port of this handler had the same hole, which is
+                // what made every touch op inert.
+                let touch_state_changed = old_state.touch_state != state.touch_state;
 
                 let anything_changed = mouse_state_changed
                     || keyboard_state_changed
                     || focus_changed
                     || position_changed
                     || size_changed
-                    || dpi_changed;
+                    || dpi_changed
+                    || touch_state_changed;
 
                 // Save previous state BEFORE modifying (for synthetic event detection)
                 if anything_changed {
@@ -1451,6 +1458,7 @@ pub trait PlatformWindow {
                     current.background_color = state.background_color;
                     current.mouse_state = state.mouse_state;
                     current.keyboard_state = state.keyboard_state.clone();
+                    current.touch_state = state.touch_state.clone();
                     current.window_focused = state.window_focused;
                 }
 
