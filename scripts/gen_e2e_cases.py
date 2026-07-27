@@ -312,12 +312,12 @@ WIDGETS = [
     ("a paragraph of selectable text", "text", {"text", "children", "selectable"}),
     ("a contenteditable single-line input", "input",
      {"text", "editable", "focusable", "clickable", "selectable"}),
-    ("a contenteditable multi-line textarea", "textarea",
-     {"text", "editable", "focusable", "clickable", "selectable", "scrollv"}),
+    ("a contenteditable multi-line textarea holding 40 lines of text, twice its own height",
+     "textarea", {"text", "editable", "focusable", "clickable", "selectable", "scrollv"}),
     ("a vertically scrollable list of 40 rows", "list", {"text", "children", "scrollv"}),
     ("a horizontally scrollable strip of 40 cells", "hstrip", {"children", "scrollh"}),
-    ("a scroll container nested inside another scroll container", "nested-scroll",
-     {"children", "scrollv"}),
+    ("a scroll container of 40 rows nested inside another scroll container of 40 rows",
+     "nested-scroll", {"children", "scrollv"}),
     ("a 10x10 grid of coloured boxes", "grid", {"children"}),
     ("an image node inside a flex row", "image", {"children", "image"}),
     ("a virtual-view list with 5000 virtual rows", "virtual-list",
@@ -331,11 +331,11 @@ WIDGETS = [
     ("a form with three focusable fields and a submit button", "form",
      {"text", "children", "editable", "focusable", "clickable", "selectable"}),
     ("a tab strip with three switchable panels", "tabs",
-     {"text", "children", "focusable", "clickable"}),
+     {"text", "children", "focusable"}),
     ("a tree view with expandable nodes", "tree",
-     {"text", "children", "focusable", "clickable"}),
+     {"text", "children", "focusable"}),
     ("a text node whose font-family is unique to it", "unique-font", {"text", "uniquefont"}),
-    ("a container with a custom scrollbar that fades out", "fading-scrollbar",
+    ("a container of 40 rows with a custom scrollbar that fades out", "fading-scrollbar",
      {"children", "scrollv"}),
     ("a deeply nested 12-level div chain with one leaf", "deep-nest", {"children"}),
     ("an empty body with no content at all", "empty", set()),
@@ -365,6 +365,12 @@ CSS_TYPE = {
     "border-radius": "BorderTopLeftRadius", "background-image": "BackgroundContent",
     "white-space": "WhiteSpace",
 }
+# EVERY value is pinned in ONE canonical form. `0` vs `0px`, `bold` vs `700`,
+# `1em` vs `16px` and an unquoted vs quoted family all PARSE DIFFERENTLY
+# (`SetNodeCssOverride` parses the string fresh), so a "re-set it to the value it
+# already has" line written against the other spelling is a REAL mutation wearing
+# a no-op's clothes, and the no-op families below silently test the opposite of
+# what they say. Never write a bare `0` here.
 CSS_PROPS = [
     ("background-color", "paint-only", "from #ff0000 to #0000ff", set()),
     ("color", "paint-only", "from #000000 to #ff0000", {"text"}),
@@ -374,8 +380,8 @@ CSS_PROPS = [
     ("box-shadow", "paint-only", "from none to 0 0 8px black", {"*"}),
     ("width", "layout", "from 200px to 320px", {"*"}),
     ("height", "layout", "from 100px to 240px", {"*"}),
-    ("padding", "layout", "from 0 to 16px", {"*"}),
-    ("margin", "layout", "from 0 to 24px", {"*"}),
+    ("padding", "layout", "from 0px to 16px", {"*"}),
+    ("margin", "layout", "from 0px to 24px", {"*"}),
     ("display", "structural", "from block to none", {"*"}),
     ("flex-direction", "layout", "from row to column", {"children"}),
     ("flex-grow", "layout", "from 0 to 1", {"children"}),
@@ -385,7 +391,7 @@ CSS_PROPS = [
     ("font-family", "layout", 'from "Azul Mock Mono" to "Azul Mock Wide"', {"text"}),
     ("font-weight", "layout", "from 400 to 700", {"text"}),
     ("line-height", "layout", "from 1.0 to 2.0", {"text"}),
-    ("letter-spacing", "layout", "from 0 to 4px", {"text"}),
+    ("letter-spacing", "layout", "from 0px to 4px", {"text"}),
     ("text-align", "layout", "from left to right", {"text"}),
     ("overflow", "structural", "from visible to hidden", {"children"}),
     ("position", "structural", "from static to absolute", {"children"}),
@@ -396,10 +402,19 @@ CSS_PROPS = [
     ("transform", "paint-only", "from none to translate(20px, 0)", {"*"}),
     ("visibility", "layout", "from visible to hidden", {"*"}),
     ("cursor", "none", "from default to pointer", set()),
-    ("border-radius", "paint-only", "from 0 to 12px", {"*"}),
+    ("border-radius", "paint-only", "from 0px to 12px", {"*"}),
     ("background-image", "paint-only", "from none to a 4x4 embedded PNG", set()),
     ("white-space", "layout", "from normal to nowrap", {"text"}),
 ]
+
+
+def css_values(change):
+    """('from A to B', …) -> (A, B). Used by the no-op families, which must name
+    BOTH the value the stylesheet already declares and the different value the
+    positive control writes. A row whose text does not have that shape cannot be
+    used for a no-op line and says so loudly rather than being approximated."""
+    m = re.match(r"^from (.+?) to (.+)$", change)
+    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 # HARD CHECK: a "paint-only" row promises the generator it may assert "no
@@ -431,7 +446,13 @@ MUTATIONS = [
     ("replace the whole subtree under the node", "replace-subtree"),
     ("reorder the node's siblings", "reorder-siblings"),
     ("rebuild the entire DOM from scratch via set_app_state", "full-rebuild"),
-    ("change the node's classes so its style but not its identity changes", "reclass"),
+    # NOT "so its style changes": `CallbackChange::SetNodeIdsAndClasses` writes
+    # `node_data` and never re-runs CSS matching, so a class swap changes no
+    # style at all today. The mutation is still worth having — it is a real
+    # `ShouldIncrementalRelayout` against a live node — but the line must not
+    # promise a restyle nobody performs.
+    ("rewrite the node's id and class list via set_node_classes, keeping the node itself alive",
+     "reclass"),
 ]
 
 # PHASES — a mid-interaction MOMENT. Each names state the interaction must
@@ -484,46 +505,105 @@ INTERACTIONS = [
 # outside the window bounds" had no matching mouse_down, and "a mouse_move that
 # leaves the node" was never inside it). `visible` is the set of widget
 # capabilities that make the event visibly change something; a liveness
-# assertion is attached ONLY when the widget has one of them. `ALWAYS` = the
-# viewport itself changes, so every widget repaints.
-ALWAYS = {"__always__"}
+# assertion is attached ONLY when the widget has one of them, and the whole
+# (widget x event) cell is asserted the OTHER way round when it has none.
+# `ops` is the debug op(s) the event drives, which is what the wave-1 split
+# consults so a cell whose op the runner refuses is never generated first.
+#
+# Two structural rules learned the hard way, encoded here rather than in prose:
+#
+#   * NAME THE KEY. "a key_down followed by the matching key_up" left the choice
+#     to the model, and `Space` / `PageDown` / `Home` / `End` / the arrows all
+#     hit a `ScrollFocusedContainer` default action (layout/src/default_actions.rs
+#     :74-199) and MOVE PIXELS. The same corpus line then produced a green test
+#     one run and a red one the next. `F12` is parseable by
+#     `parse_virtual_keycode` and has no arm in `determine_keyboard_default_action`.
+#
+#   * NO VIEWPORT-CHANGING EVENTS HERE. `resize` / `dpi_changed` change the
+#     screenshot's DIMENSIONS, and every pixel-diff assertion in the harness
+#     (`assert_changed`, `assert_damage_covers_changes`, `assert_damage_sound`,
+#     `assert_idle_stable`) either hard-fails or auto-passes across a dimension
+#     change — so a (widget x resize) cell can be neither sound nor tight nor
+#     stable. They have their own families at rank 35/37, which drive them with
+#     a stated before/after size instead of "to it".
+#
 INPUT_EVENTS = [
-    ("a single left click", "click", {"clickable", "hoverstyle"}),
-    ("a double click", "double-click", {"clickable", "selectable"}),
-    ("a right click", "right-click", set()),
-    ("a middle click", "middle-click", set()),
-    ("a mouse_down without a matching mouse_up", "down-only", {"clickable", "hoverstyle"}),
-    ("a mouse_move that enters the node", "move-in", {"hoverstyle"}),
+    ("a single left click", "click", {"clickable", "hoverstyle"}, ("click",)),
+    ("a double click", "double-click", {"clickable", "selectable"}, ("double_click",)),
+    ("a right click", "right-click", set(), ("mouse_down", "mouse_up")),
+    ("a middle click", "middle-click", set(), ("mouse_down", "mouse_up")),
+    ("a mouse_down without a matching mouse_up", "down-only", {"clickable", "hoverstyle"},
+     ("mouse_down",)),
+    ("a mouse_move that enters the node", "move-in", {"hoverstyle"}, ("mouse_move",)),
     ("a mouse_move that enters the node followed by one that leaves it again", "move-out",
-     {"hoverstyle"}),
-    ("a mouse_move that stays inside the node and changes nothing", "move-noop", set()),
+     {"hoverstyle"}, ("mouse_move",)),
+    ("a mouse_move that stays inside the node and changes nothing", "move-noop", set(),
+     ("mouse_move",)),
     ("a mouse_down on the node followed by a mouse_up delivered outside the window bounds",
-     "up-outside", {"clickable", "hoverstyle"}),
-    ("a vertical wheel scroll", "wheel-v", {"scrollv"}),
-    ("a horizontal wheel scroll", "wheel-h", {"scrollh"}),
-    ("a diagonal wheel scroll", "wheel-d", {"scrollv", "scrollh"}),
-    ("a key_down of the Tab key", "key-tab", {"focusable"}),
-    ("a key_down of the Escape key", "key-esc", set()),
-    ("a key_down of the ArrowDown key", "key-down", {"editable"}),
-    ("a key_down followed by the matching key_up", "key-updown", set()),
-    ("a text_input of a single character", "text-1", {"editable"}),
-    ("a text_input of a 200 character paragraph", "text-200", {"editable"}),
-    ("a window resize that grows both axes", "resize-grow", ALWAYS),
-    ("a window resize that shrinks both axes", "resize-shrink", ALWAYS),
-    ("a dpi_changed event doubling the scale factor", "dpi", ALWAYS),
-    ("a touch_start / touch_move / touch_end sequence", "touch", {"scrollv", "clickable"}),
-    ("a swipe gesture", "swipe", {"scrollv", "scrollh"}),
-    ("a pen_down / pen_move / pen_up sequence", "pen", {"clickable"}),
+     "up-outside", {"clickable", "hoverstyle"}, ("mouse_down", "mouse_up")),
+    ("a vertical wheel scroll", "wheel-v", {"scrollv"}, ("scroll",)),
+    ("a horizontal wheel scroll", "wheel-h", {"scrollh"}, ("scroll",)),
+    ("a diagonal wheel scroll", "wheel-d", {"scrollv", "scrollh"}, ("scroll",)),
+    ("a key_down of the Tab key", "key-tab", set(), ("key_down",)),
+    ("a key_down of the Escape key", "key-esc", set(), ("key_down",)),
+    # ArrowDown is NOT editable-only: with no focused node (and with a focused
+    # node that is not a text input) `determine_keyboard_default_action` returns
+    # ScrollFocusedContainer{Down, Line} — so it moves every scrollable widget,
+    # and a focused text input is the one case where it does nothing.
+    ("a key_down of the ArrowDown key", "key-down", {"scrollv"}, ("key_down",)),
+    ("a key_down of the F12 key followed by the matching key_up", "key-updown", set(),
+     ("key_down", "key_up")),
+    ("a text_input of a single character", "text-1", {"editable"}, ("focus_node", "text_input")),
+    ("a text_input of a 200 character paragraph", "text-200", {"editable"},
+     ("focus_node", "text_input")),
+    ("a touch_start / touch_move / touch_end sequence", "touch", {"scrollv", "clickable"},
+     ("touch_start", "touch_move", "touch_end")),
+    # A swipe reaches ONLY `inject_native_gesture`, whose payload is observable
+    # exclusively by a user callback that calls `get_swipe_direction` — and a
+    # `mount`ed document has no user callbacks. So no widget can consume it and
+    # `visible` is empty BY CONSTRUCTION: the honest property is that a gesture
+    # nothing can consume must not repaint anything.
+    ("a swipe gesture", "swipe", set(), ("swipe",)),
+    ("a pen_down / pen_move / pen_up sequence", "pen", {"clickable"},
+     ("pen_down", "pen_move", "pen_up")),
 ]
+
+# `text_input` hard-errors ("No focused node") unless a node holds DOM focus, and
+# `focus_node` is the only op that gives it any. Events that need the precondition
+# say so IN THE LINE, so the model cannot leave it out and cannot invent a
+# coordinate-guessing click instead.
+EVENT_PREFIX = {
+    "text-1": "focus its contenteditable node with focus_node, then deliver ",
+    "text-200": "focus its contenteditable node with focus_node, then deliver ",
+}
+
+# `relayout_iterations` counts EVENT PASSES, and an event pass runs only for an
+# op that goes through `modify_window_state` AND actually changes the state the
+# runner diffs (`runner.rs::apply_user_change`: size, dpi, mouse, keyboard, touch,
+# window focus, position). `text_input` pushes `CallbackChange::CreateTextInput`
+# and `scroll` writes the ScrollManager directly — neither enters the pass at all.
+EVENT_RUNS_PASS = {"text-1": False, "text-200": False}
+# A click / Tab that MOVES KEYBOARD FOCUS legitimately re-enters the pass once
+# (runner.rs, the `default_action_focus_changed || mouse_click_focus_changed`
+# arm); nothing else may. `>1` is the engine's own invalidation-loop signal, so
+# the bound is DERIVED, never a constant.
+FOCUS_MOVING = {"click", "down-only", "up-outside", "double-click", "key-tab"}
+# Sequences whose NET effect on screen is zero: the first half applies a style
+# and the second half removes it again.
+ROUND_TRIP_EVENTS = {"move-out", "up-outside"}
+
+
+def runs_event_pass(ik):
+    return EVENT_RUNS_PASS.get(ik, True)
+
+
+def relayout_bound(ik, wk):
+    if not runs_event_pass(ik):
+        return 0
+    return 2 if ik in FOCUS_MOVING and "focusable" in WCAP[wk] else 1
 
 
 def event_visible(vis, wk):
-    # ALWAYS means "the viewport itself changed, so the content repaints" — which
-    # presumes there IS content. An empty body under a resize just crops or
-    # extends a blank buffer; "the pixels actually differ" is not a claim that
-    # survives contact with a differently-sized snapshot, so do not make it.
-    if vis is ALWAYS:
-        return wk != "empty"
     return bool(vis & WCAP[wk])
 
 
@@ -612,7 +692,8 @@ MANAGER_LIFECYCLE_KEYED = [
     ("remaps its key when a preceding sibling is inserted", "remap-insert"),
     ("remaps its key when a preceding sibling is deleted", "remap-delete"),
     ("survives a full DOM rebuild without holding a dead key", "survive-rebuild"),
-    ("reports the same key set through debug_counts as the DOM actually contains", "counts-match-dom"),
+    ("holds exactly one key per live node and no key for a node the DOM does not contain, as "
+     "assert_manager_invariants sweeps it", "counts-match-dom"),
     ("is unaffected by a mutation in an unrelated subtree", "isolation"),
 ]
 MANAGER_LIFECYCLE_GENERIC = [
@@ -632,10 +713,18 @@ COVER_CB = {}
 COVER_OP = {}
 COVER_MGR = {}
 COVER_FAM = {}
+# line text -> the ops it drives. The wave-1 split reads this, so a line that
+# drives an op the headless runner refuses is deferred by DERIVATION rather than
+# by a hand-kept list that rots the moment the runner grows the missing arm.
+LINE_OPS = {}
 
 
 def norm(s):
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", s.lower())).strip()
+
+
+def _as_list(x):
+    return list(x) if isinstance(x, (list, tuple, set)) else [x] if x else []
 
 
 def emit(tag, text, *, cb=None, op=None, mgr=None, fam=None, rank=0):
@@ -647,93 +736,315 @@ def emit(tag, text, *, cb=None, op=None, mgr=None, fam=None, rank=0):
         return
     SEEN[k] = line
     LINES.append((rank, len(LINES), line))
+    LINE_OPS[line] = set(_as_list(op))
     for name, bucket in ((cb, COVER_CB), (op, COVER_OP), (mgr, COVER_MGR), (fam, COVER_FAM)):
-        for x in (name if isinstance(name, (list, tuple, set)) else [name] if name else []):
+        for x in _as_list(name):
             bucket.setdefault(x, 0)
             bucket[x] += 1
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE SHARED CLAUSES
+#
+# Two things every family that asserts an ABSENCE got wrong, factored out so
+# they cannot be got wrong one family at a time:
+#
+#  1. A POSITIVE CONTROL. "no damage" / "no relayout" / "the counter did not
+#     move" is ALSO what a completely dead engine reports. `assert_work_bounded`
+#     grew `min_*` / `exact_*` and `assert_resource_counts` has `gt` / `lt`
+#     precisely so a test can prove the work DID happen; before this, 2,268
+#     corpus lines asserted only absence and exactly 72 carried a control.
+#
+#  2. AN ENFORCEABLE SETTLE BUDGET. "within 5 ticks" was unenforceable prose:
+#     `assert_idle_stable` reported the frame count and never constrained it, so
+#     a scenario that took 20 frames satisfied a line that said 5. It now takes
+#     `max_frames`, counted from the `reset_frame_counters` the recipe puts
+#     immediately before the interaction — so the number must be stated as a
+#     FRAME BUDGET, in the harness's own vocabulary.
+# ══════════════════════════════════════════════════════════════════════════
+CONTROL_DAMAGE = (
+    "then, in the same timeline, change the node's background-color via set_node_css_override as a "
+    "POSITIVE CONTROL and assert THAT does produce damage and does change pixels, so the absence "
+    "above is a real result and not a dead engine")
+CONTROL_LAYOUT = (
+    "then, in the same timeline, override the node's width to a different px value as a POSITIVE "
+    "CONTROL and assert THAT does spend at least one layout pass and does produce damage")
+
+
+def settle(frames=5, hold=3):
+    """The settle clause WITHOUT a leading "assert", so a caller can chain it."""
+    return ("the window is back to zero paint damage within %d frames of the change — a "
+            "max_frames budget the harness enforces, not prose — and still reports zero damage "
+            "%d frames later" % (frames, hold))
 
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 10 — idle stability: the simplest possible test, one widget, one assert
 # ─────────────────────────────────────────────────────────────────────────
-for wd, wk, _ in WIDGETS:
+# AN IDLE TIMELINE CAN ONLY BE DAMAGED THREE WAYS.
+# `CpuBackend::render_frame` (dll/src/desktop/shell2/headless/mod.rs) takes the
+# "nothing changed -> FrameDamage::None" fast arm unless `dl_damage` is non-empty,
+# or `resize_damage`, `has_scroll`, `has_vview_damage` or `has_gpu_damage`. With
+# no input and no resize only the last two are reachable. So a fixture with no
+# path to a VirtualView re-invocation, a GPU value-cache change or an async
+# resource landing late is BYTE-FOR-BYTE the same test as the flexbox baseline:
+# 18 of the 24 widgets funnelled into one code path and differed only in layout
+# COST, which neither idle assertion measures. They are dropped, not softened —
+# every widget noun still appears 130-240x elsewhere in the corpus.
+#   (widget key, why it survives, ticks, ms per tick)
+IDLE_FIXTURES = [
+    ("flexbox", "the canonical nothing-animates baseline", 5, 16),
+    ("empty", "the degenerate case: a zero-item display list through the damage diff", 5, 16),
+    ("image", "an async image decode/upload can land on a LATER frame and dirty it", 5, 16),
+    ("virtual-list", "a VirtualView that re-queues itself every frame is a first-class idle "
+                     "damage source and nothing else in the corpus catches it", 5, 16),
+    ("button", "the hover manager can latch state for a pointer that never moved", 5, 16),
+    # A time-driven fixture must (i) have the machinery ARMED by an event and
+    # (ii) advance the clock past that machinery's OWN threshold. `tick_ms 16` x5
+    # is 80ms of engine clock; the scrollbar fade is 500ms+200ms on the profiles
+    # that have one and the caret blink is 530ms (managers/text_edit.rs), so the
+    # old "tick 5 frames" could not reach a single toggle of either.
+    ("fading-scrollbar", "the scrollbar fade is the one GPU-value-cache path an idle window has",
+     6, 150),
+]
+IDLE_KEEP = {k for k, _, _, _ in IDLE_FIXTURES}
+WDESC = {k: d for d, k, _ in WIDGETS}
+for _, wk, _ in WIDGETS:
+    if wk not in IDLE_KEEP:
+        drop("idle/*: fixture has no path to idle damage — identical code path to the baseline", 2)
+
+# The fixture whose whole point is a time-driven effect gets the event that ARMS
+# it prepended, and the CSS that turns it on: the unconditional UA fallback (the
+# one a Linux CI box evaluates) declares `-azul-scrollbar-fade-delay: 0`, so a
+# fixture that does not declare its own fade has no fade to observe.
+IDLE_ARM = {
+    "fading-scrollbar":
+        ("wheel-scroll it down by 120px so the scrollbar is faded in and the GPU value cache is "
+         "live, then ", " (the widget must declare `-azul-scrollbar-fade-delay: 200ms` and "
+                        "`-azul-scrollbar-fade-duration: 100ms` so there is a fade at all)"),
+}
+
+for wk, why, ticks, ms in IDLE_FIXTURES:
+    wd = WDESC[wk]
+    arm, note = IDLE_ARM.get(wk, ("", ""))
     emit("idle/stability",
-         "mount %s, tick 5 frames with no input at all, assert every frame is byte-identical to "
-         "the previous one and the paint damage drains to None and stays there" % wd,
-         fam="a", op="wait_frame", rank=10)
+         "mount %s, %sadvance the clock in %d steps of %dms with no input at all%s, assert every "
+         "frame is byte-identical to the PREVIOUS one and the accumulated paint damage drains to "
+         "None and stays there, %s"
+         % (wd, arm, ticks, ms, note, CONTROL_DAMAGE),
+         fam="a", op=["wait_frame", "tick_ms"], rank=10)
+    # `assert_work_bounded` measures the work an EVENT caused. Attached to a
+    # timeline with NO event it is vacuous by dispatch structure: `tick_ms` /
+    # `wait_frame` re-push the current window state, `anything_changed` is false,
+    # the event pass is skipped and every counter is 0 no matter how broken the
+    # engine is — a manager that rebuilds the display list on every single frame
+    # reported `relayout_iterations = 0, dom_regenerations = 0` and went green.
+    # Retargeted at CONVERGENCE, which is what these counters actually measure.
+    hover = "hoverstyle" in WCAP[wk]
     emit("idle/bounded",
-         "mount %s, tick 5 frames with no input, assert relayout_iterations stays at 0 and "
-         "dom_regenerations stays at 0 for every idle frame" % wd,
-         fam="d", op="wait_frame", rank=10)
+         "mount %s, move the mouse ONCE to the centre of the window and then advance the clock in "
+         "%d steps of %dms with no further input, assert the event converged and did not re-enter: "
+         "at most one event-processing pass, zero DOM regenerations, %s, "
+         "MAX_EVENT_RECURSION_DEPTH was never hit, and the last frame reports zero paint damage; %s"
+         % (wd, ticks, ms,
+            "at most one layout pass (the hover restyle)" if hover else "zero layout passes",
+            CONTROL_LAYOUT),
+         fam="d", op=["mouse_move", "tick_ms"], rank=10)
+    # `debug_counts` is unreadable by any assertion (the 9 keys of
+    # `collect_resource_counts` are the whole counter surface) and there is NO
+    # RSS probe anywhere in the workspace, so the old line named two observables
+    # that do not exist and a statistic — slope — nothing computes. Four explicit
+    # sample points is the strongest form the harness actually supports: a
+    # sawtooth that allocates during a frame and sweeps at the end of it is
+    # invisible to a two-point diff.
     emit("idle/growth",
-         "mount %s and run 200 idle frames, assert every manager debug_counts counter has zero "
-         "slope and RSS does not climb" % wd,
-         fam="f", op="wait", rank=11)
-    # The two old lines here ("issue a relayout op", "issue a redraw op") named
-    # ops that OP_POLICY DENIES precisely because forcing the repaint masks a
-    # broken invalidation path. Same intent, driven the way a real app would:
-    # apply a mutation that changes nothing and prove the engine schedules
-    # nothing.
-    emit("idle/noop-css",
-         "mount %s then apply a set_node_css_override that sets a property to the value the node "
-         "already has, assert the engine schedules no relayout, the damage stays None and the "
-         "frame is byte-identical to the previous one" % wd,
-         fam=["a", "d"], op="set_node_css_override", rank=11)
-    emit("idle/noop-class",
-         "mount %s then call set_node_classes with exactly the class list the node already has, "
-         "assert no DOM regeneration is scheduled, the damage stays None and no pixel differs" % wd,
-         fam=["a", "d"], op="set_node_classes", rank=11)
+         "mount %s, snapshot the resource counters, then drive 40 idle frames as explicit "
+         "tick_ms(16) + wait_frame pairs, re-snapshotting and comparing the font and image "
+         "counters at frames 1, 10, 20 and 40, and assert all four samples equal the baseline — "
+         "four samples, not two, so a counter that rises and is swept cannot hide between them"
+         % wd,
+         fam="f", op=["wait_frame", "tick_ms", "snapshot_resources"], rank=11)
+
+# ── the NO-OP MUTATION family ────────────────────────────────────────────
+# The sharpest idea in the corpus, previously wired to a counter the op cannot
+# move: `set_node_css_override` never enters `process_window_events`, so
+# `relayout_iterations` stays 0 and "assert the engine schedules no relayout" was
+# green while `relayout_only()` re-laid-out the whole root DOM. The counter that
+# SEES it is `layout_passes`, incremented in `layout_and_generate_display_list`,
+# the one funnel both paths go through. The property is also named now: "a
+# property" left the choice to the model, and a paint-only choice makes the
+# assertion vacuous while a re-spelled length (`1em` for `16px`) makes the
+# "no-op" premise false.
+NOOP_CSS_PROPS = [(p, c, n) for p, kind, c, n in CSS_PROPS
+                  if kind in ("layout", "structural") and all(css_values(c))]
+assert len(NOOP_CSS_PROPS) >= 18, "gen_e2e_cases: the no-op CSS axis collapsed to %d rows" \
+                                  % len(NOOP_CSS_PROPS)
+for wk, _why, _t, _m in IDLE_FIXTURES:
+    wd = WDESC[wk]
+    for prop, change, needs in NOOP_CSS_PROPS:
+        if not css_applies(needs, wk):
+            drop("idle/noop-css: '%s' cannot affect this widget" % prop)
+            continue
+        old, new = css_values(change)
+        emit("idle/noop-css",
+             "mount %s then apply a set_node_css_override that re-sets %s to %s, the exact value "
+             "its own stylesheet already declares, assert the engine recognises the no-op: ZERO "
+             "layout passes, the accumulated paint damage stays kind \"none\" and the frame is "
+             "pixel-identical to the snapshot taken before the override; then override %s to %s in "
+             "the same timeline as a POSITIVE CONTROL and assert THAT does spend a layout pass and "
+             "does produce damage"
+             % (wd, prop, old, prop, new),
+             fam=["a", "d"], op="set_node_css_override", rank=11)
     if "text" in WCAP[wk]:
+        # "the glyph count is unchanged" was not expressible by ANY assertion
+        # (`glyph_count` lives on a display-list-item response and no evaluator
+        # reads it) and "schedules no repaint" was the same assertion as "the
+        # damage stays None" written twice. What IS measurable — and is the real
+        # waste — is that `ChangeNodeText` calls `layout_cache.reset_incremental()`
+        # and re-lays-out unconditionally, even for a byte-identical string.
         emit("idle/noop-text",
              "mount %s then call set_node_text with the exact text the node already contains, "
-             "assert the engine schedules no repaint, the damage stays None and the glyph count "
-             "is unchanged" % wd,
+             "assert the engine recognises the no-op: ZERO layout passes, the accumulated paint "
+             "damage stays kind \"none\" and the frame is pixel-identical to the snapshot taken "
+             "before the call; then set the text to a DIFFERENT string in the same timeline as a "
+             "POSITIVE CONTROL and assert THAT does spend a layout pass and does produce damage"
+             % wd,
              fam=["a", "d"], op="set_node_text", rank=11)
     else:
         drop("idle/noop-text: widget has no text")
 
+# `idle/noop-class` is HELD, not reworded. `CallbackChange::SetNodeIdsAndClasses`
+# (layout/src/e2e/runner.rs) writes `styled_dom.node_data` and returns
+# `ShouldIncrementalRelayout` — it never calls `StyledDom::restyle`, which is
+# exactly what the CSS-override arm one screen up DOES call ("STALE-SCREEN FIX").
+# So setting the SAME classes and setting COMPLETELY DIFFERENT ones are
+# indistinguishable: zero style change, zero damage, zero regenerations. The
+# family cannot even be repaired by adding a positive control, because no control
+# is constructible with the op. Held until the class path re-cascades.
+CLASS_RESTYLES = "restyle" in read(os.path.join(ROOT, "layout/src/e2e/runner.rs")).split(
+    "CallbackChange::SetNodeIdsAndClasses")[1][:600]
+if CLASS_RESTYLES:
+    for wk, _why, _t, _m in IDLE_FIXTURES:
+        emit("idle/noop-class",
+             "mount %s then call set_node_classes with exactly the class list AND the exact id the "
+             "node already has, assert the accumulated paint damage stays kind \"none\" and no "
+             "pixel differs from the pre-call snapshot; then set a class the stylesheet styles "
+             "differently as a POSITIVE CONTROL and assert THAT does produce damage"
+             % WDESC[wk],
+             fam=["a", "d"], op="set_node_classes", rank=11)
+else:
+    drop("idle/noop-class: SetNodeIdsAndClasses writes node_data without re-running CSS matching, "
+         "so identical and different class lists are indistinguishable and no positive control is "
+         "constructible", len(IDLE_FIXTURES))
+
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 20 — one input event, one widget, one assertion family
 # ─────────────────────────────────────────────────────────────────────────
-# `liveness` is CONDITIONAL: it is only honest when the event can actually change
-# the widget. The other three hold for every pair (including zero-damage ones),
-# so they are emitted unconditionally.
-INPUT_ASSERTS = [
-    ("damage", "assert the damage-driven buffer is pixel-identical to a full repaint and the "
-               "paint region does not balloon to the whole window", "c"),
-    ("bounded", "assert the event costs at most 2 relayout iterations, 0 DOM regenerations and "
-                "never trips the recursion depth cap", "d"),
-    ("settle", "assert that after the event the window returns to idle with zero damage within "
-               "5 ticks", "a"),
-]
-for ie, ik, vis in INPUT_EVENTS:
+# EVERY assertion here is CONDITIONAL on `event_visible`. The old comment claimed
+# damage / bounded / settle "hold for every pair (including zero-damage ones), so
+# they are emitted unconditionally" — and that justification is precisely the
+# bug. On the 423 pairs where the event cannot change the widget:
+#   * the DAMAGE line demanded a bounded, non-full repaint of damage that is
+#     correctly EMPTY (`assert_damage_incremental` fails outright on empty
+#     damage) three lines away from an `over-invalidation` line on the SAME pair
+#     demanding the damage stay None — two lines making opposite demands;
+#   * the SETTLE line's "returns to idle with zero damage" was the INITIAL
+#     condition, never an achievement;
+#   * the BOUNDED line's `<= 2` was satisfied by 0, i.e. by an engine that
+#     dropped the input entirely.
+# So the invisible pairs belong to `over-invalidation` EXCLUSIVELY, and the
+# visible pairs get damage/bounded/settle/liveness as a matched set of four.
+for ie, ik, vis, iops in INPUT_EVENTS:
+    pre = EVENT_PREFIX.get(ik, "deliver ")
     for wd, wk, _ in WIDGETS:
-        for aname, atxt, afam in INPUT_ASSERTS:
-            emit("input/%s" % aname,
-                 "mount %s and deliver %s to it, %s" % (wd, ie, atxt),
-                 fam=afam, rank=20)
-        if event_visible(vis, wk):
-            emit("input/liveness",
-                 "mount %s and deliver %s to it, assert the damage set is non-empty and the "
-                 "pixels actually changed" % (wd, ie),
-                 fam="b", rank=20)
-        else:
+        if not event_visible(vis, wk):
             # Do not drop the cell — FLIP IT. The pair cannot change anything on
             # screen, so the property to assert is the opposite one, and it
             # covers a bug class the corpus otherwise has none of:
             # OVER-invalidation, where the engine repaints for an event that
             # changed nothing and burns a frame forever after.
+            #
+            # "no relayout iteration is spent" was FALSE for every input event by
+            # the counter's own definition: `relayout_iterations` counts EVENT
+            # PASSES, and any input that changes window state runs exactly one.
+            # The counter that answers "did the engine needlessly re-lay-out?" is
+            # `layout_passes`, which the documented table in
+            # `FrameReport` puts at 0 for an inert pointer event.
             emit("input/over-invalidation",
-                 "mount %s and deliver %s to it — nothing this widget renders can change as a "
-                 "result — and assert the engine does not over-invalidate: the damage stays None, "
-                 "no relayout iteration is spent, and the frame is byte-identical to the one "
-                 "before the event" % (wd, ie),
-                 fam=["a", "d"], rank=20)
+                 "mount %s and %s%s to it — nothing this widget renders can change as a result — "
+                 "and assert the engine does not over-invalidate: the accumulated paint damage "
+                 "stays kind \"none\", the frame is pixel-identical to the snapshot taken before "
+                 "the event, and the event costs at most one event-processing pass, zero DOM "
+                 "regenerations and ZERO layout passes; %s"
+                 % (wd, pre, ie, CONTROL_DAMAGE),
+                 fam=["a", "d"], op=iops, rank=20)
+            drop("input/damage+bounded+settle: the event cannot change this widget, so "
+                 "over-invalidation owns the cell exclusively", 3)
+            continue
+
+        # SOUNDNESS *and* TIGHTNESS in one assertion. The old wording ("the
+        # damage-driven buffer is pixel-identical to a full repaint") had no
+        # implementing assertion at all — `assert_screenshot` compares against a
+        # PNG on disk, not against another in-timeline buffer — so the model had
+        # to approximate it. `assert_damage_sound` does coverage, overpaint and
+        # `forbid_full` in one call and is named here in the harness's vocabulary.
+        emit("input/damage",
+             "mount %s and %s%s to it, assert the repaint is SOUND and TIGHT against the snapshot "
+             "taken before the event: every pixel that changed lies inside the reported damage "
+             "rects, the damage-driven buffer matches the full-repaint oracle, and the repaint is "
+             "a bounded patch rather than a whole-window redraw" % (wd, pre, ie),
+             fam="c", op=iops, rank=20)
+        # `assert_work_bounded`'s bounds were `at most 2 relayout iterations, 0
+        # DOM regenerations` for all 576 cells — one constant Python string, not
+        # derived from the event, the widget or the engine. `<= 2` admits exactly
+        # one spurious re-entry, i.e. the smallest instance of the invalidation
+        # loop this family exists to detect, and an upper bound alone is
+        # satisfied by an engine that did nothing.
+        rb = relayout_bound(ik, wk)
+        emit("input/bounded",
+             "mount %s and %s%s to it, assert the work is EXACTLY what the event requires — %s — "
+             "with zero DOM regenerations, at least one layout pass, and MAX_EVENT_RECURSION_DEPTH "
+             "never tripped"
+             % (wd, pre, ie,
+                "no event-processing pass at all, because this op never enters one" if rb == 0 else
+                "exactly %s event-processing pass%s, no more and no FEWER, so an engine that "
+                "dropped the input fails too" % ("one" if rb == 1 else "two", "" if rb == 1 else "es")),
+             fam="d", op=iops, rank=20)
+        # The settle line never established that damage was ever non-zero, so
+        # "returns to idle with zero damage" was true from the first frame
+        # onwards. The beat that makes it falsifiable is the damage-non-zero
+        # assertion BEFORE the drain.
+        emit("input/settle",
+             "mount %s and %s%s to it, assert the event FIRST produces a non-empty damage set — "
+             "so an engine that dropped the input cannot pass — and that %s"
+             % (wd, pre, ie, settle(frames=5, hold=3)),
+             fam="a", op=iops, rank=20)
+        # A SEQUENCE THAT ENDS WHERE IT STARTED IS NOT A LIVENESS TEST.
+        # `move-out` (enter then leave) and `up-outside` (press then release
+        # away) apply a hover/active style and then REMOVE it, so the final
+        # frame equals the `before` snapshot and "the pixels actually changed"
+        # is red against a perfectly correct engine. The property those two
+        # sequences really assert is that the style was both APPLIED and UNDONE,
+        # which needs a snapshot between the halves.
+        if ik in ROUND_TRIP_EVENTS:
+            emit("input/liveness",
+                 "mount %s, snapshot the frame, %s%s to it one half at a time — asserting the "
+                 "pixels change after the FIRST half — and assert that after the SECOND half the "
+                 "frame is pixel-identical to the first snapshot again: the style must be both "
+                 "applied and undone, and comparing only the end state to the start state proves "
+                 "neither" % (wd, pre, ie),
+                 fam="b", op=iops, rank=20)
+        else:
+            emit("input/liveness",
+                 "mount %s and %s%s to it, assert the damage set is non-empty, the pixels actually "
+                 "changed, and the repaint is a rects patch that does not cover the whole window"
+                 % (wd, pre, ie),
+                 fam="b", op=iops, rank=20)
 
 # every usable debug op gets its own dedicated line set, split by what the op IS
 DRIVE_TEMPLATES = [
     ("smoke", "assert the op is accepted, no panic occurs, and the process stays alive", "f", 21),
-    ("settle", "assert the window returns to a zero-damage idle state within 5 ticks afterwards", "a", 22),
+    ("settle", "assert " + settle(frames=5, hold=3) + ", " + CONTROL_DAMAGE, "a", 22),
     ("bounded", "assert the op costs a bounded number of relayout iterations and never trips the "
                 "MAX_EVENT_RECURSION_DEPTH cap", "d", 22),
     ("incremental", "assert any repaint it causes is a Rects patch and never FrameDamage::Full "
@@ -751,8 +1062,9 @@ DRIVE_TEMPLATES = [
 # What it MUST do is not perturb the engine at all.
 OBSERVE_TEMPLATES = [
     ("smoke", "assert the op is accepted, no panic occurs, and the process stays alive", "f", 21),
-    ("nodamage", "assert merely issuing it produces NO damage, spends no relayout iteration, and "
-                 "leaves the next frame's incremental render state undisturbed", "a", 22),
+    ("nodamage", "assert merely issuing it produces NO damage, spends ZERO layout passes, and "
+                 "leaves the next frame's incremental render state undisturbed, " + CONTROL_DAMAGE,
+     "a", 22),
     ("repeat", "issue the op 50 times in a row and assert no counter grows without bound and the "
                "frame still settles", "f", 24),
     ("resources", "assert every resource counter returns to its pre-op baseline after 3 GC frames",
@@ -760,7 +1072,7 @@ OBSERVE_TEMPLATES = [
 ]
 HARNESS_TEMPLATES = [
     ("smoke", "assert the op is accepted, no panic occurs, and the process stays alive", "f", 21),
-    ("settle", "assert the window returns to a zero-damage idle state within 5 ticks afterwards", "a", 22),
+    ("settle", "assert " + settle(frames=5, hold=3) + ", " + CONTROL_DAMAGE, "a", 22),
     ("repeat", "issue the op 50 times in a row and assert no counter grows without bound and the "
                "frame still settles", "f", 24),
 ]
@@ -788,37 +1100,50 @@ drop("op/*: zombie op (declared, no match arm)", len(ZOMBIE_OPS) * len(DRIVE_TEM
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 30 — CSS-override damage matrix (behavioural: refresh + patch + settle)
 # ─────────────────────────────────────────────────────────────────────────
+# WHICH COUNTER. A `set_node_css_override` is a CALLBACK-API mutation: it never
+# enters `process_window_events`, so `relayout_iterations` (an EVENT-PASS
+# counter) stays 0 for it no matter what the engine does, and every "assert no
+# relayout" written against that counter was green while `relayout_only()`
+# re-laid-out the whole root DOM. `layout_passes` is the counter that sees it.
 PROP_ASSERTS = {
     "paint-only": [
-        ("assert the pixels change, the damage is a patch, and it does not trigger a relayout", "c", 30),
+        ("assert the pixels change and the damage is a bounded patch, and that ZERO layout passes "
+         "are spent — a paint-only property must not re-run layout", "c", 30),
         ("assert the damage-driven render is pixel-identical to the full repaint of the same frame", "c", 31),
-        ("assert the window settles back to zero damage immediately afterwards", "a", 31),
+        ("assert the change FIRST produces a non-empty damage set and the window THEN settles back to "
+         "zero damage immediately afterwards — the settle half alone is satisfied by an engine "
+         "that ignored the override", "a", 31),
     ],
     "layout": [
         ("assert the change is repainted, the damage covers every pixel that actually differs, and "
          "no under-paint leaves a stale region on screen", "c", 32),
-        ("assert at most one relayout iteration is spent and no DOM regeneration happens", "d", 32),
-        ("assert the window settles back to zero damage afterwards", "a", 32),
+        ("assert exactly one layout pass is spent — at least one, because the property changes "
+         "geometry, and no more than one — with zero DOM regenerations and no event-processing "
+         "pass at all", "d", 32),
+        ("assert the change FIRST produces a non-empty damage set and the window THEN settles back to "
+         "zero damage — the settle half alone is satisfied by an engine that ignored the "
+         "override", "a", 32),
     ],
     "structural": [
         ("assert the repaint covers every changed pixel, is declared structural if it goes Full, and "
          "the window settles afterwards", "c", 33),
         ("assert every manager key still points at a live node afterwards", "g2", 33),
-        ("assert the change costs at most one DOM regeneration", "d", 33),
+        ("assert the change costs exactly one layout pass and ZERO DOM regenerations — a CSS "
+         "override re-lays-out, it does not re-run the layout callback", "d", 33),
     ],
     # A property with no visual effect can only be tested against a POSITIVE
     # CONTROL: "nothing was repainted" is also what a completely dead engine
     # reports, so every one of these pairs the inert change with a change that
     # MUST repaint, in the same timeline.
     "none": [
-        ("assert nothing is repainted at all and the damage stays None, then change the node's "
-         "background-color in the same timeline as a positive control and assert THAT does "
-         "produce damage (so the None above is a real result and not a dead engine)", "a", 30),
-        ("assert no relayout is triggered and the frame is byte-identical, then override the "
-         "node's width as a positive control and assert THAT does spend a relayout iteration",
-         "a", 30),
-        ("assert no resource counter moves, then add an image node as a positive control and "
-         "assert the image counter does move", "e", 31),
+        ("assert nothing is repainted at all and the damage stays kind \"none\", then change the "
+         "node's background-color in the same timeline as a POSITIVE CONTROL and assert THAT does "
+         "produce damage (so the none above is a real result and not a dead engine)", "a", 30),
+        ("assert ZERO layout passes are spent and the frame is pixel-identical to the snapshot "
+         "before the override, then override the node's width in the same timeline as a POSITIVE "
+         "CONTROL and assert THAT does spend a layout pass", "a", 30),
+        ("assert no resource counter moves, then add an image node as a POSITIVE CONTROL and "
+         "assert the image counter is strictly greater than the baseline snapshot", "e", 31),
     ],
 }
 for prop, kind, change, needs in CSS_PROPS:
@@ -851,31 +1176,69 @@ RESIZES = [
 for wd, wk, _ in WIDGETS:
     for a, b, desc, moved in RESIZES:
         if moved:
+            # "assert the output refreshes" was previously read as a pixel diff
+            # vs a before-snapshot — and `assert_changed` AUTO-PASSES whenever
+            # the frame size changed ("pixels necessarily differ"), so the
+            # liveness half of every resize line was decided by the harness
+            # before the engine was consulted. It is asserted on the WORK
+            # COUNTERS here, which a resize genuinely moves and which do not
+            # care about the buffer's dimensions. The tightness half is kept
+            # exactly as the user posed it and is deliberately adversarial: a
+            # grow that repaints the untouched interior is over-invalidation.
             emit("resize/damage",
                  "window starts at %s with %s and is resized to %s (%s) via a window resize event, "
-                 "assert the output refreshes, the content still covers the viewport it is supposed to, "
-                 "and only a partial redraw region is generated rather than a full redraw"
-                 % (a, wd, b, desc),
+                 "assert the resize is HONOURED — at least one layout pass and at least one DOM "
+                 "regeneration are spent — and that the repaint it schedules is a bounded patch "
+                 "rather than a whole-window redraw: only the newly exposed region needs painting, "
+                 "and repainting an unchanged interior is the over-invalidation this line exists "
+                 "to catch" % (a, wd, b, desc),
                  op="resize", fam=["b", "c", "g5"], rank=35)
         else:
             emit("resize/noop",
                  "window starts at %s with %s and is resized to %s (%s), assert the engine "
-                 "recognises the no-op: no relayout iteration is spent, the damage stays None and "
-                 "the frame is byte-identical to the one before the event"
-                 % (a, wd, b, desc),
+                 "recognises the no-op: no event-processing pass runs at all, ZERO layout passes "
+                 "are spent, the accumulated paint damage stays kind \"none\" and the frame is "
+                 "pixel-identical to the one before the event, %s"
+                 % (a, wd, b, desc, CONTROL_DAMAGE),
                  op="resize", fam=["a", "d"], rank=35)
         emit("resize/settle",
-             "window starts at %s with %s and is resized to %s (%s), assert the window reaches "
-             "zero damage within 5 ticks and does not re-enter an invalidation loop"
-             % (a, wd, b, desc),
+             "window starts at %s with %s and is resized to %s (%s), assert the resize DID cost "
+             "work — at least one layout pass and at least one DOM regeneration, so an engine "
+             "that ignored the resize fails too — and that %s, and does not re-enter an "
+             "invalidation loop (MAX_EVENT_RECURSION_DEPTH is never tripped)"
+             % (a, wd, b, desc, settle(frames=6, hold=3)),
              op="resize", fam=["a", "d"], rank=36)
+    # THE DIMENSION-SAFE FORM. Every pixel-diff assertion in the harness is
+    # undefined across a size change: `assert_changed` AUTO-PASSES on a dimension
+    # mismatch ("frame size changed (pixels necessarily differ)") while
+    # `assert_damage_covers_changes` and `assert_damage_sound` hard-FAIL on the
+    # same situation. So a one-way resize can prove nothing about content
+    # correctness. Resizing BACK puts both snapshots at the same size, which is
+    # where the comparison is real — and "content vanished after a resize" is
+    # exactly the bug that shows up there.
+    for a, b, desc, _moved in RESIZES[:2]:
+        emit("resize/roundtrip",
+             "window starts at %s with %s, snapshot the frame, resize to %s (%s), let it settle, "
+             "then resize back to %s and assert the frame is pixel-identical to that first "
+             "snapshot — a resize that loses, clips or corrupts content shows up as a diff at the "
+             "ORIGINAL size, which is the only size at which a pixel comparison across a resize "
+             "means anything" % (a, wd, b, desc, a),
+             op="resize", fam=["b", "c"], rank=36)
 for wd, wk, _ in WIDGETS:
     for scale in ("1.0 to 2.0", "2.0 to 1.0", "1.0 to 1.5", "1.5 to 1.25"):
         emit("dpi/damage",
-             "mount %s and change the DPI scale from %s via dpi_changed, assert the whole content "
-             "is repainted correctly, no stale region survives, and the window settles to zero "
-             "damage afterwards" % (wd, scale),
+             "mount %s and change the DPI scale from %s via dpi_changed, assert the engine treats "
+             "it as the geometry change it is: at least one layout pass and at least one DOM "
+             "regeneration are spent, the reported damage kind is FULL rather than a stale patch "
+             "of the old scale, and the window then settles to zero damage" % (wd, scale),
              op="dpi_changed", fam=["b", "a"], rank=37)
+    emit("dpi/roundtrip",
+         "mount %s, snapshot the frame, change the DPI scale from 1.0 to 2.0 via dpi_changed, let "
+         "it settle, then change it back to 1.0 and assert the frame is pixel-identical to that "
+         "first snapshot — the doubled scale changes the SCREENSHOT DIMENSIONS, so a one-way DPI "
+         "change auto-passes every pixel assertion in the harness and only the round trip is a "
+         "real comparison" % wd,
+         op="dpi_changed", fam=["b", "c"], rank=37)
 
 # ─────────────────────────────────────────────────────────────────────────
 # RANK 40 — scroll matrix
@@ -889,11 +1252,18 @@ SCROLL_ASSERTS = [
      {"moves"}),
     ("assert the ScrollManager offset and the rendered content agree and no stale row is left "
      "behind at the old offset", "b", 41, {"moves"}),
-    ("assert the scroll animation terminates, has_active_animations() goes false, scroll_dirty "
-     "clears, and the window reaches zero damage", "g3", 42, {"moves", "animates"}),
+    ("assert has_active_animations() is FIRST true while the animation runs — so an engine that "
+     "never started one fails too — and that the animation then terminates: "
+     "has_active_animations() goes false, scroll_dirty clears and the window reaches zero "
+     "damage", "g3", 42, {"moves", "animates"}),
     ("assert the scrollbar fade completes and gpu_state.scrollbar_fade_active returns to false so "
      "the window stops generating frames", "g3", 42, {"moves"}),
-    ("assert the scroll costs no DOM regeneration and at most one relayout iteration", "d", 41,
+    # `scroll` writes the ScrollManager and marks the frame for regeneration; it
+    # never goes through `modify_window_state`, so it runs NO event pass and
+    # `relayout_iterations` is 0 for it whatever the engine does. The bound that
+    # means something is on `layout_passes`.
+    ("assert the scroll costs zero DOM regenerations, no event-processing pass at all, and at most "
+     "one layout pass — moving an offset is not a reason to re-lay-out the tree", "d", 41,
      {"moves"}),
 ]
 for st, sk, can_scroll in SCROLL_TARGETS:
@@ -914,8 +1284,9 @@ for st, sk, can_scroll in SCROLL_TARGETS:
             # kept, with the assertion the situation actually supports
             emit("scroll/noop",
                  "perform %s on %s, assert the engine recognises there is nothing to scroll: the "
-                 "ScrollManager offset does not move, the damage stays None and no scrollbar fade "
-                 "animation is armed" % (sm, st),
+                 "ScrollManager offset does not move, the accumulated paint damage stays kind "
+                 "\"none\", ZERO layout passes are spent and no scrollbar fade animation is armed; "
+                 "%s" % (sm, st, CONTROL_DAMAGE),
                  op="scroll", mgr="scroll_state", fam=["a", "g3"], rank=40)
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -994,7 +1365,7 @@ CB_TEMPLATES = {
     "node-query": [
         ("read", "call CallbackInfo::%s from inside a callback fired by a click and assert it "
                  "returns a value consistent with the current DOM and that merely calling it "
-                 "produces NO damage and NO relayout", "a", 45),
+                 "produces NO damage and spends ZERO layout passes, " + CONTROL_DAMAGE, "a", 45),
         ("idle", "call CallbackInfo::%s on every one of 20 idle frames and assert the window still "
                  "reaches FrameDamage::None and no counter grows", "f", 46),
         ("stale", "call CallbackInfo::%s from a callback that runs one frame AFTER the node it "
@@ -1003,8 +1374,9 @@ CB_TEMPLATES = {
         ("mutation", "call CallbackInfo::%s immediately after a preceding sibling was inserted so "
                      "every following NodeId shifted, assert the value it returns refers to the "
                      "same LOGICAL node as before the shift", "g4", 48),
-        ("leak", "call CallbackInfo::%s 500 times in a loop from a timer callback and assert every "
-                 "resource counter returns to its baseline and RSS does not climb", "e", 46),
+        ("leak", "call CallbackInfo::%s 500 times in a row from one click callback and assert every "
+                 "resource counter is back at the snapshot taken before the loop, sampling at "
+                 "iteration 1, 100 and 500 so a sawtooth cannot hide between two samples", "e", 46),
         ("bounded", "call CallbackInfo::%s from a callback and assert the event it runs in still "
                     "terminates within the relayout iteration budget and never trips the recursion "
                     "depth cap", "d", 46),
@@ -1012,23 +1384,24 @@ CB_TEMPLATES = {
     # returns a rect/size: assert only that reading it is free and degrades safely
     "geometry": [
         ("free", "call CallbackInfo::%s from inside a click callback and assert that merely "
-                 "reading it produces NO damage, spends no relayout iteration and does not mark "
+                 "reading it produces NO damage, spends ZERO layout passes and does not mark "
                  "the display list dirty (its NUMERIC result is reftest territory, not this "
-                 "suite's)", "a", 45),
+                 "suite's), " + CONTROL_DAMAGE, "a", 45),
         ("stale", "call CallbackInfo::%s from a callback that runs one frame AFTER the node it "
                   "refers to was deleted, assert it returns None/zero rather than panicking or "
                   "reading a stale layout entry", "g4", 47),
         ("idle", "call CallbackInfo::%s on every one of 20 idle frames and assert the window still "
-                 "reaches FrameDamage::None and no relayout is scheduled by the read", "f", 46),
+                 "reaches FrameDamage::None and ZERO layout passes are spent by the read", "f", 46),
     ],
     # reads process/OS/window state: no node, so no renumbering template
     "env": [
         ("read", "call CallbackInfo::%s from inside a callback fired by a click and assert merely "
-                 "calling it produces NO damage and NO relayout", "a", 45),
+                 "calling it produces NO damage and spends ZERO layout passes, " + CONTROL_DAMAGE, "a", 45),
         ("idle", "call CallbackInfo::%s on every one of 20 idle frames and assert the window still "
                  "reaches FrameDamage::None and no counter grows", "f", 46),
-        ("leak", "call CallbackInfo::%s 500 times in a loop from a timer callback and assert every "
-                 "resource counter returns to its baseline and RSS does not climb", "e", 46),
+        ("leak", "call CallbackInfo::%s 500 times in a row from one click callback and assert every "
+                 "resource counter is back at the snapshot taken before the loop, sampling at "
+                 "iteration 1, 100 and 500 so a sawtooth cannot hide between two samples", "e", 46),
         ("headless", "call CallbackInfo::%s under AZ_BACKEND=headless where the underlying "
                      "platform resource is absent, and assert it degrades cleanly (None/default, "
                      "no panic, no abort)", "f", 45),
@@ -1036,10 +1409,11 @@ CB_TEMPLATES = {
     # a pure helper: it must be inert, and that is the whole test
     "pure": [
         ("inert", "call CallbackInfo::%s from inside a click callback and assert it is completely "
-                  "inert with respect to the engine: no damage, no relayout, no DOM regeneration "
-                  "and no resource counter moves", "a", 45),
-        ("leak", "call CallbackInfo::%s 500 times in a loop from a timer callback and assert every "
-                 "resource counter returns to its baseline and RSS does not climb", "e", 46),
+                  "inert with respect to the engine: no damage, ZERO layout passes, no DOM "
+                  "regeneration and no resource counter moves, " + CONTROL_DAMAGE, "a", 45),
+        ("leak", "call CallbackInfo::%s 500 times in a row from one click callback and assert every "
+                 "resource counter is back at the snapshot taken before the loop, sampling at "
+                 "iteration 1, 100 and 500 so a sawtooth cannot hide between two samples", "e", 46),
     ],
     # mutates state that IS visible
     "mutator": [
@@ -1048,8 +1422,9 @@ CB_TEMPLATES = {
         ("patch", "call CallbackInfo::%s from a click callback and assert the repaint it causes is "
                   "an incremental Rects patch, never a full redraw, and matches the full-repaint "
                   "oracle pixel for pixel", "g5", 46),
-        ("settle", "call CallbackInfo::%s from a click callback and assert the window returns to "
-                   "zero damage within 5 ticks afterwards rather than re-invalidating forever", "a", 46),
+        ("settle", "call CallbackInfo::%s from a click callback and assert the call FIRST "
+                   "produces a non-empty damage set, then " + settle(frames=5, hold=3)
+                   + " rather than re-invalidating forever", "a", 46),
         ("bounded", "call CallbackInfo::%s from a callback and assert the event costs a bounded "
                     "number of relayout iterations, DOM regenerations, and never trips the "
                     "recursion depth cap", "d", 46),
@@ -1067,10 +1442,11 @@ CB_TEMPLATES = {
     # their opposite, which is the real (and much sharper) property
     "invisible-mutator": [
         ("nodamage", "call CallbackInfo::%s from a click callback and assert it schedules NO "
-                     "repaint of its own: the damage stays None and no relayout iteration is "
-                     "spent, because nothing it changes is on screen", "a", 45),
-        ("settle", "call CallbackInfo::%s from a click callback and assert the window returns to "
-                   "zero damage within 5 ticks afterwards rather than re-invalidating forever", "a", 46),
+                     "repaint of its own: the accumulated damage stays kind \"none\" and ZERO "
+                     "layout passes are spent, because nothing it changes is on screen, "
+                     + CONTROL_DAMAGE, "a", 45),
+        ("settle", "call CallbackInfo::%s from a click callback and assert " + settle(frames=5, hold=3)
+                   + " rather than re-invalidating forever, " + CONTROL_DAMAGE, "a", 46),
         ("bounded", "call CallbackInfo::%s from a callback and assert the event costs a bounded "
                     "number of relayout iterations, DOM regenerations, and never trips the "
                     "recursion depth cap", "d", 46),
@@ -1088,9 +1464,10 @@ CB_TEMPLATES = {
         ("oracle", "call CallbackInfo::%s from an assertion callback and assert it renders a full "
                    "repaint that is pixel-identical to the incremental buffer for the same frame", "c", 45),
         ("nodamage", "call CallbackInfo::%s and assert the act of taking it produces NO damage and "
-                     "does not disturb the incremental render state of the next frame", "a", 46),
-        ("leak", "call CallbackInfo::%s 100 times and assert the glyph cache and font tables return "
-                 "to baseline and RSS does not climb", "e", 47),
+                     "does not disturb the incremental render state of the next frame, "
+                     + CONTROL_DAMAGE, "a", 46),
+        ("leak", "call CallbackInfo::%s 100 times and assert the registered-font, parsed-font and "
+                 "font-chain-cache counters are back at the pre-loop snapshot exactly", "e", 47),
         ("headless", "call CallbackInfo::%s under AZ_BACKEND=headless and assert it either succeeds "
                      "or fails cleanly (no panic, no abort) given the headless RawWindowHandle is "
                      "Unsupported", "f", 45),
@@ -1173,6 +1550,13 @@ for mgr in MANAGERS:
 # ─────────────────────────────────────────────────────────────────────────
 # Every line now runs the cycle that actually FILLS the counter it asserts on.
 LEAK_CYCLES = [("once", 1), ("10 times in a row", 10), ("200 times in a row", 200)]
+# THE CONTROL THE WHOLE FAMILY WAS MISSING. `eq` against a baseline is `0 == 0`
+# on every widget that cannot host the resource, and `0 == 0` holds on an engine
+# that has been deleted. `eval_assert_resource_counts` implements `gt` and `lt`
+# for exactly this ("lets a test assert the LIVENESS half — the font really was
+# loaded — so the leak half cannot go green for the wrong reason") and not one
+# corpus line used them. One control per (resource, host) pair, so every counter
+# the leak family reads is PROVEN LIVE before anything asserts it returns.
 for rname, rk, cycle, needs in RESOURCES:
     hosts = [(wd, wk) for wd, wk, c in WIDGETS if needs & c]
     if not hosts:
@@ -1185,6 +1569,20 @@ for rname, rk, cycle, needs in RESOURCES:
                  "assert the count of %s has returned exactly to the baseline"
                  % (cycle, wd, cdesc, rname),
                  op="set_app_state", fam="e", rank=55)
+        fill = cycle.split(", then unmount")[0].replace(" and unmount", "")
+        emit("leak/%s-control" % rk,
+             "snapshot the resource counters on an empty window, then %s %s and, WITHOUT "
+             "unmounting it, assert the count of %s is STRICTLY GREATER than that snapshot — the "
+             "positive control for the whole %s family: if this counter never moves, every "
+             "\"returned to baseline\" assertion is 0 == 0 and holds on an engine that has been "
+             "deleted" % (fill, wd, rname, rk),
+             op="set_app_state", fam="e", rank=54)
+        emit("leak/%s-control" % rk,
+             "%s %s, snapshot the resource counters while it is still live, then unmount it and "
+             "force 3 GC frames, and assert the count of %s is STRICTLY LESS than that snapshot — "
+             "proving the RELEASE path runs at all, which \"returned to baseline\" cannot show"
+             % (fill.capitalize(), wd, rname),
+             op="set_app_state", fam="e", rank=54)
 drop("leak/*: widget cannot produce the asserted resource",
      len(RESOURCES) * len(WIDGETS) * len(LEAK_CYCLES)
      - sum(len(LEAK_CYCLES) * len([1 for _, _, c in WIDGETS if needs & c])
@@ -1375,7 +1773,8 @@ G4_ASSERTS = [
     ("assert no manager retains a key for a node that no longer exists (X10)", "g2"),
     ("assert the interaction either completes or is cleanly cancelled, and every state machine "
      "ends idle", "g3"),
-    ("assert the window still reaches FrameDamage::None within 5 ticks afterwards", "a"),
+    ("assert the mutation FIRST produces a non-empty damage set, and then " + settle(frames=5, hold=3),
+     "a"),
     ("assert the frame that follows the mutation is repainted correctly with no stale pixels left "
      "from the removed content", "b"),
 ]
@@ -1401,10 +1800,10 @@ SEEDS = [
     ("drag/compose", "start a text-selection drag inside a scroll container, scroll the container with the wheel using the other hand mid-drag, assert the selection focus follows the content and not the screen position, and the container and selection agree at every frame"),
     ("drag/abort", "start a node drag, then rebuild the entire DOM via set_app_state mid-drag, assert the drag is cancelled rather than left dangling and both active_drag fields end as None"),
     ("drag/abort", "start a scrollbar-thumb drag, then delete the scroll container mid-drag, assert no panic, the drag context clears, and the scrollbar fade flag returns to false"),
-    ("drag/dual", "start a drag through GestureAndDragManager and assert the deprecated DragDropManager.active_drag never disagrees about whether a drag is live, at every frame of the drag"),
+    ("drag/dual", "start a drag through GestureAndDragManager, delete the drag source node mid-drag, and assert GestureAndDragManager.active_drag ends as None rather than holding a key to a node that no longer exists"),
     ("selection/anchor", "select text across three paragraphs, delete the paragraph containing the selection ANCHOR, assert the selection is cleared outright rather than left with a dangling anchor"),
     ("selection/anchor", "select text across three paragraphs, delete the paragraph containing the selection FOCUS, assert the selection collapses to the anchor and no dead key remains"),
-    ("selection/scroll", "drag-select downward past the bottom edge of a scroll container until it autoscrolls three screens, assert the selection focus and the scrolled container stay mutually consistent on every single frame"),
+    ("selection/scroll", "drag-select downward past the bottom edge of a scroll container until it autoscrolls three screens, then assert at the end of the drag that the selection anchor and focus both resolve to live nodes, no manager holds a key to a recycled row, and the window settles to zero damage"),
     ("focus/leak", "focus a contenteditable node, start the caret blink, then delete the node, assert focus is cleared, multi_cursor becomes None, the blink timer stops, and no frame is generated for a caret that no longer exists"),
     ("focus/leak", "focus a contenteditable node, blur it, and assert display_list_dirty does not stay latched true (a permanently dirty flag is a permanent repaint)"),
     ("focus/tab", "tab through a form of three fields to the submit button and back with shift-tab, assert focus lands on each field exactly once, each focus change repaints only the two affected fields, and the window settles"),
@@ -1434,7 +1833,7 @@ SEEDS = [
     ("resize/reentrant", "resize the window while a drag is in flight, assert the drag's source node survives the relayout and the drag continues against the same logical node"),
     ("resize/reentrant", "resize the window while a scroll animation is running, assert the animation retargets against the new viewport and still terminates"),
     ("a11y/stale", "focus a node so the accessibility tree updates, delete the node, assert the a11y tree drops it and no a11y state keys a dead node"),
-    ("text/stale", "set a text node to AAA then to BBBBBBBB, assert the damage is non-empty AND the pixels actually differ (a repaint that leaves the glyph count at 3 is the stale-text bug)"),
+    ("text/stale", "set a text node to AAA then to BBBBBBBB, assert the damage is non-empty AND the pixels actually differ (a repaint that reports damage while the pixels are unchanged is the stale-text signature the harness DOES detect)"),
     ("text/ime", "start an IME preedit, then delete the node being edited mid-preedit, assert the preedit is discarded, no panic occurs, and no state machine stays armed"),
     ("clipboard/leak", "copy a large selection 100 times, assert the clipboard manager's stored content does not accumulate one copy per operation"),
     ("gesture/sessions", "perform 200 short drags in a row, assert gesture input_sessions does not accumulate and old sessions are actually cleared"),
@@ -1498,7 +1897,7 @@ for wd, wk, caps in WIDGETS:
 # children it does not have
 for shape in [
     "resize the window five times in a row and assert every frame still settles to zero damage "
-    "with no relayout iteration wasted on the absent content",
+    "with ZERO layout passes wasted on the absent content",
     "deliver a click, a wheel scroll, a keypress and a text_input into the void and assert every "
     "one is absorbed without a panic and without scheduling a repaint",
     "rebuild the DOM via set_app_state 50 times and assert no manager accumulates a key and every "
@@ -1538,15 +1937,48 @@ REFERENTS = [
      r"focus|contenteditable|text input"),
 ]
 
+# UNIMPLEMENTED CROSS-INVARIANTS, guarded from the OUTSIDE.
+# `eval_assert_manager_invariants` hard-FAILS on X1/X4/X7/X8 ("never a silent
+# pass"), so any line that describes one is an always-red test that proves
+# nothing about the engine — and the tag-level filter in the cross/* block above
+# cannot see a HAND-WRITTEN seed that describes the same invariant in prose. The
+# guard is keyed on the SAME set the assertion declares, so the day an invariant
+# is implemented the guard stops applying by itself.
+UNIMPL_GUARD = {
+    "X1": r"scroll_into_view and ScrollManager agree",
+    "X4": r"DragDropManager",
+    "X7": r"scroll adjustment stays pending",
+    "X8": r"selection focus and the (autoscrolled|scrolled) container",
+}
+_ungarded = CROSS_UNIMPL - set(UNIMPL_GUARD)
+assert not _ungarded, (
+    "gen_e2e_cases: full.rs declares %s UNIMPLEMENTED but no UNIMPL_GUARD pattern covers it — add "
+    "one, or a hand-written seed will smuggle an always-red line into the corpus." % sorted(_ungarded))
+
+# Families whose whole claim is an ABSENCE. A line in one of these that does not
+# also prove the mechanism FIRES is indistinguishable from the same line run
+# against a dead engine, so carrying a positive control is a hard requirement,
+# not a style preference.
+CONTROL_REQUIRED_TAGS = ("idle/stability", "idle/bounded", "idle/noop-css", "idle/noop-text",
+                         "idle/noop-class", "input/over-invalidation", "resize/noop",
+                         "scroll/noop", "css/none")
+
 
 def self_audit(lines):
     bad = []
     for line in lines:
+        tag = line[1:line.index("]")]
         b = line[line.index("] ") + 2:]
         for name, ref, est in REFERENTS:
             m = re.search(ref, b)
             if m and not re.search(est, b[:m.start()]):
                 bad.append((name, line))
+        for xid, pat in UNIMPL_GUARD.items():
+            if xid in CROSS_UNIMPL and re.search(pat, b):
+                bad.append(("unimplemented-invariant/" + xid, line))
+        if tag in CONTROL_REQUIRED_TAGS and "POSITIVE CONTROL" not in b \
+                and "positive control" not in b:
+            bad.append(("absence-without-positive-control", line))
     return bad
 
 
@@ -1584,18 +2016,26 @@ body = "\n".join(_text) + "\n"
 WAVE1 = os.path.join(ROOT, "scripts", "E2E_TESTS_WAVE1.txt")
 
 
-def unsupported_callback_fns():
-    """CallbackInfo fns whose CallbackChange the headless runner cannot apply."""
+def refused_change_variants():
+    """The `CallbackChange` variants `Runner::apply_change` refuses by name."""
     src = read(os.path.join(ROOT, "layout/src/e2e/runner.rs"))
     variants = set(re.findall(r'unsupported\(\s*"([A-Za-z0-9]+)"', src))
     assert variants, "gen_e2e_cases: no `unsupported(\"...\")` call sites in runner.rs"
+    return variants
+
+
+REFUSED_CHANGES = refused_change_variants()
+
+
+def unsupported_callback_fns():
+    """CallbackInfo fns whose CallbackChange the headless runner cannot apply."""
     # a CallbackChange variant can be raised by several API fns
     alias = {"CreateNewWindow": ["create_window"],
              "OpenMenu": ["open_menu", "open_menu_at", "open_menu_for_hit_node",
                           "open_menu_for_node"],
              "ShowTooltip": ["show_tooltip", "show_tooltip_at"]}
     fns, unmapped = set(), []
-    for v in sorted(variants):
+    for v in sorted(REFUSED_CHANGES):
         cands = alias.get(v, [snake(v)])
         hit = [c for c in cands if c in CALLBACK_FNS]
         if hit:
@@ -1609,6 +2049,42 @@ def unsupported_callback_fns():
 
 
 UNSUPPORTED_FNS = unsupported_callback_fns()
+
+# THE SECOND LAYER OF THE SAME GAP. `OP_POLICY` ALLOWS `swipe` / `pinch` /
+# `rotate` / `long_press` — they are not denied and they are not zombies (they
+# have real match arms) — and every one of them funnels into
+# `CallbackChange::InjectNativeGesture`, which the runner refuses by name. The
+# zombie check looks at the op DISPATCH; the policy looks at the op TABLE;
+# neither can see the CallbackChange in between. So map the refusals down to the
+# DEBUG OPS that raise them and let the wave split read that. The mapping is
+# asserted TOTAL against the runner's call sites, so a new refusal cannot be
+# silently ignored, and a refusal that disappears auto-promotes its lines.
+REFUSED_CHANGE_OPS = {
+    "InjectNativeGesture": ["swipe", "pinch", "rotate", "long_press"],
+    "AddTimer": ["add_timer"], "RemoveTimer": ["remove_timer"],
+    "StartCursorBlinkTimer": [], "StopCursorBlinkTimer": [],
+    "AddThread": ["add_thread"], "RemoveThread": ["remove_thread"],
+    "SetCopyContent": [], "SetCutContent": [],
+    "CreateNewWindow": ["create_window"], "BeginInteractiveMove": [],
+    "OpenMenu": [], "ShowTooltip": [], "HideTooltip": [],
+    "AddImageToCache": ["add_image_to_cache"],
+    "RemoveImageFromCache": ["remove_image_from_cache"],
+    "CommitUndoSnapshot": ["commit_undo_snapshot"],
+    "UndoAppState": ["undo_app_state"], "RedoAppState": ["redo_app_state"],
+    "SwitchRoute": [],
+}
+_unmapped = REFUSED_CHANGES - set(REFUSED_CHANGE_OPS)
+assert not _unmapped, (
+    "gen_e2e_cases: runner.rs refuses CallbackChange::%s but REFUSED_CHANGE_OPS does not say which "
+    "debug op(s) raise it — add a row (an empty list is fine when no op reaches it) so wave 1 "
+    "cannot silently include a red-on-arrival line." % sorted(_unmapped))
+REFUSED_OPS = {o for v in REFUSED_CHANGES for o in REFUSED_CHANGE_OPS[v]}
+# The caret blink is armed by a FOCUS CHANGE, not by an op, so no op name
+# identifies it; the phrase does.
+REFUSED_PHRASES = []
+if "StartCursorBlinkTimer" in REFUSED_CHANGES:
+    REFUSED_PHRASES.append((r"caret blink|blinking caret|blink the caret|start the caret",
+                            "the runner has no timer driver, so the caret blink never fires"))
 # managers whose state is filled only by an OS facility the headless runner has
 # no mock for; a `manager/<x>` line for one of them cannot be driven at all.
 HOSTLESS_MANAGERS = {"biometric", "clipboard", "file_drop", "gamepad", "geolocation",
@@ -1625,6 +2101,17 @@ def wave1_defer(line):
     m = re.search(r"CallbackInfo::([a-z_0-9]+)", line)
     if m and m.group(1) in UNSUPPORTED_FNS:
         return "runner.rs marks this CallbackChange unsupported (it fails the scenario)"
+    if LINE_OPS.get(line, ()) & REFUSED_OPS:
+        return ("the op raises a CallbackChange the runner refuses by name — allowed by OP_POLICY "
+                "and not a zombie, so only the runner's own refusal list can see it")
+    body = line[line.index("] ") + 2:]
+    for pat, why in REFUSED_PHRASES:
+        if re.search(pat, body):
+            return why
+    for o in sorted(REFUSED_OPS):
+        if re.search(r"\b%s\b" % re.escape(o), body):
+            return ("the op raises a CallbackChange the runner refuses by name — allowed by "
+                    "OP_POLICY and not a zombie, so only the runner's own refusal list can see it")
     return None
 
 
