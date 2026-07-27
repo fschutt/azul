@@ -349,6 +349,14 @@ fn main() -> anyhow::Result<()> {
             // line whose artifact is present and valid, whatever the corpus did.
             // Usage: gen-e2e <txt> <out-dir> [--jobs N] [--model M] [--effort E]
             //                [--limit N] [--filter <tag>] [--dry-run] [--redo] [--prune]
+            //                [--review-batch N [--review-model M] [--review-effort E]]
+            //
+            // `--review-batch N` is the slow lane: generate N, RUN exactly those
+            // N in-process, have ONE agent review the batch against the corpus
+            // lines and the current prompt, write `<out-dir>/_review-<id>.md`,
+            // and STOP. The operator then edits `build_prompt` in gene2e.rs and
+            // REBUILDS — a deliberate gate, so a prompt change is a reviewed,
+            // committed act rather than a runtime side effect.
             let opts = gene2e::GenE2eOptions::parse(rest)?;
             gene2e::run(&project_root, &opts)?;
             return Ok(());
@@ -2334,16 +2342,24 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    spec annotations              - Scan source for +spec: annotations");
     println!();
     println!("  E2E TEST GENERATION:");
-    println!("    gen-e2e <txt> <out-dir>       - Fan out cheap LLM agents: one line of <txt>");
+    println!("    gen-e2e <txt> <out-dir>       - Fan out LLM agents: one line of <txt>");
     println!("                                    -> one validated e2e JSON test in <out-dir>");
     println!("      [--jobs N] [--model M] [--effort E] [--limit N] [--filter <tag>]");
     println!("      [--dry-run] [--redo] [--prune]");
+    println!("      [--review-batch N] [--review-model M] [--review-effort E]");
     println!("                                    INCREMENTAL: a line is done when its artifact");
     println!("                                    exists AND passes the gate (content-hashed, so");
     println!("                                    the corpus can be regenerated/reordered).");
     println!("                                    --limit N = generate N MORE; --dry-run reports");
     println!("                                    total/done/to-generate/stale; --prune removes");
     println!("                                    artifacts no corpus line claims; --redo = all.");
+    println!("                                    --review-batch N (implies --limit N): generate");
+    println!("                                    N, RUN exactly those N in-process, have ONE");
+    println!("                                    agent review them against their corpus lines +");
+    println!("                                    the current prompt, write <out-dir>/_review-");
+    println!("                                    <id>.md, then STOP. You then edit build_prompt");
+    println!("                                    in doc/src/gene2e.rs and REBUILD — a deliberate");
+    println!("                                    gate; the review never edits the prompt itself.");
     println!();
     println!("  OTHER:");
     println!("    v2 dll                        - Generate v2 DLL bindings");

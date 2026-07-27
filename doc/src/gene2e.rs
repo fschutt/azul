@@ -1,4 +1,4 @@
-//! `azul-doc gen-e2e <txt> <out-dir>` — fan out a fleet of cheap Claude agents
+//! `azul-doc gen-e2e <txt> <out-dir>` — fan out a fleet of Claude agents
 //! that turn a ONE-LINE test description into a real e2e JSON test file.
 //!
 //! It GENERATES tests, it does not run them (`azul-doc reftest` / the debug
@@ -40,6 +40,36 @@
 //!     deleted only with `--prune`
 //! `--limit N` means "generate N MORE", i.e. it truncates the not-yet-done list
 //! (after `--filter`), never the corpus.
+//!
+//! THE REVIEW LOOP (`--review-batch N`)
+//! -----------------------------------
+//! Fanning 6 agents at a 13k-line corpus before the prompt is trustworthy
+//! produces 13k plausible-looking files that certify nothing, and every one of
+//! them then has to be re-read by a human. `--review-batch N` is the slow lane:
+//!
+//!   generate N  ->  RUN exactly those N  ->  ONE review agent  ->  STOP
+//!
+//! and the operator then edits `build_prompt` (below), rebuilds, and asks for
+//! the next N. The rebuild is a DELIBERATE GATE, not an oversight: the prompt
+//! stays in Rust source precisely so that changing it is a reviewed, committed,
+//! `git blame`-able act. The reviewer PROPOSES a prompt diff; it is never
+//! applied automatically.
+//!
+//! The run step is what makes the review worth anything: the mechanical gate
+//! (`validate`) never executes a scenario, so up to now nothing distinguished a
+//! test that expresses its corpus line from one that parses. Running the batch
+//! also separates the two failure kinds the loop cares about — the ENGINE is
+//! wrong (a genuine find; keep the test) versus the headless RUNNER cannot drive
+//! it (a port task; see `Runner::unsupported` in `layout/src/e2e/runner.rs`).
+//!
+//! IMAGES ARE TRIAGE, NOT AN ARTIFACT. No generated scenario is required to
+//! capture a PNG: that would tax all 13k of them for an image nobody opens, and
+//! for the idle half of the corpus the capture is blank by construction.
+//! Instead the REVIEWER captures one when it is investigating a FAILURE — it
+//! copies the scenario into `TRIAGE_DIR`, adds `capture_damage_png` steps THERE,
+//! runs the copy and looks at the result (`triage_doc`). The committed scenario
+//! stays byte-identical, and `target/` is gitignored, so no image ever reaches
+//! git.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -47,13 +77,11 @@ use std::{
     io::Write as _,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Mutex,
-    },
+    sync::Mutex,
 };
 
 use anyhow::{bail, Context, Result};
+use azul_layout::e2e::{load_e2e_tests, render_report, E2eTest, E2eTestResult};
 
 /// Relative path of the file that DEFINES the e2e schema. Single source of truth.
 // MUST be the copy that `azul-doc e2e` actually EXECUTES (azul_layout::e2e), not
@@ -65,6 +93,55 @@ use anyhow::{bail, Context, Result};
 const FULL_RS: &str = "layout/src/e2e/full.rs";
 /// Relative path of the worked example handed to every agent.
 const EXAMPLE_JSON: &str = "tests/e2e/mount_damage_smoke.json";
+
+/// The only op that writes an INSPECTABLE IMAGE FILE headlessly: the frame
+/// masked to the damage region. NOT required in generated scenarios — it is the
+/// review agent's failure-triage instrument (see `triage_doc`).
+///
+/// (`take_screenshot` also renders headlessly but answers with a base64 data URI
+/// in the step response, i.e. nothing to open; `take_native_screenshot` needs a
+/// host hook that nothing installs and always fails — see `OP_POLICY`.)
+const PNG_OP: &str = "capture_damage_png";
+/// Every capture lands under here: one gitignored tree (`.gitignore:2 target/`),
+/// so a triage image can never reach git, and a model-authored `path` can never
+/// escape it. Repo-root-relative, like the rest of the scenario format.
+const PNG_DIR: &str = "target/e2e/";
+/// Where the review agent may write COPIES of failing scenarios plus their
+/// captures. Under `PNG_DIR`, so it inherits both properties above.
+const TRIAGE_DIR: &str = "target/e2e/_triage/";
+/// Model defaults, for BOTH the generator fleet and the reviewer.
+///
+/// TOKEN COST IS NOT THE CONSTRAINT ON THIS PROJECT — TEST QUALITY IS. A weak
+/// generator does not fail loudly; it writes a plausible-looking scenario that
+/// quietly tests something ELSE than its corpus line, which is precisely the
+/// false-green class this whole corpus exists to eliminate, and which no
+/// mechanical gate can catch (`validate` checks shape and op names, never
+/// meaning). A cheap batch that has to be found and regenerated costs far more
+/// than generating it well once — and each line is generated ONCE and then lives
+/// in the repo as a gate, so the cost is amortised over every future CI run.
+/// Likewise a cheap reviewer rubber-stamps, and a review that always approves is
+/// worse than no review.
+///
+/// `--model` / `--effort` (and `--review-model` / `--review-effort`) remain as
+/// overrides for anyone who wants to economise; the DEFAULT is the good model.
+/// The CLI's effort scale is low|medium|high|xhigh|max; `medium` is the chosen
+/// point.
+const MODEL: &str = "opus";
+/// See `MODEL`.
+const EFFORT: &str = "medium";
+/// The reviewer is a separate knob from the generator (one careful reader vs. a
+/// fleet), but it defaults to the same good model for the same reason.
+const REVIEW_MODEL: &str = MODEL;
+/// See `MODEL`.
+const REVIEW_EFFORT: &str = EFFORT;
+/// The substring `Runner::unsupported` puts in the error of every step that
+/// failed because the HEADLESS RUNNER cannot drive it (as opposed to the engine
+/// being wrong). This is what makes harness-vs-engine attribution mechanical
+/// instead of a matter of the reviewer's opinion.
+const HARNESS_MARKER: &str = "is not supported by the headless runner";
+/// Shorter than this and the "review" is a refusal, a truncation or a limit
+/// message — not something to append to a report as analysis.
+const MIN_REVIEW_CHARS: usize = 200;
 
 // ===========================================================================
 // Options
@@ -83,6 +160,15 @@ pub struct GenE2eOptions {
     pub filter: Option<String>,
     /// Delete artifacts whose source line no longer exists in the corpus.
     pub prune: bool,
+    /// `--review-batch N`: generate at most N tests, RUN exactly those N, then
+    /// have ONE agent review the batch and write `_review-<id>.md`. Implies
+    /// `--limit N`. See the `REVIEW LOOP` section at the top of this file.
+    pub review_batch: Option<usize>,
+    /// Model for the single review agent — a knob of its own (a fleet of writers
+    /// vs. one careful reader), with the same good default. See `MODEL`.
+    pub review_model: String,
+    /// Effort for the review agent.
+    pub review_effort: String,
 }
 
 impl GenE2eOptions {
@@ -92,13 +178,16 @@ impl GenE2eOptions {
             txt: PathBuf::new(),
             out_dir: PathBuf::new(),
             jobs: 6,
-            model: "haiku".to_string(),
-            effort: "low".to_string(),
+            model: MODEL.to_string(),
+            effort: EFFORT.to_string(),
             dry_run: false,
             redo: false,
             limit: None,
             filter: None,
             prune: false,
+            review_batch: None,
+            review_model: REVIEW_MODEL.to_string(),
+            review_effort: REVIEW_EFFORT.to_string(),
         };
 
         let mut i = 0;
@@ -114,6 +203,15 @@ impl GenE2eOptions {
                 "--dry-run" => opts.dry_run = true,
                 "--redo" => opts.redo = true,
                 "--prune" => opts.prune = true,
+                "--review-batch" => {
+                    opts.review_batch = Some(next(args, &mut i, "--review-batch")?.parse()?);
+                }
+                "--review-model" => {
+                    opts.review_model = next(args, &mut i, "--review-model")?.to_string();
+                }
+                "--review-effort" => {
+                    opts.review_effort = next(args, &mut i, "--review-effort")?.to_string();
+                }
                 other if other.starts_with("--") => bail!("gen-e2e: unknown flag '{other}'"),
                 other => positional.push(other),
             }
@@ -125,17 +223,36 @@ impl GenE2eOptions {
                 opts.txt = PathBuf::from(txt);
                 opts.out_dir = PathBuf::from(out);
             }
-            _ => bail!(
-                "usage: azul-doc gen-e2e <txt-file> <out-dir> [--jobs N] [--model M] [--effort \
-                 E] [--limit N] [--filter <tag>] [--dry-run] [--redo] [--prune]"
-            ),
+            _ => bail!("{USAGE}"),
         }
         if opts.jobs == 0 {
             bail!("gen-e2e: --jobs must be >= 1");
         }
+        // `--review-batch N` IS the batch size, i.e. it is `--limit N` plus the
+        // run+review tail. Accepting both would leave two knobs fighting over
+        // one number — and silently taking the smaller is exactly the kind of
+        // "helpful" behaviour that makes an operator mis-read the batch they
+        // just reviewed.
+        if let Some(n) = opts.review_batch {
+            if n == 0 {
+                bail!("gen-e2e: --review-batch must be >= 1");
+            }
+            if opts.limit.is_some() {
+                bail!(
+                    "gen-e2e: --review-batch N already limits the batch to N — pass one or the \
+                     other, not both"
+                );
+            }
+            opts.limit = Some(n);
+        }
         Ok(opts)
     }
 }
+
+/// One usage string, shared by the parse error and `main`'s help.
+pub const USAGE: &str = "usage: azul-doc gen-e2e <txt-file> <out-dir> [--jobs N] [--model M] \
+                         [--effort E] [--limit N] [--filter <tag>] [--dry-run] [--redo] \
+                         [--prune] [--review-batch N [--review-model M] [--review-effort E]]";
 
 fn next<'a>(args: &[&'a str], i: &mut usize, flag: &str) -> Result<&'a str> {
     *i += 1;
@@ -232,7 +349,7 @@ impl Schema {
 // ===========================================================================
 //
 // `DebugEvent` is the DEBUG / VISUAL-EDITOR protocol. It is NOT a test surface,
-// and handing all of it to a cheap generator produces self-defeating tests.
+// and handing all of it to a generator produces self-defeating tests.
 //
 // What these tests ARE: HEADLESS BEHAVIOUR tests over the cpurender path —
 //     MOCK INPUT EVENT -> engine -> CORRECT DAMAGE PATCH / correct behaviour.
@@ -241,7 +358,7 @@ impl Schema {
 // the OS boundary — every Callback API path — is in scope.
 //
 // The table below classifies EVERY op. It is the law: the prompt is rendered
-// from the ALLOWED half (a cheap model cannot use what it is not shown), and
+// from the ALLOWED half (a model cannot use what it is not shown), and
 // the validation gate rejects the DENIED half (the prompt is advisory, the gate
 // is law). An op that appears in `DebugEvent` but NOT in this table is
 // UNCLASSIFIED: it is reported loudly and treated as denied, so a newly added
@@ -318,7 +435,6 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_frame_report",          None),
     ("capture_damage_png",        None),
     ("take_screenshot",           None),
-    ("take_native_screenshot",    None),
 
     // -- ALLOW: OBSERVATION (state queries; they carry no geometry) ---------
     ("get_state",                 None),
@@ -373,6 +489,15 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),
     ("run_e2e_tests",              Some("the test runner itself — a test may not recurse into it")),
     ("get_logs",                   Some("debug-server tooling, asserts nothing about the engine")),
+    // Routes through `e2e::hooks::take_native_screenshot_base64`, whose default
+    // is `None` — and NOTHING in the workspace calls `set_host_hooks`, so the op
+    // returns "native screenshot unavailable (no e2e host hook installed)" in
+    // every runner we have. Verified by running it. Offering it would generate
+    // tests that are red on arrival for a reason that has nothing to do with the
+    // engine — the same false-signal class as a zombie op, in the other
+    // direction. `take_screenshot` (CPU render, no hook) stays allowed.
+    ("take_native_screenshot",     Some("needs an e2e host hook that nothing installs — always \
+                                         fails headlessly, so a test using it is red on arrival")),
     ("open_file",                  Some("editor/host file I/O, outside the headless engine")),
     ("close",                      Some("tears the window down — ends the timeline, tests nothing")),
 
@@ -653,7 +778,7 @@ fn eval_fn_params(src: &str, fn_name: &str) -> Vec<(String, bool)> {
 /// The schema section of the agent prompt — rendered from the parsed `full.rs`,
 /// FILTERED THROUGH `OP_POLICY` (only ALLOWED ops are ever shown) and through the
 /// ZOMBIE scan (an op with no match arm does nothing, so it is not offered
-/// either). A cheap model cannot use what it is not shown; the gate then enforces
+/// either). A model cannot use what it is not shown; the gate then enforces
 /// both rules for real (see `validate`).
 fn schema_doc(schema: &Schema) -> String {
     let mut s = String::new();
@@ -955,11 +1080,40 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                 bail!("step {i}: mount `html` must be an array of lines");
             }
         }
+        // A scenario's PNG `path` is the one model-authored string this process
+        // hands to `fs::write`. Confine it: inside `target/e2e/`, relative, no
+        // `..`, `.png`. Without this a generated scenario could name any path in
+        // the repo and the runner would overwrite it. NOTE this does not REQUIRE
+        // a capture step — it only constrains one that is there (see below).
+        if op == PNG_OP {
+            let path = s
+                .get("path")
+                .and_then(|p| p.as_str())
+                .with_context(|| format!("step {i}: `{PNG_OP}` needs a string `path`"))?;
+            if !path.starts_with(PNG_DIR)
+                || !path.ends_with(".png")
+                || path.contains("..")
+                || path.len() <= PNG_DIR.len() + 4
+            {
+                bail!(
+                    "step {i}: `{PNG_OP}` path {path:?} must be a `{PNG_DIR}<name>.png` path \
+                     inside the repo (relative, no `..`)"
+                );
+            }
+        }
     }
 
     if !asserted {
         bail!("the test contains no assert_* step");
     }
+    // DELIBERATELY NOT REQUIRED: a `capture_damage_png` step in every scenario.
+    // A PNG per test is an artifact tax on all 13k of them for an image almost
+    // nobody will open — and for the idle/no-input half of the corpus the
+    // capture is a blank patch by construction. Images are TRIAGE material for
+    // the review agent instead: when a scenario FAILS, the reviewer copies it
+    // into a scratch dir, adds capture steps THERE and looks at the result
+    // (`triage_doc`). The committed scenario stays byte-identical and no image
+    // is ever committed.
     Ok(())
 }
 
@@ -1411,10 +1565,28 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
             p.todo.len(),
             p.orphans.len()
         );
+        if opts.review_batch.is_some() {
+            println!(
+                "[dry-run] --review-batch: would then RUN those {} scenario(s) in-process and ask \
+                 ONE reviewer ({} / {}) for {}/_review-{}.md",
+                p.todo.len(),
+                opts.review_model,
+                opts.review_effort,
+                out_dir.display(),
+                batch_id(&p.todo),
+            );
+        }
         return Ok(());
     }
     if p.todo.is_empty() {
         println!("[gen-e2e] nothing left to do — every line already generated and valid.");
+        if opts.review_batch.is_some() {
+            println!(
+                "[gen-e2e] --review-batch reviews the batch it GENERATED, and this run generated \
+                 nothing — use --redo (or a corpus with outstanding lines) to get a batch to \
+                 review."
+            );
+        }
         return Ok(());
     }
     let work = p.todo;
@@ -1424,6 +1596,16 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
     let example = fs::read_to_string(project_root.join(EXAMPLE_JSON))
         .with_context(|| format!("gen-e2e: cannot read {EXAMPLE_JSON}"))?;
     let schema_txt = schema_doc(&schema);
+    let corpus_name = txt.display().to_string();
+    let g = Generator {
+        project_root,
+        opts,
+        schema: &schema,
+        schema_txt: &schema_txt,
+        example: &example,
+        corpus: &corpus_name,
+        out_dir: &out_dir,
+    };
 
     let done_out = Mutex::new(
         fs::OpenOptions::new()
@@ -1431,77 +1613,61 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
             .append(true)
             .open(&done_file)?,
     );
-    let ok = AtomicUsize::new(0);
-    let fail = AtomicUsize::new(0);
-
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(opts.jobs)
         .build()?;
-    pool.install(|| {
+    // `map` + `collect` (not `for_each` + counters): rayon keeps an indexed
+    // parallel iterator's ORDER, so the outcomes line up with `work` positionally
+    // and `--review-batch` can hand each corpus line its own artifact. `None` =
+    // generated and validated, `Some(e)` = rejected, artifact deleted.
+    let outcomes: Vec<Option<String>> = pool.install(|| {
         use rayon::prelude::*;
-        work.par_iter().for_each(|w| {
-            match generate_one(&schema, &schema_txt, &example, opts, w) {
-                Ok(()) => {
-                    ok.fetch_add(1, Ordering::Relaxed);
-                    // ONLY now is the line done: the artifact landed and validated.
-                    // The key is the CONTENT HASH, not the line number, so the
-                    // list survives the corpus being regenerated.
-                    if let Ok(mut f) = done_out.lock() {
-                        let _ = writeln!(
-                            f,
-                            "{}\t{:05}\t{}",
-                            w.hash,
-                            w.index,
-                            w.out.file_name().unwrap_or_default().to_string_lossy()
-                        );
+        work.par_iter()
+            .map(
+                |w| match generate_one(&g, w) {
+                    Ok(()) => {
+                        // ONLY now is the line done: the artifact landed and
+                        // validated. The key is the CONTENT HASH, not the line
+                        // number, so the list survives a corpus regeneration.
+                        if let Ok(mut f) = done_out.lock() {
+                            let _ = writeln!(
+                                f,
+                                "{}\t{:05}\t{}",
+                                w.hash,
+                                w.index,
+                                w.out.file_name().unwrap_or_default().to_string_lossy()
+                            );
+                        }
+                        println!("[ok]   {:05} {}", w.index, w.out.display());
+                        None
                     }
-                    println!("[ok]   {:05} {}", w.index, w.out.display());
-                }
-                Err(e) => {
-                    fail.fetch_add(1, Ordering::Relaxed);
-                    let _ = fs::remove_file(&w.out); // never leave an invalid artifact
-                    println!("[fail] {:05} [{}] — {e:#}  (not marked done)", w.index, w.tag);
-                }
-            }
-        });
+                    Err(e) => {
+                        let _ = fs::remove_file(&w.out); // never leave an invalid artifact
+                        println!("[fail] {:05} [{}] — {e:#}  (not marked done)", w.index, w.tag);
+                        Some(format!("{e:#}"))
+                    }
+                },
+            )
+            .collect()
     });
 
-    let (ok, fail) = (ok.load(Ordering::Relaxed), fail.load(Ordering::Relaxed));
+    let fail = outcomes.iter().filter(|o| o.is_some()).count();
+    let ok = outcomes.len() - fail;
     println!("\n[gen-e2e] {ok} generated, {fail} failed -> {}", out_dir.display());
     if fail > 0 {
         println!("[gen-e2e] re-run the same command to retry the failures (resume is automatic).");
     }
+
+    // --- the review checkpoint -------------------------------------------
+    if opts.review_batch.is_some() {
+        return review_batch(&g, &work, &outcomes);
+    }
     Ok(())
 }
 
-fn generate_one(
-    schema: &Schema,
-    schema_txt: &str,
-    example: &str,
-    opts: &GenE2eOptions,
-    w: &Work,
-) -> Result<()> {
-    let prompt = build_prompt(schema_txt, example, &w.line);
-
-    let out = Command::new("claude")
-        .arg("-p")
-        .arg(&prompt)
-        .arg("--model")
-        .arg(&opts.model)
-        .arg("--effort")
-        .arg(&opts.effort)
-        .arg("--permission-mode")
-        .arg("bypassPermissions")
-        .arg("--output-format")
-        .arg("text")
-        .stdin(Stdio::null())
-        .output()
-        .context("failed to spawn `claude`")?;
-
-    if !out.status.success() {
-        bail!("claude exited with {}", out.status);
-    }
-    let raw = String::from_utf8_lossy(&out.stdout);
+fn generate_one(g: &Generator<'_>, w: &Work) -> Result<()> {
+    let prompt = build_prompt(g.schema_txt, g.example, &w.line);
+    let raw = claude(&prompt, &g.opts.model, &g.opts.effort)?;
 
     // LESSON 1: a rate-limited agent exits 0 and answers in PLAIN TEXT. It must
     // never be written out as a test.
@@ -1516,7 +1682,7 @@ fn generate_one(
         }
     };
 
-    validate(schema, json)?;
+    validate(g.schema, json)?;
 
     // Write the agent's JSON VERBATIM (only `_source_hash`/`_source` spliced in
     // front): serde_json's Map is a BTreeMap here, so a re-emit would sort the
@@ -1524,9 +1690,810 @@ fn generate_one(
     // array-of-lines format exists for. The stamp is what makes the out-dir a
     // self-contained resume record — the done-list is only a cache.
     let stamped = stamp(json, w);
-    debug_assert!(validate(schema, &stamped).is_ok());
+    debug_assert!(validate(g.schema, &stamped).is_ok());
     fs::write(&w.out, stamped).with_context(|| format!("cannot write {}", w.out.display()))?;
     Ok(())
+}
+
+// ===========================================================================
+// THE REVIEW LOOP  (`--review-batch N`)
+// ===========================================================================
+//
+// generate N -> run exactly those N -> ONE review agent -> report -> STOP.
+//
+// Everything below is PURE except `review_batch` itself (which runs the
+// scenarios and spawns the agent), so the report can be unit-tested without a
+// single token being spent.
+
+/// One corpus line, the artifact generated for it, and what happened when it ran.
+#[derive(Debug, Clone)]
+pub struct ReviewEntry {
+    /// The corpus line the test was generated FROM — the thing the JSON is
+    /// supposed to express. Without it a reviewer can only judge the JSON
+    /// against itself.
+    pub line: String,
+    /// Where the artifact is (or would have been).
+    pub path: PathBuf,
+    /// The generated JSON, verbatim. `None` when generation itself failed.
+    pub json: Option<String>,
+    /// Why generation failed (gate rejection, rate limit, unreadable artifact).
+    pub gen_error: Option<String>,
+    /// The run outcome — `None` only when there was nothing to run.
+    pub run: Option<E2eTestResult>,
+}
+
+impl ReviewEntry {
+    /// Damage-PNG paths this scenario writes. Empty = no visual artifact.
+    fn png_paths(&self) -> Vec<String> {
+        let Some(json) = self.json.as_deref() else {
+            return Vec::new();
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
+            return Vec::new();
+        };
+        v.get("steps")
+            .and_then(|s| s.as_array())
+            .map(|steps| {
+                steps
+                    .iter()
+                    .filter(|s| s.get("op").and_then(|o| o.as_str()) == Some(PNG_OP))
+                    .filter_map(|s| s.get("path").and_then(|p| p.as_str()))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Steps that failed, as `(index, op, error)`.
+    fn failed_steps(&self) -> Vec<(usize, &str, &str)> {
+        self.run.as_ref().map_or_else(Vec::new, |r| {
+            r.steps
+                .iter()
+                .filter(|s| s.status == "fail")
+                .map(|s| {
+                    (
+                        s.step_index,
+                        s.op.as_str(),
+                        s.error.as_deref().unwrap_or("(no error text)"),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    /// Did this scenario fail because the RUNNER cannot drive it?
+    ///
+    /// Mechanical, not editorial: `Runner::unsupported` stamps every such error
+    /// with `HARNESS_MARKER`, so the attribution the review report makes for
+    /// these is a fact. Anything else that failed is left UNATTRIBUTED for the
+    /// agent to argue about — silently calling those "engine bugs" would be the
+    /// same false confidence this whole corpus exists to avoid.
+    fn harness_gaps(&self) -> Vec<&str> {
+        self.failed_steps()
+            .into_iter()
+            .filter(|(_, _, e)| e.contains(HARNESS_MARKER))
+            .map(|(_, _, e)| e)
+            .collect()
+    }
+
+    /// `generated` / `gate-rejected`, and `pass` / `fail` / `not run`.
+    fn status(&self) -> (&'static str, &'static str) {
+        let gen = if self.json.is_some() { "ok" } else { "REJECTED" };
+        let run = match self.run.as_ref().map(|r| r.status.as_str()) {
+            Some("pass") => "pass",
+            Some(_) => "FAIL",
+            None => "not run",
+        };
+        (gen, run)
+    }
+}
+
+/// One batch: what was generated, what it did, and how to name the report.
+#[derive(Debug, Clone)]
+pub struct ReviewBatch {
+    /// Stable id derived from the batch's content (see `batch_id`).
+    pub id: String,
+    /// Corpus the lines came from, for the report header.
+    pub corpus: String,
+    /// Where the artifacts and the report live.
+    pub out_dir: PathBuf,
+    pub entries: Vec<ReviewEntry>,
+    /// The cargo-test-style verdict block EXACTLY as
+    /// `azul_layout::e2e::render_report` rendered it (ANSI and all — the markdown
+    /// renderer strips it). Not re-derived here: the report must agree with
+    /// `azul-doc e2e` down to the wording.
+    pub verdict_block: String,
+}
+
+/// Content address of a batch: which lines it covered. Deterministic, so
+/// reviewing the same batch twice replaces its report instead of littering the
+/// out-dir with near-duplicates.
+#[must_use]
+pub fn batch_id(work: &[Work]) -> String {
+    let joined = work.iter().map(|w| w.hash.as_str()).collect::<Vec<_>>().join(",");
+    format!(
+        "{:05}-n{}-{}",
+        work.first().map_or(0, |w| w.index),
+        work.len(),
+        &line_hash(&joined)[..8]
+    )
+}
+
+/// Drop ANSI SGR escapes so `render_report`'s output can be embedded in
+/// markdown. (Only `ESC [ … m` is ever emitted.)
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        // ESC [ <params> m
+        for c in chars.by_ref() {
+            if c.is_ascii_alphabetic() {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// A markdown table cell: no pipes, no newlines, bounded length.
+fn cell(s: &str, max: usize) -> String {
+    let flat: String = s
+        .chars()
+        .map(|c| if c == '|' { '/' } else if c.is_control() { ' ' } else { c })
+        .collect();
+    if flat.chars().count() <= max {
+        return flat;
+    }
+    flat.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
+}
+
+/// THE MACHINE-CHECKED HALF OF THE REPORT. PURE.
+///
+/// Everything here is a fact the agent cannot talk its way out of: what ran,
+/// what failed, which failures the runner itself confessed to, and which
+/// scenarios produced no PNG. It is written even when the agent's half is
+/// missing, so a rate-limited review still leaves something usable behind.
+#[must_use]
+pub fn render_facts(b: &ReviewBatch) -> String {
+    let n = b.entries.len();
+    let generated = b.entries.iter().filter(|e| e.json.is_some()).count();
+    let passed = b
+        .entries
+        .iter()
+        .filter(|e| e.run.as_ref().is_some_and(|r| r.status == "pass"))
+        .count();
+    let failed = b
+        .entries
+        .iter()
+        .filter(|e| e.run.as_ref().is_some_and(|r| r.status != "pass"))
+        .count();
+    let with_png = b.entries.iter().filter(|e| !e.png_paths().is_empty()).count();
+
+    let mut s = String::new();
+    s.push_str(&format!("# gen-e2e batch review — `{}`\n\n", b.id));
+    s.push_str(
+        "Written by `azul-doc gen-e2e --review-batch N`. The **FACTS** section is machine-generated \
+         from the actual run and cannot be argued with. The **REVIEW** section is one agent's \
+         reading of it, and is advisory: nothing in it is applied automatically.\n\n",
+    );
+    s.push_str(&format!(
+        "- corpus: `{}`\n- out-dir: `{}`\n- batch: **{n}** line(s) — {generated} generated, {} \
+         rejected by the gate\n- run: **{passed} passed, {failed} failed**\n- scenarios that \
+         capture an image: {with_png}/{generated} (NOT required — images are triage material, \
+         see below)\n\n",
+        b.corpus,
+        b.out_dir.display(),
+        n - generated,
+    ));
+
+    s.push_str("## FACTS\n\n### Batch\n\n");
+    s.push_str("| # | corpus line | artifact | gen | run | asserts | PNG |\n");
+    s.push_str("|---|---|---|---|---|---|---|\n");
+    for (i, e) in b.entries.iter().enumerate() {
+        let (gen, run) = e.status();
+        let asserts = e.json.as_deref().map_or(0, count_assertions);
+        let png = if e.png_paths().is_empty() { "**none**" } else { "yes" };
+        s.push_str(&format!(
+            "| {} | {} | `{}` | {gen} | {run} | {asserts} | {png} |\n",
+            i + 1,
+            cell(&e.line, 90),
+            cell(
+                &e.path
+                    .file_name()
+                    .map_or_else(String::new, |f| f.to_string_lossy().into_owned()),
+                60
+            ),
+        ));
+    }
+
+    // The runner's own words, not a re-derivation — but as markdown, so the
+    // colour escapes come out here (rendering, not the caller's business).
+    s.push_str("\n### Run verdict (verbatim from `azul_layout::e2e::render_report`)\n\n```\n");
+    s.push_str(strip_ansi(&b.verdict_block).trim_start_matches('\n'));
+    s.push_str("```\n");
+
+    // ---- failures, attributed -------------------------------------------
+    let failures: Vec<&ReviewEntry> = b
+        .entries
+        .iter()
+        .filter(|e| e.run.as_ref().is_some_and(|r| r.status != "pass"))
+        .collect();
+    s.push_str("\n### Failures, attributed\n\n");
+    if failures.is_empty() {
+        s.push_str("None. (A batch with zero failures is not automatically a good batch — see the \
+                    review below: a test can pass because it asserts nothing.)\n");
+    } else {
+        for e in failures {
+            let gaps = e.harness_gaps();
+            let verdict = if gaps.is_empty() {
+                "**UNATTRIBUTED** — engine bug or bad test? the review must decide"
+            } else {
+                "**HARNESS** — the headless runner cannot drive this (port task, NOT an engine bug)"
+            };
+            s.push_str(&format!("- `{}`\n  - {verdict}\n", cell(&e.line, 120)));
+            for (idx, op, err) in e.failed_steps() {
+                s.push_str(&format!("  - step {idx} `{op}`: {}\n", cell(err, 400)));
+            }
+        }
+    }
+
+    // ---- images ----------------------------------------------------------
+    // Deliberately NOT a coverage gate. A PNG per test is 13k images nobody
+    // opens, and for the idle half of the corpus the capture is blank by
+    // construction. Images are what the REVIEWER uses to investigate a failure.
+    s.push_str(&format!(
+        "\n### Images\n\nNo scenario is required to capture one. Triage images the reviewer wrote \
+         live under `{TRIAGE_DIR}` — inside `target/`, which `.gitignore` already excludes, so \
+         they are never committed. Look there, not in git.\n\n"
+    ));
+    for e in b.entries.iter().filter(|e| !e.png_paths().is_empty()) {
+        s.push_str(&format!(
+            "- captures its own image(s) `{}`: `{}`\n",
+            e.png_paths().join("`, `"),
+            cell(&e.line, 100)
+        ));
+    }
+    let mut pngs: Vec<String> = b.entries.iter().flat_map(ReviewEntry::png_paths).collect();
+    pngs.sort();
+    let dupes: Vec<&String> = pngs.windows(2).filter(|w| w[0] == w[1]).map(|w| &w[0]).collect();
+    if !dupes.is_empty() {
+        s.push_str("\n**PNG PATH COLLISION** — scenarios run in parallel, so these race and the \
+                    surviving file is whichever finished last:\n");
+        for d in dupes {
+            s.push_str(&format!("- `{d}`\n"));
+        }
+    }
+
+    // ---- gate rejections -------------------------------------------------
+    let rejected: Vec<&ReviewEntry> = b.entries.iter().filter(|e| e.json.is_none()).collect();
+    if !rejected.is_empty() {
+        s.push_str("\n### Rejected before it ever ran (generation gate)\n\n");
+        for e in rejected {
+            s.push_str(&format!(
+                "- `{}`\n  - {}\n",
+                cell(&e.line, 120),
+                cell(e.gen_error.as_deref().unwrap_or("unknown"), 400)
+            ));
+        }
+    }
+
+    // ---- duplicate names -------------------------------------------------
+    let mut names: BTreeMap<&str, usize> = BTreeMap::new();
+    for e in &b.entries {
+        if let Some(r) = e.run.as_ref() {
+            *names.entry(r.name.as_str()).or_default() += 1;
+        }
+    }
+    let clashes: Vec<&&str> = names.iter().filter(|(_, c)| **c > 1).map(|(n, _)| n).collect();
+    if !clashes.is_empty() {
+        s.push_str(
+            "\n### Duplicate scenario names\n\nThe verdict report pairs results with fixtures BY \
+             NAME, so duplicates make the run un-attributable:\n",
+        );
+        for n in clashes {
+            s.push_str(&format!("- `{n}`\n"));
+        }
+    }
+
+    s
+}
+
+/// Number of `assert_*` steps in a scenario — a crude but honest proxy for "does
+/// this test check anything at all", shown per row so a 1-assertion test stands
+/// out next to its corpus line.
+fn count_assertions(json: &str) -> usize {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| {
+            Some(
+                v.get("steps")?
+                    .as_array()?
+                    .iter()
+                    .filter(|s| {
+                        s.get("op")
+                            .and_then(|o| o.as_str())
+                            .is_some_and(|o| o.starts_with("assert_"))
+                    })
+                    .count(),
+            )
+        })
+        .unwrap_or(0)
+}
+
+/// The DENIED half of `OP_POLICY`, rendered for the reviewer. The generator only
+/// ever sees the ALLOWED half; the reviewer needs both, because "the model
+/// worked around a denied op" is one of the findings we are paying for.
+fn policy_doc(schema: &Schema) -> String {
+    let mut s = String::from("### OPS THE GENERATOR MAY NOT USE (`gene2e.rs::OP_POLICY`)\n");
+    for (op, why) in OP_POLICY.iter().filter(|(_, w)| w.is_some()) {
+        s.push_str(&format!("- {op}: {}\n", why.unwrap_or("")));
+    }
+    let zombies = schema.zombies();
+    s.push_str(&format!(
+        "\n### DECLARED BUT UNIMPLEMENTED (`{}` zombie op(s): a match arm is missing, so the \
+         dispatch answers `ok` without doing anything — hidden from the generator and rejected \
+         by the gate)\n",
+        zombies.len()
+    ));
+    for z in &zombies {
+        s.push_str(&format!("- {z}\n"));
+    }
+    let unclassified = schema.unclassified();
+    if !unclassified.is_empty() {
+        s.push_str("\n### UNCLASSIFIED (in DebugEvent, no OP_POLICY row — denied until classified)\n");
+        for u in &unclassified {
+            s.push_str(&format!("- {u}\n"));
+        }
+    }
+    s
+}
+
+/// How the reviewer LOOKS AT a failing scenario instead of guessing about it.
+///
+/// The op signature is rendered FROM THE PARSED SCHEMA, never from memory: if
+/// `CaptureDamagePng` gains or loses a field, this instruction follows without
+/// an edit here. Everything the agent writes goes to `TRIAGE_DIR` — inside
+/// `target/`, which `.gitignore` already excludes — and the committed scenario
+/// is never touched, so triage cannot leak into the corpus or into git.
+fn triage_doc(schema: &Schema) -> String {
+    let Some(op) = schema.known_op(PNG_OP) else {
+        return format!(
+            "(this engine has no `{PNG_OP}` op, so there is no way to capture an image — attribute \
+             failures from the error text alone.)\n"
+        );
+    };
+    let params = op
+        .params
+        .iter()
+        .map(|(n, req)| if *req { n.clone() } else { format!("{n}?") })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "You have TOOLS (bash, read, write) and your working directory is the REPO ROOT. For any \
+         scenario you cannot attribute from its error text alone — and for any failure you are \
+         about to call an ENGINE bug — LOOK AT WHAT RENDERED instead of guessing:\n\
+         \n\
+         1. COPY the scenario JSON to `{TRIAGE_DIR}<name>.json`. NEVER edit the artifact in the \
+         out-dir: it is the committed test, it must stay byte-identical, and triage steps that \
+         leak into it would be committed noise.\n\
+         2. In the COPY, insert `{PNG_OP}` steps ({params}) at the interesting points — right \
+         after the mount settles, and again after the interaction — writing to \
+         `{TRIAGE_DIR}<name>-<step>.png`. It writes the frame MASKED TO THE DAMAGE REGION \
+         (transparent elsewhere), which is exactly the picture that settles \"did the engine \
+         repaint the right area?\". `which` selects `paint` (default) or `present` damage; `crop` \
+         trims to the damage bounding box. A 1x1 transparent PNG means THERE WAS NO DAMAGE — that \
+         is a finding, not a broken capture.\n\
+         3. Run the copy: `./target/release/azul-doc e2e {TRIAGE_DIR}<name>.json`, then open the \
+         PNGs you wrote and say what you see.\n\
+         4. Do NOT use `take_native_screenshot` (no host hook is installed anywhere — it fails in \
+         every runner we have) and do not bother with `take_screenshot` (it answers with base64 in \
+         the step response, it writes no file you can open).\n\
+         5. Images are YOUR WORKING MATERIAL, not an artifact. `{TRIAGE_DIR}` is under `target/`, \
+         which `.gitignore` excludes — leave them there, never copy one into the repo, never \
+         `git add` anything.\n"
+    )
+}
+
+/// The review agent's prompt. PURE, so it is unit-testable.
+///
+/// `current_prompt` must be the ACTUAL output of `build_prompt` — the reviewer's
+/// most valuable job is proposing a fix to a specific paragraph of it, and it
+/// cannot do that from a paraphrase.
+#[must_use]
+pub fn build_review_prompt(
+    b: &ReviewBatch,
+    current_prompt: &str,
+    policy: &str,
+    triage: &str,
+) -> String {
+    let mut scenarios = String::new();
+    for (i, e) in b.entries.iter().enumerate() {
+        scenarios.push_str(&format!(
+            "\n----- SCENARIO {} of {} -----\nCORPUS LINE: {}\nARTIFACT: {}\n",
+            i + 1,
+            b.entries.len(),
+            e.line,
+            e.path.display()
+        ));
+        match e.json.as_deref() {
+            Some(j) => scenarios.push_str(&format!("GENERATED JSON:\n{j}\n")),
+            None => scenarios.push_str(&format!(
+                "NOT GENERATED — rejected by the mechanical gate: {}\n",
+                e.gen_error.as_deref().unwrap_or("unknown")
+            )),
+        }
+        match e.run.as_ref() {
+            Some(r) => {
+                scenarios.push_str(&format!(
+                    "RUN RESULT: {} ({}/{} steps passed, {} ms)\n",
+                    r.status, r.steps_passed, r.step_count, r.duration_ms
+                ));
+                for (idx, op, err) in e.failed_steps() {
+                    scenarios.push_str(&format!("  FAILING STEP {idx} `{op}`: {err}\n"));
+                }
+            }
+            None => scenarios.push_str("RUN RESULT: not run\n"),
+        }
+    }
+
+    format!(
+        r#"You are reviewing ONE BATCH of machine-generated azul e2e tests, as the checkpoint in a
+deliberately slow loop: generate N tests -> run them -> you review -> a HUMAN edits the
+generator prompt -> rebuild -> generate the next N. The point of the loop is to catch a bad
+prompt after 10 wasted tests instead of after 13,000.
+
+Print MARKDOWN only. Your output is appended verbatim under a machine-generated facts section.
+Start with a single line `VERDICT: ACCEPT` or `VERDICT: REJECT` — REJECT if these tests should
+NOT be trusted as a template for the next few thousand. A review that always accepts is worse
+than no review; if the batch is weak, say so on line 1 and say exactly why.
+
+## WHAT THESE TESTS ARE FOR
+Headless BEHAVIOUR tests: mock input / a callback-style DOM mutation goes in, and the test
+asserts what the ENGINE DECIDED to do — damage, repaint liveness and soundness, settling to
+idle, bounded work, resource counts, focus/scroll/selection state. Layout and geometry are
+explicitly NOT their job (`azul-doc reftest` owns that). A test is a SPECIFICATION of correct
+behaviour: a test that FAILS because the engine is buggy is a SUCCESS for this corpus. A test
+that passes because it was softened until it could not fail is worse than no test at all.
+
+## WHAT THE GENERATOR WAS TOLD (verbatim `build_prompt` output, one representative line)
+<<<GENERATOR_PROMPT
+{current_prompt}
+GENERATOR_PROMPT
+
+## POLICY THE REVIEWER NEEDS (the generator was shown only the ALLOWED ops)
+{policy}
+
+## HOW TO INVESTIGATE A FAILURE — LOOK, DO NOT GUESS
+{triage}
+
+## THE BATCH — machine-checked facts (this is also the head of the report you are appending to)
+{facts}
+
+## THE BATCH — full scenarios
+{scenarios}
+
+## WRITE EXACTLY THESE SECTIONS
+
+### 1. Per-test verdict
+One bullet per scenario: `<corpus line>` -> FAITHFUL / DRIFTED / VACUOUS / SOFTENED, one
+sentence of justification. Judge the JSON against ITS CORPUS LINE, not against itself. Flag
+specifically: a test that quietly tests something ELSE than the line asks for; an assertion
+that cannot fail (a bound so wide nothing violates it, `le` where the line implies `eq`, an
+`assert_exists` on a node that was never touched); a test whose only assertion is that
+mounting worked; and a green test that is green for the wrong reason.
+
+### 2. Missing ops — THE HIGHEST-VALUE SECTION
+Where did the model need something the op set does not offer? Look for: a scenario that
+expresses its line only approximately; a workaround (driving via `mount` twice because there
+is no op for the real interaction, faking a gesture with raw mouse ops, asserting a proxy
+property); a line whose intent needs a DENIED op (say so, and say whether the denial is right);
+an op that exists but is a zombie. Output a table: `intent | what was written instead | op
+needed | exists? (no / denied / zombie)`. This drives what gets ported next, so be concrete —
+name the op you would add and the params it needs. If nothing is missing, say so plainly.
+
+### 3. Harness vs engine, for EVERY failure
+For each failing scenario decide: ENGINE (the engine really is wrong — keep the test, it is a
+find), HARNESS (the headless runner cannot drive it — a port task, the test may be fine) or BAD
+TEST (it asserts something the line never claimed). The facts section already marks the
+mechanical ones: any error containing "{HARNESS_MARKER}" is a runner gap
+by construction, and names the `CallbackChange` arm to port from
+`dll/src/desktop/shell2/common/event.rs::apply_user_change`. For everything else, USE THE TRIAGE
+PROCEDURE ABOVE — copy the scenario, add `{PNG_OP}` steps, run it, and look at the image — before
+you commit to an answer, and say what the image showed. Do not label a failure ENGINE just
+because it is not marked HARNESS; "I could not tell, and here is the experiment that would" is
+an acceptable and useful answer.
+
+### 4. Prompt defects + a concrete proposed replacement
+This is what the human acts on. For each defect: quote the EXACT paragraph of the generator
+prompt above that caused it, then give a drop-in replacement as a fenced block, then one line
+on which scenario in this batch proves the defect. Nothing you write is applied automatically —
+a human pastes it into `build_prompt` in `doc/src/gene2e.rs` and rebuilds — so the replacement
+must be complete, self-contained prose, not an instruction like "mention X". If the prompt is
+fine, say "no prompt change" rather than inventing one.
+
+### 5. Visual triage
+What you captured, where you put it (paths under `{TRIAGE_DIR}`, which is gitignored and stays
+uncommitted), and what each image actually showed — including the ones that told you nothing.
+If you triaged nothing because nothing failed, say exactly that; do NOT capture images for
+passing scenarios just to fill the section, and do NOT propose adding capture steps to the
+committed tests — a PNG per test is 13k images nobody opens.
+
+### 6. Verdict rationale
+Two or three sentences: would you let this prompt run against thousands of lines? What is the
+single highest-leverage change?
+"#,
+        facts = render_facts(b),
+    )
+}
+
+/// Did the reviewer ACCEPT (`Some(false)`), REJECT (`Some(true)`), or ignore the
+/// format it was given (`None`)?
+///
+/// Read out of the HEAD of the reply only, and tolerant of a stray preamble or
+/// markdown emphasis around the line — but never of a verdict buried on page
+/// three, which would let an unrelated quotation flip the gate.
+#[must_use]
+pub fn verdict_of(review: &str) -> Option<bool> {
+    let head: String = review.chars().take(400).collect();
+    if head.contains("VERDICT: REJECT") {
+        Some(true)
+    } else if head.contains("VERDICT: ACCEPT") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Is this reply a REVIEW, or the plain-text limit/refusal message a `claude -p`
+/// answers with while still exiting 0 (LESSON 1)?
+///
+/// The rate-limit scan runs on the HEAD ONLY, and is skipped entirely once the
+/// reply opens with the verdict it was asked for. A review is prose about tests
+/// being weak: "insufficient", "try again" and "overloaded" are all things a
+/// GENUINE review says, and scanning the whole document for them would throw
+/// away exactly the reports worth reading.
+#[must_use]
+pub fn is_usable_review(reply: &str) -> bool {
+    if reply.trim().len() <= MIN_REVIEW_CHARS {
+        return false;
+    }
+    let head: String = reply.chars().take(400).collect();
+    verdict_of(reply).is_some() || !looks_rate_limited(&head)
+}
+
+/// Facts + the agent's markdown, or facts + a loud placeholder.
+#[must_use]
+pub fn assemble_report(facts: &str, agent: Option<&str>) -> String {
+    let mut s = String::from(facts);
+    s.push_str("\n---\n\n## REVIEW (agent)\n\n");
+    match agent {
+        Some(a) => s.push_str(a.trim()),
+        None => s.push_str(
+            "**THE REVIEW AGENT PRODUCED NOTHING USABLE** (rate-limited, refused, or empty). The \
+             facts above are complete and were not affected. Re-run the same command to retry the \
+             review — generation is incremental, so the batch above will not be regenerated.",
+        ),
+    }
+    s.push('\n');
+    s
+}
+
+/// Everything the generation pass and the review pass both need, resolved once.
+struct Generator<'a> {
+    project_root: &'a Path,
+    opts: &'a GenE2eOptions,
+    schema: &'a Schema,
+    /// The rendered, policy-filtered schema section of the agent prompt.
+    schema_txt: &'a str,
+    /// The worked example handed to every agent.
+    example: &'a str,
+    /// Corpus path, for the report header.
+    corpus: &'a str,
+    out_dir: &'a Path,
+}
+
+/// Run the batch that was just generated, have ONE agent review it, write the
+/// report, and STOP.
+fn review_batch(g: &Generator<'_>, work: &[Work], outcomes: &[Option<String>]) -> Result<()> {
+    let opts = g.opts;
+    // Scenario paths (`capture_damage_png`) are REPO-ROOT-relative, exactly as
+    // when CI runs `azul-doc e2e` from the root — but `main()` chdir'd into
+    // `doc/`, so running from here would scatter PNGs into `doc/target/`.
+    // Absolutise everything we still need first, then move.
+    let out_dir = fs::canonicalize(g.out_dir).unwrap_or_else(|_| g.out_dir.to_path_buf());
+    let mut entries: Vec<ReviewEntry> = Vec::with_capacity(work.len());
+    for (w, outcome) in work.iter().zip(outcomes) {
+        let path = fs::canonicalize(&w.out).unwrap_or_else(|_| w.out.clone());
+        let json = match outcome {
+            Some(_) => None,
+            None => fs::read_to_string(&path).ok(),
+        };
+        entries.push(ReviewEntry {
+            line: w.line.clone(),
+            path,
+            gen_error: outcome
+                .clone()
+                .or_else(|| json.is_none().then(|| "artifact unreadable".to_string())),
+            json,
+            run: None,
+        });
+    }
+    std::env::set_current_dir(g.project_root)
+        .with_context(|| format!("cannot enter project root {}", g.project_root.display()))?;
+
+    // --- run exactly this batch, through the SAME runner `azul-doc e2e` uses ---
+    let mut tests: Vec<E2eTest> = Vec::new();
+    let mut owner: Vec<usize> = Vec::new(); // tests[i] came from entries[owner[i]]
+    for (i, e) in entries.iter_mut().enumerate() {
+        if e.json.is_none() {
+            continue;
+        }
+        match load_e2e_tests(&e.path) {
+            Ok(loaded) => {
+                for t in loaded {
+                    tests.push(t);
+                    owner.push(i);
+                }
+            }
+            Err(err) => e.gen_error = Some(err),
+        }
+    }
+
+    let verdict_block = if tests.is_empty() {
+        println!("[review] nothing runnable in this batch — every line was rejected by the gate.");
+        "(nothing ran: every line in this batch was rejected by the generation gate)\n".to_string()
+    } else {
+        println!("[review] running {} generated scenario(s) …", tests.len());
+        let results = crate::e2erun::run_tests(&tests, Some(opts.jobs))?;
+        // `run_tests` sorts by name; pair back to the corpus line by name, and
+        // report the collision rather than guessing when names repeat.
+        for r in &results {
+            if let Some(i) = tests
+                .iter()
+                .position(|t| t.name == r.name)
+                .and_then(|ti| owner.get(ti).copied())
+            {
+                if entries[i].run.is_none() {
+                    entries[i].run = Some(r.clone());
+                }
+            }
+        }
+        let (report, v) = render_report(&tests, &results);
+        eprint!("{report}");
+        println!(
+            "[review] {} passed, {} failed, {} xfail, {} xpass",
+            v.passed, v.failed, v.xfail, v.xpass
+        );
+        report
+    };
+
+    let batch = ReviewBatch {
+        id: batch_id(work),
+        corpus: g.corpus.to_string(),
+        out_dir: out_dir.clone(),
+        entries,
+        verdict_block,
+    };
+    let facts = render_facts(&batch);
+
+    // --- ONE review agent -------------------------------------------------
+    // The generator prompt VERBATIM, for a representative line of this batch:
+    // the reviewer's job includes proposing a fix to a specific paragraph of it,
+    // which it cannot do from a paraphrase.
+    let representative = work.first().map_or("", |w| w.line.as_str());
+    let current_prompt = build_prompt(g.schema_txt, g.example, representative);
+    // The reviewer writes scenario COPIES and their captures here. Created up
+    // front so an agent that only has `write` never has to reason about mkdir.
+    if let Err(e) = fs::create_dir_all(TRIAGE_DIR) {
+        eprintln!("!! [review] cannot create the triage dir {TRIAGE_DIR}: {e}");
+    }
+    let prompt = build_review_prompt(
+        &batch,
+        &current_prompt,
+        &policy_doc(g.schema),
+        &triage_doc(g.schema),
+    );
+
+    println!(
+        "[review] asking ONE reviewer ({} / {}) about {} scenario(s) — {} KB of prompt",
+        opts.review_model,
+        opts.review_effort,
+        batch.entries.len(),
+        prompt.len() / 1024,
+    );
+    // LESSON 1 applies to the reviewer too: a rate-limited `claude -p` exits 0
+    // and answers with the limit message as plain text. A report whose analysis
+    // section is "You've reached your usage limit" must not read as a review.
+    let agent = match claude(&prompt, &opts.review_model, &opts.review_effort) {
+        Ok(a) if is_usable_review(&a) => Some(a),
+        Ok(a) => {
+            eprintln!(
+                "!! [review] the reviewer's reply is not a review ({} chars, rate-limited or \
+                 refused): {:?}",
+                a.trim().len(),
+                a.chars().take(120).collect::<String>().trim()
+            );
+            None
+        }
+        Err(e) => {
+            eprintln!("!! [review] the review agent failed: {e:#}");
+            None
+        }
+    };
+
+    let report_path = out_dir.join(format!("_review-{}.md", batch.id));
+    fs::write(&report_path, assemble_report(&facts, agent.as_deref()))
+        .with_context(|| format!("cannot write {}", report_path.display()))?;
+
+    let rejected = agent.as_deref().and_then(verdict_of).unwrap_or(false);
+    if agent.as_deref().is_some_and(|a| verdict_of(a).is_none()) {
+        eprintln!(
+            "!! [review] the reviewer did not open with `VERDICT: ACCEPT|REJECT` — the report is \
+             written, but READ IT before assuming this batch is good."
+        );
+    }
+
+    let bar = "=".repeat(78);
+    println!(
+        "\n{bar}\n  STOP — DELIBERATE REVIEW GATE. Nothing more will be generated.\n{bar}\n\
+         \n  This loop walks the corpus SLOWLY on purpose: a small batch, actually run, actually \
+         reviewed, prompt improved, rebuilt — instead of mass-generating thousands of files and \
+         sifting the wreckage afterwards.\n\
+         \n  1. READ    {report}\n\
+         \x20 2. EDIT    `build_prompt` in doc/src/gene2e.rs — apply the proposals YOU agree with.\n\
+         \x20            The review never edits it: the prompt lives in Rust source so that every \
+         change to it is reviewed, committed and blameable.\n\
+         \x20 3. REBUILD cargo build --release -p azul-doc --bin azul-doc\n\
+         \x20 4. REPEAT  re-run this exact command for the next batch — generation is incremental, \
+         so the batch above is done and will not be regenerated.\n\
+         \n  Triage images (uncommitted, gitignored): {TRIAGE_DIR}\n{bar}",
+        report = report_path.display(),
+    );
+
+    if agent.is_none() {
+        bail!(
+            "gen-e2e: the batch ran but the REVIEW agent produced nothing usable — the facts \
+             section of {} is complete, the analysis is missing. Re-run to retry just the review.",
+            report_path.display()
+        );
+    }
+    if rejected {
+        bail!(
+            "gen-e2e: the reviewer REJECTED this batch — do not generate more until the prompt is \
+             fixed. See {}",
+            report_path.display()
+        );
+    }
+    Ok(())
+}
+
+/// The one place `claude -p` is spawned. Both the generator fleet and the single
+/// reviewer go through it, so the flags (and the rate-limit hazard) cannot drift
+/// apart.
+fn claude(prompt: &str, model: &str, effort: &str) -> Result<String> {
+    let out = Command::new("claude")
+        .arg("-p")
+        .arg(prompt)
+        .arg("--model")
+        .arg(model)
+        .arg("--effort")
+        .arg(effort)
+        .arg("--permission-mode")
+        .arg("bypassPermissions")
+        .arg("--output-format")
+        .arg("text")
+        .stdin(Stdio::null())
+        .output()
+        .context("failed to spawn `claude`")?;
+
+    if !out.status.success() {
+        bail!("claude exited with {}", out.status);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 fn which_claude() -> Result<()> {
@@ -2138,5 +3105,469 @@ fn evaluate_assertion(op: &str) {{
         assert!(a.valid);
         assert_eq!(scan_artifacts(&s, &dir).len(), 1);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // The visual artifact (`capture_damage_png`)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_png_is_not_required_but_a_stray_png_path_is_refused() {
+        let s = parse_schema(&root()).unwrap();
+
+        // NOT required: a capture step in every scenario is an artifact tax on
+        // 13k tests for an image nobody opens (and a blank one for every idle
+        // case). Images are the reviewer's triage material instead.
+        validate(
+            &s,
+            r#"{"name":"x","steps":[
+                {"op":"snapshot_frame","as":"before"},
+                {"op":"assert_changed","vs":"before"}]}"#,
+        )
+        .expect("a scenario without a capture step is perfectly valid");
+
+        // ...and one that DOES capture is equally fine.
+        validate(
+            &s,
+            r#"{"name":"x","steps":[
+                {"op":"snapshot_frame","as":"before"},
+                {"op":"capture_damage_png","path":"target/e2e/x.png"},
+                {"op":"assert_changed","vs":"before"}]}"#,
+        )
+        .unwrap();
+
+        // The `path` is the one model-authored string this process hands to
+        // `fs::write`, so it is confined to `target/e2e/`.
+        for bad in [
+            r#""/etc/passwd.png""#,
+            r#""target/e2e/../../src/main.rs.png""#,
+            r#""e2e/x.png""#,
+            r#""target/e2e/x.txt""#,
+            r#""target/e2e/.png""#,
+            "42",
+        ] {
+            let json = format!(
+                r#"{{"name":"x","steps":[
+                    {{"op":"snapshot_frame","as":"before"}},
+                    {{"op":"capture_damage_png","path":{bad}}},
+                    {{"op":"assert_changed","vs":"before"}}]}}"#
+            );
+            assert!(validate(&s, &json).is_err(), "gate accepted PNG path {bad}");
+        }
+    }
+
+    /// The GENERATOR prompt must not ask for an image: that decision moved to
+    /// the reviewer, which captures one only for a failure it is investigating.
+    #[test]
+    fn the_generation_prompt_does_not_tax_every_test_with_an_image() {
+        let s = parse_schema(&root()).unwrap();
+        let p = build_prompt(&schema_doc(&s), "{}", "[a/b] something happens");
+        // The op is still OFFERED by the schema listing (a line may legitimately
+        // call for a capture) — but no instruction demands one.
+        for demand in ["MANDATORY", "must write one", "step is REJECTED"] {
+            assert!(!p.contains(demand), "the prompt still taxes every test: {demand}");
+        }
+        assert!(
+            !p.contains("<your test name>.png"),
+            "the per-test PNG recipe is gone; images are triage material now"
+        );
+    }
+
+    /// `take_native_screenshot` can only ever fail here: it goes through an e2e
+    /// host hook that NOTHING in the workspace installs. Offering it would
+    /// generate tests that are red on arrival for a reason that says nothing
+    /// about the engine.
+    #[test]
+    fn an_op_that_always_fails_headlessly_is_not_offered() {
+        let s = parse_schema(&root()).unwrap();
+        assert!(s.is_known("take_native_screenshot"));
+        assert!(matches!(classify("take_native_screenshot"), OpClass::Denied(_)));
+        assert!(!schema_doc(&s).contains("- take_native_screenshot"));
+        assert!(validate(&s, &with_op(r#"{"op":"take_native_screenshot"}"#)).is_err());
+        // ...while the CPU-render one, which needs no hook, stays available.
+        assert_eq!(classify("take_screenshot"), OpClass::Allowed);
+    }
+
+    /// The triage instruction is rendered from the PARSED schema, so it cannot
+    /// drift from the op it tells the reviewer to use.
+    #[test]
+    fn the_triage_instruction_is_derived_from_the_schema() {
+        let s = parse_schema(&root()).unwrap();
+        let t = triage_doc(&s);
+        for want in [PNG_OP, TRIAGE_DIR, "path", "which?", "crop?", "byte-identical"] {
+            assert!(t.contains(want), "the triage doc is missing `{want}`:\n{t}");
+        }
+        assert!(t.contains("never `git add`"), "images must never be committed:\n{t}");
+        assert!(t.contains("Do NOT use `take_native_screenshot`"), "{t}");
+
+        // An engine without the capture op gets an honest "you cannot look".
+        let dir = std::env::temp_dir().join(format!("gene2e-triage-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let r = synthetic_root(&dir, "        DebugEvent::Focus => { do_focus(); }\n");
+        let s2 = parse_schema(&r).unwrap();
+        assert!(!s2.is_known(PNG_OP));
+        assert!(triage_doc(&s2).contains("no way to capture an image"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // `--review-batch`: argument parsing
+    // -----------------------------------------------------------------------
+
+    fn parse(args: &[&str]) -> Result<GenE2eOptions> {
+        GenE2eOptions::parse(args)
+    }
+
+    #[test]
+    fn review_batch_is_the_batch_size_and_implies_the_limit() {
+        let o = parse(&["corpus.txt", "out", "--review-batch", "10"]).unwrap();
+        assert_eq!(o.review_batch, Some(10));
+        assert_eq!(o.limit, Some(10), "--review-batch N must generate N, not the whole corpus");
+        // Token cost is not the constraint here — quality is. A weak generator
+        // writes a scenario that quietly tests the wrong thing, and a weak
+        // reviewer rubber-stamps it; both defaults must be the good model.
+        assert_eq!((o.model.as_str(), o.effort.as_str()), (MODEL, EFFORT));
+        assert_eq!((o.review_model.as_str(), o.review_effort.as_str()), (MODEL, EFFORT));
+        assert_eq!(MODEL, "opus");
+        assert!(
+            matches!(EFFORT, "medium" | "high" | "xhigh" | "max"),
+            "the CLI scale is low|medium|high|xhigh|max and `low` is not good enough"
+        );
+
+        // Overridable.
+        let o = parse(&[
+            "corpus.txt", "out", "--review-batch", "3", "--review-model", "sonnet",
+            "--review-effort", "medium",
+        ])
+        .unwrap();
+        assert_eq!((o.review_model.as_str(), o.review_effort.as_str()), ("sonnet", "medium"));
+
+        // Flag order must not matter.
+        let o = parse(&["--review-batch", "4", "corpus.txt", "out"]).unwrap();
+        assert_eq!((o.review_batch, o.limit), (Some(4), Some(4)));
+    }
+
+    #[test]
+    fn review_batch_rejects_a_second_opinion_about_the_batch_size() {
+        // Two knobs fighting over one number; silently taking the smaller would
+        // make the operator mis-read the batch they just reviewed.
+        for args in [
+            ["corpus.txt", "out", "--review-batch", "10", "--limit", "5"],
+            ["corpus.txt", "out", "--limit", "5", "--review-batch", "10"],
+        ] {
+            let e = parse(&args).unwrap_err().to_string();
+            assert!(e.contains("--review-batch"), "{e}");
+        }
+        assert!(parse(&["corpus.txt", "out", "--review-batch", "0"]).is_err());
+        assert!(parse(&["corpus.txt", "out", "--review-batch"]).is_err());
+        assert!(parse(&["corpus.txt", "out", "--review-batchh", "2"]).is_err());
+        // ...and without the flag nothing changes.
+        let o = parse(&["corpus.txt", "out", "--limit", "5"]).unwrap();
+        assert_eq!((o.review_batch, o.limit), (None, Some(5)));
+    }
+
+    #[test]
+    fn the_usage_string_documents_the_review_flag() {
+        for flag in ["--review-batch", "--review-model", "--review-effort", "--limit", "--prune"] {
+            assert!(USAGE.contains(flag), "usage does not mention {flag}");
+        }
+        let e = parse(&["only-one-positional"]).unwrap_err().to_string();
+        assert!(e.contains("--review-batch"), "the parse error must show the usage: {e}");
+    }
+
+    // -----------------------------------------------------------------------
+    // `--review-batch`: report assembly (pure — no `claude`, no engine)
+    // -----------------------------------------------------------------------
+
+    fn step(index: usize, op: &str, error: Option<&str>) -> azul_layout::e2e::E2eStepResult {
+        azul_layout::e2e::E2eStepResult {
+            step_index: index,
+            op: op.to_string(),
+            status: if error.is_some() { "fail" } else { "pass" }.to_string(),
+            duration_ms: 1,
+            logs: Vec::new(),
+            screenshot: None,
+            error: error.map(str::to_string),
+            response: None,
+        }
+    }
+
+    fn result(name: &str, steps: Vec<azul_layout::e2e::E2eStepResult>) -> E2eTestResult {
+        let failed = steps.iter().filter(|s| s.status == "fail").count();
+        E2eTestResult {
+            name: name.to_string(),
+            status: if failed == 0 { "pass" } else { "fail" }.to_string(),
+            duration_ms: 7,
+            step_count: steps.len(),
+            steps_passed: steps.len() - failed,
+            steps_failed: failed,
+            steps,
+            final_screenshot: None,
+        }
+    }
+
+    /// A batch with one of everything the report has to be able to say.
+    fn sample_batch() -> ReviewBatch {
+        ReviewBatch {
+            id: "00001-n4-deadbeef".to_string(),
+            corpus: "scripts/E2E_TESTS.txt".to_string(),
+            out_dir: PathBuf::from("/out"),
+            entries: vec![
+                ReviewEntry {
+                    line: "[damage/basic] clicking a button repaints only the button".to_string(),
+                    path: PathBuf::from("/out/00001-good.json"),
+                    json: Some(
+                        r##"{"name":"good","steps":[{"op":"click","selector":"#b"},
+                        {"op":"capture_damage_png","path":"target/e2e/good.png"},
+                        {"op":"assert_changed","vs":"before"},
+                        {"op":"assert_damage_incremental","max_area_ratio":0.5}]}"##
+                            .to_string(),
+                    ),
+                    gen_error: None,
+                    run: Some(result("good", vec![step(0, "click", None)])),
+                },
+                ReviewEntry {
+                    line: "[clipboard/copy] ctrl+c puts the selection on the clipboard".to_string(),
+                    path: PathBuf::from("/out/00002-harness.json"),
+                    json: Some(
+                        r#"{"name":"harness","steps":[{"op":"key_down","key":"c"},
+                        {"op":"capture_damage_png","path":"target/e2e/harness.png"},
+                        {"op":"assert_changed","vs":"before"}]}"#
+                            .to_string(),
+                    ),
+                    gen_error: None,
+                    run: Some(result(
+                        "harness",
+                        vec![step(
+                            3,
+                            "key_down",
+                            Some(&format!(
+                                "e2e runner: CallbackChange::SetCopyContent {HARNESS_MARKER} (no \
+                                 OS clipboard)"
+                            )),
+                        )],
+                    )),
+                },
+                ReviewEntry {
+                    line: "[damage/scroll] scrolling a list repaints the viewport".to_string(),
+                    path: PathBuf::from("/out/00003-engine.json"),
+                    json: Some(
+                        r#"{"name":"engine","steps":[{"op":"scroll","dy":40},
+                        {"op":"assert_changed","vs":"before"}]}"#
+                            .to_string(),
+                    ),
+                    gen_error: None,
+                    run: Some(result(
+                        "engine",
+                        vec![step(1, "assert_changed", Some("no damage after scroll"))],
+                    )),
+                },
+                ReviewEntry {
+                    line: "[layout/geometry] the box is 60px wide".to_string(),
+                    path: PathBuf::from("/out/00004-rejected.json"),
+                    json: None,
+                    gen_error: Some("step 2: op `assert_layout` is DENIED".to_string()),
+                    run: None,
+                },
+            ],
+            verdict_block: "\ntest good ... \u{1b}[32mPASS\u{1b}[0m (7 ms)\ntest result: \
+                            \u{1b}[31mFAILED\u{1b}[0m. 1 passed; 2 failed\n"
+                .to_string(),
+        }
+    }
+
+    #[test]
+    fn the_report_states_the_facts_including_the_ugly_ones() {
+        let f = render_facts(&sample_batch());
+
+        // Header tally.
+        assert!(f.contains("**4** line(s) — 3 generated, 1 rejected"), "{f}");
+        assert!(f.contains("**1 passed, 2 failed**"), "{f}");
+        assert!(f.contains("capture an image: 2/3 (NOT required"), "{f}");
+
+        // Every corpus line is shown next to its artifact — a reviewer judging
+        // the JSON against itself is the failure mode this exists to prevent.
+        for line in [
+            "clicking a button repaints only the button",
+            "ctrl+c puts the selection on the clipboard",
+            "the box is 60px wide",
+        ] {
+            assert!(f.contains(line), "the report drops the corpus line {line:?}");
+        }
+
+        // ATTRIBUTION: mechanical where the runner confessed, honestly open
+        // where it did not. Calling an unattributed failure an engine bug is
+        // exactly the false confidence the corpus exists to avoid.
+        assert!(f.contains("**HARNESS**"), "{f}");
+        assert!(f.contains("SetCopyContent"), "{f}");
+        assert!(f.contains("**UNATTRIBUTED**"), "{f}");
+        let harness_at = f.find("**HARNESS**").unwrap();
+        let engine_at = f.find("**UNATTRIBUTED**").unwrap();
+        assert_ne!(harness_at, engine_at);
+
+        // Images: a MISSING capture is not a defect any more, but the report
+        // must still say where the reviewer's images went and that they are not
+        // in git — otherwise the operator looks for them in the wrong place.
+        assert!(!f.contains("NO `capture_damage_png`"), "a missing image is not a defect: {f}");
+        assert!(f.contains(TRIAGE_DIR), "{f}");
+        assert!(f.contains("`.gitignore` already excludes"), "{f}");
+
+        // Gate rejections survive into the report — they are prompt evidence.
+        assert!(f.contains("Rejected before it ever ran"), "{f}");
+        assert!(f.contains("assert_layout"), "{f}");
+
+        // The verdict block is the runner's own words, minus the ANSI.
+        assert!(f.contains("test result: FAILED. 1 passed; 2 failed"), "{f}");
+        assert!(!f.contains('\u{1b}'), "ANSI escapes leaked into the markdown");
+    }
+
+    #[test]
+    fn a_green_batch_is_not_reported_as_a_good_batch() {
+        let mut b = sample_batch();
+        b.entries.truncate(1);
+        let f = render_facts(&b);
+        assert!(f.contains("**1 passed, 0 failed**"), "{f}");
+        // Zero failures must NOT read as approval: a test can pass by asserting
+        // nothing, which is the whole reason a reviewer exists.
+        assert!(f.contains("not automatically a good batch"), "{f}");
+    }
+
+    #[test]
+    fn colliding_png_paths_are_reported_because_the_scenarios_race() {
+        let mut b = sample_batch();
+        b.entries[2].json = Some(
+            r#"{"name":"engine","steps":[{"op":"capture_damage_png","path":"target/e2e/good.png"},
+               {"op":"assert_changed","vs":"before"}]}"#
+                .to_string(),
+        );
+        let f = render_facts(&b);
+        assert!(f.contains("PNG PATH COLLISION"), "{f}");
+        assert!(f.contains("target/e2e/good.png"), "{f}");
+    }
+
+    #[test]
+    fn duplicate_scenario_names_are_reported_because_results_pair_by_name() {
+        let mut b = sample_batch();
+        b.entries[2].run = Some(result("good", vec![step(0, "click", None)]));
+        let f = render_facts(&b);
+        assert!(f.contains("Duplicate scenario names"), "{f}");
+    }
+
+    #[test]
+    fn the_review_prompt_carries_the_batch_the_prompt_and_the_policy() {
+        let s = parse_schema(&root()).unwrap();
+        let b = sample_batch();
+        let current = build_prompt(&schema_doc(&s), "{}", "[damage/basic] a click repaints");
+        let p = build_review_prompt(&b, &current, &policy_doc(&s), &triage_doc(&s));
+
+        // The generator's own prompt, verbatim — a reviewer cannot propose a fix
+        // to a paragraph it was only told about.
+        assert!(p.contains("GENERATOR_PROMPT"), "{p}");
+        assert!(p.contains("A FAILING TEST IS A SUCCESS"), "the current prompt is missing");
+        // The batch: JSON, corpus line, and the run outcome including the error.
+        assert!(p.contains("assert_damage_incremental"));
+        assert!(p.contains("ctrl+c puts the selection on the clipboard"));
+        assert!(p.contains("FAILING STEP 1 `assert_changed`: no damage after scroll"));
+        assert!(p.contains("NOT GENERATED"));
+        // The DENIED half of the policy, which the generator never sees.
+        assert!(p.contains("assert_layout: geometry"), "{p}");
+        assert!(p.contains("redraw: debugger-only"), "{p}");
+        // The required output shape, including the right to say no.
+        for section in [
+            "VERDICT: REJECT",
+            "Per-test verdict",
+            "Missing ops",
+            "Harness vs engine",
+            "Prompt defects",
+            "Visual triage",
+        ] {
+            assert!(p.contains(section), "the review prompt never asks for `{section}`");
+        }
+        assert!(
+            p.contains("Nothing you write is applied automatically"),
+            "the reviewer must know a human applies the diff"
+        );
+        // ...and it must be told to LOOK at a failure rather than theorise, with
+        // the copy-first rule that keeps the committed scenario untouched.
+        assert!(p.contains("LOOK, DO NOT GUESS"), "{p}");
+        assert!(p.contains(TRIAGE_DIR), "{p}");
+        assert!(
+            p.contains("do NOT propose adding capture steps to the"),
+            "the reviewer must not re-introduce the per-test image tax"
+        );
+    }
+
+    /// A REAL review is prose about weak tests, and says things like
+    /// "insufficient assertions" or "try again with a tighter bound". Scanning
+    /// the whole document for the rate-limit vocabulary would throw away exactly
+    /// the reports worth reading — the scan is head-only, and skipped once the
+    /// reply opens with the verdict it was asked for.
+    #[test]
+    fn a_critical_review_is_not_mistaken_for_a_rate_limit_message() {
+        let harsh = "VERDICT: REJECT\n\nBoth tests have insufficient assertions; the bound is so \
+                     wide nothing could violate it. Fix the prompt and try again. The generator \
+                     appears to have been overloaded with recipes and picked the safest one. \
+                     Quota of one assertion per test is not enough.";
+        assert!(is_usable_review(harsh), "a harsh review was discarded as a limit message");
+        assert_eq!(verdict_of(harsh), Some(true));
+
+        // ...while the actual limit message is still caught.
+        for junk in [
+            "You've reached your usage limit for this 5-hour window. Please try again later, or \
+             upgrade your plan to continue using Claude Code today. This message is padded to \
+             clear the minimum-length check so the head scan is what rejects it.",
+            "short",
+            "",
+        ] {
+            assert!(!is_usable_review(junk), "a non-review was accepted: {junk:?}");
+        }
+
+        // A review that ignores the format is still a review — it just cannot
+        // vote, and the operator is told to read it.
+        let formatless = "The batch is fine overall, though the second scenario drifts from its \
+                          corpus line and asserts a proxy property instead of the one named. \
+                          Neither test forces the effect it measures, which is the important part.";
+        assert!(is_usable_review(formatless));
+        assert_eq!(verdict_of(formatless), None);
+
+        // A verdict buried on page three must not flip the gate.
+        let buried = format!("VERDICT: ACCEPT\n\n{}\nVERDICT: REJECT", "x".repeat(500));
+        assert_eq!(verdict_of(&buried), Some(false));
+    }
+
+    #[test]
+    fn a_missing_review_is_loud_not_silent() {
+        let facts = "# facts\n\nsome facts\n";
+        let with = assemble_report(facts, Some("VERDICT: ACCEPT\n\nlooks fine"));
+        assert!(with.starts_with(facts));
+        assert!(with.contains("VERDICT: ACCEPT"));
+
+        // A rate-limited reviewer must never leave a report that reads as clean.
+        let without = assemble_report(facts, None);
+        assert!(without.starts_with(facts), "the facts survive a failed review");
+        assert!(without.contains("PRODUCED NOTHING USABLE"), "{without}");
+    }
+
+    #[test]
+    fn batch_id_is_content_addressed() {
+        let w = parse_corpus(CORPUS, Path::new("/out"));
+        let id = batch_id(&w);
+        assert_eq!(id, batch_id(&w), "the same batch must name the same report");
+        assert!(id.starts_with("00001-n3-"), "{id}");
+        assert_ne!(batch_id(&w[..2]), id, "a different batch is a different report");
+        assert_eq!(batch_id(&[]), format!("00000-n0-{}", &line_hash("")[..8]));
+    }
+
+    #[test]
+    fn ansi_is_stripped_but_the_text_is_not() {
+        assert_eq!(strip_ansi("\u{1b}[32mPASS\u{1b}[0m (7 ms)"), "PASS (7 ms)");
+        assert_eq!(strip_ansi("plain"), "plain");
+    }
+
+    #[test]
+    fn a_markdown_cell_cannot_break_the_table() {
+        assert_eq!(cell("a|b", 10), "a/b");
+        assert_eq!(cell("a\nb", 10), "a b");
+        assert_eq!(cell("abcdef", 4), "abc…");
     }
 }

@@ -25,7 +25,7 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context};
-use azul_layout::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTestResult};
+use azul_layout::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTest, E2eTestResult};
 use rayon::prelude::*;
 
 /// Parsed `e2e` subcommand options.
@@ -98,6 +98,42 @@ impl E2eRunOptions {
     }
 }
 
+/// Run `tests` in parallel on `jobs` threads (`None` = available parallelism)
+/// and return their results SORTED BY NAME.
+///
+/// The execution core of this subcommand, factored out so that a second
+/// front-end — `gen-e2e --review-batch`, which runs the scenarios it has just
+/// generated — drives the scenarios through *this* code rather than growing a
+/// second runner. Sorting here (not at the call site) is what makes the result
+/// order independent of rayon's completion order, which `render_report` relies
+/// on for a deterministic report.
+///
+/// # Errors
+///
+/// Fails only when the thread pool cannot be built.
+pub fn run_tests(tests: &[E2eTest], jobs: Option<usize>) -> anyhow::Result<Vec<E2eTestResult>> {
+    let jobs = jobs.unwrap_or_else(|| {
+        std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+    });
+
+    // Every scenario runs in parallel: each owns its `LayoutWindow` (mount
+    // override, E2E scratch, frame-report reset generation), its `E2eSession`
+    // and — since the test clock became thread-scoped and `run_e2e_test` resets
+    // it — its own clock. Rayon never migrates a running closure, so a scenario
+    // stays on the worker whose clock it is ticking.
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(jobs)
+        .thread_name(|i| format!("e2e-{i}"))
+        .build()
+        .context("failed to build the e2e thread pool")?;
+    let mut results: Vec<E2eTestResult> =
+        pool.install(|| tests.par_iter().map(run_e2e_test).collect::<Vec<_>>());
+
+    // Completion order is nondeterministic; the report must not be.
+    results.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(results)
+}
+
 /// Run the scenarios and print a cargo-test-style report.
 ///
 /// Returns the process exit code (0 green, 1 red) rather than exiting, so the
@@ -140,32 +176,14 @@ pub fn run(opts: &E2eRunOptions) -> anyhow::Result<i32> {
         std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
     });
 
-    // Every scenario runs in parallel: each owns its `LayoutWindow` (mount
-    // override, E2E scratch, frame-report reset generation), its `E2eSession`
-    // and — since the test clock became thread-scoped and `run_e2e_test` resets
-    // it — its own clock. Rayon never migrates a running closure, so a scenario
-    // stays on the worker whose clock it is ticking.
     eprintln!(
         "\nrunning {} e2e scenario(s) in parallel on {jobs} thread(s)",
         tests.len(),
     );
 
     let started = std::time::Instant::now();
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(jobs)
-        .thread_name(|i| format!("e2e-{i}"))
-        .build()
-        .context("failed to build the e2e thread pool")?;
-    let mut results: Vec<E2eTestResult> = pool.install(|| {
-        tests
-            .par_iter()
-            .map(|t| run_e2e_test(t))
-            .collect::<Vec<_>>()
-    });
+    let results = run_tests(&tests, Some(jobs))?;
     let wall = started.elapsed();
-
-    // Completion order is nondeterministic; the report must not be.
-    results.sort_by(|a, b| a.name.cmp(&b.name));
 
     let (report, verdict) = render_report(&tests, &results);
     eprint!("{report}");
