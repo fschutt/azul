@@ -1957,6 +1957,21 @@ impl LayoutWindow {
         // up-to-date scroll offsets embedded in PushScrollFrame items.
         self.scroll_manager.clear_scroll_dirty();
 
+        // Same contract for the text-edit manager: `display_list_dirty` means
+        // "the caret / selection / preedit changed, so the display list is
+        // stale". The display list has just been rebuilt WITH that state
+        // (`cursor_is_visible` / `cursor_locations` / `text_selections` feed
+        // `LayoutContext` above), so the repaint it was asking for has been
+        // delivered.
+        //
+        // Nothing in the engine cleared it before: `mark_dirty` had four
+        // callers (`clear_editing`, `set_preedit`, `clear_preedit`, and the
+        // remap-on-unmount path) and NO consumer anywhere in the workspace, so
+        // the first focus change latched it true for the rest of the window's
+        // life. `assert_state_machines_idle` reads it as "a permanently dirty
+        // flag is a permanent repaint", and that is exactly what it was.
+        self.text_edit_manager.display_list_dirty = false;
+
         Ok(())
     }
 
@@ -6591,6 +6606,13 @@ impl LayoutWindow {
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list;
                 }
+                // The repaint `TextEditManager::mark_dirty` asked for has now
+                // been delivered — this is the display-list-only path that
+                // exists FOR caret / selection / preedit updates. Leaving the
+                // flag latched makes every later "is this window idle?" check
+                // answer "no, it owes a repaint" forever. See the twin clear at
+                // the end of `layout_and_generate_display_list`.
+                self.text_edit_manager.display_list_dirty = false;
                 // Incremental a11y update: only push the edited node's
                 // updated value + cursor, not the entire tree.
                 #[cfg(feature = "a11y")]
