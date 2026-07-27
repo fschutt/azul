@@ -8806,6 +8806,41 @@ fn build_dom_response(
 }
 
 /// Process a single debug event
+///
+/// # An INPUT op must never set `needs_update`
+///
+/// `needs_update` is the step loop's "the application asked for a DOM rebuild"
+/// flag: the debug timer turns it into `Update::RefreshDom`, which the event
+/// loop answers with an unconditional `regenerate_layout()` — a full DOM
+/// rebuild and a full repaint, taken REGARDLESS of what the engine's own
+/// event-determination / invalidation pipeline decided.
+///
+/// For an op whose whole job is to deliver input that is a false-evidence
+/// factory, in both directions:
+///
+/// * It MANUFACTURES the damage the test then measures. Delete the engine's
+///   `:hover` invalidation path entirely and a `mouse_move` still repaints the
+///   window, still resolves `:hover` during the rebuild and still reports
+///   non-empty damage — so `assert_changed` goes green against an engine that
+///   does not invalidate anything.
+/// * It makes `dom_regenerations >= 1` unconditionally, so no test can ever
+///   assert that an inert event costs zero DOM regenerations.
+///
+/// This is the same defect `tick_ms` had (fixed in b44cb702b): the harness was
+/// the work it was measuring. `Scroll` / `KeyDown` / `KeyUp` / `TextInput` /
+/// `Focus` / `Blur` / `Move` were already written this way and carry an
+/// explicit "do NOT set needs_update" note each; every pointer, touch, pen,
+/// gesture, resize and DPI arm now follows the same model.
+///
+/// The engine still decides — and still regenerates where it should:
+/// `modify_window_state` pushes `CallbackChange::ModifyWindowState`, whose
+/// handler runs the state-diff pass when something actually changed and sets
+/// `resize_pending` for a size/DPI delta (which the runner turns into
+/// `ShouldRegenerateDomCurrentWindow` on its own, exactly as
+/// `mark_frame_needs_regeneration` does in the real shell).
+///
+/// `mount` / `unmount` / `remount` / `set_app_state` / `update_component` DO
+/// still set it: those are the ops that legitimately mean "rebuild the DOM".
 #[cfg(feature = "std")]
 pub fn process_debug_event(
     request: &DebugRequest,
@@ -8862,7 +8897,10 @@ pub fn process_debug_event(
             let mut new_state = callback_info.get_current_window_state().clone();
             new_state.size.dimensions = LogicalSize::new(*width, *height);
             callback_info.modify_window_state(new_state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`. The
+            // size delta is what forces the rebuild: `ModifyWindowState` sets
+            // `resize_pending` / `mark_frame_needs_regeneration` for it, so the
+            // regeneration is the ENGINE's decision, not the harness's.
 
             send_ok(request, None, None);
         }
@@ -8952,10 +8990,10 @@ pub fn process_debug_event(
             let mut new_state = callback_info.get_current_window_state().clone();
             new_state.size.dpi = new_dpi;
             callback_info.modify_window_state(new_state);
-            // The relayout+repaint a real DPI change causes: the CPU/GPU surface
-            // re-allocates from the new physical dims (headless: `ws.size.dpi /
-            // 96.0` feeds `regenerate_layout`), so the whole window is damaged.
-            needs_update = true;
+            // The relayout+repaint a real DPI change causes is driven by the DPI
+            // delta itself: `ModifyWindowState` sets `resize_pending` /
+            // `mark_frame_needs_regeneration`. NO `needs_update` — see the note
+            // on `process_debug_event`.
 
             send_ok(request, None, None);
         }
@@ -8972,7 +9010,7 @@ pub fn process_debug_event(
             new_state.mouse_state.cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             callback_info.modify_window_state(new_state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
 
             send_ok(request, None, None);
         }
@@ -8994,7 +9032,7 @@ pub fn process_debug_event(
                 MouseButton::Middle => new_state.mouse_state.middle_down = true,
             }
             callback_info.modify_window_state(new_state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
 
             // Text selection is now handled automatically by the normal event pipeline.
             // When modify_window_state is called, it triggers apply_user_change
@@ -9021,7 +9059,7 @@ pub fn process_debug_event(
                 MouseButton::Middle => new_state.mouse_state.middle_down = false,
             }
             callback_info.modify_window_state(new_state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
 
             send_ok(request, None, None);
         }
@@ -9203,7 +9241,9 @@ pub fn process_debug_event(
                         .queue_window_state_sequence(
                             vec![move_state, down_state, up_state].into(),
                         );
-                    needs_update = true;
+                    // NO `needs_update` — see the note on `process_debug_event`.
+                    // `QueueWindowStateSequence` runs one state-diff pass per
+                    // queued state on its own.
 
                     let response = ClickNodeResponse {
                         success: true,
@@ -9253,7 +9293,7 @@ pub fn process_debug_event(
                 }
             }
             callback_info.modify_window_state(new_state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
 
             send_ok(request, None, None);
         }
@@ -10924,7 +10964,7 @@ pub fn process_debug_event(
                     MouseButton::Middle => new_state.mouse_state.middle_down = false,
                 }
                 callback_info.modify_window_state(new_state);
-                needs_update = true;
+                // NO `needs_update` — see the note on `process_debug_event`.
 
                 let response = ClickNodeResponse {
                     success: true,
@@ -11833,7 +11873,7 @@ pub fn process_debug_event(
             state.touch_state.touch_points = points.into();
             state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
             callback_info.modify_window_state(state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::TouchMove { id, x, y, force } => {
@@ -11852,7 +11892,7 @@ pub fn process_debug_event(
             state.touch_state.touch_points = points.into();
             state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
             callback_info.modify_window_state(state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::TouchEnd { id } => {
@@ -11862,7 +11902,7 @@ pub fn process_debug_event(
             state.touch_state.touch_points = points.into();
             state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
             callback_info.modify_window_state(state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::TouchCancel => {
@@ -11870,7 +11910,7 @@ pub fn process_debug_event(
             state.touch_state.touch_points = Vec::new().into();
             state.touch_state.num_touches = 0;
             callback_info.modify_window_state(state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
 
@@ -11895,7 +11935,7 @@ pub fn process_debug_event(
             // PenState struct travels with the LongPress payload below
             // for the moment — full pen-injection is a follow-up tick.
             let _ = (pressure, x_tilt, y_tilt);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::PenMove { x, y, pressure, x_tilt, y_tilt } => {
@@ -11904,7 +11944,7 @@ pub fn process_debug_event(
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             callback_info.modify_window_state(state);
             let _ = (pressure, x_tilt, y_tilt);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::PenUp { x, y } => {
@@ -11913,7 +11953,7 @@ pub fn process_debug_event(
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             state.mouse_state.left_down = false;
             callback_info.modify_window_state(state);
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
 
@@ -11933,7 +11973,7 @@ pub fn process_debug_event(
                 SwipeDir::Right => GestureDirection::Right,
             };
             callback_info.inject_native_gesture(NativeGestureEvent::Swipe(dir));
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::Pinch {
@@ -11952,7 +11992,7 @@ pub fn process_debug_event(
                 current_distance: *current_distance,
                 duration_ms: *duration_ms,
             }));
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::Rotate {
@@ -11967,7 +12007,7 @@ pub fn process_debug_event(
                 center: LogicalPosition { x: *center_x, y: *center_y },
                 duration_ms: *duration_ms,
             }));
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
         DebugEvent::LongPress { x, y, duration_ms } => {
@@ -11978,7 +12018,7 @@ pub fn process_debug_event(
                 callback_invoked: false,
                 session_id: 0,
             }));
-            needs_update = true;
+            // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
 

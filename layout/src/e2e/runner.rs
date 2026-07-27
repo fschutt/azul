@@ -320,9 +320,29 @@ impl Runner {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
             | ProcessEventResult::ShouldRegenerateDomAllWindows => self.regenerate_layout(),
             ProcessEventResult::ShouldIncrementalRelayout => self.relayout_only(),
-            ProcessEventResult::ShouldReRenderCurrentWindow
-            | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-            | ProcessEventResult::UpdateHitTesterAndProcessAgain => self.render_and_record(),
+            // The name IS the contract. A paint-only restyle (`:hover` /
+            // `:focus` changing a colour) mutates the styled DOM's property
+            // cache and asks for exactly this — but the DISPLAY LIST still
+            // carries the old paint, so rendering without rebuilding it shows
+            // the pre-restyle pixels and reports zero damage.
+            //
+            // This was invisible while every pointer op set `needs_update`: the
+            // forced `regenerate_layout()` rebuilt the display list as a side
+            // effect, so `:hover` appeared to work for the wrong reason. With
+            // the op no longer fabricating that rebuild, the arm has to do the
+            // work its own name promises.
+            //
+            // `UpdateHitTesterAndProcessAgain` is grouped here because it ranks
+            // ABOVE `ShouldUpdateDisplayListCurrentWindow` in
+            // `ProcessEventResult`'s order — it may never do less work than the
+            // result it dominates. (The real shells map it to a full
+            // regeneration; a display-list rebuild is the floor, not the cap.)
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                self.layout_window.regenerate_display_list_for_dom(DomId::ROOT_ID);
+                self.render_and_record();
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => self.render_and_record(),
         }
 
         // The frame is now final for this op. Re-derive the pointer→node map
