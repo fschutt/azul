@@ -910,17 +910,22 @@ impl RustGenerator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::BTreeMap;
 
         let prefix = &config.type_prefix;
 
-        // Track which From impls we've already generated to avoid duplicates
-        // Key: (from_type, to_type)
-        let mut generated_from_impls: HashSet<(String, String)> = HashSet::new();
-
-        // For each conversion pair, track which method to use
-        // If multiple methods exist for the same conversion, we use the first one found
-        let mut conversion_methods: HashMap<(String, String), &str> = HashMap::new();
+        // For each conversion pair, track which method to use.
+        // If multiple methods exist for the same conversion, we use the first one found.
+        //
+        // BTreeMap, NOT HashMap: this map is ITERATED to emit the impls below, and
+        // `RandomState` reseeds per process, so a HashMap emitted them in a
+        // different order on every run. That is the whole of the codegen
+        // non-determinism — 184 lines of `impl From<Widget> for Dom` churning
+        // across azul.rs, dll_api_internal.rs, dll_api_external.rs and memtest.rs
+        // with no input change, which makes a real regeneration diff impossible to
+        // distinguish from noise. Ordering by (from_type, to_type) is stable and
+        // gives a readable, alphabetical output besides.
+        let mut conversion_methods: BTreeMap<(String, String), &str> = BTreeMap::new();
 
         // Find all methods that take owned self and return a different type
         for func in &ir.functions {
@@ -982,14 +987,14 @@ impl RustGenerator {
             }
         }
 
-        // Generate the From impls
+        // Generate the From impls, in sorted (from_type, to_type) order.
+        //
+        // No second dedup pass here: `conversion_methods` is KEYED by exactly that
+        // pair and only ever inserted into behind a `contains_key` check, so every
+        // entry is unique by construction. The `generated_from_impls` set this loop
+        // used to consult could never fire, and a guard that cannot fire reads like
+        // duplicates are possible when they are not.
         for ((from_type, to_type), method_name) in &conversion_methods {
-            let key = (from_type.clone(), to_type.clone());
-            if generated_from_impls.contains(&key) {
-                continue;
-            }
-            generated_from_impls.insert(key);
-
             let prefixed_from = config.apply_prefix(from_type);
             let prefixed_to = config.apply_prefix(to_type);
             let method = to_snake_case(method_name);
