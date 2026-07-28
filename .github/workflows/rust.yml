@@ -195,6 +195,16 @@ jobs:
       - name: Double-drop runtime gate (appconfig_double_drop)
         run: cargo run -r -p azul-dll --example appconfig_double_drop --features link-static
 
+      # The SIBLING repro, for the CssPropertyCachePtr double-free (issue #15).
+      # It was compiled but never RUN: `link-static` is in azul-dll's defaults, so
+      # `cargo check --examples` picked it up and type-checked it — and a type
+      # check proves exactly nothing about a double free. Only executing the
+      # 200,000-iteration loop does, because that is what corrupts the allocator
+      # fast enough to abort. Measured locally: exits 0 with "created + dropped
+      # 200000 StyledDom (AzStyledDom) with no double-free".
+      - name: Double-drop runtime gate (css_double_drop, issue #15)
+        run: cargo run -r -p azul-dll --example css_double_drop --features link-static
+
       - name: Check crates
         run: |
           cargo check -p azul-css
