@@ -5827,7 +5827,21 @@ mod autotest_generated {
     // text items without fonts
     // ==================================================================
 
+    /// A `font_hash` layout emitted that its own `FontManager` cannot resolve is a
+    /// broken invariant, not a missing asset, so `font_resolution_failed` fires a
+    /// `debug_assert`. The two build profiles therefore owe DIFFERENT contracts and
+    /// this pins both:
+    ///
+    ///   - debug: die on it. That gate exists so a test catches the desync, and a
+    ///     test that swallowed it would be the exact silent failure it guards.
+    ///   - release: drop that one text run and keep the frame — losing a line of
+    ///     text must never take the window down in front of a user.
+    ///
+    /// Asserting only the release half is what made this test fail on a debug
+    /// `cargo test`: it demanded graceful degradation from a build deliberately
+    /// built not to degrade gracefully.
     #[test]
+    #[cfg_attr(debug_assertions, should_panic(expected = "cannot resolve"))]
     fn a_text_item_whose_font_is_unknown_paints_nothing() {
         let dl = DisplayList {
             items: vec![DisplayListItem::Text {
