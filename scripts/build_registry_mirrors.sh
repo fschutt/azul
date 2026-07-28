@@ -193,16 +193,60 @@ NPM
 # --------------------------------------------------------------------------
 # NuGet — v3 static feed: service index -> flat container -> nupkg.
 #   dotnet nuget add source https://azul.rs/ui/nuget/index.json -n azul
+#   dotnet add package Azul.Net --version <V>
+#
+# The flat container MUST be keyed on the package's OWN id, lowercased. NuGet
+# re-reads the .nuspec out of every .nupkg it downloads and rejects a mismatch:
+#
+#   The nupkg at .../flatcontainer/azul/0.2.0/azul.0.2.0.nupkg is not valid.
+#     Expected package azul 0.2.0, but got package Azul.Net 0.2.0
+#
+# This id was hardcoded to `azul` while <PackageId> in
+# doc/src/codegen/v2/lang_csharp/csproj.rs has always been `Azul.Net`, so the
+# feed was perfectly well-formed, every file resolved, and
+# `dotnet add package azul` could not work for anybody. Read the id and version
+# back out of the artifact instead of asserting them.
 # --------------------------------------------------------------------------
 build_nuget() {
   local nupkg; nupkg="$(ls -1 "$ART"/nuget-package/*.nupkg 2>/dev/null | head -1)"
-  [ -n "$nupkg" ] || { echo "  [nuget] no nupkg artifact — skip"; return; }
-  local id="azul" lver; lver="$(echo "$V" | tr '[:upper:]' '[:lower:]')"
+  [ -n "$nupkg" ] || { echo "  [nuget] no nupkg artifact — skip"; return 0; }
+  local meta
+  meta="$(python3 - "$nupkg" <<'PY'
+import re, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    names = [n for n in z.namelist() if n.endswith(".nuspec") and "/" not in n]
+    if not names:
+        sys.exit("no root .nuspec in the package")
+    xml = z.read(names[0]).decode("utf-8", "replace")
+def tag(t):
+    # <id>/<version> appear as ELEMENTS only inside <metadata>; a <dependency>
+    # carries them as attributes, so an element match is unambiguous.
+    m = re.search(r"<%s>\s*([^<]+?)\s*</%s>" % (t, t), xml)
+    if not m:
+        sys.exit("nuspec has no <%s> element" % t)
+    return m.group(1)
+print(tag("id"))
+print(tag("version"))
+PY
+  )" || { echo "::error::[nuget] could not read the id/version out of $(basename "$nupkg")"; return 1; }
+  local id ver lid lver
+  id="$(printf '%s\n' "$meta" | sed -n 1p)"
+  ver="$(printf '%s\n' "$meta" | sed -n 2p)"
+  lid="$(echo "$id" | tr '[:upper:]' '[:lower:]')"
+  lver="$(echo "$ver" | tr '[:upper:]' '[:lower:]')"
+  [ -n "$lid" ] && [ -n "$lver" ] \
+    || { echo "::error::[nuget] empty id/version in $(basename "$nupkg")"; return 1; }
+  # The docs pin `--version <release>`; a feed advertising a different version
+  # makes that documented command unsatisfiable.
+  if [ "$lver" != "$(echo "$V" | tr '[:upper:]' '[:lower:]')" ]; then
+    echo "::error::[nuget] $(basename "$nupkg") is $id $ver but this release is $V — 'dotnet add package $id --version $V' could not resolve"
+    return 1
+  fi
   local base="$SITE/ui/nuget"
-  mkdir -p "$base/flatcontainer/$id/$lver"
-  cp "$nupkg" "$base/flatcontainer/$id/$lver/$id.$lver.nupkg"
+  mkdir -p "$base/flatcontainer/$lid/$lver"
+  cp "$nupkg" "$base/flatcontainer/$lid/$lver/$lid.$lver.nupkg"
   # flat-container version index
-  cat > "$base/flatcontainer/$id/index.json" <<IDX
+  cat > "$base/flatcontainer/$lid/index.json" <<IDX
 { "versions": [ "$lver" ] }
 IDX
   # v3 service index pointing at the (static) flat container
@@ -214,7 +258,7 @@ IDX
   ]
 }
 SVC
-  echo "  [nuget] built nuget/index.json + flatcontainer/$id/$lver"
+  echo "  [nuget] built nuget/index.json + flatcontainer/$lid/$lver (package id $id)"
 }
 
 # --------------------------------------------------------------------------
@@ -612,7 +656,11 @@ FAILED=""
 build_maven
 build_pypi
 build_npm
-build_nuget   # must run before build_choco (choco writes into the nuget tree)
+# must run before build_choco (choco writes into the nuget tree). A nuget
+# failure is FATAL for the same reason a gems failure is: the site documents
+# `dotnet nuget add source .../ui/nuget/index.json` + `dotnet add package`, and
+# a feed built under the wrong package id is a command that cannot work.
+build_nuget || FAILED="$FAILED nuget"
 build_choco
 # A channel that produced an UNUSABLE mirror must red the deploy, not print a
 # note and continue: "hosted .gem only (generate_index failed)" scrolled past
