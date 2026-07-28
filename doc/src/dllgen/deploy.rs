@@ -1178,33 +1178,101 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
 /// would never appear if we filtered on presence at generation time. For this
 /// comprehensive "every artifact we ship" download index we therefore link
 /// them unconditionally; a not-yet-built artifact 404s rather than vanishing.
+/// Release assets that MUST stay on Pages no matter how big they are, because
+/// something outside this file fetches them by their `azul.rs/ui/release/<V>/`
+/// URL and would break if the link moved to the GitHub Release:
+///
+/// * `libazul.so`   — api.json install steps (×34 `curl`s)
+/// * `libazul.dylib` — api.json (×34) **and** the Homebrew formula's `url` +
+///   `sha256` (`build_registry_mirrors.sh` `build_homebrew`)
+/// * `libazul.x86_64.dylib` — the same formula's `on_intel` block
+/// * `azul.dll`     — api.json (×43) **and** the Chocolatey package's
+///   `chocolateyInstall.ps1` `-Url64bit` + `-Checksum64` (`build_choco`)
+/// * `azul.i686.dll` — api.json (×1)
+/// * `azul.dll.lib` — api.json (×10); this is the ~4 MB *import* lib, not the
+///   ~300 MB static `azul.lib`
+///
+/// Moving any of these trades a size problem for a dead-link problem. If one
+/// ever has to move, update every reference above in the same commit.
+const PAGES_PINNED: &[&str] = &[
+    "libazul.so",
+    "libazul.dylib",
+    "libazul.x86_64.dylib",
+    "azul.dll",
+    "azul.i686.dll",
+    "azul.dll.lib",
+];
+
 /// Is `filename` a LARGE asset that must be hosted on the GitHub Release rather
 /// than bundled into the GitHub Pages site?
 ///
-/// The static `.a` libs are 200 MB+ each and the demo binaries are large too;
-/// nine of those would blow past GitHub Pages' 1 GB artifact limit (and a future
-/// Cloudflare Pages target caps single files at 25 MiB). So LARGE assets live on
-/// the GitHub Release (≤2 GB/asset): every `.a` static lib, the demo binaries
-/// (under the `demos/` path), and the `.deb`/`.rpm` system packages.
+/// GitHub Pages caps an artifact at 1 GB; a GitHub Release takes 2 GB *per
+/// asset*. Measured on the deployed 0.2.0 tree, `release/0.2.0/` was 2.9 GB
+/// after the old trim and the artifact uploaded at 1.67 GB — over the limit,
+/// warned about, and deployed anyway. What is actually big is every
+/// *uncompressed build output*: `azul.rust9x.lib` 886 MiB, `azul.lib` 297 MiB,
+/// `azul.i686.lib` 98 MiB, the six cross-arch `libazul.linux-*.so` 213 MiB, the
+/// python extensions 110 MiB, the `*dbg*` libs 95 MiB, the four Android `.apk`
+/// 141 MiB, `examples.zip` 115 MiB, `guide.pdf` 34 MiB.
 ///
-/// Everything else stays SMALL and on Pages: the ~16 MB `.so`/`.dll`/`.dylib`,
-/// `.lib`/`.dll.lib`, the C/C++ headers, the Python extensions, `examples.zip`,
-/// `api.json`, the per-language bindings, the `LICENSE-*.txt` files, the PDF.
+/// So LARGE = any build output of that class, *unless* it is [`PAGES_PINNED`]:
+/// static libs (`.a`, `.lib`), shared libs and extensions (`.so`, `.dylib`,
+/// `.dll`, `.pyd`), system packages (`.deb`, `.rpm`), the demo binaries, the
+/// installable mobile apps, plus `examples.zip` and `guide.pdf` by name.
+///
+/// Everything else stays SMALL and on Pages: the pinned libs above, the C/C++
+/// headers, `api.json`, `azul-java.zip`, the per-language binding sources, the
+/// `LICENSE-*.txt` files, `statistics/`, `coverage/`.
+///
+/// MUST stay in sync with the collector in rust.yml's "Host LARGE assets on the
+/// GitHub Release" step — this function decides where the link points, that
+/// step decides where the file ends up, and a disagreement is a 404.
 fn is_large(filename: &str) -> bool {
-    filename.ends_with(".a")
+    let basename = filename.rsplit('/').next().unwrap_or(filename);
+
+    // The `.a` rule predates the `mobile/` guard below and the deploy uploads
+    // mobile static libs under a per-label name, so keep it first and unchanged.
+    if filename.ends_with(".a") {
+        return true;
+    }
+    // `mobile/<label>/` keeps its drop-in .so/.dylib + link stubs on Pages (the
+    // deploy trims only the .a from it), so the shared-library rules below must
+    // not reroute them to Release assets that were never uploaded.
+    if filename.starts_with("mobile/") {
+        return false;
+    }
+    if PAGES_PINNED.contains(&basename) {
+        return false;
+    }
+
+    filename.ends_with(".lib")
+        || filename.ends_with(".so")
+        || filename.contains(".so.")
+        || filename.ends_with(".dylib")
+        || filename.ends_with(".dll")
+        || filename.ends_with(".pyd")
         || filename.ends_with(".deb")
         || filename.ends_with(".rpm")
         || filename.starts_with("demos/")
         || filename.contains("/demos/")
+        || filename.starts_with("mobile-apps/")
+        || basename == "examples.zip"
+        || basename == "guide.pdf"
 }
 
 /// LARGE assets that the deploy step uploads to the Release as `.tar.gz`
-/// (uncompressed binaries that compress ~2-3x): the static `.a` libs and the
-/// demo executables. Already-compressed packages (.deb/.rpm/...) upload raw.
-/// MUST stay in sync with the `*.a|*/demos/*` case in rust.yml's
+/// (uncompressed archives that compress several times over): the static `.a`
+/// and `.lib` libs and the demo executables. Everything else uploads raw —
+/// already-compressed packages (`.deb`/`.rpm`/`.apk`/`.zip`/`.pdf`) gain
+/// nothing, and a drop-in shared library is far more useful as a direct
+/// download than as a tarball.
+/// MUST stay in sync with the `*.a|*.lib|*/demos/*` case in rust.yml's
 /// "Host LARGE assets on the GitHub Release" step.
 fn is_tarred(filename: &str) -> bool {
-    filename.ends_with(".a") || filename.starts_with("demos/") || filename.contains("/demos/")
+    filename.ends_with(".a")
+        || filename.ends_with(".lib")
+        || filename.starts_with("demos/")
+        || filename.contains("/demos/")
 }
 
 /// Build the download URL for a release asset, routing LARGE assets to the

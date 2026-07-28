@@ -4159,26 +4159,58 @@ jobs:
           [ -d "$REL" ] || { echo "no $REL — skipping"; exit 0; }
           echo "release dir before:"; du -sh "$REL" || true
 
-          # The static .a libs are 200 MB+ each and the demo binaries are large;
-          # together they blow past GitHub Pages' 1 GB artifact limit (and a
-          # future Cloudflare Pages target caps single files at 25 MiB). Host the
-          # LARGE assets on the GitHub Release (≤2 GB/asset) instead, then drop
-          # them from the Pages artifact. deploy.rs links these to
+          # GitHub Pages caps an artifact at 1 GB; a GitHub Release takes 2 GB
+          # PER ASSET. Host the LARGE assets on the Release, then drop them from
+          # the Pages artifact. deploy.rs links them to
           # github.com/fschutt/azul/releases/download/<ver>/<file> (is_large()).
-          # SMALL assets (~16 MB .so/.dll/.dylib, headers, bindings, examples.zip,
-          # api.json, licenses, PDF) stay on Pages.
-
-          # Collect every LARGE file: each *.a, the demo binaries, the .deb/.rpm
-          # packages, plus any built language packages staged into the release dir
-          # (whl/nupkg/gem/jar/tgz). GitHub Release assets are flat, so the demo
-          # binaries upload as their bare basenames (matching deploy.rs, which
-          # strips the demos/ prefix from the link).
+          #
+          # The old collector took `.a` but not the SHARED libs and not the
+          # static MSVC `.lib`s, which is how the last deploy still uploaded
+          # 1.67 GB and shipped with an "exceeds the allowed size of 1 GB"
+          # warning. Measured on the live 0.2.0 tree, the actual weight was:
+          #   azul.rust9x.lib 886M   azul.lib 297M   azul.i686.lib 98M
+          #   libazul.linux-*.so (x6) 213M   *dbg* libs 95M
+          #   python ext (azul.cpython.so/azul.pyd/azul.so) 110M
+          #   mobile-apps/*.apk (x4) 141M   examples.zip 115M   guide.pdf 34M
+          # i.e. every uncompressed build output. So LARGE now = static libs
+          # (.a/.lib), shared libs + extensions (.so/.dylib/.dll/.pyd), system
+          # packages (.deb/.rpm/.whl/.nupkg/.gem/.jar/.tgz), the demo binaries,
+          # the installable mobile apps, and examples.zip + guide.pdf by name.
+          #
+          # PINNED exceptions stay on Pages at ANY size because something
+          # fetches them by their azul.rs URL — moving them would trade a size
+          # problem for a dead-link problem:
+          #   libazul.so           api.json install steps (x34)
+          #   libazul.dylib        api.json (x34) + the Homebrew formula url+sha256
+          #   libazul.x86_64.dylib the formula's on_intel url+sha256
+          #   azul.dll             api.json (x43) + choco chocolateyInstall.ps1
+          #   azul.i686.dll        api.json (x1)
+          #   azul.dll.lib         api.json (x10) — the 4 MB IMPORT lib, not the
+          #                        297 MB static azul.lib
+          # examples.zip and guide.pdf are NOT referenced by any $HOSTNAME URL
+          # in api.json and are linked only from the generated release page,
+          # which routes through asset_url()/is_large() — so they move safely.
+          # `statistics/cargo-geiger.txt` (139M) deliberately stays: it is a
+          # browsable text report, not a build output.
+          #
+          # This list MUST stay in sync with is_large() in doc/src/dllgen/
+          # deploy.rs. That function decides where the LINK points, this
+          # collector decides where the FILE ends up, and a disagreement is a
+          # 404. GitHub Release assets are flat, so nested files upload as their
+          # bare basenames (matching asset_url(), which strips the path).
           LARGE=()
           while IFS= read -r f; do LARGE+=("$f"); done < <(
             {
-              find "$REL" -maxdepth 1 -type f \( -name '*.a' -o -name '*.deb' -o -name '*.rpm' \
-                -o -name '*.whl' -o -name '*.nupkg' -o -name '*.gem' -o -name '*.jar' -o -name '*.tgz' \)
+              find "$REL" -maxdepth 1 -type f \
+                \( -name '*.a' -o -name '*.lib' -o -name '*.so' -o -name '*.so.*' \
+                   -o -name '*.dylib' -o -name '*.dll' -o -name '*.pyd' \
+                   -o -name '*.deb' -o -name '*.rpm' -o -name '*.whl' -o -name '*.nupkg' \
+                   -o -name '*.gem' -o -name '*.jar' -o -name '*.tgz' \
+                   -o -name 'examples.zip' -o -name 'guide.pdf' \) \
+                ! -name 'libazul.so' ! -name 'libazul.dylib' ! -name 'libazul.x86_64.dylib' \
+                ! -name 'azul.dll' ! -name 'azul.i686.dll' ! -name 'azul.dll.lib'
               [ -d "$REL/demos" ] && find "$REL/demos" -type f
+              [ -d "$REL/mobile-apps" ] && find "$REL/mobile-apps" -type f
             } 2>/dev/null | sort -u
           )
 
@@ -4194,10 +4226,13 @@ jobs:
               --title "Azul ${AZUL_VERSION}" \
               --notes "Azul ${AZUL_VERSION} release. Binaries attached; docs + small assets at https://azul.rs/ui/release/${AZUL_VERSION}/." \
               2>/dev/null || true
-            # tar.gz the uncompressed big binaries (.a static libs + demo
-            # executables) before upload — they compress ~2-3x. Already-compressed
-            # packages (.deb/.rpm/.whl/.nupkg/.gem/.jar/.tgz) upload raw so users
-            # install them directly. deploy.rs links the .tar.gz for the former
+            # tar.gz the uncompressed archives (.a + .lib static libs, demo
+            # executables) before upload — they compress several times over, and
+            # azul.rust9x.lib alone is 886 MB raw. Everything else uploads raw:
+            # already-compressed packages (.deb/.rpm/.whl/.nupkg/.gem/.jar/.tgz/
+            # .apk/.zip/.pdf) gain nothing, and a drop-in shared library
+            # (.so/.dylib/.dll/.pyd) is far more useful as a direct download.
+            # deploy.rs links the .tar.gz for the former
             # (asset_url -> <basename>.tar.gz when is_tarred()).
             UPLOAD=()
             for f in "${LARGE[@]}"; do
@@ -4225,7 +4260,7 @@ jobs:
                   UPLOAD+=("$f.tar.gz")
                   echo "tar.gz $bn (+ unquarantine.command)"
                   ;;
-                *.a|*/demos/*)
+                *.a|*.lib|*/demos/*)
                   tar -czf "$f.tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
                   UPLOAD+=("$f.tar.gz")
                   echo "tar.gz $(basename "$f") -> $(du -h "$f.tar.gz" | cut -f1)"
@@ -4239,7 +4274,7 @@ jobs:
             # it stays < 1 GB.
             echo "=== trimming LARGE assets from the Pages artifact ==="
             for f in "${LARGE[@]}"; do rm -f "$f" "$f.tar.gz" && echo "removed $f"; done
-            rmdir "$REL/demos" 2>/dev/null || true
+            rmdir "$REL/demos" "$REL/mobile-apps" 2>/dev/null || true
           fi
 
           # Mobile static .a libs live at mobile/<label>/libazul.a (depth 3, so
@@ -4284,6 +4319,42 @@ jobs:
           echo "symlinks remaining:   $(find website -type l 2>/dev/null | wc -l | tr -d ' ')"
           echo "hard-linked remaining: $(find website -type f -links +1 2>/dev/null | wc -l | tr -d ' ')"
           echo "artifact size:"; du -sh website 2>/dev/null || true
+
+      # The last deploy uploaded 1674902324 bytes and GitHub answered with
+      # "##[warning]Uploaded artifact size ... exceeds the allowed size of 1 GB.
+      # Deployment might fail." It happened to deploy anyway, and the warning
+      # scrolled past — which is exactly how the artifact got to 1.67 GB in the
+      # first place. Turn it into a gate.
+      - name: Assert the Pages artifact fits under the 1 GB upload limit
+        run: |
+          set -euo pipefail
+          # actions/upload-pages-artifact tars website/ and uploads it
+          # compressed; the "Final size" GitHub reports — and the 1 GB limit it
+          # measures against — is that COMPRESSED size, not `du`. So measure the
+          # number that actually matters rather than a proxy, with the same
+          # tar-then-compress the uploader does. The repack step above already
+          # replaced every symlink and hard link with a plain file, so a plain
+          # tar here is equivalent to the uploader's --dereference tar. gzip -1
+          # is deliberately weaker than the uploader's default level, so this
+          # OVER-estimates: it can fail early, never late.
+          #
+          # 900 MB, not 1 GB: an early-warning band with real headroom. At the
+          # time of writing the trimmed tree measures ~1.4 GB uncompressed and
+          # uploads at roughly half that, so this leaves room to grow while
+          # still reddening the build well before a deploy can be rejected.
+          LIMIT=$((900 * 1000 * 1000))
+          uncompressed="$(du -sb website | cut -f1)"
+          compressed="$(tar -C website -cf - . | gzip -1 -c | wc -c)"
+          echo "Pages artifact: $(numfmt --to=iec "$uncompressed") on disk, ~$(numfmt --to=iec "$compressed") uploaded (gate: $(numfmt --to=iec "$LIMIT"), GitHub's hard limit: 1 GB)"
+          if [ "$compressed" -gt "$LIMIT" ]; then
+            echo "::error::the Pages artifact would upload at ~$(numfmt --to=iec "$compressed"), over the $(numfmt --to=iec "$LIMIT") gate and close to GitHub's 1 GB limit"
+            echo "::error::move the offenders below onto the GitHub Release: extend the LARGE collector in the trim step AND is_large() in doc/src/dllgen/deploy.rs together, or the link 404s"
+            echo "::group::30 largest files in the artifact"
+            find website -type f -printf '%s\t%p\n' | sort -rn | head -30 \
+              | while IFS="$(printf '\t')" read -r sz path; do printf '  %8s  %s\n' "$(numfmt --to=iec "$sz")" "$path"; done
+            echo "::endgroup::"
+            exit 1
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
