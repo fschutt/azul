@@ -5923,11 +5923,11 @@ impl MacOSWindow {
             // from the already-updated layout so the restyle reaches the screen.
             // Checked BEFORE frame_needs_regeneration (the input arm sets BOTH flags).
             // Mirrors wayland generate_frame_if_needed's relayout-only path.
+            // Captured BEFORE the render: a callback inside it can raise a new
+            // regeneration request, and only what we saw here may be retired.
+            let regen_epoch_seen = self.common.regen_epoch();
             log_trace!(
                 LogCategory::Layout,
-                // Captured BEFORE the render: a callback inside it can raise a new
-                // regeneration request, and only what we saw here may be retired.
-                let regen_epoch_seen = self.common.regen_epoch();
                 "[build_atomic_txn] Relayout-only: skipping regenerate_layout()"
             );
             self.common.frame_relayout_only = false;
