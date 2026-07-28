@@ -132,25 +132,20 @@ welcome = Bienvenue dans { $app }!
             println!("Loaded from ZIP: {} files, {} failed", result.files_loaded, result.files_failed);
 
             if result.files_failed > 0 {
-                // Only the COUNT, because today the public API offers no way to
-                // look inside `result.errors` at all. This is not the example
-                // being lazy — every route is closed:
-                //   - the old code called `err.as_str()`; no such method exists,
-                //     which is why this example had never compiled. Nothing ever
-                //     built it: its `required-features` were unmet, so cargo
-                //     skipped it silently (the skip this commit fixes).
-                //   - `FluentLoadError` has no Display.
-                //   - matching on the variant fails: the vec yields
-                //     `AzFluentLoadError`, while the nameable path
-                //     `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type.
-                //   - `{:?}` fails on the element AND on the vec: neither
-                //     `AzFluentLoadError` nor `AzFluentLoadErrorVec` implements
-                //     Debug, even though api.json declares
-                //     `derive: ["Debug", "Clone"]` for the type and azul-layout
-                //     invokes `impl_vec_debug!` for the vec.
-                // So the derive is declared and not emitted. Tracked separately;
-                // when it is fixed, print the errors here.
-                println!("  ({} error(s) — see the tracked API gap)", result.errors.len());
+                // Each error printed on its own line, variant and payload.
+                // `{:?}` on the element works because api.json declares
+                // `derive: ["Debug", "Clone"]` for FluentLoadError and codegen
+                // now actually emits it: the mirror's Debug delegates to
+                // `azul_layout::fluent::FluentLoadError`'s own. Previously the
+                // derive was declared and silently dropped, so this loop could
+                // not be written at all — no Display, no as_str(), no Debug, and
+                // matching on the variant fails because the vec yields
+                // `AzFluentLoadError` while the nameable path
+                // `azul::desktop::fluent::FluentLoadError` is a DIFFERENT type.
+                println!("  {} error(s):", result.errors.len());
+                for err in result.errors.iter() {
+                    println!("    - {err:?}");
+                }
             }
             
             // Debug: Check what locales were loaded
