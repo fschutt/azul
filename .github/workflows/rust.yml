@@ -4476,7 +4476,12 @@ jobs:
     name: Supply chain (cargo-deny)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # NOT continue-on-error. It used to be, which combined with `|| true` on every
+    # `cargo deny` invocation and no consumer of the report meant a published
+    # advisory could not turn this check red by any route. The report steps below
+    # still swallow their status on purpose (a finding should be printed in full,
+    # not truncated by a failing command); the dedicated "Advisories must be
+    # clean" step is what gates.
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -4512,6 +4517,26 @@ jobs:
               echo ''
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The reports above deliberately swallow exit codes so a finding still gets
+      # written out in full. Nothing downstream read them, so a RUSTSEC advisory
+      # against a transitive dependency exited 1, got eaten by `|| true`, and the
+      # check named "Supply chain (cargo-deny)" went green — with the advisory
+      # visible only to whoever opened the run summary and read it. That was
+      # three layers of suppression on a security gate: `|| true`, no consumer,
+      # and job-level continue-on-error.
+      #
+      # So run advisories ONCE more, for its status. Only advisories: bans,
+      # licenses and sources are policy questions a human should weigh, but a
+      # published vulnerability in the dependency tree is not.
+      - name: Advisories must be clean
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! cargo deny --color never check advisories; then
+            echo "::error::cargo-deny found a security advisory in the dependency tree. See the job summary for the full report."
+            exit 1
+          fi
 
       - name: Upload cargo-deny report
         uses: actions/upload-artifact@v7

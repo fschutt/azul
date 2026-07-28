@@ -151,8 +151,36 @@ def main(argv: list[str]) -> int:
         return 1
 
     present: set[str] = set()
+    empty_members: list[str] = []
     for _m, path in members:
-        present.update(read_crates(path))
+        crates = read_crates(path)
+        if not crates:
+            empty_members.append(str(path))
+        present.update(crates)
+
+    # The guard above checks that the crate-list files EXIST, not that they say
+    # anything. The producer redirects with `>`, which creates the file before
+    # `cargo tree` runs, so a failing `cargo tree` leaves a present-but-EMPTY
+    # crates.txt — and the dep_tree job's codegen step is continue-on-error, so
+    # that is a reachable state, not a hypothetical. `present` was then empty,
+    # `missing` was empty, and the gate reported "0 unique crates · 0
+    # unjustified" and returned 0: a review gate for every new transitive
+    # dependency, passing while inspecting nothing.
+    if empty_members:
+        msg = ("error: these crate lists are EMPTY, so the justification gate would inspect "
+               "nothing and pass vacuously: " + ", ".join(empty_members)
+               + "\n       `cargo tree` almost certainly failed upstream (the `>` redirect "
+                 "creates the file regardless).")
+        emit_summary(f"## 🧾 Dependency justifications{(' (' + args.os + ')') if args.os else ''}\n\n❌ {msg}")
+        print(msg, file=sys.stderr)
+        return 1
+
+    if not present:
+        msg = "error: no crates were read from any list — refusing to report 0 unjustified."
+        emit_summary(f"## 🧾 Dependency justifications{(' (' + args.os + ')') if args.os else ''}\n\n❌ {msg}")
+        print(msg, file=sys.stderr)
+        return 1
+
     missing = sorted(present - justified)
     empty = sorted(n for n in present if n in justified_map and not justified_map[n])
 
