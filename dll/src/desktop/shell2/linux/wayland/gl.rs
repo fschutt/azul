@@ -257,15 +257,34 @@ impl GlContext {
         })
     }
 
-    /// Configure VSync using eglSwapInterval
+    /// Configure VSync using eglSwapInterval.
+    ///
+    /// ALWAYS 0 on Wayland. This is not "vsync off" — it moves the throttling
+    /// from Mesa to us, and it is the documented way to avoid hanging.
+    ///
+    /// With `eglSwapInterval > 0`, Mesa's `dri2_wl_swap_buffers_with_damage`
+    /// arms its own `wl_surface_frame` throttle callback, and the NEXT swap opens
+    /// with an unbounded dispatch loop:
+    ///     while (dri2_surf->throttle_callback != NULL) loader_wayland_dispatch(...)
+    /// Meanwhile wayland.xml says of `wl_surface.frame`: "A server should avoid
+    /// signaling the frame callbacks if the surface is not visible in any way,
+    /// e.g. the surface is off-screen, or completely obscured by other opaque
+    /// surfaces" — and Weston implements that literally. So minimising or fully
+    /// occluding a GPU-mode window made the next `eglSwapBuffers` block FOREVER,
+    /// on the main thread, inside the run loop. Not a stale frame: an
+    /// unresponsive app that could not even process `xdg_toplevel.close`.
+    ///
+    /// Interval 0 makes Mesa throttle with `wl_display_sync` instead, which the
+    /// compositor always answers. We lose nothing, because this backend already
+    /// runs its own `wl_surface_frame` throttle (`frame_callback_pending`) — the
+    /// two were redundant, and only one of them can deadlock.
+    ///
+    /// X11 keeps the caller's choice: GLX has no equivalent hazard.
     pub fn configure_vsync(&self, vsync: azul_core::window::Vsync) {
         use azul_core::window::Vsync;
 
-        let interval = match vsync {
-            Vsync::Enabled => 1,
-            Vsync::Disabled => 0,
-            Vsync::DontCare => 1,
-        };
+        let _ = vsync;
+        let interval = 0;
 
         if let (Some(egl), Some(display)) = (self.egl.as_ref(), self.egl_display) {
             unsafe {
