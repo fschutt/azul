@@ -6743,16 +6743,34 @@ fn resume_e2e_continuation_inner(
             // the wait is for; see resume_not_before).
             if op == "wait" {
                 let ms = step.params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                // Advance the injectable clock rather than sleeping for real.
+                //
+                // `Instant::now()` is `StdInstant::now() + test_offset`, so to
+                // everything time-driven in the engine — timers, cursor blink,
+                // scrollbar fade, animations — a 250 ms real sleep and a 250 ms
+                // offset bump are INDISTINGUISHABLE. The difference is that one
+                // costs 250 ms of wall clock at every `wait` in every scenario and
+                // reproduces only on a machine as fast as the one that recorded it,
+                // and the other costs nothing and is exact on any runner at any
+                // load. With a corpus this size the sleeping version cannot fit in
+                // CI at all: this one scenario alone slept ~900 ms of its 1.2 s.
+                let total = azul_core::task::advance_test_clock_ms(ms);
                 cont.current_step_results.push(E2eStepResult {
                     step_index, op: op.to_string(), status: "pass".into(),
                     duration_ms: step_start.elapsed().as_millis() as u64,
-                    logs: vec![format!("waiting {} ms (yield)", ms)],
+                    logs: vec![format!("waited {ms} ms (virtual clock, now +{total} ms)")],
                     screenshot: None, error: None, response: None,
                 });
                 cont.step_idx = step_index + 1;
                 cont.app_data = app_data;
-                cont.resume_not_before =
-                    Some(wall_clock_now() + std::time::Duration::from_millis(ms));
+                // Still YIELD, with no deadline. What a `wait` owes its scenario is
+                // one turn of the shell's loop — `service()` applies the pending
+                // redraw, pumps timers and regenerates a dirty DOM — and the yield
+                // itself is what delivers that. Making the guarantee structural
+                // rather than a side effect of how long we happened to sleep is the
+                // whole point: an unoptimized build no longer gets less progress
+                // out of a wait than an optimized one.
+                cont.resume_not_before = None;
                 session.pending = Some(cont);
                 return needs_update;
             }
