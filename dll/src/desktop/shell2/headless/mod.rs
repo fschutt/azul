@@ -1173,6 +1173,48 @@ impl HeadlessWindow {
         self.wake();
     }
 
+    /// Tell this window the system light/dark preference changed.
+    ///
+    /// headless has no compositor to hear it from, so — exactly like
+    /// [`HeadlessWindow::inject_accessibility_action`] — the injection IS the
+    /// ingress. Without it no test could drive a theme switch on any backend,
+    /// and that is why "a runtime dark-mode toggle does nothing" survived on six
+    /// of the seven backends: the one backend CI can run had no way to express
+    /// the event.
+    ///
+    /// The real backends' shape is `windows/mod.rs`'s `WM_SETTINGCHANGE |
+    /// WM_THEMECHANGED` arm: re-read the system style, update the window state,
+    /// pump the events that fall out, then request a regeneration tagged
+    /// [`RelayoutReason::ThemeChange`]. This does the same, minus the
+    /// re-discovery — the caller supplies the theme, since there is no system
+    /// setting here to read.
+    ///
+    /// Returns `false` if the theme was already the requested one, in which case
+    /// nothing is dispatched and no frame is requested. A no-op switch should
+    /// not cost a relayout, and a test asserting "N relayouts" should not have to
+    /// know whether the theme happened to differ.
+    pub fn set_system_theme(&mut self, theme: azul_core::window::WindowTheme) -> bool {
+        if self.common.current_window_state.theme == theme {
+            return false;
+        }
+
+        // previous_window_state is what the diff pipeline compares against to
+        // decide that a ThemeChanged event fired; without this snapshot the
+        // event is never determined and the callbacks never run.
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.current_window_state.theme = theme;
+
+        // Same shape as the HeadlessEvent arms in `run()`: pump the events the
+        // state change implies and let the result speak; there is no window
+        // handle here to route a result to.
+        let _ = self.process_window_events(0);
+
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+        self.wake();
+        true
+    }
+
     /// Drain queued accessibility actions, apply them, and dispatch the
     /// callbacks they map to.
     ///

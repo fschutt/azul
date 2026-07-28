@@ -437,3 +437,74 @@ fn a_mount_callback_asking_for_refresh_gets_another_layout_pass() {
          discarded — its doc says the caller should regenerate again.",
     );
 }
+
+/// A system theme switch must reach the window and ask for a new frame.
+///
+/// This is the behavioural half of `backend_feature_parity`'s
+/// `every_backend_reacts_to_a_runtime_theme_change`, which can only scan for the
+/// tag. Before `HeadlessWindow::set_system_theme` existed there was no way to
+/// drive a theme change on ANY backend from a test — the system style is read
+/// once at construction and, outside Windows' `WM_SETTINGCHANGE |
+/// WM_THEMECHANGED` arm, never again. That absence is why "a runtime dark-mode
+/// toggle does nothing" could sit unnoticed on six of the seven backends.
+#[test]
+fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
+    use azul_core::window::WindowTheme;
+
+    let counters = Counters::default();
+    let mut window = make_window(counters);
+    window
+        .regenerate_layout()
+        .expect("regenerate_layout must succeed");
+
+    let before = window.common.current_window_state.theme;
+    let switch_to = match before {
+        WindowTheme::DarkMode => WindowTheme::LightMode,
+        WindowTheme::LightMode => WindowTheme::DarkMode,
+    };
+
+    assert!(
+        window.set_system_theme(switch_to),
+        "set_system_theme reported no change while switching from {before:?} to {switch_to:?}",
+    );
+    assert_eq!(
+        window.common.current_window_state.theme, switch_to,
+        "the window kept its old theme after a switch, so prefers-color-scheme styling would \
+         still evaluate against {before:?}",
+    );
+    assert!(
+        window.common.regeneration_pending(),
+        "a theme switch requested no regeneration, so the new theme would not reach the screen \
+         until something else happened to ask for a frame",
+    );
+}
+
+/// Switching to the theme already in effect must do nothing at all.
+///
+/// Without this, any code that re-asserts the current theme each frame — which
+/// is the natural shape for a polled backend like X11's XSETTINGS watcher —
+/// would request a full relayout every frame forever.
+#[test]
+fn re_asserting_the_current_theme_costs_nothing() {
+    let counters = Counters::default();
+    let mut window = make_window(counters);
+    window
+        .regenerate_layout()
+        .expect("regenerate_layout must succeed");
+
+    let current = window.common.current_window_state.theme;
+    // Retire whatever the initial layout raised, so the assertion below is about
+    // the no-op switch and not about leftover startup state.
+    let epoch = window.common.regen_epoch();
+    window.common.clear_regeneration_unless_reraised(epoch);
+
+    assert!(
+        !window.set_system_theme(current),
+        "set_system_theme reported a change when handed the theme already in effect",
+    );
+    assert!(
+        !window.common.regeneration_pending(),
+        "a no-op theme switch requested a regeneration — a backend that re-asserts the current \
+         theme each frame would relayout forever",
+    );
+}
