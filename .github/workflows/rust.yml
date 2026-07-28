@@ -1022,6 +1022,28 @@ jobs:
       - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
 
+      # dll/tests/leak_regression.rs carries a whole-file
+      #   #![cfg(all(test, feature = "build-dll", feature = "e2e-test",
+      #             target_os = "macos"))]
+      # and NOTHING in the workflow tree satisfied it. The only invocation that
+      # could reach it is `cd dll && cargo test` (ubuntu, default features), so
+      # the file compiled to ZERO tests and reported "0 passed" — indistinguishable
+      # from a passing run. This job is the natural host: it already builds
+      # azul-dll on macos-14.
+      - name: Leak regression tests (macOS only — the cfg this file requires)
+        if: matrix.os == 'macos-14'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p azul-dll --features build-dll,e2e-test --test leak_regression 2>&1 | tee leak.txt
+          # A whole-file cfg that evaluates false still exits 0 with "0 passed".
+          # Require that tests actually RAN, or this step re-becomes the no-op it
+          # exists to replace.
+          if grep -qE 'running 0 tests' leak.txt; then
+            echo "::error::leak_regression compiled to ZERO tests - its cfg is not satisfied, so this gate proved nothing."
+            exit 1
+          fi
+
       - name: Compile C hello-world with ASan
         run: |
           cp target/codegen/azul.h examples/c/
