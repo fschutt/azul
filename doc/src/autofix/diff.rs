@@ -2857,3 +2857,89 @@ mod api_json_declared_derives {
         );
     }
 }
+
+/// No generated trait impl may compare, order or hash a value as RAW BYTES.
+#[cfg(test)]
+mod no_byte_level_trait_impls {
+    /// `generate_transmute_trait_impls{,_enum}` — the emitter behind the Python
+    /// extension's `__dll_api_inner` — used to emit, for every NON-generic type
+    /// declaring the trait:
+    ///
+    /// ```ignore
+    /// fn eq(&self, other: &Self) -> bool {
+    ///     unsafe { transmute::<&Self, &[u8; size_of::<Self>()]>(self)
+    ///           == transmute::<&Self, &[u8; size_of::<Self>()]>(other) }
+    /// }
+    /// ```
+    ///
+    /// and the same shape for `partial_cmp`, `cmp` and `hash`. Three silent
+    /// defects came out of that:
+    ///
+    ///   * for any type holding a `String`/`Vec`/`Box` — most of api.json — it
+    ///     compares HEAP POINTERS rather than contents, so two equal `AzString`s
+    ///     are `!=` from Python, and `Ord` sorts by allocation address, which is
+    ///     not even stable between runs;
+    ///   * reading a struct's interior PADDING as `u8` is undefined behaviour,
+    ///     since those bytes are never initialised;
+    ///   * `Hash` sat on the same byte view, so it agreed with the broken `eq`
+    ///     instead of the real one — a dict keyed on an azul type missed on a
+    ///     logically-equal key.
+    ///
+    /// The GENERIC arms of that same emitter always delegated to the real type;
+    /// only the non-generic ones byte-compared, so the harder case was right and
+    /// the easy one was wrong. They agree now.
+    ///
+    /// This scans the emitter SOURCE rather than its output on purpose: the
+    /// sibling test `every_declared_derive_is_emitted` has to skip when
+    /// `target/codegen/` has not been generated, and a check that can silently
+    /// skip is exactly how this survived. A source scan always runs.
+    #[test]
+    fn no_emitter_compares_a_value_as_a_byte_array() {
+        let src = include_str!("../codegen/v2/lang_rust.rs");
+
+        // Comments legitimately quote the broken shape to explain why it is
+        // broken, so judge code lines only.
+        let offenders: Vec<String> = src
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| !l.trim_start().starts_with("//"))
+            .filter(|(_, l)| l.contains("size_of::<Self>()]"))
+            .map(|(i, l)| format!("lang_rust.rs:{}: {}", i + 1, l.trim()))
+            .collect();
+
+        assert!(
+            offenders.is_empty(),
+            "{} emitter line(s) build a trait impl out of a raw byte view of the value. That \
+             compares heap pointers instead of contents and reads uninitialised padding \
+             (UB). Delegate to the real type instead — `PartialEq::eq(&*(self as *const Mirror \
+             as *const Real), ...)` — as the generic arms of the same function already \
+             do:\n  {}",
+            offenders.len(),
+            offenders.join("\n  "),
+        );
+    }
+
+    /// ...and the delegation that replaced it must still be there.
+    ///
+    /// Without this, deleting BOTH the byte comparison and its replacement would
+    /// pass the test above while leaving the Python mirror with no `PartialEq` at
+    /// all. A check that only forbids the wrong answer does not require a right one.
+    #[test]
+    fn the_transmute_emitter_still_delegates_to_the_real_type() {
+        let src = include_str!("../codegen/v2/lang_rust.rs");
+
+        for needle in [
+            "PartialEq::eq(",
+            "PartialOrd::partial_cmp(",
+            "Ord::cmp(",
+            "core::hash::Hash::hash(",
+            "core::fmt::Debug::fmt(",
+        ] {
+            assert!(
+                src.contains(needle),
+                "lang_rust.rs no longer emits `{needle}` anywhere. The byte-comparison ban is \
+                 still satisfied, but by emitting nothing rather than by delegating.",
+            );
+        }
+    }
+}

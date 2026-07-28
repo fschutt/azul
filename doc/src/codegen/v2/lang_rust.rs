@@ -2689,13 +2689,31 @@ impl RustGenerator {
             builder.blank();
         }
 
-        // Debug impl - skip for generic types
+        // `&*(self as *const Mirror as *const Real)` — the same borrow of the real
+        // type the GENERIC arms of this file already use, and the same one the
+        // `UsingCAPI` emitter uses. Byte-level substitutes for it are wrong; see
+        // the comment on PartialEq below.
+        let this = format!("&*(self as *const {} as *const {})", full_name, external_path);
+        let other = format!("&*(other as *const {} as *const {})", full_name, external_path);
+
+        // Debug impl - skip for generic types.
+        //
+        // Delegate when there is a Debug to delegate TO, i.e. when api.json
+        // declares one. The `debug_struct(name).finish()` fallback prints the type
+        // name and NO fields, so it satisfies "implements Debug" while telling the
+        // caller nothing; it is kept only for types whose real counterpart has no
+        // Debug at all, where there is nothing better and dropping the impl would
+        // break every caller that formats one.
         if struct_def.generic_params.is_empty() {
             builder.line(&format!("impl core::fmt::Debug for {} {{", full_name));
             builder.indent();
             builder.line("fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {");
             builder.indent();
-            builder.line(&format!("f.debug_struct(\"{}\").finish()", name));
+            if struct_def.traits.is_debug {
+                builder.line(&format!("unsafe {{ core::fmt::Debug::fmt({}, f) }}", this));
+            } else {
+                builder.line(&format!("f.debug_struct(\"{}\").finish()", name));
+            }
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -2720,14 +2738,39 @@ impl RustGenerator {
             builder.blank();
         }
 
-        // PartialEq impl - using byte comparison via transmute
-        // Skip for generic types - size_of::<Self>() doesn't work in const context for generics
+        // PartialEq impl - delegate to the real type.
+        //
+        // This used to compare the two values as `[u8; size_of::<Self>()]`. That is
+        // wrong three ways, and every one of them is silent:
+        //
+        //   * for any type holding a String/Vec/Box — most of api.json — it
+        //     compares HEAP POINTERS, not contents, so two equal AzStrings are
+        //     `!=` in the Python extension this mirror backs;
+        //   * reading a struct's interior PADDING as u8 is UB: those bytes are
+        //     uninitialised, so the comparison is undefined even for values that
+        //     agree everywhere it is defined to look;
+        //   * Ord over raw bytes is layout- and endianness-dependent, so it does
+        //     not agree with the real type's ordering even for plain integers, and
+        //     for pointer-holding types it orders by allocation address, which is
+        //     not stable across runs.
+        //
+        // Hash sat on top of that same byte view, so it was consistent with the
+        // broken eq rather than with the real one: a dict keyed on an azul type
+        // missed on a logically-equal key.
+        //
+        // The generic arms of this same emitter always delegated; only the
+        // non-generic ones byte-compared. The two agree now.
+        //
+        // Skip for generic types - handled by the bounded arms above.
         if struct_def.traits.is_partial_eq && struct_def.generic_params.is_empty() {
             builder.line(&format!("impl PartialEq for {} {{", full_name));
             builder.indent();
             builder.line("fn eq(&self, other: &Self) -> bool {");
             builder.indent();
-            builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }");
+            builder.line(&format!(
+                "unsafe {{ PartialEq::eq({}, {}) }}",
+                this, other
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -2749,7 +2792,10 @@ impl RustGenerator {
             builder.indent();
             builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
             builder.indent();
-            builder.line("Some(unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) })");
+            builder.line(&format!(
+                "unsafe {{ PartialOrd::partial_cmp({}, {}) }}",
+                this, other
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -2764,7 +2810,7 @@ impl RustGenerator {
             builder.indent();
             builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
             builder.indent();
-            builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }");
+            builder.line(&format!("unsafe {{ Ord::cmp({}, {}) }}", this, other));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -2779,7 +2825,10 @@ impl RustGenerator {
             builder.indent();
             builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
             builder.indent();
-            builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }");
+            builder.line(&format!(
+                "unsafe {{ core::hash::Hash::hash({}, state) }}",
+                this
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -2867,7 +2916,18 @@ impl RustGenerator {
             }
         }
 
-        // Debug impl
+        // `&*(self as *const Mirror as *const Real)` — the borrow the generic arms
+        // of this emitter already use. Only valid where there are no generic
+        // params, since `external_path` names the un-parameterised real type.
+        let this = format!("&*(self as *const {} as *const {})", full_name, external_path);
+        let other = format!("&*(other as *const {} as *const {})", full_name, external_path);
+
+        // Debug impl.
+        //
+        // `debug_struct(name).finish()` prints the type name and NO fields — and
+        // for an ENUM it does not even print which variant is held, which is the
+        // one thing a caller wants. Delegate wherever there is a real Debug to
+        // delegate to; keep the stub only for types that have none.
         if is_generic {
             let debug_bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: core::fmt::Debug", p)).collect();
             builder.line(&format!("impl<{}> core::fmt::Debug for {} {{", debug_bounds.join(", "), full_name));
@@ -2877,7 +2937,11 @@ impl RustGenerator {
         builder.indent();
         builder.line("fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {");
         builder.indent();
-        builder.line(&format!("f.debug_struct(\"{}\").finish()", name));
+        if enum_def.traits.is_debug && !is_generic {
+            builder.line(&format!("unsafe {{ core::fmt::Debug::fmt({}, f) }}", this));
+        } else {
+            builder.line(&format!("f.debug_struct(\"{}\").finish()", name));
+        }
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -2915,7 +2979,10 @@ impl RustGenerator {
                 builder.indent();
                 builder.line("fn eq(&self, other: &Self) -> bool {");
                 builder.indent();
-                builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }");
+                // Delegated, not byte-compared: raw bytes compare heap POINTERS
+                // for payload-carrying variants and read uninitialised padding.
+                // See the PartialEq comment in generate_transmute_trait_impls.
+                builder.line(&format!("unsafe {{ PartialEq::eq({}, {}) }}", this, other));
                 builder.dedent();
                 builder.line("}");
                 builder.dedent();
@@ -2966,7 +3033,10 @@ impl RustGenerator {
                 builder.indent();
                 builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
                 builder.indent();
-                builder.line("Some(unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) })");
+                builder.line(&format!(
+                    "unsafe {{ PartialOrd::partial_cmp({}, {}) }}",
+                    this, other
+                ));
                 builder.dedent();
                 builder.line("}");
                 builder.dedent();
@@ -3006,7 +3076,7 @@ impl RustGenerator {
                 builder.indent();
                 builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
                 builder.indent();
-                builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }");
+                builder.line(&format!("unsafe {{ Ord::cmp({}, {}) }}", this, other));
                 builder.dedent();
                 builder.line("}");
                 builder.dedent();
@@ -3037,7 +3107,10 @@ impl RustGenerator {
                 builder.indent();
                 builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
                 builder.indent();
-                builder.line("unsafe { core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }");
+                builder.line(&format!(
+                    "unsafe {{ core::hash::Hash::hash({}, state) }}",
+                    this
+                ));
                 builder.dedent();
                 builder.line("}");
                 builder.dedent();
