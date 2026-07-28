@@ -443,10 +443,16 @@ fn resolve_api_type_name(
     }
 }
 
-/// Check if two paths are equivalent
+/// Check if two paths denote the same type.
 ///
-/// Paths are only equivalent if they are exactly the same.
-/// We DO want to catch crate renames (e.g., azul_dll -> azul_layout).
+/// Equivalent when the paths are identical, OR when they share a crate root and
+/// a leaf type name — see the reasoning inline below. A crate RENAME
+/// (azul_dll -> azul_layout) still differs in the root and is caught.
+///
+/// (This doc used to say "only equivalent if they are exactly the same", which
+/// stopped being true when the root+leaf rule was added directly beneath it. A
+/// doc comment that contradicts its own body is worse than none — it is what a
+/// reader trusts instead of reading the code.)
 fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
     if path1 == path2 {
         return true;
@@ -2268,9 +2274,21 @@ mod tests {
             "azul_core::resources::FontCache",
             "azul_css::resources::FontCache"
         ));
-        assert!(!paths_are_equivalent(
+        // SAME crate root and SAME leaf => the same type, whatever module
+        // segments sit between. Type names are unique workspace-wide, so
+        // `azul_core::dom::Dom` and `azul_core::window::Dom` cannot be two
+        // different types. This assertion used to demand the opposite; the rule
+        // changed when strict equality was found to oscillate run-to-run and
+        // break codegen (it "corrected" fully-qualified api.json paths down to
+        // module-shortened ones that are not real module paths).
+        assert!(paths_are_equivalent(
             "azul_core::dom::Dom",
             "azul_core::window::Dom"
+        ));
+        // A differing LEAF is still a different type.
+        assert!(!paths_are_equivalent(
+            "azul_core::dom::Dom",
+            "azul_core::dom::NodeData"
         ));
     }
 

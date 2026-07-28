@@ -227,17 +227,40 @@ mod tests {
 
     use super::*;
 
+    /// Reachability is seeded from ENTRY POINTS — a class with a constructor, or
+    /// a type named by a non-`internal_only` function. There is no allowlist of
+    /// "critical" types that are reachable no matter what.
+    ///
+    /// This test used to be called `test_critical_types_always_reachable` and
+    /// asserted that `Dom` and `Clipboard` were reachable from a fixture giving
+    /// them no constructors and no functions. Nothing in the codebase implements
+    /// such an allowlist (grepped: the phrase appears only in that test name), so
+    /// the assertion described a feature that does not exist and had simply been
+    /// failing — invisibly, since azul-doc's tests run in no CI job (audit D1).
+    ///
+    /// So this asserts the rule that IS implemented, including the negative case,
+    /// which is the half that actually constrains the algorithm.
     #[test]
-    fn test_critical_types_always_reachable() {
+    fn reachability_is_seeded_from_entry_points_only() {
         let api = json!({
             "classes": {
+                // Entry point: it has a constructor.
                 "Dom": {
+                    "constructors": { "new": { "fn_args": [] } },
+                    "struct_fields": {}
+                },
+                // Entry point: NAMED BY a public (non-internal_only) function's
+                // return type. Note `returns` is read with `as_str()`, so it is a
+                // bare type string here, not an object.
+                "ClipboardHost": {
+                    "functions": { "get": { "returns": "Clipboard" } },
                     "struct_fields": {}
                 },
                 "Clipboard": {
                     "struct_fields": {}
                 },
-                "InternalOnlyType": {
+                // Neither: no constructor, no function, nobody refers to it.
+                "OrphanType": {
                     "struct_fields": {}
                 }
             }
@@ -245,9 +268,23 @@ mod tests {
 
         let result = find_unused_types(&api);
 
-        assert!(result.reachable.contains("Dom"));
-        assert!(result.reachable.contains("Clipboard"));
-        // InternalOnlyType might still be reachable if it has constructors
+        assert!(
+            result.reachable.contains("Dom"),
+            "a class with a constructor is an entry point; reachable = {:?}",
+            result.reachable,
+        );
+        assert!(
+            result.reachable.contains("Clipboard"),
+            "a class with a public function is an entry point; reachable = {:?}",
+            result.reachable,
+        );
+        assert!(
+            !result.reachable.contains("OrphanType"),
+            "a type with no constructor, no function and no referrer is NOT reachable — if this \
+             fails, everything is trivially reachable and the analysis proves nothing; reachable \
+             = {:?}",
+            result.reachable,
+        );
     }
 
     #[test]

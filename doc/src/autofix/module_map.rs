@@ -853,15 +853,23 @@ mod tests {
 
     #[test]
     fn test_get_correct_module() {
-        // RefAny has no matching keywords, should go to misc
+        // RefAny belongs to `callbacks`: "refany" is in that module's keyword
+        // list (see the `// RefAny, RefCount` entry), because RefAny is the
+        // callback data payload. This assertion used to expect "misc" with the
+        // comment "has no matching keywords" — true when it was written, stale
+        // once the keyword was added. Nothing caught the drift because azul-doc's
+        // tests run in no CI job (audit D1). Getting this wrong is not cosmetic:
+        // autofix MOVES types between modules, so a wrong answer edits the wrong
+        // file.
         assert_eq!(
             get_correct_module("RefAny", "refany"),
-            Some("misc".to_string())
+            Some("callbacks".to_string())
         );
-        // CascadeInfo has no matching keywords, should go to misc
+        // Same story as RefAny: "cascade" is now a `css` keyword (see the
+        // `// CascadeInfo` entry), so CascadeInfo belongs to css, not misc.
         assert_eq!(
             get_correct_module("CascadeInfo", "style"),
-            Some("misc".to_string())
+            Some("css".to_string())
         );
         // SvgStrokeStyle contains "svg" and "style", svg is a module name so should go to svg
         assert_eq!(

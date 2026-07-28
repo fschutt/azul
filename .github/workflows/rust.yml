@@ -164,6 +164,22 @@ jobs:
       - name: Run DLL tests
         run: cd dll && cargo test
 
+      # azul-doc ran in NO test job, so its 180 tests were never executed by CI —
+      # and 8 of them were failing (audit D1 predicted exactly this). They were
+      # not subtle: two called macro signatures the macros no longer have, one
+      # asserted a return type its own fixture does not declare, one demanded a
+      # module mapping that a keyword table deliberately changed, and one tested
+      # a "critical types are always reachable" allowlist that does not exist
+      # anywhere in the codebase.
+      #
+      # `--bins`, not `--lib`: azul-doc is binary-only, so `--lib` errors with
+      # "no library targets found".
+      #
+      # This matters more than a normal test gate: autofix REWRITES SOURCE FILES.
+      # A wrong module map does not fail a test, it edits the wrong file.
+      - name: Run azul-doc tests
+        run: cargo test -p azul-doc --bins --no-fail-fast
+
       # Double-drop invariant (compile-free static check over api.json + the
       # generated mirror): the codegen must emit `impl Drop` on a mirror ONLY for
       # TRUE LEAVES (custom Drop or an owned raw pointer); plain aggregates get no
