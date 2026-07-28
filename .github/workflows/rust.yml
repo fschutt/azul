@@ -571,9 +571,13 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
+          # BOTH patterns are globs so nullglob can drop them: the literal
+          # `azul.lib` used to survive on unix targets and be silently skipped.
+          # --optional because this step also runs for experimental builds that
+          # failed, where producing no archive at all is expected.
           set -- target/${{ matrix.target }}/prod-release/*azul*.a \
-                 target/${{ matrix.target }}/prod-release/azul.lib
-          bash scripts/strip_staticlib.sh "$@"
+                 target/${{ matrix.target }}/prod-release/azul*.lib
+          bash scripts/strip_staticlib.sh --optional "$@"
 
       # Run even when an experimental build failed (success() || matrix.experimental)
       # so a partial build that produced a binary still ships; for experimental
@@ -1474,7 +1478,9 @@ jobs:
             bash scripts/strip_staticlib.sh target/prod-release/azul.lib
           else
             A="target/prod-release/libazul.a"
-            [ -f "$A" ] || exit 0
+            # No `[ -f "$A" ] || exit 0` pre-guard: that made a missing libazul.a
+            # a green no-op, so the bitcode assertion never ran. The script now
+            # reports the absence itself.
             bash scripts/strip_staticlib.sh "$A"
             if [ "${{ runner.os }}" = "macOS" ]; then
               strip -S -x "$A" || true            # -S strip debug, -x strip locals

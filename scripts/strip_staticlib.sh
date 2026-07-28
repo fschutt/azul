@@ -81,9 +81,45 @@ assert_no_bitcode() {
     done
 }
 
+# --optional: a named archive that does not exist is a clean skip.
+# Without it, a missing archive is an ERROR.
+#
+# This script's job is to strip embedded ThinLTO bitcode AND assert none
+# survived. A silent "skip (missing)" meant that when an upstream build step
+# stopped producing e.g. libazul.a for a target, the assertion simply never ran —
+# and the regression it guards (a 708 MB shipped android .a) could come back with
+# the step still green. Absence of the input is indistinguishable from a clean
+# strip, which is the whole failure mode.
+OPTIONAL=0
+args=()
+for a in "$@"; do
+    case "$a" in
+    --optional) OPTIONAL=1 ;;
+    *) args+=("$a") ;;
+    esac
+done
+set -- "${args[@]+"${args[@]}"}"
+
+if [ "$#" -eq 0 ]; then
+    if [ "$OPTIONAL" = 1 ]; then
+        echo "no archives matched (--optional): nothing to strip"
+        exit 0
+    fi
+    echo "::error::strip_staticlib.sh: no archives given - nothing was stripped or asserted" >&2
+    exit 1
+fi
+
 rc=0
 for f in "$@"; do
-    [ -f "$f" ] || { echo "skip (missing): $f"; continue; }
+    if [ ! -f "$f" ]; then
+        if [ "$OPTIONAL" = 1 ]; then
+            echo "skip (missing, --optional): $f"
+        else
+            echo "::error::strip_staticlib.sh: archive not found: $f (pass --optional if its absence is expected)" >&2
+            rc=1
+        fi
+        continue
+    fi
     case "$f" in
     *.dll.lib)
         echo "skip (import lib): $f"
